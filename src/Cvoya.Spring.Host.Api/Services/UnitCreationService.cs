@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Catalog;
@@ -145,6 +146,10 @@ public class UnitCreationService : IUnitCreationService
             // The Unit row no longer carries a flat provider slot.
             provider: null,
             hosting: request.Hosting,
+            role: null,
+            specialty: null,
+            enabled: null,
+            executionMode: null,
             members: Array.Empty<MemberManifest>(),
             warnings: new List<string>(),
             connector: request.Connector,
@@ -206,7 +211,21 @@ public class UnitCreationService : IUnitCreationService
         // hint surfaced on the unit row is the provider-scoped id.
         var model = overrides.Model
             ?? manifest.Ai?.Model?.Id;
-        var color = overrides.Color;
+        var color = !string.IsNullOrWhiteSpace(overrides.Color) ? overrides.Color : manifest.Color;
+
+        // Per-unit orchestration metadata declared in the manifest. These
+        // mirror UpdateUnitRequest fields so the YAML authoring surface and
+        // the PATCH /api/v1/units/{id} surface agree on the same set of
+        // configurable knobs.
+        var role = manifest.Role;
+        var specialty = manifest.Specialty;
+        var enabled = manifest.Enabled;
+        AgentExecutionMode? executionMode = null;
+        if (!string.IsNullOrWhiteSpace(manifest.ExecutionMode)
+            && Enum.TryParse<AgentExecutionMode>(manifest.ExecutionMode, ignoreCase: true, out var parsedExecMode))
+        {
+            executionMode = parsedExecMode;
+        }
 
         var warnings = new List<string>();
         foreach (var section in ManifestParser.CollectUnsupportedSections(manifest))
@@ -248,6 +267,10 @@ public class UnitCreationService : IUnitCreationService
             color,
             overrides.Provider,
             hosting,
+            role,
+            specialty,
+            enabled,
+            executionMode,
             manifest.Members ?? new List<MemberManifest>(),
             warnings,
             connector,
@@ -267,6 +290,15 @@ public class UnitCreationService : IUnitCreationService
         if (manifest.Expertise is { Count: > 0 })
         {
             await PersistUnitDefinitionExpertiseAsync(name, manifest.Expertise, cancellationToken);
+        }
+
+        // Persist the manifest's `instructions:` block so the unit's
+        // Instructions slot is populated at install time (same seam as the
+        // PATCH /api/v1/units/{id} `instructions` field). Template-derived
+        // instructions land here after the TemplateResolver has merged them.
+        if (!string.IsNullOrEmpty(manifest.Instructions))
+        {
+            await PersistUnitDefinitionInstructionsAsync(result.Unit.Id, manifest.Instructions, cancellationToken);
         }
 
         // #494: persist the manifest's `boundary:` block through
@@ -471,6 +503,63 @@ public class UnitCreationService : IUnitCreationService
     }
 
     /// <summary>
+    /// Writes the manifest <c>instructions:</c> scalar onto the
+    /// <see cref="Data.Entities.UnitDefinitionEntity.Definition"/> JSON so the
+    /// unit's Instructions slot matches the YAML-authored value. Idempotent:
+    /// a re-apply replaces the instructions slot without touching sibling
+    /// fields (expertise, execution, …).
+    /// </summary>
+    private async Task PersistUnitDefinitionInstructionsAsync(
+        Guid unitActorId,
+        string instructions,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            var entity = await db.UnitDefinitions
+                .FirstOrDefaultAsync(u => u.Id == unitActorId && u.DeletedAt == null, cancellationToken);
+
+            if (entity is null)
+            {
+                _logger.LogWarning(
+                    "Unit '{UnitId}': could not locate UnitDefinition row to persist instructions; unit will have no instructions seed.",
+                    unitActorId);
+                return;
+            }
+
+            var payload = new Dictionary<string, object?> { ["instructions"] = instructions };
+
+            // Preserve sibling fields already on the Definition document.
+            if (entity.Definition is { ValueKind: System.Text.Json.JsonValueKind.Object } existing)
+            {
+                foreach (var prop in existing.EnumerateObject())
+                {
+                    if (!string.Equals(prop.Name, "instructions", StringComparison.OrdinalIgnoreCase))
+                    {
+                        payload[prop.Name] = prop.Value;
+                    }
+                }
+            }
+
+            entity.Definition = System.Text.Json.JsonSerializer.SerializeToElement(payload);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Unit '{UnitId}': failed to persist instructions from manifest; unit will have no instructions seed.",
+                unitActorId);
+        }
+    }
+
+    /// <summary>
     /// Projects the manifest's <c>boundary:</c> block to a core
     /// <see cref="UnitBoundary"/> and writes it through
     /// <see cref="IUnitBoundaryStore.SetAsync"/>. Idempotent: a subsequent
@@ -547,6 +636,10 @@ public class UnitCreationService : IUnitCreationService
         string? color,
         string? provider,
         string? hosting,
+        string? role,
+        string? specialty,
+        bool? enabled,
+        AgentExecutionMode? executionMode,
         IReadOnlyList<MemberManifest> members,
         List<string> warnings,
         UnitConnectorBindingRequest? connector,
@@ -650,7 +743,7 @@ public class UnitCreationService : IUnitCreationService
             actorGuid,
             displayName,
             description,
-            null,
+            role,
             DateTimeOffset.UtcNow);
 
         await _directoryService.RegisterAsync(entry, cancellationToken);
@@ -680,24 +773,33 @@ public class UnitCreationService : IUnitCreationService
         try
         {
             // DisplayName/Description live on the directory entity; only forward
-            // the actor-owned fields (Model, Color) to the metadata write to avoid
-            // a double-write — mirrors UnitEndpoints.CreateUnitAsync.
+            // the actor-owned fields (Model, Color, …) to the metadata write to
+            // avoid a double-write — mirrors UnitEndpoints.CreateUnitAsync.
             // #1732: Tool was dropped from the unit-actor metadata — derived
             // from execution.agent via the runtime registry at dispatch time.
+            // #2341: Specialty / Enabled / ExecutionMode reach the actor through
+            // the same SetMetadataAsync write so the manifest authoring surface
+            // and PATCH /api/v1/units/{id} agree on the same set of slots.
             var metadata = new UnitMetadata(
                 DisplayName: null,
                 Description: null,
                 Model: model,
                 Color: color,
                 Provider: provider,
-                Hosting: hosting);
+                Hosting: hosting,
+                Specialty: specialty,
+                Enabled: enabled,
+                ExecutionMode: executionMode);
 
             var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 new ActorId(actorId), nameof(UnitActor));
 
             if (metadata.Model is not null || metadata.Color is not null
                 || metadata.Provider is not null
-                || metadata.Hosting is not null)
+                || metadata.Hosting is not null
+                || metadata.Specialty is not null
+                || metadata.Enabled is not null
+                || metadata.ExecutionMode is not null)
             {
                 await proxy.SetMetadataAsync(metadata, cancellationToken);
             }

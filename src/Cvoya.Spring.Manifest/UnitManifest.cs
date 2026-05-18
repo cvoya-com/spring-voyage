@@ -107,6 +107,26 @@ public class UnitManifest
     /// </summary>
     [YamlMember(Alias = "boundary")]
     public BoundaryManifest? Boundary { get; set; }
+
+    /// <summary>Optional role identifier for multicast resolution.</summary>
+    [YamlMember(Alias = "role")]
+    public string? Role { get; set; }
+
+    /// <summary>Optional UI color hint (hex or named color).</summary>
+    [YamlMember(Alias = "color")]
+    public string? Color { get; set; }
+
+    /// <summary>Optional specialty label used by orchestration strategies.</summary>
+    [YamlMember(Alias = "specialty")]
+    public string? Specialty { get; set; }
+
+    /// <summary>Whether this unit participates in orchestration. Defaults to true.</summary>
+    [YamlMember(Alias = "enabled")]
+    public bool? Enabled { get; set; }
+
+    /// <summary>How this unit participates in dispatch (auto or onDemand).</summary>
+    [YamlMember(Alias = "executionMode")]
+    public string? ExecutionMode { get; set; }
 }
 
 /// <summary>

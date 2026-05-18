@@ -1,7 +1,5 @@
 # Spring Voyage OSS Dogfooding Package
 
-> **Tier 7 of 7.** The largest catalog package — a multi-unit hierarchy that uses Spring Voyage to develop Spring Voyage itself. Builds on the patterns shown in the simpler packages (`hello-world` → `example-simple` → `example-templated` → `research` → `product-management` → `software-engineering`) and adds nested sub-units, package-level execution inheritance, required connector inputs, and CI-aligned slash-command skills.
-
 The package stands up a working organisation that can triage issues, ship PRs, and keep the program plan honest — all backed by the **Spring Voyage** GitHub App. Install it once and the two role-flavoured sub-units take over from there.
 
 ## Catalog visibility

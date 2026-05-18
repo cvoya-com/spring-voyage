@@ -672,6 +672,28 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             }
         }
 
+        // Push the agent's actor-owned orchestration metadata
+        // (Specialty / Enabled / ExecutionMode) when any of those fields was
+        // declared in the manifest. Mirrors the PATCH /api/v1/agents/{id}
+        // surface so the YAML authoring path lands the same slots as a
+        // post-install PATCH would.
+        if (fields.Specialty is not null || fields.Enabled is not null || fields.ExecutionMode is not null)
+        {
+            var agentMeta = new AgentMetadata(
+                Specialty: fields.Specialty,
+                Enabled: fields.Enabled,
+                ExecutionMode: fields.ExecutionMode);
+            try
+            {
+                await actorProxy.SetMetadataAsync(agentMeta, ct);
+            }
+            catch (Exception ex)
+            {
+                await TrySetLifecycleErrorAsync(actorProxy, slug, ex, ct);
+                throw;
+            }
+        }
+
         // #2364: drive the agent through the auto-start gate — schedules
         // the shared ArtefactValidationWorkflow and arms the post-validation
         // auto-start so the agent reaches Running without an operator click.
@@ -745,7 +767,10 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         string? DisplayName,
         string? Role,
         string? Description,
-        JsonElement? DefinitionJson);
+        JsonElement? DefinitionJson,
+        string? Specialty,
+        bool? Enabled,
+        AgentExecutionMode? ExecutionMode);
 
     /// <summary>
     /// Parses an agent YAML block (the body of <c>agent:</c> in an
@@ -780,7 +805,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
 
         if (stream.Documents.Count == 0)
         {
-            return new AgentManifestFields(null, null, null, null, null);
+            return new AgentManifestFields(null, null, null, null, null, null, null, null);
         }
 
         var root = stream.Documents[0].RootNode as YamlMappingNode
@@ -802,7 +827,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
 
         if (agentNode is null)
         {
-            return new AgentManifestFields(null, null, null, null, null);
+            return new AgentManifestFields(null, null, null, null, null, null, null, null);
         }
 
         var id = ScalarValue(agentNode, "id");
@@ -886,6 +911,60 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             defObj["execution"] = projected;
         }
 
+        // Capture instructions (template-merged or agent's own). Stored in
+        // Definition JSON so TryReadAgentInstructionsAsync and the dispatcher
+        // can read it without re-parsing the manifest YAML.
+        var instructionsValue = ScalarValue(agentNode, "instructions");
+        if (!string.IsNullOrEmpty(instructionsValue))
+        {
+            defObj["instructions"] = instructionsValue;
+        }
+
+        // Capture expertise seed so DbExpertiseSeedProvider can apply it on
+        // first actor activation (same path as unit expertise via #488).
+        if (agentNode.Children.TryGetValue(new YamlScalarNode("expertise"), out var expertiseRaw)
+            && expertiseRaw is YamlSequenceNode expertiseSeq)
+        {
+            defObj["expertise"] = ToObject(expertiseSeq);
+        }
+
+        // Capture the agent's capability list so it lands verbatim on the
+        // AgentDefinitionEntity.Definition. Mirrors the expertise block —
+        // sequence node, persisted as a JSON array.
+        if (agentNode.Children.TryGetValue(new YamlScalarNode("capabilities"), out var capRaw)
+            && capRaw is YamlSequenceNode capSeq)
+        {
+            defObj["capabilities"] = ToObject(capSeq);
+        }
+
+        // Specialty / Enabled / ExecutionMode mirror the AgentMetadata slots
+        // (#2341 unit/agent parity). Persist on the Definition JSON so a
+        // re-install replays them, and surface them through AgentManifestFields
+        // so ActivateAgentAsync can also push them onto the actor's live
+        // metadata via SetMetadataAsync.
+        var specialtyValue = ScalarValue(agentNode, "specialty");
+        if (!string.IsNullOrEmpty(specialtyValue))
+        {
+            defObj["specialty"] = specialtyValue;
+        }
+
+        var enabledStr = ScalarValue(agentNode, "enabled");
+        bool? enabled = null;
+        if (!string.IsNullOrEmpty(enabledStr) && bool.TryParse(enabledStr, out var enabledBool))
+        {
+            enabled = enabledBool;
+            defObj["enabled"] = enabledBool;
+        }
+
+        var execModeStr = ScalarValue(agentNode, "executionMode");
+        AgentExecutionMode? execMode = null;
+        if (!string.IsNullOrEmpty(execModeStr)
+            && Enum.TryParse<AgentExecutionMode>(execModeStr, ignoreCase: true, out var parsedExecMode))
+        {
+            execMode = parsedExecMode;
+            defObj["executionMode"] = parsedExecMode.ToString();
+        }
+
         JsonElement? defJson = null;
         if (defObj.Count > 0)
         {
@@ -893,7 +972,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             defJson = doc.RootElement.Clone();
         }
 
-        return new AgentManifestFields(id, displayName, role, description, defJson);
+        return new AgentManifestFields(id, displayName, role, description, defJson, specialtyValue, enabled, execMode);
     }
 
     /// <summary>
