@@ -8,12 +8,15 @@ integration:
   `Reviewer` / inbound-filter config), surfaced through the typed
   `IConnectorType` endpoints under `/api/v1/connectors/github`.
 - Webhook ingestion: HMAC signature validation, event translation into
-  domain messages, and per-binding inbound filtering (issue #2407).
+  domain messages, per-binding inbound filtering (issue #2407), and
+  **App-level delivery routing** (#2456) — the inbound handler resolves
+  the target unit from the payload's `(installation_id, owner, repo)`
+  triple via `IUnitConnectorBindingLookup` and drops unbound
+  deliveries silently.
 - GitHub App auth: JWT minting, installation-token cache, and the
-  authenticated `IGitHubClient` factory used by the webhook registrar
-  and the runtime-context contributor.
-- Webhook registrar (creates / removes the repo webhook on unit
-  start / stop) and label-roundtrip subscriber.
+  authenticated `IGitHubClient` factory used by the runtime-context
+  contributor.
+- Label-roundtrip subscriber.
 - Per-launch runtime-context contribution (#2380): mints a short-lived
   installation token plus owner / repo / reviewer metadata and surfaces
   it inside the agent container via the
@@ -48,6 +51,36 @@ The Host.Api project iterates every registered `IConnectorType` at
 startup and maps its routes under `/api/v1/connectors/{slug}`, so
 nothing GitHub-specific lives in the API host.
 
+## Inbound delivery contract: App-level only
+
+Per [ADR-0045](../../docs/decisions/0045-connector-domain-agnostic-platform.md),
+**the platform does not install per-repo webhooks on github.com.** The
+GitHub App that the operator registered (see
+[`docs/guide/operator/github-app-setup.md`](../../docs/guide/operator/github-app-setup.md))
+delivers every event for every repo it is installed on to the App-wide
+webhook URL the operator configured. The inbound handler:
+
+1. Validates the HMAC signature against `GitHub__WebhookSecret`.
+2. Translates the payload into a domain `Message`.
+3. Resolves the destination unit by matching the payload's
+   `(installation_id, owner, repo)` triple against the per-unit
+   bindings the platform knows about
+   (`IUnitConnectorBindingLookup`). Repo-shape events
+   (`issues`, `pull_request`, …) require the full triple to match;
+   installation-shape events (`installation`,
+   `installation_repositories`, `projects_v2`, `projects_v2_item`)
+   fall back to the first binding whose installation id matches so
+   the operator still sees App-lifecycle signal.
+4. **Drops deliveries that do not match any binding silently.** The
+   drop is logged at `Information` with the `(installation_id, owner,
+   repo)` triple so operators can correlate noise. The webhook
+   endpoint still ACKs 202 to GitHub.
+
+There is no `IGitHubWebhookRegistrar`, no per-unit start / stop hook
+work, and no platform-side `hookId` persisted. App-installation scope
+is operator-owned on github.com; SV listens to whatever GitHub
+delivers.
+
 ## Configuration
 
 Bound from the `GitHub` configuration section
@@ -60,7 +93,6 @@ Bound from the `GitHub` configuration section
 | `WebhookSecret` | `GitHub__WebhookSecret` | recommended | Shared secret used to verify incoming webhook signatures. |
 | `InstallationId` | `GitHub__InstallationId` | optional | Pin operations to a specific installation; otherwise the connector picks the first installation visible to the App. |
 | `AppSlug` | `GitHub__AppSlug` | required for install URL | The App's public slug as it appears in the App's URL on github.com (`https://github.com/apps/<slug>`). The operator picks the App name when registering — see [Register your GitHub App](../../docs/guide/github-app-setup.md) — and GitHub derives the slug from the chosen name. The connector uses it to build `https://github.com/apps/{slug}/installations/new`. |
-| `WebhookUrl` | `GitHub__WebhookUrl` | yes (for unit start) | Public URL the connector registers webhooks against on unit start. |
 
 > **Env-file gotchas.** podman / docker `--env-file` keeps surrounding quotes literally and does not support multi-line values. Always write `GitHub__*` values UNQUOTED, and inline the PEM as one line with `\n` separators. See [Deployment guide § Tier-1 platform credentials](../../docs/guide/deployment.md#tier-1-platform-credentials--github-app-identity-env-only) for the full set of pitfalls.
 

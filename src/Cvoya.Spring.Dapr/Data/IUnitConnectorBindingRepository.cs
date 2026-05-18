@@ -32,6 +32,18 @@ public interface IUnitConnectorBindingRepository
     Task<UnitConnectorBinding?> GetAsync(Guid unitId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns every active binding whose connector-type id equals
+    /// <paramref name="connectorTypeId"/> in the current tenant scope,
+    /// paired with the owning <c>unit_id</c>. Used by connectors that
+    /// receive App / tenant-level deliveries with no unit pointer and
+    /// must resolve the target unit from coordinates carried in the
+    /// payload (issue #2456 — GitHub App-level delivery only).
+    /// </summary>
+    Task<IReadOnlyList<UnitConnectorBindingRow>> ListByConnectorTypeAsync(
+        Guid connectorTypeId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Upserts the unit's binding atomically. Replaces any prior binding
     /// regardless of connector type; the existing row is updated in
     /// place to preserve <c>id</c> stability for cross-table joins.
@@ -75,3 +87,10 @@ public interface IUnitConnectorBindingRepository
     /// </summary>
     Task ClearMetadataAsync(Guid unitId, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// One row returned by
+/// <see cref="IUnitConnectorBindingRepository.ListByConnectorTypeAsync"/> —
+/// the owning unit id plus the binding payload.
+/// </summary>
+public sealed record UnitConnectorBindingRow(Guid UnitId, UnitConnectorBinding Binding);

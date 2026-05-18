@@ -2,6 +2,8 @@
 
 A **connector** is a pluggable adapter that bridges an external system to a unit. Connectors make the platform domain-agnostic -- the platform itself knows nothing about GitHub, Slack, or Figma. Connectors provide that knowledge.
 
+> **The platform is connector-domain-agnostic.** Connectors *facilitate flow*; they do not replicate upstream subscription configs. The platform binds units to connector types, receives events, and routes them — it does not manage the upstream system's subscription model (e.g. which GitHub repos the App is installed on, which Slack channels the bot is invited to). Per-system bookkeeping that duplicates upstream config is out of scope. See [ADR-0045](../decisions/0045-connector-domain-agnostic-platform.md) for the load-bearing principle this enshrines.
+
 ## What Connectors Do
 
 Every connector provides two things:

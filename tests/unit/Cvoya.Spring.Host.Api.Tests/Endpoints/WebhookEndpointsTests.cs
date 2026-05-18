@@ -7,7 +7,10 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
+using Cvoya.Spring.Connector.GitHub;
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
@@ -16,6 +19,8 @@ using global::Dapr.Actors;
 
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using NSubstitute;
 
@@ -26,10 +31,13 @@ using Xunit;
 public class WebhookEndpointsTests : IClassFixture<WebhookEndpointsTests.Factory>
 {
     private const string WebhookSecret = "test-webhook-secret";
-    // After #1492 the connector resolves DefaultTargetUnitPath through
-    // Address.For("unit", id), which requires a Guid-shaped id. Use a stable
-    // hex Guid here so the connector's path stays single-identity and the
-    // test's assertions can pin both the wire shape and the resolved actor.
+    private const long TestInstallationId = 1234L;
+    private const string TestOwner = "octo";
+    private const string TestRepo = "demo";
+
+    // Pin a stable hex Guid for the unit the webhook resolver should match
+    // the (installation_id, owner, repo) triple to. The factory pre-seeds
+    // a matching binding via IUnitConnectorBindingLookup (#2456).
     private static readonly Guid TargetUnitId = new("ee1ee111-0000-0000-0000-feedfeedfeed");
     private static readonly string TargetUnitPath = TargetUnitId.ToString("N");
 
@@ -115,10 +123,12 @@ public class WebhookEndpointsTests : IClassFixture<WebhookEndpointsTests.Factory
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();
 
-        // The connector is configured with DefaultTargetUnitPath = "engineering-team",
-        // so the translated message is addressed to unit://engineering-team. The
-        // directory resolves that to a unit actor, the actor proxy accepts the
-        // message, and MessageRouter returns a successful result.
+        // Issue #2456 — the resolver matches the payload's
+        // (installation_id, owner, repo) against the binding lookup that
+        // the factory pre-seeded with TestInstallationId / TestOwner /
+        // TestRepo → TargetUnitId. The directory resolves the matched
+        // unit address to a unit actor; the actor proxy accepts the
+        // message; MessageRouter returns a successful result.
         var expectedAddress = new Address("unit", TargetUnitId);
         var directoryEntry = new DirectoryEntry(
             expectedAddress,
@@ -148,6 +158,7 @@ public class WebhookEndpointsTests : IClassFixture<WebhookEndpointsTests.Factory
         const string payload = """
         {
             "action": "opened",
+            "installation": { "id": 1234 },
             "repository": {
                 "name": "demo",
                 "full_name": "octo/demo",
@@ -229,8 +240,13 @@ public class WebhookEndpointsTests : IClassFixture<WebhookEndpointsTests.Factory
 
     /// <summary>
     /// Test factory that configures a known GitHub webhook secret so requests
-    /// can be signed with a matching HMAC. Reuses the shared Dapr-free plumbing
-    /// from <see cref="CustomWebApplicationFactory"/>.
+    /// can be signed with a matching HMAC. Pre-seeds an
+    /// <see cref="IUnitConnectorBindingLookup"/> with a single binding —
+    /// <c>(installation_id=TestInstallationId, owner=TestOwner,
+    /// repo=TestRepo)</c> → <see cref="TargetUnitId"/> — so the routing
+    /// test exercises the App-level resolution path (#2456).
+    /// Reuses the shared Dapr-free plumbing from
+    /// <see cref="CustomWebApplicationFactory"/>.
     /// </summary>
     public sealed class Factory : CustomWebApplicationFactory
     {
@@ -243,8 +259,34 @@ public class WebhookEndpointsTests : IClassFixture<WebhookEndpointsTests.Factory
                     ["GitHub:AppId"] = "12345",
                     ["GitHub:PrivateKeyPem"] = TestPemKey.Value,
                     ["GitHub:WebhookSecret"] = WebhookSecret,
-                    ["GitHub:DefaultTargetUnitPath"] = TargetUnitPath,
                 });
+            });
+
+            builder.ConfigureServices(services =>
+            {
+                // Pre-seed the binding lookup with a single GitHub binding so
+                // the webhook resolver can route the test payload to the
+                // mocked unit actor.
+                var config = new UnitGitHubConfig(
+                    Owner: TestOwner,
+                    Repo: TestRepo,
+                    AppInstallationId: TestInstallationId);
+                var binding = new UnitConnectorBinding(
+                    GitHubConnectorType.GitHubTypeId,
+                    JsonSerializer.SerializeToElement(config));
+
+                var lookup = Substitute.For<IUnitConnectorBindingLookup>();
+                lookup
+                    .ListByConnectorTypeAsync(
+                        GitHubConnectorType.GitHubTypeId,
+                        Arg.Any<CancellationToken>())
+                    .Returns(new[]
+                    {
+                        new UnitConnectorBindingEntry(TargetUnitPath, binding),
+                    });
+
+                services.RemoveAll<IUnitConnectorBindingLookup>();
+                services.AddSingleton(lookup);
             });
 
             base.ConfigureWebHost(builder);

@@ -33,6 +33,25 @@ public class UnitConnectorBindingRepository(SpringDbContext context) : IUnitConn
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<UnitConnectorBindingRow>> ListByConnectorTypeAsync(
+        Guid connectorTypeId, CancellationToken cancellationToken = default)
+    {
+        // SpringDbContext applies the tenant query filter on this entity,
+        // so the result is scoped to the ambient tenant automatically.
+        var rows = await context.UnitConnectorBindings
+            .AsNoTracking()
+            .Where(b => b.ConnectorType == connectorTypeId)
+            .Select(b => new { b.UnitId, b.ConnectorType, b.Config })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => new UnitConnectorBindingRow(
+                r.UnitId,
+                new UnitConnectorBinding(r.ConnectorType, r.Config)))
+            .ToList();
+    }
+
+    /// <inheritdoc />
     public async Task SetAsync(
         Guid unitId,
         Guid connectorTypeId,

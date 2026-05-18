@@ -90,9 +90,12 @@ function extractMissingOAuth(
   return null;
 }
 
-// Keep in sync with the server's DefaultGitHubEvents (GitHubConnectorType.cs)
-// and GitHubWebhookRegistrar.SubscribedEvents. Server defaults still apply
-// when the Events field is left empty on the wire.
+// Keep in sync with the server's DefaultEvents (GitHubConnectorType.cs).
+// Server defaults still apply when the Events field is left empty on the wire.
+// Issue #2456 removed the per-repo webhook registrar; the GitHub App's own
+// subscription scope determines which event types are delivered, so this
+// list is informational only — the operator picks the subset that matters
+// for inbound filtering on the binding.
 const AVAILABLE_EVENTS: readonly string[] = [
   "issues",
   "pull_request",

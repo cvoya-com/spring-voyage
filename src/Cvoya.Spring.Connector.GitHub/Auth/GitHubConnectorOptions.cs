@@ -40,24 +40,17 @@ public class GitHubConnectorOptions
     /// </summary>
     public long? InstallationId { get; set; }
 
-    /// <summary>
-    /// Gets or sets the unit address path (e.g. "engineering-team") to which
-    /// webhook-translated messages should be delivered. Until a proper
-    /// installation-id → unit mapping lands, this single configured path is
-    /// used as the destination for every webhook the connector translates.
-    /// When left empty the handler falls back to the legacy <c>system://router</c>
-    /// address, which <see cref="Cvoya.Spring.Core.Messaging.IMessageRouter"/>
-    /// does not recognize — produced messages will not be delivered.
-    /// </summary>
-    public string DefaultTargetUnitPath { get; set; } = string.Empty;
+    // Issue #2456 removed:
+    //   * DefaultTargetUnitPath — the App-level delivery path looks up
+    //     the target unit by matching the inbound payload's
+    //     (installation_id, owner, repo) against per-unit bindings; there
+    //     is no single configured fallback unit any more.
+    //   * WebhookUrl — the GitHub App owns the webhook URL (registered
+    //     once by the operator when the App is created). The platform no
+    //     longer creates per-repo hooks, so there is no caller for this
+    //     setting either.
 
-    /// <summary>
-    /// Gets or sets the publicly reachable URL that GitHub should deliver
-    /// webhooks to (e.g. <c>https://example.com/api/v1/webhooks/github</c>).
-    /// Consumed by <see cref="Webhooks.IGitHubWebhookRegistrar"/> when a unit
-    /// starts so that freshly registered hooks point back at this platform.
-    /// </summary>
-    public string WebhookUrl { get; set; } = string.Empty;
+    // (Both fields removed in #2456 — no shim, no opt-in flag.)
 
     /// <summary>
     /// Gets or sets the GitHub App slug used when constructing the install URL

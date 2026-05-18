@@ -10,7 +10,6 @@ using System.Text.Json;
 using Cvoya.Spring.Connector.GitHub;
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
-using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Secrets;
 
@@ -1078,17 +1077,9 @@ public class GitHubConnectorEndpointsTests
                     services.Remove(d);
                 }
 
-                // Provide a webhook registrar substitute so GitHubConnectorType
-                // construction succeeds; the tests in this class don't drive
-                // /start / /stop.
-                var regDescriptors = services
-                    .Where(d => d.ServiceType == typeof(IGitHubWebhookRegistrar))
-                    .ToList();
-                foreach (var d in regDescriptors)
-                {
-                    services.Remove(d);
-                }
-                services.AddSingleton(Substitute.For<IGitHubWebhookRegistrar>());
+                // Issue #2456 removed IGitHubWebhookRegistrar — the
+                // platform no longer creates per-repo hooks. The connector
+                // type no longer depends on it.
 
                 if (installationsClient is not null)
                 {

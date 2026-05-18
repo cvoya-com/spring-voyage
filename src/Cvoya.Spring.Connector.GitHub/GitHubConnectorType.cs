@@ -10,7 +10,6 @@ using System.Text.Json;
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.Configuration;
-using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Directory;
@@ -33,8 +32,21 @@ using Octokit;
 /// GitHub concrete implementation of <see cref="IConnectorType"/>. Registers
 /// the GitHub typed per-unit config endpoints and connector-scoped actions
 /// (<c>installations</c>, <c>install-url</c>) under the host-provided
-/// <c>/api/v1/connectors/github</c> group, and handles the GitHub-specific
-/// webhook lifecycle hooks on unit start/stop.
+/// <c>/api/v1/connectors/github</c> group.
+///
+/// <para>
+/// Issue #2456 — the GitHub connector relies on <strong>App-level
+/// delivery</strong>: the operator installs the GitHub App on the repos
+/// they want SV to see, GitHub delivers every event to the App-wide
+/// webhook URL, and the platform routes each delivery to the bound unit
+/// (or drops it silently when no unit is bound to that <c>(installation_id,
+/// owner, repo)</c>). There is no per-repo hook creation on unit start /
+/// stop — and therefore no <c>OnUnitStartingAsync</c> /
+/// <c>OnUnitStoppingAsync</c> here. The principle is locked in
+/// <c>docs/decisions/0045-connector-domain-agnostic-platform.md</c>:
+/// connectors facilitate flow; they do not replicate upstream
+/// subscription configs.
+/// </para>
 /// </summary>
 public class GitHubConnectorType : IConnectorType
 {
@@ -45,9 +57,12 @@ public class GitHubConnectorType : IConnectorType
     public static readonly Guid GitHubTypeId =
         new("6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01");
 
-    // Default webhook events a newly-bound unit subscribes to. Mirrors the
-    // set the webhook registrar was using pre-generic-refactor so behaviour
-    // is preserved for units created without an explicit Events list.
+    // Default webhook events a newly-bound unit's UI presents when the
+    // operator leaves the per-binding Events list empty. The platform no
+    // longer installs per-repo hooks (#2456); the GitHub App's own
+    // subscription scope determines what GitHub delivers. This list is
+    // kept only so the ToResponse path can echo "binding accepts the
+    // default set" back to the wizard.
     private static readonly IReadOnlyList<string> DefaultEvents = new[]
     {
         "issues",
@@ -58,8 +73,6 @@ public class GitHubConnectorType : IConnectorType
     private static readonly JsonSerializerOptions ConfigJson = new(JsonSerializerDefaults.Web);
 
     private readonly IUnitConnectorConfigStore _configStore;
-    private readonly IGitHubWebhookRegistrar _webhookRegistrar;
-    private readonly IUnitConnectorRuntimeStore _runtimeStore;
     private readonly IOptions<GitHubConnectorOptions> _options;
     private readonly IGitHubInstallationsClient _installationsClient;
     private readonly IGitHubCollaboratorsClient _collaboratorsClient;
@@ -73,8 +86,6 @@ public class GitHubConnectorType : IConnectorType
     /// </summary>
     public GitHubConnectorType(
         IUnitConnectorConfigStore configStore,
-        IUnitConnectorRuntimeStore runtimeStore,
-        IGitHubWebhookRegistrar webhookRegistrar,
         IGitHubInstallationsClient installationsClient,
         IGitHubCollaboratorsClient collaboratorsClient,
         IOptions<GitHubConnectorOptions> options,
@@ -84,8 +95,6 @@ public class GitHubConnectorType : IConnectorType
         ILoggerFactory loggerFactory)
     {
         _configStore = configStore;
-        _runtimeStore = runtimeStore;
-        _webhookRegistrar = webhookRegistrar;
         _installationsClient = installationsClient;
         _collaboratorsClient = collaboratorsClient;
         _options = options;
@@ -279,140 +288,25 @@ public class GitHubConnectorType : IConnectorType
         => Task.FromResult<JsonElement?>(BuildConfigSchema());
 
     /// <inheritdoc />
-    public async Task OnUnitStartingAsync(string unitId, CancellationToken cancellationToken = default)
-    {
-        var config = await LoadConfigAsync(unitId, cancellationToken);
-        if (config is null)
-        {
-            return;
-        }
-
-        // Resolve the installation id we're going to use UP FRONT, so the
-        // value persisted on the runtime row is the same one the registrar
-        // authenticated against. The binding's per-unit value wins; null
-        // falls back to the connector's global default (#2385). When both
-        // are null the registrar's parameterless auth path throws
-        // InvalidOperationException — that propagates into the catch below,
-        // no runtime row gets written, and operators see the failure in the
-        // logs rather than discovering it later via an orphaned hook.
-        var resolvedInstallationId = config.AppInstallationId ?? _options.Value.InstallationId;
-
-        try
-        {
-            // Pass the resolved installation id so the hook is created in
-            // the same installation scope we persist (#2385, #2429).
-            //
-            // Pass the binding's Events list so the hook subscribes to the
-            // exact set the operator picked in the wizard (#2423). null /
-            // empty falls back to the registrar's hard-coded default set,
-            // preserving legacy behaviour for bindings created before the
-            // per-unit Events field existed.
-            var hookId = await _webhookRegistrar.RegisterAsync(
-                config.Owner,
-                config.Repo,
-                resolvedInstallationId,
-                config.Events,
-                cancellationToken);
-
-            // The registrar succeeded, so the resolved id is definitely
-            // non-null at this point — but be defensive: if a future
-            // registrar implementation accepts null and synthesises its own
-            // id (e.g. via "first visible installation"), we still need
-            // something concrete on the row for teardown. Fail loudly here
-            // rather than silently persist null and rediscover the gap at
-            // stop time.
-            if (resolvedInstallationId is null)
-            {
-                throw new InvalidOperationException(
-                    $"GitHub webhook registration for unit '{unitId}' on {config.Owner}/{config.Repo} succeeded but no installation id was resolved. "
-                    + "Configure either the binding's AppInstallationId or the connector's global InstallationId before re-binding the unit.");
-            }
-
-            // Persist both the hook id AND the resolved installation id
-            // used to create it so OnUnitStoppingAsync can authenticate the
-            // delete against the same installation scope, even if the
-            // operator re-PUTs the binding to a different installation id
-            // between start and stop (#2429).
-            var runtime = JsonSerializer.SerializeToElement(
-                new GitHubConnectorRuntime(hookId, resolvedInstallationId.Value), ConfigJson);
-            await _runtimeStore.SetAsync(unitId, runtime, cancellationToken);
-
-            _logger.LogInformation(
-                "Registered GitHub webhook {HookId} for unit {UnitId} on {Owner}/{Repo} (installation {InstallationId})",
-                hookId, unitId, config.Owner, config.Repo, resolvedInstallationId.Value);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex,
-                "Failed to register GitHub webhook for unit {UnitId} on {Owner}/{Repo}. Proceeding to Running; events will not flow until the hook is created manually.",
-                unitId, config.Owner, config.Repo);
-        }
-    }
+    /// <remarks>
+    /// Issue #2456 — no-op. The GitHub connector no longer creates
+    /// per-repo webhook hooks on unit start; App-level delivery covers
+    /// the entire inbound surface, and the GitHub App's installation
+    /// scope is owned by the operator on github.com (not by the
+    /// platform).
+    /// </remarks>
+    public Task OnUnitStartingAsync(string unitId, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
 
     /// <inheritdoc />
-    public async Task OnUnitStoppingAsync(string unitId, CancellationToken cancellationToken = default)
-    {
-        var config = await LoadConfigAsync(unitId, cancellationToken);
-        if (config is null)
-        {
-            return;
-        }
-
-        var runtimeElement = await _runtimeStore.GetAsync(unitId, cancellationToken);
-        if (runtimeElement is null)
-        {
-            return;
-        }
-
-        GitHubConnectorRuntime? runtime;
-        try
-        {
-            runtime = runtimeElement.Value.Deserialize<GitHubConnectorRuntime>(ConfigJson);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex,
-                "Unit {UnitId} connector runtime metadata was not GitHub-shaped; skipping teardown.",
-                unitId);
-            return;
-        }
-
-        if (runtime is null || runtime.HookId <= 0)
-        {
-            return;
-        }
-
-        // #2429: use the installation id we persisted at register time so
-        // the delete authenticates against the same scope the create used,
-        // even if the operator re-PUTs the binding to a different
-        // installation id between start and stop.
-        //
-        // v0.1 has no released deployments, so there are no pre-#2429
-        // runtime rows in the wild to migrate. If the persisted id is null
-        // or the field is missing, the row is corrupt — fail loudly so
-        // operators can pinpoint and clean it up, rather than silently
-        // falling back to the current binding (which may target a different
-        // installation that cannot delete the original hook).
-        if (runtime.InstallationId is null)
-        {
-            throw new InvalidOperationException(
-                $"GitHub webhook runtime row for unit '{unitId}' on {config.Owner}/{config.Repo} (hookId {runtime.HookId}) has no persisted installation id. "
-                + "The row is corrupt and must be repaired manually before teardown can proceed; v0.1 does not migrate pre-release runtime rows.");
-        }
-
-        try
-        {
-            await _webhookRegistrar.UnregisterAsync(
-                config.Owner, config.Repo, runtime.HookId, runtime.InstallationId.Value, cancellationToken);
-            await _runtimeStore.ClearAsync(unitId, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex,
-                "Failed to delete GitHub webhook {HookId} for unit {UnitId} on {Owner}/{Repo}. Continuing teardown; the hook id remains persisted so operators can retry.",
-                runtime.HookId, unitId, config.Owner, config.Repo);
-        }
-    }
+    /// <remarks>
+    /// Issue #2456 — no-op. There is no per-repo hook to tear down on
+    /// unit stop; uninstalling the GitHub App or removing the bound
+    /// repo from the App's installation scope is operator-owned on
+    /// github.com.
+    /// </remarks>
+    public Task OnUnitStoppingAsync(string unitId, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
 
     /// <inheritdoc />
     /// <remarks>
@@ -545,26 +439,10 @@ public class GitHubConnectorType : IConnectorType
         => Task.FromResult<ContainerBaselineCheckResult?>(
             new ContainerBaselineCheckResult(Passed: true, Errors: Array.Empty<string>()));
 
-    private async Task<UnitGitHubConfig?> LoadConfigAsync(string unitId, CancellationToken ct)
-    {
-        var binding = await _configStore.GetAsync(unitId, ct);
-        if (binding is null || binding.TypeId != GitHubTypeId)
-        {
-            return null;
-        }
-
-        try
-        {
-            return binding.Config.Deserialize<UnitGitHubConfig>(ConfigJson);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex,
-                "Unit {UnitId} is bound to GitHub but the stored config could not be deserialized.",
-                unitId);
-            return null;
-        }
-    }
+    // LoadConfigAsync removed in #2456 — it was the helper the now-deleted
+    // OnUnitStartingAsync / OnUnitStoppingAsync hooks used to fetch the
+    // binding's typed config. Endpoint paths read the binding directly
+    // through _configStore.
 
     // #1748: store calls below pass the unit's actor-Guid form because
     // the default UnitActorConnectorConfigStore routes through Address.For
@@ -1113,23 +991,8 @@ public class GitHubConnectorType : IConnectorType
     }
 }
 
-/// <summary>
-/// Serializable runtime metadata the GitHub connector persists per-unit —
-/// the webhook id that /start created plus the installation id that owns
-/// it. /stop reads both so the delete call authenticates against the
-/// installation that created the hook even when the operator re-PUTs the
-/// binding to a different installation in between (#2429).
-/// </summary>
-/// <param name="HookId">The GitHub webhook id returned at registration time.</param>
-/// <param name="InstallationId">
-/// The GitHub App installation id the registrar used when creating the
-/// hook. The register path resolves the binding's
-/// <see cref="UnitGitHubConfig.AppInstallationId"/> through the connector's
-/// global default and persists the resolved value; this field is therefore
-/// non-null on every row written by the current code. Typed as
-/// <see cref="Nullable{Long}"/> only so a corrupt row (missing field /
-/// explicit null) deserialises cleanly to a recognisable sentinel — the
-/// teardown path throws when it reads null. There is no legacy-row
-/// migration path: v0.1 has no released deployments.
-/// </param>
-internal record GitHubConnectorRuntime(long HookId, long? InstallationId = null);
+// GitHubConnectorRuntime removed in #2456. The platform no longer
+// installs per-repo GitHub webhooks, so there is no hook id or
+// installation id to persist on the binding row. Runtime metadata
+// storage (IUnitConnectorRuntimeStore) stays as a generic
+// connector-agnostic seam — GitHub simply no longer uses it.

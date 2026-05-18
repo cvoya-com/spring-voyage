@@ -8,7 +8,6 @@ using System.Net.Http.Json;
 
 using Cvoya.Spring.Connector.GitHub;
 using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
-using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -267,16 +266,9 @@ public class GitHubOAuthEndpointsTests
                     services.Remove(d);
                 }
 
-                // Provide a webhook registrar substitute so GitHubConnectorType
-                // construction succeeds.
-                var regDescriptors = services
-                    .Where(d => d.ServiceType == typeof(IGitHubWebhookRegistrar))
-                    .ToList();
-                foreach (var d in regDescriptors)
-                {
-                    services.Remove(d);
-                }
-                services.AddSingleton(Substitute.For<IGitHubWebhookRegistrar>());
+                // Issue #2456 removed the webhook registrar — App-level
+                // delivery covers the inbound surface, so GitHubConnectorType
+                // no longer depends on it.
 
                 if (oauthService is not null)
                 {

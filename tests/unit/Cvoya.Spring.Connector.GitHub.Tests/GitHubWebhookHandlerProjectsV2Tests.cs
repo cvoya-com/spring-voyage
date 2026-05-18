@@ -25,8 +25,7 @@ public class GitHubWebhookHandlerProjectsV2Tests
     {
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        var options = new GitHubConnectorOptions { DefaultTargetUnitPath = TestSlugIds.HexFor("test-team") };
-        _handler = new GitHubWebhookHandler(options, loggerFactory);
+        _handler = new GitHubWebhookHandler(loggerFactory);
     }
 
     [Fact]
@@ -46,7 +45,7 @@ public class GitHubWebhookHandlerProjectsV2Tests
             organization = new { login = "acme" },
         });
 
-        var message = _handler.TranslateEvent("projects_v2", payload);
+        var message = _handler.TranslatePayload("projects_v2", payload);
 
         message.ShouldNotBeNull();
         message!.Type.ShouldBe(MessageType.Domain);
@@ -85,7 +84,7 @@ public class GitHubWebhookHandlerProjectsV2Tests
             organization = new { login = "acme" },
         });
 
-        var message = _handler.TranslateEvent("projects_v2_item", payload);
+        var message = _handler.TranslatePayload("projects_v2_item", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("intent").GetString().ShouldBe("project_item_change");
@@ -116,7 +115,7 @@ public class GitHubWebhookHandlerProjectsV2Tests
             organization = new { login = "acme" },
         });
 
-        var message = _handler.TranslateEvent("projects_v2_item", payload);
+        var message = _handler.TranslatePayload("projects_v2_item", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("intent").GetString().ShouldBe("project_item_lifecycle");
@@ -133,7 +132,7 @@ public class GitHubWebhookHandlerProjectsV2Tests
             organization = new { login = "acme" },
         });
 
-        var message = _handler.TranslateEvent("projects_v2", payload);
+        var message = _handler.TranslatePayload("projects_v2", payload);
 
         message.ShouldBeNull();
     }
@@ -154,7 +153,7 @@ public class GitHubWebhookHandlerProjectsV2Tests
             organization = new { login = "acme" },
         });
 
-        var message = _handler.TranslateEvent("projects_v2_item", payload);
+        var message = _handler.TranslatePayload("projects_v2_item", payload);
 
         message.ShouldNotBeNull();
         message!.Payload.GetProperty("intent").GetString().ShouldBe("project_item_change");

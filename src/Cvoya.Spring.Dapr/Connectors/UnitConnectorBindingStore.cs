@@ -62,6 +62,23 @@ public class UnitConnectorBindingStore(
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<Data.UnitConnectorBindingRow>> ListByConnectorTypeAsync(
+        Guid connectorTypeId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scopeFactory);
+
+        var sw = Stopwatch.StartNew();
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IUnitConnectorBindingRepository>();
+        var rows = await repo.ListByConnectorTypeAsync(connectorTypeId, cancellationToken);
+        sw.Stop();
+        logger.LogDebug(
+            "UnitConnectorBinding.ListByType type={TypeId} rows={Rows} elapsedMs={ElapsedMs}",
+            connectorTypeId, rows.Count, sw.Elapsed.TotalMilliseconds);
+        return rows;
+    }
+
+    /// <inheritdoc />
     public async Task SetAsync(
         Guid unitId,
         Guid connectorTypeId,

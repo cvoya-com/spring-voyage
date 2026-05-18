@@ -5,7 +5,6 @@ namespace Cvoya.Spring.Host.Api.Tests;
 
 using System.Reactive.Linq;
 
-using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
@@ -97,10 +96,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IUnitContainerLifecycle UnitContainerLifecycle { get; } = Substitute.For<IUnitContainerLifecycle>();
 
-    /// <summary>
-    /// Gets the mock <see cref="IGitHubWebhookRegistrar"/> registered in the test DI container.
-    /// </summary>
-    public IGitHubWebhookRegistrar GitHubWebhookRegistrar { get; } = Substitute.For<IGitHubWebhookRegistrar>();
+    // Issue #2456 removed IGitHubWebhookRegistrar — App-level delivery
+    // replaces per-repo webhook registration. The test fixture no longer
+    // exposes a registrar substitute.
 
     /// <summary>
     /// Gets the mock <see cref="IUnitConnectorConfigStore"/> registered in
@@ -445,7 +443,6 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(IActivityEventBus),
                 typeof(IUnitActivityObservable),
                 typeof(IUnitContainerLifecycle),
-                typeof(IGitHubWebhookRegistrar),
                 typeof(IUnitConnectorConfigStore),
                 typeof(IUnitConnectorRuntimeStore),
                 typeof(IConnectorType),
@@ -499,7 +496,6 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(ActivityEventBus);
             services.AddSingleton(UnitActivityObservable);
             services.AddSingleton(UnitContainerLifecycle);
-            services.AddSingleton(GitHubWebhookRegistrar);
             services.AddSingleton(ConnectorConfigStore);
             services.AddSingleton(ConnectorRuntimeStore);
             services.AddSingleton(StubConnectorType);

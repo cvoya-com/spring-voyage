@@ -47,6 +47,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
         const string payload = """
         {
             "action": "opened",
+            "installation": { "id": 1 },
             "repository": {
                 "name": "platform",
                 "full_name": "acme/platform",
@@ -90,6 +91,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
         const string payload = """
         {
             "action": "opened",
+            "installation": { "id": 1 },
             "repository": {
                 "name": "platform",
                 "full_name": "acme/platform",
@@ -135,6 +137,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
         const string payload = """
         {
             "action": "opened",
+            "installation": { "id": 1 },
             "repository": {
                 "name": "platform",
                 "full_name": "acme/platform",
@@ -180,6 +183,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
         const string payload = """
         {
             "action": "opened",
+            "installation": { "id": 1 },
             "repository": {
                 "name": "platform",
                 "full_name": "acme/platform",
@@ -226,6 +230,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
         const string payload = """
         {
             "action": "opened",
+            "installation": { "id": 1 },
             "repository": {
                 "name": "platform",
                 "full_name": "acme/platform",
@@ -257,23 +262,34 @@ public class GitHubConnectorWebhookFilterIntegrationTests
     {
         var options = new GitHubConnectorOptions
         {
-            DefaultTargetUnitPath = TargetUnitHex,
             WebhookSecret = Secret,
             InstallationId = 1,
         };
 
+        // Pin a known AppInstallationId on the binding so the webhook
+        // resolver (#2456) can match the payload's installation.id
+        // against this unit's binding. Tests inject the same id on the
+        // payload's `installation` object so the resolver finds the
+        // unit and the filter chain receives the unit-addressed message
+        // it expects.
+        var pinnedConfig = config with { AppInstallationId = 1 };
+
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
-            JsonSerializer.SerializeToElement(config, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            JsonSerializer.SerializeToElement(pinnedConfig, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
         var store = Substitute.For<IUnitConnectorConfigStore>();
         store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>()).Returns(binding);
+
+        var lookup = Substitute.For<IUnitConnectorBindingLookup>();
+        lookup.ListByConnectorTypeAsync(GitHubConnectorType.GitHubTypeId, Arg.Any<CancellationToken>())
+            .Returns(new[] { new UnitConnectorBindingEntry(TargetUnitHex, binding) });
 
         var bus = Substitute.For<IActivityEventBus>();
 
         var handler = new GitHubWebhookHandler(
-            options,
             NullLoggerFactory.Instance,
             configStore: store,
+            bindingLookup: lookup,
             activityEventBus: bus,
             filesFetcher: fetcher);
 
