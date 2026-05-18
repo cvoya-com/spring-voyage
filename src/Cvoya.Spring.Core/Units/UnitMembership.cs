@@ -3,6 +3,9 @@
 
 namespace Cvoya.Spring.Core.Units;
 
+using System;
+using System.Collections.Generic;
+
 using Cvoya.Spring.Core.Agents;
 
 /// <summary>
@@ -27,6 +30,15 @@ using Cvoya.Spring.Core.Agents;
 /// <param name="Specialty">Per-membership specialty override, or <c>null</c> to inherit.</param>
 /// <param name="Enabled">Per-membership enabled flag. Defaults to <c>true</c> on insert. When <c>false</c>, this unit's orchestration strategy skips the agent even if the agent itself is enabled.</param>
 /// <param name="ExecutionMode">Per-membership execution-mode override, or <c>null</c> to inherit.</param>
+/// <param name="Roles">
+/// ADR-0046 §8: free-form team-role strings the agent advertises on this
+/// unit. Multi-valued; empty list when the manifest omitted the field.
+/// Runtime metadata only — surfaced on <c>sv.list_members</c>.
+/// </param>
+/// <param name="Expertise">
+/// ADR-0046 §8: free-form expertise tags the agent advertises on this
+/// unit. Multi-valued; empty list when the manifest omitted the field.
+/// </param>
 /// <param name="CreatedAt">UTC timestamp when the membership was first created.</param>
 /// <param name="UpdatedAt">UTC timestamp when the membership was last updated.</param>
 /// <param name="IsPrimary">
@@ -43,6 +55,8 @@ public record UnitMembership(
     string? Specialty = null,
     bool Enabled = true,
     AgentExecutionMode? ExecutionMode = null,
+    IReadOnlyList<string>? Roles = null,
+    IReadOnlyList<string>? Expertise = null,
     DateTimeOffset CreatedAt = default,
     DateTimeOffset UpdatedAt = default,
     bool IsPrimary = false);

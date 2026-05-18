@@ -15,9 +15,11 @@ using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Packages;
 using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Tenancy;
+using Cvoya.Spring.Dapr.Units;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Host.Api.Services;
@@ -36,11 +38,11 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for the ADR-0044 install-reader wiring inside
+/// Tests for the ADR-0046 install-reader wiring inside
 /// <see cref="DefaultPackageArtefactActivator"/>. Verifies that
-/// <c>humans:</c> declarations land as <see cref="UnitMembershipHumanEntity"/>
+/// <c>- human:</c> member entries land as <see cref="UnitMembershipHumanEntity"/>
 /// rows via the registered <see cref="IPackageHumanResolutionPolicy"/>
-/// with set-semantic collapse on the unique index.
+/// with set-semantic collapse on the unique <c>(unit, human)</c> index.
 /// </summary>
 public class DefaultPackageArtefactActivator_HumansTests
 {
@@ -50,17 +52,18 @@ public class DefaultPackageArtefactActivator_HumansTests
     public async Task ActivateUnitAsync_HumansDeclared_PersistsMembershipRows()
     {
         var fx = new Fixture();
-        fx.PolicyResolvesTo(fx.CallerId);
+        var ownerId = Guid.Parse("00000000-aaaa-aaaa-aaaa-000000000001");
+        fx.PolicyResolvesTo(ownerId);
         var unitId = Guid.NewGuid();
         var manifest = BuildManifest(unitId, "engineering",
-            ("owner", new[] { "security" }, new[] { "escalation" }));
+            (new[] { "owner" }, new[] { "security" }, new[] { "escalation" }));
 
         await fx.RunActivateAsync(manifest, unitId);
 
         var rows = await fx.GetMembershipsAsync(unitId);
         rows.Count.ShouldBe(1);
-        rows[0].HumanId.ShouldBe(fx.CallerId);
-        rows[0].Role.ShouldBe("owner");
+        rows[0].HumanId.ShouldBe(ownerId);
+        rows[0].Roles.ShouldBe(new[] { "owner" });
         rows[0].Expertise.ShouldBe(new[] { "security" });
         rows[0].Notifications.ShouldBe(new[] { "escalation" });
         rows[0].TenantId.ShouldBe(TenantId);
@@ -73,7 +76,7 @@ public class DefaultPackageArtefactActivator_HumansTests
         fx.PolicySkips();
         var unitId = Guid.NewGuid();
         var manifest = BuildManifest(unitId, "engineering",
-            ("owner", Array.Empty<string>(), Array.Empty<string>()));
+            (new[] { "owner" }, Array.Empty<string>(), Array.Empty<string>()));
 
         await fx.RunActivateAsync(manifest, unitId);
 
@@ -88,101 +91,96 @@ public class DefaultPackageArtefactActivator_HumansTests
         fx.PolicyRejectsWith("tenant policy refuses package-declared humans");
         var unitId = Guid.NewGuid();
         var manifest = BuildManifest(unitId, "engineering",
-            ("owner", Array.Empty<string>(), Array.Empty<string>()));
+            (new[] { "owner" }, Array.Empty<string>(), Array.Empty<string>()));
 
         var ex = await Should.ThrowAsync<PackageHumanResolutionException>(async () =>
             await fx.RunActivateAsync(manifest, unitId));
 
-        ex.Role.ShouldBe("owner");
         ex.Reason!.ShouldContain("tenant policy refuses");
     }
 
     [Fact]
-    public void ActivateUnitAsync_LegacyHumanIdentityField_StrictParserRejects()
+    public void ActivateUnitAsync_LegacyHumansBlock_StrictParserRejects()
     {
-        // Issue #2406: per-field migration hints retired in favour of
-        // strict YAML parsing. A `humans[].identity:` slot is not part of
-        // the v0.1 grammar, so strict parsing rejects it at the YAML
-        // layer with a generic but actionable error.
+        // ADR-0046 §1: the legacy top-level `humans:` block is rejected at
+        // parse time with the LegacyHumansBlock structured error.
         var yaml = """
             apiVersion: spring.voyage/v1
             kind: Unit
             name: legacy-unit
             description: legacy
             humans:
-              - identity: owner
-                permission: owner
+              - role: owner
                 notifications: ["escalation"]
             """;
 
-        Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
+        var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
+        ex.Message.ShouldContain("LegacyHumansBlock");
     }
 
     [Fact]
-    public async Task ActivateUnitAsync_HumansWithDuplicateRoleAndIdentity_CollapsesToOneRow()
+    public async Task ActivateUnitAsync_TwoEntriesSameRoles_BothResolveDistinctly()
     {
-        // ADR-0044 § 3 collapse: two `[{role: reviewer}, {role: reviewer}]`
-        // declarations under OSSPolicy resolve to the same caller, so the
-        // unique index makes the second upsert a no-op.
-        var fx = new Fixture();
-        fx.PolicyResolvesTo(fx.CallerId);
-        var unitId = Guid.NewGuid();
-        var manifest = BuildManifest(unitId, "engineering",
-            ("reviewer", Array.Empty<string>(), Array.Empty<string>()),
-            ("reviewer", Array.Empty<string>(), Array.Empty<string>()));
-
-        await fx.RunActivateAsync(manifest, unitId);
-
-        var rows = await fx.GetMembershipsAsync(unitId);
-        rows.Count.ShouldBe(1, "duplicate (human, role) declarations collapse on the unique index");
-        rows[0].Role.ShouldBe("reviewer");
-        rows[0].HumanId.ShouldBe(fx.CallerId);
-    }
-
-    [Fact]
-    public async Task ActivateUnitAsync_CallerAddressIsNull_PolicyReceivesNullInstallCaller_AndSkippedIsClean()
-    {
-        // #2405: out-of-request install paths (worker, integration tests
-        // that pre-date the resolver) see the accessor return null. The
-        // activator must pass that through as null InstallCallerHumanId
-        // without try/catching — and the OSS-default-style Skipped outcome
-        // must surface cleanly (no rows persisted, no exception).
-        var fx = new Fixture();
-        fx.CallerAccessorReturnsNull();
-        Guid? observedInstallCaller = null;
-        fx.PolicyCapturesInstallCaller(req => observedInstallCaller = req.InstallCallerHumanId);
-        var unitId = Guid.NewGuid();
-        var manifest = BuildManifest(unitId, "engineering",
-            ("owner", Array.Empty<string>(), Array.Empty<string>()));
-
-        await fx.RunActivateAsync(manifest, unitId);
-
-        observedInstallCaller.ShouldBeNull();
-        var rows = await fx.GetMembershipsAsync(unitId);
-        rows.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task ActivateUnitAsync_HostedPolicyResolvesEachSlotToDifferentHuman_PersistsTwoRows()
-    {
-        // ADR-0044 § 3 multi-user: a hosted policy that maps two reviewer
-        // declarations to two distinct tenant members produces two rows.
-        // The unique index passes because human_id differs.
+        // ADR-0046 §7: two `- human:` entries with the same roles mint
+        // two distinct HumanEntity rows when the policy returns a fresh
+        // Guid each call (OSS shape). The unique index keys on
+        // (unit, human), so distinct human ids land as two rows.
         var alice = Guid.Parse("00000000-aaaa-aaaa-aaaa-000000000001");
         var bob = Guid.Parse("00000000-bbbb-bbbb-bbbb-000000000001");
         var fx = new Fixture();
         fx.PolicyResolvesPerCall(new[] { new[] { alice }, new[] { bob } });
         var unitId = Guid.NewGuid();
         var manifest = BuildManifest(unitId, "engineering",
-            ("reviewer", Array.Empty<string>(), Array.Empty<string>()),
-            ("reviewer", Array.Empty<string>(), Array.Empty<string>()));
+            (new[] { "reviewer" }, Array.Empty<string>(), Array.Empty<string>()),
+            (new[] { "reviewer" }, Array.Empty<string>(), Array.Empty<string>()));
 
         await fx.RunActivateAsync(manifest, unitId);
 
         var rows = await fx.GetMembershipsAsync(unitId);
         rows.Count.ShouldBe(2);
-        rows.All(r => r.Role == "reviewer").ShouldBeTrue();
         rows.Select(r => r.HumanId).ShouldBe(new[] { alice, bob }, ignoreOrder: true);
+        rows.All(r => r.Roles.SequenceEqual(new[] { "reviewer" })).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ActivateUnitAsync_CallerAddressIsNull_PolicyReceivesNullInstallCaller()
+    {
+        // ADR-0046 §10: the install caller is still threaded onto the
+        // resolution request so hosted policies that bind by claim can
+        // observe it, but the OSS default no longer derives the human id
+        // from the caller (it mints a fresh row).
+        var fx = new Fixture();
+        fx.CallerAccessorReturnsNull();
+        Guid? observedInstallCaller = null;
+        fx.PolicyCapturesRequest(req => observedInstallCaller = req.InstallCallerHumanId);
+        var unitId = Guid.NewGuid();
+        var manifest = BuildManifest(unitId, "engineering",
+            (new[] { "owner" }, Array.Empty<string>(), Array.Empty<string>()));
+
+        await fx.RunActivateAsync(manifest, unitId);
+
+        observedInstallCaller.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ActivateUnitAsync_RolesAndExpertiseFlowToPolicyRequest()
+    {
+        // ADR-0046 §3: roles + expertise + notifications are multi-valued
+        // and arrive on the policy request as IReadOnlyList<string>.
+        var fx = new Fixture();
+        fx.PolicyResolvesTo(Guid.NewGuid());
+        PackageHumanResolutionRequest? captured = null;
+        fx.PolicyCapturesRequest(req => captured = req);
+        var unitId = Guid.NewGuid();
+        var manifest = BuildManifest(unitId, "engineering",
+            (new[] { "owner", "security_lead" }, new[] { "infra", "release" }, new[] { "escalation" }));
+
+        await fx.RunActivateAsync(manifest, unitId);
+
+        captured.ShouldNotBeNull();
+        captured!.Roles.ShouldBe(new[] { "owner", "security_lead" });
+        captured.Expertise.ShouldBe(new[] { "infra", "release" });
+        captured.Notifications.ShouldBe(new[] { "escalation" });
     }
 
     // ── manifest helper ──────────────────────────────────────────────────
@@ -190,8 +188,17 @@ public class DefaultPackageArtefactActivator_HumansTests
     private static UnitManifest BuildManifest(
         Guid unitId,
         string name,
-        params (string Role, string[] Expertise, string[] Notifications)[] humans)
+        params (string[] Roles, string[] Expertise, string[] Notifications)[] humans)
     {
+        var members = humans
+            .Select(h => new MemberManifest
+            {
+                Human = InlineArtefactDefinition.FromInline(
+                    inlineName: "human",
+                    inlineBody: BuildHumanInlineBody(h.Roles, h.Expertise, h.Notifications)),
+            })
+            .ToList();
+
         return new UnitManifest
         {
             ApiVersion = "spring.voyage/v1",
@@ -199,15 +206,30 @@ public class DefaultPackageArtefactActivator_HumansTests
             Name = name,
             DisplayName = name,
             Description = name + " description",
-            Humans = humans
-                .Select(h => new HumanManifest
-                {
-                    Role = h.Role,
-                    Expertise = h.Expertise.ToList(),
-                    Notifications = h.Notifications.ToList(),
-                })
-                .ToList(),
+            Members = members,
         };
+    }
+
+    private static string BuildHumanInlineBody(string[] roles, string[] expertise, string[] notifications)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (roles.Length > 0)
+        {
+            sb.AppendLine($"roles: [{string.Join(", ", roles)}]");
+        }
+        if (expertise.Length > 0)
+        {
+            sb.AppendLine($"expertise: [{string.Join(", ", expertise)}]");
+        }
+        if (notifications.Length > 0)
+        {
+            sb.AppendLine($"notifications: [{string.Join(", ", notifications)}]");
+        }
+        if (sb.Length == 0)
+        {
+            sb.AppendLine("roles: []");
+        }
+        return sb.ToString();
     }
 
     // ── fixture ──────────────────────────────────────────────────────────
@@ -270,7 +292,7 @@ public class DefaultPackageArtefactActivator_HumansTests
                 .Returns((Address?)null);
         }
 
-        public void PolicyCapturesInstallCaller(Action<PackageHumanResolutionRequest> capture)
+        public void PolicyCapturesRequest(Action<PackageHumanResolutionRequest> capture)
         {
             var previous = _policy.Behaviour;
             _policy.Behaviour = req =>
@@ -313,6 +335,8 @@ public class DefaultPackageArtefactActivator_HumansTests
                 .ConfigureWarnings(w => w.Ignore(
                     Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning)));
             services.AddSingleton<ITenantContext>(_ => _tenantContext);
+            services.AddSingleton<IUnitHumanMembershipStore>(sp =>
+                new EfUnitHumanMembershipStore(sp.GetRequiredService<IServiceScopeFactory>()));
             var sp = services.BuildServiceProvider();
             var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
 
@@ -345,18 +369,22 @@ public class DefaultPackageArtefactActivator_HumansTests
                 installId: Guid.NewGuid(),
                 symbolMap: symbolMap,
                 cancellationToken: TestContext.Current.CancellationToken);
+
+            _scopeFactory = scopeFactory;
         }
+
+        private IServiceScopeFactory? _scopeFactory;
 
         public async Task<IReadOnlyList<UnitMembershipHumanEntity>> GetMembershipsAsync(Guid unitId)
         {
-            var services = new ServiceCollection();
-            services.AddDbContext<SpringDbContext>(opt => opt
-                .UseInMemoryDatabase(_dbName)
-                .ConfigureWarnings(w => w.Ignore(
-                    Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning)));
-            services.AddSingleton<ITenantContext>(_ => _tenantContext);
-            var sp = services.BuildServiceProvider();
-            await using var scope = sp.CreateAsyncScope();
+            // Reuse the same provider the activator wrote against so the
+            // assertion reads the rows the test just persisted (in-memory
+            // EF stores are per-provider).
+            if (_scopeFactory is null)
+            {
+                return Array.Empty<UnitMembershipHumanEntity>();
+            }
+            await using var scope = _scopeFactory.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
             return await db.UnitMembershipsHumans
                 .Where(m => m.UnitId == unitId)
@@ -366,17 +394,8 @@ public class DefaultPackageArtefactActivator_HumansTests
         private static string SerializeManifest(UnitManifest manifest)
         {
             // The activator's ManifestParser.Parse runs against YAML, so
-            // emit a faithful YAML projection of the test manifest. Use a
-            // simple deterministic serializer keeping only the fields the
-            // activator's human path actually reads (apiVersion / kind /
-            // name / description / humans).
-            var humans = manifest.Humans?.Select(h => new
-            {
-                role = h.Role,
-                expertise = h.Expertise,
-                notifications = h.Notifications,
-            }).ToList();
-
+            // emit a faithful YAML projection of the test manifest under the
+            // ADR-0046 `members: [- human: {...}]` shape.
             var builder = new System.Text.StringBuilder();
             builder.AppendLine($"apiVersion: {manifest.ApiVersion}");
             builder.AppendLine($"kind: {manifest.Kind}");
@@ -386,19 +405,18 @@ public class DefaultPackageArtefactActivator_HumansTests
                 builder.AppendLine($"displayName: {manifest.DisplayName}");
             }
             builder.AppendLine($"description: {manifest.Description}");
-            if (humans is { Count: > 0 })
+
+            if (manifest.Members is { Count: > 0 })
             {
-                builder.AppendLine("humans:");
-                foreach (var h in humans)
+                builder.AppendLine("members:");
+                foreach (var m in manifest.Members)
                 {
-                    builder.AppendLine($"  - role: {h.role}");
-                    if (h.expertise is { Count: > 0 })
+                    if (m.Human?.InlineBody is null) continue;
+                    builder.AppendLine("  - human:");
+                    foreach (var line in m.Human.InlineBody.Split('\n'))
                     {
-                        builder.AppendLine($"    expertise: [{string.Join(", ", h.expertise)}]");
-                    }
-                    if (h.notifications is { Count: > 0 })
-                    {
-                        builder.AppendLine($"    notifications: [{string.Join(", ", h.notifications)}]");
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+                        builder.AppendLine($"      {line.TrimEnd()}");
                     }
                 }
             }

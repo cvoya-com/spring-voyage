@@ -28,10 +28,12 @@ using Xunit;
 
 /// <summary>
 /// REST-level tests for the team-role membership endpoints (#2409 /
-/// ADR-0044 § 3). Covers POST idempotency on the natural key, GET / PATCH
-/// / DELETE happy paths, the 404 surface on unknown unit / unknown
-/// human / unknown row, and the existence-first ordering inherited from
-/// the surrounding <see cref="UnitPermissionCheck"/> helper (#1029).
+/// ADR-0044 § 3, reshaped by ADR-0046 §7). Covers POST idempotency on the
+/// natural key, GET / PATCH / DELETE happy paths, the 404 surface on
+/// unknown unit / unknown human / unknown row, and the existence-first
+/// ordering inherited from the surrounding <see cref="UnitPermissionCheck"/>
+/// helper (#1029). The natural key is now <c>(unit, human)</c>; the row
+/// carries a multi-valued <c>roles</c> jsonb list.
 /// </summary>
 public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 {
@@ -55,7 +57,8 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
 
         var response = await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(humanId, "owner",
+            new AddUnitHumanMemberRequest(humanId,
+                new[] { "owner" },
                 new[] { "security", "release-mgmt" },
                 new[] { "escalation" }),
             ct);
@@ -64,7 +67,7 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
         var body = await response.Content.ReadFromJsonAsync<UnitHumanMemberResponse>(ct);
         body.ShouldNotBeNull();
         body!.HumanId.ShouldBe(humanId);
-        body.Role.ShouldBe("owner");
+        body.Roles.ShouldBe(new[] { "owner" });
         body.Expertise.ShouldBe(new[] { "security", "release-mgmt" });
         body.Notifications.ShouldBe(new[] { "escalation" });
 
@@ -72,7 +75,8 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         var row = await db.UnitMembershipsHumans
             .AsNoTracking()
-            .SingleAsync(m => m.UnitId == unitId && m.HumanId == humanId && m.Role == "owner", ct);
+            .SingleAsync(m => m.UnitId == unitId && m.HumanId == humanId, ct);
+        row.Roles.ShouldBe(new[] { "owner" });
         row.Expertise.ShouldBe(new[] { "security", "release-mgmt" });
         row.Notifications.ShouldBe(new[] { "escalation" });
     }
@@ -80,10 +84,9 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
     [Fact]
     public async Task Add_SameTuple_IsIdempotent_UpdatesProjections()
     {
-        // ADR-0044 § 3: the natural key is (tenant, unit, human, role). A
-        // re-POST with the same tuple does not 409 — it overwrites
-        // expertise + notifications in place, matching the auto-seed
-        // pattern adopted by the #2408 connector-identity surface.
+        // ADR-0046 §7: the natural key is (tenant, unit, human). A re-POST
+        // with the same tuple does not 409 — it overwrites roles +
+        // expertise + notifications in place.
         var ct = TestContext.Current.CancellationToken;
         var unitId = Guid.NewGuid();
         ArrangeResolved(unitId);
@@ -92,56 +95,28 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
 
         await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(humanId, "owner", new[] { "old" }, new[] { "old-evt" }),
+            new AddUnitHumanMemberRequest(humanId, new[] { "owner" }, new[] { "old" }, new[] { "old-evt" }),
             ct);
         var response = await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(humanId, "owner", new[] { "new" }, new[] { "new-evt" }),
+            new AddUnitHumanMemberRequest(humanId, new[] { "reviewer" }, new[] { "new" }, new[] { "new-evt" }),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<UnitHumanMemberResponse>(ct);
-        body!.Expertise.ShouldBe(new[] { "new" });
+        body!.Roles.ShouldBe(new[] { "reviewer" });
+        body.Expertise.ShouldBe(new[] { "new" });
         body.Notifications.ShouldBe(new[] { "new-evt" });
 
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         var rows = await db.UnitMembershipsHumans
             .AsNoTracking()
-            .Where(m => m.UnitId == unitId && m.HumanId == humanId && m.Role == "owner")
+            .Where(m => m.UnitId == unitId && m.HumanId == humanId)
             .ToListAsync(ct);
         rows.Count.ShouldBe(1);
+        rows[0].Roles.ShouldBe(new[] { "reviewer" });
         rows[0].Expertise.ShouldBe(new[] { "new" });
-    }
-
-    [Fact]
-    public async Task Add_SameHumanDifferentRole_CreatesSecondRow()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var unitId = Guid.NewGuid();
-        ArrangeResolved(unitId);
-        ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
-        var humanId = await SeedHumanAsync("alice");
-
-        await _client.PostAsJsonAsync(
-            $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(humanId, "owner"), ct);
-        var response = await _client.PostAsJsonAsync(
-            $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(humanId, "reviewer"), ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-        var rows = await db.UnitMembershipsHumans
-            .AsNoTracking()
-            .Where(m => m.UnitId == unitId && m.HumanId == humanId)
-            .OrderBy(m => m.Role)
-            .ToListAsync(ct);
-        rows.Count.ShouldBe(2);
-        rows[0].Role.ShouldBe("owner");
-        rows[1].Role.ShouldBe("reviewer");
     }
 
     [Fact]
@@ -154,24 +129,23 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
 
         var response = await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(Guid.NewGuid(), "owner"),
+            new AddUnitHumanMemberRequest(Guid.NewGuid(), new[] { "owner" }),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task Add_BlankRole_Returns400()
+    public async Task Add_EmptyHumanId_Returns400()
     {
         var ct = TestContext.Current.CancellationToken;
         var unitId = Guid.NewGuid();
         ArrangeResolved(unitId);
         ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
-        var humanId = await SeedHumanAsync("alice");
 
         var response = await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(humanId, "   "),
+            new AddUnitHumanMemberRequest(Guid.Empty, new[] { "owner" }),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -190,7 +164,7 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
 
         var response = await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(Guid.NewGuid(), "owner"),
+            new AddUnitHumanMemberRequest(Guid.NewGuid(), new[] { "owner" }),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
@@ -206,7 +180,7 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
 
         var response = await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(Guid.NewGuid(), "owner"),
+            new AddUnitHumanMemberRequest(Guid.NewGuid(), new[] { "owner" }),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
@@ -225,10 +199,10 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
 
         await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(alice, "owner"), ct);
+            new AddUnitHumanMemberRequest(alice, new[] { "owner" }), ct);
         await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(bob, "reviewer"), ct);
+            new AddUnitHumanMemberRequest(bob, new[] { "reviewer" }), ct);
 
         var response = await _client.GetAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans", ct);
@@ -237,8 +211,8 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
         var rows = await response.Content.ReadFromJsonAsync<List<UnitHumanMemberResponse>>(ct);
         rows.ShouldNotBeNull();
         rows!.Count.ShouldBe(2);
-        rows.ShouldContain(r => r.HumanId == alice && r.Role == "owner");
-        rows.ShouldContain(r => r.HumanId == bob && r.Role == "reviewer");
+        rows.ShouldContain(r => r.HumanId == alice && r.Roles.SequenceEqual(new[] { "owner" }));
+        rows.ShouldContain(r => r.HumanId == bob && r.Roles.SequenceEqual(new[] { "reviewer" }));
     }
 
     [Fact]
@@ -259,7 +233,7 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
     }
 
     [Fact]
-    public async Task Patch_UpdatesProjectionsWithoutTouchingRole()
+    public async Task Patch_UpdatesProjections()
     {
         var ct = TestContext.Current.CancellationToken;
         var unitId = Guid.NewGuid();
@@ -269,17 +243,18 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
 
         await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(humanId, "owner", new[] { "old" }, new[] { "old-evt" }),
+            new AddUnitHumanMemberRequest(humanId, new[] { "owner" }, new[] { "old" }, new[] { "old-evt" }),
             ct);
 
         var response = await _client.PatchAsJsonAsync(
-            $"/api/v1/tenant/units/{unitId:N}/members/humans/{humanId:N}/owner",
-            new UpdateUnitHumanMemberRequest(new[] { "patched" }, new[] { "patched-evt" }),
+            $"/api/v1/tenant/units/{unitId:N}/members/humans/{humanId:N}",
+            new UpdateUnitHumanMemberRequest(
+                new[] { "owner", "reviewer" }, new[] { "patched" }, new[] { "patched-evt" }),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<UnitHumanMemberResponse>(ct);
-        body!.Role.ShouldBe("owner");
+        body!.Roles.ShouldBe(new[] { "owner", "reviewer" });
         body.Expertise.ShouldBe(new[] { "patched" });
         body.Notifications.ShouldBe(new[] { "patched-evt" });
 
@@ -287,7 +262,8 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         var row = await db.UnitMembershipsHumans
             .AsNoTracking()
-            .SingleAsync(m => m.UnitId == unitId && m.HumanId == humanId && m.Role == "owner", ct);
+            .SingleAsync(m => m.UnitId == unitId && m.HumanId == humanId, ct);
+        row.Roles.ShouldBe(new[] { "owner", "reviewer" });
         row.Expertise.ShouldBe(new[] { "patched" });
         row.Notifications.ShouldBe(new[] { "patched-evt" });
     }
@@ -301,8 +277,8 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
         ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
 
         var response = await _client.PatchAsJsonAsync(
-            $"/api/v1/tenant/units/{unitId:N}/members/humans/{Guid.NewGuid():N}/owner",
-            new UpdateUnitHumanMemberRequest(new[] { "x" }, Array.Empty<string>()),
+            $"/api/v1/tenant/units/{unitId:N}/members/humans/{Guid.NewGuid():N}",
+            new UpdateUnitHumanMemberRequest(new[] { "owner" }, new[] { "x" }, Array.Empty<string>()),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
@@ -319,17 +295,17 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
 
         await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(humanId, "owner"), ct);
+            new AddUnitHumanMemberRequest(humanId, new[] { "owner" }), ct);
 
         var response = await _client.DeleteAsync(
-            $"/api/v1/tenant/units/{unitId:N}/members/humans/{humanId:N}/owner", ct);
+            $"/api/v1/tenant/units/{unitId:N}/members/humans/{humanId:N}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         (await db.UnitMembershipsHumans.AsNoTracking().AnyAsync(
-            m => m.UnitId == unitId && m.HumanId == humanId && m.Role == "owner", ct))
+            m => m.UnitId == unitId && m.HumanId == humanId, ct))
             .ShouldBeFalse();
     }
 
@@ -342,7 +318,7 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
         ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
 
         var response = await _client.DeleteAsync(
-            $"/api/v1/tenant/units/{unitId:N}/members/humans/{Guid.NewGuid():N}/owner", ct);
+            $"/api/v1/tenant/units/{unitId:N}/members/humans/{Guid.NewGuid():N}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
     }
@@ -356,73 +332,18 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
         ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Viewer);
 
         var response = await _client.DeleteAsync(
-            $"/api/v1/tenant/units/{unitId:N}/members/humans/{Guid.NewGuid():N}/owner", ct);
+            $"/api/v1/tenant/units/{unitId:N}/members/humans/{Guid.NewGuid():N}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
 
     [Fact]
-    public async Task InstallSeededRow_CoexistsWithManualAdd_OnDifferentRole()
-    {
-        // Coexistence check from the #2409 issue body: the package install
-        // path (DefaultPackageArtefactActivator.UpsertMembershipAsync) and
-        // the new manual-add endpoint both write to the same EF table.
-        // Adding the same human under a *different* role through the REST
-        // surface must leave the install-seeded row intact.
-        var ct = TestContext.Current.CancellationToken;
-        var unitId = Guid.NewGuid();
-        ArrangeResolved(unitId);
-        ArrangePermission(unitId, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
-        var humanId = await SeedHumanAsync("alice");
-
-        // Simulate the install activator's direct EF write.
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-            db.UnitMembershipsHumans.Add(new UnitMembershipHumanEntity
-            {
-                Id = Guid.NewGuid(),
-                TenantId = OssTenantIds.Default,
-                UnitId = unitId,
-                HumanId = humanId,
-                Role = "owner",
-                Expertise = new List<string> { "package-declared" },
-                Notifications = new List<string>(),
-                CreatedAt = DateTimeOffset.UtcNow,
-            });
-            await db.SaveChangesAsync(ct);
-        }
-
-        // Manual-add path adds the same human under a different role.
-        var response = await _client.PostAsJsonAsync(
-            $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(humanId, "reviewer", new[] { "manual" }, Array.Empty<string>()),
-            ct);
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-            var rows = await db.UnitMembershipsHumans
-                .AsNoTracking()
-                .Where(m => m.UnitId == unitId && m.HumanId == humanId)
-                .OrderBy(m => m.Role)
-                .ToListAsync(ct);
-            rows.Count.ShouldBe(2);
-            rows[0].Role.ShouldBe("owner");
-            rows[0].Expertise.ShouldBe(new[] { "package-declared" });
-            rows[1].Role.ShouldBe("reviewer");
-            rows[1].Expertise.ShouldBe(new[] { "manual" });
-        }
-    }
-
-    [Fact]
     public async Task InstallSeededRow_RePostedManually_IsIdempotent()
     {
-        // The "duplicate-add is a no-op" branch the issue body lets us pick:
-        // a manual POST with the same (human, role) tuple the install path
-        // already wrote updates expertise + notifications instead of
-        // returning 409, matching the auto-seed contract from #2420.
+        // ADR-0046 §7: the install path and the REST add path both write
+        // to the same EF table. Re-asserting the same (unit, human) tuple
+        // through the REST surface overwrites the row's roles / expertise /
+        // notifications in place rather than producing a duplicate row.
         var ct = TestContext.Current.CancellationToken;
         var unitId = Guid.NewGuid();
         ArrangeResolved(unitId);
@@ -440,7 +361,7 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
                 TenantId = OssTenantIds.Default,
                 UnitId = unitId,
                 HumanId = humanId,
-                Role = "owner",
+                Roles = new List<string> { "owner" },
                 Expertise = new List<string> { "from-package" },
                 Notifications = new List<string>(),
                 CreatedAt = DateTimeOffset.UtcNow,
@@ -450,13 +371,16 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
 
         var response = await _client.PostAsJsonAsync(
             $"/api/v1/tenant/units/{unitId:N}/members/humans",
-            new AddUnitHumanMemberRequest(humanId, "owner",
-                new[] { "from-cli" }, new[] { "escalation" }),
+            new AddUnitHumanMemberRequest(humanId,
+                new[] { "owner", "reviewer" },
+                new[] { "from-cli" },
+                new[] { "escalation" }),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<UnitHumanMemberResponse>(ct);
         body!.MembershipId.ShouldBe(installedMembershipId);
+        body.Roles.ShouldBe(new[] { "owner", "reviewer" });
         body.Expertise.ShouldBe(new[] { "from-cli" });
         body.Notifications.ShouldBe(new[] { "escalation" });
 

@@ -66,8 +66,7 @@ public class FileSystemPackageCatalogService(
                 UnitTemplateCount: topLevel.Count(d => d.Kind == ArtefactKind.Unit),
                 AgentTemplateCount: topLevel.Count(d => d.Kind == ArtefactKind.Agent),
                 SkillCount: topLevel.Count(d => d.Kind == ArtefactKind.Skill),
-                ConnectorCount: CountAssets(Path.Combine(packageDir, "connectors")),
-                WorkflowCount: topLevel.Count(d => d.Kind == ArtefactKind.Workflow),
+                HumanTemplateCount: topLevel.Count(d => d.Kind == ArtefactKind.HumanTemplate),
                 Version: ReadVersion(packageDir)));
         }
 
@@ -104,8 +103,7 @@ public class FileSystemPackageCatalogService(
         var unitTemplates = BuildUnitTemplateSummaries(discovered, name);
         var agentTemplates = BuildAgentTemplateSummaries(discovered, name);
         var skills = BuildSkillSummaries(discovered, name);
-        var connectors = ReadConnectors(packageDir, name, cancellationToken);
-        var workflows = BuildWorkflowSummaries(discovered, name);
+        var humanTemplates = BuildHumanTemplateSummaries(discovered, name);
 
         var connectorDeclarations = ReadConnectorDeclarations(discovered);
         var version = ReadVersion(packageDir);
@@ -119,8 +117,7 @@ public class FileSystemPackageCatalogService(
             UnitTemplates: unitTemplates,
             AgentTemplates: agentTemplates,
             Skills: skills,
-            Connectors: connectors,
-            Workflows: workflows,
+            HumanTemplates: humanTemplates,
             ConnectorDeclarations: connectorDeclarations,
             Content: BuildContentSummary(discovered, packageDir),
             Execution: execution);
@@ -209,7 +206,7 @@ public class FileSystemPackageCatalogService(
                 ArtefactKind.Unit => "unit",
                 ArtefactKind.Agent => "agent",
                 ArtefactKind.Skill => "skill",
-                ArtefactKind.Workflow => "workflow",
+                ArtefactKind.HumanTemplate => "human-template",
                 _ => d.Kind.ToString().ToLowerInvariant(),
             };
             result.Add(new PackageContentEntry(key, d.Name));
@@ -809,46 +806,40 @@ public class FileSystemPackageCatalogService(
         return result;
     }
 
-    private List<WorkflowSummary> BuildWorkflowSummaries(
+    private List<HumanTemplateSummary> BuildHumanTemplateSummaries(
         IReadOnlyList<DiscoveredEntry> discovered,
         string packageName)
     {
-        var result = new List<WorkflowSummary>();
+        var result = new List<HumanTemplateSummary>();
+        var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+            .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+            .IgnoreUnmatchedProperties()
+            .Build();
         foreach (var d in discovered)
         {
-            if (d.Kind != ArtefactKind.Workflow) continue;
-            result.Add(new WorkflowSummary(
+            if (d.Kind != ArtefactKind.HumanTemplate) continue;
+
+            string? displayName = null;
+            string? description = null;
+            try
+            {
+                var manifest = deserializer.Deserialize<HumanTemplateManifest>(d.RawYaml);
+                displayName = manifest?.DisplayName;
+                description = manifest?.Description;
+            }
+            catch (YamlDotNet.Core.YamlException ex)
+            {
+                logger.LogDebug(ex,
+                    "Skipping HumanTemplate '{Name}' header fields; YAML at '{Path}' failed to parse.",
+                    d.Name, d.PackageYamlPath);
+            }
+
+            result.Add(new HumanTemplateSummary(
                 Package: packageName,
                 Name: d.Name,
-                Path: RelativePath(d.FolderPath)));
-        }
-        result.Sort(static (a, b) =>
-            string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-        return result;
-    }
-
-    private List<ConnectorSummary> ReadConnectors(
-        string packageDir,
-        string packageName,
-        CancellationToken cancellationToken)
-    {
-        // The `connectors/` directory is reserved per ADR-0037 §1 and
-        // ADR-0043 §2 — concrete activation semantics ship with the
-        // connector ADR. We surface whatever lives there so the portal
-        // can show what's been authored.
-        var result = new List<ConnectorSummary>();
-        var dir = Path.Combine(packageDir, "connectors");
-        if (!Directory.Exists(dir))
-        {
-            return result;
-        }
-        foreach (var entry in Directory.EnumerateFileSystemEntries(dir))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            result.Add(new ConnectorSummary(
-                Package: packageName,
-                Name: Path.GetFileName(entry),
-                Path: RelativePath(entry)));
+                DisplayName: displayName,
+                Description: description,
+                Path: RelativePath(d.PackageYamlPath)));
         }
         result.Sort(static (a, b) =>
             string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
@@ -871,15 +862,6 @@ public class FileSystemPackageCatalogService(
 
     private string RelativePath(string absolutePath)
         => Path.GetRelativePath(options.Root!, absolutePath).Replace('\\', '/');
-
-    private static int CountAssets(string directory)
-    {
-        if (!Directory.Exists(directory))
-        {
-            return 0;
-        }
-        return Directory.EnumerateFileSystemEntries(directory).Count();
-    }
 
     private static string? TryReadReadmeSummary(string packageDir)
     {

@@ -309,7 +309,7 @@ public class ExecutionDefaultsResolverTests
             Units = units,
             Agents = System.Array.Empty<ResolvedArtefact>(),
             Skills = System.Array.Empty<ResolvedArtefact>(),
-            Workflows = System.Array.Empty<ResolvedArtefact>(),
+            HumanTemplates = System.Array.Empty<ResolvedArtefact>(),
             Execution = packageExecution,
         };
     }

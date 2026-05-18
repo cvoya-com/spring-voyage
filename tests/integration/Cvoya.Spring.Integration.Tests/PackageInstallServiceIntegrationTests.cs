@@ -1010,6 +1010,10 @@ public class PackageInstallServiceIntegrationTests : IDisposable
                 id: claude-sonnet-4-6
             instructions: |
               You orchestrate an engineering team derived from the archetype.
+            members:
+              - human:
+                  roles: [owner]
+                  notifications: ["escalation"]
             execution:
               image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
             policies:
@@ -1019,9 +1023,6 @@ public class PackageInstallServiceIntegrationTests : IDisposable
               initiative:
                 max_level: attentive
                 max_actions_per_hour: 10
-            humans:
-              - role: owner
-                notifications: ["escalation"]
             """);
 
         var teamLeadDir = Path.Combine(templateDir, "agents", templateChildAgentName);

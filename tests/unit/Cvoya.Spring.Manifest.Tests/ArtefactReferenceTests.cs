@@ -19,7 +19,7 @@ public class ArtefactReferenceTests
     [InlineData("sv-oss-program-management", ArtefactKind.Unit, null, "sv-oss-program-management", false)]
     [InlineData("software-engineer", ArtefactKind.Agent, null, "software-engineer", false)]
     [InlineData("code-review", ArtefactKind.Skill, null, "code-review", false)]
-    [InlineData("ci-workflow", ArtefactKind.Workflow, null, "ci-workflow", false)]
+    [InlineData("oss-operator", ArtefactKind.HumanTemplate, null, "oss-operator", false)]
     public void Parse_BareReference_IsWithinPackage(
         string raw, ArtefactKind kind, string? expectedPkg, string expectedName, bool isCross)
     {
@@ -36,7 +36,7 @@ public class ArtefactReferenceTests
     [InlineData("spring-voyage-oss/software-engineer", ArtefactKind.Agent, "spring-voyage-oss", "software-engineer", true)]
     [InlineData("research/triage", ArtefactKind.Unit, "research", "triage", true)]
     [InlineData("other-pkg/code-review", ArtefactKind.Skill, "other-pkg", "code-review", true)]
-    [InlineData("analytics/ci-workflow", ArtefactKind.Workflow, "analytics", "ci-workflow", true)]
+    [InlineData("spring-voyage-oss/oss-operator", ArtefactKind.HumanTemplate, "spring-voyage-oss", "oss-operator", true)]
     public void Parse_QualifiedReference_IsCrossPackage(
         string raw, ArtefactKind kind, string expectedPkg, string expectedName, bool isCross)
     {

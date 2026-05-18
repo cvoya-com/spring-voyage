@@ -190,7 +190,7 @@ public class CredentialBindingResolverTests
             Units = artefacts,
             Agents = System.Array.Empty<ResolvedArtefact>(),
             Skills = System.Array.Empty<ResolvedArtefact>(),
-            Workflows = System.Array.Empty<ResolvedArtefact>(),
+            HumanTemplates = System.Array.Empty<ResolvedArtefact>(),
         };
     }
 }

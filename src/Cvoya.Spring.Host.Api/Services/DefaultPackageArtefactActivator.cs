@@ -122,9 +122,12 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
                 break;
 
             case ArtefactKind.Skill:
-            case ArtefactKind.Workflow:
-                // Skills and workflows are registered via other paths that
-                // read from disk at resolution time; no actor-activation step.
+            case ArtefactKind.HumanTemplate:
+                // Skills and human templates are registered via other paths
+                // that read from disk at resolution time; no actor-
+                // activation step. Humans are materialised into HumanEntity
+                // rows at install time per-declaration; the template body
+                // itself is inert.
                 _logger.LogDebug(
                     "Artefact {Kind} '{Name}' in package '{Package}' does not require actor activation.",
                     artefact.Kind, artefact.Name, packageName);
@@ -232,23 +235,23 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
 
         await _unitCreationService.CreateFromManifestAsync(manifest, overrides, ct, bindingRequest);
 
-        // ADR-0044: package-declared human members.
-        // After the unit is created and its agent / sub-unit graph is wired,
-        // walk every `humans:` declaration, ask the resolution policy who
-        // fills the role, and upsert one membership row per resolved Guid.
-        // The unique index on (tenant_id, unit_id, human_id, role) makes
-        // duplicate declarations collapse to a single row — set semantics
-        // (ADR-0044 § 3).
+        // ADR-0046 §1, §7: package-declared human members live on the
+        // unit's `members:` list under the `human:` key prefix. For each
+        // entry, ask the resolution policy who fills the position
+        // (typically a freshly-minted HumanEntity for the OSS default),
+        // then upsert a single (unit, human) membership row carrying the
+        // multi-valued roles / expertise / notifications.
         await ResolveAndPersistHumansAsync(manifest, actorId, ct);
     }
 
     /// <summary>
-    /// Walks the unit manifest's <c>humans:</c> entries and persists one
-    /// <see cref="UnitMembershipHumanEntity"/> per resolved Guid via the
-    /// registered <see cref="IPackageHumanResolutionPolicy"/>. Idempotent on
-    /// the unique index — repeated installs of the same package, or
-    /// declarations that resolve to a human who already fills the role, are
-    /// no-ops.
+    /// Walks the unit manifest's <c>- human:</c> member entries and
+    /// persists one <see cref="UnitMembershipHumanEntity"/> per resolved
+    /// Guid via the registered <see cref="IPackageHumanResolutionPolicy"/>
+    /// (ADR-0046 §1, §7). Idempotent on the unique <c>(tenant, unit,
+    /// human)</c> index — repeated installs of the same package update
+    /// the row's roles / expertise / notifications in place rather than
+    /// inserting duplicates.
     /// </summary>
     /// <exception cref="PackageHumanResolutionException">
     /// Thrown when the policy returns
@@ -260,7 +263,27 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         Guid unitId,
         CancellationToken ct)
     {
-        if (manifest.Humans is not { Count: > 0 })
+        if (manifest.Members is not { Count: > 0 })
+        {
+            return;
+        }
+
+        var humanEntries = new List<HumanManifest>();
+        foreach (var member in manifest.Members)
+        {
+            if (member.Human?.InlineBody is null)
+            {
+                continue;
+            }
+            var human = ParseHumanInlineBody(member.Human.InlineBody);
+            if (human is null)
+            {
+                continue;
+            }
+            humanEntries.Add(human);
+        }
+
+        if (humanEntries.Count == 0)
         {
             return;
         }
@@ -268,9 +291,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         // Resolve the install caller once per activation. The policy
         // receives it on every request so it can work from worker /
         // out-of-request install paths too — the accessor returns null
-        // when no authenticated principal is present (#2405), the policy
-        // receives null InstallCallerHumanId, and the OSS default returns
-        // Skipped rather than failing the install.
+        // when no authenticated principal is present (#2405).
         var callerAddress = await _callerAccessor.GetCallerAddressAsync(ct);
         var callerHumanId = callerAddress is { Scheme: "human" } && callerAddress.Id != Guid.Empty
             ? callerAddress.Id
@@ -282,37 +303,25 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             : manifest.Name ?? string.Empty;
 
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var membershipStore = scope.ServiceProvider
+            .GetRequiredService<Cvoya.Spring.Core.Units.IUnitHumanMembershipStore>();
 
-        for (var i = 0; i < manifest.Humans.Count; i++)
+        for (var i = 0; i < humanEntries.Count; i++)
         {
-            var human = manifest.Humans[i];
-            // ManifestParser rejects entries with a missing / whitespace
-            // role; the null-coalesce here is paranoia for hand-built
-            // manifests (no public surface should reach this point with
-            // a null role).
-            var role = (human.Role ?? string.Empty).Trim();
-            if (role.Length == 0)
-            {
-                continue;
-            }
-
-            var expertise = (human.Expertise ?? new List<string>())
-                .Where(e => !string.IsNullOrWhiteSpace(e))
-                .Select(e => e.Trim())
-                .ToList();
-            var notifications = (human.Notifications ?? new List<string>())
-                .Where(n => !string.IsNullOrWhiteSpace(n))
-                .Select(n => n.Trim())
-                .ToList();
+            var human = humanEntries[i];
+            var roles = NormaliseStringList(human.Roles);
+            var expertise = NormaliseStringList(human.Expertise);
+            var notifications = NormaliseStringList(human.Notifications);
 
             var request = new PackageHumanResolutionRequest(
                 TenantId: tenantId,
                 UnitId: unitId,
                 UnitDisplayName: unitDisplayName,
-                Role: role,
+                Roles: roles,
                 Expertise: expertise,
                 Notifications: notifications,
+                DisplayName: human.DisplayName,
+                Description: human.Description,
                 InstallCallerHumanId: callerHumanId);
 
             var resolution = await _humanResolutionPolicy.ResolveAsync(request, ct);
@@ -320,111 +329,75 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             switch (resolution.Outcome)
             {
                 case PackageHumanResolutionOutcome.Rejected:
-                    throw new PackageHumanResolutionException(role, unitDisplayName, resolution.Reason);
+                    throw new PackageHumanResolutionException(
+                        string.Join(",", roles), unitDisplayName, resolution.Reason);
 
                 case PackageHumanResolutionOutcome.Skipped:
                     _logger.LogInformation(
-                        "Package humans[{Index}] (role='{Role}') on unit {UnitId} skipped: {Reason}.",
-                        i, role, unitId, resolution.Reason ?? "(no reason supplied)");
+                        "Package members[human {Index}] (roles=[{Roles}]) on unit {UnitId} skipped: {Reason}.",
+                        i, string.Join(", ", roles), unitId,
+                        resolution.Reason ?? "(no reason supplied)");
                     continue;
 
                 case PackageHumanResolutionOutcome.Resolved:
                     if (resolution.HumanIds is not { Count: > 0 })
                     {
                         _logger.LogWarning(
-                            "Package humans[{Index}] (role='{Role}') on unit {UnitId}: policy returned " +
-                            "Resolved with no Guids; treating as Skipped.",
-                            i, role, unitId);
+                            "Package members[human {Index}] (roles=[{Roles}]) on unit {UnitId}: policy " +
+                            "returned Resolved with no Guids; treating as Skipped.",
+                            i, string.Join(", ", roles), unitId);
                         continue;
                     }
 
-                    // Pre-dedup within a single declaration so the EF round-trip
-                    // (which uses tracked entity adds plus a single SaveChanges
-                    // per declaration) does not throw a tracked-key conflict on
-                    // a duplicate human-id within the same call. The cross-
-                    // declaration collapse case (two declarations both resolving
-                    // to the same human + role) relies on the unique index
-                    // catching the second insert below.
-                    var deduped = resolution.HumanIds.Distinct().ToList();
-                    foreach (var humanId in deduped)
+                    foreach (var humanId in resolution.HumanIds.Distinct())
                     {
-                        await UpsertMembershipAsync(
-                            db, tenantId, unitId, humanId, role, expertise, notifications, ct);
+                        await membershipStore.UpsertAsync(
+                            unitId, humanId, roles, expertise, notifications, ct);
                     }
                     break;
 
                 default:
                     _logger.LogWarning(
-                        "Package humans[{Index}] (role='{Role}') on unit {UnitId}: policy returned " +
-                        "unknown outcome {Outcome}; skipping.",
-                        i, role, unitId, resolution.Outcome);
+                        "Package members[human {Index}] on unit {UnitId}: policy returned unknown " +
+                        "outcome {Outcome}; skipping.",
+                        i, unitId, resolution.Outcome);
                     continue;
             }
         }
     }
 
     /// <summary>
-    /// Idempotently upserts one <see cref="UnitMembershipHumanEntity"/>
-    /// keyed on the unique-index tuple <c>(tenant_id, unit_id, human_id, role)</c>.
-    /// The check-then-insert race is benign: a concurrent install racing the
-    /// same package would land at most one row anyway (the unique index in
-    /// Postgres is the durable invariant). The pre-read is the v0.1 ON
-    /// CONFLICT DO NOTHING equivalent in EF — Postgres-specific upsert
-    /// syntax would couple the activator to Npgsql, and the in-memory test
-    /// provider doesn't honour <c>ON CONFLICT</c> sql anyway.
+    /// Parses a captured inline <c>human:</c> body into the typed
+    /// <see cref="HumanManifest"/> shape the resolution loop consumes.
+    /// Returns <see langword="null"/> for malformed bodies so the install
+    /// pipeline does not abort on a single bad entry — the parser already
+    /// rejects most shape errors at upload, and a body that survives parsing
+    /// but fails the typed deserializer here logs and skips.
     /// </summary>
-    private static async Task UpsertMembershipAsync(
-        SpringDbContext db,
-        Guid tenantId,
-        Guid unitId,
-        Guid humanId,
-        string role,
-        List<string> expertise,
-        List<string> notifications,
-        CancellationToken ct)
+    private HumanManifest? ParseHumanInlineBody(string inlineBody)
     {
-        var existing = await db.UnitMembershipsHumans
-            .AsNoTracking()
-            .Where(m => m.TenantId == tenantId
-                && m.UnitId == unitId
-                && m.HumanId == humanId
-                && m.Role == role)
-            .Select(m => m.Id)
-            .FirstOrDefaultAsync(ct);
-        if (existing != Guid.Empty)
-        {
-            return;
-        }
-
-        db.UnitMembershipsHumans.Add(new UnitMembershipHumanEntity
-        {
-            Id = Guid.NewGuid(),
-            TenantId = tenantId,
-            UnitId = unitId,
-            HumanId = humanId,
-            Role = role,
-            Expertise = new List<string>(expertise),
-            Notifications = new List<string>(notifications),
-            CreatedAt = DateTimeOffset.UtcNow,
-        });
-
         try
         {
-            await db.SaveChangesAsync(ct);
+            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+                .IgnoreUnmatchedProperties()
+                .Build();
+            return deserializer.Deserialize<HumanManifest>(inlineBody);
         }
-        catch (DbUpdateException)
+        catch (Exception ex)
         {
-            // The unique index lost a race with a concurrent insert
-            // (same package being installed simultaneously, or another
-            // declaration in this very call collapsing through). Roll
-            // the add back and treat the row as already present per
-            // ADR-0044 § 3 set semantics.
-            foreach (var entry in db.ChangeTracker.Entries<UnitMembershipHumanEntity>().ToList())
-            {
-                entry.State = EntityState.Detached;
-            }
+            _logger.LogWarning(ex,
+                "Failed to parse `- human:` inline body; skipping the entry. Body: {Body}",
+                inlineBody);
+            return null;
         }
     }
+
+    private static List<string> NormaliseStringList(IEnumerable<string>? raw)
+        => (raw ?? Array.Empty<string>())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim())
+            .ToList();
 
     /// <summary>
     /// Rewrites every <see cref="MemberManifest"/> reference (<c>unit:</c> /

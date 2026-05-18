@@ -1,6 +1,6 @@
 # Declarative Configuration
 
-This guide covers how to build a Spring Voyage **package** as the canonical source of truth for a set of units, agents, skills, and workflows — then install it with `spring package install`. Declarative is the recommended path for any configuration you intend to version, review, or reproduce across environments.
+This guide covers how to build a Spring Voyage **package** as the canonical source of truth for a set of units, agents, skills, templates, and human team-member declarations — then install it with `spring package install`. Declarative is the recommended path for any configuration you intend to version, review, or reproduce across environments.
 
 ## When to use declarative
 
@@ -14,11 +14,11 @@ This guide:
 - Covers the install-time flags: `--into`, `--as`, and how a multi-package install runs.
 - Lists common pitfalls.
 
-Conceptual background is in [Packages](../../concepts/packages.md) and [Templates](../../concepts/templates.md); the schema decisions are in [ADR-0043](../../decisions/0043-recursive-package-format.md), [ADR-0037](../../decisions/0037-package-schema-decomposition.md), and [ADR-0035](../../decisions/0035-package-as-bundling-unit.md).
+Conceptual background is in [Packages](../../concepts/packages.md), [Templates](../../concepts/templates.md), and [Humans](../../concepts/humans.md); the schema decisions are in [ADR-0043](../../decisions/0043-recursive-package-format.md), [ADR-0037](../../decisions/0037-package-schema-decomposition.md), [ADR-0035](../../decisions/0035-package-as-bundling-unit.md), and [ADR-0046](../../decisions/0046-unified-members-grammar.md) (the unified `members:` grammar this guide follows).
 
 ## The recursive folder layout
 
-Every artefact in a package is a **folder** whose root file is named `package.yaml`. The `kind:` discriminator tells the parser what the folder is. The conventional subdirectories — `units/`, `agents/`, `skills/`, `workflows/`, `connectors/`, `templates/` — apply at every depth. There is no `content:` block on the package manifest; the directory layout *is* the manifest.
+Every artefact in a package is a **folder** whose root file is named `package.yaml`. The `kind:` discriminator tells the parser what the folder is. The conventional subdirectories — `units/`, `agents/`, `skills/`, `templates/` — apply at every depth ([ADR-0043 §2](../../decisions/0043-recursive-package-format.md), amended by [ADR-0046 §2](../../decisions/0046-unified-members-grammar.md) to drop `workflows/` and `connectors/`). There is no `content:` block on the package manifest; the directory layout *is* the manifest.
 
 A minimal package skeleton:
 
@@ -111,6 +111,9 @@ instructions: |
 members:
   - agent: friendly-greeter
   - agent: polite-greeter
+  - human:
+      roles: [owner]
+      notifications: ["escalation", "completion"]
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 policies:
@@ -120,16 +123,13 @@ policies:
   initiative:
     max_level: attentive
     max_actions_per_hour: 10
-humans:
-  - identity: owner
-    permission: owner
-    notifications: ["escalation", "completion"]
 ```
 
-Two things to notice:
+Three things to notice:
 
 - The folder is named `greeting-team/`. The `name:` field inside its `package.yaml` is also `greeting-team`. Folder name must equal `name:` — disagreement is a parse error.
 - `members:` references its child agents by bare name (`friendly-greeter`, `polite-greeter`). The resolver looks those up by walking the unit folder's own `agents/` directory first.
+- The human team member is declared on the same `members:` list with the `- human:` discriminator ([ADR-0046 §1](../../decisions/0046-unified-members-grammar.md)). The OSS install policy resolves the entry to the install caller, mints a fresh `HumanEntity`, and adds a `unit_memberships_humans` row carrying `roles: [owner]` and the two notification subscriptions ([ADR-0046 §7](../../decisions/0046-unified-members-grammar.md)). The legacy top-level `humans:` block is gone; the parser rejects it with a structured `LegacyHumansBlock` error.
 
 ### Step 3 — the agent folders
 
@@ -256,6 +256,67 @@ Skip templates when each artefact is a one-off — `example-simple` deliberately
 
 Conceptual background is in [Templates](../../concepts/templates.md).
 
+## Adding a human team member
+
+A unit's `members:` list carries human team members alongside agents and sub-units with the `- human:` discriminator ([ADR-0046 §1](../../decisions/0046-unified-members-grammar.md)). The slot is **inline-only** — humans own no sub-artefacts, so there is no `humans/<name>/` folder shape.
+
+```yaml
+# minimal — one role, no notifications
+members:
+  - human: { roles: [reviewer] }
+
+# typical — multi-valued roles, expertise tags, notification subscriptions
+members:
+  - human:
+      roles: [owner, security_lead]
+      expertise: [security, infra]
+      notifications: [escalation, completion]
+```
+
+All fields are optional. The OSS install policy resolves every declaration to the install caller (minting a fresh `HumanEntity` per entry); hosted policies decide whether to mint anew or to bind to an existing tenant member ([ADR-0046 §10](../../decisions/0046-unified-members-grammar.md)). The membership row in `unit_memberships_humans` is keyed by `(tenant, unit, human)`; `roles` / `expertise` / `notifications` are jsonb columns on the row.
+
+The `roles` list is multi-valued and case-insensitive; duplicates within one entry collapse at parse time. Notifications stay human-only — agents have no notification surface.
+
+### Defining a reusable `HumanTemplate`
+
+When the same team-role shape repeats across multiple units (an "owner" that recurs, an "OSS operator" shared across every package), promote the shape to a `HumanTemplate` and stamp it from each unit's members.
+
+```
+example-with-humans/
+└── templates/
+    └── oss-operator/
+        └── package.yaml         # kind: HumanTemplate
+```
+
+```yaml
+# packages/example-with-humans/templates/oss-operator/package.yaml
+apiVersion: spring.voyage/v1
+kind: HumanTemplate
+name: oss-operator
+displayName: OSS Operator
+description: Default OSS-deployment human; fills every team role.
+roles: [owner]
+expertise: [operations, escalation]
+notifications: [escalation, completion]
+```
+
+Stamp from any unit's `members:`:
+
+```yaml
+members:
+  - human: { from: oss-operator }                          # all fields flow through
+  - human: { from: oss-operator, roles: [security_lead] }  # roles replaces [owner]
+```
+
+The member entry's `roles`, `expertise`, and `notifications` fully replace the template's values when present ([ADR-0046 §5](../../decisions/0046-unified-members-grammar.md)); scalars (`displayName`, `description`) follow the scalar-override rule. Cross-package addressing uses the same `<pkg>/<name>@<version>` grammar as `AgentTemplate` / `UnitTemplate`:
+
+```yaml
+members:
+  - human: { from: shared-archetypes/oss-operator@1.0.0 }
+```
+
+Conceptual background is in [Humans](../../concepts/humans.md) (the install-time resolution model) and [Templates](../../concepts/templates.md) (the `HumanTemplate` section).
+
 ## Building `example-templated` step by step
 
 [`packages/example-templated/`](../../../packages/example-templated/) is the templated counterpart to `example-simple`. Same problem shape (a unit with member agents); different authoring style. Installing it produces one unit and five agents — two stamped from a `UnitTemplate`'s nested children plus three stamped from an `AgentTemplate` referenced inline.
@@ -341,6 +402,10 @@ instructions: |
   You orchestrate a software engineering team made up of a team lead, a
   senior engineer, and additional individual contributors that the
   consumer adds via concrete `from: software-engineer` instances.
+members:
+  - human:
+      roles: [owner]
+      notifications: ["escalation", "completion"]
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 policies:
@@ -350,10 +415,6 @@ policies:
   initiative:
     max_level: attentive
     max_actions_per_hour: 10
-humans:
-  - identity: owner
-    permission: owner
-    notifications: ["escalation", "completion"]
 ```
 
 The two children under `engineering-team/agents/` (`team-lead`, `senior-engineer`) are concrete `kind: Agent` folders that look exactly like ordinary agent folders — the difference is purely positional. Because they live inside a `UnitTemplate`, they are stamped fresh under every consumer instance:
@@ -405,11 +466,12 @@ kind: Unit
 name: platform-eng
 description: Platform engineering team — concrete instance of the `engineering-team` template. Stamps the template's nested team-lead and senior-engineer, plus three software-engineer instances declared below.
 from: engineering-team
-# Inherits ai, instructions, execution, policies, humans from the
-# engineering-team template per ADR-0043 §5d. `members:` is omitted so
-# the template's stamped child tree (team-lead, senior-engineer) is the
-# member set, augmented by the three concrete agents under
-# `units/platform-eng/agents/` (ada, hopper, lovelace).
+# Inherits ai, instructions, execution, policies from the engineering-team
+# template per ADR-0043 §5d. `members:` is omitted so the template's
+# stamped member set (the team-lead and senior-engineer agents plus the
+# - human: owner entry) flows through unchanged. The three concrete
+# `from: software-engineer` agents under `units/platform-eng/agents/`
+# (ada, hopper, lovelace) augment the stamped set.
 ```
 
 `platform-eng` is concrete (`kind: Unit`, not `UnitTemplate`) — it activates at install time. It declares `from: engineering-team`, so the resolver:
@@ -522,7 +584,9 @@ spring package abort <install-id>            # discard the staging rows; uninsta
 
 **Names are package-scoped, not folder-scoped.** Two agents named `architect` cannot coexist in the same package, even if they live in different parts of the folder tree (`units/eng/agents/architect/` and `agents/architect/`). The catalog indexes artefacts by `name:` within a package.
 
-**`content:` is removed.** The previous package layout listed contained artefacts in a `content:` block on `package.yaml`. That block is gone. The resolver walks the conventional subdirectories (`units/`, `agents/`, `skills/`, `workflows/`, `connectors/`, `templates/`) and treats every direct child folder as one artefact. Install ordering is derived from `requires:` topology; if you need B to install after A, declare `requires:` on B. See the [ADR-0043 §8 migration table](../../decisions/0043-recursive-package-format.md#8-migration-hard-rename-parse-error-on-the-flat-shape-no-shim) for the full set of migration errors and the exact error names.
+**`content:` is removed.** The previous package layout listed contained artefacts in a `content:` block on `package.yaml`. That block is gone. The resolver walks the conventional subdirectories (`units/`, `agents/`, `skills/`, `templates/`) and treats every direct child folder as one artefact. Install ordering is derived from `requires:` topology; if you need B to install after A, declare `requires:` on B. See the [ADR-0043 §8 migration table](../../decisions/0043-recursive-package-format.md#8-migration-hard-rename-parse-error-on-the-flat-shape-no-shim) for the full set of migration errors and the exact error names; [ADR-0046 §2](../../decisions/0046-unified-members-grammar.md) covers the `workflows/` and `connectors/` removals.
+
+**Humans live on `members:`, not on a separate top-level block.** Pre-[ADR-0046](../../decisions/0046-unified-members-grammar.md) unit manifests carried a top-level `humans:` block; that shape is removed and the parser rejects it with `LegacyHumansBlock`. Add a `- human:` entry to the unit's `members:` list ([ADR-0046 §1](../../decisions/0046-unified-members-grammar.md)) — see the "Adding a human team member" subsection above.
 
 **Inner `package.yaml` files do not declare `version:`.** `version:` lives only on the install-root `package.yaml`. Inner artefacts inherit from the container. An inner `version:` is a parse error (`UnexpectedInnerVersion`).
 
@@ -533,7 +597,8 @@ spring package abort <install-id>            # discard the staging rows; uninsta
 ## Related reading
 
 - [Packages](../../concepts/packages.md) — recursive folder layout, kinds, install scope.
-- [Templates](../../concepts/templates.md) — type / instance separation, `from:`, snapshot binding.
+- [Templates](../../concepts/templates.md) — type / instance separation, `from:`, snapshot binding, `HumanTemplate`.
+- [Humans](../../concepts/humans.md) — team-role / platform-role split, install-time resolution, post-install editing.
 - [Examples](examples.md) — index of the in-tree example packages and the CLI scenario suite.
 - [`spring package` CLI reference](../../cli-reference.md) — full flag set, exit codes, recovery surface.
-- [ADR-0043](../../decisions/0043-recursive-package-format.md), [ADR-0037](../../decisions/0037-package-schema-decomposition.md), [ADR-0035](../../decisions/0035-package-as-bundling-unit.md) — the schema and install-pipeline decisions.
+- [ADR-0046](../../decisions/0046-unified-members-grammar.md), [ADR-0043](../../decisions/0043-recursive-package-format.md), [ADR-0037](../../decisions/0037-package-schema-decomposition.md), [ADR-0035](../../decisions/0035-package-as-bundling-unit.md) — the schema and install-pipeline decisions.

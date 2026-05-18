@@ -119,6 +119,10 @@ instructions: |
 members:
   - agent: { name: drucker, from: program-manager, displayName: "Drucker (PM)" }
   - agent: { name: deming,  from: program-manager, displayName: "Deming (PM)" }
+  - human:
+      roles: [pm-lead]
+      expertise: [triage, design, architecture, escalation]
+      notifications: ["escalation", "completion"]
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest
   # Issue #2436: hosting is first-class on unit + agent execution manifests.
@@ -134,7 +138,3 @@ policies:
   initiative:
     max_level: attentive
     max_actions_per_hour: 10
-humans:
-  - role: pm-lead
-    expertise: [triage, design, architecture, escalation]
-    notifications: ["escalation", "completion"]

@@ -900,7 +900,7 @@ public class PackageInstallService : IPackageInstallService
         var missingRefs = new List<string>();
         foreach (var (_, pkg) in resolved)
         {
-            foreach (var artefacts in new[] { pkg.Units, pkg.Agents, pkg.Skills, pkg.Workflows })
+            foreach (var artefacts in new[] { pkg.Units, pkg.Agents, pkg.Skills, pkg.HumanTemplates })
             {
                 foreach (var a in artefacts.Where(a => a.IsCrossPackage))
                 {
@@ -951,7 +951,7 @@ public class PackageInstallService : IPackageInstallService
         {
             var crossRefs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var artefacts in new[] { item.Package.Units, item.Package.Agents,
-                item.Package.Skills, item.Package.Workflows })
+                item.Package.Skills, item.Package.HumanTemplates })
             {
                 foreach (var a in artefacts.Where(a => a.IsCrossPackage))
                 {

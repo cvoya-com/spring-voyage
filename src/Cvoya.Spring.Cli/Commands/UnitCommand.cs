@@ -77,8 +77,9 @@ public static class UnitCommand
         bool? IsPrimary,
         // #2438 human-scheme rows. Sparse — populated for `scheme == "human"`
         // only; existing agent / sub-unit consumers see null on these fields.
+        // ADR-0046 §3 collapses `Role` (singular) into `Roles` (multi-valued).
         string? HumanId,
-        string? Role,
+        IReadOnlyList<string>? Roles,
         IReadOnlyList<string>? Expertise,
         IReadOnlyList<string>? Notifications,
         string? MembershipId);
@@ -98,7 +99,7 @@ public static class UnitCommand
         new("specialty", r => r.Specialty),
         new("enabled", r => r.Enabled?.ToString().ToLowerInvariant()),
         new("executionMode", r => r.ExecutionMode),
-        new("role", r => r.Role),
+        new("roles", r => r.Roles is { Count: > 0 } rs ? string.Join(",", rs) : null),
         new("expertise", r => r.Expertise is { Count: > 0 } x ? string.Join(",", x) : null),
     };
 
@@ -1488,7 +1489,7 @@ public static class UnitCommand
                         UpdatedAt: m.UpdatedAt,
                         IsPrimary: m.IsPrimary,
                         HumanId: null,
-                        Role: null,
+                        Roles: null,
                         Expertise: null,
                         Notifications: null,
                         MembershipId: null));
@@ -1511,7 +1512,7 @@ public static class UnitCommand
                         UpdatedAt: null,
                         IsPrimary: null,
                         HumanId: null,
-                        Role: null,
+                        Roles: null,
                         Expertise: null,
                         Notifications: null,
                         MembershipId: null));
@@ -1546,7 +1547,7 @@ public static class UnitCommand
                     UpdatedAt: m.UpdatedAt,
                     IsPrimary: m.IsPrimary,
                     HumanId: null,
-                    Role: null,
+                    Roles: null,
                     Expertise: null,
                     Notifications: null,
                     MembershipId: null));
@@ -1579,7 +1580,7 @@ public static class UnitCommand
                     UpdatedAt: null,
                     IsPrimary: null,
                     HumanId: humanIdHex,
-                    Role: h.Role,
+                    Roles: h.Roles,
                     Expertise: h.Expertise,
                     Notifications: h.Notifications,
                     MembershipId: h.MembershipId is { } mid ? mid.ToString("N") : null));

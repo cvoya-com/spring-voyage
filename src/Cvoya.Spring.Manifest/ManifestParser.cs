@@ -29,7 +29,7 @@ public static class ManifestParser
     /// </summary>
     public static readonly IReadOnlyList<string> UnsupportedSections = new[]
     {
-        "ai", "requires", "policies", "humans",
+        "ai", "requires", "policies",
     };
 
     /// <summary>
@@ -40,6 +40,12 @@ public static class ManifestParser
     /// </summary>
     public static UnitManifest Parse(string yamlText)
     {
+        // ADR-0046 §1: the legacy top-level `humans:` block is removed.
+        // The strict parser on UnitManifest would already reject the
+        // unknown field, but the structured-error surface here gives the
+        // operator an actionable migration hint pointing at this ADR.
+        RejectLegacyHumansBlock(yamlText);
+
         UnitManifest? manifest;
         try
         {
@@ -60,8 +66,6 @@ public static class ManifestParser
             throw new ManifestParseException("Manifest is empty.");
         }
 
-        ValidateHumanEntries(manifest.Humans);
-
         if (string.IsNullOrWhiteSpace(manifest.ApiVersion))
         {
             throw new ManifestParseException(
@@ -71,7 +75,7 @@ public static class ManifestParser
         if (string.IsNullOrWhiteSpace(manifest.Kind))
         {
             throw new ManifestParseException(
-                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill/Workflow (ADR-0037 decision 1).");
+                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill (ADR-0037 decision 1).");
         }
 
         if (!string.Equals(manifest.Kind.Trim(), "Unit", System.StringComparison.Ordinal))
@@ -148,7 +152,11 @@ public static class ManifestParser
     }
 
     /// <summary>
-    /// Validates the <c>members:</c> list against the v0.1 manifest grammar.
+    /// Validates the <c>members:</c> list against the v0.1 manifest grammar
+    /// (ADR-0046 §1). Every entry carries exactly one of <c>agent:</c> /
+    /// <c>unit:</c> / <c>human:</c>; the discriminator's value is either a
+    /// bare scalar reference (ADR-0043 §5g) or an inline body. Humans are
+    /// inline-only (ADR-0046 §6).
     /// </summary>
     private static void ValidateUnitMemberGrammar(UnitManifest unit)
     {
@@ -157,7 +165,7 @@ public static class ManifestParser
             return;
         }
 
-        var seenSymbols = new HashSet<string>(System.StringComparer.Ordinal);
+        var seenAgentUnitSymbols = new HashSet<string>(System.StringComparer.Ordinal);
         for (var i = 0; i < unit.Members.Count; i++)
         {
             var member = unit.Members[i];
@@ -173,6 +181,17 @@ public static class ManifestParser
             {
                 LocalSymbolValidator.RejectPathStyleReference(unitRef, $"unit.members[{i}].unit");
             }
+            if (member.Human is { Reference: { } humanRef })
+            {
+                // ADR-0046 §1: humans are addressable only by inline body
+                // (with optional `from:` template chain). Bare-scalar
+                // references to a peer human in the catalog are not
+                // authored in v0.1 — the inline-only restriction is the
+                // single concession §6 makes versus the agent / unit
+                // grammar. Reject path-style scalars uniformly with the
+                // sibling slots.
+                LocalSymbolValidator.RejectPathStyleReference(humanRef, $"unit.members[{i}].human");
+            }
 
             // Inline bodies (ADR-0043 §5g): require the body to declare a
             // name BEFORE the "missing both" / "declares both" checks so the
@@ -181,6 +200,11 @@ public static class ManifestParser
             // inline body cannot be resolved by peers. This check runs first
             // because an anonymous inline body would otherwise look like an
             // empty slot to the "missing both" check below.
+            //
+            // Humans are exempt — a `human:` entry's identity is server-
+            // allocated at install time (ADR-0046 §7 "fresh HumanEntity per
+            // declaration") so the inline body does not need to carry a
+            // local symbol the rest of the unit references.
             if (member.Agent is { IsInline: true } && IsBlankScalar(member.Agent))
             {
                 throw new ManifestParseException(
@@ -198,29 +222,40 @@ public static class ManifestParser
 
             var hasAgent = member.Agent is not null && !IsBlankScalar(member.Agent);
             var hasUnit = member.Unit is not null && !IsBlankScalar(member.Unit);
+            var hasHuman = member.Human is not null
+                && !(member.Human.Reference is not null && string.IsNullOrWhiteSpace(member.Human.Reference))
+                && !(member.Human.InlineBody is null);
 
-            if (hasAgent && hasUnit)
+            var setCount = (hasAgent ? 1 : 0) + (hasUnit ? 1 : 0) + (hasHuman ? 1 : 0);
+            if (setCount > 1)
             {
                 throw new ManifestParseException(
-                    $"unit.members[{i}] declares both 'agent' and 'unit'; " +
-                    "a single member entry must reference exactly one peer artefact.");
+                    $"unit.members[{i}] declares more than one of 'agent' / 'unit' / 'human'; " +
+                    "a single member entry must reference exactly one participant kind " +
+                    "(ADR-0046 §1).");
             }
 
-            if (!hasAgent && !hasUnit)
+            if (setCount == 0)
             {
                 throw new ManifestParseException(
-                    $"unit.members[{i}] is missing both 'agent' and 'unit'; " +
-                    "every member entry must reference exactly one peer artefact " +
+                    $"unit.members[{i}] is missing all of 'agent' / 'unit' / 'human'; " +
+                    "every member entry must reference exactly one participant kind " +
                     "by local symbol, 32-char no-dash hex Guid, or inline body " +
-                    "(ADR-0043 §5g).");
+                    "(ADR-0046 §1).");
             }
 
-            var symbol = (member.AgentName ?? member.UnitName)!.Trim();
-            if (!seenSymbols.Add(symbol))
+            if (hasAgent || hasUnit)
             {
-                throw new ManifestParseException(
-                    $"unit.members lists '{symbol}' more than once. " +
-                    "Each member symbol must be unique within a unit's member list.");
+                // Agent / unit member symbols are addressable peer artefacts
+                // — they must be unique within the unit's member list so the
+                // installer can resolve each reference to a single peer.
+                var symbol = (member.AgentName ?? member.UnitName)!.Trim();
+                if (!seenAgentUnitSymbols.Add(symbol))
+                {
+                    throw new ManifestParseException(
+                        $"unit.members lists '{symbol}' more than once. " +
+                        "Each member symbol must be unique within a unit's member list.");
+                }
             }
         }
     }
@@ -287,7 +322,7 @@ public static class ManifestParser
         if (string.IsNullOrWhiteSpace(manifest.Kind))
         {
             throw new ManifestParseException(
-                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill/Workflow/UnitTemplate/AgentTemplate (ADR-0037 decision 1).");
+                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill/UnitTemplate/AgentTemplate/HumanTemplate (ADR-0037 decision 1).");
         }
 
         if (!string.Equals(manifest.Kind.Trim(), "AgentTemplate", System.StringComparison.Ordinal))
@@ -351,7 +386,7 @@ public static class ManifestParser
         if (string.IsNullOrWhiteSpace(manifest.Kind))
         {
             throw new ManifestParseException(
-                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill/Workflow (ADR-0037 decision 1).");
+                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill (ADR-0037 decision 1).");
         }
 
         if (!string.Equals(manifest.Kind.Trim(), "Agent", System.StringComparison.Ordinal))
@@ -388,6 +423,11 @@ public static class ManifestParser
     /// </summary>
     public static UnitTemplateManifest ParseUnitTemplate(string yamlText)
     {
+        // ADR-0046 §1: the legacy `humans:` block is also rejected on
+        // template documents — the migration hint is the same as on
+        // concrete units.
+        RejectLegacyHumansBlock(yamlText);
+
         UnitTemplateManifest? manifest;
         try
         {
@@ -417,7 +457,7 @@ public static class ManifestParser
         if (string.IsNullOrWhiteSpace(manifest.Kind))
         {
             throw new ManifestParseException(
-                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill/Workflow/UnitTemplate/AgentTemplate (ADR-0037 decision 1).");
+                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill/UnitTemplate/AgentTemplate/HumanTemplate (ADR-0037 decision 1).");
         }
 
         if (!string.Equals(manifest.Kind.Trim(), "UnitTemplate", System.StringComparison.Ordinal))
@@ -431,8 +471,6 @@ public static class ManifestParser
             throw new ManifestParseException(
                 "Manifest is missing the required top-level 'name' field.");
         }
-
-        ValidateHumanEntries(manifest.Humans);
 
         // Issue #2436: strict validation of execution.hosting on the
         // unit-template manifest. UnitTemplate carries the same
@@ -451,22 +489,93 @@ public static class ManifestParser
     }
 
     /// <summary>
-    /// Requires every <c>humans[]</c> entry to declare a non-blank
-    /// <c>role</c> (ADR-0044 § 2). Shared by the <c>Unit</c> and
-    /// <c>UnitTemplate</c> parse paths.
+    /// Parses a <c>kind: HumanTemplate</c> YAML document (ADR-0046 §4) into a
+    /// <see cref="HumanTemplateManifest"/>. Strict parsing — unknown fields
+    /// are a parse error.
     /// </summary>
-    private static void ValidateHumanEntries(IReadOnlyList<HumanManifest>? humans)
+    public static HumanTemplateManifest ParseHumanTemplate(string yamlText)
     {
-        if (humans is null) return;
-        for (var i = 0; i < humans.Count; i++)
+        HumanTemplateManifest? manifest;
+        try
         {
-            if (string.IsNullOrWhiteSpace(humans[i].Role))
-            {
-                throw new ManifestParseException(
-                    $"humans[{i}] is missing the required 'role:' field (ADR-0044 § 2). " +
-                    "Every team-member declaration carries a free-form role string (e.g. " +
-                    "role: owner, role: reviewer, role: security_lead).");
-            }
+            var deserializer = new DeserializerBuilder()
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .WithTypeConverter(new RequirementEntryYamlConverter())
+                .Build();
+            manifest = deserializer.Deserialize<HumanTemplateManifest>(yamlText);
+        }
+        catch (YamlDotNet.Core.YamlException ex)
+        {
+            throw new ManifestParseException($"Invalid YAML: {ex.Message}", ex);
+        }
+
+        if (manifest is null)
+        {
+            throw new ManifestParseException("Manifest is empty.");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.ApiVersion))
+        {
+            throw new ManifestParseException(
+                "MissingApiVersion: every artefact YAML declares apiVersion: spring.voyage/v1 (ADR-0037 decision 1).");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.Kind))
+        {
+            throw new ManifestParseException(
+                "MissingKind: every artefact YAML declares kind: Unit/Agent/Skill/UnitTemplate/AgentTemplate/HumanTemplate (ADR-0037 decision 1).");
+        }
+
+        if (!string.Equals(manifest.Kind.Trim(), "HumanTemplate", System.StringComparison.Ordinal))
+        {
+            throw new ManifestParseException(
+                $"HumanTemplate YAML declares kind: '{manifest.Kind}' but expected 'HumanTemplate'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(manifest.Name))
+        {
+            throw new ManifestParseException(
+                "Manifest is missing the required top-level 'name' field.");
+        }
+
+        return manifest;
+    }
+
+    /// <summary>
+    /// ADR-0046 §1: the legacy top-level <c>humans:</c> block is gone; each
+    /// participant is declared under <c>members:</c> with a <c>- human:</c>
+    /// entry. The strict typed parser already rejects the unknown field, but
+    /// catching it here surfaces a structured error with an actionable
+    /// migration hint instead of YamlDotNet's generic "property not found"
+    /// message.
+    /// </summary>
+    private static void RejectLegacyHumansBlock(string yamlText)
+    {
+        // Pre-scan with a permissive deserializer so the legacy-detection
+        // branch never depends on the strict UnitManifest field set.
+        var probe = new DeserializerBuilder()
+            .WithNamingConvention(CamelCaseNamingConvention.Instance)
+            .IgnoreUnmatchedProperties()
+            .Build();
+        Dictionary<string, object?>? rootMap;
+        try
+        {
+            rootMap = probe.Deserialize<Dictionary<string, object?>>(yamlText);
+        }
+        catch (YamlDotNet.Core.YamlException)
+        {
+            // Malformed YAML — let the typed parser produce the precise
+            // diagnostic; nothing useful to say at this layer.
+            return;
+        }
+
+        if (rootMap is not null && rootMap.ContainsKey("humans"))
+        {
+            throw new ManifestParseException(
+                "LegacyHumansBlock: `humans:` block is no longer a top-level slot; " +
+                "use `members: [{ human: { roles: [...] } }]` (ADR-0046 §1). " +
+                "Each entry under `members:` carries one of `agent:` / `unit:` / `human:` " +
+                "as the participant discriminator.");
         }
     }
 
@@ -492,7 +601,6 @@ public static class ManifestParser
         "ai" => manifest.Ai is not null,
         "requires" => manifest.Requires is { Count: > 0 },
         "policies" => manifest.Policies is { Count: > 0 },
-        "humans" => manifest.Humans is { Count: > 0 },
         _ => false,
     };
 }

@@ -95,9 +95,10 @@ public interface IPackageHumanResolutionPolicy
 /// Provided for log lines and for hosted policies that may want to render
 /// a "who fills role X on unit Y?" prompt.
 /// </param>
-/// <param name="Role">
-/// The team role string from the manifest (free-form in v0.1). Never null
-/// or whitespace — the parser rejects empty roles.
+/// <param name="Roles">
+/// Free-form team-role strings from the manifest (ADR-0046 §3). Multi-
+/// valued; may be empty when the package author declared a participant
+/// without explicit roles.
 /// </param>
 /// <param name="Expertise">
 /// The manifest's <c>expertise:</c> tags for this declaration. Empty list
@@ -107,20 +108,33 @@ public interface IPackageHumanResolutionPolicy
 /// The manifest's <c>notifications:</c> tags for this declaration. Empty
 /// list when the manifest omitted the field.
 /// </param>
+/// <param name="DisplayName">
+/// Optional human-friendly display name from the manifest's
+/// <c>displayName:</c> field on a <c>- human:</c> entry. <see langword="null"/>
+/// when omitted; the resolution policy is free to derive a default
+/// (e.g. <c>"Operator · &lt;roles[0]&gt;"</c> for the OSS policy).
+/// </param>
+/// <param name="Description">
+/// Optional description from the manifest's <c>description:</c> field on a
+/// <c>- human:</c> entry. <see langword="null"/> when omitted.
+/// </param>
 /// <param name="InstallCallerHumanId">
 /// The install caller's stable UUID (resolved via the API host's
 /// <c>IAuthenticatedCallerAccessor</c>). <see langword="null"/> when the
-/// install path runs out-of-request (worker host, background reinstall);
-/// the OSS default treats this as <see cref="PackageHumanResolutionOutcome.Skipped"/>
-/// rather than failing the install.
+/// install path runs out-of-request (worker host, background reinstall).
+/// The OSS default no longer auto-fills with the caller (ADR-0046 §10) —
+/// it mints a fresh <c>HumanEntity</c> per declaration — but the field
+/// remains on the request for hosted policies that bind by claim.
 /// </param>
 public sealed record PackageHumanResolutionRequest(
     Guid TenantId,
     Guid UnitId,
     string UnitDisplayName,
-    string Role,
+    IReadOnlyList<string> Roles,
     IReadOnlyList<string> Expertise,
     IReadOnlyList<string> Notifications,
+    string? DisplayName,
+    string? Description,
     Guid? InstallCallerHumanId);
 
 /// <summary>

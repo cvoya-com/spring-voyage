@@ -198,7 +198,7 @@ public sealed class TemplateResolver : ITemplateResolver
             Units = outputUnits,
             Agents = outputAgents,
             Skills = package.Skills,
-            Workflows = package.Workflows,
+            HumanTemplates = package.HumanTemplates,
             RequiredConnectorSlugs = package.RequiredConnectorSlugs,
             ConnectorRequiresByArtefact = package.ConnectorRequiresByArtefact,
             Execution = package.Execution,

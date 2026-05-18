@@ -88,7 +88,9 @@ the enum the dispatcher reads at runtime.
 
 ## Humans are subjects, not agents
 
-A **human** is a third kind of subject — addressable, can be a member of a unit, can participate in threads — but **not an agent**. A human implements only `IMessageReceiver`; the agent-shaped surfaces (memory, skills, traces, execution config, runtime, deployment) do not apply. See [Humans](humans.md) for the concept and [`docs/design/canonical-tabs.md`](../design/canonical-tabs.md) for the (deferred to v0.2) portal column.
+A **human** is a third kind of subject — addressable, can be a member of a unit, can participate in threads — but **not an agent**. A human implements only `IMessageReceiver`; the agent-shaped surfaces (memory, skills, traces, execution config, runtime, deployment) do not apply. See [Humans](humans.md) for the concept (including the install-time resolution model and the team-role / platform-role split) and [`docs/design/canonical-tabs.md`](../design/canonical-tabs.md) for the Explorer tab structure.
+
+In the package grammar, humans live on the same `members:` list as agents and sub-units, under the `- human:` discriminator ([ADR-0046](../decisions/0046-unified-members-grammar.md)). There is no separate top-level `humans:` block — the parser rejects the legacy shape with a structured `LegacyHumansBlock` error.
 
 If you find yourself designing a feature that wants to apply to "everything in a unit's member set", remember it's a heterogeneous set: agents (which include sub-units) and humans. Different shapes, different surfaces.
 

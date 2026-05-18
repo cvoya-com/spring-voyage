@@ -16,12 +16,12 @@ using Cvoya.Spring.Core.Tenancy;
 /// package author's team-role declarations.
 ///
 /// <para>
-/// Uniqueness is enforced on <c>(tenant_id, unit_id, human_id, role)</c>
-/// via a unique index in the <c>IEntityTypeConfiguration</c>. Multiple
-/// rows for the same <c>(unit, human)</c> pair with different roles are
-/// legitimate — a single human filling multiple team roles on the same
-/// unit. Multiple declarations resolving to the same <c>(human, role)</c>
-/// collapse to one row by the unique-index idempotency (ADR-0044 § 3).
+/// ADR-0046 §7 collapses the natural key to <c>(tenant_id, unit_id, human_id)</c>
+/// — the unique index is enforced in the <c>IEntityTypeConfiguration</c>.
+/// <see cref="Roles"/> is now a multi-valued jsonb list on the row itself
+/// (replacing the per-row <c>role</c> column from ADR-0044 § 3). One row per
+/// participant; a human filling multiple team roles surfaces as one row
+/// whose <c>roles</c> list carries every role label.
 /// </para>
 /// </summary>
 public class UnitMembershipHumanEntity : ITenantScopedEntity
@@ -39,10 +39,11 @@ public class UnitMembershipHumanEntity : ITenantScopedEntity
     public Guid HumanId { get; set; }
 
     /// <summary>
-    /// Free-form team role string from the manifest (e.g. <c>owner</c>,
-    /// <c>reviewer</c>, <c>security_lead</c>). Never null or whitespace.
+    /// Free-form team-role strings carried verbatim from the manifest
+    /// (ADR-0046 §3). Persisted as a jsonb array column. Empty list when
+    /// the manifest omitted the field.
     /// </summary>
-    public string Role { get; set; } = string.Empty;
+    public List<string> Roles { get; set; } = new();
 
     /// <summary>
     /// Free-form expertise tags carried verbatim from the manifest. Empty

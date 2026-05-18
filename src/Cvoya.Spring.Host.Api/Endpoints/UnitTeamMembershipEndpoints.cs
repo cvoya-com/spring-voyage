@@ -22,7 +22,7 @@ using Microsoft.EntityFrameworkCore;
 
 /// <summary>
 /// REST surface for the unit team-role membership table (#2409 /
-/// ADR-0044 § 3). Mounted under
+/// ADR-0044 § 3, reshaped by ADR-0046 §7). Mounted under
 /// <c>/api/v1/tenant/units/{id}/members/humans</c> as a sibling to the
 /// existing <c>{id}/humans/{humanId}/permissions</c> ACL surface — the
 /// two are deliberately separate because ADR-0044 splits the package-
@@ -41,13 +41,11 @@ using Microsoft.EntityFrameworkCore;
 /// with the same id (the #1029 contract).
 /// </para>
 /// <para>
-/// The POST endpoint is idempotent on the natural key
-/// <c>(unit, human, role)</c> per the ADR-0044 § 3 set-semantic
-/// invariant. Re-posting the same tuple updates
-/// <see cref="UnitMembershipHumanEntity.Expertise"/> +
-/// <see cref="UnitMembershipHumanEntity.Notifications"/> in place rather
-/// than returning 409 — the same auto-seed pattern adopted by the
-/// connector-identity surface (#2408 / #2420).
+/// ADR-0046 §7 collapses the natural key to <c>(unit, human)</c>; the
+/// PATCH / DELETE routes are keyed by <c>{humanId}</c> alone. POST is
+/// idempotent on the same natural key — re-posting the same tuple
+/// updates roles / expertise / notifications in place rather than
+/// returning 409.
 /// </para>
 /// </remarks>
 public static class UnitTeamMembershipEndpoints
@@ -75,22 +73,22 @@ public static class UnitTeamMembershipEndpoints
         group.MapPost("/{id}/members/humans", AddAsync)
             .WithName("AddUnitHumanMember")
             .WithSummary("Add a human as a unit team-role member.")
-            .WithDescription("Idempotent on the natural key (unit, human, role) — re-posting the same tuple updates expertise + notifications in place rather than returning 409. Owner-gated.")
+            .WithDescription("Idempotent on the natural key (unit, human) — re-posting the same tuple updates roles + expertise + notifications in place rather than returning 409. Owner-gated.")
             .Produces<UnitHumanMemberResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPatch("/{id}/members/humans/{humanId:guid}/{role}", UpdateAsync)
+        group.MapPatch("/{id}/members/humans/{humanId:guid}", UpdateAsync)
             .WithName("UpdateUnitHumanMember")
-            .WithSummary("Update expertise / notifications on an existing team-role membership row.")
-            .WithDescription("Replaces the whole expertise + notifications tag sets — omitted properties are treated as empty lists. Owner-gated; 404 when no row matches.")
+            .WithSummary("Update roles / expertise / notifications on an existing team-role membership row.")
+            .WithDescription("Multi-valued fields use replace semantics — omitted properties are treated as empty lists. Owner-gated; 404 when no row matches.")
             .Produces<UnitHumanMemberResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapDelete("/{id}/members/humans/{humanId:guid}/{role}", RemoveAsync)
+        group.MapDelete("/{id}/members/humans/{humanId:guid}", RemoveAsync)
             .WithName("RemoveUnitHumanMember")
             .WithSummary("Remove a team-role membership row.")
             .WithDescription("Idempotent — returns 204 whether or not a matching row existed. Owner-gated.")
@@ -142,14 +140,6 @@ public static class UnitTeamMembershipEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var role = (request.Role ?? string.Empty).Trim();
-        if (role.Length == 0)
-        {
-            return Results.Problem(
-                detail: "'role' is required and must be non-empty.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
         if (request.HumanId == Guid.Empty)
         {
             return Results.Problem(
@@ -182,13 +172,14 @@ public static class UnitTeamMembershipEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
+        var roles = NormaliseTags(request.Roles);
         var expertise = NormaliseTags(request.Expertise);
         var notifications = NormaliseTags(request.Notifications);
 
         var row = await membershipStore.UpsertAsync(
             auth.Entry!.ActorId,
             request.HumanId,
-            role,
+            roles,
             expertise,
             notifications,
             cancellationToken);
@@ -199,7 +190,6 @@ public static class UnitTeamMembershipEndpoints
     private static async Task<IResult> UpdateAsync(
         string id,
         Guid humanId,
-        string role,
         UpdateUnitHumanMemberRequest request,
         HttpContext httpContext,
         [FromServices] IDirectoryService directoryService,
@@ -208,14 +198,6 @@ public static class UnitTeamMembershipEndpoints
         CancellationToken cancellationToken)
     {
         var body = request ?? new UpdateUnitHumanMemberRequest();
-
-        var trimmedRole = (role ?? string.Empty).Trim();
-        if (trimmedRole.Length == 0)
-        {
-            return Results.Problem(
-                detail: "'role' segment in the URL must be non-empty.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
 
         if (humanId == Guid.Empty)
         {
@@ -237,21 +219,30 @@ public static class UnitTeamMembershipEndpoints
         }
 
         var existing = await membershipStore.GetAsync(
-            auth.Entry!.ActorId, humanId, trimmedRole, cancellationToken);
+            auth.Entry!.ActorId, humanId, cancellationToken);
         if (existing is null)
         {
             return Results.Problem(
-                detail: $"No membership row exists for human '{humanId:N}' with role '{trimmedRole}' on unit '{id}'.",
+                detail: $"No membership row exists for human '{humanId:N}' on unit '{id}'.",
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        var expertise = NormaliseTags(body.Expertise);
-        var notifications = NormaliseTags(body.Notifications);
+        // PATCH semantics per ADR-0046 §5: each multi-valued field is a
+        // full-replacement set. When the caller omits a list (sends null),
+        // the existing list is preserved — only an explicit empty array
+        // clears the field. This matches the wire-level affordance the
+        // portal Member tab needs to "edit expertise without disturbing
+        // roles".
+        var roles = body.Roles is null ? existing.Roles : NormaliseTags(body.Roles);
+        var expertise = body.Expertise is null ? existing.Expertise : NormaliseTags(body.Expertise);
+        var notifications = body.Notifications is null
+            ? existing.Notifications
+            : NormaliseTags(body.Notifications);
 
         var row = await membershipStore.UpsertAsync(
             auth.Entry!.ActorId,
             humanId,
-            trimmedRole,
+            roles,
             expertise,
             notifications,
             cancellationToken);
@@ -262,22 +253,16 @@ public static class UnitTeamMembershipEndpoints
     private static async Task<IResult> RemoveAsync(
         string id,
         Guid humanId,
-        string role,
         HttpContext httpContext,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IPermissionService permissionService,
         [FromServices] IUnitHumanMembershipStore membershipStore,
         CancellationToken cancellationToken)
     {
-        var trimmedRole = (role ?? string.Empty).Trim();
-        if (trimmedRole.Length == 0 || humanId == Guid.Empty)
+        if (humanId == Guid.Empty)
         {
-            // The route constraint already rejects an unparseable humanId
-            // with 404 / 400 before the handler runs, but a whitespace-only
-            // role segment still reaches here and should surface as 400 so
-            // the CLI can give a precise error instead of a silent 204.
             return Results.Problem(
-                detail: "'role' segment in the URL must be non-empty.",
+                detail: "'humanId' segment in the URL must not be empty.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
@@ -293,7 +278,7 @@ public static class UnitTeamMembershipEndpoints
             return auth.ToErrorResult(id);
         }
 
-        await membershipStore.RemoveAsync(auth.Entry!.ActorId, humanId, trimmedRole, cancellationToken);
+        await membershipStore.RemoveAsync(auth.Entry!.ActorId, humanId, cancellationToken);
         return Results.NoContent();
     }
 
@@ -304,5 +289,5 @@ public static class UnitTeamMembershipEndpoints
             .ToList();
 
     private static UnitHumanMemberResponse ToResponse(UnitHumanMembership row) =>
-        new(row.MembershipId, row.HumanId, row.Role, row.Expertise, row.Notifications);
+        new(row.MembershipId, row.HumanId, row.Roles, row.Expertise, row.Notifications);
 }

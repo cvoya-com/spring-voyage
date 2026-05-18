@@ -3,6 +3,10 @@
 
 namespace Cvoya.Spring.Dapr.Data;
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data.Entities;
 
@@ -49,6 +53,11 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
                 Specialty = membership.Specialty,
                 Enabled = membership.Enabled,
                 ExecutionMode = membership.ExecutionMode,
+                // ADR-0046 §8: per-membership roles + expertise jsonb. Empty
+                // list when caller passed null; persisted explicitly so the
+                // jsonb column never lands as SQL NULL on insert.
+                Roles = NormaliseStringList(membership.Roles),
+                Expertise = NormaliseStringList(membership.Expertise),
                 IsPrimary = !hasPrimary,
             };
             context.UnitMemberships.Add(entity);
@@ -59,6 +68,8 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
             existing.Specialty = membership.Specialty;
             existing.Enabled = membership.Enabled;
             existing.ExecutionMode = membership.ExecutionMode;
+            existing.Roles = NormaliseStringList(membership.Roles);
+            existing.Expertise = NormaliseStringList(membership.Expertise);
             // CreatedAt + IsPrimary preserved; UpdatedAt stamped by SaveChangesAsync audit hook.
         }
 
@@ -189,7 +200,15 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
             e.Specialty,
             e.Enabled,
             e.ExecutionMode,
+            (IReadOnlyList<string>)(e.Roles ?? new List<string>()),
+            (IReadOnlyList<string>)(e.Expertise ?? new List<string>()),
             e.CreatedAt,
             e.UpdatedAt,
             e.IsPrimary);
+
+    private static List<string> NormaliseStringList(IReadOnlyList<string>? raw)
+        => (raw ?? Array.Empty<string>())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim())
+            .ToList();
 }

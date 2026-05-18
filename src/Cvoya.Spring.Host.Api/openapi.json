@@ -2734,7 +2734,7 @@
           "Units"
         ],
         "summary": "Add a human as a unit team-role member.",
-        "description": "Idempotent on the natural key (unit, human, role) — re-posting the same tuple updates expertise + notifications in place rather than returning 409. Owner-gated.",
+        "description": "Idempotent on the natural key (unit, human) — re-posting the same tuple updates roles + expertise + notifications in place rather than returning 409. Owner-gated.",
         "operationId": "AddUnitHumanMember",
         "parameters": [
           {
@@ -2800,13 +2800,13 @@
         }
       }
     },
-    "/api/v1/tenant/units/{id}/members/humans/{humanId}/{role}": {
+    "/api/v1/tenant/units/{id}/members/humans/{humanId}": {
       "patch": {
         "tags": [
           "Units"
         ],
-        "summary": "Update expertise / notifications on an existing team-role membership row.",
-        "description": "Replaces the whole expertise + notifications tag sets — omitted properties are treated as empty lists. Owner-gated; 404 when no row matches.",
+        "summary": "Update roles / expertise / notifications on an existing team-role membership row.",
+        "description": "Multi-valued fields use replace semantics — omitted properties are treated as empty lists. Owner-gated; 404 when no row matches.",
         "operationId": "UpdateUnitHumanMember",
         "parameters": [
           {
@@ -2824,14 +2824,6 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
-          },
-          {
-            "name": "role",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
             }
           }
         ],
@@ -2912,14 +2904,6 @@
               "type": "string",
               "format": "uuid"
             }
-          },
-          {
-            "name": "role",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "responses": {
@@ -2954,7 +2938,7 @@
         "tags": [
           "Humans"
         ],
-        "summary": "Read a single human's read-side envelope (display name, email, platform role, created-at).",
+        "summary": "Read a single human's read-side envelope (display name, description, email, platform role, created-at).",
         "description": "Returns the canonical fields needed by the Explorer Human page. Identity / membership lists live on dedicated sub-resources and are NOT embedded here.",
         "operationId": "GetHuman",
         "parameters": [
@@ -2968,6 +2952,73 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HumanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Humans"
+        ],
+        "summary": "Update a human's editable identity fields (display name, description).",
+        "description": "Omitted fields leave the existing value untouched (PATCH semantics). DisplayName is validated via DisplayNameProblems.ValidateOrProblem; description has no length limit. Returns the post-write HumanResponse.",
+        "operationId": "UpdateHuman",
+        "parameters": [
+          {
+            "name": "humanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UpdateHumanRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -10136,8 +10187,7 @@
       },
       "AddUnitHumanMemberRequest": {
         "required": [
-          "humanId",
-          "role"
+          "humanId"
         ],
         "type": "object",
         "properties": {
@@ -10145,8 +10195,14 @@
             "type": "string",
             "format": "uuid"
           },
-          "role": {
-            "type": "string"
+          "roles": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "expertise": {
             "type": [
@@ -10892,25 +10948,6 @@
         "properties": {
           "config": {
             "$ref": "#/components/schemas/JsonElement"
-          }
-        }
-      },
-      "ConnectorSummary": {
-        "required": [
-          "package",
-          "name",
-          "path"
-        ],
-        "type": "object",
-        "properties": {
-          "package": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
           }
         }
       },
@@ -12117,6 +12154,7 @@
           "id",
           "username",
           "displayName",
+          "description",
           "email",
           "platformRole",
           "createdAt"
@@ -12133,6 +12171,12 @@
           "displayName": {
             "type": "string"
           },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "email": {
             "type": [
               "null",
@@ -12145,6 +12189,39 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "HumanTemplateSummary": {
+        "required": [
+          "package",
+          "name",
+          "displayName",
+          "description",
+          "path"
+        ],
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "path": {
+            "type": "string"
           }
         }
       },
@@ -13152,8 +13229,7 @@
           "unitTemplates",
           "agentTemplates",
           "skills",
-          "connectors",
-          "workflows",
+          "humanTemplates",
           "connectorDeclarations",
           "content"
         ],
@@ -13198,16 +13274,10 @@
               "$ref": "#/components/schemas/SkillSummary"
             }
           },
-          "connectors": {
+          "humanTemplates": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ConnectorSummary"
-            }
-          },
-          "workflows": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WorkflowSummary"
+              "$ref": "#/components/schemas/HumanTemplateSummary"
             }
           },
           "connectorDeclarations": {
@@ -13416,8 +13486,7 @@
           "unitTemplateCount",
           "agentTemplateCount",
           "skillCount",
-          "connectorCount",
-          "workflowCount"
+          "humanTemplateCount"
         ],
         "type": "object",
         "properties": {
@@ -13442,11 +13511,7 @@
             "type": "integer",
             "format": "int32"
           },
-          "connectorCount": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "workflowCount": {
+          "humanTemplateCount": {
             "type": "integer",
             "format": "int32"
           },
@@ -14969,7 +15034,7 @@
         "required": [
           "membershipId",
           "humanId",
-          "role",
+          "roles",
           "expertise",
           "notifications"
         ],
@@ -14983,8 +15048,11 @@
             "type": "string",
             "format": "uuid"
           },
-          "role": {
-            "type": "string"
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "expertise": {
             "type": "array",
@@ -15441,6 +15509,23 @@
           }
         }
       },
+      "UpdateHumanRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "UpdateTenantRequest": {
         "required": [
           "displayName"
@@ -15458,6 +15543,15 @@
       "UpdateUnitHumanMemberRequest": {
         "type": "object",
         "properties": {
+          "roles": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
           "expertise": {
             "type": [
               "null",
@@ -15672,25 +15766,6 @@
             "type": "string"
           },
           "displayName": {
-            "type": "string"
-          }
-        }
-      },
-      "WorkflowSummary": {
-        "required": [
-          "package",
-          "name",
-          "path"
-        ],
-        "type": "object",
-        "properties": {
-          "package": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "path": {
             "type": "string"
           }
         }

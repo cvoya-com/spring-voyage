@@ -17,10 +17,11 @@ using Xunit;
 
 /// <summary>
 /// EF-backed tests for <see cref="EfUnitHumanMembershipStore"/> — the
-/// write half of ADR-0044 § 3 added by #2409 atop the read seam that
-/// shipped with #2404. Exercises the upsert / get / remove contract plus
-/// the tenant-isolation invariant inherited from the DbContext query
-/// filter.
+/// write half of ADR-0044 § 3 added by #2409, reshaped by ADR-0046 §7
+/// to a multi-valued <c>roles</c> jsonb column with a
+/// <c>(tenant, unit, human)</c> unique key. Exercises the upsert / get /
+/// remove contract plus the tenant-isolation invariant inherited from
+/// the DbContext query filter.
 /// </summary>
 public class EfUnitHumanMembershipStoreTests : IDisposable
 {
@@ -56,12 +57,12 @@ public class EfUnitHumanMembershipStoreTests : IDisposable
         var unitId = Guid.NewGuid();
         var humanId = Guid.NewGuid();
 
-        var row = await store.UpsertAsync(unitId, humanId, "owner",
-            new[] { "security" }, new[] { "escalation" }, ct);
+        var row = await store.UpsertAsync(unitId, humanId,
+            new[] { "owner" }, new[] { "security" }, new[] { "escalation" }, ct);
 
         row.MembershipId.ShouldNotBe(Guid.Empty);
         row.HumanId.ShouldBe(humanId);
-        row.Role.ShouldBe("owner");
+        row.Roles.ShouldBe(new[] { "owner" });
         row.Expertise.ShouldBe(new[] { "security" });
         row.Notifications.ShouldBe(new[] { "escalation" });
     }
@@ -74,12 +75,13 @@ public class EfUnitHumanMembershipStoreTests : IDisposable
         var unitId = Guid.NewGuid();
         var humanId = Guid.NewGuid();
 
-        var first = await store.UpsertAsync(unitId, humanId, "owner",
-            new[] { "old" }, new[] { "old-evt" }, ct);
-        var second = await store.UpsertAsync(unitId, humanId, "owner",
-            new[] { "new" }, new[] { "new-evt" }, ct);
+        var first = await store.UpsertAsync(unitId, humanId,
+            new[] { "owner" }, new[] { "old" }, new[] { "old-evt" }, ct);
+        var second = await store.UpsertAsync(unitId, humanId,
+            new[] { "owner", "reviewer" }, new[] { "new" }, new[] { "new-evt" }, ct);
 
         second.MembershipId.ShouldBe(first.MembershipId);
+        second.Roles.ShouldBe(new[] { "owner", "reviewer" });
         second.Expertise.ShouldBe(new[] { "new" });
         second.Notifications.ShouldBe(new[] { "new-evt" });
 
@@ -90,40 +92,43 @@ public class EfUnitHumanMembershipStoreTests : IDisposable
     [Fact]
     public async Task Upsert_NormalisesWhitespaceTags()
     {
-        // The store trims whitespace and drops blank entries so the write
-        // path matches the contract enforced by DefaultPackageArtefactActivator
-        // — operators editing the manifest by hand and operators calling the
-        // CLI should land identical projections.
+        // The store trims whitespace and drops blank entries on every
+        // multi-valued field (roles / expertise / notifications) so the
+        // write path matches what the install activator persists.
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
         var unitId = Guid.NewGuid();
         var humanId = Guid.NewGuid();
 
-        var row = await store.UpsertAsync(unitId, humanId, "owner",
+        var row = await store.UpsertAsync(unitId, humanId,
+            new[] { " owner ", "", "reviewer" },
             new[] { " security ", "", "  ", "release" },
             new[] { "escalation", " " }, ct);
 
+        row.Roles.ShouldBe(new[] { "owner", "reviewer" });
         row.Expertise.ShouldBe(new[] { "security", "release" });
         row.Notifications.ShouldBe(new[] { "escalation" });
     }
 
     [Fact]
-    public async Task Upsert_SameHumanDifferentRole_InsertsSecondRow()
+    public async Task Upsert_SameHumanReapplied_CollapsesToOneRow()
     {
+        // ADR-0046 §7: one row per (unit, human). Re-asserting the same
+        // pair updates the row's roles list in place rather than producing
+        // a second row.
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
         var unitId = Guid.NewGuid();
         var humanId = Guid.NewGuid();
 
-        await store.UpsertAsync(unitId, humanId, "owner",
-            Array.Empty<string>(), Array.Empty<string>(), ct);
-        await store.UpsertAsync(unitId, humanId, "reviewer",
-            Array.Empty<string>(), Array.Empty<string>(), ct);
+        await store.UpsertAsync(unitId, humanId,
+            new[] { "owner" }, Array.Empty<string>(), Array.Empty<string>(), ct);
+        await store.UpsertAsync(unitId, humanId,
+            new[] { "reviewer" }, Array.Empty<string>(), Array.Empty<string>(), ct);
 
         var rows = await store.ListByUnitAsync(unitId, ct);
-        rows.Count.ShouldBe(2);
-        rows.ShouldContain(r => r.Role == "owner");
-        rows.ShouldContain(r => r.Role == "reviewer");
+        rows.Count.ShouldBe(1);
+        rows[0].Roles.ShouldBe(new[] { "reviewer" });
     }
 
     [Fact]
@@ -134,14 +139,14 @@ public class EfUnitHumanMembershipStoreTests : IDisposable
         var unitId = Guid.NewGuid();
         var humanId = Guid.NewGuid();
 
-        await store.UpsertAsync(unitId, humanId, "reviewer",
-            new[] { "security" }, Array.Empty<string>(), ct);
+        await store.UpsertAsync(unitId, humanId,
+            new[] { "reviewer" }, new[] { "security" }, Array.Empty<string>(), ct);
 
-        var row = await store.GetAsync(unitId, humanId, "reviewer", ct);
+        var row = await store.GetAsync(unitId, humanId, ct);
 
         row.ShouldNotBeNull();
         row!.HumanId.ShouldBe(humanId);
-        row.Role.ShouldBe("reviewer");
+        row.Roles.ShouldBe(new[] { "reviewer" });
     }
 
     [Fact]
@@ -151,7 +156,7 @@ public class EfUnitHumanMembershipStoreTests : IDisposable
         var store = CreateStore(_providerA);
         var unitId = Guid.NewGuid();
 
-        var row = await store.GetAsync(unitId, Guid.NewGuid(), "owner", ct);
+        var row = await store.GetAsync(unitId, Guid.NewGuid(), ct);
 
         row.ShouldBeNull();
     }
@@ -164,10 +169,10 @@ public class EfUnitHumanMembershipStoreTests : IDisposable
         var unitId = Guid.NewGuid();
         var humanId = Guid.NewGuid();
 
-        await store.UpsertAsync(unitId, humanId, "owner",
-            Array.Empty<string>(), Array.Empty<string>(), ct);
+        await store.UpsertAsync(unitId, humanId,
+            new[] { "owner" }, Array.Empty<string>(), Array.Empty<string>(), ct);
 
-        var removed = await store.RemoveAsync(unitId, humanId, "owner", ct);
+        var removed = await store.RemoveAsync(unitId, humanId, ct);
 
         removed.ShouldBeTrue();
         (await store.ListByUnitAsync(unitId, ct)).ShouldBeEmpty();
@@ -180,7 +185,7 @@ public class EfUnitHumanMembershipStoreTests : IDisposable
         var store = CreateStore(_providerA);
         var unitId = Guid.NewGuid();
 
-        var removed = await store.RemoveAsync(unitId, Guid.NewGuid(), "owner", ct);
+        var removed = await store.RemoveAsync(unitId, Guid.NewGuid(), ct);
 
         removed.ShouldBeFalse();
     }
@@ -194,24 +199,28 @@ public class EfUnitHumanMembershipStoreTests : IDisposable
         var unitId = Guid.NewGuid();
         var humanId = Guid.NewGuid();
 
-        await storeA.UpsertAsync(unitId, humanId, "owner",
-            Array.Empty<string>(), Array.Empty<string>(), ct);
+        await storeA.UpsertAsync(unitId, humanId,
+            new[] { "owner" }, Array.Empty<string>(), Array.Empty<string>(), ct);
 
         // Tenant B's store should never see Tenant A's row — the
         // DbContext query filter applies per-tenant scoping automatically.
         (await storeB.ListByUnitAsync(unitId, ct)).ShouldBeEmpty();
-        (await storeB.GetAsync(unitId, humanId, "owner", ct)).ShouldBeNull();
+        (await storeB.GetAsync(unitId, humanId, ct)).ShouldBeNull();
     }
 
     [Fact]
-    public async Task Upsert_WhitespaceRole_Throws()
+    public async Task Upsert_EmptyRoles_PersistsEmptyList()
     {
+        // ADR-0046 §3: empty list is a legitimate state (manifest entry
+        // declared a participant without explicit roles).
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
 
-        await Should.ThrowAsync<ArgumentException>(() => store.UpsertAsync(
-            Guid.NewGuid(), Guid.NewGuid(), "   ",
-            Array.Empty<string>(), Array.Empty<string>(), ct));
+        var row = await store.UpsertAsync(
+            Guid.NewGuid(), Guid.NewGuid(),
+            Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), ct);
+
+        row.Roles.ShouldBeEmpty();
     }
 
     public void Dispose()

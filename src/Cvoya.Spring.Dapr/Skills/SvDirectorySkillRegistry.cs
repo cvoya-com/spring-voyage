@@ -107,9 +107,10 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
     /// <summary>
     /// Wire-format <c>kind</c> value for human team members surfaced via
-    /// <c>sv.list_members</c> (ADR-0044 § 5). One entry per
-    /// <c>unit_memberships_humans</c> row; entries carry an extra
-    /// <c>team_role</c> field gated on this kind.
+    /// <c>sv.list_members</c> (ADR-0044 § 5, reshaped by ADR-0046 §9). One
+    /// entry per <c>unit_memberships_humans</c> row; entries carry a
+    /// multi-valued <c>roles</c> array (replaces the per-row
+    /// <c>team_role: string</c> field from ADR-0044).
     /// </summary>
     public const string KindHuman = "human";
 
@@ -196,13 +197,14 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 ListMembersTool,
                 "Returns the direct members of the unit identified by uuid: a flat list mixing " +
                 "agent-kind, unit-kind, and human-kind entries (filter by entry.kind on the " +
-                "client side if you only want one). Human entries carry an additional " +
-                "team_role field (the role the human plays on this unit's team, e.g. owner, " +
-                "reviewer, security_lead); their expertise list reflects the team-membership " +
-                "row's expertise tags. A single human filling multiple team roles surfaces as " +
-                "one entry per role. Sub-unit members are NOT recursively expanded — call " +
-                "sv.list_members again on a sub-unit's uuid to walk further. Pagination via " +
-                "limit (default 50, max 200) and offset; total_count carries the unfiltered total.",
+                "client side if you only want one). Every entry carries an optional multi-valued " +
+                "roles array (free-form labels like owner, reviewer, security_lead) and an " +
+                "expertise list. Human entries also surface their notifications subscription " +
+                "list when present. One row per (unit, human) pair — a human filling multiple " +
+                "team roles surfaces as a single entry whose roles array carries every role. " +
+                "Sub-unit members are NOT recursively expanded — call sv.list_members again on " +
+                "a sub-unit's uuid to walk further. Pagination via limit (default 50, max 200) " +
+                "and offset; total_count carries the unfiltered total.",
                 UuidPagedArgSchema),
             new ToolDefinition(
                 GetSiblingsTool,
@@ -293,9 +295,29 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         var addresses = await _memberGraphStore.GetMembersAsync(unitGuid, ct);
 
         // ADR-0044 § 5: fold in package-declared human team members. One
-        // entry per (human, role) row — a human filling two roles surfaces
-        // as two entries with the same uuid and different team_role.
+        // entry per (unit, human) row per ADR-0046 §7 — a human filling
+        // multiple team roles surfaces as a single entry with a
+        // multi-valued roles array.
         var humanRows = await _humanMembershipStore.ListByUnitAsync(unitGuid, ct);
+
+        // ADR-0046 §8: agent / unit entries surface their per-membership
+        // roles + expertise. Read the unit's agent-membership rows once
+        // (size ≪ N for v0.1 unit sizes) so the per-agent supplement is
+        // a hash lookup rather than a per-entry DB round-trip. Sub-unit
+        // membership rows currently carry no member-level metadata
+        // (the unit_subunit_memberships table has no roles/expertise
+        // columns), so sub-unit entries surface roles only when the
+        // unit itself ships them via its own definition — not in scope
+        // for ADR-0046 §8.
+        IReadOnlyList<UnitMembership> agentMemberships;
+        await using (var scope = _scopeFactory.CreateAsyncScope())
+        {
+            var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
+            agentMemberships = await repo.ListByUnitAsync(unitGuid, ct);
+        }
+        var agentMembershipByAgentId = agentMemberships
+            .GroupBy(m => m.AgentId)
+            .ToDictionary(g => g.Key, g => g.First());
 
         var totalCount = addresses.Count + humanRows.Count;
 
@@ -317,7 +339,30 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 skipped++;
                 continue;
             }
-            entries.Add(await BuildEntryAsync(address.Path, address.Scheme, ct));
+            var entry = await BuildEntryAsync(address.Path, address.Scheme, ct);
+
+            // Supplement agent entries with their per-membership roles +
+            // expertise lists (ADR-0046 §8). The agent's own seed-
+            // expertise list already surfaces on entry.Expertise — keep
+            // it on the entry, and additionally project the membership
+            // row's expertise as flat string tags into the same shape
+            // (level-less, description-less) so callers see both signals
+            // in one place.
+            if (string.Equals(address.Scheme, KindAgent, StringComparison.Ordinal)
+                && GuidFormatter.TryParse(address.Path, out var agentGuid)
+                && agentMembershipByAgentId.TryGetValue(agentGuid, out var membership))
+            {
+                var roles = (membership.Roles ?? Array.Empty<string>())
+                    .Where(r => !string.IsNullOrWhiteSpace(r))
+                    .Select(r => r.Trim())
+                    .ToList();
+                if (roles.Count > 0)
+                {
+                    entry = entry with { Roles = roles };
+                }
+            }
+
+            entries.Add(entry);
             taken++;
         }
 
@@ -339,9 +384,8 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     /// <summary>
     /// Renders one <c>unit_memberships_humans</c> row as a
     /// <see cref="DirectoryEntry"/> on the universal entry shape. The
-    /// <c>team_role</c> is carried on the entry's <see cref="DirectoryEntry.TeamRole"/>
-    /// slot — only entries with <c>kind == KindHuman</c> serialise this
-    /// field (gated in <see cref="WriteEntry"/>).
+    /// multi-valued <c>roles</c> list is carried on the entry's
+    /// <see cref="DirectoryEntry.Roles"/> slot per ADR-0046 §9.
     /// </summary>
     private async Task<DirectoryEntry> BuildHumanEntryAsync(
         Guid unitGuid,
@@ -359,6 +403,11 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             .Select(e => new ExpertiseDomain(e, Description: string.Empty, Level: null))
             .ToList();
 
+        var roles = row.Roles
+            .Where(r => !string.IsNullOrWhiteSpace(r))
+            .Select(r => r.Trim())
+            .ToList();
+
         return new DirectoryEntry(
             Uuid: humanUuid,
             Kind: KindHuman,
@@ -368,7 +417,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             Expertise: expertise,
             MemberCount: null,
             LiveStatus: "n/a",
-            TeamRole: row.Role);
+            Roles: roles);
     }
 
     private async Task<string> ResolveHumanDisplayNameAsync(Guid humanId, CancellationToken ct)
@@ -857,12 +906,19 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         }
         writer.WriteString("live_status", entry.LiveStatus);
 
-        // ADR-0044 § 5: team_role is gated on kind == "human". Existing
-        // agent / unit / tenant entries are byte-for-byte unchanged.
-        if (string.Equals(entry.Kind, KindHuman, StringComparison.Ordinal)
-            && entry.TeamRole is { } teamRole)
+        // ADR-0046 §9: emit `roles: string[]` on agent / unit / human
+        // entries when the entry's roles list is non-empty. Replaces the
+        // ADR-0044 `team_role: string` field on human entries; additive on
+        // agent / unit entries (the field was absent before).
+        if (entry.Roles is { Count: > 0 })
         {
-            writer.WriteString("team_role", teamRole);
+            writer.WritePropertyName("roles");
+            writer.WriteStartArray();
+            foreach (var role in entry.Roles)
+            {
+                writer.WriteStringValue(role);
+            }
+            writer.WriteEndArray();
         }
         writer.WriteEndObject();
     }
@@ -876,5 +932,5 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         IReadOnlyList<ExpertiseDomain> Expertise,
         int? MemberCount,
         string LiveStatus,
-        string? TeamRole = null);
+        IReadOnlyList<string>? Roles = null);
 }

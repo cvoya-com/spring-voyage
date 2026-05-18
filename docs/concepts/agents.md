@@ -13,8 +13,11 @@ unit-specific layer, [Units vs agents](units-vs-agents.md) for the quick
 reference on what features apply to both vs only one,
 [ADR-0039](../decisions/0039-units-are-agents.md) for the unit-as-agent
 decision, [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md)
-for the runtime/model config split, and
-[Agent Runtime](../architecture/agent-runtime.md) for launcher details.
+for the runtime/model config split,
+[ADR-0046](../decisions/0046-unified-members-grammar.md) for the unified
+package-YAML `members:` grammar that declares agents alongside sub-units and
+humans, and [Agent Runtime](../architecture/agent-runtime.md) for launcher
+details.
 
 ## Mailbox
 

@@ -31,9 +31,13 @@ using Cvoya.Spring.Cli.Utilities;
 /// <para>
 /// <c>--human self</c> (or omitting <c>--human</c> entirely) resolves to
 /// the authenticated caller's Human row via the existing
-/// <c>GET /api/v1/tenant/auth/me</c> endpoint. <c>--expertise</c> and
-/// <c>--notifications</c> accept comma-separated lists per ADR-0044's
-/// "free-form, no vocabulary in v0.1" rule.
+/// <c>GET /api/v1/tenant/auth/me</c> endpoint. <c>--roles</c>,
+/// <c>--expertise</c>, and <c>--notifications</c> accept comma-separated
+/// lists (or may be repeated) per ADR-0046 §3's multi-valued team-role
+/// grammar and ADR-0044's "free-form, no vocabulary in v0.1" rule. The
+/// natural key on the membership row is <c>(unit, human)</c>; a single
+/// row carries the full multi-valued role list — there is no longer one
+/// row per role.
 /// </para>
 /// </remarks>
 public static class UnitMembersCommand
@@ -41,7 +45,7 @@ public static class UnitMembersCommand
     private static readonly OutputFormatter.Column<UnitHumanMemberResponse>[] MemberColumns =
     {
         new("humanId", e => e.HumanId is { } id ? id.ToString("N") : null),
-        new("role", e => e.Role),
+        new("roles", e => e.Roles is { Count: > 0 } r ? string.Join(",", r) : null),
         new("expertise", e => e.Expertise is { Count: > 0 } x ? string.Join(",", x) : null),
         new("notifications", e => e.Notifications is { Count: > 0 } n ? string.Join(",", n) : null),
         new("membershipId", e => e.MembershipId is { } mid ? mid.ToString("N") : null),
@@ -72,27 +76,30 @@ public static class UnitMembersCommand
         {
             Description = "Stable human UUID. Pass 'self' or omit to resolve to the authenticated caller.",
         };
-        var roleOption = new Option<string>("--role")
+        var rolesOption = new Option<string[]?>("--roles")
         {
-            Description = "Team role string (free-form per ADR-0044; e.g. owner, reviewer, security_lead).",
+            Description =
+                "Team-role list (free-form per ADR-0046 §3; e.g. owner or reviewer,security_lead). " +
+                "Repeatable: pass --roles foo --roles bar, or use comma-separated form --roles foo,bar.",
             Required = true,
+            AllowMultipleArgumentsPerToken = true,
         };
         var expertiseOption = new Option<string?>("--expertise")
         {
             Description = "Comma-separated expertise tags (free-form; empty list when omitted).",
         };
-        var notificationsOption = new Option<string?>("--notification")
+        var notificationsOption = new Option<string?>("--notifications")
         {
             Description = "Comma-separated notification event tags (free-form; empty list when omitted).",
         };
 
         var command = new Command(
             "add",
-            "Add a human as a team-role member of this unit. Idempotent on (unit, human, role) " +
-            "— re-running with the same tuple updates expertise + notifications in place.");
+            "Add a human as a team-role member of this unit. Idempotent on (unit, human) " +
+            "per ADR-0046 §7 — re-running replaces roles / expertise / notifications in place.");
         command.Arguments.Add(unitArg);
         command.Options.Add(humanOption);
-        command.Options.Add(roleOption);
+        command.Options.Add(rolesOption);
         command.Options.Add(expertiseOption);
         command.Options.Add(notificationsOption);
 
@@ -100,10 +107,19 @@ public static class UnitMembersCommand
         {
             var unitArgVal = parseResult.GetValue(unitArg)!;
             var humanArg = parseResult.GetValue(humanOption);
-            var role = parseResult.GetValue(roleOption)!;
+            var rolesRaw = parseResult.GetValue(rolesOption);
             var expertiseRaw = parseResult.GetValue(expertiseOption);
             var notificationsRaw = parseResult.GetValue(notificationsOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
+
+            var roles = FlattenMultiValued(rolesRaw);
+            if (roles is null || roles.Count == 0)
+            {
+                await Console.Error.WriteLineAsync(
+                    "--roles is required: pass at least one role (e.g. --roles owner or --roles reviewer,security_lead).");
+                Environment.Exit(1);
+                return;
+            }
 
             var client = ClientFactory.Create();
             var resolver = new CliResolver(client);
@@ -137,7 +153,7 @@ public static class UnitMembersCommand
                 var response = await client.AddUnitHumanMemberAsync(
                     unitId,
                     humanGuid,
-                    role,
+                    roles,
                     ParseTagList(expertiseRaw),
                     ParseTagList(notificationsRaw),
                     ct);
@@ -148,8 +164,9 @@ public static class UnitMembersCommand
                 }
                 else
                 {
+                    var rolesDisplay = response.Roles is { Count: > 0 } r ? string.Join(", ", r) : "(none)";
                     Console.WriteLine(
-                        $"Human '{humanGuid:N}' added to unit '{unitArgVal}' as '{response.Role}'.");
+                        $"Human '{humanGuid:N}' added to unit '{unitArgVal}' with roles [{rolesDisplay}].");
                 }
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
@@ -217,27 +234,30 @@ public static class UnitMembersCommand
         {
             Description = "Stable human UUID. Pass 'self' or omit to resolve to the authenticated caller.",
         };
-        var roleOption = new Option<string>("--role")
+        var rolesOption = new Option<string[]?>("--roles")
         {
-            Description = "Team role string on the existing membership row.",
-            Required = true,
+            Description =
+                "Replacement team-role list (free-form per ADR-0046 §3). Repeatable or comma-separated. " +
+                "Omit to leave the existing roles unchanged; pass --roles \"\" to clear.",
+            AllowMultipleArgumentsPerToken = true,
         };
         var expertiseOption = new Option<string?>("--expertise")
         {
             Description = "Replacement expertise tags (comma-separated; pass '' to clear).",
         };
-        var notificationsOption = new Option<string?>("--notification")
+        var notificationsOption = new Option<string?>("--notifications")
         {
             Description = "Replacement notification event tags (comma-separated; pass '' to clear).",
         };
 
         var command = new Command(
             "update",
-            "Update expertise / notifications on an existing team-role membership row. The PATCH " +
-            "replaces the whole tag set so omitted flags are treated as 'clear to empty'.");
+            "Update the multi-valued roles / expertise / notifications on an existing team-role " +
+            "membership row (keyed by (unit, human) per ADR-0046 §7). Each list-flag uses full-" +
+            "replacement semantics: omit to leave unchanged, pass an empty value to clear.");
         command.Arguments.Add(unitArg);
         command.Options.Add(humanOption);
-        command.Options.Add(roleOption);
+        command.Options.Add(rolesOption);
         command.Options.Add(expertiseOption);
         command.Options.Add(notificationsOption);
 
@@ -245,10 +265,18 @@ public static class UnitMembersCommand
         {
             var unitArgVal = parseResult.GetValue(unitArg)!;
             var humanArg = parseResult.GetValue(humanOption);
-            var role = parseResult.GetValue(roleOption)!;
+            var rolesRaw = parseResult.GetValue(rolesOption);
             var expertiseRaw = parseResult.GetValue(expertiseOption);
             var notificationsRaw = parseResult.GetValue(notificationsOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
+
+            // Tri-state semantics: null when --roles was not passed at all
+            // (leave unchanged); otherwise treat the supplied tokens as the
+            // full replacement list. An explicit empty argument (e.g.
+            // --roles "") collapses to a list with one empty token which
+            // ParseTagList already strips down to Array.Empty<string>().
+            var rolesSupplied = parseResult.GetResult(rolesOption) is not null;
+            var roles = rolesSupplied ? FlattenMultiValued(rolesRaw) ?? Array.Empty<string>() : null;
 
             var client = ClientFactory.Create();
             var resolver = new CliResolver(client);
@@ -282,7 +310,7 @@ public static class UnitMembersCommand
                 var response = await client.UpdateUnitHumanMemberAsync(
                     unitId,
                     humanGuid,
-                    role,
+                    roles,
                     ParseTagList(expertiseRaw),
                     ParseTagList(notificationsRaw),
                     ct);
@@ -293,8 +321,9 @@ public static class UnitMembersCommand
                 }
                 else
                 {
+                    var rolesDisplay = response.Roles is { Count: > 0 } r ? string.Join(", ", r) : "(none)";
                     Console.WriteLine(
-                        $"Updated team-role membership for human '{humanGuid:N}' / role '{response.Role}' on unit '{unitArgVal}'.");
+                        $"Updated team-role membership for human '{humanGuid:N}' on unit '{unitArgVal}' (roles=[{rolesDisplay}]).");
                 }
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
@@ -315,24 +344,18 @@ public static class UnitMembersCommand
         {
             Description = "Stable human UUID. Pass 'self' or omit to resolve to the authenticated caller.",
         };
-        var roleOption = new Option<string>("--role")
-        {
-            Description = "Team role string on the existing membership row.",
-            Required = true,
-        };
 
         var command = new Command(
             "remove",
-            "Remove a team-role membership row. Idempotent — succeeds whether or not the row existed.");
+            "Remove a team-role membership row keyed by (unit, human) per ADR-0046 §7. " +
+            "Idempotent — succeeds whether or not the row existed.");
         command.Arguments.Add(unitArg);
         command.Options.Add(humanOption);
-        command.Options.Add(roleOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var unitArgVal = parseResult.GetValue(unitArg)!;
             var humanArg = parseResult.GetValue(humanOption);
-            var role = parseResult.GetValue(roleOption)!;
 
             var client = ClientFactory.Create();
             var resolver = new CliResolver(client);
@@ -363,9 +386,9 @@ public static class UnitMembersCommand
 
             try
             {
-                await client.RemoveUnitHumanMemberAsync(unitId, humanGuid, role, ct);
+                await client.RemoveUnitHumanMemberAsync(unitId, humanGuid, ct);
                 Console.WriteLine(
-                    $"Removed team-role membership for human '{humanGuid:N}' / role '{role}' on unit '{unitArgVal}'.");
+                    $"Removed team-role membership for human '{humanGuid:N}' on unit '{unitArgVal}'.");
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
@@ -430,5 +453,32 @@ public static class UnitMembersCommand
         return raw
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToList();
+    }
+
+    /// <summary>
+    /// Flattens a multi-valued option's token list into a single trimmed
+    /// list of tags. Each token is itself split on commas so the user can
+    /// freely mix the repeated-flag form (<c>--roles a --roles b</c>) with
+    /// the comma-separated form (<c>--roles a,b</c>). Returns
+    /// <see langword="null"/> when no tokens were supplied at all.
+    /// </summary>
+    public static IReadOnlyList<string>? FlattenMultiValued(string[]? raw)
+    {
+        if (raw is null)
+        {
+            return null;
+        }
+        var tokens = new List<string>();
+        foreach (var entry in raw)
+        {
+            if (string.IsNullOrEmpty(entry))
+            {
+                continue;
+            }
+            tokens.AddRange(entry.Split(
+                ',',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+        return tokens;
     }
 }

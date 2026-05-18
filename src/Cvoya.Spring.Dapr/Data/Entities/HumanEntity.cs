@@ -32,6 +32,15 @@ public class HumanEntity : ITenantScopedEntity
     /// </summary>
     public string DisplayName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Gets or sets the optional single-line description (ADR-0046 §7).
+    /// Editable post-install via the Human × Config tab and seeded by the
+    /// package author via the <c>description:</c> field on a <c>- human:</c>
+    /// member entry or its <c>HumanTemplate</c>. Null when no description
+    /// has been set; the storage column is nullable.
+    /// </summary>
+    public string? Description { get; set; }
+
     /// <summary>Gets or sets the optional e-mail address for this human.</summary>
     public string? Email { get; set; }
 

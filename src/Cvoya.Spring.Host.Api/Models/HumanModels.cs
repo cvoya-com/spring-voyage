@@ -29,6 +29,8 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// <param name="DisplayName">Human-readable display name. Always non-empty
 /// per <see cref="Cvoya.Spring.Dapr.Data.Entities.HumanEntity"/>'s defaulting
 /// rule (falls back to username when not explicitly set).</param>
+/// <param name="Description">Optional editable description (ADR-0046 §7).
+/// Surfaces on the portal's Human × Config tab; null when unset.</param>
 /// <param name="Email">Optional e-mail address; null when unset.</param>
 /// <param name="PlatformRole">The human's global permission level —
 /// <c>Viewer</c> / <c>Operator</c> / <c>Owner</c>. Per ADR-0044 § 1 this
@@ -39,6 +41,27 @@ public sealed record HumanResponse(
     Guid Id,
     string Username,
     string DisplayName,
+    string? Description,
     string? Email,
     string PlatformRole,
     DateTimeOffset CreatedAt);
+
+/// <summary>
+/// Request body for
+/// <c>PATCH /api/v1/tenant/humans/{id}</c> (ADR-0046 §7). Updates the
+/// human's editable identity fields. Omitted fields are treated as
+/// "leave unchanged"; explicit empty strings clear them where the underlying
+/// column is nullable.
+/// </summary>
+/// <param name="DisplayName">
+/// New display name when present; <see langword="null"/> leaves the
+/// existing value untouched. The handler validates via
+/// <c>DisplayNameProblems.ValidateOrProblem</c>.
+/// </param>
+/// <param name="Description">
+/// New description when present; <see langword="null"/> leaves the
+/// existing value untouched. Pass an explicit empty string to clear.
+/// </param>
+public sealed record UpdateHumanRequest(
+    string? DisplayName = null,
+    string? Description = null);

@@ -13,6 +13,9 @@ instructions: |
   member; do not invent capabilities the package does not ship.
 members:
   - agent: greeter
+  - human:
+      roles: [owner]
+      notifications: ["escalation", "completion"]
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 # #2115: deliberately no `requires:` block — the package's value is being
@@ -25,6 +28,3 @@ policies:
   initiative:
     max_level: attentive
     max_actions_per_hour: 10
-humans:
-  - role: owner
-    notifications: ["escalation", "completion"]
