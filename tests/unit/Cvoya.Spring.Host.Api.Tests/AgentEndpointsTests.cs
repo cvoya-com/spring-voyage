@@ -731,11 +731,12 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var registry = _factory.Services
             .GetRequiredService<Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry>();
         var actorId = agentId.ToString("N");
-        registry.Register(
+        await registry.RegisterAsync(
             actorId,
             new Uri("http://test/agent"),
-            containerId: "container-1");
-        registry.MarkUnhealthy(actorId);
+            containerId: "container-1",
+            cancellationToken: ct);
+        await registry.MarkUnhealthyAsync(actorId, cancellationToken: ct);
 
         var response = await _client.GetAsync(
             $"/api/v1/tenant/agents/{agentId:N}/runtime-status", ct);
@@ -747,7 +748,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body.Status.ShouldBe("unavailable");
 
         // Cleanup so a sibling test in the same fixture doesn't see this entry.
-        registry.Remove(actorId);
+        await registry.RemoveAsync(actorId, ct);
     }
 
     [Fact]

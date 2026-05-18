@@ -290,8 +290,8 @@ public static class UnitEndpoints
         // who want lifecycle-state visibility have the `LifecycleStatus` field
         // (Draft / Validating / Stopped / Error) on the unit detail
         // endpoint.
-        if (persistentAgentRegistry.TryGet(actorId, out var registryEntry)
-            && registryEntry is not null
+        var registryEntry = await persistentAgentRegistry.TryGetAsync(actorId, cancellationToken);
+        if (registryEntry is not null
             && registryEntry.HealthStatus != AgentHealthStatus.Healthy)
         {
             return Results.Ok(new AgentRuntimeStatusResponse(

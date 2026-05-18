@@ -342,14 +342,15 @@ public class SvDirectorySkillRegistry_HumanMembersTests
                 memberGraph,
                 _membershipStore,
                 expertiseStore,
-                BuildPersistentAgentRegistry(loggerFactory),
+                BuildPersistentAgentRegistry(loggerFactory, scopeFactory),
                 tenantContext,
                 loggerFactory);
 
             return new BuiltFixture(registry);
         }
 
-        private static PersistentAgentRegistry BuildPersistentAgentRegistry(ILoggerFactory loggerFactory)
+        private static PersistentAgentRegistry BuildPersistentAgentRegistry(
+            ILoggerFactory loggerFactory, IServiceScopeFactory scopeFactory)
         {
             var containerRuntime = Substitute.For<IContainerRuntime>();
             var lifecycle = new ContainerLifecycleManager(
@@ -358,12 +359,16 @@ public class SvDirectorySkillRegistry_HumanMembersTests
                 Options.Create(new DaprSidecarOptions()),
                 loggerFactory);
             var volumes = new AgentVolumeManager(containerRuntime, loggerFactory);
+            // #2468: the registry reads SpringDbContext through the scope
+            // factory on every TryGetAsync, so we share the test's main
+            // scope factory rather than a substitute that can't resolve
+            // the context.
             return new PersistentAgentRegistry(
                 containerRuntime,
                 Substitute.For<IHttpClientFactory>(),
                 lifecycle,
                 volumes,
-                Substitute.For<IServiceScopeFactory>(),
+                scopeFactory,
                 loggerFactory);
         }
     }

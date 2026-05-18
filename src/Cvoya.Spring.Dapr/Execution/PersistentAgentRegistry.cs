@@ -4,9 +4,14 @@
 namespace Cvoya.Spring.Dapr.Execution;
 
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -18,9 +23,26 @@ using Microsoft.Extensions.Logging;
 /// starting a new container per dispatch.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Backed by the <c>persistent_agent_runtime</c> EF table (#2468) so the
+/// API and worker host processes share a single view of "this agent is
+/// up, here is its endpoint / container / health." Before #2468 the
+/// registry was an in-memory <see cref="ConcurrentDictionary{TKey, TValue}"/>
+/// per host process — the worker's auto-deploy path wrote to its own copy
+/// and the API endpoints read from theirs, so the portal's "Persistent
+/// deployment" badge surfaced <c>Not deployed</c> for any agent the
+/// worker auto-deployed via inbound message.
+/// </para>
+///
+/// <para>
 /// Implements <see cref="IHostedService"/> to run a periodic background
-/// health-check timer and to stop all tracked containers on graceful shutdown.
-/// Thread-safe: all state is stored in a <see cref="ConcurrentDictionary{TKey,TValue}"/>.
+/// health-check timer and to stop containers this process started on
+/// graceful shutdown. Cross-process container teardown is intentionally
+/// out of scope: <see cref="StopAsync"/> only sweeps containers tracked
+/// in this process's <see cref="_localContainers"/> set. The DB rows
+/// remain until <see cref="UndeployAsync"/> or
+/// <see cref="StopContainerAsync"/> is called against the agent.
+/// </para>
 /// </remarks>
 public class PersistentAgentRegistry(
     IContainerRuntime containerRuntime,
@@ -33,7 +55,18 @@ public class PersistentAgentRegistry(
     private readonly ILogger _logger = loggerFactory.CreateLogger<PersistentAgentRegistry>();
     private readonly ContainerLifecycleManager _containerLifecycle = containerLifecycleManager;
     private readonly IServiceScopeFactory _scopeFactory = serviceScopeFactory;
-    private readonly ConcurrentDictionary<string, PersistentAgentEntry> _entries = new();
+
+    /// <summary>
+    /// Set of (agentId → containerId) pairs whose container this process
+    /// launched. Used by <see cref="StopAsync"/> to know which containers
+    /// to tear down on graceful shutdown without trespassing into containers
+    /// other host processes launched. The map is populated on
+    /// <see cref="RegisterAsync"/> and cleared on
+    /// <see cref="RemoveAsync"/> / <see cref="UndeployAsync"/> /
+    /// <see cref="StopContainerAsync"/>.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, LocalContainer> _localContainers = new();
+
     // Number of concurrent in-flight A2A dispatches per agent. Incremented by
     // BeginDispatch and decremented by DispatchScope.Dispose. The background
     // health timer skips agents with InFlight > 0 (#2159): an agent that's
@@ -43,6 +76,19 @@ public class PersistentAgentRegistry(
     // for no good reason. Real dispatch failures are still detected and
     // marked unhealthy by the catch block in A2AExecutionDispatcher.
     private readonly ConcurrentDictionary<string, int> _inFlightDispatches = new();
+
+    /// <summary>
+    /// Cached <see cref="AgentDefinition"/> snapshot for every agent this
+    /// process registered locally (i.e. it launched the container). Used
+    /// by <see cref="TryRestartAsync"/> to look up the image / runtime /
+    /// model without paying a provider round-trip on the slow-path
+    /// background restart. The map is the only piece of registry state
+    /// that does not survive across processes; cross-process restart
+    /// recovery rehydrates the definition via
+    /// <see cref="IAgentDefinitionProvider"/> on demand.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, AgentDefinition> _localDefinitions = new();
+
     private Timer? _healthTimer;
     private int _healthCheckRunning;
 
@@ -81,28 +127,74 @@ public class PersistentAgentRegistry(
     internal static readonly TimeSpan HealthProbeTimeout = TimeSpan.FromSeconds(20);
 
     /// <summary>
-    /// Registers or updates a persistent agent service.
+    /// Diagnostics-only tag identifying this host process. Stored on the
+    /// row's <c>owner_host</c> column so an operator looking at a stale
+    /// "Not deployed" can immediately see which process registered the
+    /// agent. Never used for routing or correctness decisions.
     /// </summary>
-    /// <param name="agentId">The agent identifier.</param>
+    private static readonly string OwnerHostTag = BuildOwnerHostTag();
+
+    /// <summary>
+    /// Registers or updates a persistent agent service. The row is the
+    /// cross-process source of truth (#2468); the in-process maps below
+    /// are diagnostics-only.
+    /// </summary>
+    /// <param name="agentId">The agent identifier (canonical Guid wire form).</param>
     /// <param name="endpoint">The A2A endpoint URL of the running agent service.</param>
     /// <param name="containerId">The container identifier, if applicable.</param>
-    /// <param name="definition">The agent definition, needed for restart.</param>
-    public void Register(
+    /// <param name="definition">The agent definition, kept locally for restart on the slow-path background timer.</param>
+    /// <param name="sidecarId">The Dapr sidecar container id (when applicable).</param>
+    /// <param name="sidecarNetworkName">Per-deployment network name (when applicable).</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    public async Task RegisterAsync(
         string agentId,
         Uri endpoint,
         string? containerId,
         AgentDefinition? definition = null,
         string? sidecarId = null,
-        string? sidecarNetworkName = null)
+        string? sidecarNetworkName = null,
+        CancellationToken cancellationToken = default)
     {
-        var entry = new PersistentAgentEntry(
-            agentId, endpoint, containerId, DateTimeOffset.UtcNow,
-            HealthStatus: AgentHealthStatus.Healthy,
-            ConsecutiveFailures: 0,
-            Definition: definition,
-            SidecarId: sidecarId,
-            SidecarNetworkName: sidecarNetworkName);
-        _entries[agentId] = entry;
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(endpoint);
+
+        var agentGuid = ParseAgentId(agentId);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var row = await db.PersistentAgentRuntime
+            .FirstOrDefaultAsync(r => r.AgentId == agentGuid, cancellationToken);
+
+        if (row is null)
+        {
+            row = new PersistentAgentRuntimeEntity { AgentId = agentGuid };
+            db.PersistentAgentRuntime.Add(row);
+        }
+
+        row.Endpoint = endpoint.ToString();
+        row.ContainerId = containerId;
+        row.StartedAt = DateTimeOffset.UtcNow;
+        row.HealthStatus = AgentHealthStatus.Healthy;
+        row.ConsecutiveFailures = 0;
+        row.SidecarId = sidecarId;
+        row.SidecarNetworkName = sidecarNetworkName;
+        row.Image = definition?.Execution?.Image;
+        row.OwnerHost = OwnerHostTag;
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        // Track which containers this process launched so StopAsync only
+        // tears down the right set on graceful shutdown.
+        if (containerId is not null)
+        {
+            _localContainers[agentId] = new LocalContainer(
+                containerId, sidecarId, sidecarNetworkName);
+        }
+        if (definition is not null)
+        {
+            _localDefinitions[agentId] = definition;
+        }
 
         _logger.LogInformation(
             EventIds.AgentRegistered,
@@ -115,41 +207,70 @@ public class PersistentAgentRegistry(
     /// Only returns healthy or unknown-state agents.
     /// </summary>
     /// <param name="agentId">The agent identifier.</param>
-    /// <param name="endpoint">The endpoint, if found and healthy.</param>
-    /// <returns><c>true</c> if the agent is registered and healthy.</returns>
-    public bool TryGetEndpoint(string agentId, out Uri? endpoint)
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The endpoint when the agent is registered and healthy; <c>null</c> otherwise.</returns>
+    public async Task<Uri?> TryGetEndpointAsync(string agentId, CancellationToken cancellationToken = default)
     {
-        if (_entries.TryGetValue(agentId, out var entry) && entry.HealthStatus == AgentHealthStatus.Healthy)
+        var entry = await TryGetAsync(agentId, cancellationToken);
+        if (entry is null || entry.HealthStatus != AgentHealthStatus.Healthy)
         {
-            endpoint = entry.Endpoint;
-            return true;
+            return null;
         }
 
-        endpoint = null;
-        return false;
+        return entry.Endpoint;
     }
 
     /// <summary>
-    /// Attempts to retrieve a running persistent agent entry.
+    /// Attempts to retrieve a running persistent agent entry from the
+    /// shared registry row. Returns <c>null</c> when no row exists.
     /// </summary>
-    /// <param name="agentId">The agent identifier.</param>
-    /// <param name="entry">The entry, if found.</param>
-    /// <returns><c>true</c> if the agent is registered.</returns>
-    public bool TryGet(string agentId, out PersistentAgentEntry? entry)
+    /// <param name="agentId">The agent identifier (canonical Guid wire form).</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    public async Task<PersistentAgentEntry?> TryGetAsync(string agentId, CancellationToken cancellationToken = default)
     {
-        return _entries.TryGetValue(agentId, out entry);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+
+        var agentGuid = ParseAgentId(agentId);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var row = await db.PersistentAgentRuntime
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.AgentId == agentGuid, cancellationToken);
+
+        return row is null ? null : ToEntry(agentId, row);
     }
 
     /// <summary>
     /// Removes a persistent agent entry (e.g. after its container was stopped).
     /// </summary>
     /// <param name="agentId">The agent identifier.</param>
-    public void Remove(string agentId)
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    public async Task RemoveAsync(string agentId, CancellationToken cancellationToken = default)
     {
-        if (_entries.TryRemove(agentId, out _))
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+
+        var agentGuid = ParseAgentId(agentId);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var row = await db.PersistentAgentRuntime
+            .FirstOrDefaultAsync(r => r.AgentId == agentGuid, cancellationToken);
+
+        if (row is null)
         {
-            _logger.LogInformation(EventIds.AgentUnregistered, "Persistent agent {AgentId} unregistered", agentId);
+            return;
         }
+
+        db.PersistentAgentRuntime.Remove(row);
+        await db.SaveChangesAsync(cancellationToken);
+
+        _localContainers.TryRemove(agentId, out _);
+        _localDefinitions.TryRemove(agentId, out _);
+
+        _logger.LogInformation(EventIds.AgentUnregistered, "Persistent agent {AgentId} unregistered", agentId);
     }
 
     /// <summary>
@@ -159,7 +280,7 @@ public class PersistentAgentRegistry(
     /// timer skips probes for this agent (#2159). The dispatch path remains
     /// responsible for its own failure detection — if the A2A call fails the
     /// catch block in <c>A2AExecutionDispatcher</c> still calls
-    /// <see cref="MarkUnhealthy"/>.
+    /// <see cref="MarkUnhealthyAsync"/>.
     /// </summary>
     /// <param name="agentId">The agent whose dispatch is starting.</param>
     public IDisposable BeginDispatch(string agentId)
@@ -203,33 +324,57 @@ public class PersistentAgentRegistry(
     /// </summary>
     /// <param name="agentId">The agent identifier.</param>
     /// <param name="containerId">
-    /// When provided, the mark is applied only if the registry entry still tracks this
+    /// When provided, the mark is applied only if the registry row still tracks this
     /// specific container. A stale container ID (e.g. from a concurrent restart that
     /// already replaced the container) must not poison the new container's health state.
     /// </param>
-    public void MarkUnhealthy(string agentId, string? containerId = null)
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    public async Task MarkUnhealthyAsync(string agentId, string? containerId = null, CancellationToken cancellationToken = default)
     {
-        if (_entries.TryGetValue(agentId, out var entry))
-        {
-            if (containerId is not null && entry.ContainerId != containerId)
-                return;
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
 
-            _entries[agentId] = entry with
-            {
-                HealthStatus = AgentHealthStatus.Unhealthy,
-                ConsecutiveFailures = UnhealthyThreshold
-            };
+        var agentGuid = ParseAgentId(agentId);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var row = await db.PersistentAgentRuntime
+            .FirstOrDefaultAsync(r => r.AgentId == agentGuid, cancellationToken);
+
+        if (row is null)
+        {
+            return;
         }
+
+        if (containerId is not null && row.ContainerId != containerId)
+        {
+            return;
+        }
+
+        row.HealthStatus = AgentHealthStatus.Unhealthy;
+        row.ConsecutiveFailures = UnhealthyThreshold;
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>
-    /// Returns a snapshot of all registered entries. Used by the persistent-
-    /// agent lifecycle HTTP surface (<c>spring agent deploy/status/undeploy</c>,
-    /// #396) and by tests/diagnostics.
+    /// Returns a snapshot of all registered entries across all tenants
+    /// the ambient <c>SpringDbContext</c> resolves. Used by the
+    /// persistent-agent lifecycle HTTP surface (<c>spring agent
+    /// deploy/status/undeploy</c>, #396) and by tests/diagnostics.
     /// </summary>
-    public IReadOnlyCollection<PersistentAgentEntry> GetAllEntries()
+    public async Task<IReadOnlyCollection<PersistentAgentEntry>> GetAllEntriesAsync(CancellationToken cancellationToken = default)
     {
-        return _entries.Values.ToList().AsReadOnly();
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var rows = await db.PersistentAgentRuntime
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => ToEntry(GuidFormatter.Format(r.AgentId), r))
+            .ToList()
+            .AsReadOnly();
     }
 
     /// <summary>
@@ -251,10 +396,27 @@ public class PersistentAgentRegistry(
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     public async Task<bool> UndeployAsync(string agentId, CancellationToken cancellationToken = default)
     {
-        if (!_entries.TryRemove(agentId, out var entry))
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+
+        var agentGuid = ParseAgentId(agentId);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var row = await db.PersistentAgentRuntime
+            .FirstOrDefaultAsync(r => r.AgentId == agentGuid, cancellationToken);
+
+        if (row is null)
         {
             return false;
         }
+
+        db.PersistentAgentRuntime.Remove(row);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var entry = ToEntry(agentId, row);
+        _localContainers.TryRemove(agentId, out _);
+        _localDefinitions.TryRemove(agentId, out _);
 
         if (entry.ContainerId is not null)
         {
@@ -292,10 +454,27 @@ public class PersistentAgentRegistry(
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     public async Task<bool> StopContainerAsync(string agentId, CancellationToken cancellationToken = default)
     {
-        if (!_entries.TryRemove(agentId, out var entry))
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+
+        var agentGuid = ParseAgentId(agentId);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var row = await db.PersistentAgentRuntime
+            .FirstOrDefaultAsync(r => r.AgentId == agentGuid, cancellationToken);
+
+        if (row is null)
         {
             return false;
         }
+
+        db.PersistentAgentRuntime.Remove(row);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var entry = ToEntry(agentId, row);
+        _localContainers.TryRemove(agentId, out _);
+        _localDefinitions.TryRemove(agentId, out _);
 
         if (entry.ContainerId is not null)
         {
@@ -341,7 +520,7 @@ public class PersistentAgentRegistry(
     /// <inheritdoc />
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation(EventIds.GracefulShutdown, "Persistent agent registry shutting down — stopping all containers");
+        _logger.LogInformation(EventIds.GracefulShutdown, "Persistent agent registry shutting down — stopping local containers");
 
         if (_healthTimer is not null)
         {
@@ -349,11 +528,19 @@ public class PersistentAgentRegistry(
             _healthTimer = null;
         }
 
-        var stopTasks = _entries.Values
-            .Select(e => TeardownOrStopEntryAsync(e, cancellationToken));
+        // Graceful shutdown only sweeps the containers THIS process started.
+        // The DB rows themselves are not deleted; sibling host processes may
+        // still be using their own containers and the next health probe in
+        // any process will flip the row to Unhealthy if the container goes
+        // away under traffic. Cross-process teardown is intentionally out
+        // of scope (#2468).
+        var stopTasks = _localContainers
+            .ToArray()
+            .Select(kvp => TeardownLocalContainerAsync(kvp.Value, cancellationToken));
 
         await Task.WhenAll(stopTasks);
-        _entries.Clear();
+        _localContainers.Clear();
+        _localDefinitions.Clear();
     }
 
     /// <summary>
@@ -372,7 +559,7 @@ public class PersistentAgentRegistry(
     /// </remarks>
     internal async Task RunHealthChecksAsync()
     {
-        var entries = _entries.Values.ToList();
+        var entries = await GetAllEntriesAsync();
         if (entries.Count == 0)
         {
             return;
@@ -410,11 +597,7 @@ public class PersistentAgentRegistry(
                     // Reset failure count on success.
                     if (entry.ConsecutiveFailures > 0 || entry.HealthStatus != AgentHealthStatus.Healthy)
                     {
-                        _entries[entry.AgentId] = entry with
-                        {
-                            HealthStatus = AgentHealthStatus.Healthy,
-                            ConsecutiveFailures = 0
-                        };
+                        await UpdateHealthAsync(entry.AgentId, AgentHealthStatus.Healthy, 0, CancellationToken.None);
                     }
                 }
                 else
@@ -425,11 +608,7 @@ public class PersistentAgentRegistry(
                     // dispatcher's pre-flight check on the next dispatch
                     // can route through the auto-restart path before the
                     // doomed A2A call goes out.
-                    _entries[entry.AgentId] = entry with
-                    {
-                        HealthStatus = AgentHealthStatus.Unhealthy,
-                        ConsecutiveFailures = failures,
-                    };
+                    await UpdateHealthAsync(entry.AgentId, AgentHealthStatus.Unhealthy, failures, CancellationToken.None);
 
                     if (failures == 1)
                     {
@@ -459,11 +638,7 @@ public class PersistentAgentRegistry(
                 _logger.LogWarning(ex, "Health check failed for agent {AgentId}", entry.AgentId);
                 var failures = entry.ConsecutiveFailures + 1;
 
-                _entries[entry.AgentId] = entry with
-                {
-                    HealthStatus = AgentHealthStatus.Unhealthy,
-                    ConsecutiveFailures = failures,
-                };
+                await UpdateHealthAsync(entry.AgentId, AgentHealthStatus.Unhealthy, failures, CancellationToken.None);
 
                 if (failures >= UnhealthyThreshold)
                 {
@@ -559,27 +734,38 @@ public class PersistentAgentRegistry(
         }
     }
 
-    /// <summary>
-    /// Attempts to restart an unhealthy agent by stopping the old container
-    /// and starting a fresh one.
-    /// </summary>
-    private async Task TeardownOrStopEntryAsync(
-        PersistentAgentEntry entry,
+    private async Task UpdateHealthAsync(
+        string agentId,
+        AgentHealthStatus status,
+        int consecutiveFailures,
         CancellationToken cancellationToken)
     {
-        if (entry.SidecarId is not null
-            && entry.SidecarNetworkName is not null
-            && entry.ContainerId is not null)
+        var agentGuid = ParseAgentId(agentId);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var row = await db.PersistentAgentRuntime
+            .FirstOrDefaultAsync(r => r.AgentId == agentGuid, cancellationToken);
+
+        if (row is null)
         {
-            await _containerLifecycle.TeardownAsync(
-                entry.ContainerId, entry.SidecarId, entry.SidecarNetworkName, cancellationToken);
+            return;
         }
-        else if (entry.ContainerId is not null)
-        {
-            await StopContainerSafeAsync(entry.ContainerId, cancellationToken);
-        }
+
+        row.HealthStatus = status;
+        row.ConsecutiveFailures = consecutiveFailures;
+        await db.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Attempts to restart an unhealthy agent by stopping the old container
+    /// and starting a fresh one. Resolves the agent's
+    /// <see cref="AgentDefinition"/> via the local cache when this process
+    /// registered the agent, falling back to
+    /// <see cref="IAgentDefinitionProvider"/> when the row was registered
+    /// by a sibling process (#2468 cross-process recovery).
+    /// </summary>
     private async Task TryRestartAsync(PersistentAgentEntry entry)
     {
         _logger.LogInformation(
@@ -588,28 +774,46 @@ public class PersistentAgentRegistry(
 
         try
         {
-            if (entry.Definition?.Execution?.Image is null)
+            using var scope = _scopeFactory.CreateScope();
+
+            // Definition resolution order: local registration cache (the
+            // process that ran the deploy keeps the full record), then the
+            // agent definition provider (works across processes). When the
+            // row came from another process and the provider also can't
+            // find a definition, we keep the row but reset the failure
+            // count so the timer doesn't keep retrying the same dead path
+            // every tick.
+            AgentDefinition? definition = null;
+            if (!_localDefinitions.TryGetValue(entry.AgentId, out definition))
+            {
+                var provider = scope.ServiceProvider.GetService<IAgentDefinitionProvider>();
+                if (provider is not null)
+                {
+                    definition = await provider.GetByIdAsync(entry.AgentId, CancellationToken.None);
+                }
+            }
+
+            if (definition?.Execution?.Image is null)
             {
                 _logger.LogWarning(
                     "Cannot restart agent {AgentId}: no definition/image available; keeping as unavailable.",
                     entry.AgentId);
-                // Keep the entry in the registry so the portal chip stays
+                // Keep the row in the registry so the portal chip stays
                 // "unavailable" rather than flipping back to "idle". Reset
                 // ConsecutiveFailures so we don't re-enter TryRestartAsync on
                 // every subsequent health tick — the cycle naturally rebuilds
                 // to the restart threshold over UnhealthyThreshold ticks.
-                _entries[entry.AgentId] = entry with { ConsecutiveFailures = 0 };
+                await UpdateHealthAsync(entry.AgentId, AgentHealthStatus.Unhealthy, 0, CancellationToken.None);
                 return;
             }
 
-            using var scope = _scopeFactory.CreateScope();
             var lifecycle = scope.ServiceProvider.GetRequiredService<PersistentAgentLifecycle>();
             await lifecycle.DeployAsync(entry.AgentId, cancellationToken: CancellationToken.None);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to restart persistent agent {AgentId}", entry.AgentId);
-            _entries.TryRemove(entry.AgentId, out _);
+            await RemoveAsync(entry.AgentId, CancellationToken.None);
         }
     }
 
@@ -663,6 +867,45 @@ public class PersistentAgentRegistry(
         return false;
     }
 
+    private async Task TeardownOrStopEntryAsync(
+        PersistentAgentEntry entry,
+        CancellationToken cancellationToken)
+    {
+        if (entry.SidecarId is not null
+            && entry.SidecarNetworkName is not null
+            && entry.ContainerId is not null)
+        {
+            await _containerLifecycle.TeardownAsync(
+                entry.ContainerId, entry.SidecarId, entry.SidecarNetworkName, cancellationToken);
+        }
+        else if (entry.ContainerId is not null)
+        {
+            await StopContainerSafeAsync(entry.ContainerId, cancellationToken);
+        }
+    }
+
+    private async Task TeardownLocalContainerAsync(
+        LocalContainer local,
+        CancellationToken cancellationToken)
+    {
+        if (local.SidecarId is not null && local.SidecarNetworkName is not null)
+        {
+            try
+            {
+                await _containerLifecycle.TeardownAsync(
+                    local.ContainerId, local.SidecarId, local.SidecarNetworkName, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to tear down container {ContainerId} on shutdown", local.ContainerId);
+            }
+        }
+        else
+        {
+            await StopContainerSafeAsync(local.ContainerId, cancellationToken);
+        }
+    }
+
     private async Task StopContainerSafeAsync(string containerId, CancellationToken ct)
     {
         try
@@ -672,6 +915,61 @@ public class PersistentAgentRegistry(
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to stop container {ContainerId}", containerId);
+        }
+    }
+
+    /// <summary>
+    /// Translates a persisted row to the in-memory wire record. The
+    /// <see cref="PersistentAgentEntry.Definition"/> slot is populated
+    /// from the per-process local cache when this host registered the
+    /// row; sibling-process readers see <c>null</c> here and rehydrate
+    /// the definition via <see cref="IAgentDefinitionProvider"/> on
+    /// demand (restart). The <see cref="PersistentAgentEntry.Image"/>
+    /// field is populated from the row's <c>image</c> column so
+    /// cross-process display reads never depend on the local cache.
+    /// </summary>
+    private PersistentAgentEntry ToEntry(string agentId, PersistentAgentRuntimeEntity row)
+    {
+        _localDefinitions.TryGetValue(agentId, out var definition);
+
+        return new PersistentAgentEntry(
+            AgentId: agentId,
+            Endpoint: new Uri(row.Endpoint),
+            ContainerId: row.ContainerId,
+            StartedAt: row.StartedAt,
+            HealthStatus: row.HealthStatus,
+            ConsecutiveFailures: row.ConsecutiveFailures,
+            Definition: definition,
+            SidecarId: row.SidecarId,
+            SidecarNetworkName: row.SidecarNetworkName,
+            Image: row.Image);
+    }
+
+    private static Guid ParseAgentId(string agentId)
+    {
+        if (!GuidFormatter.TryParse(agentId, out var guid))
+        {
+            throw new ArgumentException(
+                $"Agent id '{agentId}' is not a parseable Guid. " +
+                "PersistentAgentRegistry keys must be canonical 32-char no-dash hex Guid strings.",
+                nameof(agentId));
+        }
+
+        return guid;
+    }
+
+    private static string BuildOwnerHostTag()
+    {
+        try
+        {
+            var machine = Environment.MachineName;
+            using var process = Process.GetCurrentProcess();
+            var processName = process.ProcessName;
+            return $"{machine}/{processName}/{process.Id}";
+        }
+        catch
+        {
+            return "unknown";
         }
     }
 
@@ -695,6 +993,14 @@ public class PersistentAgentRegistry(
         public static readonly EventId HealthMonitorStarting = new(2245, nameof(HealthMonitorStarting));
         public static readonly EventId GracefulShutdown = new(2246, nameof(GracefulShutdown));
     }
+
+    /// <summary>
+    /// Tracks the container + sidecar identifiers this process actually
+    /// launched so <see cref="StopAsync"/> can tear them down on graceful
+    /// shutdown without touching containers owned by sibling host
+    /// processes.
+    /// </summary>
+    private sealed record LocalContainer(string ContainerId, string? SidecarId, string? SidecarNetworkName);
 }
 
 /// <summary>
@@ -718,7 +1024,21 @@ public enum AgentHealthStatus
 /// <param name="StartedAt">When the agent service was started.</param>
 /// <param name="HealthStatus">Current health status.</param>
 /// <param name="ConsecutiveFailures">Number of consecutive health-check failures.</param>
-/// <param name="Definition">The agent definition, retained for restart.</param>
+/// <param name="Definition">
+/// The agent definition, retained for restart. Populated when this
+/// process registered the agent locally; <c>null</c> when the entry is
+/// rehydrated from a sibling-process write — the restart path then
+/// rehydrates the definition via <see cref="IAgentDefinitionProvider"/>.
+/// </param>
+/// <param name="SidecarId">Dapr sidecar container id (Dapr-sidecar agents only).</param>
+/// <param name="SidecarNetworkName">Per-deployment network name when a sidecar network was created.</param>
+/// <param name="Image">
+/// Container image the agent is running (when known). Mirrors
+/// <see cref="AgentDefinition.Execution"/>.<c>Image</c> on the local
+/// process and is otherwise rehydrated from the EF row's <c>image</c>
+/// column so cross-process readers can render the deployment badge's
+/// image field without rehydrating <see cref="Definition"/>.
+/// </param>
 public record PersistentAgentEntry(
     string AgentId,
     Uri Endpoint,
@@ -728,4 +1048,5 @@ public record PersistentAgentEntry(
     int ConsecutiveFailures = 0,
     AgentDefinition? Definition = null,
     string? SidecarId = null,
-    string? SidecarNetworkName = null);
+    string? SidecarNetworkName = null,
+    string? Image = null);

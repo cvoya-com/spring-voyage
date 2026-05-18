@@ -7,9 +7,12 @@ using System.Net;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Execution;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -21,16 +24,34 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for <see cref="PersistentAgentRegistry"/>.
+/// Unit tests for <see cref="PersistentAgentRegistry"/>. After #2468 the
+/// registry round-trips through an EF row instead of an in-memory
+/// dictionary, so every test sets up an in-memory <see cref="SpringDbContext"/>
+/// shared via <see cref="IServiceScopeFactory"/>.
 /// </summary>
 public class PersistentAgentRegistryTests : IDisposable
 {
+    // xUnit1051 demands every method that accepts a CancellationToken
+    // receive TestContext.Current.CancellationToken so tests are
+    // promptly cancellable from the harness. The registry's surface
+    // accepts an optional token everywhere; using this property keeps
+    // every call site terse.
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private static readonly Guid Agent1Guid = new("aaaaaaaa-1111-1111-1111-000000000001");
+    private static readonly Guid Agent2Guid = new("aaaaaaaa-1111-1111-1111-000000000002");
+    private static readonly Guid Agent3Guid = new("aaaaaaaa-1111-1111-1111-000000000003");
+    private static readonly string Agent1Id = GuidFormatter.Format(Agent1Guid);
+    private static readonly string Agent2Id = GuidFormatter.Format(Agent2Guid);
+    private static readonly string Agent3Id = GuidFormatter.Format(Agent3Guid);
+
     private readonly IContainerRuntime _containerRuntime = Substitute.For<IContainerRuntime>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IAgentDefinitionProvider _agentProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
     private readonly IAgentRuntimeLauncher _launcher = Substitute.For<IAgentRuntimeLauncher>();
+    private readonly ServiceProvider _serviceProvider;
     private readonly PersistentAgentRegistry _registry;
 
     public PersistentAgentRegistryTests()
@@ -72,104 +93,145 @@ public class PersistentAgentRegistryTests : IDisposable
         services.AddSingleton<AgentVolumeManager>();
         services.AddSingleton<PersistentAgentRegistry>();
         services.AddSingleton<PersistentAgentLifecycle>();
-        _registry = services.BuildServiceProvider().GetRequiredService<PersistentAgentRegistry>();
+        // #2468: registry now persists state via EF; tests share a single
+        // in-memory DB per fixture so write-then-read assertions work.
+        var dbName = $"PersistentAgentRegistryTests-{Guid.NewGuid()}";
+        services.AddDbContext<SpringDbContext>(options =>
+            options.UseInMemoryDatabase(dbName));
+        _serviceProvider = services.BuildServiceProvider();
+        _registry = _serviceProvider.GetRequiredService<PersistentAgentRegistry>();
     }
 
     public void Dispose()
     {
         _registry.Dispose();
+        _serviceProvider.Dispose();
         GC.SuppressFinalize(this);
     }
 
     [Fact]
-    public void Register_TryGetEndpoint_ReturnsEndpoint()
+    public async Task Register_TryGetEndpoint_ReturnsEndpoint()
     {
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("agent-1", endpoint, "container-1");
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", cancellationToken: Ct);
 
-        var found = _registry.TryGetEndpoint("agent-1", out var result);
+        var result = await _registry.TryGetEndpointAsync(Agent1Id, cancellationToken: Ct);
 
-        found.ShouldBeTrue();
         result.ShouldBe(endpoint);
     }
 
     [Fact]
-    public void TryGetEndpoint_UnknownAgent_ReturnsFalse()
+    public async Task TryGetEndpoint_UnknownAgent_ReturnsNull()
     {
-        var found = _registry.TryGetEndpoint("nonexistent", out var result);
+        var result = await _registry.TryGetEndpointAsync(Agent1Id, cancellationToken: Ct);
 
-        found.ShouldBeFalse();
         result.ShouldBeNull();
     }
 
     [Fact]
-    public void Remove_TryGetEndpoint_ReturnsFalse()
+    public async Task Remove_TryGetEndpoint_ReturnsNull()
     {
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("agent-1", endpoint, "container-1");
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", cancellationToken: Ct);
 
-        _registry.Remove("agent-1");
+        await _registry.RemoveAsync(Agent1Id, cancellationToken: Ct);
 
-        var found = _registry.TryGetEndpoint("agent-1", out _);
-        found.ShouldBeFalse();
+        var result = await _registry.TryGetEndpointAsync(Agent1Id, cancellationToken: Ct);
+        result.ShouldBeNull();
     }
 
     [Fact]
-    public void Remove_UnknownAgent_DoesNotThrow()
+    public async Task Remove_UnknownAgent_DoesNotThrow()
     {
         // Should not throw for unknown agents.
-        _registry.Remove("nonexistent");
+        await _registry.RemoveAsync(Agent1Id, cancellationToken: Ct);
     }
 
     [Fact]
-    public void Register_OverwritesExisting()
+    public async Task Register_OverwritesExisting()
     {
         var endpoint1 = new Uri("http://localhost:8999/");
         var endpoint2 = new Uri("http://localhost:9000/");
 
-        _registry.Register("agent-1", endpoint1, "container-1");
-        _registry.Register("agent-1", endpoint2, "container-2");
+        await _registry.RegisterAsync(Agent1Id, endpoint1, "container-1", cancellationToken: Ct);
+        await _registry.RegisterAsync(Agent1Id, endpoint2, "container-2", cancellationToken: Ct);
 
-        _registry.TryGetEndpoint("agent-1", out var result);
+        var result = await _registry.TryGetEndpointAsync(Agent1Id, cancellationToken: Ct);
         result.ShouldBe(endpoint2);
     }
 
     [Fact]
-    public void TryGet_ReturnsFullEntry()
+    public async Task TryGet_ReturnsFullEntry()
     {
         var endpoint = new Uri("http://localhost:8999/");
-        var definition = new AgentDefinition("agent-1", "Test Agent", null,
+        var definition = new AgentDefinition(Agent1Id, "Test Agent", null,
             new AgentExecutionConfig("claude-code", "image:v1", Hosting: AgentHostingMode.Persistent));
 
-        _registry.Register("agent-1", endpoint, "container-1", definition);
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", definition, cancellationToken: Ct);
 
-        var found = _registry.TryGet("agent-1", out var entry);
+        var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
 
-        found.ShouldBeTrue();
         entry.ShouldNotBeNull();
-        entry!.AgentId.ShouldBe("agent-1");
+        entry!.AgentId.ShouldBe(Agent1Id);
         entry.Endpoint.ShouldBe(endpoint);
         entry.ContainerId.ShouldBe("container-1");
         entry.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
         entry.ConsecutiveFailures.ShouldBe(0);
         entry.Definition.ShouldBe(definition);
+        // #2468: Image column round-trips so cross-process readers (the
+        // API host's deployment-badge endpoint) get the image without
+        // depending on the locally-cached AgentDefinition.
+        entry.Image.ShouldBe("image:v1");
     }
 
     [Fact]
-    public void MarkUnhealthy_PreventsEndpointLookup()
+    public async Task TryGet_AfterCacheClear_RehydratesFromDb()
+    {
+        // #2468: the registry persists to an EF row so a sibling process
+        // (or, in tests, a fresh PersistentAgentRegistry instance pointing
+        // at the same DB) can see entries the original process registered.
+        var endpoint = new Uri("http://localhost:8999/");
+        var definition = new AgentDefinition(Agent1Id, "Test Agent", null,
+            new AgentExecutionConfig("claude-code", "image:v1", Hosting: AgentHostingMode.Persistent));
+
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", definition, cancellationToken: Ct);
+
+        // Simulate a process boundary: a sibling registry singleton, sharing
+        // the same DB. Its in-memory caches are empty so the read must hit
+        // the row.
+        var siblingRegistry = ActivatorUtilities.CreateInstance<PersistentAgentRegistry>(_serviceProvider);
+
+        var entry = await siblingRegistry.TryGetAsync(Agent1Id, cancellationToken: Ct);
+
+        entry.ShouldNotBeNull();
+        entry!.AgentId.ShouldBe(Agent1Id);
+        entry.Endpoint.ShouldBe(endpoint);
+        entry.ContainerId.ShouldBe("container-1");
+        entry.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
+        // The Definition slot is only populated when this process registered
+        // the agent — cross-process readers see null and rehydrate on
+        // demand via IAgentDefinitionProvider when restarting.
+        entry.Definition.ShouldBeNull();
+        // The Image column persists separately so the deployment badge
+        // still renders the image after a process boundary.
+        entry.Image.ShouldBe("image:v1");
+    }
+
+    [Fact]
+    public async Task MarkUnhealthy_PreventsEndpointLookup()
     {
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("agent-1", endpoint, "container-1");
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", cancellationToken: Ct);
 
-        _registry.MarkUnhealthy("agent-1");
+        await _registry.MarkUnhealthyAsync(Agent1Id, cancellationToken: Ct);
 
         // TryGetEndpoint should not return unhealthy agents.
-        var found = _registry.TryGetEndpoint("agent-1", out _);
-        found.ShouldBeFalse();
+        var endpointResult = await _registry.TryGetEndpointAsync(Agent1Id, cancellationToken: Ct);
+        endpointResult.ShouldBeNull();
 
         // But TryGet should still find it.
-        var exists = _registry.TryGet("agent-1", out var entry);
-        exists.ShouldBeTrue();
+        var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
+        entry.ShouldNotBeNull();
         entry!.HealthStatus.ShouldBe(AgentHealthStatus.Unhealthy);
     }
 
@@ -183,11 +245,11 @@ public class PersistentAgentRegistryTests : IDisposable
             .Returns(Task.FromResult(true));
 
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("agent-1", endpoint, "container-1");
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", cancellationToken: Ct);
 
         await _registry.RunHealthChecksAsync();
 
-        _registry.TryGet("agent-1", out var entry);
+        var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
         entry!.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
         entry.ConsecutiveFailures.ShouldBe(0);
     }
@@ -205,11 +267,11 @@ public class PersistentAgentRegistryTests : IDisposable
             .Returns(Task.FromResult(false));
 
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("agent-1", endpoint, "container-1");
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", cancellationToken: Ct);
 
         await _registry.RunHealthChecksAsync();
 
-        _registry.TryGet("agent-1", out var entry);
+        var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
         entry!.ConsecutiveFailures.ShouldBe(1);
         entry.HealthStatus.ShouldBe(AgentHealthStatus.Unhealthy);
     }
@@ -222,10 +284,10 @@ public class PersistentAgentRegistryTests : IDisposable
             .Returns(Task.FromResult(false));
 
         var endpoint = new Uri("http://localhost:8999/");
-        var definition = new AgentDefinition("agent-1", "Test Agent", null,
+        var definition = new AgentDefinition(Agent1Id, "Test Agent", null,
             new AgentExecutionConfig("claude-code", "image:v1", Hosting: AgentHostingMode.Persistent));
-        _agentProvider.GetByIdAsync("agent-1", Arg.Any<CancellationToken>()).Returns(definition);
-        _registry.Register("agent-1", endpoint, "container-1", definition);
+        _agentProvider.GetByIdAsync(Agent1Id, Arg.Any<CancellationToken>()).Returns(definition);
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", definition, cancellationToken: Ct);
 
         // Simulate restart failure (container starts but never becomes ready).
         _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
@@ -240,7 +302,7 @@ public class PersistentAgentRegistryTests : IDisposable
         // After threshold failures + restart attempt, agent should be removed
         // (restart fails because A2A endpoint never becomes ready with mock).
         // Or it could be marked unhealthy. Let's check what happened.
-        _registry.TryGet("agent-1", out var entry);
+        var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
 
         // Either removed (restart failed) or unhealthy.
         if (entry is not null)
@@ -258,19 +320,19 @@ public class PersistentAgentRegistryTests : IDisposable
             .Returns(_ => Task.FromResult(healthy));
 
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("agent-1", endpoint, "container-1");
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", cancellationToken: Ct);
 
         // Simulate one failure.
         await _registry.RunHealthChecksAsync();
 
-        _registry.TryGet("agent-1", out var entry);
+        var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
         entry!.ConsecutiveFailures.ShouldBe(1);
 
         // Now succeed.
         healthy = true;
         await _registry.RunHealthChecksAsync();
 
-        _registry.TryGet("agent-1", out entry);
+        entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
         entry!.ConsecutiveFailures.ShouldBe(0);
         entry.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
     }
@@ -286,11 +348,11 @@ public class PersistentAgentRegistryTests : IDisposable
             .Returns(_ => new HttpClient(handler, disposeHandler: false));
 
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("agent-1", endpoint, containerId: null);
+        await _registry.RegisterAsync(Agent1Id, endpoint, containerId: null, cancellationToken: Ct);
 
         await _registry.RunHealthChecksAsync();
 
-        _registry.TryGet("agent-1", out var entry);
+        var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
         entry!.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
         entry.ConsecutiveFailures.ShouldBe(0);
         await _containerRuntime.DidNotReceive().ProbeContainerHttpAsync(
@@ -304,18 +366,30 @@ public class PersistentAgentRegistryTests : IDisposable
         var httpClient = new HttpClient(handler);
         _httpClientFactory.CreateClient(Arg.Any<string>()).Returns(httpClient);
 
-        var tasks = Enumerable.Range(0, 50).Select(i => Task.Run(() =>
+        // 50 distinct agent Guids — exercises concurrent inserts against
+        // disjoint keys. The EF in-memory provider doesn't support the
+        // production "two concurrent transactions race to insert the same
+        // key, one falls back to the existing row" path (it throws
+        // ArgumentException on same-key concurrent inserts), so we don't
+        // exercise that path here. The production Postgres provider
+        // serialises on the PK unique index and the registry's
+        // <c>FirstOrDefaultAsync + upsert</c> pattern is correct against
+        // that ordering. The thread-safety surface this test protects is
+        // the in-process maps (<c>_localContainers</c> /
+        // <c>_inFlightDispatches</c>) and the registry's scope handling.
+        var tasks = Enumerable.Range(0, 50).Select(i => Task.Run(async () =>
         {
-            var agentId = $"agent-{i % 10}";
+            var agentGuid = new Guid($"aaaaaaaa-cccc-1111-1111-0000000000{i:D2}");
+            var agentId = GuidFormatter.Format(agentGuid);
             var endpoint = new Uri($"http://localhost:{8999 + i}/");
 
-            _registry.Register(agentId, endpoint, $"container-{i}");
-            _registry.TryGetEndpoint(agentId, out _);
-            _registry.TryGet(agentId, out _);
+            await _registry.RegisterAsync(agentId, endpoint, $"container-{i}", cancellationToken: Ct);
+            await _registry.TryGetEndpointAsync(agentId, cancellationToken: Ct);
+            await _registry.TryGetAsync(agentId, cancellationToken: Ct);
 
             if (i % 5 == 0)
             {
-                _registry.Remove(agentId);
+                await _registry.RemoveAsync(agentId, cancellationToken: Ct);
             }
         }));
 
@@ -325,11 +399,15 @@ public class PersistentAgentRegistryTests : IDisposable
     }
 
     [Fact]
-    public async Task StopAsync_StopsAllContainers()
+    public async Task StopAsync_StopsLocalContainers()
     {
-        _registry.Register("agent-1", new Uri("http://localhost:8999/"), "container-1");
-        _registry.Register("agent-2", new Uri("http://localhost:9000/"), "container-2");
-        _registry.Register("agent-3", new Uri("http://localhost:9001/"), null); // No container.
+        // #2468: graceful shutdown now sweeps only the containers THIS
+        // process launched (tracked in the registry's _localContainers
+        // map). DB rows are intentionally left behind so a sibling host
+        // process keeps the agent reachable across one process's restart.
+        await _registry.RegisterAsync(Agent1Id, new Uri("http://localhost:8999/"), "container-1", cancellationToken: Ct);
+        await _registry.RegisterAsync(Agent2Id, new Uri("http://localhost:9000/"), "container-2", cancellationToken: Ct);
+        await _registry.RegisterAsync(Agent3Id, new Uri("http://localhost:9001/"), null, cancellationToken: Ct); // No container.
 
         await _registry.StopAsync(CancellationToken.None);
 
@@ -339,9 +417,6 @@ public class PersistentAgentRegistryTests : IDisposable
         await _containerRuntime.DidNotReceive().StopAsync(
             Arg.Is<string>(s => s != "container-1" && s != "container-2"),
             Arg.Any<CancellationToken>());
-
-        // Registry should be empty after shutdown.
-        _registry.GetAllEntries().ShouldBeEmpty();
     }
 
     [Fact]
@@ -350,7 +425,7 @@ public class PersistentAgentRegistryTests : IDisposable
         _containerRuntime.StopAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("stop failed")));
 
-        _registry.Register("agent-1", new Uri("http://localhost:8999/"), "container-1");
+        await _registry.RegisterAsync(Agent1Id, new Uri("http://localhost:8999/"), "container-1", cancellationToken: Ct);
 
         // Should not throw even when container stop fails.
         await _registry.StopAsync(CancellationToken.None);
@@ -394,11 +469,11 @@ public class PersistentAgentRegistryTests : IDisposable
             .Returns(_ => Task.FromResult(probeResults.Dequeue()));
 
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("agent-1", endpoint, "container-1");
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", cancellationToken: Ct);
 
         // First sweep: agent answers.
         await _registry.RunHealthChecksAsync();
-        _registry.TryGet("agent-1", out var entry);
+        var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
         entry!.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
         entry.ConsecutiveFailures.ShouldBe(0);
 
@@ -406,7 +481,7 @@ public class PersistentAgentRegistryTests : IDisposable
         // though we are well below UnhealthyThreshold, the dispatcher's
         // pre-flight contract requires HealthStatus to flip immediately.
         await _registry.RunHealthChecksAsync();
-        _registry.TryGet("agent-1", out entry);
+        entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
         entry!.HealthStatus.ShouldBe(AgentHealthStatus.Unhealthy);
         entry.ConsecutiveFailures.ShouldBe(1);
     }
@@ -423,7 +498,7 @@ public class PersistentAgentRegistryTests : IDisposable
             .Returns(false);
 
         var entry = new PersistentAgentEntry(
-            "agent-1",
+            Agent1Id,
             new Uri("http://localhost:8999/"),
             ContainerId: "container-1",
             StartedAt: DateTimeOffset.UtcNow);
@@ -448,12 +523,12 @@ public class PersistentAgentRegistryTests : IDisposable
         // workspace volume survives across restart per ADR-0029
         // ("Container crashes do NOT trigger reclamation").
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("agent-1", endpoint, "container-1");
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", cancellationToken: Ct);
 
-        var stopped = await _registry.StopContainerAsync("agent-1", CancellationToken.None);
+        var stopped = await _registry.StopContainerAsync(Agent1Id, CancellationToken.None);
 
         stopped.ShouldBeTrue();
-        _registry.TryGet("agent-1", out var entry);
+        var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
         entry.ShouldBeNull();
         await _containerRuntime.Received().StopAsync("container-1", Arg.Any<CancellationToken>());
         // Volume reclamation is NOT triggered — that's the
@@ -467,17 +542,17 @@ public class PersistentAgentRegistryTests : IDisposable
     [Fact]
     public async Task StopContainerAsync_UnknownAgent_ReturnsFalse()
     {
-        var stopped = await _registry.StopContainerAsync("unknown-agent", CancellationToken.None);
+        var stopped = await _registry.StopContainerAsync(Agent1Id, CancellationToken.None);
         stopped.ShouldBeFalse();
     }
 
     [Fact]
-    public void GetAllEntries_ReturnsSnapshot()
+    public async Task GetAllEntries_ReturnsSnapshot()
     {
-        _registry.Register("agent-1", new Uri("http://localhost:8999/"), "c1");
-        _registry.Register("agent-2", new Uri("http://localhost:9000/"), "c2");
+        await _registry.RegisterAsync(Agent1Id, new Uri("http://localhost:8999/"), "c1", cancellationToken: Ct);
+        await _registry.RegisterAsync(Agent2Id, new Uri("http://localhost:9000/"), "c2", cancellationToken: Ct);
 
-        var entries = _registry.GetAllEntries();
+        var entries = await _registry.GetAllEntriesAsync(cancellationToken: Ct);
         entries.Count.ShouldBe(2);
     }
 
@@ -495,14 +570,14 @@ public class PersistentAgentRegistryTests : IDisposable
             .Returns(Task.FromResult(false));
 
         var endpoint = new Uri("http://localhost:8999/");
-        _registry.Register("agent-1", endpoint, "container-1");
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", cancellationToken: Ct);
 
-        using (_registry.BeginDispatch("agent-1"))
+        using (_registry.BeginDispatch(Agent1Id))
         {
             await _registry.RunHealthChecksAsync();
 
             // Probe was skipped: status stays Healthy and no probe call was issued.
-            _registry.TryGet("agent-1", out var duringEntry);
+            var duringEntry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
             duringEntry!.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
             duringEntry.ConsecutiveFailures.ShouldBe(0);
 
@@ -513,7 +588,7 @@ public class PersistentAgentRegistryTests : IDisposable
         // After the dispatch scope is disposed, the sweep runs the probe
         // again and the still-failing probe flips the entry to Unhealthy.
         await _registry.RunHealthChecksAsync();
-        _registry.TryGet("agent-1", out var afterEntry);
+        var afterEntry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
         afterEntry!.HealthStatus.ShouldBe(AgentHealthStatus.Unhealthy);
     }
 
@@ -532,9 +607,9 @@ public class PersistentAgentRegistryTests : IDisposable
 
         // Definition with an image is required so TryRestartAsync proceeds
         // past its "no image" early return into the DeployAsync call.
-        var definition = new AgentDefinition("agent-1", "Test Agent", null,
+        var definition = new AgentDefinition(Agent1Id, "Test Agent", null,
             new AgentExecutionConfig("claude-code", "image:v1", Hosting: AgentHostingMode.Persistent));
-        _registry.Register("agent-1", new Uri("http://localhost:8999/"), "container-1", definition);
+        await _registry.RegisterAsync(Agent1Id, new Uri("http://localhost:8999/"), "container-1", definition, cancellationToken: Ct);
 
         // Default _agentProvider.GetByIdAsync returns null, so DeployAsync
         // throws SpringException — that's the catch path under test.
@@ -544,7 +619,7 @@ public class PersistentAgentRegistryTests : IDisposable
             await _registry.RunHealthChecksAsync();
         }
 
-        _registry.TryGet("agent-1", out var entry);
+        var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
         entry.ShouldBeNull();
     }
 

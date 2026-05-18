@@ -571,7 +571,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             memberCount = members.Count;
         }
 
-        var liveStatus = ResolveLiveStatus(uuid);
+        var liveStatus = await ResolveLiveStatusAsync(uuid, ct);
 
         return new DirectoryEntry(
             Uuid: uuid,
@@ -750,9 +750,10 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         return verdict.IsAllowed;
     }
 
-    private string ResolveLiveStatus(string uuid)
+    private async Task<string> ResolveLiveStatusAsync(string uuid, CancellationToken ct)
     {
-        if (!_agentRegistry.TryGet(uuid, out var entry) || entry is null)
+        var entry = await _agentRegistry.TryGetAsync(uuid, ct);
+        if (entry is null)
         {
             return "unknown";
         }
