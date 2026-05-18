@@ -1,7 +1,5 @@
 # Product Management Package
 
-> **Tier 5 of 7.** Adds a **required** GitHub connector, three install-time inputs, and package-level skills consumed by every member of the unit. Builds on the optional-connector pattern from [`research`](../research/); the next package ([`software-engineering`](../software-engineering/)) layers a Dapr workflow on top of the same shape.
-
 A domain package that ships a product squad — a product manager and a product designer — wired to a GitHub repository and equipped with triage, roadmap, sprint-planning, and design-review skills.
 
 ## What this package ships
