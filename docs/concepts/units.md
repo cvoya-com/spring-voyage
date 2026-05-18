@@ -12,11 +12,35 @@ applies to both unit and leaf agent vs only one, see
 
 ## Children
 
-Units compose leaf agents and sub-units. Member agents are assigned through
-`POST /api/v1/tenant/units/{id}/agents/{agentId}`; sub-units are added through
-the membership surface at `PUT /api/v1/tenant/units/{unitId}/memberships/{agentAddress}`.
-Both paths update the unit's child list, which is the list exposed to the
-runtime through `list_children`.
+Units compose leaf agents, sub-units, and human team members. All three are
+declared on the unit's `members:` list with the unified [ADR-0046](../decisions/0046-unified-members-grammar.md)
+grammar — `- agent:`, `- unit:`, or `- human:`:
+
+```yaml
+members:
+  - agent: ada
+  - unit: { from: engineering, name: engineering-1 }
+  - human:
+      roles: [owner, security_lead]
+      expertise: [security, infra]
+      notifications: [escalation, completion]
+```
+
+After install, the membership graph is editable through the API surface:
+
+- Member agents are assigned through `POST /api/v1/tenant/units/{id}/agents/{agentId}`.
+- Sub-units are added through `PUT /api/v1/tenant/units/{unitId}/memberships/{agentAddress}`.
+- Human team members are added through the unit-membership endpoints introduced
+  alongside [ADR-0046](../decisions/0046-unified-members-grammar.md); the
+  `unit_memberships_humans` row carries `roles`, `expertise`, and `notifications`
+  jsonb columns keyed by `(tenant, unit, human)`.
+
+Agent and unit membership rows carry the same multi-valued `roles` /
+`expertise` jsonb columns ([ADR-0046 §8](../decisions/0046-unified-members-grammar.md));
+the fields are runtime metadata surfaced through `list_children` / `sv.list_members`,
+not platform-decision inputs.
+
+The full child list is exposed to the runtime through `list_children`.
 
 ## Permissions
 
@@ -26,13 +50,24 @@ configure, operate, or view the unit. Declared expertise plus boundary rules
 govern what outside callers can see and which issues or work the unit is
 eligible to receive.
 
+Human *team-role* membership (declared on the package YAML's `members:` block)
+is orthogonal to *platform-role* permissions
+([ADR-0044 §1](../decisions/0044-team-role-vs-platform-role.md), preserved
+unchanged by [ADR-0046](../decisions/0046-unified-members-grammar.md)). A
+declaration on `members:` does not grant any platform authority; ACL grants
+stay on `unit_human_permissions` and are managed through the existing
+`/api/v1/tenant/units/{id}/humans/{humanId}/permissions` surface. See
+[Humans](humans.md) for the two-axes model.
+
 ## Lifecycle workflow
 
 The unit lifecycle runs from creation to membership and then active operation:
 
 1. Create the unit and persist its identity, execution config, optional
    connector binding, boundary, and own expertise.
-2. Add member agents or sub-units.
+2. Add member agents, sub-units, and human team members (either declaratively
+   via the package YAML's `members:` block or imperatively via the membership
+   endpoints).
 3. Validate runtime, credentials, connector binding, image, and membership
    shape.
 4. Activate the unit so domain messages can invoke its runtime.
@@ -42,7 +77,10 @@ The unit lifecycle runs from creation to membership and then active operation:
 A unit can be bound to a connector such as GitHub, Arxiv, or Web Search. The
 binding stores connector-specific configuration and credentials, translates
 external events into messages for the unit, and contributes connector skills to
-runtime tool discovery. See [Connectors](connectors.md) for the binding model.
+runtime tool discovery. Packages declare the requirement with `requires: [ { connector: <slug> } ]`
+on the unit's `package.yaml`; the install pipeline asks the operator for one
+binding per unique requirement. See [Connectors](connectors.md) for the binding
+model.
 
 ## Expertise aggregation
 

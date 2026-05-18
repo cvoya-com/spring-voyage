@@ -8,7 +8,7 @@ namespace Cvoya.Spring.Dapr.Data.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 /// <summary>
-/// ADR-0045 — unified members grammar; humans as a member kind;
+/// ADR-0046 — unified members grammar; humans as a member kind;
 /// HumanTemplate; vocabulary trim. Schema changes bundled into one
 /// migration:
 /// <list type="number">
@@ -17,8 +17,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 ///   <item><description>Add the <c>roles jsonb</c> column on <c>unit_memberships_humans</c> with a data-migration step that lifts every existing <c>role text</c> value into a one-element JSON array.</description></item>
 ///   <item><description>Drop the now-superseded <c>role text</c> column.</description></item>
 ///   <item><description>Add the new unique <c>(tenant, unit, human)</c> index on <c>unit_memberships_humans</c>.</description></item>
-///   <item><description>Add <c>roles jsonb</c> + <c>expertise jsonb</c> columns on <c>unit_memberships</c> (ADR-0045 §8) with empty-array defaults.</description></item>
-///   <item><description>Add the editable <c>description text</c> column on <c>humans</c> (ADR-0045 §7 — surfaces on the Human × Config tab).</description></item>
+///   <item><description>Add <c>roles jsonb</c> + <c>expertise jsonb</c> columns on <c>unit_memberships</c> (ADR-0046 §8) with empty-array defaults.</description></item>
+///   <item><description>Add the editable <c>description text</c> column on <c>humans</c> (ADR-0046 §7 — surfaces on the Human × Config tab).</description></item>
 /// </list>
 /// </summary>
 public partial class UnifyMembersGrammar : Migration
@@ -27,7 +27,7 @@ public partial class UnifyMembersGrammar : Migration
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         // Drop the ADR-0044 unique index keyed on (tenant, unit, human, role).
-        // The natural key collapses to (tenant, unit, human) under ADR-0045 §7.
+        // The natural key collapses to (tenant, unit, human) under ADR-0046 §7.
         migrationBuilder.DropIndex(
             name: "ux_unit_memberships_humans_tenant_unit_human_role",
             schema: "spring",
@@ -74,7 +74,7 @@ public partial class UnifyMembersGrammar : Migration
             schema: "spring",
             table: "unit_memberships_humans");
 
-        // ADR-0045 §8: per-membership multi-valued metadata on the agent
+        // ADR-0046 §8: per-membership multi-valued metadata on the agent
         // edge table. Empty-array defaults so every existing row lands a
         // valid jsonb literal without further data migration.
         migrationBuilder.AddColumn<string>(
@@ -93,7 +93,7 @@ public partial class UnifyMembersGrammar : Migration
             nullable: false,
             defaultValueSql: "'[]'::jsonb");
 
-        // ADR-0045 §7: humans gain a post-install editable Description
+        // ADR-0046 §7: humans gain a post-install editable Description
         // parallel to agents / units. Nullable — existing rows land NULL.
         migrationBuilder.AddColumn<string>(
             name: "description",
@@ -102,7 +102,7 @@ public partial class UnifyMembersGrammar : Migration
             type: "text",
             nullable: true);
 
-        // The new unique key under ADR-0045 §7 — one row per (unit, human).
+        // The new unique key under ADR-0046 §7 — one row per (unit, human).
         migrationBuilder.CreateIndex(
             name: "ux_unit_memberships_humans_tenant_unit_human",
             schema: "spring",

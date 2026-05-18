@@ -33,7 +33,7 @@ using Cvoya.Spring.Cli.Utilities;
 /// the authenticated caller's Human row via the existing
 /// <c>GET /api/v1/tenant/auth/me</c> endpoint. <c>--roles</c>,
 /// <c>--expertise</c>, and <c>--notifications</c> accept comma-separated
-/// lists (or may be repeated) per ADR-0045 §3's multi-valued team-role
+/// lists (or may be repeated) per ADR-0046 §3's multi-valued team-role
 /// grammar and ADR-0044's "free-form, no vocabulary in v0.1" rule. The
 /// natural key on the membership row is <c>(unit, human)</c>; a single
 /// row carries the full multi-valued role list — there is no longer one
@@ -79,7 +79,7 @@ public static class UnitMembersCommand
         var rolesOption = new Option<string[]?>("--roles")
         {
             Description =
-                "Team-role list (free-form per ADR-0045 §3; e.g. owner or reviewer,security_lead). " +
+                "Team-role list (free-form per ADR-0046 §3; e.g. owner or reviewer,security_lead). " +
                 "Repeatable: pass --roles foo --roles bar, or use comma-separated form --roles foo,bar.",
             Required = true,
             AllowMultipleArgumentsPerToken = true,
@@ -96,7 +96,7 @@ public static class UnitMembersCommand
         var command = new Command(
             "add",
             "Add a human as a team-role member of this unit. Idempotent on (unit, human) " +
-            "per ADR-0045 §7 — re-running replaces roles / expertise / notifications in place.");
+            "per ADR-0046 §7 — re-running replaces roles / expertise / notifications in place.");
         command.Arguments.Add(unitArg);
         command.Options.Add(humanOption);
         command.Options.Add(rolesOption);
@@ -237,7 +237,7 @@ public static class UnitMembersCommand
         var rolesOption = new Option<string[]?>("--roles")
         {
             Description =
-                "Replacement team-role list (free-form per ADR-0045 §3). Repeatable or comma-separated. " +
+                "Replacement team-role list (free-form per ADR-0046 §3). Repeatable or comma-separated. " +
                 "Omit to leave the existing roles unchanged; pass --roles \"\" to clear.",
             AllowMultipleArgumentsPerToken = true,
         };
@@ -253,7 +253,7 @@ public static class UnitMembersCommand
         var command = new Command(
             "update",
             "Update the multi-valued roles / expertise / notifications on an existing team-role " +
-            "membership row (keyed by (unit, human) per ADR-0045 §7). Each list-flag uses full-" +
+            "membership row (keyed by (unit, human) per ADR-0046 §7). Each list-flag uses full-" +
             "replacement semantics: omit to leave unchanged, pass an empty value to clear.");
         command.Arguments.Add(unitArg);
         command.Options.Add(humanOption);
@@ -347,7 +347,7 @@ public static class UnitMembersCommand
 
         var command = new Command(
             "remove",
-            "Remove a team-role membership row keyed by (unit, human) per ADR-0045 §7. " +
+            "Remove a team-role membership row keyed by (unit, human) per ADR-0046 §7. " +
             "Idempotent — succeeds whether or not the row existed.");
         command.Arguments.Add(unitArg);
         command.Options.Add(humanOption);

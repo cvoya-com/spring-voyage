@@ -14,9 +14,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 /// <summary>
 /// EF Core configuration for <see cref="UnitMembershipHumanEntity"/>
-/// (ADR-0044 § 3, amended by ADR-0045 §7). Synthetic membership Guid PK;
+/// (ADR-0044 § 3, amended by ADR-0046 §7). Synthetic membership Guid PK;
 /// unique index on <c>(tenant_id, unit_id, human_id)</c> enforces the
-/// "one row per participant" invariant introduced in ADR-0045 §7. The
+/// "one row per participant" invariant introduced in ADR-0046 §7. The
 /// per-row <c>role</c> column from ADR-0044 is replaced by a multi-valued
 /// <c>roles jsonb</c> column. The tenant query filter itself is applied on
 /// the DbContext per CONVENTIONS § 12 so it can reference the per-instance
@@ -71,7 +71,7 @@ internal class UnitMembershipHumanEntityConfiguration : IEntityTypeConfiguration
 
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
 
-        // ADR-0045 §7: one row per (tenant, unit, human). Roles are now a
+        // ADR-0046 §7: one row per (tenant, unit, human). Roles are now a
         // jsonb list on the row itself; the old ADR-0044 unique-index on
         // (tenant, unit, human, role) is gone.
         builder.HasIndex(e => new { e.TenantId, e.UnitId, e.HumanId })

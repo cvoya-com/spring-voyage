@@ -16,7 +16,7 @@ using Cvoya.Spring.Core.Tenancy;
 /// package author's team-role declarations.
 ///
 /// <para>
-/// ADR-0045 §7 collapses the natural key to <c>(tenant_id, unit_id, human_id)</c>
+/// ADR-0046 §7 collapses the natural key to <c>(tenant_id, unit_id, human_id)</c>
 /// — the unique index is enforced in the <c>IEntityTypeConfiguration</c>.
 /// <see cref="Roles"/> is now a multi-valued jsonb list on the row itself
 /// (replacing the per-row <c>role</c> column from ADR-0044 § 3). One row per
@@ -40,7 +40,7 @@ public class UnitMembershipHumanEntity : ITenantScopedEntity
 
     /// <summary>
     /// Free-form team-role strings carried verbatim from the manifest
-    /// (ADR-0045 §3). Persisted as a jsonb array column. Empty list when
+    /// (ADR-0046 §3). Persisted as a jsonb array column. Empty list when
     /// the manifest omitted the field.
     /// </summary>
     public List<string> Roles { get; set; } = new();

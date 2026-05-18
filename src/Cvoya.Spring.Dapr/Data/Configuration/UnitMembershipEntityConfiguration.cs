@@ -15,7 +15,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 /// <summary>
 /// EF Core configuration for <see cref="UnitMembershipEntity"/>. Composite
 /// primary key on (tenant_id, unit_id, agent_id) with every column typed
-/// as Guid. ADR-0045 §8 added the <c>roles</c> + <c>expertise</c> jsonb
+/// as Guid. ADR-0046 §8 added the <c>roles</c> + <c>expertise</c> jsonb
 /// columns alongside the existing model / specialty / execution-mode
 /// overrides; the tenant query filter is applied on the DbContext.
 /// </summary>

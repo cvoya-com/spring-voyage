@@ -77,7 +77,7 @@ public static class UnitCommand
         bool? IsPrimary,
         // #2438 human-scheme rows. Sparse — populated for `scheme == "human"`
         // only; existing agent / sub-unit consumers see null on these fields.
-        // ADR-0045 §3 collapses `Role` (singular) into `Roles` (multi-valued).
+        // ADR-0046 §3 collapses `Role` (singular) into `Roles` (multi-valued).
         string? HumanId,
         IReadOnlyList<string>? Roles,
         IReadOnlyList<string>? Expertise,

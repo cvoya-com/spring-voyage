@@ -39,9 +39,9 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for the ADR-0044 § 5 / ADR-0045 §9 extension:
+/// Tests for the ADR-0044 § 5 / ADR-0046 §9 extension:
 /// <c>sv.list_members</c> folds package-declared human team members into
-/// the homogeneous response, gated by <c>kind == "human"</c>. ADR-0045 §9
+/// the homogeneous response, gated by <c>kind == "human"</c>. ADR-0046 §9
 /// replaces the per-row <c>team_role: string</c> field with a multi-valued
 /// <c>roles: string[]</c> array.
 /// </summary>
@@ -78,7 +78,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
     [Fact]
     public async Task ListMembers_HumanWithMultipleRoles_EmitsOneEntryWithRolesArray()
     {
-        // ADR-0045 §7 + §9: a single human filling multiple team roles
+        // ADR-0046 §7 + §9: a single human filling multiple team roles
         // surfaces as ONE entry whose roles array carries every role —
         // a behaviour change from ADR-0044's "one entry per (human, role)
         // row".
@@ -99,7 +99,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
     [Fact]
     public async Task ListMembers_HumanWithoutRoles_OmitsRolesField()
     {
-        // ADR-0045 §9: the `roles` field is gated on a non-empty list so
+        // ADR-0046 §9: the `roles` field is gated on a non-empty list so
         // entries without roles don't drag a `"roles": []` into the wire
         // shape. Keeps the JSON contract minimal.
         var noRolesId = Guid.Parse("00000000-cccc-cccc-cccc-000000000001");
@@ -121,12 +121,12 @@ public class SvDirectorySkillRegistry_HumanMembersTests
         }
     }
 
-    // ── ADR-0045 §8: agent entries surface per-membership roles ──────────
+    // ── ADR-0046 §8: agent entries surface per-membership roles ──────────
 
     [Fact]
     public async Task ListMembers_AgentWithMembershipRoles_EmitsRolesArray()
     {
-        // ADR-0045 §8: agent entries surface the per-membership roles list
+        // ADR-0046 §8: agent entries surface the per-membership roles list
         // (the same multi-valued shape the human entries carry, additive on
         // agent rows). The supplement runs after BuildEntryAsync, so the
         // test seeds an agent definition in EF plus a unit-membership row
@@ -275,7 +275,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
                 .Returns(call => new ValueTask<string>(call.ArgAt<string>(0)));
             services.AddScoped<IParticipantDisplayNameResolver>(_ => participantResolver);
 
-            // ADR-0045 §8: BuildHumanEntryAsync no longer reads the agent /
+            // ADR-0046 §8: BuildHumanEntryAsync no longer reads the agent /
             // unit-membership repo when emitting human entries, but the
             // sibling agent / unit folding path does. Wire a fake repo that
             // returns the seeded agent-membership rows so the test exercising

@@ -12,7 +12,7 @@ using Cvoya.Spring.Core.Tenancy;
 /// Persists one (unit, agent) membership edge with per-membership config
 /// overrides. The composite primary key is
 /// <c>(tenant_id, unit_id, agent_id)</c> with both identity columns typed
-/// as Guid; there is no slug column on this table. ADR-0045 §8 adds the
+/// as Guid; there is no slug column on this table. ADR-0046 §8 adds the
 /// <see cref="Roles"/> + <see cref="Expertise"/> jsonb columns so agent
 /// membership rows carry the same multi-valued member-level metadata as
 /// the human membership rows on the sibling <see cref="UnitMembershipHumanEntity"/>
@@ -46,7 +46,7 @@ public class UnitMembershipEntity : ITenantScopedEntity
     public AgentExecutionMode? ExecutionMode { get; set; }
 
     /// <summary>
-    /// ADR-0045 §8: free-form team-role strings the agent advertises on
+    /// ADR-0046 §8: free-form team-role strings the agent advertises on
     /// this unit (e.g. <c>[reviewer]</c>). Persisted as a jsonb array
     /// column. Empty list when absent. Runtime metadata only — surfaced
     /// on <c>sv.list_members</c> so peer agents can ask "which teammates
@@ -55,7 +55,7 @@ public class UnitMembershipEntity : ITenantScopedEntity
     public List<string> Roles { get; set; } = new();
 
     /// <summary>
-    /// ADR-0045 §8: free-form expertise tags the agent advertises on this
+    /// ADR-0046 §8: free-form expertise tags the agent advertises on this
     /// unit. Persisted as a jsonb array column. Empty list when absent.
     /// </summary>
     public List<string> Expertise { get; set; } = new();

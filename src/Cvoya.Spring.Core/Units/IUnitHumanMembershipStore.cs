@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 /// <summary>
 /// Read / write seam over the <c>unit_memberships_humans</c> table introduced
-/// in ADR-0044 and reshaped by ADR-0045 §7. Surfaces the unit's team-role
+/// in ADR-0044 and reshaped by ADR-0046 §7. Surfaces the unit's team-role
 /// membership rows (one per <c>(unit, human)</c> pair; <c>roles</c> is now a
 /// jsonb list on the row) for callers that need the domain participation
 /// view — primarily the <c>sv.list_members</c> MCP tool, the operator-facing
@@ -26,7 +26,7 @@ using System.Threading.Tasks;
 /// extensibility rules so the cloud registration takes precedence.
 /// </para>
 /// <para>
-/// Writes share the set-semantic invariant from ADR-0045 §7: the natural
+/// Writes share the set-semantic invariant from ADR-0046 §7: the natural
 /// key is <c>(tenant, unit, human)</c> and re-asserting the same key
 /// updates <c>roles</c> / <c>expertise</c> / <c>notifications</c> rather
 /// than inserting a duplicate row. Tenant scoping is applied by the
@@ -52,7 +52,7 @@ public interface IUnitHumanMembershipStore
 
     /// <summary>
     /// Reads a single membership row by the <c>(unit, human)</c> natural
-    /// key (ADR-0045 §7). Returns <see langword="null"/> when no row
+    /// key (ADR-0046 §7). Returns <see langword="null"/> when no row
     /// matches.
     /// </summary>
     /// <param name="unitId">The unit's stable Guid identity.</param>
@@ -65,7 +65,7 @@ public interface IUnitHumanMembershipStore
 
     /// <summary>
     /// Idempotently asserts a membership row for the
-    /// <c>(unit, human)</c> natural key (ADR-0045 §7). When a row already
+    /// <c>(unit, human)</c> natural key (ADR-0046 §7). When a row already
     /// exists the implementation overwrites <c>roles</c> +
     /// <c>expertise</c> + <c>notifications</c> in place; when no row
     /// exists it inserts a fresh one with a new synthetic id and the
@@ -88,7 +88,7 @@ public interface IUnitHumanMembershipStore
 
     /// <summary>
     /// Removes the membership row for the <c>(unit, human)</c> natural
-    /// key (ADR-0045 §7). Returns <see langword="true"/> when a row was
+    /// key (ADR-0046 §7). Returns <see langword="true"/> when a row was
     /// deleted and <see langword="false"/> when nothing matched — both
     /// outcomes are terminal for the caller (the CLI / REST DELETE
     /// surface treats the "no row" case as a no-op).
@@ -112,11 +112,11 @@ public interface IUnitHumanMembershipStore
 /// reads; future "edit this membership" surfaces take this Guid.
 /// </param>
 /// <param name="HumanId">
-/// The human's stable Guid identity. ADR-0045 §7 makes this the natural
+/// The human's stable Guid identity. ADR-0046 §7 makes this the natural
 /// key alongside the unit id — one row per human per unit.
 /// </param>
 /// <param name="Roles">
-/// Free-form team-role strings from the manifest (ADR-0045 §3). Multi-
+/// Free-form team-role strings from the manifest (ADR-0046 §3). Multi-
 /// valued; empty list when the manifest omitted the field.
 /// </param>
 /// <param name="Expertise">

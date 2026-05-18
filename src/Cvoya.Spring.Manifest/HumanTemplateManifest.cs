@@ -9,7 +9,7 @@ using YamlDotNet.Serialization;
 
 /// <summary>
 /// Typed view of a <c>./templates/&lt;name&gt;/package.yaml</c> document whose
-/// <c>kind:</c> discriminator is <c>HumanTemplate</c> (ADR-0045 §4). Mirrors
+/// <c>kind:</c> discriminator is <c>HumanTemplate</c> (ADR-0046 §4). Mirrors
 /// the shape of <see cref="AgentTemplateManifest"/> and
 /// <see cref="UnitTemplateManifest"/>: the resolver routes by the
 /// discriminator and stamps fresh concrete bodies when a member entry
@@ -19,7 +19,7 @@ using YamlDotNet.Serialization;
 /// <para>
 /// Humans own no sub-artefacts, so a <c>HumanTemplate</c> folder carries no
 /// <c>units/</c> / <c>agents/</c> / <c>skills/</c> / <c>templates/</c>
-/// children. The stamping operator (ADR-0045 §5) clones the template's
+/// children. The stamping operator (ADR-0046 §5) clones the template's
 /// scalar fields and applies full-replacement semantics on the
 /// <see cref="Roles"/>, <see cref="Expertise"/>, and <see cref="Notifications"/>
 /// lists — the member entry's values fully replace the template's values
@@ -34,7 +34,7 @@ public class HumanTemplateManifest
 
     /// <summary>
     /// Document kind discriminator. Must be the literal string
-    /// <c>HumanTemplate</c> (ADR-0045 §4).
+    /// <c>HumanTemplate</c> (ADR-0046 §4).
     /// </summary>
     [YamlMember(Alias = "kind")]
     public string? Kind { get; set; }
@@ -46,14 +46,14 @@ public class HumanTemplateManifest
     /// <summary>
     /// Optional human-friendly label inherited by every human stamped from
     /// this template. The stamping entry's <c>displayName:</c> wins per
-    /// ADR-0045 §5 (scalar override).
+    /// ADR-0046 §5 (scalar override).
     /// </summary>
     [YamlMember(Alias = "displayName")]
     public string? DisplayName { get; set; }
 
     /// <summary>
     /// Optional single-line description inherited by stamped humans. The
-    /// stamping entry's <c>description:</c> wins per ADR-0045 §5.
+    /// stamping entry's <c>description:</c> wins per ADR-0046 §5.
     /// </summary>
     [YamlMember(Alias = "description")]
     public string? Description { get; set; }
@@ -66,7 +66,7 @@ public class HumanTemplateManifest
     public string? Readme { get; set; }
 
     /// <summary>
-    /// Optional template chain reference (ADR-0045 §4, ADR-0043 §5e). Bare
+    /// Optional template chain reference (ADR-0046 §4, ADR-0043 §5e). Bare
     /// name resolves within the package; qualified name
     /// <c>&lt;pkg&gt;/&lt;name&gt;@&lt;version&gt;</c> resolves cross-package per
     /// ADR-0037 §5. Lets a tenant-specific <c>HumanTemplate</c> extend a
@@ -76,15 +76,15 @@ public class HumanTemplateManifest
     public string? From { get; set; }
 
     /// <summary>
-    /// Free-form team roles every stamped human inherits (ADR-0045 §3).
+    /// Free-form team roles every stamped human inherits (ADR-0046 §3).
     /// Multi-valued; the stamping member entry's <see cref="HumanManifest.Roles"/>
-    /// fully replaces this list when present (ADR-0045 §5).
+    /// fully replaces this list when present (ADR-0046 §5).
     /// </summary>
     [YamlMember(Alias = "roles")]
     public List<string>? Roles { get; set; }
 
     /// <summary>
-    /// Free-form expertise tags every stamped human inherits (ADR-0045 §3).
+    /// Free-form expertise tags every stamped human inherits (ADR-0046 §3).
     /// Multi-valued; the stamping member entry's expertise list fully
     /// replaces this list when present.
     /// </summary>
@@ -94,7 +94,7 @@ public class HumanTemplateManifest
     /// <summary>
     /// Free-form notification event tags every stamped human inherits.
     /// The stamping member entry's notifications list fully replaces this
-    /// list when present (ADR-0045 §5).
+    /// list when present (ADR-0046 §5).
     /// </summary>
     [YamlMember(Alias = "notifications")]
     public List<string>? Notifications { get; set; }

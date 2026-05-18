@@ -17,7 +17,7 @@ using Xunit;
 
 /// <summary>
 /// EF-backed tests for <see cref="EfUnitHumanMembershipStore"/> — the
-/// write half of ADR-0044 § 3 added by #2409, reshaped by ADR-0045 §7
+/// write half of ADR-0044 § 3 added by #2409, reshaped by ADR-0046 §7
 /// to a multi-valued <c>roles</c> jsonb column with a
 /// <c>(tenant, unit, human)</c> unique key. Exercises the upsert / get /
 /// remove contract plus the tenant-isolation invariant inherited from
@@ -113,7 +113,7 @@ public class EfUnitHumanMembershipStoreTests : IDisposable
     [Fact]
     public async Task Upsert_SameHumanReapplied_CollapsesToOneRow()
     {
-        // ADR-0045 §7: one row per (unit, human). Re-asserting the same
+        // ADR-0046 §7: one row per (unit, human). Re-asserting the same
         // pair updates the row's roles list in place rather than producing
         // a second row.
         var ct = TestContext.Current.CancellationToken;
@@ -211,7 +211,7 @@ public class EfUnitHumanMembershipStoreTests : IDisposable
     [Fact]
     public async Task Upsert_EmptyRoles_PersistsEmptyList()
     {
-        // ADR-0045 §3: empty list is a legitimate state (manifest entry
+        // ADR-0046 §3: empty list is a legitimate state (manifest entry
         // declared a participant without explicit roles).
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);

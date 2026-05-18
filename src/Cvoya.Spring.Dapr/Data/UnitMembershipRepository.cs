@@ -53,7 +53,7 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
                 Specialty = membership.Specialty,
                 Enabled = membership.Enabled,
                 ExecutionMode = membership.ExecutionMode,
-                // ADR-0045 §8: per-membership roles + expertise jsonb. Empty
+                // ADR-0046 §8: per-membership roles + expertise jsonb. Empty
                 // list when caller passed null; persisted explicitly so the
                 // jsonb column never lands as SQL NULL on insert.
                 Roles = NormaliseStringList(membership.Roles),

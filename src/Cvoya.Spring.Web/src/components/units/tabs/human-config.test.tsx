@@ -458,7 +458,7 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // General sub-tab (ADR-0045 Phase 4)
+  // General sub-tab (ADR-0046 Phase 4)
   // -------------------------------------------------------------------------
 
   it("seeds the General form from the persisted human envelope and PATCHes dirty fields", async () => {
@@ -516,7 +516,7 @@ describe("HumanConfigTab — Identity + Connector sub-tabs (#2269)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Sub-tab routing — General default (ADR-0045 Phase 4), Identity +
+  // Sub-tab routing — General default (ADR-0046 Phase 4), Identity +
   // Connector reachable via ?subtab=.
   // -------------------------------------------------------------------------
 

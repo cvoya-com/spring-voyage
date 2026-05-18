@@ -2,7 +2,9 @@
 
 A **connector** is a pluggable adapter that bridges an external system to a unit. Connectors make the platform domain-agnostic -- the platform itself knows nothing about GitHub, Slack, or Figma. Connectors provide that knowledge.
 
-> **The platform is connector-domain-agnostic.** Connectors *facilitate flow*; they do not replicate upstream subscription configs. The platform binds units to connector types, receives events, and routes them — it does not manage the upstream system's subscription model (e.g. which GitHub repos the App is installed on, which Slack channels the bot is invited to). Per-system bookkeeping that duplicates upstream config is out of scope. See [ADR-0045](../decisions/0045-connector-domain-agnostic-platform.md) for the load-bearing principle this enshrines.
+> **Connectors are not a package-shipped artefact kind in v0.1.** [ADR-0046 §2](../decisions/0046-unified-members-grammar.md) removed `connectors/` from the package vocabulary; the parser rejects a `connectors/` subdirectory at any depth with a structured `LegacyConnectorsSubdir` error. Connector *bindings* — the load-bearing feature — keep working through `requires: [ { connector: <slug> } ]` on a consumer artefact ([ADR-0037 §3](../decisions/0037-package-schema-decomposition.md)). What's removed is shipping a connector *definition* inside a package.
+
+> **The platform is connector-domain-agnostic.** Connectors *facilitate flow*; they do not replicate upstream subscription configs. The platform binds units to connector types, receives events, and routes them — it does not manage the upstream system's subscription model (e.g. which GitHub repos the App is installed on, which Slack channels the bot is invited to). Per-system bookkeeping that duplicates upstream config is out of scope. See [ADR-0045 — Connector-domain-agnostic platform](../decisions/0045-connector-domain-agnostic-platform.md) for the load-bearing principle this enshrines.
 
 ## What Connectors Do
 

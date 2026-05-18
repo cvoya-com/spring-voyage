@@ -23,7 +23,7 @@ using Xunit;
 
 /// <summary>
 /// Unit tests for <see cref="OssPackageHumanResolutionPolicy"/> after
-/// ADR-0045 §10 — the OSS default mints a fresh <c>HumanEntity</c> per
+/// ADR-0046 §10 — the OSS default mints a fresh <c>HumanEntity</c> per
 /// declaration with a derived <c>DisplayName</c> (<c>"Operator · &lt;roles[0]&gt;"</c>
 /// or <c>"Operator"</c> fallback) and returns <c>Resolved</c> with the
 /// minted Guid.
@@ -119,7 +119,7 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
     [Fact]
     public async Task ResolveAsync_TwoCalls_MintDistinctHumans()
     {
-        // ADR-0045 §7: two declarations produce two distinct HumanEntity
+        // ADR-0046 §7: two declarations produce two distinct HumanEntity
         // rows even when the roles match — physical-user binding is v0.2.
         var ct = TestContext.Current.CancellationToken;
         var policy = CreatePolicy();

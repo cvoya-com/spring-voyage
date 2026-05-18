@@ -1,8 +1,8 @@
 "use client";
 
-// Human team-role member card (ADR-0045 Phase 4). One card per
+// Human team-role member card (ADR-0046 Phase 4). One card per
 // (unit, human) pair — a human now holds a *set* of roles per unit
-// (ADR-0045 collapsed the previous role-per-row shape into a single
+// (ADR-0046 collapsed the previous role-per-row shape into a single
 // row carrying `roles: string[]`).
 //
 // The card renders the human's display name (fetched via the canonical

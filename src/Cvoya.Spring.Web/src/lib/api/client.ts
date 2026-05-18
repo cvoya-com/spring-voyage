@@ -460,7 +460,7 @@ export const api = {
     ) as HumanResponse,
 
   /**
-   * Patch a Human's `displayName` / `description` (ADR-0045 Phase 4 —
+   * Patch a Human's `displayName` / `description` (ADR-0046 Phase 4 —
    * humans now have post-install editable metadata parallel to agents
    * and units). Mirrors the CLI's `spring human set --display-name …
    * --description …`. Omitted fields leave the existing value

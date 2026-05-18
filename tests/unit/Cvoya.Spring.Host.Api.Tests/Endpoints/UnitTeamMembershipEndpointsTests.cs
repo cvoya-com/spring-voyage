@@ -28,7 +28,7 @@ using Xunit;
 
 /// <summary>
 /// REST-level tests for the team-role membership endpoints (#2409 /
-/// ADR-0044 § 3, reshaped by ADR-0045 §7). Covers POST idempotency on the
+/// ADR-0044 § 3, reshaped by ADR-0046 §7). Covers POST idempotency on the
 /// natural key, GET / PATCH / DELETE happy paths, the 404 surface on
 /// unknown unit / unknown human / unknown row, and the existence-first
 /// ordering inherited from the surrounding <see cref="UnitPermissionCheck"/>
@@ -84,7 +84,7 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
     [Fact]
     public async Task Add_SameTuple_IsIdempotent_UpdatesProjections()
     {
-        // ADR-0045 §7: the natural key is (tenant, unit, human). A re-POST
+        // ADR-0046 §7: the natural key is (tenant, unit, human). A re-POST
         // with the same tuple does not 409 — it overwrites roles +
         // expertise + notifications in place.
         var ct = TestContext.Current.CancellationToken;
@@ -340,7 +340,7 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
     [Fact]
     public async Task InstallSeededRow_RePostedManually_IsIdempotent()
     {
-        // ADR-0045 §7: the install path and the REST add path both write
+        // ADR-0046 §7: the install path and the REST add path both write
         // to the same EF table. Re-asserting the same (unit, human) tuple
         // through the REST surface overwrites the row's roles / expertise /
         // notifications in place rather than producing a duplicate row.

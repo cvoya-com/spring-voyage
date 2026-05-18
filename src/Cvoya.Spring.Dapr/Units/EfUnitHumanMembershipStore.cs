@@ -19,7 +19,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
 /// Default singleton implementation of <see cref="IUnitHumanMembershipStore"/>
-/// (ADR-0044 § 5 + ADR-0045 §7). Creates a fresh <c>IServiceScope</c> per
+/// (ADR-0044 § 5 + ADR-0046 §7). Creates a fresh <c>IServiceScope</c> per
 /// call so the underlying scoped <see cref="SpringDbContext"/> resolves
 /// cleanly from singleton callers (e.g. the MCP skill registry). Mirrors
 /// the scope-per-call shape used by <see cref="UnitMemberGraphStore"/>.
@@ -114,7 +114,7 @@ public sealed class EfUnitHumanMembershipStore(
 
         // Existing row → update roles + expertise + notifications in place.
         // The tenant query filter on the DbContext scopes the lookup to the
-        // current tenant; the unique index in ADR-0045 §7 guarantees there
+        // current tenant; the unique index in ADR-0046 §7 guarantees there
         // is at most one match per (unit, human).
         var existing = await db.UnitMembershipsHumans
             .FirstOrDefaultAsync(

@@ -18,7 +18,7 @@ using Cvoya.Spring.Core.Artefacts;
 /// Only <see cref="Unit"/> and <see cref="Agent"/> have container lifecycles;
 /// <see cref="Skill"/>, <see cref="UnitTemplate"/>, <see cref="AgentTemplate"/>,
 /// and <see cref="HumanTemplate"/> are package-resolution-only values that the
-/// lifecycle scheduler rejects with an exception. ADR-0045 §2 drops the
+/// lifecycle scheduler rejects with an exception. ADR-0046 §2 drops the
 /// <c>Workflow</c> value from this enum — connector bindings survive via
 /// <c>requires:</c> on consumer artefacts (ADR-0037 §3), but the shipped
 /// <c>Workflow</c> / <c>Connector</c> artefact types are gone.
@@ -35,7 +35,7 @@ public enum ArtefactKind
     Skill,
 
     /// <summary>
-    /// ADR-0045 §4: declarative human template under
+    /// ADR-0046 §4: declarative human template under
     /// <c>./templates/&lt;name&gt;/package.yaml</c> with <c>kind: HumanTemplate</c>.
     /// Stamped via <c>- human: { from: &lt;template-name&gt; }</c>. No container
     /// lifecycle; the template is materialised into a fresh <c>HumanEntity</c>

@@ -50,7 +50,7 @@ public class ResolvedPackage
 
     /// <summary>
     /// Resolved <c>HumanTemplate</c> artefacts, in declaration order
-    /// (ADR-0045 §4). Stamped via <c>- human: { from: &lt;template-name&gt; }</c>
+    /// (ADR-0046 §4). Stamped via <c>- human: { from: &lt;template-name&gt; }</c>
     /// at install time.
     /// </summary>
     public required IReadOnlyList<ResolvedArtefact> HumanTemplates { get; init; }

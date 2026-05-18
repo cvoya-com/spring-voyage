@@ -31,12 +31,12 @@ using Cvoya.Spring.Core.Agents;
 /// <param name="Enabled">Per-membership enabled flag. Defaults to <c>true</c> on insert. When <c>false</c>, this unit's orchestration strategy skips the agent even if the agent itself is enabled.</param>
 /// <param name="ExecutionMode">Per-membership execution-mode override, or <c>null</c> to inherit.</param>
 /// <param name="Roles">
-/// ADR-0045 §8: free-form team-role strings the agent advertises on this
+/// ADR-0046 §8: free-form team-role strings the agent advertises on this
 /// unit. Multi-valued; empty list when the manifest omitted the field.
 /// Runtime metadata only — surfaced on <c>sv.list_members</c>.
 /// </param>
 /// <param name="Expertise">
-/// ADR-0045 §8: free-form expertise tags the agent advertises on this
+/// ADR-0046 §8: free-form expertise tags the agent advertises on this
 /// unit. Multi-valued; empty list when the manifest omitted the field.
 /// </param>
 /// <param name="CreatedAt">UTC timestamp when the membership was first created.</param>

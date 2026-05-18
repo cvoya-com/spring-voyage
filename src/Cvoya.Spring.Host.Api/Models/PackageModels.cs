@@ -18,7 +18,7 @@ using System.Collections.Generic;
 /// <param name="AgentTemplateCount">Number of agent templates under <c>agents/</c>.</param>
 /// <param name="SkillCount">Number of skills under <c>skills/</c>.</param>
 /// <param name="HumanTemplateCount">
-/// Number of <c>HumanTemplate</c> bundles under <c>templates/</c> (ADR-0045 §4).
+/// Number of <c>HumanTemplate</c> bundles under <c>templates/</c> (ADR-0046 §4).
 /// </param>
 public record PackageSummary(
     string Name,
@@ -46,7 +46,7 @@ public record PackageSummary(
 /// <param name="AgentTemplates">Agent templates offered by the package.</param>
 /// <param name="Skills">Skill bundles offered by the package.</param>
 /// <param name="HumanTemplates">
-/// <c>HumanTemplate</c> bundles shipped with the package (ADR-0045 §4).
+/// <c>HumanTemplate</c> bundles shipped with the package (ADR-0046 §4).
 /// Stamped via <c>- human: { from: &lt;template-name&gt; }</c> on a unit's
 /// <c>members:</c> list.
 /// </param>
@@ -176,7 +176,7 @@ public record SkillSummary(
     string Path);
 
 /// <summary>
-/// A <c>HumanTemplate</c> shipped inside a package (ADR-0045 §4). One
+/// A <c>HumanTemplate</c> shipped inside a package (ADR-0046 §4). One
 /// row per <c>./templates/&lt;name&gt;/package.yaml</c> document with
 /// <c>kind: HumanTemplate</c>.
 /// </summary>

@@ -1339,7 +1339,7 @@ public class SpringApiClient
 
     /// <summary>
     /// Patches a human's editable identity fields (display name / description)
-    /// via ADR-0045 §7's <c>PATCH /api/v1/tenant/humans/{id}</c> surface. Null
+    /// via ADR-0046 §7's <c>PATCH /api/v1/tenant/humans/{id}</c> surface. Null
     /// arguments mean "leave the corresponding field unchanged" — the Kiota
     /// writer still serialises the property as <c>null</c>, which is what the
     /// backend expects for the no-op branch.
@@ -1456,7 +1456,7 @@ public class SpringApiClient
     /// <summary>
     /// Updates the multi-valued <c>roles</c> / <c>expertise</c> /
     /// <c>notifications</c> on an existing team-role membership row
-    /// (ADR-0045 §5). Owner-gated; 404 when no row matches.
+    /// (ADR-0046 §5). Owner-gated; 404 when no row matches.
     /// </summary>
     public async Task<UnitHumanMemberResponse> UpdateUnitHumanMemberAsync(
         string unitId,
@@ -1479,7 +1479,7 @@ public class SpringApiClient
     }
 
     /// <summary>
-    /// Removes a team-role membership row (ADR-0045 §7 natural key
+    /// Removes a team-role membership row (ADR-0046 §7 natural key
     /// <c>(unit, human)</c>). Owner-gated. Idempotent — a DELETE on a row
     /// that does not exist still returns 204.
     /// </summary>

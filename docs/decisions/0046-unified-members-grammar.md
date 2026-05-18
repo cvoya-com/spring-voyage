@@ -1,4 +1,4 @@
-# 0045 — Unified `members:` grammar; humans as a member kind; `HumanTemplate`; vocabulary trim
+# 0046 — Unified `members:` grammar; humans as a member kind; `HumanTemplate`; vocabulary trim
 
 - **Status:** Proposed — every participant on a unit (agent, sub-unit, human) is declared under a single `members:` list with an implicit key-prefix discriminator (`- agent:` / `- unit:` / `- human:`); the legacy top-level `humans:` block is a parse error; `workflows/` and `connectors/` are removed from the package vocabulary in v0.1 (connector *bindings* keep working via `requires:`); every member kind carries multi-valued `roles` (renamed from `role`) and `expertise`; `notifications` stays on humans only; `HumanTemplate` joins `AgentTemplate` / `UnitTemplate` as a first-class artefact kind stamped via `- human: { from: <template-name> }`; the `unit_memberships_humans` natural key drops `role` and becomes `(tenant, unit, human)`; each install-time `- human:` declaration mints a fresh `HumanEntity` row; agent / unit-membership rows gain `roles` + `expertise` jsonb columns; `sv.list_members` emits `roles: string[]` (was `team_role: string`) and surfaces `roles` / `expertise` on agent + unit entries. Pre-v0.1 hard rename; no shim.
 - **Date:** 2026-05-17
@@ -24,7 +24,7 @@ This ADR resolves all four. The principle: the unit's `members:` list is the sin
 
 ### 1. Unified `members:` grammar with three implicit discriminators
 
-Every participant — agent, sub-unit, human — is declared as one entry on the unit's `members:` list. The discriminator is the key prefix (`agent:` / `unit:` / `human:`); no separate `kind:` field on member entries. The legacy top-level `humans:` block is removed; the parser rejects it with a structured `LegacyHumansBlock` error (migration hint: "move each entry under `members:` as `- human: { … }`; ADR-0045").
+Every participant — agent, sub-unit, human — is declared as one entry on the unit's `members:` list. The discriminator is the key prefix (`agent:` / `unit:` / `human:`); no separate `kind:` field on member entries. The legacy top-level `humans:` block is removed; the parser rejects it with a structured `LegacyHumansBlock` error (migration hint: "move each entry under `members:` as `- human: { … }`; ADR-0046").
 
 ```yaml
 members:

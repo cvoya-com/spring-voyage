@@ -50,7 +50,7 @@ public class UnitMembersCommandTests
             .ShouldBe(new[] { "escalation" });
     }
 
-    // --- ADR-0045 §3: multi-valued --roles / --expertise parsing ----------
+    // --- ADR-0046 §3: multi-valued --roles / --expertise parsing ----------
 
     [Fact]
     public void FlattenMultiValued_Null_ReturnsNullForOmittedFlag()
@@ -104,7 +104,7 @@ public class UnitMembersCommandTests
             .ShouldBeEmpty();
     }
 
-    // --- ADR-0045 §3 / Phase 5 gaps — wire-shape mapping ------------------
+    // --- ADR-0046 §3 / Phase 5 gaps — wire-shape mapping ------------------
 
     [Fact]
     public void FlattenMultiValued_MultiFlagMixedWithComma_MapsToWireShapeRolesArray()
@@ -113,7 +113,7 @@ public class UnitMembersCommandTests
         // canonical operator invocation. System.CommandLine collects
         // [`a,b`, `c`] into the option's string[]; the flattener emits the
         // exact `roles: ["a", "b", "c"]` JSON-array shape the
-        // AddUnitHumanMemberRequest body expects (ADR-0045 §3 multi-valued).
+        // AddUnitHumanMemberRequest body expects (ADR-0046 §3 multi-valued).
         var result = UnitMembersCommand.FlattenMultiValued(new[] { "a,b", "c" });
 
         result.ShouldNotBeNull();
@@ -123,7 +123,7 @@ public class UnitMembersCommandTests
     [Fact]
     public void FlattenMultiValued_ExplicitEmptyString_MapsToFullClearWireShape()
     {
-        // ADR-0045 §5 full-replacement semantics: an explicit
+        // ADR-0046 §5 full-replacement semantics: an explicit
         // `--roles ""` collapses to a single empty entry which the
         // flattener drops, producing a zero-element list. The action
         // layer's update path then forwards `roles: []` on the PATCH

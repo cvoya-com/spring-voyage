@@ -1,8 +1,8 @@
 "use client";
 
-// Add / edit a human team-role membership on a unit (ADR-0045 Phase 4).
+// Add / edit a human team-role membership on a unit (ADR-0046 Phase 4).
 //
-// ADR-0045 collapsed the previous role-per-row shape into a single row
+// ADR-0046 collapsed the previous role-per-row shape into a single row
 // per (unit, human) carrying `roles: string[]` plus `expertise` /
 // `notifications`. The dialog now drives all three through the shared
 // `<TagChipEditor>`:

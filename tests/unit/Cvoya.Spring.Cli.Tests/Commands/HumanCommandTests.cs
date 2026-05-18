@@ -14,7 +14,7 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for the <c>spring human</c> verb tree (ADR-0045 §7). The
+/// Unit tests for the <c>spring human</c> verb tree (ADR-0046 §7). The
 /// command's <c>set</c> verb mirrors <c>spring agent set</c> / <c>spring
 /// unit set</c> — accepting <c>--display-name</c> and <c>--description</c>
 /// — and routes the wire PATCH through the Kiota-generated
@@ -37,7 +37,7 @@ public class HumanCommandTests
     [Fact]
     public async Task UpdateHumanAsync_BothFieldsSupplied_SendsPatchWithBothInBody()
     {
-        // ADR-0045 §7: `spring human set --display-name "Foo"
+        // ADR-0046 §7: `spring human set --display-name "Foo"
         // --description "Bar"` must PATCH both fields. The CLI never opens
         // raw HTTP — every write goes through the Kiota-generated
         // SpringApiClient. Assert the wire shape here so a future refactor

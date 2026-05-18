@@ -29,7 +29,7 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// <param name="DisplayName">Human-readable display name. Always non-empty
 /// per <see cref="Cvoya.Spring.Dapr.Data.Entities.HumanEntity"/>'s defaulting
 /// rule (falls back to username when not explicitly set).</param>
-/// <param name="Description">Optional editable description (ADR-0045 §7).
+/// <param name="Description">Optional editable description (ADR-0046 §7).
 /// Surfaces on the portal's Human × Config tab; null when unset.</param>
 /// <param name="Email">Optional e-mail address; null when unset.</param>
 /// <param name="PlatformRole">The human's global permission level —
@@ -48,7 +48,7 @@ public sealed record HumanResponse(
 
 /// <summary>
 /// Request body for
-/// <c>PATCH /api/v1/tenant/humans/{id}</c> (ADR-0045 §7). Updates the
+/// <c>PATCH /api/v1/tenant/humans/{id}</c> (ADR-0046 §7). Updates the
 /// human's editable identity fields. Omitted fields are treated as
 /// "leave unchanged"; explicit empty strings clear them where the underlying
 /// column is nullable.

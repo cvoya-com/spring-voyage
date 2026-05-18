@@ -93,7 +93,7 @@ public class AgentTemplateManifest
     public List<ExpertiseManifestEntry>? Expertise { get; set; }
 
     /// <summary>
-    /// ADR-0045 §5 stamping-override slot. When an agent member entry
+    /// ADR-0046 §5 stamping-override slot. When an agent member entry
     /// references this template via <c>- agent: { from: &lt;name&gt;, roles: […] }</c>,
     /// the entry's roles list fully replaces this list on the stamped
     /// instance; otherwise this list flows through unchanged. Free-form

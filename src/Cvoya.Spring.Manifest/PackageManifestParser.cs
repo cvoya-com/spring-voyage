@@ -37,11 +37,11 @@ public static class PackageManifestParser
 {
     /// <summary>
     /// Conventional subdirectories that the catalog walker descends at every
-    /// depth (ADR-0043 §2, amended by ADR-0045 §2). Each name maps to the
+    /// depth (ADR-0043 §2, amended by ADR-0046 §2). Each name maps to the
     /// artefact kind(s) that may live directly beneath it. <c>templates/</c>
     /// hosts <see cref="ArtefactKind.Unit"/> / <see cref="ArtefactKind.Agent"/>
     /// / <see cref="ArtefactKind.HumanTemplate"/> — the inner <c>kind:</c>
-    /// field disambiguates. ADR-0045 §2 removed <c>workflows/</c> and
+    /// field disambiguates. ADR-0046 §2 removed <c>workflows/</c> and
     /// <c>connectors/</c>; both subdirectories surface a structured
     /// <see cref="PackageParseException"/> when encountered at any depth.
     /// </summary>
@@ -56,7 +56,7 @@ public static class PackageManifestParser
 
     /// <summary>
     /// Subdirectory names that were valid under ADR-0043 §2 but were removed
-    /// from the package vocabulary in ADR-0045 §2. Encountering one at any
+    /// from the package vocabulary in ADR-0046 §2. Encountering one at any
     /// depth raises a structured <see cref="PackageParseException"/> with
     /// the migration hint pointing at this ADR.
     /// </summary>
@@ -65,11 +65,11 @@ public static class PackageManifestParser
         {
             ["workflows"] =
                 "LegacyWorkflowsSubdir: `workflows/` is no longer part of the package vocabulary in v0.1 " +
-                "(ADR-0045 §2). The one shipped workflow has been removed; re-introduce the conventional " +
+                "(ADR-0046 §2). The one shipped workflow has been removed; re-introduce the conventional " +
                 "directory if a future ADR adds a real workflow artefact type.",
             ["connectors"] =
                 "LegacyConnectorsSubdir: `connectors/` is no longer part of the package vocabulary in v0.1 " +
-                "(ADR-0045 §2). Connector bindings stay supported via `requires: [ { connector: <slug> } ]` " +
+                "(ADR-0046 §2). Connector bindings stay supported via `requires: [ { connector: <slug> } ]` " +
                 "on consumer artefacts (ADR-0037 §3); the shipped artefact type has been removed.",
         };
 
@@ -305,7 +305,7 @@ public static class PackageManifestParser
             return;
         }
 
-        // ADR-0045 §2: `workflows/` and `connectors/` are dropped from the
+        // ADR-0046 §2: `workflows/` and `connectors/` are dropped from the
         // vocabulary. Reject either subdirectory at any depth with the
         // structured error from RejectedSubdirs so authors see the migration
         // hint, not a silent skip.
@@ -472,7 +472,7 @@ public static class PackageManifestParser
 
         var trimmed = declaredKind!.Trim();
 
-        // ADR-0045 §2: `kind: Workflow` is rejected at parse time. The
+        // ADR-0046 §2: `kind: Workflow` is rejected at parse time. The
         // shipped workflow artefact type is gone; the explicit error
         // surfaces the migration hint instead of falling through to the
         // generic "unknown kind" branch.
@@ -480,7 +480,7 @@ public static class PackageManifestParser
         {
             throw new PackageParseException(
                 $"LegacyWorkflowKind: artefact at '{folder}' declares 'kind: Workflow' but " +
-                "the Workflow artefact type was dropped in v0.1 (ADR-0045 §2). Connector " +
+                "the Workflow artefact type was dropped in v0.1 (ADR-0046 §2). Connector " +
                 "bindings continue to work via `requires:` on consumer artefacts.");
         }
 
@@ -514,7 +514,7 @@ public static class PackageManifestParser
                 throw new PackageParseException(
                     $"Artefact at '{folder}' under 'templates/' declares kind '{trimmed}' " +
                     "but the templates/ subdirectory expects 'UnitTemplate', 'AgentTemplate', " +
-                    "or 'HumanTemplate' (ADR-0043 §5b + ADR-0045 §4).");
+                    "or 'HumanTemplate' (ADR-0043 §5b + ADR-0046 §4).");
             }
         }
         else
@@ -609,9 +609,9 @@ public static class PackageManifestParser
 
             foreach (var member in unit.Members)
             {
-                // ADR-0045 §1: members may also carry a `human:` slot. The
+                // ADR-0046 §1: members may also carry a `human:` slot. The
                 // `human:` slot is inline-only (humans own no sub-artefacts,
-                // ADR-0045 §6), and the install activator materialises each
+                // ADR-0046 §6), and the install activator materialises each
                 // declaration into a fresh `HumanEntity` row at install time
                 // rather than synthesising a peer artefact in the resolved
                 // set. We therefore skip the human slot here — the cycle

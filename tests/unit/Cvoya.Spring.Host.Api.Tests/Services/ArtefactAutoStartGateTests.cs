@@ -124,7 +124,7 @@ public class ArtefactAutoStartGateTests
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Skip kinds — no container lifecycle (ADR-0045 §2 dropped Workflow;
+    // Skip kinds — no container lifecycle (ADR-0046 §2 dropped Workflow;
     // HumanTemplate is package-resolution-only).
     // ──────────────────────────────────────────────────────────────────────
 

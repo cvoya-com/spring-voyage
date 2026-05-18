@@ -12,7 +12,7 @@ using Cvoya.Spring.Cli.Utilities;
 /// <summary>
 /// Builds the <c>spring human</c> verb tree. Covers (a) the connector-native
 /// identity surface (#2408): <c>spring human identity set/list/remove</c>,
-/// and (b) the Human × Config × General editing surface (ADR-0045 §7):
+/// and (b) the Human × Config × General editing surface (ADR-0046 §7):
 /// <c>spring human set --display-name … --description …</c>. The latter
 /// mirrors the <c>spring agent set</c> / <c>spring unit set</c> verb shape
 /// so callers do not have to memorise a different verb name per kind.
@@ -68,7 +68,7 @@ public static class HumanCommand
 
         var command = new Command(
             "set",
-            "Update a human's editable identity fields (ADR-0045 §7). At least one of " +
+            "Update a human's editable identity fields (ADR-0046 §7). At least one of " +
             "--display-name / --description must be supplied; omitted flags leave the existing " +
             "value untouched.");
         command.Options.Add(idOption);

@@ -235,7 +235,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
 
         await _unitCreationService.CreateFromManifestAsync(manifest, overrides, ct, bindingRequest);
 
-        // ADR-0045 §1, §7: package-declared human members live on the
+        // ADR-0046 §1, §7: package-declared human members live on the
         // unit's `members:` list under the `human:` key prefix. For each
         // entry, ask the resolution policy who fills the position
         // (typically a freshly-minted HumanEntity for the OSS default),
@@ -248,7 +248,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
     /// Walks the unit manifest's <c>- human:</c> member entries and
     /// persists one <see cref="UnitMembershipHumanEntity"/> per resolved
     /// Guid via the registered <see cref="IPackageHumanResolutionPolicy"/>
-    /// (ADR-0045 §1, §7). Idempotent on the unique <c>(tenant, unit,
+    /// (ADR-0046 §1, §7). Idempotent on the unique <c>(tenant, unit,
     /// human)</c> index — repeated installs of the same package update
     /// the row's roles / expertise / notifications in place rather than
     /// inserting duplicates.

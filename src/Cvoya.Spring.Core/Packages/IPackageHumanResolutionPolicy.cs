@@ -96,7 +96,7 @@ public interface IPackageHumanResolutionPolicy
 /// a "who fills role X on unit Y?" prompt.
 /// </param>
 /// <param name="Roles">
-/// Free-form team-role strings from the manifest (ADR-0045 §3). Multi-
+/// Free-form team-role strings from the manifest (ADR-0046 §3). Multi-
 /// valued; may be empty when the package author declared a participant
 /// without explicit roles.
 /// </param>
@@ -122,7 +122,7 @@ public interface IPackageHumanResolutionPolicy
 /// The install caller's stable UUID (resolved via the API host's
 /// <c>IAuthenticatedCallerAccessor</c>). <see langword="null"/> when the
 /// install path runs out-of-request (worker host, background reinstall).
-/// The OSS default no longer auto-fills with the caller (ADR-0045 §10) —
+/// The OSS default no longer auto-fills with the caller (ADR-0046 §10) —
 /// it mints a fresh <c>HumanEntity</c> per declaration — but the field
 /// remains on the request for hosted policies that bind by claim.
 /// </param>

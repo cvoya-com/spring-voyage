@@ -107,7 +107,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
     /// <summary>
     /// Wire-format <c>kind</c> value for human team members surfaced via
-    /// <c>sv.list_members</c> (ADR-0044 § 5, reshaped by ADR-0045 §9). One
+    /// <c>sv.list_members</c> (ADR-0044 § 5, reshaped by ADR-0046 §9). One
     /// entry per <c>unit_memberships_humans</c> row; entries carry a
     /// multi-valued <c>roles</c> array (replaces the per-row
     /// <c>team_role: string</c> field from ADR-0044).
@@ -295,12 +295,12 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         var addresses = await _memberGraphStore.GetMembersAsync(unitGuid, ct);
 
         // ADR-0044 § 5: fold in package-declared human team members. One
-        // entry per (unit, human) row per ADR-0045 §7 — a human filling
+        // entry per (unit, human) row per ADR-0046 §7 — a human filling
         // multiple team roles surfaces as a single entry with a
         // multi-valued roles array.
         var humanRows = await _humanMembershipStore.ListByUnitAsync(unitGuid, ct);
 
-        // ADR-0045 §8: agent / unit entries surface their per-membership
+        // ADR-0046 §8: agent / unit entries surface their per-membership
         // roles + expertise. Read the unit's agent-membership rows once
         // (size ≪ N for v0.1 unit sizes) so the per-agent supplement is
         // a hash lookup rather than a per-entry DB round-trip. Sub-unit
@@ -308,7 +308,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         // (the unit_subunit_memberships table has no roles/expertise
         // columns), so sub-unit entries surface roles only when the
         // unit itself ships them via its own definition — not in scope
-        // for ADR-0045 §8.
+        // for ADR-0046 §8.
         IReadOnlyList<UnitMembership> agentMemberships;
         await using (var scope = _scopeFactory.CreateAsyncScope())
         {
@@ -342,7 +342,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             var entry = await BuildEntryAsync(address.Path, address.Scheme, ct);
 
             // Supplement agent entries with their per-membership roles +
-            // expertise lists (ADR-0045 §8). The agent's own seed-
+            // expertise lists (ADR-0046 §8). The agent's own seed-
             // expertise list already surfaces on entry.Expertise — keep
             // it on the entry, and additionally project the membership
             // row's expertise as flat string tags into the same shape
@@ -385,7 +385,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     /// Renders one <c>unit_memberships_humans</c> row as a
     /// <see cref="DirectoryEntry"/> on the universal entry shape. The
     /// multi-valued <c>roles</c> list is carried on the entry's
-    /// <see cref="DirectoryEntry.Roles"/> slot per ADR-0045 §9.
+    /// <see cref="DirectoryEntry.Roles"/> slot per ADR-0046 §9.
     /// </summary>
     private async Task<DirectoryEntry> BuildHumanEntryAsync(
         Guid unitGuid,
@@ -906,7 +906,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         }
         writer.WriteString("live_status", entry.LiveStatus);
 
-        // ADR-0045 §9: emit `roles: string[]` on agent / unit / human
+        // ADR-0046 §9: emit `roles: string[]` on agent / unit / human
         // entries when the entry's roles list is non-empty. Replaces the
         // ADR-0044 `team_role: string` field on human entries; additive on
         // agent / unit entries (the field was absent before).

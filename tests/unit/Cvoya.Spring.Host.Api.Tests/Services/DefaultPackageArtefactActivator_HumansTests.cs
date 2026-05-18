@@ -38,7 +38,7 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for the ADR-0045 install-reader wiring inside
+/// Tests for the ADR-0046 install-reader wiring inside
 /// <see cref="DefaultPackageArtefactActivator"/>. Verifies that
 /// <c>- human:</c> member entries land as <see cref="UnitMembershipHumanEntity"/>
 /// rows via the registered <see cref="IPackageHumanResolutionPolicy"/>
@@ -102,7 +102,7 @@ public class DefaultPackageArtefactActivator_HumansTests
     [Fact]
     public void ActivateUnitAsync_LegacyHumansBlock_StrictParserRejects()
     {
-        // ADR-0045 §1: the legacy top-level `humans:` block is rejected at
+        // ADR-0046 §1: the legacy top-level `humans:` block is rejected at
         // parse time with the LegacyHumansBlock structured error.
         var yaml = """
             apiVersion: spring.voyage/v1
@@ -121,7 +121,7 @@ public class DefaultPackageArtefactActivator_HumansTests
     [Fact]
     public async Task ActivateUnitAsync_TwoEntriesSameRoles_BothResolveDistinctly()
     {
-        // ADR-0045 §7: two `- human:` entries with the same roles mint
+        // ADR-0046 §7: two `- human:` entries with the same roles mint
         // two distinct HumanEntity rows when the policy returns a fresh
         // Guid each call (OSS shape). The unique index keys on
         // (unit, human), so distinct human ids land as two rows.
@@ -145,7 +145,7 @@ public class DefaultPackageArtefactActivator_HumansTests
     [Fact]
     public async Task ActivateUnitAsync_CallerAddressIsNull_PolicyReceivesNullInstallCaller()
     {
-        // ADR-0045 §10: the install caller is still threaded onto the
+        // ADR-0046 §10: the install caller is still threaded onto the
         // resolution request so hosted policies that bind by claim can
         // observe it, but the OSS default no longer derives the human id
         // from the caller (it mints a fresh row).
@@ -165,7 +165,7 @@ public class DefaultPackageArtefactActivator_HumansTests
     [Fact]
     public async Task ActivateUnitAsync_RolesAndExpertiseFlowToPolicyRequest()
     {
-        // ADR-0045 §3: roles + expertise + notifications are multi-valued
+        // ADR-0046 §3: roles + expertise + notifications are multi-valued
         // and arrive on the policy request as IReadOnlyList<string>.
         var fx = new Fixture();
         fx.PolicyResolvesTo(Guid.NewGuid());
@@ -395,7 +395,7 @@ public class DefaultPackageArtefactActivator_HumansTests
         {
             // The activator's ManifestParser.Parse runs against YAML, so
             // emit a faithful YAML projection of the test manifest under the
-            // ADR-0045 `members: [- human: {...}]` shape.
+            // ADR-0046 `members: [- human: {...}]` shape.
             var builder = new System.Text.StringBuilder();
             builder.AppendLine($"apiVersion: {manifest.ApiVersion}");
             builder.AppendLine($"kind: {manifest.Kind}");

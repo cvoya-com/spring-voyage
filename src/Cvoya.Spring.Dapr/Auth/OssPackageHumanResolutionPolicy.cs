@@ -17,7 +17,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// OSS default <see cref="IPackageHumanResolutionPolicy"/>. ADR-0045 §10
+/// OSS default <see cref="IPackageHumanResolutionPolicy"/>. ADR-0046 §10
 /// reshapes the policy: for each package <c>- human:</c> declaration it
 /// mints a fresh <see cref="HumanEntity"/> row (Id = Guid.NewGuid()) with
 /// a derived <c>DisplayName</c> (manifest value if set, otherwise
@@ -113,7 +113,7 @@ public sealed class OssPackageHumanResolutionPolicy(
     }
 
     /// <summary>
-    /// Derives the <c>DisplayName</c> per ADR-0045 §7: manifest value wins
+    /// Derives the <c>DisplayName</c> per ADR-0046 §7: manifest value wins
     /// when set; otherwise <c>"Operator · &lt;roles[0]&gt;"</c> when at least
     /// one role is declared; otherwise <c>"Operator"</c>.
     /// </summary>

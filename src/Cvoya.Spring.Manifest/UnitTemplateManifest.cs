@@ -109,7 +109,7 @@ public class UnitTemplateManifest
     public List<ExpertiseManifestEntry>? Expertise { get; set; }
 
     /// <summary>
-    /// ADR-0045 §5 stamping-override slot. When a unit member entry
+    /// ADR-0046 §5 stamping-override slot. When a unit member entry
     /// references this template via <c>- unit: { from: &lt;name&gt;, roles: […] }</c>,
     /// the entry's roles list fully replaces this list on the stamped
     /// instance; otherwise this list flows through unchanged. Free-form

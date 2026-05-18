@@ -40,7 +40,7 @@ public static class ManifestParser
     /// </summary>
     public static UnitManifest Parse(string yamlText)
     {
-        // ADR-0045 §1: the legacy top-level `humans:` block is removed.
+        // ADR-0046 §1: the legacy top-level `humans:` block is removed.
         // The strict parser on UnitManifest would already reject the
         // unknown field, but the structured-error surface here gives the
         // operator an actionable migration hint pointing at this ADR.
@@ -153,10 +153,10 @@ public static class ManifestParser
 
     /// <summary>
     /// Validates the <c>members:</c> list against the v0.1 manifest grammar
-    /// (ADR-0045 §1). Every entry carries exactly one of <c>agent:</c> /
+    /// (ADR-0046 §1). Every entry carries exactly one of <c>agent:</c> /
     /// <c>unit:</c> / <c>human:</c>; the discriminator's value is either a
     /// bare scalar reference (ADR-0043 §5g) or an inline body. Humans are
-    /// inline-only (ADR-0045 §6).
+    /// inline-only (ADR-0046 §6).
     /// </summary>
     private static void ValidateUnitMemberGrammar(UnitManifest unit)
     {
@@ -183,7 +183,7 @@ public static class ManifestParser
             }
             if (member.Human is { Reference: { } humanRef })
             {
-                // ADR-0045 §1: humans are addressable only by inline body
+                // ADR-0046 §1: humans are addressable only by inline body
                 // (with optional `from:` template chain). Bare-scalar
                 // references to a peer human in the catalog are not
                 // authored in v0.1 — the inline-only restriction is the
@@ -202,7 +202,7 @@ public static class ManifestParser
             // empty slot to the "missing both" check below.
             //
             // Humans are exempt — a `human:` entry's identity is server-
-            // allocated at install time (ADR-0045 §7 "fresh HumanEntity per
+            // allocated at install time (ADR-0046 §7 "fresh HumanEntity per
             // declaration") so the inline body does not need to carry a
             // local symbol the rest of the unit references.
             if (member.Agent is { IsInline: true } && IsBlankScalar(member.Agent))
@@ -232,7 +232,7 @@ public static class ManifestParser
                 throw new ManifestParseException(
                     $"unit.members[{i}] declares more than one of 'agent' / 'unit' / 'human'; " +
                     "a single member entry must reference exactly one participant kind " +
-                    "(ADR-0045 §1).");
+                    "(ADR-0046 §1).");
             }
 
             if (setCount == 0)
@@ -241,7 +241,7 @@ public static class ManifestParser
                     $"unit.members[{i}] is missing all of 'agent' / 'unit' / 'human'; " +
                     "every member entry must reference exactly one participant kind " +
                     "by local symbol, 32-char no-dash hex Guid, or inline body " +
-                    "(ADR-0045 §1).");
+                    "(ADR-0046 §1).");
             }
 
             if (hasAgent || hasUnit)
@@ -423,7 +423,7 @@ public static class ManifestParser
     /// </summary>
     public static UnitTemplateManifest ParseUnitTemplate(string yamlText)
     {
-        // ADR-0045 §1: the legacy `humans:` block is also rejected on
+        // ADR-0046 §1: the legacy `humans:` block is also rejected on
         // template documents — the migration hint is the same as on
         // concrete units.
         RejectLegacyHumansBlock(yamlText);
@@ -489,7 +489,7 @@ public static class ManifestParser
     }
 
     /// <summary>
-    /// Parses a <c>kind: HumanTemplate</c> YAML document (ADR-0045 §4) into a
+    /// Parses a <c>kind: HumanTemplate</c> YAML document (ADR-0046 §4) into a
     /// <see cref="HumanTemplateManifest"/>. Strict parsing — unknown fields
     /// are a parse error.
     /// </summary>
@@ -542,7 +542,7 @@ public static class ManifestParser
     }
 
     /// <summary>
-    /// ADR-0045 §1: the legacy top-level <c>humans:</c> block is gone; each
+    /// ADR-0046 §1: the legacy top-level <c>humans:</c> block is gone; each
     /// participant is declared under <c>members:</c> with a <c>- human:</c>
     /// entry. The strict typed parser already rejects the unknown field, but
     /// catching it here surfaces a structured error with an actionable
@@ -573,7 +573,7 @@ public static class ManifestParser
         {
             throw new ManifestParseException(
                 "LegacyHumansBlock: `humans:` block is no longer a top-level slot; " +
-                "use `members: [{ human: { roles: [...] } }]` (ADR-0045 §1). " +
+                "use `members: [{ human: { roles: [...] } }]` (ADR-0046 §1). " +
                 "Each entry under `members:` carries one of `agent:` / `unit:` / `human:` " +
                 "as the participant discriminator.");
         }

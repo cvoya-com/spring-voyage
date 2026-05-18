@@ -22,7 +22,7 @@ using Microsoft.EntityFrameworkCore;
 
 /// <summary>
 /// REST surface for the unit team-role membership table (#2409 /
-/// ADR-0044 § 3, reshaped by ADR-0045 §7). Mounted under
+/// ADR-0044 § 3, reshaped by ADR-0046 §7). Mounted under
 /// <c>/api/v1/tenant/units/{id}/members/humans</c> as a sibling to the
 /// existing <c>{id}/humans/{humanId}/permissions</c> ACL surface — the
 /// two are deliberately separate because ADR-0044 splits the package-
@@ -41,7 +41,7 @@ using Microsoft.EntityFrameworkCore;
 /// with the same id (the #1029 contract).
 /// </para>
 /// <para>
-/// ADR-0045 §7 collapses the natural key to <c>(unit, human)</c>; the
+/// ADR-0046 §7 collapses the natural key to <c>(unit, human)</c>; the
 /// PATCH / DELETE routes are keyed by <c>{humanId}</c> alone. POST is
 /// idempotent on the same natural key — re-posting the same tuple
 /// updates roles / expertise / notifications in place rather than
@@ -227,7 +227,7 @@ public static class UnitTeamMembershipEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        // PATCH semantics per ADR-0045 §5: each multi-valued field is a
+        // PATCH semantics per ADR-0046 §5: each multi-valued field is a
         // full-replacement set. When the caller omits a list (sends null),
         // the existing list is preserved — only an explicit empty array
         // clears the field. This matches the wire-level affordance the

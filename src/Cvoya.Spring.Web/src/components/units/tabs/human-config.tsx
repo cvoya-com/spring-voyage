@@ -1,6 +1,6 @@
 "use client";
 
-// Human × Config tab (#2269 — Portal Wave B; ADR-0045 Phase 4 added
+// Human × Config tab (#2269 — Portal Wave B; ADR-0046 Phase 4 added
 // the General sub-tab for the newly-editable `displayName` /
 // `description` Human-entity-level fields).
 //
@@ -9,7 +9,7 @@
 //   General   — Display name + description editor; mirrors Agent /
 //               Unit × Config × General. PATCHes
 //               `/api/v1/tenant/humans/{id}` via `useUpdateHuman`. Phase
-//               4 (ADR-0045) made this the default sub-tab so the most
+//               4 (ADR-0046) made this the default sub-tab so the most
 //               common edit (the operator renaming themselves) is one
 //               click in.
 //
@@ -90,7 +90,7 @@ import {
 import { registerTab, type TabContentProps } from "./index";
 
 // ---------------------------------------------------------------------------
-// Sub-tab catalog. General is default-active (ADR-0045 Phase 4 — humans
+// Sub-tab catalog. General is default-active (ADR-0046 Phase 4 — humans
 // now have editable displayName + description, so the most common edit
 // is one click in). Identity / Connector follow.
 // ---------------------------------------------------------------------------
@@ -200,7 +200,7 @@ function HumanConfigBody({ humanId }: { humanId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// General sub-tab — Human-entity-level editable metadata (ADR-0045
+// General sub-tab — Human-entity-level editable metadata (ADR-0046
 // Phase 4). Two fields: displayName (text input) + description
 // (textarea). Mirrors the Agent × Config × General and Unit × Config ×
 // General panels: same Card + label/input layout, same dirty-detection

@@ -32,7 +32,7 @@ function Harness({
   );
 }
 
-describe("TagChipEditor (ADR-0045 Phase 4)", () => {
+describe("TagChipEditor (ADR-0046 Phase 4)", () => {
   it("renders one chip per value with an inline remove button", () => {
     render(<Harness initial={["alpha", "beta"]} />);
 

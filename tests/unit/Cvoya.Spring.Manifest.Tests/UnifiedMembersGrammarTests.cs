@@ -15,7 +15,7 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Parser tests for ADR-0045 — the unified members grammar that promotes
+/// Parser tests for ADR-0046 — the unified members grammar that promotes
 /// <c>human</c> to a peer of <c>agent</c> / <c>unit</c> under a unit's
 /// <c>members:</c> list, introduces the <see cref="HumanTemplateManifest"/>
 /// kind alongside the existing template kinds, and drops the legacy
@@ -28,13 +28,13 @@ using Xunit;
 /// </summary>
 public class UnifiedMembersGrammarTests
 {
-    // ── ADR-0045 §1: `- human:` discriminator under `members:` ───────────
+    // ── ADR-0046 §1: `- human:` discriminator under `members:` ───────────
 
     [Fact]
     public void ParseUnit_InlineHumanMember_ParsesPopulatedHumanManifest()
     {
         // The inline body carries the multi-valued roles / expertise /
-        // notifications lists per ADR-0045 §3. After parsing, the typed
+        // notifications lists per ADR-0046 §3. After parsing, the typed
         // HumanManifest projection should round-trip every field declared
         // on the inline body.
         const string yaml = """
@@ -75,7 +75,7 @@ public class UnifiedMembersGrammarTests
         human.Notifications.ShouldBe(new[] { "escalation" });
     }
 
-    // ── ADR-0045 §4: HumanTemplate stamping via `- human: { from: X }` ───
+    // ── ADR-0046 §4: HumanTemplate stamping via `- human: { from: X }` ───
 
     [Fact]
     public async Task ParseAndResolve_InlineHumanMember_FromHumanTemplate_StampsRolesAndExpertise()
@@ -144,7 +144,7 @@ public class UnifiedMembersGrammarTests
     [Fact]
     public async Task ParseAndResolve_HumanTemplate_MemberRoles_FullyReplaceTemplateRoles()
     {
-        // ADR-0045 §5: list fields (roles, expertise, notifications) follow
+        // ADR-0046 §5: list fields (roles, expertise, notifications) follow
         // full-replacement semantics when the member entry declares them.
         // The captured inline body carries the override verbatim; the test
         // verifies the wire shape — the install reader performs the actual
@@ -196,7 +196,7 @@ public class UnifiedMembersGrammarTests
         }
     }
 
-    // ── ADR-0045 §4: HumanTemplate kind discrimination ───────────────────
+    // ── ADR-0046 §4: HumanTemplate kind discrimination ───────────────────
 
     [Fact]
     public async Task ParseAndResolve_TemplatesDir_MixedKinds_RoutesHumanTemplate()
@@ -250,14 +250,14 @@ public class UnifiedMembersGrammarTests
         }
     }
 
-    // ── ADR-0045 §1: LegacyHumansBlock rejection ─────────────────────────
+    // ── ADR-0046 §1: LegacyHumansBlock rejection ─────────────────────────
 
     [Fact]
     public void Parse_LegacyHumansBlock_RaisesStructuredError()
     {
         // The legacy top-level `humans:` slot is gone; each participant is
         // declared under members: with a `- human:` entry. The parser
-        // surfaces a structured error pointing at ADR-0045 §1.
+        // surfaces a structured error pointing at ADR-0046 §1.
         const string yaml = """
             apiVersion: spring.voyage/v1
             kind: Unit
@@ -269,7 +269,7 @@ public class UnifiedMembersGrammarTests
 
         var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
         ex.Message.ShouldContain("LegacyHumansBlock");
-        ex.Message.ShouldContain("ADR-0045 §1");
+        ex.Message.ShouldContain("ADR-0046 §1");
     }
 
     [Fact]
@@ -289,10 +289,10 @@ public class UnifiedMembersGrammarTests
         var ex = Should.Throw<ManifestParseException>(
             () => ManifestParser.ParseUnitTemplate(yaml));
         ex.Message.ShouldContain("LegacyHumansBlock");
-        ex.Message.ShouldContain("ADR-0045 §1");
+        ex.Message.ShouldContain("ADR-0046 §1");
     }
 
-    // ── ADR-0045 §2: workflows/ subdir rejection (top-level + nested) ────
+    // ── ADR-0046 §2: workflows/ subdir rejection (top-level + nested) ────
 
     [Fact]
     public void Walk_TopLevelWorkflowsSubdir_Rejected()
@@ -311,7 +311,7 @@ public class UnifiedMembersGrammarTests
         var ex = Should.Throw<PackageParseException>(
             () => PackageManifestParser.Walk(pkg.Root, TestContext.Current.CancellationToken));
         ex.Message.ShouldContain("LegacyWorkflowsSubdir");
-        ex.Message.ShouldContain("ADR-0045 §2");
+        ex.Message.ShouldContain("ADR-0046 §2");
     }
 
     [Fact]
@@ -341,7 +341,7 @@ public class UnifiedMembersGrammarTests
         ex.Message.ShouldContain("LegacyWorkflowsSubdir");
     }
 
-    // ── ADR-0045 §2: connectors/ subdir rejection (top-level + nested) ───
+    // ── ADR-0046 §2: connectors/ subdir rejection (top-level + nested) ───
 
     [Fact]
     public void Walk_TopLevelConnectorsSubdir_Rejected()
@@ -360,7 +360,7 @@ public class UnifiedMembersGrammarTests
         var ex = Should.Throw<PackageParseException>(
             () => PackageManifestParser.Walk(pkg.Root, TestContext.Current.CancellationToken));
         ex.Message.ShouldContain("LegacyConnectorsSubdir");
-        ex.Message.ShouldContain("ADR-0045 §2");
+        ex.Message.ShouldContain("ADR-0046 §2");
     }
 
     [Fact]
@@ -388,7 +388,7 @@ public class UnifiedMembersGrammarTests
         ex.Message.ShouldContain("LegacyConnectorsSubdir");
     }
 
-    // ── ADR-0045 §2: LegacyWorkflowKind rejection ────────────────────────
+    // ── ADR-0046 §2: LegacyWorkflowKind rejection ────────────────────────
 
     [Fact]
     public void Walk_LegacyWorkflowKind_Rejected()
@@ -413,10 +413,10 @@ public class UnifiedMembersGrammarTests
         var ex = Should.Throw<PackageParseException>(
             () => PackageManifestParser.Walk(pkg.Root, TestContext.Current.CancellationToken));
         ex.Message.ShouldContain("LegacyWorkflowKind");
-        ex.Message.ShouldContain("ADR-0045 §2");
+        ex.Message.ShouldContain("ADR-0046 §2");
     }
 
-    // ── ADR-0045 §2: ConventionalSubdirs vocabulary trim ─────────────────
+    // ── ADR-0046 §2: ConventionalSubdirs vocabulary trim ─────────────────
 
     [Fact]
     public void ConventionalSubdirs_DoesNotContainWorkflowsOrConnectors()
@@ -442,7 +442,7 @@ public class UnifiedMembersGrammarTests
         kinds.ShouldContain(ArtefactKind.HumanTemplate);
     }
 
-    // ── ADR-0045 §3: multi-valued roles parameterisation ─────────────────
+    // ── ADR-0046 §3: multi-valued roles parameterisation ─────────────────
 
     [Theory]
     [InlineData("roles: []", 0)]
@@ -451,7 +451,7 @@ public class UnifiedMembersGrammarTests
     [InlineData("roles: [a, b, c]", 3)]
     public void ParseUnit_InlineHumanRoles_ParsesAsList(string rolesYaml, int expectedCount)
     {
-        // ADR-0045 §3: roles are multi-valued; the parser preserves the
+        // ADR-0046 §3: roles are multi-valued; the parser preserves the
         // author's exact tokens — case-insensitive uniqueness within the
         // entry is a runtime / UI concern, not a parse-time rule.
         var yaml = $"""

@@ -65,7 +65,7 @@ public static class PackageCommand
 
     /// <summary>
     /// Columns for the <c>humanTemplates:</c> list surfaced by
-    /// <c>spring package show</c> (ADR-0045 §4). Each row describes one
+    /// <c>spring package show</c> (ADR-0046 §4). Each row describes one
     /// <c>HumanTemplate</c> shipped by the package; stamped via
     /// <c>- human: { from: &lt;name&gt; }</c> on a unit's <c>members:</c> list.
     /// </summary>

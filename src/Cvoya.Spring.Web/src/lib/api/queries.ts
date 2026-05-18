@@ -743,7 +743,7 @@ export function useHuman(
 }
 
 /**
- * Patch a Human's `displayName` / `description` (ADR-0045 Phase 4 —
+ * Patch a Human's `displayName` / `description` (ADR-0046 Phase 4 —
  * Phase 1 added the PATCH endpoint; this hook surfaces it to the
  * portal's new Human × Config × General sub-tab). On success invalidates
  * the per-human detail cache so the Overview tab + the Config General

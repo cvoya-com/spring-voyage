@@ -62,7 +62,7 @@ public static class HumanIdentityEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        // ADR-0045 §7: Human × Config × General PATCH (parallel to the
+        // ADR-0046 §7: Human × Config × General PATCH (parallel to the
         // existing agent / unit PATCH surfaces). Lets the portal edit the
         // displayName / description without disturbing the connector
         // identity rows below.

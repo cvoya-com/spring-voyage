@@ -283,10 +283,10 @@ public class MemberManifest
     public InlineArtefactDefinition? Unit { get; set; }
 
     /// <summary>
-    /// Human-participant declaration (ADR-0045 §1). Inline body only —
-    /// humans own no sub-artefacts so the folder form is rejected (ADR-0045
+    /// Human-participant declaration (ADR-0046 §1). Inline body only —
+    /// humans own no sub-artefacts so the folder form is rejected (ADR-0046
     /// §6). The body may also carry <c>from:</c> to stamp from a
-    /// <c>HumanTemplate</c> (ADR-0045 §4). Bare-scalar form is reserved for
+    /// <c>HumanTemplate</c> (ADR-0046 §4). Bare-scalar form is reserved for
     /// future cross-package Guid addressing but is not authored in v0.1.
     /// </summary>
     [YamlMember(Alias = "human")]
@@ -456,7 +456,7 @@ public class BoundarySynthesisManifestEntry
 }
 
 /// <summary>
-/// Human-participant declaration (ADR-0045 §1, §3). One entry under a unit's
+/// Human-participant declaration (ADR-0046 §1, §3). One entry under a unit's
 /// <c>members:</c> list with the <c>human:</c> key prefix. Carries the
 /// multi-valued team roles, expertise, and notification subscriptions for the
 /// participant. Platform ACLs (<c>PermissionLevel</c>) are deliberately NOT a
@@ -465,7 +465,7 @@ public class BoundarySynthesisManifestEntry
 /// row per declaration (OSS default) or binds to a tenant member (hosted).
 /// </summary>
 /// <remarks>
-/// Per ADR-0045 §3, <c>roles</c> and <c>expertise</c> are case-insensitive sets
+/// Per ADR-0046 §3, <c>roles</c> and <c>expertise</c> are case-insensitive sets
 /// (duplicates collapse at parse time); empty list and absent field are
 /// equivalent. <c>notifications</c> stays human-only — agents have no
 /// notification surface, so the field does not appear on agent / unit member
@@ -491,12 +491,12 @@ public class HumanManifest
     public string? Description { get; set; }
 
     /// <summary>
-    /// Optional template chain reference (ADR-0045 §4). Bare name resolves
+    /// Optional template chain reference (ADR-0046 §4). Bare name resolves
     /// within the package's <c>templates/</c> tree (the
     /// <c>HumanTemplate</c> with matching <c>name:</c>); qualified name
     /// <c>&lt;pkg&gt;/&lt;name&gt;@&lt;version&gt;</c> resolves cross-package per
     /// ADR-0037 §5. When set, the install pipeline clones the template's
-    /// fields and overlays this entry's values per ADR-0045 §5 (full
+    /// fields and overlays this entry's values per ADR-0046 §5 (full
     /// replacement on multi-valued lists).
     /// </summary>
     [YamlMember(Alias = "from")]
@@ -504,7 +504,7 @@ public class HumanManifest
 
     /// <summary>
     /// Free-form team roles the human plays on the unit (e.g.
-    /// <c>[owner]</c>, <c>[reviewer, security_lead]</c>). ADR-0045 §3 makes
+    /// <c>[owner]</c>, <c>[reviewer, security_lead]</c>). ADR-0046 §3 makes
     /// this multi-valued and case-insensitive within an entry; duplicates
     /// collapse at parse time. Empty list and absent field are equivalent.
     /// </summary>

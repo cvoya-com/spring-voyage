@@ -1,6 +1,6 @@
 "use client";
 
-// Shared tag-chip editor (ADR-0045 Phase 4). One component drives both
+// Shared tag-chip editor (ADR-0046 Phase 4). One component drives both
 // the per-membership Roles row (`variant="row"` — chips wrap on multiple
 // lines) and the per-membership Expertise / Notifications stack
 // (`variant="stack"` — one chip per line because expertise strings can
