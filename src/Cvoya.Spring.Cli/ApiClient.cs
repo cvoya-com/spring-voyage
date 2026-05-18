@@ -1338,6 +1338,30 @@ public class SpringApiClient
     }
 
     /// <summary>
+    /// Patches a human's editable identity fields (display name / description)
+    /// via ADR-0045 §7's <c>PATCH /api/v1/tenant/humans/{id}</c> surface. Null
+    /// arguments mean "leave the corresponding field unchanged" — the Kiota
+    /// writer still serialises the property as <c>null</c>, which is what the
+    /// backend expects for the no-op branch.
+    /// </summary>
+    public async Task<HumanResponse?> UpdateHumanAsync(
+        Guid humanId,
+        string? displayName = null,
+        string? description = null,
+        CancellationToken ct = default)
+    {
+        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Humans.Item.WithHumanItemRequestBuilder.WithHumanPatchRequestBody
+        {
+            UpdateHumanRequest = new UpdateHumanRequest
+            {
+                DisplayName = displayName,
+                Description = description,
+            },
+        };
+        return await _client.Api.V1.Tenant.Humans[humanId].PatchAsync(body, cancellationToken: ct);
+    }
+
+    /// <summary>
     /// Upserts a human ↔ connector identity row. 409 surfaces when another
     /// human already claims the same <c>(connector, user_id)</c> tuple in
     /// the current tenant.

@@ -10,10 +10,12 @@ using Cvoya.Spring.Cli.Output;
 using Cvoya.Spring.Cli.Utilities;
 
 /// <summary>
-/// Builds the <c>spring human</c> verb tree. Today it covers the
-/// connector-native identity surface (#2408): <c>spring human identity
-/// set/list/remove</c>. The verb is reserved at the top level for v0.2
-/// expansion (per-Human config / dashboard / inbox views).
+/// Builds the <c>spring human</c> verb tree. Covers (a) the connector-native
+/// identity surface (#2408): <c>spring human identity set/list/remove</c>,
+/// and (b) the Human × Config × General editing surface (ADR-0045 §7):
+/// <c>spring human set --display-name … --description …</c>. The latter
+/// mirrors the <c>spring agent set</c> / <c>spring unit set</c> verb shape
+/// so callers do not have to memorise a different verb name per kind.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -41,9 +43,108 @@ public static class HumanCommand
     {
         var command = new Command(
             "human",
-            "Manage human-scoped configuration (identities, etc.).");
+            "Manage human-scoped configuration (display name, description, identities).");
 
+        command.Subcommands.Add(CreateHumanSetCommand(outputOption));
         command.Subcommands.Add(CreateIdentityCommand(outputOption));
+        return command;
+    }
+
+    private static Command CreateHumanSetCommand(Option<string> outputOption)
+    {
+        var idOption = new Option<string?>("--id")
+        {
+            Description = "Stable human UUID. Defaults to the authenticated caller when omitted.",
+        };
+        var displayNameOption = new Option<string?>("--display-name")
+        {
+            Description = "New human-readable display name. Omit to leave the existing value untouched.",
+        };
+        var descriptionOption = new Option<string?>("--description")
+        {
+            Description =
+                "New free-form description. Omit to leave unchanged. Pass an empty string \"\" to clear.",
+        };
+
+        var command = new Command(
+            "set",
+            "Update a human's editable identity fields (ADR-0045 §7). At least one of " +
+            "--display-name / --description must be supplied; omitted flags leave the existing " +
+            "value untouched.");
+        command.Options.Add(idOption);
+        command.Options.Add(displayNameOption);
+        command.Options.Add(descriptionOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var idArg = parseResult.GetValue(idOption);
+            var displayName = parseResult.GetValue(displayNameOption);
+            var description = parseResult.GetValue(descriptionOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+
+            var displayNameSupplied = parseResult.GetResult(displayNameOption) is not null;
+            var descriptionSupplied = parseResult.GetResult(descriptionOption) is not null;
+
+            if (!displayNameSupplied && !descriptionSupplied)
+            {
+                await Console.Error.WriteLineAsync(
+                    "Nothing to set. Pass at least one of --display-name or --description.");
+                Environment.Exit(1);
+                return;
+            }
+
+            var client = ClientFactory.Create();
+
+            Guid humanId;
+            try
+            {
+                humanId = await ResolveHumanIdAsync(client, idArg, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                await Console.Error.WriteLineAsync(ex.Message);
+                Environment.Exit(1);
+                return;
+            }
+
+            try
+            {
+                // Backend treats null as "leave unchanged" and an explicit
+                // empty string on description as "clear" (HumanIdentity-
+                // Endpoints.UpdateHumanAsync). Send empty literal when the
+                // user supplied the flag with no value, null when the flag
+                // was omitted entirely.
+                var response = await client.UpdateHumanAsync(
+                    humanId,
+                    displayName: displayNameSupplied ? (displayName ?? string.Empty) : null,
+                    description: descriptionSupplied ? (description ?? string.Empty) : null,
+                    ct: ct);
+
+                if (response is null)
+                {
+                    await Console.Error.WriteLineAsync(
+                        $"Server returned no body when updating human '{humanId:N}'.");
+                    Environment.Exit(1);
+                    return;
+                }
+
+                if (output == "json")
+                {
+                    Console.WriteLine(OutputFormatter.FormatJson(response));
+                }
+                else
+                {
+                    Console.WriteLine($"Human '{humanId:N}' updated.");
+                }
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to update human '{humanId:N}': {ProblemDetailsTranslator.Format(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
         return command;
     }
 
