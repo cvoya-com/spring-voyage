@@ -214,4 +214,20 @@ describe("CostSummaryCard", () => {
     expect(value.className).toMatch(/font-mono/);
     expect(value.className).toMatch(/tabular-nums/);
   });
+
+  // PR #2390 fixed the agent/unit footer rows; #2441 extends the same
+  // pattern to the cost summary tile grid. The three stat tiles sit
+  // below the overlay `Details` link in DOM order, so without
+  // `pointer-events-none` on the grid wrapper clicks on the tiles die
+  // on the wrapper div instead of falling through to the overlay link.
+  it("marks the tile grid as pointer-events-none so whitespace clicks fall through to the Details overlay link (#2441)", async () => {
+    getTenantCost.mockResolvedValue(makeSummary({ totalCost: 1 }));
+
+    renderCard();
+
+    const today = await screen.findByTestId("cost-summary-today");
+    const grid = today.parentElement;
+    expect(grid).not.toBeNull();
+    expect(grid!.className).toMatch(/pointer-events-none/);
+  });
 });

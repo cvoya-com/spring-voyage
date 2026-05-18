@@ -207,4 +207,73 @@ describe("AgentCard", () => {
     ).toBeInTheDocument();
     expect(screen.queryByTestId("agent-card-tabrow-ada")).toBeNull();
   });
+
+  // PR #2390 fixed the footer row; #2441 extends the same pattern to
+  // every non-overlay row. The wrapper of each row must carry
+  // `pointer-events-none` so whitespace clicks fall through to the
+  // full-card overlay link instead of dying on a sibling div. Interactive
+  // children (parent-unit link, Edit/Delete actions, the cross-link
+  // icons, the Open link) restore `pointer-events-auto` to keep their
+  // own click targets.
+  describe("click-gap regression (#2441)", () => {
+    it("marks the parent-unit + time-ago row as pointer-events-none so whitespace clicks fall through to the overlay", () => {
+      render(
+        <AgentCard
+          agent={{
+            name: "ada",
+            displayName: "Ada",
+            role: null,
+            registeredAt: "2026-04-01T00:00:00Z",
+            parentUnit: "engineering",
+          }}
+        />,
+      );
+      const parentLink = screen.getByTestId("agent-parent-unit");
+      const metaRow = parentLink.parentElement;
+      expect(metaRow).not.toBeNull();
+      expect(metaRow!.className).toMatch(/pointer-events-none/);
+      // The parent-unit link itself stays clickable.
+      expect(parentLink.className).toMatch(/pointer-events-auto/);
+    });
+
+    it("marks the lastActivity paragraph as pointer-events-none", () => {
+      render(
+        <AgentCard
+          agent={{
+            name: "ada",
+            displayName: "Ada",
+            role: null,
+            registeredAt: "2026-04-01T00:00:00Z",
+            lastActivity: "Replied to PR review",
+          }}
+        />,
+      );
+      const lastActivity = screen.getByTestId("agent-last-activity");
+      expect(lastActivity.className).toMatch(/pointer-events-none/);
+    });
+
+    it("keeps the footer-strip pointer-events fix from PR #2390 intact", () => {
+      render(
+        <AgentCard
+          agent={{
+            name: "ada",
+            displayName: "Ada",
+            role: null,
+            registeredAt: "2026-04-01T00:00:00Z",
+          }}
+        />,
+      );
+      // Footer wrapper retains `pointer-events-none`.
+      const open = screen.getByTestId("agent-open-ada");
+      // The Open link's nearest pointer-events-none ancestor is the
+      // footer strip from PR #2390.
+      const footer = open.closest(".pointer-events-none");
+      expect(footer).not.toBeNull();
+      // Open link itself keeps `pointer-events-auto`.
+      expect(open.className).toMatch(/pointer-events-auto/);
+      // Cross-link icons keep `pointer-events-auto`.
+      const conv = screen.getByTestId("agent-link-conversations-ada");
+      expect(conv.className).toMatch(/pointer-events-auto/);
+    });
+  });
 });

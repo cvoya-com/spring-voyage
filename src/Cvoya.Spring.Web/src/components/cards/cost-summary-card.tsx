@@ -208,7 +208,14 @@ export function CostSummaryCard({ thirtyDaySeries }: CostSummaryCardProps = {}) 
           Details <ArrowRight className="h-3 w-3" aria-hidden="true" />
         </Link>
       </CardHeader>
-      <CardContent className="grid grid-cols-3 gap-3">
+      {/*
+        The three stat tiles are pure display — `pointer-events-none`
+        lets clicks on them fall through to the full-card overlay
+        `Details` link in the header above. Mirrors the row-level
+        click-gap fix from PR #2390 (#2441). No interactive
+        descendants here, so no `pointer-events-auto` overrides.
+      */}
+      <CardContent className="pointer-events-none grid grid-cols-3 gap-3">
         <SpendStatTile
           label="Today"
           value={today.data?.totalCost ?? null}

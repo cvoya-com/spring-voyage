@@ -196,13 +196,21 @@ export function AgentCard({
           </div>
         </Link>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        {/*
+          Meta row (parent unit + registered-at). `pointer-events-none`
+          lets clicks on the row's whitespace fall through to the
+          full-card overlay link above; the parent-unit `<Link>` restores
+          `pointer-events-auto` so its own click target survives.
+          Mirrors the footer-strip fix from PR #2390 — same pattern,
+          every non-overlay row (#2441).
+        */}
+        <div className="pointer-events-none mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           {parent && (
             <Link
               href={`/units?node=${encodeURIComponent(parent)}`}
               data-testid="agent-parent-unit"
               aria-label={`Open parent unit ${parent}`}
-              className="relative z-[1] flex items-center gap-1 rounded-sm transition-colors hover:text-foreground"
+              className="pointer-events-auto relative z-[1] flex items-center gap-1 rounded-sm transition-colors hover:text-foreground"
             >
               <Layers className="h-3 w-3" aria-hidden="true" />
               {parent}
@@ -216,7 +224,7 @@ export function AgentCard({
 
         {lastActivityText && (
           <p
-            className="mt-2 truncate text-xs italic text-muted-foreground"
+            className="pointer-events-none mt-2 truncate text-xs italic text-muted-foreground"
             data-testid="agent-last-activity"
           >
             {lastActivityText}

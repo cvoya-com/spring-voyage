@@ -162,4 +162,34 @@ describe("ConversationCard", () => {
     const idLine = screen.getByText("conv-1");
     expect(idLine.className).toMatch(/font-mono/);
   });
+
+  // PR #2390 fixed the agent/unit footer rows; #2441 extends the same
+  // pattern to the rest of the card primitives that use the overlay
+  // link. Sibling rows below the overlay must carry
+  // `pointer-events-none` so whitespace clicks fall through to the
+  // overlay link instead of dying on a wrapper div.
+  describe("click-gap regression (#2441)", () => {
+    it("marks the participants row and footer row as pointer-events-none", () => {
+      render(
+        <ConversationCard
+          conversation={{
+            id: "conv-1",
+            participants: ["agent://ada"],
+            lastActivityAt: "2026-04-01T00:00:00Z",
+          }}
+        />,
+      );
+      // Participants row wrapper carries `pointer-events-none`.
+      const participants = screen.getByTestId("conversation-participants");
+      const row = participants.parentElement;
+      expect(row).not.toBeNull();
+      expect(row!.className).toMatch(/pointer-events-none/);
+
+      // Footer row wrapper carries `pointer-events-none`; the Open
+      // link inside restores `pointer-events-auto`.
+      const open = screen.getByTestId("conversation-open-conv-1");
+      expect(open.closest(".pointer-events-none")).not.toBeNull();
+      expect(open.className).toMatch(/pointer-events-auto/);
+    });
+  });
 });
