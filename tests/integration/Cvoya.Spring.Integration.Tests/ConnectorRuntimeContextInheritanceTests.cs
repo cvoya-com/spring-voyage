@@ -95,14 +95,7 @@ public class ConnectorRuntimeContextInheritanceTests : IDisposable
         // Recording contributor — captures the invocation so we can assert
         // the resolver carried the ancestor's owner unit through.
         var contributor = new RecordingContributor(ConnectorTypeId, "test-connector");
-        var resolver = new ConnectorRuntimeContextResolver(
-            _services.GetRequiredService<IServiceScopeFactory>(),
-            bindingStore,
-            _services.GetRequiredService<IUnitHierarchyResolver>(),
-            _services.GetRequiredService<ITenantContext>(),
-            [new FakeConnectorType(ConnectorTypeId, "test-connector")],
-            [contributor],
-            NullLogger<ConnectorRuntimeContextResolver>.Instance);
+        var resolver = BuildResolver(bindingStore, contributor);
 
         var contribution = await resolver.ResolveAsync(
             new Address(Address.UnitScheme, LeafUnit), ct);
@@ -145,14 +138,7 @@ public class ConnectorRuntimeContextInheritanceTests : IDisposable
             JsonSerializer.SerializeToElement(new { }), ct);
 
         var contributor = new RecordingContributor(ConnectorTypeId, "test-connector");
-        var resolver = new ConnectorRuntimeContextResolver(
-            _services.GetRequiredService<IServiceScopeFactory>(),
-            bindingStore,
-            _services.GetRequiredService<IUnitHierarchyResolver>(),
-            _services.GetRequiredService<ITenantContext>(),
-            [new FakeConnectorType(ConnectorTypeId, "test-connector")],
-            [contributor],
-            NullLogger<ConnectorRuntimeContextResolver>.Instance);
+        var resolver = BuildResolver(bindingStore, contributor);
 
         var contribution = await resolver.ResolveAsync(
             new Address(Address.AgentScheme, LeafAgent), ct);
@@ -174,20 +160,30 @@ public class ConnectorRuntimeContextInheritanceTests : IDisposable
         // No membership, no binding — but the contributor list is non-empty.
         var contributor = new RecordingContributor(ConnectorTypeId, "test-connector");
         var bindingStore = _services.GetRequiredService<IUnitConnectorBindingStore>();
-        var resolver = new ConnectorRuntimeContextResolver(
-            _services.GetRequiredService<IServiceScopeFactory>(),
-            bindingStore,
-            _services.GetRequiredService<IUnitHierarchyResolver>(),
-            _services.GetRequiredService<ITenantContext>(),
-            [new FakeConnectorType(ConnectorTypeId, "test-connector")],
-            [contributor],
-            NullLogger<ConnectorRuntimeContextResolver>.Instance);
+        var resolver = BuildResolver(bindingStore, contributor);
 
         var contribution = await resolver.ResolveAsync(
             new Address(Address.AgentScheme, LeafAgent), ct);
 
         contribution.ShouldBe(ConnectorRuntimeContextContribution.Empty);
         contributor.LastRequest.ShouldBeNull();
+    }
+
+    private ConnectorRuntimeContextResolver BuildResolver(
+        IUnitConnectorBindingStore bindingStore,
+        IConnectorRuntimeContextContributor contributor)
+    {
+        var walker = new ConnectorBindingWalker(
+            _services.GetRequiredService<IServiceScopeFactory>(),
+            bindingStore,
+            _services.GetRequiredService<IUnitHierarchyResolver>(),
+            NullLogger<ConnectorBindingWalker>.Instance);
+        return new ConnectorRuntimeContextResolver(
+            walker,
+            _services.GetRequiredService<ITenantContext>(),
+            [new FakeConnectorType(ConnectorTypeId, "test-connector")],
+            [contributor],
+            NullLogger<ConnectorRuntimeContextResolver>.Instance);
     }
 
     private sealed class RecordingContributor(Guid connectorTypeId, string slug)

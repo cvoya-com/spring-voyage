@@ -10,9 +10,7 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
-using Cvoya.Spring.Core.Units;
 
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -20,28 +18,14 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Registered as a singleton over <see cref="IServiceScopeFactory"/> so it
-/// can pull scoped collaborators (<see cref="IUnitMembershipRepository"/>)
-/// and the connector type registry from a fresh per-call scope without
-/// invading the dispatcher's singleton lifetime.
-/// </para>
-/// <para>
-/// Walks the inheritance graph in two layers per #2380:
-/// <list type="number">
-///   <item><description>If the subject is an <c>agent:</c>, look up its
-///   primary parent unit (first membership by <c>CreatedAt</c>). Continue
-///   the walk from that unit.</description></item>
-///   <item><description>Starting from the resolved unit, collect direct +
-///   inherited bindings by walking ancestors via
-///   <see cref="IUnitHierarchyResolver"/>. For each connector type id, the
-///   closest unit's binding wins.</description></item>
-/// </list>
+/// Walks direct + inherited bindings via the shared
+/// <see cref="ConnectorBindingWalker"/> (#2442) — both this resolver
+/// and the prompt-context resolver use the same walk so the two stay
+/// in lockstep on what "the bindings that apply to a subject" means.
 /// </para>
 /// </remarks>
 public class ConnectorRuntimeContextResolver(
-    IServiceScopeFactory scopeFactory,
-    IUnitConnectorBindingStore bindingStore,
-    IUnitHierarchyResolver hierarchyResolver,
+    ConnectorBindingWalker bindingWalker,
     ITenantContext tenantContext,
     IEnumerable<IConnectorType> connectorTypes,
     IEnumerable<IConnectorRuntimeContextContributor> contributors,
@@ -108,32 +92,18 @@ public class ConnectorRuntimeContextResolver(
     {
         ArgumentNullException.ThrowIfNull(subject);
 
-        // The resolver only walks unit / agent dispatch targets — humans
-        // and other addressables never receive a connector runtime context.
-        if (!string.Equals(subject.Scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(subject.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
-        {
-            return ConnectorRuntimeContextContribution.Empty;
-        }
-
-        // No contributors registered → no work to do.
+        // No contributors registered → no work to do. (The walker also
+        // returns early for non-agent / non-unit schemes; the local
+        // short-circuit avoids the membership lookup when nobody cares.)
         if (_contributorsByType.Count == 0)
         {
             return ConnectorRuntimeContextContribution.Empty;
         }
 
-        var startingUnitId = await ResolveStartingUnitAsync(subject, cancellationToken);
-        if (startingUnitId is null)
-        {
-            // An agent with no membership has no unit to walk from. The
-            // dispatcher already handles the bare-agent case; a missing
-            // membership means no inherited bindings, which is fine.
-            return ConnectorRuntimeContextContribution.Empty;
-        }
-
-        // Walk the unit's parent chain. For each unique connector type id
-        // we keep the binding from the closest unit (specific wins).
-        var bindings = await CollectBindingsAsync(startingUnitId.Value, cancellationToken);
+        // Walk the subject's direct + inherited bindings via the shared
+        // helper (#2442). For each unique connector type id the closest
+        // unit's binding wins (specific over inherited).
+        var bindings = await bindingWalker.WalkAsync(subject, cancellationToken);
         if (bindings.Count == 0)
         {
             return ConnectorRuntimeContextContribution.Empty;
@@ -217,6 +187,35 @@ public class ConnectorRuntimeContextResolver(
                 mergedEnv[kvp.Key] = kvp.Value;
             }
 
+            // #2442: well-known aliases (e.g. GITHUB_TOKEN) intentionally
+            // sit outside the SPRING_CONNECTOR_<SLUG>_* namespace — they
+            // are convenience hops for ecosystem tooling (gh / git read
+            // GITHUB_TOKEN natively). The no-collision rule still
+            // applies; the namespace rule does not. A collision with a
+            // platform-bootstrap name is caught at the dispatcher's
+            // final merge step, same as for namespaced vars.
+            if (contribution.WellKnownAliasEnvironmentVariables is { Count: > 0 } aliases)
+            {
+                foreach (var kvp in aliases)
+                {
+                    if (string.IsNullOrWhiteSpace(kvp.Key))
+                    {
+                        throw new SpringException(
+                            $"Connector '{slug}' contributed a blank well-known alias env-var key.");
+                    }
+
+                    if (envKeyOwners.TryGetValue(kvp.Key, out var previousOwner))
+                    {
+                        throw new SpringException(
+                            $"Connector '{slug}' contributed well-known alias env-var '{kvp.Key}' which was " +
+                            $"already contributed by connector '{previousOwner}'. Resolve the collision in DI registrations.");
+                    }
+
+                    envKeyOwners[kvp.Key] = slug;
+                    mergedEnv[kvp.Key] = kvp.Value;
+                }
+            }
+
             var requiredFilePrefix = BuildFilePrefix(slug);
             foreach (var kvp in contribution.ContextFiles)
             {
@@ -240,10 +239,11 @@ public class ConnectorRuntimeContextResolver(
             }
 
             logger.LogInformation(
-                "Connector '{Slug}' contributed {EnvCount} env-var(s) and {FileCount} context file(s) " +
-                "for subject {Subject} from binding on unit {OwnerUnit:N}",
-                slug, contribution.EnvironmentVariables.Count, contribution.ContextFiles.Count,
-                subject, entry.OwnerUnitId);
+                "Connector '{Slug}' contributed {EnvCount} env-var(s) ({AliasCount} aliases) and " +
+                "{FileCount} context file(s) for subject {Subject} from binding on unit {OwnerUnit:N}",
+                slug, contribution.EnvironmentVariables.Count,
+                contribution.WellKnownAliasEnvironmentVariables?.Count ?? 0,
+                contribution.ContextFiles.Count, subject, entry.OwnerUnitId);
         }
 
         if (mergedEnv.Count == 0 && mergedFiles.Count == 0)
@@ -252,82 +252,6 @@ public class ConnectorRuntimeContextResolver(
         }
 
         return new ConnectorRuntimeContextContribution(mergedEnv, mergedFiles);
-    }
-
-    /// <summary>
-    /// Resolves the unit the parent-chain walk should start from. For a
-    /// <c>unit:</c> subject this is the unit itself; for an <c>agent:</c>
-    /// subject this is the agent's primary parent unit (first membership
-    /// by <c>CreatedAt</c>). An agent with no memberships returns
-    /// <c>null</c>.
-    /// </summary>
-    private async Task<Guid?> ResolveStartingUnitAsync(Address subject, CancellationToken cancellationToken)
-    {
-        if (string.Equals(subject.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
-        {
-            return subject.Id;
-        }
-
-        // Agent subject — look up the primary parent unit through a fresh
-        // scope (the membership repo is scoped per the EF DbContext lifetime).
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var membershipRepo = scope.ServiceProvider.GetService<IUnitMembershipRepository>();
-        if (membershipRepo is null)
-        {
-            return null;
-        }
-
-        var memberships = await membershipRepo.ListByAgentAsync(subject.Id, cancellationToken);
-        return memberships.Count == 0 ? null : memberships[0].UnitId;
-    }
-
-    /// <summary>
-    /// Walks the unit and its ancestors, returning the binding to use for
-    /// each connector type id. A direct binding on the starting unit
-    /// shadows any inherited binding of the same type.
-    /// </summary>
-    private async Task<IReadOnlyList<ResolvedBinding>> CollectBindingsAsync(
-        Guid startingUnitId,
-        CancellationToken cancellationToken)
-    {
-        const int MaxDepth = 32;
-
-        var byType = new Dictionary<Guid, ResolvedBinding>();
-        var queue = new Queue<(Guid UnitId, int Depth)>();
-        var visited = new HashSet<Guid>();
-        queue.Enqueue((startingUnitId, 0));
-
-        while (queue.Count > 0)
-        {
-            var (currentUnitId, depth) = queue.Dequeue();
-            if (depth > MaxDepth)
-            {
-                logger.LogWarning(
-                    "Connector binding walk exceeded max depth {MaxDepth} starting from unit {Unit:N}; bailing out.",
-                    MaxDepth, startingUnitId);
-                break;
-            }
-
-            if (!visited.Add(currentUnitId))
-            {
-                continue;
-            }
-
-            var binding = await bindingStore.GetAsync(currentUnitId, cancellationToken);
-            if (binding is not null && !byType.ContainsKey(binding.TypeId))
-            {
-                byType[binding.TypeId] = new ResolvedBinding(currentUnitId, binding);
-            }
-
-            var parents = await hierarchyResolver.GetParentsAsync(
-                new Address(Address.UnitScheme, currentUnitId), cancellationToken);
-            foreach (var parent in parents)
-            {
-                queue.Enqueue((parent.Id, depth + 1));
-            }
-        }
-
-        return [.. byType.Values];
     }
 
     /// <summary>
@@ -372,6 +296,4 @@ public class ConnectorRuntimeContextResolver(
             slug.ToLowerInvariant());
     }
 
-    /// <summary>One entry of the resolver's binding walk.</summary>
-    private sealed record ResolvedBinding(Guid OwnerUnitId, UnitConnectorBinding Binding);
 }

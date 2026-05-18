@@ -189,6 +189,131 @@ public class GitHubConnectorRuntimeContextContributorTests
         contributor.ConnectorTypeId.ShouldBe(GitHubConnectorType.GitHubTypeId);
     }
 
+    /// <summary>
+    /// #2442: GITHUB_TOKEN is published alongside the namespaced var
+    /// with the same value so <c>gh</c> / <c>git</c> pick it up
+    /// natively. The namespaced var stays canonical; the alias is the
+    /// downstream-CLI convenience hop.
+    /// </summary>
+    [Fact]
+    public async Task ContributeAsync_PublishesGithubTokenAliasWithSameValue()
+    {
+        var binding = MakeBinding(new UnitGitHubConfig("acme", "platform", 4242, Reviewer: "rev"));
+        var auth = new FakeGitHubAppAuth("ghs_dual-presence-token", TokenExpiry);
+        var contributor = new GitHubConnectorRuntimeContextContributor(
+            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+
+        var contribution = await contributor.ContributeAsync(
+            new ConnectorRuntimeContextRequest(Subject, OwnerUnit, binding, TenantId),
+            TestContext.Current.CancellationToken);
+
+        contribution.EnvironmentVariables.ShouldContainKeyAndValue(
+            GitHubConnectorRuntimeContextContributor.EnvToken, "ghs_dual-presence-token");
+        contribution.WellKnownAliasEnvironmentVariables.ShouldNotBeNull();
+        contribution.WellKnownAliasEnvironmentVariables!.ShouldContainKeyAndValue(
+            GitHubConnectorRuntimeContextContributor.EnvTokenWellKnownAlias, "ghs_dual-presence-token");
+        // GITHUB_TOKEN sits intentionally outside the namespaced bucket
+        // (the namespace check would otherwise reject it).
+        contribution.EnvironmentVariables.ShouldNotContainKey(
+            GitHubConnectorRuntimeContextContributor.EnvTokenWellKnownAlias);
+    }
+
+    [Fact]
+    public async Task GetPromptHintsAsync_ValidBinding_ReturnsFragmentNamingTheRepo()
+    {
+        var binding = MakeBinding(new UnitGitHubConfig("cvoya-com", "spring-voyage", 4242, Reviewer: "rev"));
+        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
+        var contributor = new GitHubConnectorRuntimeContextContributor(
+            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+
+        var fragment = await contributor.GetPromptHintsAsync(
+            Subject, OwnerUnit, binding, TestContext.Current.CancellationToken);
+
+        fragment.ShouldNotBeNull();
+        fragment.ShouldContain("### GitHub binding — cvoya-com/spring-voyage");
+        fragment.ShouldContain("$SPRING_CONNECTOR_GITHUB_OWNER");
+        fragment.ShouldContain("$SPRING_CONNECTOR_GITHUB_REPO");
+        fragment.ShouldContain("$SPRING_CONNECTOR_GITHUB_TOKEN");
+        fragment.ShouldContain("$GITHUB_TOKEN");
+        fragment.ShouldContain("gh issue list --repo");
+        // Tokens never appear verbatim in the prompt fragment — only the
+        // env-var names do.
+        fragment.ShouldNotContain("ghs_");
+    }
+
+    [Fact]
+    public async Task GetPromptHintsAsync_MissingOwner_ReturnsNull()
+    {
+        var binding = MakeBinding(new UnitGitHubConfig("", "platform", 4242, Reviewer: null));
+        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
+        var contributor = new GitHubConnectorRuntimeContextContributor(
+            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+
+        var fragment = await contributor.GetPromptHintsAsync(
+            Subject, OwnerUnit, binding, TestContext.Current.CancellationToken);
+
+        fragment.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetPromptHintsAsync_MissingRepo_ReturnsNull()
+    {
+        var binding = MakeBinding(new UnitGitHubConfig("acme", "", 4242, Reviewer: null));
+        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
+        var contributor = new GitHubConnectorRuntimeContextContributor(
+            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+
+        var fragment = await contributor.GetPromptHintsAsync(
+            Subject, OwnerUnit, binding, TestContext.Current.CancellationToken);
+
+        fragment.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetPromptHintsAsync_MalformedJson_ReturnsNull()
+    {
+        // A binding whose Config does not deserialise to UnitGitHubConfig —
+        // e.g. a primitive instead of an object — must be tolerated so a
+        // single bad binding does not poison the whole launch's prompt
+        // assembly.
+        var malformed = JsonSerializer.SerializeToElement("not-an-object");
+        var binding = new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, malformed);
+        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
+        var contributor = new GitHubConnectorRuntimeContextContributor(
+            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+
+        var fragment = await contributor.GetPromptHintsAsync(
+            Subject, OwnerUnit, binding, TestContext.Current.CancellationToken);
+
+        fragment.ShouldBeNull();
+    }
+
+    [Fact]
+    public void BuildPromptFragment_RendersTheCanonicalShape()
+    {
+        // Snapshot-style assertion: pin the static fragment shape so future
+        // reflows are deliberate. Mirrors the exact text in issue #2442's
+        // body.
+        var fragment = GitHubConnectorRuntimeContextContributor.BuildPromptFragment(
+            "cvoya-com", "spring-voyage");
+
+        const string expected =
+            "### GitHub binding — cvoya-com/spring-voyage\n\n" +
+            "Your container has GitHub credentials and repo identity injected as env-vars:\n\n" +
+            "- $SPRING_CONNECTOR_GITHUB_OWNER       — repo owner (cvoya-com)\n" +
+            "- $SPRING_CONNECTOR_GITHUB_REPO        — repo name (spring-voyage)\n" +
+            "- $SPRING_CONNECTOR_GITHUB_REVIEWER    — operator's GitHub login for review requests / assignee fallback\n" +
+            "- $SPRING_CONNECTOR_GITHUB_TOKEN       — short-lived installation token (also exposed as $GITHUB_TOKEN for gh / git compatibility)\n" +
+            "- $SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT — token expiry (UTC ISO)\n\n" +
+            "Use `gh` and `git` against the bound repo:\n\n" +
+            "  REPO=\"$SPRING_CONNECTOR_GITHUB_OWNER/$SPRING_CONNECTOR_GITHUB_REPO\"\n" +
+            "  gh issue list --repo \"$REPO\" --milestone v0.1 --state open\n\n" +
+            "`gh` and `git` will pick up $GITHUB_TOKEN automatically — no `gh auth login` needed.";
+
+        // Normalise CRLF on Windows so the snapshot test is platform-agnostic.
+        fragment.Replace("\r\n", "\n").ShouldBe(expected);
+    }
+
     private static UnitConnectorBinding MakeBinding(UnitGitHubConfig config)
     {
         var element = JsonSerializer.SerializeToElement(config, new JsonSerializerOptions(JsonSerializerDefaults.Web));

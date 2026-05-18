@@ -8,17 +8,23 @@ using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Messaging;
 
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// GitHub implementation of the <see cref="IConnectorRuntimeContextContributor"/>
-/// seam (#2380). For every container launch whose subject inherits — directly
-/// or via the unit hierarchy — a binding to <see cref="GitHubConnectorType"/>,
-/// this contributor emits the owner / repo / installation id / reviewer
-/// identity plus a freshly-minted, short-lived installation token. The
-/// container's <c>gh</c> / <c>git</c> tooling uses the token to authenticate
-/// against the bound repository.
+/// GitHub implementation of both connector-side launch seams: the
+/// <see cref="IConnectorRuntimeContextContributor"/> (#2380) and the
+/// <see cref="IConnectorPromptContextContributor"/> (#2442). For every
+/// container launch whose subject inherits — directly or via the unit
+/// hierarchy — a binding to <see cref="GitHubConnectorType"/>, this
+/// contributor emits the owner / repo / installation id / reviewer
+/// identity plus a freshly-minted, short-lived installation token, AND
+/// a platform-layer markdown fragment telling the agent which env-vars
+/// it received and how to use them. The container's <c>gh</c> /
+/// <c>git</c> tooling uses the token to authenticate against the
+/// bound repository; <c>GITHUB_TOKEN</c> is published as a convenience
+/// alias so the ecosystem CLIs pick it up natively (#2442).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -54,7 +60,8 @@ using Microsoft.Extensions.Logging;
 /// </remarks>
 public class GitHubConnectorRuntimeContextContributor(
     GitHubAppAuth auth,
-    ILogger<GitHubConnectorRuntimeContextContributor> logger) : IConnectorRuntimeContextContributor
+    ILogger<GitHubConnectorRuntimeContextContributor> logger)
+    : IConnectorRuntimeContextContributor, IConnectorPromptContextContributor
 {
     // Env-var names. Made internal so the unit tests can pin the contract
     // without re-stringing the values.
@@ -64,6 +71,15 @@ public class GitHubConnectorRuntimeContextContributor(
     internal const string EnvReviewer = "SPRING_CONNECTOR_GITHUB_REVIEWER";
     internal const string EnvToken = "SPRING_CONNECTOR_GITHUB_TOKEN";
     internal const string EnvTokenExpiresAt = "SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT";
+
+    /// <summary>
+    /// Convenience alias for <see cref="EnvToken"/> (#2442). The <c>gh</c>
+    /// CLI and <c>git</c> credential helpers read this name natively, so
+    /// publishing it eliminates the "<c>GITHUB_TOKEN=$SPRING_CONNECTOR_GITHUB_TOKEN
+    /// gh …</c>" preamble every container would otherwise have to write.
+    /// The namespaced var remains canonical; this alias is additive.
+    /// </summary>
+    internal const string EnvTokenWellKnownAlias = "GITHUB_TOKEN";
 
     /// <summary>
     /// Sub-path of the context file the contributor produces, relative to
@@ -184,6 +200,14 @@ public class GitHubConnectorRuntimeContextContributor(
             [BindingFilePath] = bindingJson,
         };
 
+        // #2442: publish GITHUB_TOKEN alongside SPRING_CONNECTOR_GITHUB_TOKEN.
+        // Both names hold the same value; the namespaced one stays canonical,
+        // the alias is the convenience hop for gh / git auth.
+        var aliasVars = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [EnvTokenWellKnownAlias] = minted.Token,
+        };
+
         logger.LogInformation(
             "GitHub runtime context contributed for subject {Subject}: owner={Owner} repo={Repo} " +
             "installation={InstallationId} reviewer={Reviewer} ownerUnit={OwnerUnit:N}",
@@ -191,7 +215,79 @@ public class GitHubConnectorRuntimeContextContributor(
             string.IsNullOrWhiteSpace(config.Reviewer) ? "(none)" : config.Reviewer,
             request.BindingOwnerUnitId);
 
-        return new ConnectorRuntimeContextContribution(envVars, contextFiles);
+        return new ConnectorRuntimeContextContribution(envVars, contextFiles, aliasVars);
+    }
+
+    /// <inheritdoc cref="IConnectorPromptContextContributor.GetPromptHintsAsync"/>
+    public Task<string?> GetPromptHintsAsync(
+        Address subject,
+        Guid bindingOwnerUnitId,
+        UnitConnectorBinding binding,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentNullException.ThrowIfNull(binding);
+
+        UnitGitHubConfig? config;
+        try
+        {
+            config = binding.Config.Deserialize<UnitGitHubConfig>(BindingFileJson);
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(ex,
+                "GitHub prompt context: binding on unit {Unit:N} carries a malformed config; " +
+                "skipping the hint. Subject={Subject}.",
+                bindingOwnerUnitId, subject);
+            return Task.FromResult<string?>(null);
+        }
+
+        if (config is null
+            || string.IsNullOrWhiteSpace(config.Owner)
+            || string.IsNullOrWhiteSpace(config.Repo))
+        {
+            logger.LogWarning(
+                "GitHub prompt context: binding on unit {Unit:N} is missing owner / repo; " +
+                "skipping the hint. Subject={Subject}.",
+                bindingOwnerUnitId, subject);
+            return Task.FromResult<string?>(null);
+        }
+
+        var fragment = BuildPromptFragment(config.Owner, config.Repo);
+        return Task.FromResult<string?>(fragment);
+    }
+
+    /// <summary>
+    /// Builds the GitHub-side prompt-context fragment for the bound
+    /// repository. Exposed as an internal static so a snapshot test can
+    /// pin the exact rendered text against the issue body's contract.
+    /// The fragment opens with a <c>### …</c> sub-heading so multiple
+    /// connectors render cleanly side-by-side under the single
+    /// platform-emitted "Connector context" section heading.
+    /// </summary>
+    internal static string BuildPromptFragment(string owner, string repo)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ArgumentException.ThrowIfNullOrWhiteSpace(repo);
+
+        return $$"""
+            ### GitHub binding — {{owner}}/{{repo}}
+
+            Your container has GitHub credentials and repo identity injected as env-vars:
+
+            - $SPRING_CONNECTOR_GITHUB_OWNER       — repo owner ({{owner}})
+            - $SPRING_CONNECTOR_GITHUB_REPO        — repo name ({{repo}})
+            - $SPRING_CONNECTOR_GITHUB_REVIEWER    — operator's GitHub login for review requests / assignee fallback
+            - $SPRING_CONNECTOR_GITHUB_TOKEN       — short-lived installation token (also exposed as $GITHUB_TOKEN for gh / git compatibility)
+            - $SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT — token expiry (UTC ISO)
+
+            Use `gh` and `git` against the bound repo:
+
+              REPO="$SPRING_CONNECTOR_GITHUB_OWNER/$SPRING_CONNECTOR_GITHUB_REPO"
+              gh issue list --repo "$REPO" --milestone v0.1 --state open
+
+            `gh` and `git` will pick up $GITHUB_TOKEN automatically — no `gh auth login` needed.
+            """;
     }
 
     /// <summary>

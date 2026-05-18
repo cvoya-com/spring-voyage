@@ -292,6 +292,90 @@ public class ConnectorRuntimeContextResolverTests
         contributor.LastRequest.ShouldBeNull();
     }
 
+    /// <summary>
+    /// #2442: a contributor may publish well-known aliases (e.g.
+    /// GITHUB_TOKEN) outside the SPRING_CONNECTOR_&lt;SLUG&gt;_*
+    /// namespace. The resolver must NOT apply the namespace check to
+    /// these — they are explicitly opt-in by the contributor — but
+    /// must still enforce the no-collision rule across contributors.
+    /// </summary>
+    [Fact]
+    public async Task ResolveAsync_WellKnownAliasOutsideNamespace_IsAllowed()
+    {
+        _bindingStore.GetAsync(Unit1, Arg.Any<CancellationToken>())
+            .Returns(new UnitConnectorBinding(ConnectorAId, JsonSerializer.SerializeToElement(new { })));
+        _hierarchyResolver.GetParentsAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
+        var contributor = new RecordingContributor(ConnectorAId, "connector-a",
+            envVars: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["SPRING_CONNECTOR_CONNECTOR_A_TOKEN"] = "ghs_abc",
+            },
+            files: new Dictionary<string, string>(StringComparer.Ordinal),
+            aliasVars: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["GITHUB_TOKEN"] = "ghs_abc",
+            });
+
+        var resolver = BuildResolver(
+            connectorTypes: [new FakeConnectorType(ConnectorAId, "connector-a")],
+            contributors: [contributor]);
+
+        var result = await resolver.ResolveAsync(
+            new Address(Address.UnitScheme, Unit1), TestContext.Current.CancellationToken);
+
+        result.EnvironmentVariables.ShouldContainKeyAndValue("GITHUB_TOKEN", "ghs_abc");
+        result.EnvironmentVariables.ShouldContainKeyAndValue(
+            "SPRING_CONNECTOR_CONNECTOR_A_TOKEN", "ghs_abc");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_WellKnownAliasCollidesWithNamespaced_FailsFast()
+    {
+        // Two contributors — A publishes SPRING_CONNECTOR_CONNECTOR_A_X
+        // and B publishes the same key as an alias. The resolver must
+        // reject the second contribution.
+        _bindingStore.GetAsync(Unit1, Arg.Any<CancellationToken>())
+            .Returns(new UnitConnectorBinding(ConnectorAId, JsonSerializer.SerializeToElement(new { })));
+        _bindingStore.GetAsync(ParentUnit, Arg.Any<CancellationToken>())
+            .Returns(new UnitConnectorBinding(ConnectorBId, JsonSerializer.SerializeToElement(new { })));
+        _hierarchyResolver.GetParentsAsync(
+                Arg.Is<Address>(a => a.Id == Unit1), Arg.Any<CancellationToken>())
+            .Returns([new Address(Address.UnitScheme, ParentUnit)]);
+        _hierarchyResolver.GetParentsAsync(
+                Arg.Is<Address>(a => a.Id == ParentUnit), Arg.Any<CancellationToken>())
+            .Returns([]);
+
+        var contribA = new RecordingContributor(ConnectorAId, "connector-a",
+            envVars: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["SPRING_CONNECTOR_CONNECTOR_A_TOKEN"] = "from-a",
+            },
+            files: new Dictionary<string, string>(StringComparer.Ordinal));
+        var contribB = new RecordingContributor(ConnectorBId, "connector-b",
+            envVars: new Dictionary<string, string>(StringComparer.Ordinal),
+            files: new Dictionary<string, string>(StringComparer.Ordinal),
+            aliasVars: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["SPRING_CONNECTOR_CONNECTOR_A_TOKEN"] = "from-b",
+            });
+
+        var resolver = BuildResolver(
+            connectorTypes:
+            [
+                new FakeConnectorType(ConnectorAId, "connector-a"),
+                new FakeConnectorType(ConnectorBId, "connector-b"),
+            ],
+            contributors: [contribA, contribB]);
+
+        var ex = await Should.ThrowAsync<SpringException>(async () =>
+            await resolver.ResolveAsync(
+                new Address(Address.UnitScheme, Unit1), TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("SPRING_CONNECTOR_CONNECTOR_A_TOKEN");
+    }
+
     [Fact]
     public async Task ResolveAsync_NonAgentNonUnitScheme_ReturnsEmpty()
     {
@@ -330,10 +414,13 @@ public class ConnectorRuntimeContextResolverTests
     {
         var services = new ServiceCollection();
         services.AddSingleton(_tenantContext);
-        return new ConnectorRuntimeContextResolver(
+        var walker = new ConnectorBindingWalker(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             _bindingStore,
             _hierarchyResolver,
+            NullLogger<ConnectorBindingWalker>.Instance);
+        return new ConnectorRuntimeContextResolver(
+            walker,
             _tenantContext,
             connectorTypes,
             contributors,
@@ -344,7 +431,8 @@ public class ConnectorRuntimeContextResolverTests
         Guid connectorTypeId,
         string slug,
         IReadOnlyDictionary<string, string> envVars,
-        IReadOnlyDictionary<string, string> files) : IConnectorRuntimeContextContributor
+        IReadOnlyDictionary<string, string> files,
+        IReadOnlyDictionary<string, string>? aliasVars = null) : IConnectorRuntimeContextContributor
     {
         // ReSharper disable once UnusedMember.Local — kept for readability.
         internal string Slug => slug;
@@ -358,7 +446,7 @@ public class ConnectorRuntimeContextResolverTests
             CancellationToken cancellationToken = default)
         {
             LastRequest = request;
-            return Task.FromResult(new ConnectorRuntimeContextContribution(envVars, files));
+            return Task.FromResult(new ConnectorRuntimeContextContribution(envVars, files, aliasVars));
         }
     }
 

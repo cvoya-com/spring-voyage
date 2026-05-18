@@ -47,6 +47,7 @@ public class PersistentDispatchIntegrationTests
     private readonly IOrchestrationToolProvider _orchestrationToolProvider = Substitute.For<IOrchestrationToolProvider>();
     private readonly ICallbackTokenIssuer _callbackTokenIssuer = Substitute.For<ICallbackTokenIssuer>();
     private readonly IConnectorRuntimeContextResolver _connectorContext = Substitute.For<IConnectorRuntimeContextResolver>();
+    private readonly IConnectorPromptContextResolver _connectorPromptContext = Substitute.For<IConnectorPromptContextResolver>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
     private readonly PersistentAgentRegistry _persistentRegistry;
@@ -118,6 +119,10 @@ public class PersistentDispatchIntegrationTests
         _connectorContext.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(ConnectorRuntimeContextContribution.Empty);
 
+        // #2442: default to "no connector prompt fragments".
+        _connectorPromptContext.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<string>());
+
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId: AgentId,
@@ -176,6 +181,7 @@ public class PersistentDispatchIntegrationTests
             transportFactory,
             _callbackTokenIssuer,
             _connectorContext,
+            _connectorPromptContext,
             _loggerFactory);
     }
 

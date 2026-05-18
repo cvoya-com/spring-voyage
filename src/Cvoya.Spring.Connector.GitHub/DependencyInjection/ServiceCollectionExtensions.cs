@@ -233,16 +233,21 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<GitHubConnectorType>();
         services.AddSingleton<IConnectorType>(sp => sp.GetRequiredService<GitHubConnectorType>());
 
-        // #2380: per-launch runtime-context contributor. The dispatcher
-        // invokes every registered IConnectorRuntimeContextContributor for
-        // each connector binding applicable to a launch subject; this
-        // implementation mints a short-lived installation access token
-        // plus the owner / repo / reviewer metadata the container's
-        // gh / git tooling needs. TryAddEnumerable so a cloud overlay
-        // can pre-register a tenant-aware variant without displacing the
-        // OSS default.
+        // #2380 / #2442: per-launch runtime-context AND prompt-context
+        // contributor. The single GitHubConnectorRuntimeContextContributor
+        // class implements both seams so the runtime env-vars and the
+        // platform-layer markdown fragment stay in lockstep. The
+        // dispatcher resolves both seams on every launch; the runtime
+        // contributor mints credentials and stamps env-vars + a
+        // binding.json file into the container, while the prompt
+        // contributor returns the markdown fragment that tells the agent
+        // those env-vars exist. TryAddEnumerable on both abstractions
+        // so a cloud overlay can pre-register tenant-aware variants
+        // without displacing the OSS defaults.
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IConnectorRuntimeContextContributor, GitHubConnectorRuntimeContextContributor>());
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IConnectorPromptContextContributor, GitHubConnectorRuntimeContextContributor>());
 
         // Label-roundtrip subscriber (#492): observes routed delegate
         // orchestration decisions and applies the binding's AddOnAssign /
