@@ -42,21 +42,25 @@ public static class UnitCommand
     };
 
     /// <summary>
-    /// Unified member-list row emitted by <c>unit members list</c> (#352, #1028, #1060).
-    /// Field names now mirror the API's <c>UnitMembershipResponse</c> wire shape
+    /// Unified member-list row emitted by <c>unit members list</c> (#352, #1028, #1060, #2438).
+    /// Field names mirror the API's <c>UnitMembershipResponse</c> wire shape
     /// (<c>unitId</c>, <c>agentAddress</c>, <c>member</c>, plus <c>createdAt</c> /
     /// <c>updatedAt</c> / <c>isPrimary</c>) so scripts consuming <c>GET /memberships</c>,
     /// the <c>members add</c> response, and <c>members list --output json</c> can
     /// share one jq expression. Agent-scheme rows carry per-membership config
     /// overrides; unit-scheme rows leave the agent-only fields null because
     /// sub-unit memberships have no per-child config today (deferred to #217) —
-    /// their member identity is carried in <c>subUnitId</c> instead. The
-    /// explicit <c>Scheme</c> column lets scripts filter with
-    /// <c>jq '.[] | select(.scheme == "unit")'</c>; the unified <c>Member</c>
+    /// their member identity is carried in <c>subUnitId</c> instead. Human-scheme
+    /// rows (#2438) come from the orthogonal team-role table
+    /// (<c>unit_memberships_humans</c>, ADR-0044 § 3) and populate
+    /// <c>humanId</c> / <c>role</c> / <c>expertise</c> / <c>notifications</c> /
+    /// <c>membershipId</c> while leaving every agent-only field null. The
+    /// explicit <c>Scheme</c> column is the discriminator — scripts filter with
+    /// <c>jq '.[] | select(.scheme == "human")'</c>; the unified <c>Member</c>
     /// column carries the scheme-prefixed canonical address
-    /// (<c>agent://{path}</c> or <c>unit://{path}</c>) so scripts that just
-    /// want "the address of this member" don't have to coalesce
-    /// <c>agentAddress</c> with <c>subUnitId</c> per row.
+    /// (<c>agent://{path}</c>, <c>unit://{path}</c>, <c>human://{humanId}</c>) so
+    /// scripts that just want "the address of this member" don't have to coalesce
+    /// per row.
     /// </summary>
     private sealed record MemberListRow(
         string Scheme,
@@ -70,21 +74,32 @@ public static class UnitCommand
         string? ExecutionMode,
         DateTimeOffset? CreatedAt,
         DateTimeOffset? UpdatedAt,
-        bool? IsPrimary);
+        bool? IsPrimary,
+        // #2438 human-scheme rows. Sparse — populated for `scheme == "human"`
+        // only; existing agent / sub-unit consumers see null on these fields.
+        string? HumanId,
+        string? Role,
+        IReadOnlyList<string>? Expertise,
+        IReadOnlyList<string>? Notifications,
+        string? MembershipId);
 
     // Table columns preserve the pre-#1028 "scheme / member / unit" human-readable
     // layout so terminal output stays stable; the `member` table cell shows the
-    // bare slug (agent or sub-unit) for readability while the JSON `member`
-    // field carries the scheme-prefixed canonical address (#1060).
+    // bare slug (agent / sub-unit / human-id) for readability while the JSON
+    // `member` field carries the scheme-prefixed canonical address (#1060).
+    // The `role` + `expertise` columns (#2438) are sparse — populated only on
+    // human-scheme rows; agent / sub-unit rows render them blank.
     private static readonly OutputFormatter.Column<MemberListRow>[] MemberListColumns =
     {
         new("scheme", r => r.Scheme),
-        new("member", r => r.AgentAddress ?? r.SubUnitId),
+        new("member", r => r.AgentAddress ?? r.SubUnitId ?? r.HumanId),
         new("unit", r => r.UnitId),
         new("model", r => r.Model),
         new("specialty", r => r.Specialty),
         new("enabled", r => r.Enabled?.ToString().ToLowerInvariant()),
         new("executionMode", r => r.ExecutionMode),
+        new("role", r => r.Role),
+        new("expertise", r => r.Expertise is { Count: > 0 } x ? string.Join(",", x) : null),
     };
 
     // #1060: scheme-prefixed canonical address used by the JSON `member`
@@ -1365,7 +1380,9 @@ public static class UnitCommand
 
     private static Command CreateMembersCommand(Option<string> outputOption)
     {
-        var membersCommand = new Command("members", "Manage unit memberships (agents assigned to this unit)");
+        var membersCommand = new Command(
+            "members",
+            "Manage unit memberships (agents, sub-units, and team-role humans assigned to this unit).");
 
         membersCommand.Subcommands.Add(CreateMembersListCommand(outputOption));
         membersCommand.Subcommands.Add(CreateMembersAddCommand(outputOption));
@@ -1384,7 +1401,10 @@ public static class UnitCommand
         var unitArg = new Argument<string>("unit") { Description = "The unit identifier" };
         var command = new Command(
             "list",
-            "List every member of this unit (agents AND sub-units), with per-membership config overrides for agent-scheme rows.");
+            "List every member of this unit — agents, sub-units, and team-role humans — in one table. "
+                + "Agent rows carry per-membership config overrides (model / specialty / enabled / executionMode); "
+                + "human rows carry role / expertise (ADR-0044 § 3). The `scheme` column is the discriminator: "
+                + "`agent`, `unit`, or `human`. For a humans-only view see `spring unit members humans list`.");
         command.Arguments.Add(unitArg);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
@@ -1405,23 +1425,32 @@ public static class UnitCommand
                 return;
             }
 
-            // Two sources — unified here because neither alone gives the full
+            // Three sources — unified here because none alone gives the full
             // picture today:
             //  - `GET /units/{id}/members` returns every member (agents AND
             //    sub-units) from the unit actor's member list.
             //  - `GET /units/{id}/memberships` holds only agent-scheme rows
             //    with per-membership config overrides.
+            //  - `GET /units/{id}/members/humans` (#2438) returns the
+            //    team-role rows from the orthogonal unit_memberships_humans
+            //    table (ADR-0044 § 3). Per #2438 we explicitly do NOT change
+            //    `/units/{id}/members` to fold humans server-side; the CLI
+            //    stitches them client-side so the existing /members wire
+            //    shape stays unchanged for older clients.
             //
-            // We join them so callers see both kinds in one command. The
+            // We join them so callers see all three kinds in one command. The
             // `scheme` column lets scripts filter (`jq '.[] | select(.scheme
-            // == "unit")'`) and the table output clearly distinguishes the
-            // two kinds even at a glance.
+            // == "human")'`) and the table output distinguishes the kinds at
+            // a glance via the new `role` / `expertise` columns (sparse —
+            // populated for human-scheme rows only).
             var membersTask = client.ListUnitMembersAsync(unitId, ct);
             var membershipsTask = client.ListUnitMembershipsAsync(unitId, ct);
-            await Task.WhenAll(membersTask, membershipsTask);
+            var humansTask = client.ListUnitHumanMembersAsync(unitId, ct);
+            await Task.WhenAll(membersTask, membershipsTask, humansTask);
 
             var members = membersTask.Result;
             var memberships = membershipsTask.Result;
+            var humans = humansTask.Result;
 
             // Index agent-scheme overrides by address so we can enrich the
             // authoritative member list with per-membership config that lives
@@ -1457,7 +1486,12 @@ public static class UnitCommand
                         ExecutionMode: m.ExecutionMode?.AgentExecutionMode?.ToString(),
                         CreatedAt: m.CreatedAt,
                         UpdatedAt: m.UpdatedAt,
-                        IsPrimary: m.IsPrimary));
+                        IsPrimary: m.IsPrimary,
+                        HumanId: null,
+                        Role: null,
+                        Expertise: null,
+                        Notifications: null,
+                        MembershipId: null));
                     seenAgents.Add(path);
                 }
                 else
@@ -1475,7 +1509,12 @@ public static class UnitCommand
                         ExecutionMode: null,
                         CreatedAt: null,
                         UpdatedAt: null,
-                        IsPrimary: null));
+                        IsPrimary: null,
+                        HumanId: null,
+                        Role: null,
+                        Expertise: null,
+                        Notifications: null,
+                        MembershipId: null));
                     if (isAgent)
                     {
                         seenAgents.Add(path);
@@ -1505,7 +1544,45 @@ public static class UnitCommand
                     ExecutionMode: m.ExecutionMode?.AgentExecutionMode?.ToString(),
                     CreatedAt: m.CreatedAt,
                     UpdatedAt: m.UpdatedAt,
-                    IsPrimary: m.IsPrimary));
+                    IsPrimary: m.IsPrimary,
+                    HumanId: null,
+                    Role: null,
+                    Expertise: null,
+                    Notifications: null,
+                    MembershipId: null));
+            }
+
+            // #2438 fold humans into the unified list. The team-role table is
+            // disjoint from the agent / sub-unit membership graph: ADR-0044 § 3
+            // splits "who is on the team and in what role" from "who can edit
+            // this unit". Hitting the dedicated /members/humans endpoint keeps
+            // /members oblivious to humans on the API side (per the issue's
+            // out-of-scope note) while CLI / UI parity still wins.
+            foreach (var h in humans)
+            {
+                var humanIdHex = h.HumanId is { } hid ? hid.ToString("N") : null;
+                rows.Add(new MemberListRow(
+                    Scheme: "human",
+                    UnitId: unitId,
+                    AgentAddress: null,
+                    SubUnitId: null,
+                    // Human rows have no /members entry, so the canonical
+                    // address is synthesized here. Mirrors the agent / unit
+                    // BuildMemberUri convention so a downstream `jq` over
+                    // `.member` keeps a single shape.
+                    Member: humanIdHex is null ? null : BuildMemberUri("human", humanIdHex),
+                    Model: null,
+                    Specialty: null,
+                    Enabled: null,
+                    ExecutionMode: null,
+                    CreatedAt: null,
+                    UpdatedAt: null,
+                    IsPrimary: null,
+                    HumanId: humanIdHex,
+                    Role: h.Role,
+                    Expertise: h.Expertise,
+                    Notifications: h.Notifications,
+                    MembershipId: h.MembershipId is { } mid ? mid.ToString("N") : null));
             }
 
             Console.WriteLine(output == "json"
