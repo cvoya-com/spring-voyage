@@ -172,8 +172,14 @@ execution:
   # PM instances stay warm across triage cycles; explicit so the manifest
   # is authoritative rather than relying on the dispatcher's hard default.
   hosting: persistent
-requires:
-  - connector: github
+# No `requires: [{ connector: github }]` here on purpose. Webhook
+# delivery matches a single binding (per (installation_id, owner, repo))
+# and the orchestration role belongs to the umbrella unit; sub-units act
+# only on work the umbrella delegates. Direct + inherited bindings are
+# walked up the hierarchy by ConnectorBindingWalker (#2380), so this
+# unit's container still receives $GITHUB_TOKEN and the other GitHub
+# env vars from the umbrella's binding without binding the connector
+# locally.
 policies:
   communication: through-unit
   work_assignment: capability-match

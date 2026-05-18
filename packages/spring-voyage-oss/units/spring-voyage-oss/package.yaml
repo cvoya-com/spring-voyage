@@ -48,6 +48,12 @@ members:
       roles: [overall-lead]
       expertise: [triage, code-review, architecture, design, dotnet, web, escalation]
       notifications: ["escalation", "completion"]
+# The umbrella holds the SOLE GitHub connector binding for this package.
+# Webhooks are matched against bindings by (installation_id, owner, repo);
+# duplicating the requirement on sub-units would yield non-deterministic
+# delivery (first match wins). Sub-units inherit $GITHUB_TOKEN and the
+# other GitHub env vars through the platform's binding-walk (closest
+# binding in the parent chain wins, #2380).
 requires:
   - connector: github
 policies:
