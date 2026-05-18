@@ -190,6 +190,54 @@ describe("AgentCard", () => {
     expect(onOpenTab).toHaveBeenCalledWith("ada", "Messages");
   });
 
+  // #2464: primary-click intercept. The overlay Link and the footer
+  // "Open" Link both fire `onSelect(agent.name)` instead of navigating
+  // when the prop is provided so the Explorer's selection bridge can
+  // dispatch in-place — the legacy `<Link>` path triggers an App Router
+  // RSC navigation that pins the visible state until the transition
+  // settles, eating the first click and leaving the card "highlighted
+  // but not navigated".
+  it("calls onSelect on primary click and prevents the Link navigation when provided", () => {
+    const onSelect = vi.fn();
+    render(
+      <AgentCard
+        agent={{
+          name: "ada",
+          displayName: "Ada",
+          role: null,
+          registeredAt: "2026-04-01T00:00:00Z",
+        }}
+        onSelect={onSelect}
+      />,
+    );
+
+    // Overlay link → onSelect, default suppressed.
+    fireEvent.click(screen.getByTestId("agent-card-link-ada"));
+    expect(onSelect).toHaveBeenCalledWith("ada");
+
+    // Footer "Open" link → same behaviour.
+    onSelect.mockClear();
+    fireEvent.click(screen.getByTestId("agent-open-ada"));
+    expect(onSelect).toHaveBeenCalledWith("ada");
+  });
+
+  it("falls through to Link navigation when onSelect is omitted", () => {
+    render(
+      <AgentCard
+        agent={{
+          name: "ada",
+          displayName: "Ada",
+          role: null,
+          registeredAt: "2026-04-01T00:00:00Z",
+        }}
+      />,
+    );
+    // No onClick on the Link surface means the click bubbles to the
+    // anchor's default href — the dashboard/agents-list pattern.
+    const link = screen.getByTestId("agent-card-link-ada");
+    expect(link.getAttribute("href")).toBe("/units?node=ada&tab=Overview");
+  });
+
   it("keeps the legacy cross-links as fallback when onOpenTab is omitted", () => {
     render(
       <AgentCard

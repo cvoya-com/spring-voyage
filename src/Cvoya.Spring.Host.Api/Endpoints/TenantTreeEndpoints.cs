@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Host.Api.Models;
 
 using global::Dapr.Actors;
@@ -17,6 +18,7 @@ using global::Dapr.Actors.Client;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -65,9 +67,11 @@ public static class TenantTreeEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitMembershipRepository memberships,
         [FromServices] IUnitSubunitMembershipRepository subunitMemberships,
+        [FromServices] IUnitHumanMembershipStore humanMembershipStore,
         [FromServices] ITenantContext tenantContext,
         [FromServices] ITenantRegistry tenantRegistry,
         [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] SpringDbContext db,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -193,6 +197,37 @@ public static class TenantTreeEndpoints
                 await TryGetAgentLifecycleStatusAsync(actorProxyFactory, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(agentEntry.ActorId), logger, agentPath, cancellationToken);
         }
 
+        // #2466: per-unit human team-role membership rows + a single
+        // batch load of every human's display-name row. Tree humans are
+        // rendered as a third child kind on every unit they sit on, so
+        // the operator can see "who is on this team?" from the left rail.
+        // A given human can appear under multiple units when they are a
+        // member of more than one; that's expected and not deduplicated.
+        // Membership lookup is per-unit (no `ListAllAsync()` on the
+        // membership store), so we walk units in parallel-friendly order.
+        // The display-name lookup is a single index-bashed query on the
+        // Humans table — tenant query filter scopes it automatically.
+        var humanMembersByUnit = new Dictionary<string, IReadOnlyList<UnitHumanMembership>>(StringComparer.Ordinal);
+        var allHumanIds = new HashSet<Guid>();
+        foreach (var unit in unitEntries)
+        {
+            var rows = await humanMembershipStore.ListByUnitAsync(unit.ActorId, cancellationToken);
+            humanMembersByUnit[unit.Address.Path] = rows;
+            foreach (var row in rows) allHumanIds.Add(row.HumanId);
+        }
+        var humansById = allHumanIds.Count == 0
+            ? new Dictionary<Guid, (string DisplayName, string Username)>()
+            : await db.Humans
+                .AsNoTracking()
+                .Where(h => allHumanIds.Contains(h.Id))
+                .Select(h => new { h.Id, h.Username, h.DisplayName })
+                .ToDictionaryAsync(
+                    h => h.Id,
+                    h => (
+                        DisplayName: string.IsNullOrWhiteSpace(h.DisplayName) ? h.Username : h.DisplayName,
+                        h.Username),
+                    cancellationToken);
+
         // Walk the tree top-down from the units that render under the
         // tenant. Per #2052 a unit is rendered under the tenant when it
         // either has an explicit tenant-root edge OR is orphaned (no
@@ -214,6 +249,8 @@ public static class TenantTreeEndpoints
                 agentEntries,
                 primaryByAgent,
                 agentSlugByGuid,
+                humanMembersByUnit,
+                humansById,
                 visited,
                 logger))
             .ToList();
@@ -244,6 +281,8 @@ public static class TenantTreeEndpoints
         IReadOnlyDictionary<string, DirectoryEntry> agentEntries,
         IReadOnlyDictionary<string, string> primaryByAgent,
         IReadOnlyDictionary<Guid, string> agentSlugByGuid,
+        IReadOnlyDictionary<string, IReadOnlyList<UnitHumanMembership>> humanMembersByUnit,
+        IReadOnlyDictionary<Guid, (string DisplayName, string Username)> humansById,
         HashSet<string> visited,
         ILogger logger)
     {
@@ -303,14 +342,46 @@ public static class TenantTreeEndpoints
                     agentEntries,
                     primaryByAgent,
                     agentSlugByGuid,
+                    humanMembersByUnit,
+                    humansById,
                     visited,
                     logger))
                 .ToList()
             : new List<TenantTreeNode>();
 
-        var allChildren = new List<TenantTreeNode>(childUnitNodes.Count + agentNodes.Count);
+        // #2466: human team-role members render as a third child kind on
+        // every unit they sit on. ADR-0046 §7 guarantees at most one row
+        // per `(unit, human)` pair, so a single human appears at most
+        // once under any one unit — React keys stay unique within each
+        // unit's child list. The same human can appear under multiple
+        // units (OSS single-operator case is the obvious example); each
+        // instance is its own node and clicking any of them lands on the
+        // same `/humans/<guid>` page via the Explorer's existing
+        // `human:` redirect. Skipping membership rows whose human has no
+        // Humans row covers the race window during onboarding; the next
+        // tree fetch picks them up.
+        var humanRows = humanMembersByUnit.TryGetValue(unitPath, out var humans)
+            ? humans
+            : Array.Empty<UnitHumanMembership>();
+        var humanNodes = humanRows
+            .Where(h => humansById.ContainsKey(h.HumanId))
+            .Select(h =>
+            {
+                var (humanDisplayName, _) = humansById[h.HumanId];
+                var humanGuid = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(h.HumanId);
+                return new TenantTreeNode(
+                    Id: $"human://{humanGuid}",
+                    Name: humanDisplayName,
+                    Kind: "Human",
+                    Status: "running",
+                    DefinitionId: h.HumanId);
+            })
+            .ToList();
+
+        var allChildren = new List<TenantTreeNode>(childUnitNodes.Count + agentNodes.Count + humanNodes.Count);
         allChildren.AddRange(childUnitNodes);
         allChildren.AddRange(agentNodes);
+        allChildren.AddRange(humanNodes);
 
         return new TenantTreeNode(
             Id: unitPath,

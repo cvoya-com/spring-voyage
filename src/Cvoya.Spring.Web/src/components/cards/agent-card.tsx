@@ -95,6 +95,17 @@ interface AgentCardProps {
    * keep working unchanged.
    */
   onOpenTab?: (agentName: string, tab: CardTabName) => void;
+  /**
+   * When provided, the card's primary click (overlay + "Open" link) calls
+   * this instead of navigating via Next.js `<Link>`. Use inside the
+   * Explorer (#2464) so clicking an agent member card dispatches selection
+   * through the in-memory bridge rather than triggering an App Router
+   * same-route RSC navigation — the navigation kicks off a React
+   * transition that pins the visible state until it settles, so the
+   * first click "highlights but does not navigate". Mirrors the
+   * matching `onSelect` opt-in on `<UnitCard>` from PR #2390.
+   */
+  onSelect?: (agentName: string) => void;
   className?: string;
 }
 
@@ -111,6 +122,7 @@ export function AgentCard({
   lastActivity,
   actions,
   onOpenTab,
+  onSelect,
   className,
 }: AgentCardProps) {
   // Post-`DEL-agents` (#870): the legacy `/agents/<name>` detail route
@@ -162,6 +174,7 @@ export function AgentCard({
           href={href}
           aria-label={`Open agent ${agent.displayName}`}
           data-testid={`agent-card-link-${agent.name}`}
+          onClick={onSelect ? (e) => { e.preventDefault(); onSelect(agent.name); } : undefined}
           className="flex items-start justify-between gap-2 rounded-sm focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
         >
           <div className="min-w-0 flex-1">
@@ -274,6 +287,7 @@ export function AgentCard({
             )}
             <Link
               href={href}
+              onClick={onSelect ? (e) => { e.preventDefault(); onSelect(agent.name); } : undefined}
               className="pointer-events-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
               data-testid={`agent-open-${agent.name}`}
             >

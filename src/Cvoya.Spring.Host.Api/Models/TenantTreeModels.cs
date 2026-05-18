@@ -20,9 +20,12 @@ public record TenantTreeResponse(TenantTreeNode Tree);
 /// <param name="Id">Stable node identifier — slug for units/tenants, address for agents.</param>
 /// <param name="Name">Human-readable name rendered in the tree row + detail header.</param>
 /// <param name="Kind">
-/// One of <c>"Tenant"</c>, <c>"Unit"</c>, <c>"Agent"</c>. The Tenant node
-/// is synthesized server-side — it is not persisted anywhere; the
-/// Explorer treats it as a navigation root only.
+/// One of <c>"Tenant"</c>, <c>"Unit"</c>, <c>"Agent"</c>, <c>"Human"</c>.
+/// The Tenant node is synthesized server-side — it is not persisted
+/// anywhere; the Explorer treats it as a navigation root only. Human
+/// nodes (#2466) render under each unit they are a team-role member of;
+/// clicking one redirects to the dedicated <c>/humans/&lt;guid&gt;</c>
+/// page via the Explorer's <c>human:</c> selection handler.
 /// </param>
 /// <param name="Status">Lifecycle status string (e.g. <c>"running"</c>, <c>"paused"</c>).</param>
 /// <param name="Desc">Optional one-line description.</param>
