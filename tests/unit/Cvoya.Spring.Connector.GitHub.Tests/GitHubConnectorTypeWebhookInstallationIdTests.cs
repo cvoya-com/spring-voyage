@@ -171,21 +171,25 @@ public class GitHubConnectorTypeWebhookInstallationIdTests
             Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task OnUnitStoppingAsync_RuntimeRowMissingInstallationId_Throws()
+    [Theory]
+    [InlineData("""{"hookId": 1234}""", "missing-field")]
+    [InlineData("""{"hookId": 1234, "installationId": null}""", "explicit-null")]
+    public async Task OnUnitStoppingAsync_CorruptRuntimeRow_Throws(string runtimeJson, string label)
     {
         // v0.1 has no released deployments — there are no pre-#2429 runtime
         // rows in the wild. A row with null/missing `installationId` is
         // therefore corrupt: fail loudly so operators can pinpoint and
         // repair it, rather than silently fall back to the binding's current
         // AppInstallationId (which may target a different installation that
-        // cannot delete the hook).
+        // cannot delete the hook). Both shapes — missing field and explicit
+        // null — surface the same exception.
         var configStore = new InMemoryConfigStore();
         var runtimeStore = new InMemoryRuntimeStore();
         var sut = CreateSut(configStore: configStore, runtimeStore: runtimeStore);
+        var unitId = $"unit-corrupt-{label}";
 
         await configStore.SetAsync(
-            "unit-corrupt",
+            unitId,
             GitHubConnectorType.GitHubTypeId,
             SerializeConfig(new UnitGitHubConfig(
                 Owner: "acme",
@@ -193,56 +197,20 @@ public class GitHubConnectorTypeWebhookInstallationIdTests
                 AppInstallationId: 7777)),
             TestContext.Current.CancellationToken);
 
-        // Write a corrupt runtime row directly — no installationId field.
-        using var doc = JsonDocument.Parse("""{"hookId": 1234}""");
+        using var doc = JsonDocument.Parse(runtimeJson);
         await runtimeStore.SetAsync(
-            "unit-corrupt",
+            unitId,
             doc.RootElement.Clone(),
             TestContext.Current.CancellationToken);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(
-            () => sut.OnUnitStoppingAsync("unit-corrupt", TestContext.Current.CancellationToken));
+            () => sut.OnUnitStoppingAsync(unitId, TestContext.Current.CancellationToken));
 
-        ex.Message.ShouldContain("unit-corrupt");
+        ex.Message.ShouldContain(unitId);
         ex.Message.ShouldContain("acme/platform");
         ex.Message.ShouldContain("1234");
 
         // Teardown must not have been attempted on a corrupt row.
-        await _webhookRegistrar.DidNotReceive().UnregisterAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long>(),
-            Arg.Any<long?>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task OnUnitStoppingAsync_RuntimeRowExplicitNullInstallationId_Throws()
-    {
-        // Same rule as the missing-field case — an explicit null is just as
-        // unusable as a missing field, so both surface the same exception.
-        // (The current register path never writes null, so this can only
-        // happen if a row is hand-edited or a future bug regresses the
-        // register path.)
-        var configStore = new InMemoryConfigStore();
-        var runtimeStore = new InMemoryRuntimeStore();
-        var sut = CreateSut(configStore: configStore, runtimeStore: runtimeStore);
-
-        await configStore.SetAsync(
-            "unit-explicit-null",
-            GitHubConnectorType.GitHubTypeId,
-            SerializeConfig(new UnitGitHubConfig(
-                Owner: "acme",
-                Repo: "platform",
-                AppInstallationId: 7777)),
-            TestContext.Current.CancellationToken);
-
-        using var doc = JsonDocument.Parse("""{"hookId": 4321, "installationId": null}""");
-        await runtimeStore.SetAsync(
-            "unit-explicit-null",
-            doc.RootElement.Clone(),
-            TestContext.Current.CancellationToken);
-
-        await Should.ThrowAsync<InvalidOperationException>(
-            () => sut.OnUnitStoppingAsync("unit-explicit-null", TestContext.Current.CancellationToken));
-
         await _webhookRegistrar.DidNotReceive().UnregisterAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long>(),
             Arg.Any<long?>(), Arg.Any<CancellationToken>());
