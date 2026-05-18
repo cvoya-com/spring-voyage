@@ -22,7 +22,12 @@ The portal is **shadcn-flavoured** (class-variance-authority variants, `cn()` he
 
 Canonical surfaces:
 
-- **`/units`** — the Explorer. The single place to browse units, agents, and tenant-level rollups. Selection and active tab live in the URL.
+- **`/units`** — the Explorer host. The single place to browse units, agents, and tenant-level rollups. Navigates entity deep-links via the canonical path form (see below). The nav item is now labelled "Explorer".
+- **`/explorer/units/<id>`** — canonical path-based entity URL for units/agents (#2473). `<id>` is a no-dash UUID. Tab state stays in `?tab=<Tab>`. Legacy `?node=<id>` URLs on `/units` redirect here.
+- **`/explorer/humans/<id>`** — redirects to `/humans/<id>`.
+- **`/explorer/agents/<id>`** — redirects to `/explorer/units/<id>` (agents live in the tenant tree).
+- **`/explorer/tenants/<id>`** — stub; redirects to `/units` pending a dedicated tenant detail view.
+- **`/humans/<id>`** — human entity detail. Accepts both dashed and no-dash UUID forms.
 - **`/settings`** — a dedicated hub route. Tenant-panel cards plus tile links into the catalog/admin subpages.
 - **`/inbox`**, **`/discovery`**, **`/analytics`** and the Control surfaces (`/connectors`, `/policies`, `/budgets`) stay top-level. See § 3.
 
@@ -214,7 +219,7 @@ The `NavSection` union (`src/lib/extensions/types.ts`) declares the four groups 
 
 The OSS manifest lives in `src/lib/extensions/defaults.tsx` as `defaultRoutes`. Every entry carries `{ path, label, icon, navSection, orderHint?, permission?, keywords?, description? }`. Hosted extensions layer in additional entries through `registerExtension({ routes })` without patching OSS files — the sidebar reads the merged registry.
 
-Palette actions (`defaultActions`) live next to the route manifest and use the same type shape, plus an optional `explorerNodeId`. When that field is set, activating the entry dispatches into a mounted `<UnitExplorer>` via the `<ExplorerSelectionProvider>` bridge; when no Explorer is mounted it falls through to `router.push("/units?node={id}")` so the Explorer picks the node up on first render.
+Palette actions (`defaultActions`) live next to the route manifest and use the same type shape, plus an optional `explorerNodeId`. When that field is set, activating the entry dispatches into a mounted `<UnitExplorer>` via the `<ExplorerSelectionProvider>` bridge; when no Explorer is mounted it falls through to `router.push("/explorer/units/<id>")` so the Explorer picks the node up on first render (#2473).
 
 ---
 
@@ -313,7 +318,7 @@ Budget for v2.0: **≤500 nodes per tenant** (units + agent membership rows + hu
 The command palette routes node-targeted entries as follows:
 
 - If `hasListener()` returns true (an Explorer is mounted on the current route), the palette calls `dispatchSelect(id)` — the Explorer snaps to the node without a navigation.
-- Otherwise it pushes `/units?node=<id>` and lets the Explorer read the URL on first render.
+- Otherwise it pushes `/explorer/units/<id>` (path-based, no dashes; #2473) and lets the Explorer read the URL on first render.
 
 Ref-backed, not React state — the palette reads the current listener synchronously at dispatch time without triggering re-renders on Explorer mount / unmount.
 
@@ -529,7 +534,7 @@ Every card in this directory composes the base `<Card>` chrome. Whole-card click
 - **`<AgentCard>`** — Same chrome; tab set is `AGENT_CARD_TABS = [Messages, Activity, Memory, Skills, Traces, Clones, Config]`. `actions` prop appends caller-supplied controls (edit, remove, mute) alongside the primary "Open" link. Carries the same `onSelect(agent.name)` opt-in as `<UnitCard>` (#2464). Members-tab usages set it so the click dispatches through `<ExplorerSelectionProvider>` instead of triggering an App Router same-route RSC navigation — the navigation kicks off a React transition that pins the visible state until it settles, eating the first click and leaving the card "highlighted but not navigated".
 - **`<HumanMemberCard>`** — Used by the Members tab to render `(unit, human)` rows. Display name + multi-valued role chips + expertise / notifications chip lists + inline edit / remove buttons. The card's primary surface is a click-through `<Link>` to `/humans/<guid>`; the edit / remove buttons sit on `relative z-[1]` + `pointer-events-auto` so the navigation overlay does not swallow their clicks.
 - **`<CostSummaryCard>`** — Three `<StatCard>` tiles (Today / 7 d / 30 d) with a sparkline on the 30 d tile by default. Read-only; "Open analytics" cross-links to `/analytics/costs`. Used on the dashboard, the Tenant Budgets tab, and `/budgets`.
-- **`<InboxCard>`** — Inbox icon + summary + `Awaiting you` warning badge on the top row; **monospace `from://` address** on the meta row (cross-linked to `/units?node=<id>` when the scheme is `agent://` or `unit://`; `human://` stays plain mono). Still exported as a primitive but no longer used by the `/inbox` page (see § 12.14 below).
+- **`<InboxCard>`** — Inbox icon + summary + `Awaiting you` warning badge on the top row; **monospace `from://` address** on the meta row (cross-linked to `/explorer/units/<id>` when the scheme is `agent://` or `unit://`; `human://` stays plain mono). Still exported as a primitive but no longer used by the `/inbox` page (see § 12.14 below).
 - **`<ConversationCard>`** — Title + status pill (status variant map: `open` → `default`, `active` → `success`, `waiting-on-human` / `waiting` / `blocked` → `warning`, `completed` → `secondary`, `error` → `destructive`), mono participants list, `timeAgo(lastActivityAt)` outline badge.
 
 ### 12.3 `<CardTabRow>` / `<TabChip>` — `src/components/cards/card-tab-row.tsx`
@@ -631,7 +636,7 @@ Inline form/dialog failures use `<ApiErrorMessage error={err} />`: destructive-p
 
 ### 12.8 Validation panel — `src/components/units/detail/validation-panel.tsx`
 
-Embedded on the Create-unit wizard's Finalize step after the unit is created (mirrors the CLI's `spring unit create --wait` default — the wizard POST /start's the freshly-created unit and waits for a terminal status before redirecting to `/units?node=<name>&tab=Overview`). It only renders when validation is the operator's current concern; the panel mirrors the backend's three observable outcomes (driven by `UnitValidationWorkflow` via `POST /api/v1/units/{name}/revalidate`); it is hidden for `Running` / `Starting` / `Stopping` / `Draft`.
+Embedded on the Create-unit wizard's Finalize step after the unit is created (mirrors the CLI's `spring unit create --wait` default — the wizard POST /start's the freshly-created unit and waits for a terminal status before redirecting to `/explorer/units/<name>?tab=Overview`). It only renders when validation is the operator's current concern; the panel mirrors the backend's three observable outcomes (driven by `UnitValidationWorkflow` via `POST /api/v1/units/{name}/revalidate`); it is hidden for `Running` / `Starting` / `Stopping` / `Draft`.
 
 - **`Validating`** — `<Card>` with a four-step ordered checklist: `PullingImage → VerifyingTool → ValidatingCredential → ResolvingModel`. Each step carries one of three visual states — done (check glyph in an `emerald-500/40` bordered circle, the Success banner palette), active (spinner via `Loader2` with `animate-spin` on a `border-primary/50 bg-primary/10` circle), and future (muted, `border-border bg-muted text-muted-foreground`). The current step also renders an "in progress" label. Progression is driven by `ValidationProgress` SSE events that the panel taps via a filtered `useActivityStream`; the server only persists terminal state to the unit row, so the spinner advances from the stream rather than the query.
 - **`Error`** — a destructive-palette alert block (`rounded-md border border-destructive/50 bg-destructive/10 px-3 py-3 text-sm text-foreground`, `role="alert"`, `AlertTriangle` in `text-destructive`) with the failed step name, stable error `code`, and friendly operator copy from a per-code map — never the raw C# exception text. `lastValidationRunId` is shown as muted small text for log correlation. Two actions below: **Retry validation** (outline button + `RefreshCw`) and **Edit credential & retry** (outline button + `KeyRound`). Clicking Edit reveals an inline credential editor (`<Input type="password">` + Save / Cancel); Save runs the two-call sequence `createUnitSecret → revalidateUnit` — no combined endpoint, per T-00 topic 6.

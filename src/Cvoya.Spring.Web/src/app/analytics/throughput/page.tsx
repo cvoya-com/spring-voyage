@@ -16,6 +16,8 @@
 
 import { Suspense, useMemo } from "react";
 import Link from "next/link";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { ArrowRight, BarChart3, Gauge } from "lucide-react";
 
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
@@ -214,12 +216,11 @@ function AnalyticsThroughputContent() {
                 renderCell={(entry, col) => {
                   if (col.key === "source") {
                     const parsed = parseSource(entry.source);
+                    // #2473: canonical path-based URL for both units and agents.
                     const href = parsed
-                      ? parsed.scheme === "unit"
-                        ? `/units?node=${encodeURIComponent(parsed.name)}&tab=Overview`
-                        : parsed.scheme === "agent"
-                          ? `/agents/${encodeURIComponent(parsed.name)}`
-                          : null
+                      ? parsed.scheme === "unit" || parsed.scheme === "agent"
+                        ? `/explorer/units/${encodeURIComponent(toExplorerPathSegment(parsed.name))}?tab=Overview`
+                        : null
                       : null;
                     return (
                       <span className="truncate font-mono text-xs">

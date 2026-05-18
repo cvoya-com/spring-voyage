@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import {
   Activity,
   ChevronDown,
@@ -36,9 +38,9 @@ function sourceHref(source: string): string | null {
     case "agent":
     case "unit":
       // The legacy `/agents/[id]` and `/units/[id]` routes were retired
-      // by the v2 Explorer migration (#815); the canonical surface is
-      // the unified `/units?node=<id>` Explorer.
-      return `/units?node=${encodeURIComponent(path)}`;
+      // by the v2 Explorer migration (#815). #2473: canonical surface is
+      // now `/explorer/units/<id>` (no dashes in path segment).
+      return `/explorer/units/${encodeURIComponent(toExplorerPathSegment(path))}`;
     default:
       return null;
   }
@@ -57,7 +59,8 @@ function conversationHref(source: string, correlationId: string): string | null 
   const [, scheme, path] = m;
   const s = scheme.toLowerCase();
   if (s !== "agent" && s !== "unit") return null;
-  return `/units?node=${encodeURIComponent(path)}&tab=Messages&thread=${encodeURIComponent(correlationId)}`;
+  // #2473: canonical path-based URL.
+  return `/explorer/units/${encodeURIComponent(toExplorerPathSegment(path))}?tab=Messages&thread=${encodeURIComponent(correlationId)}`;
 }
 
 const severityVariant: Record<

@@ -33,7 +33,7 @@ describe("AgentCard", () => {
     expect(screen.getByTestId("agent-role-badge")).toHaveTextContent("backend");
     expect(screen.getByTestId("agent-open-ada")).toHaveAttribute(
       "href",
-      "/units?node=ada&tab=Overview",
+      "/explorer/units/ada?tab=Overview",
     );
   });
 
@@ -58,14 +58,20 @@ describe("AgentCard", () => {
 
     expect(screen.getByTestId("agent-parent-unit")).toHaveAttribute(
       "href",
-      "/units?node=engineering",
+      "/explorer/units/engineering",
     );
     expect(
       screen.getByTestId("agent-link-conversations-engineering/ada"),
-    ).toHaveAttribute("href", "/units?node=engineering%2Fada&tab=Messages");
+    ).toHaveAttribute(
+      "href",
+      "/explorer/units/engineering%2Fada?tab=Messages",
+    );
     expect(
       screen.getByTestId("agent-link-cost-engineering/ada"),
-    ).toHaveAttribute("href", "/units?node=engineering%2Fada&tab=Overview");
+    ).toHaveAttribute(
+      "href",
+      "/explorer/units/engineering%2Fada?tab=Overview",
+    );
     expect(screen.getByTestId("agent-execution-mode-badge")).toHaveTextContent(
       "Auto",
     );
@@ -139,7 +145,7 @@ describe("AgentCard", () => {
       />,
     );
     const link = screen.getByTestId("agent-card-link-ada");
-    expect(link).toHaveAttribute("href", "/units?node=ada&tab=Overview");
+    expect(link).toHaveAttribute("href", "/explorer/units/ada?tab=Overview");
     expect(link).toHaveAttribute("aria-label", "Open agent Ada");
     // The full-card overlay is delivered via the ::after pseudo; the
     // stylesheet-level assertion is covered by the axe smoke tests.
@@ -235,7 +241,7 @@ describe("AgentCard", () => {
     // No onClick on the Link surface means the click bubbles to the
     // anchor's default href — the dashboard/agents-list pattern.
     const link = screen.getByTestId("agent-card-link-ada");
-    expect(link.getAttribute("href")).toBe("/units?node=ada&tab=Overview");
+    expect(link.getAttribute("href")).toBe("/explorer/units/ada?tab=Overview");
   });
 
   it("keeps the legacy cross-links as fallback when onOpenTab is omitted", () => {

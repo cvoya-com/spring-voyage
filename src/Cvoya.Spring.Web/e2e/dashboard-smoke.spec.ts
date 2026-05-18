@@ -52,21 +52,19 @@ test.describe("dashboard shell smoke", () => {
     expect(fatal, `unexpected client errors:\n${fatal.join("\n")}`).toEqual([]);
   });
 
-  test("client-side route transition to /units works", async ({ page }) => {
+  test("client-side route transition to the Explorer works", async ({ page }) => {
     await page.goto("/");
 
-    // The sidebar exposes a labelled link for each top-level route.
-    // Use the link's accessible name so this test stays robust to
-    // markup tweaks (icon swaps, layout reshuffles) — it only fails if
-    // the route literally disappears from the nav.
-    await page.getByRole("link", { name: /^units$/i }).first().click();
+    // The Units → Explorer rename (#2473) renamed the nav label from
+    // "Units" to "Explorer"; the underlying path stays `/units`.
+    await page.getByRole("link", { name: /^explorer$/i }).first().click();
 
     // Smoke scope: the URL changed and the shell is still hydrated.
-    // Don't assert on the route's data-bound content — the API is
-    // unreachable in this run, so /units renders skeletons or an empty
-    // state. Hydration of the layout (sidebar nav landmark) is the
-    // deliverable.
-    await expect(page).toHaveURL(/\/units$/);
+    // Don't assert on data-bound content — the API is unreachable in
+    // this run, so the page renders skeletons or empty state. We accept
+    // either `/units` or `/explorer/units/` because the entry point
+    // self-redirects from one to the other when no node is selected.
+    await expect(page).toHaveURL(/\/(units|explorer\/units\/?)$/);
     await expect(page.getByRole("navigation").first()).toBeVisible();
   });
 });

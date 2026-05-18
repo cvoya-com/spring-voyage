@@ -112,14 +112,21 @@ export const defaultRoutes: readonly RouteEntry[] = [
   // equivalent. The cluster bucketing is separate: the sidebar groups
   // by `navSection` before it renders.
   {
+    // #2473: renamed from "Units" to "Explorer"; path stays /units as
+    // that page is still the Explorer host. The new /explorer/units/<id>
+    // path-based URLs are the canonical deep-links; /units remains the
+    // nav entry so the active state covers /units and /explorer/units/*.
     path: "/units",
-    label: "Units",
+    label: "Explorer",
     icon: Network,
     navSection: "orchestrate",
     orderHint: 40,
-    keywords: ["teams", "groups", "agents", "explorer", "spring unit list"],
+    keywords: ["units", "teams", "groups", "agents", "explorer", "spring unit list"],
     description:
       "Canonical Explorer — units, agents, policies, and memory in one tree.",
+    // #2473: mark /explorer/* paths as also belonging to this nav entry
+    // so the sidebar active state lights up when on a deep entity URL.
+    activePatterns: ["/explorer/"],
   },
   {
     path: "/inbox",
@@ -257,7 +264,7 @@ export const defaultActions: readonly PaletteAction[] = [
       "explorer",
     ],
     description:
-      "Open the canonical `/units` Explorer — the single surface for units and agents.",
+      "Open the Explorer — the single surface for units and agents.",
     href: "/units",
   },
   {

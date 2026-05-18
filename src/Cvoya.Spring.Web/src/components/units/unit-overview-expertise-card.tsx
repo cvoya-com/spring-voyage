@@ -14,6 +14,8 @@
 import Link from "next/link";
 import { GraduationCap, Layers } from "lucide-react";
 
+import { toExplorerPathSegment } from "@/lib/explorer-url";
+
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -43,7 +45,7 @@ export function UnitOverviewExpertiseCard({
 
   const own = ownQuery.data ?? [];
   const aggregated = aggregatedQuery.data?.entries ?? [];
-  const manageHref = `/units?node=${encodeURIComponent(unitId)}&tab=Config&subtab=General`;
+  const manageHref = `/explorer/units/${encodeURIComponent(toExplorerPathSegment(unitId))}?tab=Config&subtab=General`;
 
   const loading = ownQuery.isPending || aggregatedQuery.isPending;
   const empty = own.length === 0 && aggregated.length === 0;

@@ -10,6 +10,7 @@ import {
   type ParsedThreadSource,
 } from "@/components/thread/role";
 import type { InboxItem } from "@/lib/api/types";
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { cn, timeAgo } from "@/lib/utils";
 
 /**
@@ -17,16 +18,16 @@ import { cn, timeAgo } from "@/lib/utils";
  * when one exists. Post-v2-IA (DEL-agents #870, DEL-units-id #878) the
  * legacy `/agents/<id>` and `/units/<id>` detail routes are retired;
  * agents and units both surface in the Explorer and deep-link via
- * `/units?node=<id>[&tab=Overview]`. `human://` has no detail page
+ * `/explorer/units/<id>[?tab=Overview]`. `human://` has no detail page
  * today, so the caller renders the address as plain mono text.
  * Mirrors the cross-link rules in DESIGN.md § 7.14.
  */
 function fromHref(parsed: ParsedThreadSource): string | null {
   if (parsed.scheme === "agent") {
-    return `/units?node=${encodeURIComponent(parsed.path)}&tab=Overview`;
+    return `/explorer/units/${encodeURIComponent(toExplorerPathSegment(parsed.path))}?tab=Overview`;
   }
   if (parsed.scheme === "unit") {
-    return `/units?node=${encodeURIComponent(parsed.path)}`;
+    return `/explorer/units/${encodeURIComponent(toExplorerPathSegment(parsed.path))}`;
   }
   return null;
 }

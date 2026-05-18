@@ -197,7 +197,7 @@ describe("ExecutionTab", () => {
     expect(adaRow).toHaveTextContent("Persistent");
     expect(
       within(adaRow).getByRole("link", { name: "Edit hosting for Ada" }),
-    ).toHaveAttribute("href", "/units?node=agent-a&tab=Config");
+    ).toHaveAttribute("href", "/explorer/units/agent-a?tab=Config");
 
     const graceRow = within(card).getByTestId("unit-member-hosting-agent-b");
     expect(graceRow).toHaveTextContent("Grace");

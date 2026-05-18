@@ -337,7 +337,9 @@ function NavLink({
   const active =
     item.path === "/"
       ? pathname === "/"
-      : pathname === item.path || pathname.startsWith(item.path + "/");
+      : pathname === item.path ||
+        pathname.startsWith(item.path + "/") ||
+        (item.activePatterns?.some((p) => pathname.startsWith(p)) ?? false);
 
   const Icon = item.icon;
 

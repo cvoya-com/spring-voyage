@@ -52,7 +52,7 @@ describe("ConversationCard", () => {
     );
     expect(screen.getByTestId("conversation-open-conv-1")).toHaveAttribute(
       "href",
-      "/units?node=ada&tab=Messages&thread=conv-1",
+      "/explorer/units/ada?tab=Messages&thread=conv-1",
     );
   });
 

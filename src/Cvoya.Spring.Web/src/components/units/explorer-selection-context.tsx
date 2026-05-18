@@ -21,7 +21,7 @@ import {
  *   - When the palette activates a node entry and an Explorer is
  *     currently mounted under the same shell, `dispatchSelect(id)`
  *     forwards the id to the mounted Explorer's `setSelected`.
- *   - Otherwise the palette navigates to `/units?node=<id>`; the
+ *   - Otherwise the palette navigates to `/explorer/units/<id>` (#2473); the
  *     Explorer reads the URL on first render so the post-navigation
  *     selection is already correct.
  *

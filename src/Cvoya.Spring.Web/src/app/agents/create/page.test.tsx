@@ -256,7 +256,7 @@ describe("CreateAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
 
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/units?node=alpha&tab=Members");
+      expect(pushMock).toHaveBeenCalledWith("/explorer/units/alpha?tab=Members");
     });
     expect(sessionStorage.getItem(AGENT_WIZARD_SESSION_KEY)).toBeNull();
   });
@@ -377,7 +377,7 @@ describe("CreateAgentPage", () => {
     });
 
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/units?node=alpha&tab=Members");
+      expect(pushMock).toHaveBeenCalledWith("/explorer/units/alpha?tab=Members");
     });
   });
 
@@ -438,7 +438,7 @@ describe("CreateAgentPage", () => {
 
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith(
-        "/units?node=alpha&tab=Members",
+        "/explorer/units/alpha?tab=Members",
       );
     });
   });

@@ -23,6 +23,8 @@ import { useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { GraduationCap, Layers } from "lucide-react";
 
+import { toExplorerPathSegment } from "@/lib/explorer-url";
+
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -236,12 +238,8 @@ function buildEntityHref(
   address: { scheme: string; path: string } | null | undefined,
 ): string | null {
   if (!address) return null;
-  if (address.scheme === "agent") {
-    // `/agents/<id>` is retired; unit Explorer is the canonical surface.
-    return `/units?node=${encodeURIComponent(address.path)}`;
-  }
-  if (address.scheme === "unit") {
-    return `/units?node=${encodeURIComponent(address.path)}`;
+  if (address.scheme === "agent" || address.scheme === "unit") {
+    return `/explorer/units/${encodeURIComponent(toExplorerPathSegment(address.path))}`;
   }
   return null;
 }

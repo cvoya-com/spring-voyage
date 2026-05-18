@@ -138,12 +138,12 @@ describe("/discovery", () => {
     const agentLink = screen.getByRole("link", { name: /agent:\/\/ada/i });
     expect(agentLink).toHaveAttribute(
       "href",
-      "/units?node=ada&tab=Overview",
+      "/explorer/units/ada?tab=Overview",
     );
     const unitLink = screen.getByRole("link", {
       name: /unit:\/\/engineering/i,
     });
-    expect(unitLink).toHaveAttribute("href", "/units?node=engineering");
+    expect(unitLink).toHaveAttribute("href", "/explorer/units/engineering");
   });
 
   it("submits the text query when the user hits Enter", async () => {

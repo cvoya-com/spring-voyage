@@ -251,7 +251,7 @@ describe("EquippedSkillsTab (#2362)", () => {
     expect(badge.textContent).toContain("Inherited from engineering");
     const link = badge.querySelector("a");
     expect(link?.getAttribute("href")).toBe(
-      "?node=unit-eng-id&tab=Config&subtab=Skills",
+      "/explorer/units/unit-eng-id?tab=Config&subtab=Skills",
     );
 
     // Inherited rows must not surface a Remove button (operator goes

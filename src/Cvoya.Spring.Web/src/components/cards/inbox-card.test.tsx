@@ -50,7 +50,7 @@ describe("InboxCard", () => {
     const link = screen.getByTestId("inbox-from-link-conv-42");
     expect(link).toHaveAttribute(
       "href",
-      "/units?node=engineering-team%2Fada&tab=Overview",
+      "/explorer/units/engineering-team%2Fada?tab=Overview",
     );
   });
 
@@ -61,7 +61,7 @@ describe("InboxCard", () => {
       />,
     );
     const link = screen.getByTestId("inbox-from-link-conv-42");
-    expect(link).toHaveAttribute("href", "/units?node=engineering-team");
+    expect(link).toHaveAttribute("href", "/explorer/units/engineering-team");
   });
 
   it("does not link human:// senders (no portal detail page)", () => {

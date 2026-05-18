@@ -48,6 +48,7 @@ import type {
   EquippedSkillEntry,
   SkillSummary,
 } from "@/lib/api/types";
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 
 export type EquippedSkillsSubjectKind = "Unit" | "Agent";
 
@@ -335,7 +336,7 @@ function EquippedRow({
   const rowClass = isInherited ? "opacity-60" : "";
   const inheritedLink =
     isInherited && parentUnitId
-      ? `?node=${parentUnitId}&tab=Config&subtab=Skills`
+      ? `/explorer/units/${encodeURIComponent(toExplorerPathSegment(parentUnitId))}?tab=Config&subtab=Skills`
       : null;
 
   const key = skillKey(skill);

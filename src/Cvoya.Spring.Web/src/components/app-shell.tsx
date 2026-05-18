@@ -19,7 +19,7 @@ import type { ReactNode } from "react";
  * The `<ExplorerSelectionProvider>` owns the Cmd-K ⇄ Explorer bridge
  * introduced in EXP-cmdk-bridge: selecting a node in the palette
  * dispatches into a mounted `<UnitExplorer>` when one is present,
- * otherwise the palette navigates to `/units?node=…`.
+ * otherwise the palette navigates to `/explorer/units/<id>` (#2473).
  */
 export function AppShell({ children }: { children: ReactNode }) {
   return (

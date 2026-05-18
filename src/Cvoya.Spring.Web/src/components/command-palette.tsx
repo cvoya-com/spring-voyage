@@ -13,6 +13,7 @@
 // rest of the portal's dialog styling.
 
 import { cn } from "@/lib/utils";
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { useExplorerSelection } from "@/components/units/explorer-selection-context";
 import { usePaletteActions, useRoutes } from "@/lib/extensions";
 import type { PaletteAction, RouteEntry } from "@/lib/extensions";
@@ -159,6 +160,8 @@ interface PaletteItem {
 }
 
 const EXPLORER_ROUTE = "/units";
+// #2473: canonical path prefix for explorer node deep-links.
+const EXPLORER_PATH_PREFIX = "/explorer/units";
 
 function CommandPalette({ onClose }: { onClose: () => void }) {
   const routes = useRoutes();
@@ -181,13 +184,17 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
         close: onClose,
         teleportToExplorer: (nodeId) => {
           // EXP-cmdk-bridge: when a mounted Explorer is available on
-          // /units, dispatch the selection without navigating. In every
-          // other case, navigate to /units with the node pre-selected
-          // via the URL.
-          if (pathname === EXPLORER_ROUTE && explorerSelection.hasListener()) {
+          // /units or /explorer/units/*, dispatch the selection without
+          // navigating. In every other case, navigate to the canonical
+          // /explorer/units/<id> path (#2473).
+          const isExplorerMounted =
+            pathname === EXPLORER_ROUTE ||
+            pathname.startsWith(EXPLORER_PATH_PREFIX);
+          if (isExplorerMounted && explorerSelection.hasListener()) {
             explorerSelection.dispatchSelect(nodeId);
           } else {
-            router.push(`${EXPLORER_ROUTE}?node=${encodeURIComponent(nodeId)}`);
+            const nodePath = toExplorerPathSegment(nodeId);
+            router.push(`${EXPLORER_PATH_PREFIX}/${encodeURIComponent(nodePath)}`);
           }
         },
       }),

@@ -90,6 +90,14 @@ export interface RouteEntry {
    * subordinate font. Used to mark routes as `(experimental)` etc.
    */
   secondaryLabel?: string;
+  /**
+   * Optional additional path prefixes that should make this nav entry
+   * appear active. Useful when the route canonical path differs from
+   * the deep-link paths it logically owns (e.g. the Explorer at `/units`
+   * owns all `/explorer/units/*` deep-links too). Each entry in the
+   * array is matched as a path prefix (`startsWith`).
+   */
+  activePatterns?: readonly string[];
 }
 
 /**
@@ -122,7 +130,7 @@ export interface PaletteAction {
    * Tenant-tree node id this action targets. When set, activating the
    * entry teleports into a mounted `<UnitExplorer>` via the
    * `<ExplorerSelectionProvider>` bridge; if no Explorer is mounted on
-   * the active route the palette navigates to `/units?node={id}` so
+   * the active route the palette navigates to `/explorer/units/<id>` so
    * the Explorer picks the node up on first render. Takes precedence
    * over `onSelect` / `href` when present.
    */

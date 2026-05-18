@@ -18,6 +18,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { Compass, GraduationCap, Search } from "lucide-react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 
@@ -321,13 +323,12 @@ function DirectoryRow({ hit }: { hit: DirectorySearchHitResponse }) {
   const ownerScheme = owner?.scheme ?? "";
   const ownerPath = owner?.path ?? "";
   // Post-v2-IA (DEL-agents #870, DEL-units-id #878): owner deep-links
-  // land in the Explorer (`/units?node=<id>[&tab=Overview]`) since the
-  // legacy `/agents/<id>` and `/units/<id>` detail routes are retired.
+  // land in the Explorer. #2473: canonical path-based URL.
   const href =
     ownerScheme === "agent"
-      ? `/units?node=${encodeURIComponent(ownerPath)}&tab=Overview`
+      ? `/explorer/units/${encodeURIComponent(toExplorerPathSegment(ownerPath))}?tab=Overview`
       : ownerScheme === "unit"
-        ? `/units?node=${encodeURIComponent(ownerPath)}`
+        ? `/explorer/units/${encodeURIComponent(toExplorerPathSegment(ownerPath))}`
         : "#";
 
   // #553: when a hit surfaced via aggregation, render a compact

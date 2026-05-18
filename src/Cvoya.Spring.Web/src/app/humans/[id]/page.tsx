@@ -30,8 +30,20 @@ import { useHuman } from "@/lib/api/queries";
 // pulling the whole Explorer tree apparatus.
 import "@/components/units/tabs/register-all";
 
+// #2473: accept both dashed and no-dash UUID forms so the canonical
+// /explorer/humans/<id> and legacy /humans/<dashed-uuid> both work.
 const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+
+/**
+ * Normalise a no-dash (32-char) or dashed (36-char) UUID to the
+ * canonical dashed form used by the API.
+ */
+function normalizeToDashed(id: string): string {
+  const clean = id.replace(/-/g, "");
+  if (clean.length !== 32) return id; // Unrecognised — pass through.
+  return `${clean.slice(0, 8)}-${clean.slice(8, 12)}-${clean.slice(12, 16)}-${clean.slice(16, 20)}-${clean.slice(20)}`;
+}
 
 function HumanDetailRoute() {
   const params = useParams<{ id: string }>();
@@ -40,7 +52,8 @@ function HumanDetailRoute() {
   const searchParams = useSearchParams();
 
   const tab = (searchParams.get("tab") as HumanTabName | null) ?? undefined;
-  const humanId = rawId ?? "";
+  // #2473: normalise no-dash UUID to dashed form for API calls.
+  const humanId = normalizeToDashed(rawId ?? "");
 
   // Guard against routing-table accidents — Next.js does not enforce
   // the [id] segment shape. A non-UUID slug surfaces as 404 so we

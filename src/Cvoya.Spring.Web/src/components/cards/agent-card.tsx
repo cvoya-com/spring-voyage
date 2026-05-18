@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { toExplorerPathSegment } from "@/lib/explorer-url";
+
 import { CardTabRow, type CardTabName } from "./card-tab-row";
 
 /**
@@ -127,17 +129,17 @@ export function AgentCard({
 }: AgentCardProps) {
   // Post-`DEL-agents` (#870): the legacy `/agents/<name>` detail route
   // is gone. Agents render under their primary parent in the Explorer
-  // tree, so the card's primary affordance deep-links into
-  // `/units?node=<name>&tab=Overview`. Cross-link chips share the same
-  // base and swap the `tab` param.
-  const nodeParam = encodeURIComponent(agent.name);
-  const href = `/units?node=${nodeParam}&tab=Overview`;
+  // tree, so the card's primary affordance deep-links into the canonical
+  // `/explorer/units/<name>` path (#2473). Cross-link chips share the
+  // same base and append `?tab=…`.
+  const nodeParam = encodeURIComponent(toExplorerPathSegment(agent.name));
+  const href = `/explorer/units/${nodeParam}?tab=Overview`;
   // Legacy cross-link chips (Conversations, Cost) render only when the
   // caller omits `onOpenTab` — Explorer usages always set it, so these
   // are fallback links. The Agent card's Overview tab carries the cost
   // summary post-v2, so the cost chip lands on Overview too.
-  const conversationsHref = `/units?node=${nodeParam}&tab=Messages`;
-  const costHref = `/units?node=${nodeParam}&tab=Overview`;
+  const conversationsHref = `/explorer/units/${nodeParam}?tab=Messages`;
+  const costHref = `/explorer/units/${nodeParam}?tab=Overview`;
   const parent =
     parentUnit ?? ("parentUnit" in agent ? agent.parentUnit : undefined);
   const lastActivityText =
@@ -220,7 +222,7 @@ export function AgentCard({
         <div className="pointer-events-none mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           {parent && (
             <Link
-              href={`/units?node=${encodeURIComponent(parent)}`}
+              href={`/explorer/units/${encodeURIComponent(toExplorerPathSegment(parent))}`}
               data-testid="agent-parent-unit"
               aria-label={`Open parent unit ${parent}`}
               className="pointer-events-auto relative z-[1] flex items-center gap-1 rounded-sm transition-colors hover:text-foreground"
