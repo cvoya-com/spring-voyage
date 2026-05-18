@@ -231,12 +231,11 @@ function AnalyticsWaitsContent() {
                 renderCell={(entry, col) => {
                   if (col.key === "source") {
                     const parsed = parseSource(entry.source);
+                    // #2473: canonical path-based URL for both units and agents.
                     const href = parsed
-                      ? parsed.scheme === "unit"
-                        ? `/units?node=${encodeURIComponent(parsed.name)}&tab=Overview`
-                        : parsed.scheme === "agent"
-                          ? `/agents/${encodeURIComponent(parsed.name)}`
-                          : null
+                      ? parsed.scheme === "unit" || parsed.scheme === "agent"
+                        ? `/explorer/units/${encodeURIComponent(parsed.name.replace(/-/g, ""))}?tab=Overview`
+                        : null
                       : null;
                     return (
                       <span className="truncate font-mono text-xs">

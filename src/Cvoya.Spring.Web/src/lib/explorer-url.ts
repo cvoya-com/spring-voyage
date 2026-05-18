@@ -18,7 +18,10 @@ export function subscribeExplorerUrl(onStoreChange: () => void): () => void {
 }
 
 export function getExplorerUrlSnapshot(): string {
-  return window.location.search;
+  // Return both pathname and search so consumers can derive the
+  // selected node from the path segment (new /explorer/units/<id>
+  // style) as well as legacy ?node= query params.
+  return window.location.pathname + window.location.search;
 }
 
 export function getServerExplorerUrlSnapshot(): string {

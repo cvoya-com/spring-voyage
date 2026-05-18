@@ -118,17 +118,17 @@ export function UnitCard({
   const status = unit.status ?? "Draft";
   // Post-`DEL-units-id` (#878): the legacy `/units/<name>` detail route
   // is gone. The card's primary affordance now deep-links into the
-  // Explorer (`/units?node=<name>`), which picks the unit up on first
-  // render. Cross-link chips share the same base, appending `&tab=…`.
-  const nodeParam = encodeURIComponent(unit.name);
-  const href = `/units?node=${nodeParam}`;
+  // canonical Explorer path (`/explorer/units/<name>`) per #2473.
+  // Cross-link chips share the same base, appending `?tab=…`.
+  const nodeParam = encodeURIComponent(unit.name.replace(/-/g, ""));
+  const href = `/explorer/units/${nodeParam}`;
   // Legacy cross-link chips (Activity, Costs, Policies). Render only
   // when the caller omits `onOpenTab` — Explorer usages always set it,
   // so these are fallback links. The Costs view is surfaced on
   // Overview post-v2, so the cost chip lands on Overview too.
-  const activityHref = `${href}&tab=Activity`;
-  const costsHref = `${href}&tab=Overview`;
-  const policiesHref = `${href}&tab=Policies`;
+  const activityHref = `${href}?tab=Activity`;
+  const costsHref = `${href}?tab=Overview`;
+  const policiesHref = `${href}?tab=Policies`;
   const cost =
     "cost" in unit && typeof unit.cost === "number" ? unit.cost : null;
   const activitySeries =

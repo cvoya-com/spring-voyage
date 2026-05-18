@@ -22,7 +22,12 @@ The portal is **shadcn-flavoured** (class-variance-authority variants, `cn()` he
 
 Canonical surfaces:
 
-- **`/units`** — the Explorer. The single place to browse units, agents, and tenant-level rollups. Selection and active tab live in the URL.
+- **`/units`** — the Explorer host. The single place to browse units, agents, and tenant-level rollups. Navigates entity deep-links via the canonical path form (see below). The nav item is now labelled "Explorer".
+- **`/explorer/units/<id>`** — canonical path-based entity URL for units/agents (#2473). `<id>` is a no-dash UUID. Tab state stays in `?tab=<Tab>`. Legacy `?node=<id>` URLs on `/units` redirect here.
+- **`/explorer/humans/<id>`** — redirects to `/humans/<id>`.
+- **`/explorer/agents/<id>`** — redirects to `/explorer/units/<id>` (agents live in the tenant tree).
+- **`/explorer/tenants/<id>`** — stub; redirects to `/units` pending a dedicated tenant detail view.
+- **`/humans/<id>`** — human entity detail. Accepts both dashed and no-dash UUID forms.
 - **`/settings`** — a dedicated hub route. Tenant-panel cards plus tile links into the catalog/admin subpages.
 - **`/inbox`**, **`/discovery`**, **`/analytics`** and the Control surfaces (`/connectors`, `/policies`, `/budgets`) stay top-level. See § 3.
 

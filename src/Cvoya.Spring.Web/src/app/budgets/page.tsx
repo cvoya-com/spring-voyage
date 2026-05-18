@@ -316,7 +316,8 @@ function UnitSpendRow({
       ? Math.min(100, (spend / tenantCap) * 100)
       : null;
   const variant = utilizationVariant(pct);
-  const href = `/units?node=${encodeURIComponent(unit.name)}&tab=policies`;
+  // #2473: canonical path-based URL; tab is still a query param.
+  const href = `/explorer/units/${encodeURIComponent(unit.name.replace(/-/g, ""))}?tab=Policies`;
 
   return (
     <li>

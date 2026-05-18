@@ -65,7 +65,8 @@ function resolveMessagesHref(
     const scheme = p.slice(0, idx).toLowerCase();
     const path = p.slice(idx + 3);
     if (scheme === "unit" || scheme === "agent") {
-      return `/units?node=${encodeURIComponent(path)}&tab=Messages&thread=${encodeURIComponent(threadId)}`;
+      // #2473: canonical path-based URL.
+      return `/explorer/units/${encodeURIComponent(path.replace(/-/g, ""))}?tab=Messages&thread=${encodeURIComponent(threadId)}`;
     }
   }
   // No unit/agent anchor — send the user to inbox with the selection

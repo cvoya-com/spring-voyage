@@ -1,21 +1,22 @@
 "use client";
 
-// Canonical Explorer surface (EXP-route, umbrella #815). `/units` is
-// the legacy entry point for browsing units + agents; the canonical
-// URL is now `/explorer/units/<id>` (path-based, no dashes). This
-// page still serves as the Explorer host and handles:
-//   - Legacy `?node=<id>` redirects → `/explorer/units/<id>`
-//   - Human-node redirects → `/humans/<guid>`
-//
-// The legacy `/units` list + `/units/[id]` detail views are retired
-// one wave at a time by the DEL-* sub-issues — the physical detail
-// route stays until `DEL-units-id` lands because its tabs still host
-// content the EXP-tab-unit-* issues are migrating into the Explorer.
+/**
+ * `/explorer/units/[id]` — canonical Explorer entry point for a unit or
+ * agent node (#2473).
+ *
+ * The `[id]` segment carries a no-dash UUID (32 hex chars). This page
+ * renders the same Explorer that `/units` hosts but with the node
+ * pre-selected via a URL dispatch on mount. The `/units` page now
+ * redirects legacy `?node=<id>` URLs here, and all link-building sites
+ * produce this path directly.
+ *
+ * Tab state stays in `?tab=<Tab>` (view state, not resource identity).
+ */
 
 import { Suspense, useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Loader2, Plus } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Card, CardContent } from "@/components/ui/card";
@@ -35,15 +36,19 @@ import {
 // so importing the barrel here is what wires the EXP-tab-* content
 // into the registry consumed by `<DetailPane>`. Keeping the import
 // local to the Explorer route means hosted tab bundles stay lazy
-// until a user actually browses to `/units`.
+// until a user actually browses here.
 import "@/components/units/tabs/register-all";
 
-// Strip dashes from a UUID to produce the no-dash form used in paths.
+/**
+ * Strip dashes from a UUID to produce the no-dash path segment form.
+ */
 function toNoDash(id: string): string {
   return id.replace(/-/g, "");
 }
 
-function UnitExplorerRoute() {
+function ExplorerUnitsRoute() {
+  const params = useParams<{ id: string }>();
+  const nodeId = params.id ?? "";
   const pathname = usePathname();
   const router = useRouter();
   const routerSearchParams = useSearchParams();
@@ -52,67 +57,29 @@ function UnitExplorerRoute() {
     getExplorerUrlSnapshot,
     getServerExplorerUrlSnapshot,
   );
-  const routerSearch = routerSearchParams.toString();
 
-  // #2473: derive search params from either the history URL (which now
-  // includes pathname) or the router's search params.
+  // Derive search params from history URL (which includes pathname) or
+  // router search params.
   const searchParams = useMemo(() => {
     if (historyUrl) {
       const qIdx = historyUrl.indexOf("?");
       return new URLSearchParams(qIdx >= 0 ? historyUrl.slice(qIdx) : "");
     }
-    return new URLSearchParams(routerSearch);
-  }, [historyUrl, routerSearch]);
+    return new URLSearchParams(routerSearchParams.toString());
+  }, [historyUrl, routerSearchParams]);
 
-  // #2473: selectedId is now read from the ?node= param only as a
-  // fallback — path-based selection happens via /explorer/units/<id>
-  // routes. On this /units page we keep reading ?node= for legacy
-  // redirects.
-  const selectedId = searchParams.get("node") ?? undefined;
   const tab = (searchParams.get("tab") as TabName | null) ?? undefined;
 
-  // #2473: Redirect legacy ?node=<id> URLs to the new path-based form
-  // /explorer/units/<id>. Must run before the human-redirect so a
-  // ?node=human:<guid> value goes through the human-redirect first.
-  useEffect(() => {
-    if (!selectedId) return;
-    // Human redirect takes priority — handled by the next useEffect.
-    const humanGuid = parseHumanSelection(selectedId);
-    if (humanGuid !== null) return;
-    // Redirect unit/agent node to new path form.
-    const nodePath = toNoDash(selectedId);
-    const qs = tab ? `?tab=${encodeURIComponent(tab)}` : "";
-    router.replace(`/explorer/units/${encodeURIComponent(nodePath)}${qs}`);
-  }, [router, selectedId, tab]);
-
-  // #2266: Explorer routing accepts `?node=human:<guid>` so call
-  // sites that don't know which subject they're addressing can
-  // funnel through `/units`. Humans don't live in the tenant tree
-  // (they're not addressable via the unit graph in v0.1, see
-  // docs/concepts/humans.md), so the entry point bounces to the
-  // dedicated `/humans/<guid>` route — preserving any active `tab`
-  // and surfacing the same Detail Pane chrome there.
-  useEffect(() => {
-    if (!selectedId) return;
-    const humanGuid = parseHumanSelection(selectedId);
-    if (humanGuid === null) return;
-    const qs = tab
-      ? `?tab=${encodeURIComponent(tab)}`
-      : "";
-    router.replace(`/humans/${encodeURIComponent(humanGuid)}${qs}`);
-  }, [router, selectedId, tab]);
+  // #2473: the selected node id is the path segment, not a query param.
+  // The path segment is a no-dash UUID; keep it as-is for the Explorer.
+  const selectedId = nodeId || undefined;
 
   const treeQuery = useTenantTree();
 
-  // Hooks must be declared before any early return (#1704, react-hooks/rules-of-hooks).
-  // `writeUrl`, `handleSelectNode`, and `handleTabChange` only depend on URL
-  // state that is available on every render path.
   const writeUrl = useCallback(
     (next: { node?: string; tab?: TabName }) => {
       if (next.node !== undefined) {
-        // #2473: write node selection as a path segment so the URL is
-        // canonical (`/explorer/units/<id>`). Tab stays as a query param
-        // because it is view state, not resource identity.
+        // Write node selection as a path segment.
         const nodePath = toNoDash(next.node);
         const tabPart = next.tab
           ? `?tab=${encodeURIComponent(next.tab)}`
@@ -120,13 +87,13 @@ function UnitExplorerRoute() {
         const target = `/explorer/units/${encodeURIComponent(nodePath)}${tabPart}`;
         window.history.replaceState(null, "", target);
       } else if (next.tab !== undefined) {
-        // Tab-only update: preserve existing path, update tab param.
-        const params = new URLSearchParams(searchParams.toString());
-        params.set("tab", next.tab);
+        // Tab-only update: preserve current path, update tab param.
+        const tabParams = new URLSearchParams(searchParams.toString());
+        tabParams.set("tab", next.tab);
         const currentPath = historyUrl
           ? historyUrl.split("?")[0]
           : pathname;
-        const target = `${currentPath}?${params.toString()}`;
+        const target = `${currentPath}?${tabParams.toString()}`;
         window.history.replaceState(null, "", target);
       }
       // The Explorer's node/tab state is fully client-owned. Using the
@@ -137,6 +104,15 @@ function UnitExplorerRoute() {
     },
     [searchParams, pathname, historyUrl],
   );
+
+  // #2266 / #2473: if the node is a human, bounce to /humans/<guid>.
+  useEffect(() => {
+    if (!selectedId) return;
+    const humanGuid = parseHumanSelection(selectedId);
+    if (humanGuid === null) return;
+    const qs = tab ? `?tab=${encodeURIComponent(tab)}` : "";
+    router.replace(`/humans/${encodeURIComponent(humanGuid)}${qs}`);
+  }, [router, selectedId, tab]);
 
   const handleSelectNode = useCallback(
     (id: string) => writeUrl({ node: id }),
@@ -184,7 +160,7 @@ function UnitExplorerRoute() {
       // full-bleed feel without scrolling the outer surface.
       className="flex h-[calc(100vh-6rem)] min-h-[480px] flex-col gap-3"
     >
-      <UnitsPageHeader />
+      <ExplorerPageHeader />
       <div className="min-h-0 flex-1">
         <UnitExplorer
           tree={tree}
@@ -200,14 +176,9 @@ function UnitExplorerRoute() {
 
 /**
  * Header bar above the Explorer surface — a single primary "New unit"
- * CTA that mirrors the dashboard's button (#1069). The per-node
- * "Engagement" affordance lives on `<UnitPaneActions>` (#1463/#1464), so
- * there is no ambient page-level engagement button here (#1461/#1462).
- *
- * No heading element — `<DetailPane>` ships the page's only `<h1>` (the
- * selected node's name), and DESIGN.md §14 caps each page at one `<h1>`.
+ * CTA that mirrors the dashboard's button (#1069).
  */
-function UnitsPageHeader() {
+function ExplorerPageHeader() {
   return (
     <header
       data-testid="units-page-header"
@@ -237,17 +208,7 @@ function adaptValidatedNode(node: ValidatedTenantTreeNode): TreeNode {
 
 /**
  * #2266: parse the Guid out of an Explorer `?node=human:<guid>` value.
- *
- * Accepts both the canonical `human:<guid>` short-form (the same shape
- * the platform's HumanActor address scheme uses) and the navigation
- * `human://<guid>` form for symmetry with `agent://` / `unit://`. Both
- * surface the same underlying address; the address-scheme prefix is
- * the only signal the Explorer needs to redirect to the dedicated
- * `/humans/<guid>` route.
- *
- * Returns the Guid string when the input matches, `null` otherwise so
- * the caller can fall through to the existing unit-tree resolution
- * path.
+ * Accepts both the canonical `human:<guid>` and `human://<guid>` forms.
  */
 function parseHumanSelection(raw: string): string | null {
   const candidate = raw.startsWith("human://")
@@ -256,25 +217,17 @@ function parseHumanSelection(raw: string): string | null {
       ? raw.slice("human:".length)
       : null;
   if (candidate === null) return null;
-  // The Guid is the slug; anything past a `/` or `?` is unexpected
-  // and we conservatively reject. Lower-case + dashed canonical Guid
-  // is the wire form `human:<hex>` is normalised to elsewhere (see
-  // `lib/utils.ts`); accept either short-hex or dashed.
   const UUID_RE =
     /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
   if (!UUID_RE.test(candidate)) return null;
-  // Normalise no-dash compact hex (`8adb6dd4bb7b4998a413e1d1528bf71b`) to
-  // the dashed canonical form the `/humans/[id]` route validates against.
   if (candidate.length === 32) {
     return `${candidate.slice(0, 8)}-${candidate.slice(8, 12)}-${candidate.slice(12, 16)}-${candidate.slice(16, 20)}-${candidate.slice(20)}`;
   }
   return candidate;
 }
 
-export default function UnitsPage() {
-  // `useSearchParams` requires a Suspense boundary in the App Router —
-  // the skeleton below handles both the Next-level Suspense and the
-  // tree query's own loading state.
+export default function ExplorerUnitsPage() {
+  // `useSearchParams` requires a Suspense boundary in the App Router.
   return (
     <Suspense
       fallback={
@@ -292,7 +245,7 @@ export default function UnitsPage() {
         </div>
       }
     >
-      <UnitExplorerRoute />
+      <ExplorerUnitsRoute />
     </Suspense>
   );
 }
