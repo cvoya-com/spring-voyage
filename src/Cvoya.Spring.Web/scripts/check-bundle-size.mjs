@@ -28,7 +28,27 @@ import process from "node:process";
 
 const KB = 1024;
 
-// Budgets — current measured values plus ~25-30% headroom.
+// Budgets — current measured values plus modest headroom.
+//
+// Updated 2026-05-17 (#2451) when Human became the fourth Explorer
+// subject (#2266 / #2267 — new dedicated `/humans/[id]` route, new
+// `HumanOverviewBody`, three reserved tab slots, additional lucide
+// icons, new `useHuman` / `useCurrentUser` consumers). The new route
+// pulls `register-all` into its own entry, so the per-route bundle
+// grew correspondingly:
+//   Total uncompressed: ~2866 KB → cap 2950 KB
+//   Total gzipped:      ~ 815 KB → cap  850 KB (unchanged; still within)
+//   Largest chunk (uncompressed): ~356 KB → cap 450 KB (unchanged)
+//
+// Only the uncompressed total crossed its prior cap; gzipped and
+// largest-chunk are unchanged because the new code is text-heavy
+// (icons, comments, type-narrowing) and compresses well.
+//
+// Headroom on uncompressed is intentionally tight (~3%) — this is a
+// foundation PR; the matching Wave B PRs (#2268 Messages, #2269 Config,
+// #2270 / #2427 Unit × Members) should reuse the same registry imports
+// and not push the cap further. Re-tune only when a substantial new
+// surface lands.
 //
 // Updated 2026-04-30 (#1427) when the analytics surface adopted
 // recharts (charts: #910) and @tanstack/react-virtual (data-table: #911):
@@ -36,7 +56,7 @@ const KB = 1024;
 //   Total gzipped:      ~ 636 KB → cap  850 KB
 //   Largest chunk (uncompressed): ~356 KB → cap 450 KB
 //
-// Both deps are intentional new functionality on the analytics route.
+// Both deps were intentional new functionality on the analytics route.
 // They are eagerly imported on the analytics pages; lazy-loading does
 // not change the on-disk total this script measures (chunks are still
 // emitted), so raising the budget is the right control here.
@@ -44,7 +64,7 @@ const KB = 1024;
 // Previous measurements (kept for reference):
 //   2026-04-21: total ~1290 KB / gz ~371 KB / largest ~224 KB
 const BUDGETS = {
-  totalUncompressedKb: 2800,
+  totalUncompressedKb: 2950,
   totalGzippedKb: 850,
   maxChunkUncompressedKb: 450,
 };
