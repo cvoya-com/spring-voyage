@@ -287,12 +287,20 @@ public class GitHubConnectorType : IConnectorType
             return;
         }
 
+        // Resolve the installation id we're going to use UP FRONT, so the
+        // value persisted on the runtime row is the same one the registrar
+        // authenticated against. The binding's per-unit value wins; null
+        // falls back to the connector's global default (#2385). When both
+        // are null the registrar's parameterless auth path throws
+        // InvalidOperationException — that propagates into the catch below,
+        // no runtime row gets written, and operators see the failure in the
+        // logs rather than discovering it later via an orphaned hook.
+        var resolvedInstallationId = config.AppInstallationId ?? _options.Value.InstallationId;
+
         try
         {
-            // Pass the binding's per-unit installation id so the hook is
-            // created in the right installation scope (#2385). null falls
-            // back to the connector's global default — the documented
-            // OSS-fallback path.
+            // Pass the resolved installation id so the hook is created in
+            // the same installation scope we persist (#2385, #2429).
             //
             // Pass the binding's Events list so the hook subscribes to the
             // exact set the operator picked in the wizard (#2423). null /
@@ -302,18 +310,36 @@ public class GitHubConnectorType : IConnectorType
             var hookId = await _webhookRegistrar.RegisterAsync(
                 config.Owner,
                 config.Repo,
-                config.AppInstallationId,
+                resolvedInstallationId,
                 config.Events,
                 cancellationToken);
 
-            // Persist the hook id so OnUnitStoppingAsync can tear it down.
+            // The registrar succeeded, so the resolved id is definitely
+            // non-null at this point — but be defensive: if a future
+            // registrar implementation accepts null and synthesises its own
+            // id (e.g. via "first visible installation"), we still need
+            // something concrete on the row for teardown. Fail loudly here
+            // rather than silently persist null and rediscover the gap at
+            // stop time.
+            if (resolvedInstallationId is null)
+            {
+                throw new InvalidOperationException(
+                    $"GitHub webhook registration for unit '{unitId}' on {config.Owner}/{config.Repo} succeeded but no installation id was resolved. "
+                    + "Configure either the binding's AppInstallationId or the connector's global InstallationId before re-binding the unit.");
+            }
+
+            // Persist both the hook id AND the resolved installation id
+            // used to create it so OnUnitStoppingAsync can authenticate the
+            // delete against the same installation scope, even if the
+            // operator re-PUTs the binding to a different installation id
+            // between start and stop (#2429).
             var runtime = JsonSerializer.SerializeToElement(
-                new GitHubConnectorRuntime(hookId), ConfigJson);
+                new GitHubConnectorRuntime(hookId, resolvedInstallationId.Value), ConfigJson);
             await _runtimeStore.SetAsync(unitId, runtime, cancellationToken);
 
             _logger.LogInformation(
-                "Registered GitHub webhook {HookId} for unit {UnitId} on {Owner}/{Repo}",
-                hookId, unitId, config.Owner, config.Repo);
+                "Registered GitHub webhook {HookId} for unit {UnitId} on {Owner}/{Repo} (installation {InstallationId})",
+                hookId, unitId, config.Owner, config.Repo, resolvedInstallationId.Value);
         }
         catch (Exception ex)
         {
@@ -356,13 +382,28 @@ public class GitHubConnectorType : IConnectorType
             return;
         }
 
+        // #2429: use the installation id we persisted at register time so
+        // the delete authenticates against the same scope the create used,
+        // even if the operator re-PUTs the binding to a different
+        // installation id between start and stop.
+        //
+        // v0.1 has no released deployments, so there are no pre-#2429
+        // runtime rows in the wild to migrate. If the persisted id is null
+        // or the field is missing, the row is corrupt — fail loudly so
+        // operators can pinpoint and clean it up, rather than silently
+        // falling back to the current binding (which may target a different
+        // installation that cannot delete the original hook).
+        if (runtime.InstallationId is null)
+        {
+            throw new InvalidOperationException(
+                $"GitHub webhook runtime row for unit '{unitId}' on {config.Owner}/{config.Repo} (hookId {runtime.HookId}) has no persisted installation id. "
+                + "The row is corrupt and must be repaired manually before teardown can proceed; v0.1 does not migrate pre-release runtime rows.");
+        }
+
         try
         {
-            // Tear down through the binding's installation id so the delete
-            // call authenticates against the same scope the create used
-            // (#2385). null falls back to the connector's global default.
             await _webhookRegistrar.UnregisterAsync(
-                config.Owner, config.Repo, runtime.HookId, config.AppInstallationId, cancellationToken);
+                config.Owner, config.Repo, runtime.HookId, runtime.InstallationId.Value, cancellationToken);
             await _runtimeStore.ClearAsync(unitId, cancellationToken);
         }
         catch (Exception ex)
@@ -1074,7 +1115,21 @@ public class GitHubConnectorType : IConnectorType
 
 /// <summary>
 /// Serializable runtime metadata the GitHub connector persists per-unit —
-/// currently just the webhook id that /start created and /stop needs.
+/// the webhook id that /start created plus the installation id that owns
+/// it. /stop reads both so the delete call authenticates against the
+/// installation that created the hook even when the operator re-PUTs the
+/// binding to a different installation in between (#2429).
 /// </summary>
 /// <param name="HookId">The GitHub webhook id returned at registration time.</param>
-internal record GitHubConnectorRuntime(long HookId);
+/// <param name="InstallationId">
+/// The GitHub App installation id the registrar used when creating the
+/// hook. The register path resolves the binding's
+/// <see cref="UnitGitHubConfig.AppInstallationId"/> through the connector's
+/// global default and persists the resolved value; this field is therefore
+/// non-null on every row written by the current code. Typed as
+/// <see cref="Nullable{Long}"/> only so a corrupt row (missing field /
+/// explicit null) deserialises cleanly to a recognisable sentinel — the
+/// teardown path throws when it reads null. There is no legacy-row
+/// migration path: v0.1 has no released deployments.
+/// </param>
+internal record GitHubConnectorRuntime(long HookId, long? InstallationId = null);
