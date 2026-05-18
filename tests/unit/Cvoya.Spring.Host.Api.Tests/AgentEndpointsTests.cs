@@ -600,18 +600,22 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     // -------------------------------------------------------------------
-    // GET /api/v1/tenant/agents/{id}/runtime-status (#2100)
+    // GET /api/v1/tenant/agents/{id}/runtime-status (#2100, #2440)
     //
     // The portal-facing runtime-status indicator. Backend covers four
     // states:
-    //   - idle       (actor reports no channels)
+    //   - idle       (actor reports no channels, or persistent w/ no registry entry)
     //   - busy       (actor reports >0 in-flight channels)
     //   - queued     (actor reports 0 in-flight, >0 queued)
-    //   - unavailable (persistent + registry probe Unhealthy / missing)
+    //   - unavailable (persistent + registry entry present + probe Unhealthy)
     //
+    // Per #2440 the agent policy mirrors the unit policy: "no registry
+    // entry" on a persistent agent is the not-yet-deployed case and
+    // falls through to the actor read (idle), not `unavailable`.
     // Ephemeral agents never flip to `unavailable` — there's no container
     // to probe — so we exercise the unavailable path through a persistent
-    // shape on the execution-store substitute.
+    // shape on the execution-store substitute *with* a registered, marked-
+    // Unhealthy entry.
     // -------------------------------------------------------------------
 
     [Fact]
@@ -689,14 +693,20 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GetAgentRuntimeStatus_PersistentAgentNotDeployed_ReturnsUnavailable()
+    public async Task GetAgentRuntimeStatus_PersistentAgentNoRegistryEntry_ReturnsIdle()
     {
+        // #2440: mirror the unit-side policy — "no registry entry" on a
+        // persistent agent is the not-yet-deployed case which we report
+        // as `idle` so the chip doesn't scream on every persistent agent
+        // until a per-agent deploy lands. Lifecycle status is the source
+        // of truth for "never deployed" visibility.
         var ct = TestContext.Current.CancellationToken;
         var agentId = Guid.NewGuid();
-        ArrangeAgentDirectoryEntry(agentId, "Persistent Ghost");
+        ArrangeAgentDirectoryEntry(agentId, "Persistent Not-Yet-Deployed");
         ArrangeAgentExecutionShape(agentId, hosting: "persistent");
-        // No registry registration ⇒ TryGet returns false ⇒ unavailable.
-        ArrangeAgentRuntimeStatus(agentId, inFlight: 5, queued: 99, channels: 5);
+        // No registry registration ⇒ TryGet returns false ⇒ fall through
+        // to the actor read. Actor reports zero channels ⇒ idle.
+        ArrangeAgentRuntimeStatus(agentId, inFlight: 0, queued: 0, channels: 0);
 
         var response = await _client.GetAsync(
             $"/api/v1/tenant/agents/{agentId:N}/runtime-status", ct);
@@ -705,8 +715,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var body = await response.Content
             .ReadFromJsonAsync<AgentRuntimeStatusResponse>(JsonOptions, ct);
         body.ShouldNotBeNull();
-        body.Status.ShouldBe("unavailable");
-        // unavailable supersedes the actor-reported in-flight/queue.
+        body.Status.ShouldBe("idle");
         body.InFlightThreadCount.ShouldBe(0);
         body.QueuedMessageCount.ShouldBe(0);
     }
