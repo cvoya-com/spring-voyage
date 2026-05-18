@@ -95,6 +95,12 @@ export const queryKeys = {
   humans: {
     all: ["humans"] as const,
     detail: (id: string) => ["humans", "detail", id] as const,
+    /**
+     * Per-Human connector-identity list (#2269 / PR #2420). One slot per
+     * human id; the Identity sub-tab and any CLI parity surface dedupe
+     * through this cache.
+     */
+    identities: (id: string) => ["humans", "identities", id] as const,
   },
 
   activity: {

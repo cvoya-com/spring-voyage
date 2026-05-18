@@ -46,9 +46,8 @@ import "./tenant-config"; // #2254
 // only `IMessageReceiver` so the catalog is Overview + Messages
 // visible, Config in overflow (no Memory, Agents, Skills, Traces,
 // Clones, Policies, Budgets, or Deployment slots — see § 4 matrix).
-// The Overview body lands here; Messages (#2268) and Config (#2269)
-// are slot-reserved placeholders until Portal Wave B's follow-up PRs
-// ship them.
+// Overview (#2267), Messages (#2268), and Config (#2269 — Identity +
+// Connector sub-tabs) are all live as of Portal Wave B.
 import "./human-overview"; // #2267
-import "./human-messages"; // slot reserved for #2268
-import "./human-config"; // slot reserved for #2269
+import "./human-messages"; // #2268
+import "./human-config"; // #2269 — Identity + Connector sub-tabs
