@@ -13,11 +13,14 @@
 // outlined "You" badge sits next to the display name — same convention
 // as the Human × Overview tab established under #2267.
 //
-// Edit / Remove affordances live on the card and bubble back to the
-// owning Members tab through `onEdit` / `onRemove`. The card itself is
-// presentation-only: no mutation calls or local state beyond what the
-// parent needs for dialog wiring.
+// The card's primary surface is a click-through link to the human's
+// dedicated detail page (`/humans/<guid>`). Edit / Remove affordances
+// live on the card and bubble back to the owning Members tab through
+// `onEdit` / `onRemove`. The card itself is presentation-only: no
+// mutation calls or local state beyond what the parent needs for
+// dialog wiring.
 
+import Link from "next/link";
 import { Pencil, Trash2, UserRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -56,15 +59,22 @@ export function HumanMemberCard({
   const isMe =
     operatorHumanId !== null && operatorHumanId === row.humanId;
 
+  const href = `/humans/${encodeURIComponent(row.humanId)}`;
+
   return (
     <Card
       data-testid={`unit-human-member-card-${row.membershipId}`}
-      className="h-full"
+      className="relative h-full overflow-hidden transition-colors hover:border-primary/50 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
     >
       <CardContent className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
+            <Link
+              href={href}
+              aria-label={`Open human ${displayName}`}
+              data-testid={`unit-human-member-link-${row.membershipId}`}
+              className="flex items-center gap-2 rounded-sm focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
+            >
               <UserRound
                 className="h-4 w-4 shrink-0 text-muted-foreground"
                 aria-hidden="true"
@@ -83,7 +93,7 @@ export function HumanMemberCard({
                   You
                 </Badge>
               ) : null}
-            </div>
+            </Link>
             {row.roles.length > 0 && (
               <div
                 className="mt-1.5 flex flex-wrap items-center gap-1.5"
@@ -101,7 +111,14 @@ export function HumanMemberCard({
               </div>
             )}
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          {/*
+            Edit / Remove sit above the full-card overlay link via
+            `relative z-[1]` + `pointer-events-auto` so their click
+            targets are not eaten by the navigation overlay. Mirrors
+            the pattern `<UnitCard>` and `<AgentCard>` use for their
+            in-footer action buttons.
+          */}
+          <div className="pointer-events-auto relative z-[1] flex shrink-0 items-center gap-1">
             <Button
               variant="ghost"
               size="icon"

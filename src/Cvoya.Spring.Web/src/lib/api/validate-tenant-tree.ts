@@ -21,13 +21,10 @@ import type {
   TenantTreeResponse,
 } from "./types";
 
-// `Human` is listed here for forward compatibility with #2266 / #2267.
-// The current `GET /api/v1/tenant/tree` payload does not emit Human
-// nodes (humans are not members of the unit tree in v0.1; they reach
-// the Explorer via the dedicated `/humans/<id>` route). Listing `Human`
-// in the validator keeps the boundary symmetric with the portal's
-// `NodeKind` union so a future server-side change that folds humans
-// into the tree doesn't trip the lenient-coerce fallback.
+// `Human` was added in #2466 — the tree now emits a Human child under
+// every unit the human is a team-role member of. Duplicates across units
+// are intentional (a single human can be on multiple teams; OSS hosts
+// one operator who appears once per unit they participate in).
 const NODE_KINDS = ["Tenant", "Unit", "Agent", "Human"] as const;
 // Mirrors the `NodeStatus` union in `@/components/units/aggregate`.
 // `draft`, `stopping`, and `validating` were added in #1032 when the

@@ -413,6 +413,14 @@ export function MembersTab({
                   >
                     <AgentCard
                       agent={cardAgent}
+                      // #2464: dispatch through the Explorer selection
+                      // bridge so the primary click doesn't trigger an
+                      // App Router same-route RSC navigation — the
+                      // pending transition was eating the first click
+                      // and leaving the card "highlighted but not
+                      // navigated". Mirrors the same pattern the
+                      // sibling sub-unit cards already use.
+                      onSelect={(name) => dispatchSelect(name)}
                       actions={
                         <>
                           <Button
