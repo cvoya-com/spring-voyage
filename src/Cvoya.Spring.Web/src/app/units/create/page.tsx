@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -1586,7 +1588,7 @@ export default function CreateUnitPage() {
           }
         }
         router.push(
-          `/units?node=${encodeURIComponent(createdUnitName)}&tab=Overview`,
+          `/explorer/units/${encodeURIComponent(toExplorerPathSegment(createdUnitName))}?tab=Overview`,
         );
       };
       void finalize();

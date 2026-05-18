@@ -18,6 +18,8 @@
  */
 
 import Link from "next/link";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import {
   ArrowRight,
   FileJson,
@@ -214,7 +216,7 @@ function ConnectorDetailBody({
                 </div>
                 <Badge variant="outline">bound</Badge>
                 <Link
-                  href={`/units?node=${encodeURIComponent(b.unitId)}&tab=Overview`}
+                  href={`/explorer/units/${encodeURIComponent(toExplorerPathSegment(b.unitId))}?tab=Overview`}
                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                   aria-label={`Open ${b.unitDisplayName} unit detail`}
                 >

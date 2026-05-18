@@ -208,7 +208,7 @@ export interface AgentCreateFormProps {
   onSnapshotChange?: (snapshot: AgentCreateFormSnapshot) => void;
   /**
    * Called after the direct create endpoint returns 201. The standalone
-   * page navigates to `/units?node=<first>&tab=Members` when a parent
+   * page navigates to `/explorer/units/<first>?tab=Members` when a parent
    * unit was selected, or `/units` for a top-level tenant-parented
    * agent. A dialog caller might close itself instead. Receives the
    * successful-create summary.

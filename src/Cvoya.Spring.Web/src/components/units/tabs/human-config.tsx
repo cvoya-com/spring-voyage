@@ -82,8 +82,8 @@ import type {
 } from "@/lib/api/types";
 import {
   dispatchExplorerUrlChange,
-  getExplorerUrlSnapshot,
-  getServerExplorerUrlSnapshot,
+  getExplorerSearchSnapshot,
+  getServerExplorerSearchSnapshot,
   subscribeExplorerUrl,
 } from "@/lib/explorer-url";
 
@@ -124,8 +124,8 @@ function HumanConfigBody({ humanId }: { humanId: string }) {
   // outer ?tab transitions both round-trip without a navigation.
   const search = useSyncExternalStore(
     subscribeExplorerUrl,
-    getExplorerUrlSnapshot,
-    getServerExplorerUrlSnapshot,
+    getExplorerSearchSnapshot,
+    getServerExplorerSearchSnapshot,
   );
   const activeSubTab = parseSubTab(new URLSearchParams(search).get("subtab"));
 

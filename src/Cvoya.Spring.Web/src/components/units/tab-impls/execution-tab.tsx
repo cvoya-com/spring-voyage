@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -129,7 +131,7 @@ function memberHostingRow(
       membership.agentDisplayName || membership.agentAddress,
     hosting: normalizeHostingMode(declaredHosting),
     declared: isHostingMode(declaredHosting),
-    href: `/units?node=${encodeURIComponent(membership.agentAddress)}&tab=Config`,
+    href: `/explorer/units/${encodeURIComponent(toExplorerPathSegment(membership.agentAddress))}?tab=Config`,
   };
 }
 

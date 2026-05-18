@@ -4,6 +4,8 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
+import { toExplorerPathSegment } from "@/lib/explorer-url";
+
 import {
   AgentCreateForm,
   type AgentCreateFormSnapshot,
@@ -34,7 +36,7 @@ import {
  *
  * Behaviour preserved from the pre-extraction page:
  *  - `handleCancel` calls `router.back()`.
- *  - `handleSuccess` redirects to `/units?node=<first>&tab=Members` when
+ *  - `handleSuccess` redirects to `/explorer/units/<first>?tab=Members` when
  *    at least one unit was assigned (the `Members` tab replaced the
  *    historical `Agents` tab in #2270 / #2427), and to `/units`
  *    otherwise.
@@ -64,7 +66,9 @@ export default function CreateAgentPage() {
     clearAgentWizardSnapshot();
     const target = unitIds[0]?.trim();
     if (target) {
-      router.push(`/units?node=${encodeURIComponent(target)}&tab=Members`);
+      router.push(
+        `/explorer/units/${encodeURIComponent(toExplorerPathSegment(target))}?tab=Members`,
+      );
     } else {
       router.push("/units");
     }

@@ -18,6 +18,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { Compass, GraduationCap, Search } from "lucide-react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 
@@ -324,9 +326,9 @@ function DirectoryRow({ hit }: { hit: DirectorySearchHitResponse }) {
   // land in the Explorer. #2473: canonical path-based URL.
   const href =
     ownerScheme === "agent"
-      ? `/explorer/units/${encodeURIComponent(ownerPath.replace(/-/g, ""))}?tab=Overview`
+      ? `/explorer/units/${encodeURIComponent(toExplorerPathSegment(ownerPath))}?tab=Overview`
       : ownerScheme === "unit"
-        ? `/explorer/units/${encodeURIComponent(ownerPath.replace(/-/g, ""))}`
+        ? `/explorer/units/${encodeURIComponent(toExplorerPathSegment(ownerPath))}`
         : "#";
 
   // #553: when a hit surfaced via aggregation, render a compact

@@ -13,6 +13,7 @@
 // rest of the portal's dialog styling.
 
 import { cn } from "@/lib/utils";
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { useExplorerSelection } from "@/components/units/explorer-selection-context";
 import { usePaletteActions, useRoutes } from "@/lib/extensions";
 import type { PaletteAction, RouteEntry } from "@/lib/extensions";
@@ -192,7 +193,7 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
           if (isExplorerMounted && explorerSelection.hasListener()) {
             explorerSelection.dispatchSelect(nodeId);
           } else {
-            const nodePath = nodeId.replace(/-/g, "");
+            const nodePath = toExplorerPathSegment(nodeId);
             router.push(`${EXPLORER_PATH_PREFIX}/${encodeURIComponent(nodePath)}`);
           }
         },

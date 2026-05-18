@@ -12,10 +12,8 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-export default async function ExplorerTenantsRedirect({
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  params: _params,
-}: PageProps): Promise<never> {
-  // Tenant detail is not yet surfaced; send the user to the Explorer.
+export default async function ExplorerTenantsRedirect(
+  _props: PageProps,
+): Promise<never> {
   redirect("/units");
 }

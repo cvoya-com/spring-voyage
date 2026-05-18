@@ -18,6 +18,8 @@
 
 import { Suspense, useMemo } from "react";
 import Link from "next/link";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { ArrowRight, Clock, Pause, Play, UserCheck } from "lucide-react";
 
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
@@ -234,7 +236,7 @@ function AnalyticsWaitsContent() {
                     // #2473: canonical path-based URL for both units and agents.
                     const href = parsed
                       ? parsed.scheme === "unit" || parsed.scheme === "agent"
-                        ? `/explorer/units/${encodeURIComponent(parsed.name.replace(/-/g, ""))}?tab=Overview`
+                        ? `/explorer/units/${encodeURIComponent(toExplorerPathSegment(parsed.name))}?tab=Overview`
                         : null
                       : null;
                     return (

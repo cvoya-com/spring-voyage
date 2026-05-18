@@ -327,7 +327,7 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
       expect(inherited).toBeInTheDocument();
       expect(
         inherited.querySelector("a")?.getAttribute("href"),
-      ).toBe("?node=engineering&tab=Config&subtab=Connector");
+      ).toBe("/explorer/units/engineering?tab=Config&subtab=Connector");
     });
 
     it("renders the Tools sub-tab via <ToolsPanel kind='Agent' …> (#2337)", () => {

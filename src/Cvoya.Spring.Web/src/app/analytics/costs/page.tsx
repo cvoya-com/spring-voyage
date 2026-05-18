@@ -28,6 +28,8 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import {
   useMutation,
   useQueries,
@@ -111,14 +113,14 @@ function resolveBreakdownSource(
     return {
       label: node.name,
       // #2473: canonical path-based URL.
-      href: `/explorer/units/${encodeURIComponent(node.id.replace(/-/g, ""))}?tab=Overview`,
+      href: `/explorer/units/${encodeURIComponent(toExplorerPathSegment(node.id))}?tab=Overview`,
     };
   }
   if (node.kind === "Agent") {
     return {
       label: node.name,
       // #2473: agents live in the Explorer tree.
-      href: `/explorer/units/${encodeURIComponent(node.id.replace(/-/g, ""))}?tab=Overview`,
+      href: `/explorer/units/${encodeURIComponent(toExplorerPathSegment(node.id))}?tab=Overview`,
     };
   }
   return { label: node.name, href: null };
@@ -458,7 +460,7 @@ function AnalyticsCostsContent() {
                 <Link
                   href={
                     // #2473: canonical path-based URL for both units and agents.
-                    `/explorer/units/${encodeURIComponent(filters.scope.name.replace(/-/g, ""))}?tab=Overview`
+                    `/explorer/units/${encodeURIComponent(toExplorerPathSegment(filters.scope.name))}?tab=Overview`
                   }
                   className="ml-auto text-xs text-primary hover:underline"
                 >

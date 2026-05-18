@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { toExplorerPathSegment } from "@/lib/explorer-url";
+
 import { CardTabRow, type CardTabName } from "./card-tab-row";
 
 /**
@@ -130,7 +132,7 @@ export function AgentCard({
   // tree, so the card's primary affordance deep-links into the canonical
   // `/explorer/units/<name>` path (#2473). Cross-link chips share the
   // same base and append `?tab=…`.
-  const nodeParam = encodeURIComponent(agent.name.replace(/-/g, ""));
+  const nodeParam = encodeURIComponent(toExplorerPathSegment(agent.name));
   const href = `/explorer/units/${nodeParam}?tab=Overview`;
   // Legacy cross-link chips (Conversations, Cost) render only when the
   // caller omits `onOpenTab` — Explorer usages always set it, so these
@@ -220,7 +222,7 @@ export function AgentCard({
         <div className="pointer-events-none mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           {parent && (
             <Link
-              href={`/explorer/units/${encodeURIComponent(parent.replace(/-/g, ""))}`}
+              href={`/explorer/units/${encodeURIComponent(toExplorerPathSegment(parent))}`}
               data-testid="agent-parent-unit"
               aria-label={`Open parent unit ${parent}`}
               className="pointer-events-auto relative z-[1] flex items-center gap-1 rounded-sm transition-colors hover:text-foreground"

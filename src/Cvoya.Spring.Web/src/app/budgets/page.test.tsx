@@ -170,7 +170,7 @@ describe("/budgets", () => {
       expect(row).toBeInTheDocument();
       expect(row).toHaveAttribute(
         "href",
-        `/units?node=${unitId}&tab=policies`,
+        `/explorer/units/${unitId}?tab=Policies`,
       );
     });
     // 70 / 100 = 70% — should be the warning variant.

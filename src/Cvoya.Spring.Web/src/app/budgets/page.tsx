@@ -18,6 +18,8 @@
 // yet.
 
 import Link from "next/link";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { ArrowRight, DollarSign, ExternalLink, Wallet } from "lucide-react";
 import { useMemo } from "react";
 
@@ -317,7 +319,7 @@ function UnitSpendRow({
       : null;
   const variant = utilizationVariant(pct);
   // #2473: canonical path-based URL; tab is still a query param.
-  const href = `/explorer/units/${encodeURIComponent(unit.name.replace(/-/g, ""))}?tab=Policies`;
+  const href = `/explorer/units/${encodeURIComponent(toExplorerPathSegment(unit.name))}?tab=Policies`;
 
   return (
     <li>

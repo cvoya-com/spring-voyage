@@ -9,7 +9,7 @@
  *  2. 4-stat grid — Units / Agents / Running / Cost · 24h.
  *  3. Two-column split — top-level units widget (left) and Activity
  *     (right). Each top-level `<UnitCard>` wires `onOpenTab(id, tab)`
- *     to `router.push("/units?node=<id>&tab=<Tab>")`. Header button
+ *     to `router.push("/explorer/units/<id>?tab=<Tab>")`. Header button
  *     "Open explorer →" pushes `/units`.
  *  4. Budget (24h) — `<CostSummaryCard>` full-width at the bottom.
  *
@@ -22,6 +22,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import {
   Activity,
   Bot,
@@ -470,7 +472,7 @@ export default function DashboardPage() {
 
   const handleOpenTab = (unitId: string, tab: CardTabName) => {
     router.push(
-      `/units?node=${encodeURIComponent(unitId)}&tab=${encodeURIComponent(tab)}`,
+      `/explorer/units/${encodeURIComponent(toExplorerPathSegment(unitId))}?tab=${encodeURIComponent(tab)}`,
     );
   };
 

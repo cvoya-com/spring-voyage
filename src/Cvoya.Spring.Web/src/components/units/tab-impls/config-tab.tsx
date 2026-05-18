@@ -69,9 +69,10 @@ import {
 } from "@/components/ui/tabs";
 import {
   dispatchExplorerUrlChange,
-  getExplorerUrlSnapshot,
-  getServerExplorerUrlSnapshot,
+  getExplorerSearchSnapshot,
+  getServerExplorerSearchSnapshot,
   subscribeExplorerUrl,
+  toExplorerPathSegment,
 } from "@/lib/explorer-url";
 
 /** Subjects the unified Config tab can be driven by. */
@@ -177,8 +178,8 @@ export function ConfigTab({
   // `unit-config.tsx`.
   const search = useSyncExternalStore(
     subscribeExplorerUrl,
-    getExplorerUrlSnapshot,
-    getServerExplorerUrlSnapshot,
+    getExplorerSearchSnapshot,
+    getServerExplorerSearchSnapshot,
   );
   const activeSubTab = parseSubTab(
     new URLSearchParams(search).get("subtab"),
@@ -414,7 +415,7 @@ function AgentConnectorInheritedView({
   parentUnitId?: string | null;
 }) {
   const unitLink = parentUnitId
-    ? `?node=${parentUnitId}&tab=Config&subtab=Connector`
+    ? `/explorer/units/${encodeURIComponent(toExplorerPathSegment(parentUnitId))}?tab=Config&subtab=Connector`
     : null;
 
   return (

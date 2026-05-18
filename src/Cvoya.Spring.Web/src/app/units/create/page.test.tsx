@@ -856,7 +856,7 @@ describe("CreateUnitPage — scratch branch (#1563)", () => {
     // The scratch branch synthesises an InstallStatusResponse with
     // status="active" from the createUnit + setUnitExecution result;
     // post-#2246 the wizard hands off to the validation polling flow
-    // (createdUnitQuery) and redirects to /units?node=<name>&tab=Overview
+    // (createdUnitQuery) and redirects to /explorer/units/<name>?tab=Overview
     // once the unit reaches a terminal state. autoStart is on by default,
     // so the wizard also calls startUnit before redirecting.
     createUnit.mockResolvedValueOnce({
@@ -949,7 +949,7 @@ describe("CreateUnitPage — scratch branch (#1563)", () => {
     // Terminal validation → redirect to the new unit's Overview tab.
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith(
-        "/units?node=acme&tab=Overview",
+        "/explorer/units/acme?tab=Overview",
       );
     });
   });

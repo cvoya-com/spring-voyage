@@ -257,7 +257,7 @@ describe("CommandPalette", () => {
       expect(pushMock).not.toHaveBeenCalled();
     });
 
-    it("navigates to /units?node=… when the Explorer is not mounted", async () => {
+    it("navigates to /explorer/units/<id> when the Explorer is not mounted", async () => {
       currentPathname = "/";
       registerExtension({
         id: "cmdk-test-node",
@@ -281,11 +281,11 @@ describe("CommandPalette", () => {
       fireEvent.click(item);
 
       await waitFor(() =>
-        expect(pushMock).toHaveBeenCalledWith("/units?node=ada"),
+        expect(pushMock).toHaveBeenCalledWith("/explorer/units/ada"),
       );
     });
 
-    it("navigates to /units?node=… when on /units but no Explorer is mounted", async () => {
+    it("navigates to /explorer/units/<id> when on /units but no Explorer is mounted", async () => {
       currentPathname = "/units";
       registerExtension({
         id: "cmdk-test-node",
@@ -311,7 +311,7 @@ describe("CommandPalette", () => {
       fireEvent.click(item);
 
       await waitFor(() =>
-        expect(pushMock).toHaveBeenCalledWith("/units?node=ada"),
+        expect(pushMock).toHaveBeenCalledWith("/explorer/units/ada"),
       );
     });
 
@@ -339,7 +339,9 @@ describe("CommandPalette", () => {
       fireEvent.click(item);
 
       await waitFor(() =>
-        expect(pushMock).toHaveBeenCalledWith("/units?node=alpha%2Fone"),
+        expect(pushMock).toHaveBeenCalledWith(
+          "/explorer/units/alpha%2Fone",
+        ),
       );
     });
   });

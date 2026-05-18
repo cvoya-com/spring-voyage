@@ -253,7 +253,7 @@ describe("DashboardPage", () => {
     expect(routerPush).toHaveBeenCalledWith("/units");
   });
 
-  it("pushes /units?node=<id>&tab=<Tab> when a unit-card TabChip is clicked", async () => {
+  it("pushes /explorer/units/<id>?tab=<Tab> when a unit-card TabChip is clicked", async () => {
     getDashboardSummary.mockResolvedValue(makeSummary());
 
     renderDashboard();
@@ -271,7 +271,7 @@ describe("DashboardPage", () => {
     expect(activityChip).not.toBeNull();
     activityChip!.click();
     expect(routerPush).toHaveBeenCalledWith(
-      "/units?node=unit-alpha&tab=Activity",
+      "/explorer/units/unit-alpha?tab=Activity",
     );
   });
 

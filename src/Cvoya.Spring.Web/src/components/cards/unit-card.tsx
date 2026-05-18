@@ -22,6 +22,8 @@ import {
 import Link from "next/link";
 import type { MouseEvent } from "react";
 
+import { toExplorerPathSegment } from "@/lib/explorer-url";
+
 import { CardTabRow, type CardTabName } from "./card-tab-row";
 
 /**
@@ -120,7 +122,7 @@ export function UnitCard({
   // is gone. The card's primary affordance now deep-links into the
   // canonical Explorer path (`/explorer/units/<name>`) per #2473.
   // Cross-link chips share the same base, appending `?tab=…`.
-  const nodeParam = encodeURIComponent(unit.name.replace(/-/g, ""));
+  const nodeParam = encodeURIComponent(toExplorerPathSegment(unit.name));
   const href = `/explorer/units/${nodeParam}`;
   // Legacy cross-link chips (Activity, Costs, Policies). Render only
   // when the caller omits `onOpenTab` — Explorer usages always set it,

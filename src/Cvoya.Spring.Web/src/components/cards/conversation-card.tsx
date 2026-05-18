@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn, timeAgo } from "@/lib/utils";
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 
@@ -66,7 +67,7 @@ function resolveMessagesHref(
     const path = p.slice(idx + 3);
     if (scheme === "unit" || scheme === "agent") {
       // #2473: canonical path-based URL.
-      return `/explorer/units/${encodeURIComponent(path.replace(/-/g, ""))}?tab=Messages&thread=${encodeURIComponent(threadId)}`;
+      return `/explorer/units/${encodeURIComponent(toExplorerPathSegment(path))}?tab=Messages&thread=${encodeURIComponent(threadId)}`;
     }
   }
   // No unit/agent anchor — send the user to inbox with the selection

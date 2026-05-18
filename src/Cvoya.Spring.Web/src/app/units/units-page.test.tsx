@@ -1,6 +1,9 @@
-// Route-level smoke tests for the Explorer page (EXP-route, umbrella
-// #815). `/units` is the canonical Explorer surface — the legacy list
-// view + detail fallback are retired.
+// Route-level tests for `/units` (the legacy Explorer entry point) and
+// `<ExplorerSurface>` (the shared Explorer canvas mounted by `/units`
+// and `/explorer/units/[id]`). `/units` exists only to redirect legacy
+// `?node=` URLs to the canonical path form (#2473); the Explorer canvas
+// is exercised against `<ExplorerSurface>` directly so the test renders
+// the same component both routes mount.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -8,14 +11,13 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import UnitsPage from "./page";
+import { ExplorerSurface } from "@/components/units/explorer-surface";
 import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
 
-// Stable router mocks. Explorer node/tab changes now use native
-// history.replaceState so tab clicks don't route through the App Router;
-// router.replace stays spied to prove those local URL writes remain local.
 const routerReplaceMock = vi.fn();
 const historyReplaceStateMock = vi.fn();
 let currentSearchParams = new URLSearchParams();
+const subscribers = new Set<() => void>();
 
 vi.mock("next/navigation", async () => {
   const { useSyncExternalStore } = await import("react");
@@ -27,7 +29,7 @@ vi.mock("next/navigation", async () => {
       back: vi.fn(),
       prefetch: vi.fn(),
     }),
-    usePathname: () => "/units",
+    usePathname: () => window.location.pathname,
     useSearchParams: () =>
       useSyncExternalStore(
         (notify) => {
@@ -39,8 +41,6 @@ vi.mock("next/navigation", async () => {
       ),
   };
 });
-
-const subscribers = new Set<() => void>();
 
 vi.mock("next/link", () => ({
   default: ({
@@ -61,45 +61,22 @@ const useTenantTreeMock = vi.fn();
 
 vi.mock("@/lib/api/queries", () => ({
   useTenantTree: () => useTenantTreeMock(),
-  // The Unit Overview tab now mounts the Expertise card (#936), which
-  // reads these hooks. Stub them with permanent "empty" data so the
-  // Explorer page tests don't have to model expertise.
   useUnitOwnExpertise: () => ({ data: [], isPending: false }),
   useUnitAggregatedExpertise: () => ({
     data: { entries: [] },
     isPending: false,
   }),
-  // The Explorer pane header now hosts `<UnitPaneActions>` (#980 item 3),
-  // which reads the real UnitResponse status from `useUnit` so the
-  // Validate / Start / Stop / Revalidate gate matches the server's
-  // lifecycle. These smoke tests don't exercise those buttons, so we
-  // stub the hook with "no data" — the Delete button is the only one
-  // that always renders and the test suite doesn't click it.
   useUnit: () => ({ data: null }),
-  // #2372: the detail-pane header now reads agent lifecycle through
-  // `useAgent(id)`. Stub with "no data" so Explorer page tests don't
-  // need to model the agent detail endpoint.
   useAgent: () => ({ data: null }),
-  // Unit Overview tab (#1363) — cost timeseries sparkline. Stub with "no
-  // data" so Explorer page tests don't need to model analytics.
   useUnitCostTimeseries: () => ({ data: null, isLoading: false }),
-  // Unit Overview tab (#1665) — the validation panel reads the unit's
-  // execution slice (image / runtime) for friendly error copy. Stub
-  // with "no data" so Explorer page tests don't need to model
-  // execution defaults.
   useUnitExecution: () => ({ data: null, isLoading: false }),
-  // #2160: IssuesPanel hook on Unit Overview + Agent Overview. Stub
-  // with "no data" so Explorer page tests don't need to model issues.
   useUnitIssues: () => ({ data: null, isPending: false, isError: false }),
   useAgentIssues: () => ({ data: null, isPending: false, isError: false }),
-  // #2183: tree-explorer badge counts query. Empty so the tree
-  // renders no badges in these scaffold tests.
   useIssueCounts: () => ({
     data: { counts: [] },
     isPending: false,
     isError: false,
   }),
-  // Agents tab — MembershipDialog reads the model-providers catalogue (ADR-0038).
   useModelProviders: () => ({ data: [], isLoading: false }),
 }));
 
@@ -141,155 +118,81 @@ const sampleTree: ValidatedTenantTreeNode = {
   ],
 };
 
-describe("UnitsPage — Explorer route (EXP-route)", () => {
-  beforeEach(() => {
-    routerReplaceMock.mockClear();
-    historyReplaceStateMock.mockClear();
-    currentSearchParams = new URLSearchParams();
-    useTenantTreeMock.mockReset();
-    vi.spyOn(window.history, "replaceState").mockImplementation(
-      (state, title, url) => {
-        historyReplaceStateMock(state, title, url);
-        const target = url?.toString() ?? window.location.href;
-        const qIdx = target.indexOf("?");
-        const qs = qIdx >= 0 ? target.slice(qIdx + 1) : "";
-        currentSearchParams = new URLSearchParams(qs);
-        subscribers.forEach((fn) => fn());
-      },
-    );
-  });
-  afterEach(() => {
-    subscribers.clear();
-    vi.restoreAllMocks();
-  });
+function seedUrl(pathname: string, search = "") {
+  window.history.replaceState(
+    null,
+    "",
+    search ? `${pathname}?${search}` : pathname,
+  );
+  currentSearchParams = new URLSearchParams(search);
+}
 
-  it("renders the loading state while the tree is fetching", () => {
-    useTenantTreeMock.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-      isError: false,
-    });
+beforeEach(() => {
+  routerReplaceMock.mockClear();
+  historyReplaceStateMock.mockClear();
+  seedUrl("/explorer/units/");
+  useTenantTreeMock.mockReset();
+  vi.spyOn(window.history, "replaceState").mockImplementation(
+    (state, title, url) => {
+      historyReplaceStateMock(state, title, url);
+      const target = url?.toString() ?? window.location.href;
+      const qIdx = target.indexOf("?");
+      const pathPart = qIdx >= 0 ? target.slice(0, qIdx) : target;
+      const qs = qIdx >= 0 ? target.slice(qIdx + 1) : "";
+      // Apply the URL change to JSDOM via the unmocked original so
+      // window.location stays consistent with our assertions.
+      Object.defineProperty(window, "location", {
+        value: new URL(`http://localhost${pathPart}${qs ? `?${qs}` : ""}`),
+        writable: true,
+      });
+      currentSearchParams = new URLSearchParams(qs);
+      subscribers.forEach((fn) => fn());
+      window.dispatchEvent(new Event("spring-voyage:explorer-url-change"));
+    },
+  );
+});
+afterEach(() => {
+  subscribers.clear();
+  vi.restoreAllMocks();
+});
 
-    render(wrap(<UnitsPage />));
-    expect(screen.getByTestId("unit-explorer-loading")).toBeInTheDocument();
-  });
-
-  it("renders the error card when the tree query fails", () => {
-    useTenantTreeMock.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      isError: true,
-      error: new Error("boom"),
-    });
-
-    render(wrap(<UnitsPage />));
-    expect(screen.getByTestId("unit-explorer-error")).toBeInTheDocument();
-    expect(screen.getByText(/boom/)).toBeInTheDocument();
-  });
-
-  it("renders the Explorer once the tree lands and defaults to the tenant root", async () => {
+describe("UnitsPage — legacy `/units` redirect (#2473)", () => {
+  it("redirects `/units?node=<id>` to `/explorer/units/<id>` via router.replace", async () => {
+    seedUrl("/units", "node=engineering");
     useTenantTreeMock.mockReturnValue({
       data: sampleTree,
       isLoading: false,
       isError: false,
     });
-
     render(wrap(<UnitsPage />));
-    expect(await screen.findByTestId("unit-explorer")).toBeInTheDocument();
-    // Tenant root (`Tenant` kind, 5 tabs — Overview first).
-    expect(screen.getByTestId("detail-tab-overview")).toHaveAttribute(
-      "aria-selected",
-      "true",
+    await waitFor(() =>
+      expect(routerReplaceMock).toHaveBeenCalledWith(
+        "/explorer/units/engineering",
+      ),
     );
   });
 
-  it("respects ?node= from the URL on first render", async () => {
-    currentSearchParams = new URLSearchParams("node=engineering");
+  it("strips dashes from the node id when redirecting", async () => {
+    seedUrl(
+      "/units",
+      "node=8adb6dd4-bb7b-4998-a413-e1d1528bf71b&tab=Overview",
+    );
     useTenantTreeMock.mockReturnValue({
       data: sampleTree,
       isLoading: false,
       isError: false,
     });
-
     render(wrap(<UnitsPage />));
-    await screen.findByTestId("unit-explorer");
-    // Engineering is a `Unit` → 10 tabs (8 visible + Config + Deployment
-    // overflow, canonical-tabs.md § 7.1); first is Overview and it's active.
-    expect(screen.getAllByRole("tab")).toHaveLength(10);
-    expect(screen.getByTestId("detail-crumb-engineering")).toHaveAttribute(
-      "aria-current",
-      "page",
+    await waitFor(() =>
+      expect(routerReplaceMock).toHaveBeenCalledWith(
+        "/explorer/units/8adb6dd4bb7b4998a413e1d1528bf71b?tab=Overview",
+      ),
     );
   });
 
-  it("writes the URL when the user picks a tree row", async () => {
-    useTenantTreeMock.mockReturnValue({
-      data: sampleTree,
-      isLoading: false,
-      isError: false,
-    });
-    render(wrap(<UnitsPage />));
-    await screen.findByTestId("unit-explorer");
-
-    fireEvent.click(screen.getByTestId("tree-row-engineering"));
-    await waitFor(() => expect(historyReplaceStateMock).toHaveBeenCalled());
-    const urlAfterSelect =
-      historyReplaceStateMock.mock.calls.at(-1)?.[2]?.toString() ?? "";
-    expect(urlAfterSelect).toMatch(/node=engineering/);
-    expect(routerReplaceMock).not.toHaveBeenCalled();
-  });
-
-  it("#1704: clears a stale ?tab when switching to a different node kind", async () => {
-    // Start with the tenant root showing and a Unit-only tab (Members)
-    // in the URL from a prior navigation. We simulate this by seeding
-    // the URL with the tab but NOT the node so the page renders at the
-    // root (Tenant) — this avoids rendering the full Unit Members tab
-    // which needs extra mocks.
-    currentSearchParams = new URLSearchParams("tab=Members");
-    useTenantTreeMock.mockReturnValue({
-      data: sampleTree,
-      isLoading: false,
-      isError: false,
-    });
-    render(wrap(<UnitsPage />));
-    await screen.findByTestId("unit-explorer");
-
-    // Click a Unit row. The stale root-level `?tab=Members` must not
-    // ride along; switching nodes without an explicit tab clears the
-    // old value.
-    historyReplaceStateMock.mockClear();
-    fireEvent.click(screen.getByTestId("tree-row-marketing"));
-    await waitFor(() => expect(historyReplaceStateMock).toHaveBeenCalled());
-    const urlAfterSwitch =
-      historyReplaceStateMock.mock.calls.at(-1)?.[2]?.toString() ?? "";
-    // Node must update and the stale cross-kind tab must be cleared.
-    expect(urlAfterSwitch).toMatch(/node=marketing/);
-    expect(urlAfterSwitch).not.toMatch(/tab=/);
-    expect(routerReplaceMock).not.toHaveBeenCalled();
-  });
-
-  it("renders a 'New unit' link in the page header pointing to /units/create (#1069)", async () => {
-    useTenantTreeMock.mockReturnValue({
-      data: sampleTree,
-      isLoading: false,
-      isError: false,
-    });
-    render(wrap(<UnitsPage />));
-    await screen.findByTestId("unit-explorer");
-
-    const link = screen.getByTestId("units-page-new-unit");
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/units/create");
-    expect(link).toHaveTextContent(/new unit/i);
-  });
-
-  it("#2266: bounces ?node=human:<guid> to /humans/<guid> via router.replace", async () => {
-    // The Explorer route honours the `human:` address scheme by
-    // redirecting to the dedicated `/humans/<guid>` page. Humans don't
-    // live in the tenant-tree payload, so the routing seam is the
-    // narrowest unblocking surface for #2266 / #2267.
+  it("#2266: bounces ?node=human:<guid> to /humans/<guid>", async () => {
     const guid = "11111111-1111-1111-1111-111111111111";
-    currentSearchParams = new URLSearchParams(`node=human:${guid}`);
+    seedUrl("/units", `node=human:${guid}`);
     useTenantTreeMock.mockReturnValue({
       data: sampleTree,
       isLoading: false,
@@ -305,9 +208,7 @@ describe("UnitsPage — Explorer route (EXP-route)", () => {
 
   it("#2266: preserves an active tab when bouncing ?node=human://<guid>&tab=Overview", async () => {
     const guid = "22222222-2222-2222-2222-222222222222";
-    currentSearchParams = new URLSearchParams(
-      `node=human://${guid}&tab=Overview`,
-    );
+    seedUrl("/units", `node=human://${guid}&tab=Overview`);
     useTenantTreeMock.mockReturnValue({
       data: sampleTree,
       isLoading: false,
@@ -320,21 +221,113 @@ describe("UnitsPage — Explorer route (EXP-route)", () => {
       ),
     );
   });
+});
 
-  it("writes node+tab to the URL when a tab is clicked", async () => {
+describe("ExplorerSurface — Explorer canvas (EXP-route)", () => {
+  it("renders the loading state while the tree is fetching", () => {
+    useTenantTreeMock.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+    });
+
+    render(wrap(<ExplorerSurface />));
+    expect(screen.getByTestId("unit-explorer-loading")).toBeInTheDocument();
+  });
+
+  it("renders the error card when the tree query fails", () => {
+    useTenantTreeMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error("boom"),
+    });
+
+    render(wrap(<ExplorerSurface />));
+    expect(screen.getByTestId("unit-explorer-error")).toBeInTheDocument();
+    expect(screen.getByText(/boom/)).toBeInTheDocument();
+  });
+
+  it("renders the Explorer once the tree lands and defaults to the tenant root", async () => {
     useTenantTreeMock.mockReturnValue({
       data: sampleTree,
       isLoading: false,
       isError: false,
     });
-    render(wrap(<UnitsPage />));
+
+    render(wrap(<ExplorerSurface />));
+    expect(await screen.findByTestId("unit-explorer")).toBeInTheDocument();
+    expect(screen.getByTestId("detail-tab-overview")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("respects `/explorer/units/<id>` on first render", async () => {
+    seedUrl("/explorer/units/engineering");
+    useTenantTreeMock.mockReturnValue({
+      data: sampleTree,
+      isLoading: false,
+      isError: false,
+    });
+
+    render(wrap(<ExplorerSurface />));
+    await screen.findByTestId("unit-explorer");
+    expect(screen.getAllByRole("tab")).toHaveLength(10);
+    expect(screen.getByTestId("detail-crumb-engineering")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("writes a path-based URL when the user picks a tree row", async () => {
+    useTenantTreeMock.mockReturnValue({
+      data: sampleTree,
+      isLoading: false,
+      isError: false,
+    });
+    render(wrap(<ExplorerSurface />));
     await screen.findByTestId("unit-explorer");
 
-    fireEvent.click(screen.getByTestId("detail-tab-activity"));
+    fireEvent.click(screen.getByTestId("tree-row-engineering"));
     await waitFor(() => expect(historyReplaceStateMock).toHaveBeenCalled());
-    const last =
+    const urlAfterSelect =
       historyReplaceStateMock.mock.calls.at(-1)?.[2]?.toString() ?? "";
-    expect(last).toMatch(/tab=Activity/);
+    expect(urlAfterSelect).toBe("/explorer/units/engineering");
     expect(routerReplaceMock).not.toHaveBeenCalled();
+  });
+
+  it("#1704: clears a stale ?tab when switching to a different node kind", async () => {
+    seedUrl("/explorer/units/", "tab=Members");
+    useTenantTreeMock.mockReturnValue({
+      data: sampleTree,
+      isLoading: false,
+      isError: false,
+    });
+    render(wrap(<ExplorerSurface />));
+    await screen.findByTestId("unit-explorer");
+
+    historyReplaceStateMock.mockClear();
+    fireEvent.click(screen.getByTestId("tree-row-marketing"));
+    await waitFor(() => expect(historyReplaceStateMock).toHaveBeenCalled());
+    const urlAfterSwitch =
+      historyReplaceStateMock.mock.calls.at(-1)?.[2]?.toString() ?? "";
+    expect(urlAfterSwitch).toBe("/explorer/units/marketing");
+    expect(routerReplaceMock).not.toHaveBeenCalled();
+  });
+
+  it("renders a 'New unit' link in the page header pointing to /units/create (#1069)", async () => {
+    useTenantTreeMock.mockReturnValue({
+      data: sampleTree,
+      isLoading: false,
+      isError: false,
+    });
+    render(wrap(<ExplorerSurface />));
+    await screen.findByTestId("unit-explorer");
+
+    const link = screen.getByTestId("units-page-new-unit");
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/units/create");
+    expect(link).toHaveTextContent(/new unit/i);
   });
 });

@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Container, Trash2 } from "lucide-react";
 
@@ -326,7 +328,7 @@ export function AgentExecutionPanel({
               {" "}
               (
               <Link
-                href={`/units?node=${encodeURIComponent(parentUnitId)}&tab=Overview`}
+                href={`/explorer/units/${encodeURIComponent(toExplorerPathSegment(parentUnitId))}?tab=Overview`}
                 className="underline"
               >
                 {parentUnitId}

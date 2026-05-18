@@ -200,7 +200,7 @@ describe("ToolsPanel (#2337 Sub D)", () => {
 
     const link = inheritedBadge.querySelector("a");
     expect(link?.getAttribute("href")).toBe(
-      "?node=engineering&tab=Config&subtab=Tools",
+      "/explorer/units/engineering?tab=Config&subtab=Tools",
     );
 
     // arxiv group is also inherited (different unit name).

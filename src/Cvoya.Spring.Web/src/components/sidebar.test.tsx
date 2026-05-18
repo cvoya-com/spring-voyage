@@ -137,7 +137,7 @@ describe("Sidebar chrome (IA-sidebar-chrome)", () => {
       "Dashboard",
       "Activity",
       "Analytics",
-      "Units",
+      "Explorer",
       "Inbox",
       "Discovery",
       "Connectors",

@@ -34,6 +34,7 @@ import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { useAgent, useUnit } from "@/lib/api/queries";
 import type { EffectiveToolResponse } from "@/lib/api/types";
+import { toExplorerPathSegment } from "@/lib/explorer-url";
 
 export type ToolsPanelSubjectKind = "Unit" | "Agent";
 
@@ -318,7 +319,7 @@ function ConnectorGroupCard({
 
   const inheritedLink =
     isInherited && parentUnitId
-      ? `?node=${parentUnitId}&tab=Config&subtab=Tools`
+      ? `/explorer/units/${encodeURIComponent(toExplorerPathSegment(parentUnitId))}?tab=Config&subtab=Tools`
       : null;
 
   return (
