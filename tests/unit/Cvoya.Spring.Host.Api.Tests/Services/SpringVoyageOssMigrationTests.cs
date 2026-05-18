@@ -4,8 +4,10 @@
 namespace Cvoya.Spring.Host.Api.Tests.Services;
 
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Host.Api.Services;
 using Cvoya.Spring.Manifest;
 
@@ -50,6 +52,47 @@ public class SpringVoyageOssMigrationTests
             .ShouldBe("ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest");
         execution.ByUnit["sv-oss-program-management"].Image
             .ShouldBe("ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest");
+    }
+
+    /// <summary>
+    /// Regression test for #2439: ADR-0043 § 1 requires the sub-units to
+    /// nest under the umbrella's <c>units/</c> subdirectory rather than
+    /// sit as flat siblings of it. Locks in the membership graph the
+    /// install pipeline sees from disk: the umbrella resolves as the
+    /// package's single top-level unit, and each sub-unit's
+    /// <see cref="ResolvedArtefact.ContainingArtefactName"/> points at
+    /// the umbrella. If a future package edit re-flattens the layout,
+    /// this test fails before the install pipeline silently re-parents
+    /// the sub-units to the tenant scope.
+    /// </summary>
+    [Fact]
+    public async Task SpringVoyageOss_SubUnitsNestUnderUmbrella_PerAdr0043()
+    {
+        var packageRoot = LocatePackageRoot();
+        var yaml = await File.ReadAllTextAsync(
+            Path.Combine(packageRoot, "package.yaml"),
+            TestContext.Current.CancellationToken);
+
+        var resolved = await PackageManifestParser.ParseAndResolveAsync(
+            yaml, packageRoot,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        resolved.Units.Count.ShouldBe(3,
+            "the OSS package ships three units: the umbrella and its two sub-units");
+
+        var umbrella = resolved.Units.Single(u => u.Name == "spring-voyage-oss");
+        umbrella.IsTopLevel.ShouldBeTrue(
+            "the umbrella is the package's single top-level activatable");
+
+        var swEng = resolved.Units.Single(u => u.Name == "sv-oss-software-engineering");
+        swEng.IsTopLevel.ShouldBeFalse(
+            "software-engineering nests under the umbrella per ADR-0043 § 1");
+        swEng.ContainingArtefactName.ShouldBe("spring-voyage-oss");
+
+        var pgmMgmt = resolved.Units.Single(u => u.Name == "sv-oss-program-management");
+        pgmMgmt.IsTopLevel.ShouldBeFalse(
+            "program-management nests under the umbrella per ADR-0043 § 1");
+        pgmMgmt.ContainingArtefactName.ShouldBe("spring-voyage-oss");
     }
 
     [Fact]
