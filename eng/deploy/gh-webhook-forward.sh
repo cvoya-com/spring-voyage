@@ -176,4 +176,10 @@ else
     forward_args+=( --events "*" )
 fi
 
-exec gh "${forward_args[@]}"
+RETRY_DELAY=5
+
+while true; do
+    gh "${forward_args[@]}" || true
+    log "connection dropped — reconnecting in ${RETRY_DELAY}s (Ctrl-C to stop)..."
+    sleep "${RETRY_DELAY}"
+done
