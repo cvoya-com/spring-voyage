@@ -21,8 +21,9 @@ This persona is shared between two contexts:
   uses `Task triage-assistant` for a quick scan before triaging
   manually. The persona has no GitHub write tools; output is text
   only.
-- **Hosted** — the Spring Voyage OSS program-management sub-unit
-  (`sv-oss-program-management`) dispatches to this persona for a
+- **Hosted** — a Spring Voyage OSS PM agent (stamped from the
+  `program-manager` AgentTemplate and attached directly to the
+  `spring-voyage-oss` unit) dispatches to this persona for a
   first-pass breakdown, then issues the GitHub writes itself via the
   unit's GitHub App binding.
 

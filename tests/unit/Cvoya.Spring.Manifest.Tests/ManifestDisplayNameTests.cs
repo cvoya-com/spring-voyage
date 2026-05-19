@@ -24,15 +24,15 @@ public class ManifestDisplayNameTests
         var yaml = """
             apiVersion: spring.voyage/v1
             kind: Unit
-            name: sv-oss-software-engineering
-            displayName: Software Engineering
-            description: SE team for the OSS dogfooding org.
+            name: spring-voyage-oss
+            displayName: Spring Voyage OSS
+            description: OSS dogfooding org for Spring Voyage.
             """;
 
         var manifest = ManifestParser.Parse(yaml);
 
-        manifest.Name.ShouldBe("sv-oss-software-engineering");
-        manifest.DisplayName.ShouldBe("Software Engineering");
+        manifest.Name.ShouldBe("spring-voyage-oss");
+        manifest.DisplayName.ShouldBe("Spring Voyage OSS");
     }
 
     [Fact]

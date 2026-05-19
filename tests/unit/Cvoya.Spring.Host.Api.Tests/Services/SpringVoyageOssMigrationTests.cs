@@ -16,13 +16,13 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Regression test for the <c>packages/spring-voyage-oss/</c> migration
-/// to package-level <see cref="PackageManifest.Execution"/> inheritance
-/// (#1679). Verifies the resolved per-unit execution defaults: the
-/// umbrella unit inherits the package-level image and the two
-/// sub-units (<c>sv-oss-software-engineering</c>,
-/// <c>sv-oss-program-management</c>) carry their own team-specific
-/// image overrides.
+/// Regression tests for the on-disk shape of <c>packages/spring-voyage-oss/</c>.
+/// The package was flattened to a single unit (#2525): all engineer and PM
+/// agents attach directly to <c>spring-voyage-oss</c>; the
+/// <c>sv-oss-software-engineering</c> and <c>sv-oss-program-management</c>
+/// sub-units were removed. These tests lock that shape against the install
+/// pipeline so a future re-introduction of intermediate sub-units fails
+/// loudly here before the install pipeline silently re-parents anything.
 /// </summary>
 public class SpringVoyageOssMigrationTests
 {
@@ -41,32 +41,25 @@ public class SpringVoyageOssMigrationTests
         var execution = ExecutionDefaultsResolver.Resolve(resolved);
 
         execution.Missing.ShouldBeEmpty(
-            "every OSS member unit must resolve to a non-null execution.image after migration");
+            "every OSS unit must resolve to a non-null execution.image after the flatten (#2525)");
 
-        // Umbrella inherits the package-level image.
+        // The single unit inherits the package-level image. No sub-units exist
+        // after #2525 — engineer / PM containers come from the agent templates
+        // and are not part of ExecutionDefaultsResolver's unit map.
         execution.ByUnit["spring-voyage-oss"].Image
             .ShouldBe("ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest");
-
-        // Each sub-unit keeps its own team-specific image.
-        execution.ByUnit["sv-oss-software-engineering"].Image
-            .ShouldBe("ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest");
-        execution.ByUnit["sv-oss-program-management"].Image
-            .ShouldBe("ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest");
     }
 
     /// <summary>
-    /// Regression test for #2439: ADR-0043 § 1 requires the sub-units to
-    /// nest under the umbrella's <c>units/</c> subdirectory rather than
-    /// sit as flat siblings of it. Locks in the membership graph the
-    /// install pipeline sees from disk: the umbrella resolves as the
-    /// package's single top-level unit, and each sub-unit's
-    /// <see cref="ResolvedArtefact.ContainingArtefactName"/> points at
-    /// the umbrella. If a future package edit re-flattens the layout,
-    /// this test fails before the install pipeline silently re-parents
-    /// the sub-units to the tenant scope.
+    /// Regression test for #2525: the OSS package ships exactly one unit
+    /// (<c>spring-voyage-oss</c>) with engineer / PM agents attached
+    /// directly. The pre-#2525 layout nested <c>sv-oss-software-engineering</c>
+    /// and <c>sv-oss-program-management</c> sub-units under the umbrella;
+    /// this test fails before the install pipeline silently re-introduces
+    /// any intermediate sub-unit.
     /// </summary>
     [Fact]
-    public async Task SpringVoyageOss_SubUnitsNestUnderUmbrella_PerAdr0043()
+    public async Task SpringVoyageOss_HasSingleFlatUnit_PerFlattenInIssue2525()
     {
         var packageRoot = LocatePackageRoot();
         var yaml = await File.ReadAllTextAsync(
@@ -77,22 +70,13 @@ public class SpringVoyageOssMigrationTests
             yaml, packageRoot,
             cancellationToken: TestContext.Current.CancellationToken);
 
-        resolved.Units.Count.ShouldBe(3,
-            "the OSS package ships three units: the umbrella and its two sub-units");
+        resolved.Units.Count.ShouldBe(1,
+            "after #2525 the OSS package ships a single flat unit");
 
-        var umbrella = resolved.Units.Single(u => u.Name == "spring-voyage-oss");
-        umbrella.IsTopLevel.ShouldBeTrue(
-            "the umbrella is the package's single top-level activatable");
-
-        var swEng = resolved.Units.Single(u => u.Name == "sv-oss-software-engineering");
-        swEng.IsTopLevel.ShouldBeFalse(
-            "software-engineering nests under the umbrella per ADR-0043 § 1");
-        swEng.ContainingArtefactName.ShouldBe("spring-voyage-oss");
-
-        var pgmMgmt = resolved.Units.Single(u => u.Name == "sv-oss-program-management");
-        pgmMgmt.IsTopLevel.ShouldBeFalse(
-            "program-management nests under the umbrella per ADR-0043 § 1");
-        pgmMgmt.ContainingArtefactName.ShouldBe("spring-voyage-oss");
+        var unit = resolved.Units.Single();
+        unit.Name.ShouldBe("spring-voyage-oss");
+        unit.IsTopLevel.ShouldBeTrue(
+            "the single unit is the package's top-level activatable");
     }
 
     [Fact]
@@ -135,6 +119,6 @@ public class SpringVoyageOssMigrationTests
 
         throw new DirectoryNotFoundException(
             "Could not locate packages/spring-voyage-oss/ from the test binary path. " +
-            "The test relies on the on-disk OSS package layout to verify the #1679 migration.");
+            "The test relies on the on-disk OSS package layout to verify the #1679 / #2525 shape.");
     }
 }

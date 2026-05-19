@@ -1,10 +1,11 @@
 name: OSS PgM Triage
 
 # Fires whenever a new issue is opened on the repository.
-# The workflow forwards the issue to the OSS Program Manager sub-unit
-# (spring-voyage-oss/sv-oss-program-management) and posts the triage
-# proposal back as a comment — using the Spring Voyage GitHub App
-# identity, never GITHUB_TOKEN.
+# The workflow forwards the issue to the OSS unit (spring-voyage-oss)
+# and posts the triage proposal back as a comment — using the Spring
+# Voyage GitHub App identity, never GITHUB_TOKEN. The unit's router
+# delegates a `work_assignment` with no `area:*` label to one of the
+# program-manager agents (`drucker` / `deming`) per its routing rules.
 #
 # Required GitHub Actions secrets:
 #   SPRING_VOYAGE_APP_ID          — Spring Voyage GitHub App's numeric app id
@@ -50,14 +51,18 @@ jobs:
           app-id: ${{ secrets.SPRING_VOYAGE_APP_ID }}
           private-key: ${{ secrets.SPRING_VOYAGE_APP_PRIVATE_KEY }}
 
-      # Send the issue to the OSS Program Manager sub-unit via the Spring Voyage
-      # HTTP API. The POST /api/v1/tenant/messages endpoint is synchronous: it
-      # routes the message, waits for the unit to respond, and returns the unit's
-      # reply in ResponsePayload. No polling is required.
+      # Send the issue to the OSS unit via the Spring Voyage HTTP API. The
+      # POST /api/v1/tenant/messages endpoint is synchronous: it routes the
+      # message, waits for the unit to respond, and returns the unit's reply
+      # in ResponsePayload. No polling is required.
       #
       # Address scheme: "unit" / path: "<package-name>/<unit-name>"
-      # The unit name comes from packages/spring-voyage-oss/units/sv-oss-program-management.yaml.
-      - name: Send issue to OSS PgM unit
+      # The unit name comes from
+      # packages/spring-voyage-oss/units/spring-voyage-oss/package.yaml. The
+      # unit's router delegates the inbound message (a `work_assignment` with
+      # no `area:*` label, per the connector translation) to one of the PM
+      # agents stamped from the `program-manager` template.
+      - name: Send issue to OSS unit
         id: triage
         env:
           SPRING_VOYAGE_API_URL: ${{ vars.SPRING_VOYAGE_API_URL }}
@@ -91,7 +96,7 @@ jobs:
           REQUEST_BODY=$(jq -n \
             --argjson payload "$PAYLOAD_JSON" \
             '{
-              "to": {"scheme": "unit", "path": "spring-voyage-oss/sv-oss-program-management"},
+              "to": {"scheme": "unit", "path": "spring-voyage-oss/spring-voyage-oss"},
               "type": "Domain",
               "payload": $payload
             }')

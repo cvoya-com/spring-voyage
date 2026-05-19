@@ -11,13 +11,13 @@ using Cvoya.Spring.Core.Artefacts;
 /// ADR-0037 decision 5):
 /// <list type="bullet">
 ///   <item><description>
-///     <b>Bare name</b> — <c>sv-oss-program-management</c> — a local symbol
+///     <b>Bare name</b> — <c>spring-voyage-oss</c> — a local symbol
 ///     scoped to the current package. Resolves to a sibling artefact file
-///     (units → <c>./units/sv-oss-program-management.yaml</c>, agents →
-///     <c>./agents/sv-oss-program-management.yaml</c>, skills →
-///     <c>./skills/sv-oss-program-management.md</c>, workflows →
-///     <c>./workflows/sv-oss-program-management/</c>) and is mapped to a
-///     fresh Guid at install time.
+///     (units → <c>./units/spring-voyage-oss.yaml</c>, agents →
+///     <c>./agents/spring-voyage-oss.yaml</c>, skills →
+///     <c>./skills/spring-voyage-oss.md</c>, workflows →
+///     <c>./workflows/spring-voyage-oss/</c>) and is mapped to a fresh
+///     Guid at install time.
 ///   </description></item>
 ///   <item><description>
 ///     <b>Qualified name</b> — <c>spring-voyage-oss/software-engineer</c> —
