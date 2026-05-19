@@ -9,8 +9,10 @@ readme: README.md
 # Each member unit that needs the GitHub connector binds it via
 # `requires: [{ connector: github }]`; the package's effective requirement set
 # is the union, computed at install time. Operators configure the GitHub
-# binding once via the wizard's connector step or `spring package install
-# --connector github=<owner>/<repo>@<installation-id>`.
+# binding once via the wizard's connector step (auth-choice sub-step) or
+# `spring connector bind --connector github --repo <owner>/<repo>
+# --installation-id <id>` (App-installation auth, default) / `... --pat-secret-name
+# <name>` (PAT auth alternative, per ADR-0047 §11).
 #
 # ADR-0043 §1 / §3: directory layout is the manifest — no `content:` block.
 # The package ships exactly the artefacts discovered under `units/`. The

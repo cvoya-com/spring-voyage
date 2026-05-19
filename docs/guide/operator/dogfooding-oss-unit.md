@@ -66,8 +66,7 @@ Before installing the package, confirm all of the following:
 
 ```bash
 spring package install spring-voyage-oss \
-  --input github_owner=<your-org> \
-  --input github_repo=<your-repo> \
+  --input github_repo=<your-org>/<your-repo> \
   --input github_installation_id=<installation-id>
 ```
 
@@ -95,7 +94,7 @@ spring package status <install-id>
 1. Open the portal and navigate to `/units/create`.
 2. Choose **Catalog** as the source.
 3. Pick **Spring Voyage OSS** from the catalog list.
-4. Fill in the three inputs — GitHub owner, repository, and installation ID — on the inputs form.
+4. Fill in the two inputs — qualified `owner/repo` and installation ID — on the inputs form.
 5. Click **Install**.
 
 The status view shows each unit moving from staging to active as activation completes. The install is atomic: either all three units reach active, or the whole install is rolled back.
@@ -116,7 +115,7 @@ Should show three entries:
 | `sv-oss-software-engineering` | active |
 | `sv-oss-program-management` | active |
 
-The umbrella `spring-voyage-oss` unit holds the single `github` connector binding (matching the `(installation_id, owner, repo)` you supplied). Webhooks the GitHub App delivers for that repository land on the umbrella's mailbox; the umbrella triages and delegates to whichever sub-unit owns the work.
+The umbrella `spring-voyage-oss` unit holds the single `github` connector binding (matching the qualified `owner/repo` and `installation_id` you supplied). Webhooks the GitHub App delivers for that repository land on the umbrella's mailbox; the umbrella triages and delegates to whichever sub-unit owns the work. Per [ADR-0047](../../decisions/0047-platform-user-human-split.md) §10 the webhook handler keys on `(tenant, owner, repo)` and fans out to every matching binding in the tenant — a property the package design relies on (the umbrella is the only binding) and that another unit family bound to the same repo would extend cleanly with its own filters.
 
 Each unit (umbrella and sub-units) has:
 
