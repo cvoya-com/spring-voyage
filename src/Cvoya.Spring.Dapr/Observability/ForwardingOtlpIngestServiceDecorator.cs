@@ -238,7 +238,7 @@ public class ForwardingOtlpIngestServiceDecorator(
         // v0.1: protobuf forwarding falls back to JSON. The full
         // protobuf path for activity forwarding requires re-encoding
         // the platform's ActivityEvent shape into OTLP LogRecord
-        // protobufs — TODO(#2503-followup).
+        // protobufs — TODO(#2511).
         _ = protocol;
         _ = path;
         return (Encoding.UTF8.GetBytes(json), ContentTypeJson);
