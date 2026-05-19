@@ -1,25 +1,27 @@
 "use client";
 
-// Shared Explorer canvas (#2473). Both `/units` and `/explorer/units/[id]`
-// render this surface; the route file only contributes the entry-point
-// redirect logic. Selection is read from the URL snapshot:
-//   - canonical: `/explorer/units/<id>` → `selectedId = <id>` from path
+// Shared Explorer canvas (#2473). `/units`, `/explorer`, and
+// `/explorer/units/[id]` all render this surface; the route file only
+// contributes the entry-point redirect logic. Selection is read from
+// the URL snapshot:
+//   - canonical units/agents: `/explorer/units/<id>` → selectedId from path
+//   - canonical humans: `/explorer/humans/<id>` → `human:<id>` from path
 //   - legacy: `?node=<id>` is rewritten by the entry-point redirect; the
 //     canvas itself never reads it.
 //
 // All node/tab writes go through `window.history.replaceState` + the
 // Explorer URL-change event so the canvas stays mounted across clicks
 // (App Router navigations would tear down the tree on every selection).
+// Human nodes write to `/explorer/humans/<guid>` (#2517) so the tree
+// stays visible and the URL follows the consistent `/explorer/*` pattern.
 
 import {
   useCallback,
-  useEffect,
   useMemo,
   useSyncExternalStore,
 } from "react";
 import Link from "next/link";
 import { Loader2, Plus } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Card, CardContent } from "@/components/ui/card";
@@ -43,20 +45,38 @@ import {
 // until the user browses to the Explorer.
 import "@/components/units/tabs/register-all";
 
-const EXPLORER_PATH_PREFIX = "/explorer/units/";
+const EXPLORER_UNITS_PREFIX = "/explorer/units/";
+const EXPLORER_HUMANS_PREFIX = "/explorer/humans/";
 
-/** Pull the selected node id from `/explorer/units/<id>` pathnames. */
+/**
+ * Pull the selected node id from the current pathname.
+ *
+ * - `/explorer/units/<id>`  → returns `<id>` (unit/agent/tenant address)
+ * - `/explorer/humans/<id>` → returns `human:<id>` so the human node is
+ *   looked up in the tree by its scheme-prefixed address (#2517).
+ */
 function selectedIdFromPathname(pathname: string): string | undefined {
-  if (!pathname.startsWith(EXPLORER_PATH_PREFIX)) return undefined;
-  const tail = pathname.slice(EXPLORER_PATH_PREFIX.length);
-  if (!tail) return undefined;
-  const slash = tail.indexOf("/");
-  const id = slash === -1 ? tail : tail.slice(0, slash);
-  return id ? decodeURIComponent(id) : undefined;
+  if (pathname.startsWith(EXPLORER_UNITS_PREFIX)) {
+    const tail = pathname.slice(EXPLORER_UNITS_PREFIX.length);
+    if (!tail) return undefined;
+    const slash = tail.indexOf("/");
+    const id = slash === -1 ? tail : tail.slice(0, slash);
+    return id ? decodeURIComponent(id) : undefined;
+  }
+  if (pathname.startsWith(EXPLORER_HUMANS_PREFIX)) {
+    const tail = pathname.slice(EXPLORER_HUMANS_PREFIX.length);
+    if (!tail) return undefined;
+    const slash = tail.indexOf("/");
+    const raw = slash === -1 ? tail : tail.slice(0, slash);
+    if (!raw) return undefined;
+    // Re-hydrate the `human://<guid>` address so the tree index can resolve
+    // it against the canonical node id emitted by the server (#2517).
+    return `human://${decodeURIComponent(raw)}`;
+  }
+  return undefined;
 }
 
 export function ExplorerSurface() {
-  const router = useRouter();
   const pathname = useSyncExternalStore(
     subscribeExplorerUrl,
     getExplorerPathnameSnapshot,
@@ -72,17 +92,6 @@ export function ExplorerSurface() {
   const selectedId = selectedIdFromPathname(pathname);
   const tab = (searchParams.get("tab") as TabName | null) ?? undefined;
 
-  // #2266: human nodes don't live in the tenant tree — bounce to the
-  // dedicated `/humans/<guid>` route. Preserves any active tab so the
-  // detail-pane chrome lands on the right surface.
-  useEffect(() => {
-    if (!selectedId) return;
-    const humanGuid = parseHumanSelection(selectedId);
-    if (humanGuid === null) return;
-    const qs = tab ? `?tab=${encodeURIComponent(tab)}` : "";
-    router.replace(`/humans/${encodeURIComponent(humanGuid)}${qs}`);
-  }, [router, selectedId, tab]);
-
   const treeQuery = useTenantTree();
 
   const writeUrl = useCallback(
@@ -92,12 +101,8 @@ export function ExplorerSurface() {
       // explicitly switching it (and clear it on a node-only switch so
       // a stale tab from a different node kind doesn't ride along —
       // #1704).
-      const targetNode =
-        next.node !== undefined
-          ? toExplorerPathSegment(next.node)
-          : selectedId
-            ? toExplorerPathSegment(selectedId)
-            : "";
+      const rawNode =
+        next.node !== undefined ? next.node : selectedId ?? "";
 
       const params = new URLSearchParams();
       if (next.tab !== undefined) {
@@ -107,9 +112,21 @@ export function ExplorerSurface() {
         params.set("tab", tab);
       }
       const qs = params.toString();
-      const target = targetNode
-        ? `${EXPLORER_PATH_PREFIX}${encodeURIComponent(targetNode)}${qs ? `?${qs}` : ""}`
-        : `${EXPLORER_PATH_PREFIX}${qs ? `?${qs}` : ""}`;
+
+      // #2517: human nodes use the `/explorer/humans/<guid>` prefix so
+      // the Explorer tree stays visible and the URL follows the
+      // consistent `/explorer/*` pattern. Units and agents use the
+      // existing `/explorer/units/<id>` prefix.
+      const humanGuid = rawNode ? parseHumanSelection(rawNode) : null;
+      let target: string;
+      if (humanGuid !== null) {
+        target = `${EXPLORER_HUMANS_PREFIX}${encodeURIComponent(humanGuid)}${qs ? `?${qs}` : ""}`;
+      } else {
+        const targetNode = rawNode ? toExplorerPathSegment(rawNode) : "";
+        target = targetNode
+          ? `${EXPLORER_UNITS_PREFIX}${encodeURIComponent(targetNode)}${qs ? `?${qs}` : ""}`
+          : `${EXPLORER_UNITS_PREFIX}${qs ? `?${qs}` : ""}`;
+      }
       window.history.replaceState(null, "", target);
       dispatchExplorerUrlChange();
     },

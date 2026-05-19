@@ -70,7 +70,7 @@ export default function CreateAgentPage() {
         `/explorer/units/${encodeURIComponent(toExplorerPathSegment(target))}?tab=Members`,
       );
     } else {
-      router.push("/units");
+      router.push("/explorer");
     }
   };
 
@@ -84,7 +84,7 @@ export default function CreateAgentPage() {
       <Breadcrumbs
         items={[
           { label: "Dashboard", href: "/" },
-          { label: "Units", href: "/units" },
+          { label: "Explorer", href: "/explorer" },
           { label: "New agent" },
         ]}
       />

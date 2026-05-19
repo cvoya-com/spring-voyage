@@ -113,7 +113,7 @@ export function AgentPaneActions({ node }: AgentPaneActionsProps) {
       invalidate();
       toast({ title: "Agent deleted", description: node.name });
       setConfirmOpen(false);
-      router.replace("/units");
+      router.replace("/explorer");
     },
     onError: (err) => {
       onError("Delete")(err);

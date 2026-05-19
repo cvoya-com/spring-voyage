@@ -15,5 +15,5 @@ interface PageProps {
 export default async function ExplorerTenantsRedirect(
   _props: PageProps,
 ): Promise<never> {
-  redirect("/units");
+  redirect("/explorer");
 }

@@ -106,13 +106,14 @@ export const defaultRoutes: readonly RouteEntry[] = [
   },
 
   {
-    // #2473: renamed from "Units" to "Explorer"; path stays /units as
-    // that page is still the Explorer host. The new /explorer/units/<id>
-    // path-based URLs are the canonical deep-links; /units remains the
-    // nav entry so the active state covers /units and /explorer/units/*.
+    // #2473: renamed from "Units" to "Explorer"; canonical nav entry is
+    // now `/explorer` (#2517) so the browser bar shows `/explorer` when
+    // the user clicks the sidebar link. `/units` remains a legacy route
+    // that still renders the Explorer canvas; the active state covers
+    // both so bookmarked `/units` URLs keep the nav item lit.
     // #2512: moved from Orchestrate to Overview so Explorer lives under
     // the Dashboard section alongside Activity and Analytics.
-    path: "/units",
+    path: "/explorer",
     label: "Explorer",
     icon: Network,
     navSection: "overview",
@@ -120,9 +121,9 @@ export const defaultRoutes: readonly RouteEntry[] = [
     keywords: ["units", "teams", "groups", "agents", "explorer", "spring unit list"],
     description:
       "Canonical Explorer — units, agents, policies, and memory in one tree.",
-    // #2473: mark /explorer/* paths as also belonging to this nav entry
-    // so the sidebar active state lights up when on a deep entity URL.
-    activePatterns: ["/explorer/"],
+    // Mark /explorer/* and legacy /units paths as belonging to this nav
+    // entry so the sidebar active state lights up on any Explorer URL.
+    activePatterns: ["/explorer/", "/units"],
   },
 
   // ----- Orchestrate ------------------------------------------------

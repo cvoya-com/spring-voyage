@@ -243,14 +243,14 @@ describe("DashboardPage", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("pushes /units when 'Open explorer' is clicked", async () => {
+  it("pushes /explorer when 'Open explorer' is clicked", async () => {
     getDashboardSummary.mockResolvedValue(makeSummary());
 
     renderDashboard();
 
     const openExplorer = await screen.findByTestId("open-explorer-button");
     openExplorer.click();
-    expect(routerPush).toHaveBeenCalledWith("/units");
+    expect(routerPush).toHaveBeenCalledWith("/explorer");
   });
 
   it("pushes /explorer/units/<id>?tab=<Tab> when a unit-card TabChip is clicked", async () => {

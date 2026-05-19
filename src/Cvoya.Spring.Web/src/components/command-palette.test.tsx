@@ -129,13 +129,14 @@ describe("CommandPalette", () => {
     renderPalette();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
 
+    // #2517: Explorer nav entry path is now /explorer (was /units).
     const item = await screen.findByTestId(
-      "command-palette-item-route:/units",
+      "command-palette-item-route:/explorer",
     );
     fireEvent.click(item);
 
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/units");
+      expect(pushMock).toHaveBeenCalledWith("/explorer");
     });
   });
 
