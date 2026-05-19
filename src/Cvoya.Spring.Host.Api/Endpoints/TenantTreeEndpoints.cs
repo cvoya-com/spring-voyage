@@ -179,23 +179,37 @@ public static class TenantTreeEndpoints
         // endpoints already pay this per-unit actor round-trip (see
         // DashboardEndpoints.GetUnitsSummaryAsync) and the cache-control
         // window on this endpoint (15s) absorbs the fanout.
-        var unitStatuses = new Dictionary<string, LifecycleStatus>(StringComparer.Ordinal);
-        foreach (var unit in unitEntries)
-        {
-            unitStatuses[unit.Address.Path] =
-                await TryGetUnitLifecycleStatusAsync(actorProxyFactory, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.ActorId), logger, unit.Address.Path, cancellationToken);
-        }
+        // #2524: fan these per-unit actor reads out in parallel.
+        // Sequential awaits stalled this endpoint for 80+ seconds
+        // during burst events (e.g. 8 agents starting simultaneously)
+        // because each Dapr actor call queues behind the others; a
+        // parallel fan-out collapses total time to the slowest call.
+        var unitStatusPairs = await Task.WhenAll(unitEntries.Select(async unit =>
+            (Path: unit.Address.Path,
+             Status: await TryGetUnitLifecycleStatusAsync(
+                 actorProxyFactory,
+                 Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.ActorId),
+                 logger,
+                 unit.Address.Path,
+                 cancellationToken))));
+        var unitStatuses = unitStatusPairs.ToDictionary(
+            r => r.Path, r => r.Status, StringComparer.Ordinal);
 
         // #2372: same fan-out for agents — the shared LifecycleStatus
         // state machine (#2364) means agent rows in the tree need real
         // per-agent status too, not the legacy "running" pin. Driven by
         // the same actor round-trip the dashboard already pays.
-        var agentStatuses = new Dictionary<string, LifecycleStatus>(StringComparer.Ordinal);
-        foreach (var (agentPath, agentEntry) in agentEntries)
-        {
-            agentStatuses[agentPath] =
-                await TryGetAgentLifecycleStatusAsync(actorProxyFactory, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(agentEntry.ActorId), logger, agentPath, cancellationToken);
-        }
+        // #2524: parallelized for the same burst-load reason as units.
+        var agentStatusPairs = await Task.WhenAll(agentEntries.Select(async kvp =>
+            (Path: kvp.Key,
+             Status: await TryGetAgentLifecycleStatusAsync(
+                 actorProxyFactory,
+                 Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(kvp.Value.ActorId),
+                 logger,
+                 kvp.Key,
+                 cancellationToken))));
+        var agentStatuses = agentStatusPairs.ToDictionary(
+            r => r.Path, r => r.Status, StringComparer.Ordinal);
 
         // #2466: per-unit human team-role membership rows + a single
         // batch load of every human's display-name row. Tree humans are
@@ -207,14 +221,20 @@ public static class TenantTreeEndpoints
         // membership store), so we walk units in parallel-friendly order.
         // The display-name lookup is a single index-bashed query on the
         // Humans table — tenant query filter scopes it automatically.
-        var humanMembersByUnit = new Dictionary<string, IReadOnlyList<UnitHumanMembership>>(StringComparer.Ordinal);
-        var allHumanIds = new HashSet<Guid>();
-        foreach (var unit in unitEntries)
-        {
-            var rows = await humanMembershipStore.ListByUnitAsync(unit.ActorId, cancellationToken);
-            humanMembersByUnit[unit.Address.Path] = rows;
-            foreach (var row in rows) allHumanIds.Add(row.HumanId);
-        }
+        // #2524: parallel fan-out for the per-unit human-membership
+        // lookup for the same burst-load reason as the lifecycle reads
+        // above. allHumanIds is collected from the gathered results so
+        // the humansById DB query below still runs once, after every
+        // membership row is in hand.
+        var humanMembershipPairs = await Task.WhenAll(unitEntries.Select(async unit =>
+            (Path: unit.Address.Path,
+             Rows: await humanMembershipStore.ListByUnitAsync(unit.ActorId, cancellationToken))));
+        var humanMembersByUnit = humanMembershipPairs.ToDictionary(
+            r => r.Path, r => r.Rows, StringComparer.Ordinal);
+        var allHumanIds = humanMembershipPairs
+            .SelectMany(r => r.Rows)
+            .Select(row => row.HumanId)
+            .ToHashSet();
         var humansById = allHumanIds.Count == 0
             ? new Dictionary<Guid, (string DisplayName, string Username)>()
             : await db.Humans
