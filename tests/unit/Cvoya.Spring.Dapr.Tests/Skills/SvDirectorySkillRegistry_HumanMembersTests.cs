@@ -248,8 +248,15 @@ public class SvDirectorySkillRegistry_HumanMembersTests
             services.AddLogging();
             // In-memory SpringDbContext so the registry's ReadDefinitionAsync
             // call against AgentDefinitions resolves without a real DB.
+            //
+            // #2498: capture the database name OUTSIDE the UseInMemoryDatabase
+            // delegate. Without this, every DbContext resolution within a
+            // single test re-evaluates the delegate and gets a new Guid —
+            // each scope sees an empty database, so seeded rows are
+            // invisible to the registry's read path.
+            var dbName = "sv-directory-tests-" + Guid.NewGuid().ToString("N");
             services.AddDbContext<SpringDbContext>(opt => opt
-                .UseInMemoryDatabase("sv-directory-tests-" + Guid.NewGuid().ToString("N"))
+                .UseInMemoryDatabase(dbName)
                 .ConfigureWarnings(w => w.Ignore(
                     Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning)));
 

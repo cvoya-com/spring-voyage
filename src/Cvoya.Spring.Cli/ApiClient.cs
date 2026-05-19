@@ -1695,6 +1695,19 @@ public class SpringApiClient
     }
 
     /// <summary>
+    /// Reads the most-recent external-forward attempt result for the
+    /// current tenant from
+    /// <c>GET /api/v1/tenant/activity/settings/forward-status</c>.
+    /// Issue #2503.
+    /// </summary>
+    public async Task<TenantActivityForwardStatusDto> GetActivityForwardStatusAsync(CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Activity.Settings.ForwardStatus.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            "Server returned an empty tenant activity forward-status response.");
+    }
+
+    /// <summary>
     /// Streams activity events from <c>GET /api/v1/tenant/activity/stream</c>
     /// using Server-Sent Events. The underlying <see cref="HttpClient"/>
     /// is the one Kiota's request adapter holds — the SSE wire format

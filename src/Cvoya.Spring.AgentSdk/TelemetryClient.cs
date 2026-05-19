@@ -8,6 +8,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
+using Google.Protobuf;
+
 /// <summary>
 /// OTLP/HTTP+JSON implementation of <see cref="ITelemetryClient"/>.
 /// Mirrors the Python SDK's <c>TelemetryEmitter</c> + <c>RuntimeContext</c>
@@ -35,7 +37,19 @@ public sealed class TelemetryClient : ITelemetryClient, IDisposable
         public const string Headers = "OTEL_EXPORTER_OTLP_HEADERS";
         public const string ResourceAttributes = "OTEL_RESOURCE_ATTRIBUTES";
         public const string ServiceName = "OTEL_SERVICE_NAME";
+
+        /// <summary>
+        /// OTLP wire-protocol selector (#2501). Accepted values:
+        /// <c>http/protobuf</c>, <c>http/json</c>. Anything else falls
+        /// back to JSON. The ingest controller accepts both protocols,
+        /// so a misconfigured runtime is degraded, not broken.
+        /// </summary>
+        public const string Protocol = "OTEL_EXPORTER_OTLP_PROTOCOL";
     }
+
+    private const string ProtocolHttpProtobuf = "http/protobuf";
+    private const string ContentTypeProtobuf = "application/x-protobuf";
+    private const string ContentTypeJson = "application/json";
 
     private const string SvProgressEventName = "sv.progress";
     private const string SvToolCallSpanName = "sv.tool.call";
@@ -56,6 +70,7 @@ public sealed class TelemetryClient : ITelemetryClient, IDisposable
     private readonly string _subjectUuid;
     private readonly ProgressRateLimiter _rateLimiter;
     private readonly Action<string>? _logWarning;
+    private readonly bool _useProtobuf;
 
     private readonly string _trace;
     private readonly string _rootSpan;
@@ -64,13 +79,25 @@ public sealed class TelemetryClient : ITelemetryClient, IDisposable
     private readonly object _eventLock = new();
 
     /// <summary>Constructs a client; prefer <see cref="FromEnvironment(string?, ProgressRateLimiter?, Action{string}?)"/>.</summary>
+    /// <param name="endpoint">OTLP base URL; null disables emission.</param>
+    /// <param name="headers">Per-emission HTTP headers (auth token).</param>
+    /// <param name="resourceAttributes">OTel resource attributes (tenant / subject / service identity).</param>
+    /// <param name="httpClient">Injected client; null lets the SDK own one.</param>
+    /// <param name="rateLimiter">Optional override of the per-emission rate limiter.</param>
+    /// <param name="logWarning">Optional sink for telemetry-side warnings.</param>
+    /// <param name="useProtobuf">
+    /// When <c>true</c>, encodes outbound payloads as OTLP/HTTP+protobuf
+    /// (<c>application/x-protobuf</c>); when <c>false</c>, JSON. Issue
+    /// #2501. The ingest controller accepts both wire formats.
+    /// </param>
     public TelemetryClient(
         Uri? endpoint,
         IReadOnlyDictionary<string, string>? headers = null,
         IReadOnlyDictionary<string, string>? resourceAttributes = null,
         HttpClient? httpClient = null,
         ProgressRateLimiter? rateLimiter = null,
-        Action<string>? logWarning = null)
+        Action<string>? logWarning = null,
+        bool useProtobuf = false)
     {
         _endpoint = endpoint;
         _headers = headers ?? new Dictionary<string, string>(StringComparer.Ordinal);
@@ -81,6 +108,7 @@ public sealed class TelemetryClient : ITelemetryClient, IDisposable
                 logWarning?.Invoke(
                     $"Telemetry rate limit exceeded for subject={subject} kind={kind}; dropping events."));
         _logWarning = logWarning;
+        _useProtobuf = useProtobuf;
 
         _http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         _ownsHttp = httpClient is null;
@@ -128,12 +156,18 @@ public sealed class TelemetryClient : ITelemetryClient, IDisposable
             resourceAttrs["sv.subject.kind"] = DefaultSubjectKind;
         }
 
+        // #2501: pick the wire protocol based on OTEL_EXPORTER_OTLP_PROTOCOL.
+        // Anything other than "http/protobuf" defaults to JSON.
+        var protocol = Environment.GetEnvironmentVariable(OtlpEnvVars.Protocol);
+        var useProtobuf = string.Equals(protocol, ProtocolHttpProtobuf, StringComparison.OrdinalIgnoreCase);
+
         return new TelemetryClient(
             endpoint: endpoint,
             headers: headers,
             resourceAttributes: resourceAttrs,
             rateLimiter: rateLimiter,
-            logWarning: logWarning ?? DefaultLogWarning);
+            logWarning: logWarning ?? DefaultLogWarning,
+            useProtobuf: useProtobuf);
     }
 
     /// <summary>Whether OTLP emission is wired (false when no endpoint env was set).</summary>
@@ -321,10 +355,16 @@ public sealed class TelemetryClient : ITelemetryClient, IDisposable
                 },
             },
         };
-        return Post("/v1/traces", envelope);
+        return Post("/v1/traces", envelope, span);
     }
 
-    private bool Post(string path, object envelope)
+    /// <summary>
+    /// Posts an envelope. When the SDK is configured for OTLP/HTTP+protobuf
+    /// (#2501), <paramref name="protobufRootSpan"/> is encoded directly
+    /// onto the wire; otherwise <paramref name="jsonEnvelope"/> is
+    /// serialised with System.Text.Json.
+    /// </summary>
+    private bool Post(string path, object jsonEnvelope, object? protobufRootSpan = null)
     {
         if (_endpoint is null)
         {
@@ -332,10 +372,29 @@ public sealed class TelemetryClient : ITelemetryClient, IDisposable
         }
         try
         {
-            using var content = new StringContent(
-                JsonSerializer.Serialize(envelope, JsonOptions),
-                Encoding.UTF8,
-                "application/json");
+            HttpContent content;
+            if (_useProtobuf && protobufRootSpan is IDictionary<string, object?> spanDict)
+            {
+                var bytes = TelemetryProtobufEncoder.EncodeTraceEnvelope(
+                    spanDict,
+                    _resourceAttributes,
+                    scopeName: "Cvoya.Spring.AgentSdk",
+                    scopeVersion: "0.1.0");
+                var byteContent = new ByteArrayContent(bytes);
+                byteContent.Headers.ContentType =
+                    new System.Net.Http.Headers.MediaTypeHeaderValue(ContentTypeProtobuf);
+                content = byteContent;
+            }
+            else
+            {
+                content = new StringContent(
+                    JsonSerializer.Serialize(jsonEnvelope, JsonOptions),
+                    Encoding.UTF8,
+                    ContentTypeJson);
+            }
+
+            // HttpRequestMessage owns its Content and disposes it; the
+            // protobuf vs JSON branch chooses which kind we attach.
             using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(_endpoint, path.TrimStart('/')))
             {
                 Content = content,

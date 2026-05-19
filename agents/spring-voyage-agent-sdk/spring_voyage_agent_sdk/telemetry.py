@@ -52,6 +52,12 @@ _OTLP_ENDPOINT_ENV = "OTEL_EXPORTER_OTLP_ENDPOINT"
 _OTLP_HEADERS_ENV = "OTEL_EXPORTER_OTLP_HEADERS"
 _OTLP_RESOURCE_ATTRS_ENV = "OTEL_RESOURCE_ATTRIBUTES"
 _OTLP_SERVICE_NAME_ENV = "OTEL_SERVICE_NAME"
+# #2501: protocol selector. Accepted: "http/protobuf" | "http/json".
+# Anything else (including unset) falls back to JSON.
+_OTLP_PROTOCOL_ENV = "OTEL_EXPORTER_OTLP_PROTOCOL"
+_PROTOCOL_PROTOBUF = "http/protobuf"
+_CONTENT_TYPE_JSON = "application/json"
+_CONTENT_TYPE_PROTOBUF = "application/x-protobuf"
 
 _DEFAULT_TIMEOUT_SECONDS = 5.0
 
@@ -127,6 +133,7 @@ class TelemetryEmitter:
         resource_attributes: dict[str, str] | None = None,
         service_name: str | None = None,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+        protocol: str | None = None,
     ) -> None:
         # Env wins over caller-supplied values are NOT applied here —
         # the call-site picks one shape. Tests construct directly
@@ -139,6 +146,8 @@ class TelemetryEmitter:
         self._timeout = timeout_seconds
         self._enabled = bool(self._endpoint)
         self._post_lock = threading.Lock()
+        # #2501: wire-protocol selection.
+        self._use_protobuf = (protocol or "").strip().lower() == _PROTOCOL_PROTOBUF
 
     @classmethod
     def from_environment(cls) -> "TelemetryEmitter":
@@ -147,11 +156,13 @@ class TelemetryEmitter:
         headers = _parse_headers(os.environ.get(_OTLP_HEADERS_ENV))
         resource_attrs = _parse_resource_attributes(os.environ.get(_OTLP_RESOURCE_ATTRS_ENV))
         service_name = os.environ.get(_OTLP_SERVICE_NAME_ENV)
+        protocol = os.environ.get(_OTLP_PROTOCOL_ENV)
         return cls(
             endpoint=endpoint,
             headers=headers,
             resource_attributes=resource_attrs,
             service_name=service_name,
+            protocol=protocol,
         )
 
     @property
@@ -168,6 +179,11 @@ class TelemetryEmitter:
     def subject_uuid(self) -> str:
         """Subject uuid from resource attributes — drives the rate limiter key."""
         return self._resource_attributes.get("sv.subject.uuid", "")
+
+    @property
+    def protocol(self) -> str:
+        """Wire protocol the emitter uses (``http/protobuf`` or ``http/json``)."""
+        return _PROTOCOL_PROTOBUF if self._use_protobuf else "http/json"
 
     def emit_span(
         self,
@@ -308,9 +324,10 @@ class TelemetryEmitter:
             return False
 
         url = f"{self._endpoint}{path}"
+
         try:
-            body = json.dumps(envelope).encode("utf-8")
-        except (TypeError, ValueError) as exc:
+            body, content_type = self._encode_body(path, envelope)
+        except Exception as exc:  # noqa: BLE001 — best-effort emission
             logger.debug("Failed to serialize OTLP payload for %s: %s", path, exc)
             return False
 
@@ -318,7 +335,7 @@ class TelemetryEmitter:
             url,
             data=body,
             method="POST",
-            headers={"Content-Type": "application/json", **self._headers},
+            headers={"Content-Type": content_type, **self._headers},
         )
 
         # urllib is not thread-safe at the global-handler level; serialise
@@ -335,6 +352,29 @@ class TelemetryEmitter:
             except Exception as exc:  # noqa: BLE001 — best-effort emission
                 logger.debug("OTLP POST %s raised %s: %s", url, type(exc).__name__, exc)
             return False
+
+    def _encode_body(self, path: str, envelope: dict[str, Any]) -> tuple[bytes, str]:
+        """Encode one envelope into the wire bytes + content-type."""
+        if self._use_protobuf:
+            try:
+                from spring_voyage_agent_sdk._otlp_protobuf import (
+                    encode_logs_envelope,
+                    encode_traces_envelope,
+                )
+            except ImportError as exc:
+                # The opentelemetry-proto package is a declared dependency;
+                # if it's missing fall back to JSON so a runtime with a
+                # patched env still ships telemetry rather than dropping it.
+                logger.warning("opentelemetry-proto unavailable; falling back to JSON: %s", exc)
+                return json.dumps(envelope).encode("utf-8"), _CONTENT_TYPE_JSON
+
+            if path.endswith("/traces"):
+                return encode_traces_envelope(envelope), _CONTENT_TYPE_PROTOBUF
+            if path.endswith("/logs"):
+                return encode_logs_envelope(envelope), _CONTENT_TYPE_PROTOBUF
+            # Unknown signal — fall back to JSON.
+            return json.dumps(envelope).encode("utf-8"), _CONTENT_TYPE_JSON
+        return json.dumps(envelope).encode("utf-8"), _CONTENT_TYPE_JSON
 
 
 def new_trace_id() -> str:

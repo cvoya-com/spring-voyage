@@ -90,7 +90,22 @@ internal static class ServiceCollectionExtensionsObservability
         // (subject, kind) so its rate-limiting state persists across
         // requests; it resolves the scoped ITenantActivitySettings
         // through a per-batch DI scope.
-        services.TryAddSingleton<IOtlpIngestService, OtlpIngestService>();
+        //
+        // #2503: the forwarding decorator wraps the inner ingest. We
+        // register the inner concretely and resolve the IOtlpIngestService
+        // contract via a factory that builds the decorator over the
+        // inner. The decorator's status table is read by the
+        // platform-operator surfaces — register it concretely too so
+        // those endpoints can resolve the singleton.
+        services.TryAddSingleton<OtlpIngestService>();
+        services.AddHttpClient(ForwardingOtlpIngestServiceDecorator.HttpClientName);
+        services.TryAddSingleton<ForwardingOtlpIngestServiceDecorator>(sp => new ForwardingOtlpIngestServiceDecorator(
+            inner: sp.GetRequiredService<OtlpIngestService>(),
+            scopeFactory: sp.GetRequiredService<IServiceScopeFactory>(),
+            httpClientFactory: sp.GetRequiredService<IHttpClientFactory>(),
+            timeProvider: sp.GetRequiredService<TimeProvider>(),
+            logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ForwardingOtlpIngestServiceDecorator>>()));
+        services.TryAddSingleton<IOtlpIngestService>(sp => sp.GetRequiredService<ForwardingOtlpIngestServiceDecorator>());
 
         // Hosted services that depend on runtime infrastructure (Dapr state store,
         // database). During build-time OpenAPI generation none of this is

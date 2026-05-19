@@ -61,7 +61,8 @@ public class ActivityRetentionPurgeServiceTests : IDisposable
         using (var scope = _serviceProvider.CreateScope())
         {
             var settings = scope.ServiceProvider.GetRequiredService<ITenantActivitySettings>();
-            await settings.SetAsync(TenantA, ActivityCaptureLevel.Full, 7, TestContext.Current.CancellationToken);
+            await settings.SetAsync(TenantA, ActivityCaptureLevel.Full, 7,
+                cancellationToken: TestContext.Current.CancellationToken);
         }
 
         var now = DateTimeOffset.UtcNow;

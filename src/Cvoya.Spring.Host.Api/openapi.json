@@ -6286,6 +6286,27 @@
         }
       }
     },
+    "/api/v1/tenant/activity/settings/forward-status": {
+      "get": {
+        "tags": [
+          "Tenant"
+        ],
+        "summary": "Get the most recent external-forward attempt result for the tenant (#2503).",
+        "operationId": "GetTenantActivityForwardStatus",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantActivityForwardStatusDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/threads": {
       "get": {
         "tags": [
@@ -12422,6 +12443,77 @@
           }
         }
       },
+      "ExternalForwardDto": {
+        "required": [
+          "endpoint",
+          "protocol",
+          "headers",
+          "enabled"
+        ],
+        "type": "object",
+        "properties": {
+          "endpoint": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ExternalForwardUpdateRequest": {
+        "required": [
+          "endpoint",
+          "protocol",
+          "headers",
+          "enabled",
+          "clear"
+        ],
+        "type": "object",
+        "properties": {
+          "endpoint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "protocol": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "headers": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "clear": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
       "GitHubCollaboratorResponse": {
         "required": [
           "login",
@@ -14630,6 +14722,32 @@
           }
         }
       },
+      "TenantActivityForwardStatusDto": {
+        "required": [
+          "kind",
+          "observed_at",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "observed_at": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "TenantActivitySettingsDto": {
         "required": [
           "level",
@@ -14643,6 +14761,16 @@
           "retention_days": {
             "type": "integer",
             "format": "int32"
+          },
+          "external_forward": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExternalForwardDto"
+              }
+            ]
           }
         }
       },
@@ -16165,6 +16293,16 @@
               "integer"
             ],
             "format": "int32"
+          },
+          "external_forward": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExternalForwardUpdateRequest"
+              }
+            ]
           }
         }
       },

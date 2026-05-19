@@ -95,7 +95,8 @@ public class TenantActivitySettingsServiceTests : IDisposable
         using (var scope1 = _serviceProvider.CreateScope())
         {
             var settings = scope1.ServiceProvider.GetRequiredService<ITenantActivitySettings>();
-            await settings.SetAsync(TenantA, ActivityCaptureLevel.Summary, 7, TestContext.Current.CancellationToken);
+            await settings.SetAsync(TenantA, ActivityCaptureLevel.Summary, 7,
+                cancellationToken: TestContext.Current.CancellationToken);
         }
 
         using var scope2 = _serviceProvider.CreateScope();
@@ -112,8 +113,10 @@ public class TenantActivitySettingsServiceTests : IDisposable
         using var scope = _serviceProvider.CreateScope();
         var settings = scope.ServiceProvider.GetRequiredService<ITenantActivitySettings>();
 
-        await settings.SetAsync(TenantA, ActivityCaptureLevel.Full, 30, TestContext.Current.CancellationToken);
-        await settings.SetAsync(TenantA, level: null, retentionDays: 14, TestContext.Current.CancellationToken);
+        await settings.SetAsync(TenantA, ActivityCaptureLevel.Full, 30,
+            cancellationToken: TestContext.Current.CancellationToken);
+        await settings.SetAsync(TenantA, level: null, retentionDays: 14,
+            cancellationToken: TestContext.Current.CancellationToken);
         var snapshot = await settings.GetAsync(TenantA, TestContext.Current.CancellationToken);
 
         snapshot.Level.ShouldBe(ActivityCaptureLevel.Full);

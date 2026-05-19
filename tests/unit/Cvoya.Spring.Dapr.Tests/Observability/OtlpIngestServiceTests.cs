@@ -73,7 +73,8 @@ public class OtlpIngestServiceTests : IDisposable
     {
         using var scope = _serviceProvider.CreateScope();
         var settings = scope.ServiceProvider.GetRequiredService<ITenantActivitySettings>();
-        await settings.SetAsync(TenantA, level, null, TestContext.Current.CancellationToken);
+        await settings.SetAsync(TenantA, level, retentionDays: null,
+            cancellationToken: TestContext.Current.CancellationToken);
     }
 
     private static OtlpEventIngest BuildEvent(

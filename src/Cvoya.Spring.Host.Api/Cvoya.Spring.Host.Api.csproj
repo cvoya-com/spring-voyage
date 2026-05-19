@@ -33,6 +33,13 @@
     <PackageReference Include="Dapr.Workflow" />
     <PackageReference Include="System.Reactive" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <!-- #2501: OTLP/HTTP+protobuf ingest. Google.Protobuf supplies the
+         official wire-format reader (CodedInputStream); the minimal OTLP
+         message shapes the ingest pipeline consumes are inlined in
+         Endpoints/Otlp/OtlpProtobufDecoder.cs so we neither pull in a
+         separate proto-codegen toolchain nor depend on a non-existent
+         OpenTelemetry.Proto package. -->
+    <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="Microsoft.Extensions.ApiDescription.Server">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

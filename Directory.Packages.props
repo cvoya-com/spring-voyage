@@ -62,5 +62,11 @@
          JSON Schema 2020-12. Used only by Cvoya.Spring.Host.Api.Tests so
          the package stays out of the runtime closure. -->
     <PackageVersion Include="JsonSchema.Net" Version="9.2.0" />
+
+    <!-- OTLP/HTTP+protobuf wire-format support (#2501). Google.Protobuf's
+         CodedInputStream parses the OTLP envelopes our ingest controller
+         receives when a runtime emits `application/x-protobuf`; the
+         JSON-side wire mapper handles `application/json`. -->
+    <PackageVersion Include="Google.Protobuf" Version="3.34.0" />
   </ItemGroup>
 </Project>

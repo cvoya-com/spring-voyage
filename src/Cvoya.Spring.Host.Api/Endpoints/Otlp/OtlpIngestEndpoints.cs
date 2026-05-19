@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Endpoints.Otlp;
 
 using System.Globalization;
+using System.Net.Mime;
 using System.Security.Claims;
 using System.Text.Json;
 
@@ -18,7 +19,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// OTLP/HTTP+JSON ingest endpoints (issue #2492). Mounted under
+/// OTLP/HTTP ingest endpoints (issue #2492 / #2501). Mounted under
 /// <c>/otlp/v1/</c> and gated by the
 /// <see cref="Auth.AuthConstants.OtlpCallbackScheme"/> auth scheme that
 /// validates the per-invocation callback JWT the launcher injects into
@@ -26,9 +27,12 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The endpoints accept the OTLP/HTTP+JSON wire format only. Protobuf
-/// support is a follow-up — runtimes emit JSON natively when the
-/// launcher sets <c>OTEL_EXPORTER_OTLP_PROTOCOL=http/json</c>.
+/// The endpoints accept both <c>application/json</c> (OTLP/HTTP+JSON)
+/// and <c>application/x-protobuf</c> (OTLP/HTTP+protobuf, issue #2501).
+/// Runtimes that pin <c>OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf</c>
+/// take the lean wire form; runtimes that pin <c>http/json</c> stay on
+/// the JSON path. Unknown content types are rejected with the standard
+/// <c>415 Unsupported Media Type</c>.
 /// </para>
 /// <para>
 /// Auth-claim cross-check: every event in the batch must declare a
@@ -49,26 +53,28 @@ public static class OtlpIngestEndpoints
         var group = app.MapGroup("/otlp/v1")
             .WithTags("Otlp");
 
-        // OTLP-style endpoints; the wire body is `application/json`.
-        // OpenAPI metadata is intentionally minimal — these aren't part
-        // of the tenant API surface that CLI / portal callers consume.
+        // OTLP-style endpoints; both JSON and protobuf wire bodies are
+        // accepted. OpenAPI metadata is intentionally minimal — these
+        // aren't part of the tenant API surface that CLI / portal callers
+        // consume.
         group.MapPost("/logs", IngestLogsAsync)
             .WithName("OtlpIngestLogs")
-            .Accepts<OtlpLogsRequest>("application/json")
+            .Accepts<OtlpLogsRequest>("application/json", OtlpProtobufDecoder.ContentType)
             .Produces<OtlpAcceptedResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status415UnsupportedMediaType)
             .ExcludeFromDescription();
 
         group.MapPost("/traces", IngestTracesAsync)
             .WithName("OtlpIngestTraces")
-            .Accepts<OtlpTracesRequest>("application/json")
+            .Accepts<OtlpTracesRequest>("application/json", OtlpProtobufDecoder.ContentType)
             .Produces<OtlpAcceptedResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status415UnsupportedMediaType)
             .ExcludeFromDescription();
 
         return group;
     }
 
     private static async Task<IResult> IngestLogsAsync(
-        [FromBody] OtlpLogsRequest request,
         HttpContext httpContext,
         IOtlpIngestService ingestService,
         ILoggerFactory loggerFactory,
@@ -81,13 +87,18 @@ public static class OtlpIngestEndpoints
             return Results.Unauthorized();
         }
 
-        var events = OtlpEventMapper.MapLogs(request, tenantId, subjectAddress, logger);
-        var result = await ingestService.IngestAsync(events, cancellationToken);
+        var (request, decodeError) = await ReadLogsRequestAsync(httpContext, cancellationToken);
+        if (decodeError is not null)
+        {
+            return decodeError;
+        }
+
+        var events = OtlpEventMapper.MapLogs(request!, tenantId, subjectAddress, logger);
+        await ingestService.IngestAsync(events, cancellationToken);
         return Results.Ok(new OtlpAcceptedResponse());
     }
 
     private static async Task<IResult> IngestTracesAsync(
-        [FromBody] OtlpTracesRequest request,
         HttpContext httpContext,
         IOtlpIngestService ingestService,
         ILoggerFactory loggerFactory,
@@ -99,10 +110,85 @@ public static class OtlpIngestEndpoints
             return Results.Unauthorized();
         }
 
-        var events = OtlpEventMapper.MapTraces(request, tenantId, subjectAddress, logger);
-        var result = await ingestService.IngestAsync(events, cancellationToken);
+        var (request, decodeError) = await ReadTracesRequestAsync(httpContext, cancellationToken);
+        if (decodeError is not null)
+        {
+            return decodeError;
+        }
+
+        var events = OtlpEventMapper.MapTraces(request!, tenantId, subjectAddress, logger);
+        await ingestService.IngestAsync(events, cancellationToken);
         return Results.Ok(new OtlpAcceptedResponse());
     }
+
+    private static async Task<(OtlpLogsRequest? Request, IResult? Error)> ReadLogsRequestAsync(
+        HttpContext httpContext, CancellationToken ct)
+    {
+        var contentType = httpContext.Request.ContentType ?? string.Empty;
+        if (IsProtobufContentType(contentType))
+        {
+            var bytes = await ReadBodyAsync(httpContext, ct);
+            try
+            {
+                return (OtlpProtobufDecoder.DecodeLogs(bytes), null);
+            }
+            catch (Exception)
+            {
+                return (null, Results.StatusCode(StatusCodes.Status400BadRequest));
+            }
+        }
+        if (IsJsonContentType(contentType))
+        {
+            var parsed = await JsonSerializer.DeserializeAsync<OtlpLogsRequest>(
+                httpContext.Request.Body,
+                JsonOptions,
+                ct);
+            return (parsed ?? new OtlpLogsRequest(), null);
+        }
+        return (null, Results.StatusCode(StatusCodes.Status415UnsupportedMediaType));
+    }
+
+    private static async Task<(OtlpTracesRequest? Request, IResult? Error)> ReadTracesRequestAsync(
+        HttpContext httpContext, CancellationToken ct)
+    {
+        var contentType = httpContext.Request.ContentType ?? string.Empty;
+        if (IsProtobufContentType(contentType))
+        {
+            var bytes = await ReadBodyAsync(httpContext, ct);
+            try
+            {
+                return (OtlpProtobufDecoder.DecodeTraces(bytes), null);
+            }
+            catch (Exception)
+            {
+                return (null, Results.StatusCode(StatusCodes.Status400BadRequest));
+            }
+        }
+        if (IsJsonContentType(contentType))
+        {
+            var parsed = await JsonSerializer.DeserializeAsync<OtlpTracesRequest>(
+                httpContext.Request.Body,
+                JsonOptions,
+                ct);
+            return (parsed ?? new OtlpTracesRequest(), null);
+        }
+        return (null, Results.StatusCode(StatusCodes.Status415UnsupportedMediaType));
+    }
+
+    private static async Task<byte[]> ReadBodyAsync(HttpContext httpContext, CancellationToken ct)
+    {
+        using var ms = new MemoryStream();
+        await httpContext.Request.Body.CopyToAsync(ms, ct);
+        return ms.ToArray();
+    }
+
+    private static bool IsJsonContentType(string contentType)
+        => contentType.StartsWith(MediaTypeNames.Application.Json, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsProtobufContentType(string contentType)
+        => contentType.StartsWith(OtlpProtobufDecoder.ContentType, StringComparison.OrdinalIgnoreCase);
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private static bool TryAuthorize(
         HttpContext httpContext,
@@ -194,7 +280,6 @@ public static class OtlpIngestEndpoints
             return timeProvider.GetUtcNow();
         }
         // Unix nanoseconds → DateTimeOffset.
-        var ticks = nanos / 100; // 100 ns per tick.
         var dt = DateTimeOffset.FromUnixTimeMilliseconds(nanos / 1_000_000);
         return dt;
     }
