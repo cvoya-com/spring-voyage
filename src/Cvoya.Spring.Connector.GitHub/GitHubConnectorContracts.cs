@@ -10,9 +10,28 @@ using System.Text.Json.Serialization;
 /// <c>PUT /api/v1/connectors/github/units/{unitId}/config</c>. Binds the
 /// unit to the GitHub connector and upserts the per-unit config atomically.
 /// </summary>
-/// <param name="Owner">The repository owner (user or organization login).</param>
-/// <param name="Repo">The repository name.</param>
-/// <param name="AppInstallationId">The GitHub App installation id powering the binding, if any.</param>
+/// <remarks>
+/// Per ADR-0047 §11 exactly one of <see cref="AppInstallationId"/> and
+/// <see cref="PatSecretName"/> MUST be set at create / update time. The
+/// endpoint rejects neither-set with <c>GitHubBindingAuthRequired</c> and
+/// both-set with <c>GitHubBindingAuthAmbiguous</c>.
+/// </remarks>
+/// <param name="Repo">
+/// The qualified repository name in <c>owner/repo</c> form (e.g.
+/// <c>cvoya-com/spring-voyage</c>). Unqualified input is rejected at the
+/// API surface so the binding never lands a half-name.
+/// </param>
+/// <param name="AppInstallationId">
+/// The GitHub App installation id powering the binding. Set to non-null
+/// to use the App-installation auth path; <c>null</c> when the binding
+/// uses a PAT (in which case <see cref="PatSecretName"/> MUST be set).
+/// </param>
+/// <param name="PatSecretName">
+/// Tenant-secret name addressing the PAT this binding pushes with. Set to
+/// non-null to use the PAT auth path; <c>null</c> when the binding uses
+/// the App-installation path (in which case <see cref="AppInstallationId"/>
+/// MUST be set).
+/// </param>
 /// <param name="Events">Webhook events to subscribe to. Null falls back to the connector's default set.</param>
 /// <param name="Reviewer">
 /// Default GitHub login (no leading <c>@</c>) requested as the reviewer on
@@ -26,9 +45,9 @@ using System.Text.Json.Serialization;
 /// <param name="IncludeAuthors">Inbound webhook filter: GitHub logins that gate delivery (disjunctive). Issue #2407.</param>
 /// <param name="IncludePaths">Inbound webhook filter: file-path prefixes that gate PR-shape delivery (disjunctive). Issue #2407.</param>
 public record UnitGitHubConfigRequest(
-    string Owner,
     string Repo,
     long? AppInstallationId = null,
+    [property: JsonPropertyName("pat_secret_name")] string? PatSecretName = null,
     IReadOnlyList<string>? Events = null,
     string? Reviewer = null,
     [property: JsonPropertyName("add_on_assign")] IReadOnlyList<string>? AddOnAssign = null,
@@ -45,9 +64,9 @@ public record UnitGitHubConfigRequest(
 /// resolved to the connector's defaults when the caller didn't supply one).
 /// </summary>
 /// <param name="UnitId">The unit id this config is bound to.</param>
-/// <param name="Owner">The repository owner (user or organization login).</param>
-/// <param name="Repo">The repository name.</param>
-/// <param name="AppInstallationId">The GitHub App installation id powering the binding, if any.</param>
+/// <param name="Repo">The qualified <c>owner/repo</c> name.</param>
+/// <param name="AppInstallationId">The GitHub App installation id powering the binding, if the App path was chosen.</param>
+/// <param name="PatSecretName">The tenant-secret name addressing the PAT, if the PAT path was chosen.</param>
 /// <param name="Events">The effective webhook event subscriptions.</param>
 /// <param name="Reviewer">
 /// Default reviewer login persisted on the binding, or <c>null</c> when
@@ -74,9 +93,9 @@ public record UnitGitHubConfigRequest(
 /// <param name="IncludePaths">Inbound webhook filter: file-path prefixes that gate PR-shape delivery (disjunctive). Issue #2407.</param>
 public record UnitGitHubConfigResponse(
     string UnitId,
-    string Owner,
     string Repo,
     long? AppInstallationId,
+    [property: JsonPropertyName("pat_secret_name")] string? PatSecretName,
     IReadOnlyList<string> Events,
     string? Reviewer,
     bool EventsAreDefault,

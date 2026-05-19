@@ -13,8 +13,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Cvoya.Spring.Dapr.Data.Migrations
 {
     [DbContext(typeof(SpringDbContext))]
-    [Migration("20260517092356_HumanConnectorIdentities")]
-    partial class HumanConnectorIdentities
+    [Migration("20260519000304_TenantUserAndConnectorIdentityRekey")]
+    partial class TenantUserAndConnectorIdentityRekey
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -612,58 +612,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.ToTable("credential_health", "spring");
                 });
 
-            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.HumanConnectorIdentityEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("ConnectorId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("connector_id");
-
-                    b.Property<string>("ConnectorUserId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("connector_user_id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("DisplayHandle")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("display_handle");
-
-                    b.Property<Guid>("HumanId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("human_id");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "HumanId")
-                        .HasDatabaseName("ix_human_connector_identities_tenant_human");
-
-                    b.HasIndex("TenantId", "ConnectorId", "ConnectorUserId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_human_connector_identities_tenant_connector_user");
-
-                    b.ToTable("human_connector_identities", "spring");
-                });
-
             modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.HumanEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -674,6 +622,10 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
 
                     b.Property<string>("DisplayName")
                         .IsRequired()
@@ -958,6 +910,71 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.ToTable("package_installs", "spring");
                 });
 
+            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.PersistentAgentRuntimeEntity", b =>
+                {
+                    b.Property<Guid>("AgentId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("agent_id");
+
+                    b.Property<int>("ConsecutiveFailures")
+                        .HasColumnType("integer")
+                        .HasColumnName("consecutive_failures");
+
+                    b.Property<string>("ContainerId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("container_id");
+
+                    b.Property<string>("Endpoint")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("endpoint");
+
+                    b.Property<int>("HealthStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("health_status");
+
+                    b.Property<string>("Image")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("image");
+
+                    b.Property<string>("OwnerHost")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("owner_host");
+
+                    b.Property<string>("SidecarId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("sidecar_id");
+
+                    b.Property<string>("SidecarNetworkName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("sidecar_network_name");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("AgentId");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("persistent_agent_runtime", "spring");
+                });
+
             modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.SecretRegistryEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1190,6 +1207,103 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("tenant_skill_bundle_bindings", "spring");
+                });
+
+            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.TenantUserConnectorIdentityEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ConnectorId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("connector_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DisplayHandle")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("display_handle");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("TenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_user_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("username");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ConnectorId", "Username")
+                        .IsUnique()
+                        .HasDatabaseName("ux_tenant_user_connector_identities_tenant_connector_username");
+
+                    b.HasIndex("TenantId", "TenantUserId", "ConnectorId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_tenant_user_connector_identities_tenant_user_connector");
+
+                    b.ToTable("tenant_user_connector_identities", "spring");
+                });
+
+            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.TenantUserEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AuthSubject")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("auth_subject");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("display_name");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "AuthSubject")
+                        .IsUnique()
+                        .HasDatabaseName("ux_tenant_users_tenant_auth_subject")
+                        .HasFilter("auth_subject IS NOT NULL");
+
+                    b.ToTable("tenant_users", "spring");
                 });
 
             modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.ThreadEntity", b =>
@@ -1544,6 +1658,11 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("execution_mode");
 
+                    b.Property<string>("Expertise")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("expertise");
+
                     b.Property<bool>("IsPrimary")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1554,6 +1673,11 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
                         .HasColumnName("model");
+
+                    b.Property<string>("Roles")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("roles");
 
                     b.Property<string>("Specialty")
                         .HasMaxLength(256)
@@ -1597,11 +1721,10 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("notifications");
 
-                    b.Property<string>("Role")
+                    b.Property<string>("Roles")
                         .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("role");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("roles");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
@@ -1614,11 +1737,8 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId", "UnitId", "HumanId")
-                        .HasDatabaseName("ix_unit_memberships_humans_tenant_unit_human");
-
-                    b.HasIndex("TenantId", "UnitId", "HumanId", "Role")
                         .IsUnique()
-                        .HasDatabaseName("ux_unit_memberships_humans_tenant_unit_human_role");
+                        .HasDatabaseName("ux_unit_memberships_humans_tenant_unit_human");
 
                     b.ToTable("unit_memberships_humans", "spring");
                 });
@@ -1683,6 +1803,16 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<string>("Expertise")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("expertise");
+
+                    b.Property<string>("Roles")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("roles");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")

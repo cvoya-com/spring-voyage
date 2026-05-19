@@ -57,7 +57,7 @@ public class GitHubWebhookHandlerResolveDestinationTests
     public async Task TranslateEventAsync_BindingMatchesTriple_RoutesToUnit()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform", AppInstallationId: 42L);
+            Repo: "acme/platform", AppInstallationId: 42L);
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
             JsonSerializer.SerializeToElement(config));
@@ -85,7 +85,7 @@ public class GitHubWebhookHandlerResolveDestinationTests
     {
         // GitHub login comparisons are case-insensitive.
         var config = new UnitGitHubConfig(
-            Owner: "Acme", Repo: "Platform", AppInstallationId: 42L);
+            Repo: "Acme/Platform", AppInstallationId: 42L);
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
             JsonSerializer.SerializeToElement(config));
@@ -114,7 +114,7 @@ public class GitHubWebhookHandlerResolveDestinationTests
         // (different installation could legitimately ship a same-named
         // repo, especially in personal-account fork patterns).
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform", AppInstallationId: 42L);
+            Repo: "acme/platform", AppInstallationId: 42L);
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
             JsonSerializer.SerializeToElement(config));
@@ -143,7 +143,7 @@ public class GitHubWebhookHandlerResolveDestinationTests
         // resolver falls back to the first binding whose installation
         // matches so the operator still sees lifecycle signal.
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform", AppInstallationId: 42L);
+            Repo: "acme/platform", AppInstallationId: 42L);
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
             JsonSerializer.SerializeToElement(config));
@@ -186,7 +186,7 @@ public class GitHubWebhookHandlerResolveDestinationTests
         // binding for repo A in installation X must not catch an event
         // for repo B in installation X.
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform", AppInstallationId: 42L);
+            Repo: "acme/platform", AppInstallationId: 42L);
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
             JsonSerializer.SerializeToElement(config));

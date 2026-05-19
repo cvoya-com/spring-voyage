@@ -290,18 +290,19 @@ public class ConnectorCommandTests
     }
 
     [Fact]
-    public async Task PutUnitGitHubConfigAsync_SendsOwnerRepoAndEvents()
+    public async Task PutUnitGitHubConfigAsync_SendsRepoAndEvents()
     {
+        // ADR-0047 §11: the wire shape carries a single qualified
+        // 'owner/repo' string in lieu of the prior `owner` + `repo` pair.
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/connectors/github/units/eng-team/config",
             expectedMethod: HttpMethod.Put,
             responseBody:
-                """{"unitId":"eng-team","owner":"acme","repo":"platform","appInstallationId":12345,"events":["issues","pull_request"]}""",
+                """{"unitId":"eng-team","repo":"acme/platform","appInstallationId":12345,"events":["issues","pull_request"]}""",
             validateRequestBody: body =>
             {
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
-                json.GetProperty("owner").GetString().ShouldBe("acme");
-                json.GetProperty("repo").GetString().ShouldBe("platform");
+                json.GetProperty("repo").GetString().ShouldBe("acme/platform");
                 // appInstallationId is now typed as long? in the generated model;
                 // the CLI parses the operator-supplied string and sends a JSON number.
                 json.GetProperty("appInstallationId").GetInt64().ShouldBe(12345L);
@@ -316,14 +317,13 @@ public class ConnectorCommandTests
 
         var result = await client.PutUnitGitHubConfigAsync(
             "eng-team",
-            owner: "acme",
-            repo: "platform",
+            repo: "acme/platform",
             appInstallationId: "12345",
+            patSecretName: null,
             events: new[] { "issues", "pull_request" },
             ct: TestContext.Current.CancellationToken);
 
-        result.Owner.ShouldBe("acme");
-        result.Repo.ShouldBe("platform");
+        result.Repo.ShouldBe("acme/platform");
         handler.WasCalled.ShouldBeTrue();
     }
 
@@ -339,7 +339,7 @@ public class ConnectorCommandTests
             expectedPath: "/api/v1/tenant/connectors/github/units/eng-team/config",
             expectedMethod: HttpMethod.Put,
             responseBody:
-                """{"unitId":"eng-team","owner":"acme","repo":"platform","appInstallationId":12345,"events":["issues"],"reviewer":"alice"}""",
+                """{"unitId":"eng-team","repo":"acme/platform","appInstallationId":12345,"events":["issues"],"reviewer":"alice"}""",
             validateRequestBody: body =>
             {
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
@@ -351,9 +351,9 @@ public class ConnectorCommandTests
 
         var result = await client.PutUnitGitHubConfigAsync(
             "eng-team",
-            owner: "acme",
-            repo: "platform",
+            repo: "acme/platform",
             appInstallationId: "12345",
+            patSecretName: null,
             events: new[] { "issues" },
             reviewer: "alice",
             ct: TestContext.Current.CancellationToken);
@@ -369,12 +369,11 @@ public class ConnectorCommandTests
             expectedPath: "/api/v1/tenant/connectors/github/units/eng-team/config",
             expectedMethod: HttpMethod.Put,
             responseBody:
-                """{"unitId":"eng-team","owner":"acme","repo":"platform","appInstallationId":12345,"events":["issues"],"reviewer":"alice","eventsAreDefault":false,"add_on_assign":["triage"],"remove_on_assign":["needs-assignment"]}""",
+                """{"unitId":"eng-team","repo":"acme/platform","appInstallationId":12345,"events":["issues"],"reviewer":"alice","eventsAreDefault":false,"add_on_assign":["triage"],"remove_on_assign":["needs-assignment"]}""",
             validateRequestBody: body =>
             {
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
-                json.GetProperty("owner").GetString().ShouldBe("acme");
-                json.GetProperty("repo").GetString().ShouldBe("platform");
+                json.GetProperty("repo").GetString().ShouldBe("acme/platform");
                 json.GetProperty("reviewer").GetString().ShouldBe("alice");
                 json.GetProperty("add_on_assign").EnumerateArray()
                     .Select(e => e.GetString())
@@ -391,9 +390,9 @@ public class ConnectorCommandTests
 
         var result = await client.PutUnitGitHubConfigAsync(
             "eng-team",
-            owner: "acme",
-            repo: "platform",
+            repo: "acme/platform",
             appInstallationId: "12345",
+            patSecretName: null,
             events: new[] { "issues" },
             reviewer: "alice",
             addOnAssign: new[] { "triage" },
@@ -416,7 +415,7 @@ public class ConnectorCommandTests
             expectedPath: "/api/v1/tenant/connectors/github/units/eng-team/config",
             expectedMethod: HttpMethod.Put,
             responseBody:
-                """{"unitId":"eng-team","owner":"acme","repo":"platform","appInstallationId":12345,"events":["issues"],"reviewer":"alice","eventsAreDefault":false,"include_labels":["spring-voyage"],"exclude_labels":["wip"],"include_authors":["alice","bob"],"include_paths":["docs/"]}""",
+                """{"unitId":"eng-team","repo":"acme/platform","appInstallationId":12345,"events":["issues"],"reviewer":"alice","eventsAreDefault":false,"include_labels":["spring-voyage"],"exclude_labels":["wip"],"include_authors":["alice","bob"],"include_paths":["docs/"]}""",
             validateRequestBody: body =>
             {
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
@@ -439,9 +438,9 @@ public class ConnectorCommandTests
 
         var result = await client.PutUnitGitHubConfigAsync(
             "eng-team",
-            owner: "acme",
-            repo: "platform",
+            repo: "acme/platform",
             appInstallationId: "12345",
+            patSecretName: null,
             events: new[] { "issues" },
             reviewer: "alice",
             addOnAssign: null,

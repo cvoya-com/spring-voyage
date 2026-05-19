@@ -32,8 +32,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     public async Task ContributeAsync_ValidBinding_EmitsExpectedEnvVars()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme",
-            Repo: "platform",
+            Repo: "acme/platform",
             AppInstallationId: 4242,
             Events: null,
             Reviewer: "reviewer-login");
@@ -63,7 +62,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     [Fact]
     public async Task ContributeAsync_EnvVarsRespectSeamNamespace()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("acme", "platform", 4242, Reviewer: "rev"));
+        var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: "rev"));
         var auth = new FakeGitHubAppAuth("t", TokenExpiry);
         var contributor = new GitHubConnectorRuntimeContextContributor(
             auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
@@ -81,7 +80,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     [Fact]
     public async Task ContributeAsync_NoReviewer_OmitsReviewerEnvVar()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("acme", "platform", 4242, Reviewer: null));
+        var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: null));
         var auth = new FakeGitHubAppAuth("t", TokenExpiry);
         var contributor = new GitHubConnectorRuntimeContextContributor(
             auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
@@ -97,7 +96,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     [Fact]
     public async Task ContributeAsync_WhitespaceReviewer_OmitsReviewerEnvVar()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("acme", "platform", 4242, Reviewer: "   "));
+        var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: "   "));
         var auth = new FakeGitHubAppAuth("t", TokenExpiry);
         var contributor = new GitHubConnectorRuntimeContextContributor(
             auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
@@ -113,7 +112,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     [Fact]
     public async Task ContributeAsync_WritesBindingJsonFile_WithoutTokenInBody()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("acme", "platform", 4242, Reviewer: "rev"));
+        var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: "rev"));
         var auth = new FakeGitHubAppAuth("ghs_secret", TokenExpiry);
         var contributor = new GitHubConnectorRuntimeContextContributor(
             auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
@@ -136,7 +135,10 @@ public class GitHubConnectorRuntimeContextContributorTests
     [Fact]
     public async Task ContributeAsync_MissingOwner_ReturnsEmpty()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("", "platform", 4242, Reviewer: null));
+        // Unqualified repo (no `/`) is rejected by TryParseRepo so the
+        // contributor returns Empty. Pre-ADR-0047 row shape — kept under
+        // test as a regression guard.
+        var binding = MakeBinding(new UnitGitHubConfig("platform", 4242, Reviewer: null));
         var auth = new FakeGitHubAppAuth("t", TokenExpiry);
         var contributor = new GitHubConnectorRuntimeContextContributor(
             auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
@@ -151,7 +153,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     [Fact]
     public async Task ContributeAsync_MissingInstallationId_ReturnsEmpty()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("acme", "platform", AppInstallationId: null));
+        var binding = MakeBinding(new UnitGitHubConfig("acme/platform", AppInstallationId: null));
         var auth = new FakeGitHubAppAuth("t", TokenExpiry);
         var contributor = new GitHubConnectorRuntimeContextContributor(
             auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
@@ -166,7 +168,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     [Fact]
     public async Task ContributeAsync_TokenMintFails_PropagatesException()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("acme", "platform", 4242, Reviewer: "rev"));
+        var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: "rev"));
         var auth = new ThrowingGitHubAppAuth(new HttpRequestException("github 500"));
         var contributor = new GitHubConnectorRuntimeContextContributor(
             auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
@@ -198,7 +200,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     [Fact]
     public async Task ContributeAsync_PublishesGithubTokenAliasWithSameValue()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("acme", "platform", 4242, Reviewer: "rev"));
+        var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: "rev"));
         var auth = new FakeGitHubAppAuth("ghs_dual-presence-token", TokenExpiry);
         var contributor = new GitHubConnectorRuntimeContextContributor(
             auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
@@ -221,7 +223,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     [Fact]
     public async Task GetPromptHintsAsync_ValidBinding_ReturnsFragmentNamingTheRepo()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("cvoya-com", "spring-voyage", 4242, Reviewer: "rev"));
+        var binding = MakeBinding(new UnitGitHubConfig("cvoya-com/spring-voyage", 4242, Reviewer: "rev"));
         var auth = new FakeGitHubAppAuth("t", TokenExpiry);
         var contributor = new GitHubConnectorRuntimeContextContributor(
             auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
@@ -242,9 +244,12 @@ public class GitHubConnectorRuntimeContextContributorTests
     }
 
     [Fact]
-    public async Task GetPromptHintsAsync_MissingOwner_ReturnsNull()
+    public async Task GetPromptHintsAsync_UnqualifiedRepo_ReturnsNull()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("", "platform", 4242, Reviewer: null));
+        // ADR-0047 §11: unqualified repo (no `/`) is rejected by
+        // TryParseRepo so the contributor returns null. This covers both
+        // pre-ADR-0047 owner-only and repo-only row shapes.
+        var binding = MakeBinding(new UnitGitHubConfig("platform", 4242, Reviewer: null));
         var auth = new FakeGitHubAppAuth("t", TokenExpiry);
         var contributor = new GitHubConnectorRuntimeContextContributor(
             auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
@@ -256,9 +261,9 @@ public class GitHubConnectorRuntimeContextContributorTests
     }
 
     [Fact]
-    public async Task GetPromptHintsAsync_MissingRepo_ReturnsNull()
+    public async Task GetPromptHintsAsync_EmptyRepo_ReturnsNull()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("acme", "", 4242, Reviewer: null));
+        var binding = MakeBinding(new UnitGitHubConfig("", 4242, Reviewer: null));
         var auth = new FakeGitHubAppAuth("t", TokenExpiry);
         var contributor = new GitHubConnectorRuntimeContextContributor(
             auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);

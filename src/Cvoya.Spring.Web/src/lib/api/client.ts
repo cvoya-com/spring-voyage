@@ -22,8 +22,6 @@ import type {
   DirectorySearchRequest,
   DirectorySearchResponse,
   ExpertiseDomainDto,
-  HumanConnectorIdentityRequest,
-  HumanConnectorIdentityResponse,
   HumanResponse,
   InitiativePolicy,
   InstallPackageDetail,
@@ -481,61 +479,13 @@ export const api = {
       }),
     ) as HumanResponse,
 
-  // Human ↔ connector-identity rows (PR #2420 / closes #2408). Backs the
-  // Human × Config → Identity sub-tab (#2269). Same wire the CLI's
-  // `spring human identity {add,list,remove}` commands consume, keeping
-  // the portal at parity with the CLI per CONVENTIONS.md § ui-cli-parity.
-  listHumanIdentities: async (
-    humanId: string,
-  ): Promise<HumanConnectorIdentityResponse[]> =>
-    unwrap(
-      await fetchClient.GET(
-        "/api/v1/tenant/humans/{humanId}/identities",
-        { params: { path: { humanId } } },
-      ),
-    ) as HumanConnectorIdentityResponse[],
-
-  /**
-   * Upsert (POST) a connector-identity row. Server collapses "create" and
-   * "in-place display-handle update" into the same endpoint — same
-   * (humanId, connectorId, connectorUserId) tuple is idempotent;
-   * mapping the same (connector, user-id) tuple to a *different* human
-   * surfaces as 409 (`ApiError` body carries the ProblemDetails copy).
-   */
-  upsertHumanIdentity: async (
-    humanId: string,
-    body: HumanConnectorIdentityRequest,
-  ): Promise<HumanConnectorIdentityResponse> =>
-    unwrap(
-      await fetchClient.POST(
-        "/api/v1/tenant/humans/{humanId}/identities",
-        { params: { path: { humanId } }, body },
-      ),
-    ) as HumanConnectorIdentityResponse,
-
-  /**
-   * Remove (DELETE) a connector-identity row. The server endpoint takes
-   * the connector slug + user id as query parameters (NOT path
-   * parameters); endpoint contract per `HumanIdentityEndpoints.cs`.
-   * Idempotent — 204 even when the row didn't exist.
-   */
-  removeHumanIdentity: async (
-    humanId: string,
-    connectorId: string,
-    connectorUserId: string,
-  ): Promise<void> => {
-    assertOk(
-      await fetchClient.DELETE(
-        "/api/v1/tenant/humans/{humanId}/identities",
-        {
-          params: {
-            path: { humanId },
-            query: { connectorId, connectorUserId },
-          },
-        },
-      ),
-    );
-  },
+  // ADR-0047 §§ 2, 14: connector-identity relocates onto the TenantUser
+  // principal under /api/v1/tenant/users/{id}/identities. Phase H of the
+  // umbrella wires the portal's new user-identity page against the
+  // relocated routes; v0.1's freezing release deletes the prior portal
+  // wrappers outright with no shim. The Human × Config × Identity
+  // sub-tab is removed alongside; the portal's Human surface keeps the
+  // envelope routes (display name / description PATCH).
 
   // Units
   //

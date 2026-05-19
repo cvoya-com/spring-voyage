@@ -220,6 +220,16 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
                 continue;
             }
 
+            // ADR-0047 §11 reshape: the binding now stores the qualified
+            // 'owner/repo' on a single column. Split it here so the
+            // existing matcher logic — Phase E rewrites the routing key
+            // entirely, but until then preserve the (installation_id,
+            // owner, repo) primary-match semantics on the parsed pair.
+            if (!UnitGitHubConfig.TryParseRepo(cfg.Repo, out var cfgOwner, out var cfgRepo))
+            {
+                continue;
+            }
+
             // Primary match: (installation_id, owner, repo). All three
             // are required so a repo that happens to share an owner /
             // name with a binding in a different installation isn't
@@ -228,8 +238,8 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
                 && cfg.AppInstallationId == installationId
                 && owner is not null
                 && repo is not null
-                && string.Equals(cfg.Owner, owner, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(cfg.Repo, repo, StringComparison.OrdinalIgnoreCase))
+                && string.Equals(cfgOwner, owner, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(cfgRepo, repo, StringComparison.OrdinalIgnoreCase))
             {
                 match = entry;
                 break;

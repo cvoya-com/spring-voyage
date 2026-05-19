@@ -11,17 +11,53 @@ using System.Text.Json.Serialization;
 /// abstraction — serialized as a <see cref="System.Text.Json.JsonElement"/>
 /// so the core platform remains unaware of any connector-specific shape.
 /// </summary>
-/// <param name="Owner">The repository owner (user or organization login).</param>
-/// <param name="Repo">The repository name.</param>
+/// <remarks>
+/// <para>
+/// ADR-0047 §11 reshape:
+/// <list type="bullet">
+///   <item><description>
+///     <c>Owner</c> dropped — structurally redundant once <see cref="Repo"/>
+///     carries the qualified <c>owner/repo</c> form (CLI / portal reject
+///     unqualified inputs at parse time per Phase G + Phase H).
+///   </description></item>
+///   <item><description>
+///     <see cref="PatSecretName"/> added — the alternative auth path for
+///     bindings that don't go through a GitHub App installation (e.g. a
+///     public-repo flow with a PAT). Stored as a tenant secret name per
+///     ADR-0003; the binding row never holds the token value itself.
+///   </description></item>
+///   <item><description>
+///     <see cref="AppInstallationId"/> retained — exactly one of
+///     <see cref="AppInstallationId"/> and <see cref="PatSecretName"/>
+///     MUST be set at binding-create time. The binding-create endpoint
+///     enforces the gate with the structured codes
+///     <c>GitHubBindingAuthRequired</c> (neither set) and
+///     <c>GitHubBindingAuthAmbiguous</c> (both set).
+///   </description></item>
+/// </list>
+/// </para>
+/// </remarks>
+/// <param name="Repo">
+/// The qualified repository name in <c>owner/repo</c> form (e.g.
+/// <c>cvoya-com/spring-voyage</c>). Per ADR-0047 §11 the binding's
+/// addressing concern is the qualified pair, not the owner and repo
+/// names as separate columns.
+/// </param>
 /// <param name="AppInstallationId">
-/// The GitHub App installation id selected by the user when binding this
-/// unit to a repository. Drives every platform-side outbound auth call for
-/// the binding — webhook register / unregister, label roundtrip, the
-/// per-binding PR-files fetcher (#2385). <c>null</c> falls back to
-/// <see cref="Auth.GitHubConnectorOptions.InstallationId"/>; that fallback
-/// is the documented OSS path for single-installation deployments and
-/// should not be relied on by any deployment with more than one
-/// installation visible to the App.
+/// The GitHub App installation id selected when binding this unit to a
+/// repository through the SV App or a BYO App. Drives outbound auth via
+/// the App-installation token-mint path of ADR-0047 §6. Set to non-null
+/// when the operator chose the App-installation route at binding time;
+/// <c>null</c> when the PAT route was chosen.
+/// </param>
+/// <param name="PatSecretName">
+/// Free-form tenant-secret name addressing the PAT this binding pushes
+/// with. Set to non-null when the operator chose the PAT route at
+/// binding time; <c>null</c> when the App-installation route was chosen.
+/// The default naming convention (per ADR-0047 §5) is
+/// <c>binding/&lt;binding-id-no-dash&gt;/github/pat</c>; operators who
+/// paste an existing secret name override the default at create time.
+/// The resolver does not parse the secret name to recover the binding id.
 /// </param>
 /// <param name="Events">
 /// The webhook event names the unit subscribes to (e.g. <c>issues</c>,
@@ -63,9 +99,9 @@ using System.Text.Json.Serialization;
 /// Null or empty means "no path filter." Issue #2407.
 /// </param>
 public record UnitGitHubConfig(
-    string Owner,
     string Repo,
     long? AppInstallationId = null,
+    [property: JsonPropertyName("pat_secret_name")] string? PatSecretName = null,
     IReadOnlyList<string>? Events = null,
     string? Reviewer = null,
     [property: JsonPropertyName("add_on_assign")] IReadOnlyList<string>? AddOnAssign = null,
@@ -73,4 +109,33 @@ public record UnitGitHubConfig(
     [property: JsonPropertyName("include_labels")] IReadOnlyList<string>? IncludeLabels = null,
     [property: JsonPropertyName("exclude_labels")] IReadOnlyList<string>? ExcludeLabels = null,
     [property: JsonPropertyName("include_authors")] IReadOnlyList<string>? IncludeAuthors = null,
-    [property: JsonPropertyName("include_paths")] IReadOnlyList<string>? IncludePaths = null);
+    [property: JsonPropertyName("include_paths")] IReadOnlyList<string>? IncludePaths = null)
+{
+    /// <summary>
+    /// Returns <c>true</c> when <see cref="Repo"/> is a syntactically valid
+    /// qualified <c>owner/repo</c> string and surfaces the two halves in
+    /// the <paramref name="owner"/> / <paramref name="repoName"/> out
+    /// parameters. Returns <c>false</c> when the value is null, empty, or
+    /// missing the slash separator (e.g. a v0.0 row that pre-dates the
+    /// ADR-0047 §11 reshape) — in which case both out parameters are set
+    /// to <see cref="string.Empty"/>. Centralised here so every call site
+    /// that needs the (owner, repo) split shares the same parse.
+    /// </summary>
+    public static bool TryParseRepo(string? qualifiedRepo, out string owner, out string repoName)
+    {
+        owner = string.Empty;
+        repoName = string.Empty;
+        if (string.IsNullOrWhiteSpace(qualifiedRepo))
+        {
+            return false;
+        }
+        var slash = qualifiedRepo.IndexOf('/');
+        if (slash <= 0 || slash >= qualifiedRepo.Length - 1)
+        {
+            return false;
+        }
+        owner = qualifiedRepo[..slash];
+        repoName = qualifiedRepo[(slash + 1)..];
+        return true;
+    }
+}

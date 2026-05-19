@@ -40,7 +40,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
     public async Task HandleWebhookAsync_FilterDropsEvent_ReturnsIgnoredAndEmitsActivity()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludeLabels: new[] { "spring-voyage" });
         var (connector, bus) = BuildConnector(config);
 
@@ -84,7 +84,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
     public async Task HandleWebhookAsync_FilterPassesEvent_ReturnsTranslatedAndDoesNotEmit()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludeLabels: new[] { "spring-voyage" });
         var (connector, bus) = BuildConnector(config);
 
@@ -126,7 +126,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
     public async Task HandleWebhookAsync_PullRequestWithIncludePaths_FetchesFilesAndDeliversOnMatch()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludePaths: new[] { "docs/" });
         var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
         fetcher.FetchAsync("acme", "platform", 9, Arg.Any<long?>(), Arg.Any<CancellationToken>())
@@ -172,7 +172,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
     public async Task HandleWebhookAsync_PullRequestWithIncludePaths_DropsOnMiss_SurfacesAuditWithPathKind()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludePaths: new[] { "docs/" });
         var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
         fetcher.FetchAsync("acme", "platform", 9, Arg.Any<long?>(), Arg.Any<CancellationToken>())
@@ -221,7 +221,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
         // when IncludePaths is unset. Label-only bindings keep their
         // single-request behaviour.
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludeLabels: new[] { "spring-voyage" });
         var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
 

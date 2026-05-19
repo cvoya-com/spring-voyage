@@ -206,6 +206,41 @@ internal sealed class ParticipantDisplayNameResolver(
             return IParticipantDisplayNameResolver.DeletedDisplayName;
         }
 
+        // ADR-0047 §1: the TenantUser actor kind. Reads
+        // tenant_users.display_name keyed on the address Guid; the tenant
+        // query filter on the DbContext scopes the read to the active
+        // tenant per CONVENTIONS § 12, so a cross-tenant id surfaces as
+        // the deleted sentinel rather than leaking the row's existence.
+        if (string.Equals(scheme, "tenant-user", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var name = await db.TenantUsers
+                    .AsNoTracking()
+                    .Where(u => u.Id == idGuid)
+                    .Select(u => u.DisplayName)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    return name;
+                }
+
+                logger.LogDebug(
+                    "No tenant_user found for actor id {ActorId}; treating as deleted.",
+                    idGuid);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(
+                    ex,
+                    "Failed to resolve display name for tenant_user actor id {ActorId}; treating as deleted.",
+                    idGuid);
+            }
+
+            return IParticipantDisplayNameResolver.DeletedDisplayName;
+        }
+
         // Unknown scheme — return the id as-is rather than the deleted
         // sentinel so operator tooling can still trace it.
         return idText;

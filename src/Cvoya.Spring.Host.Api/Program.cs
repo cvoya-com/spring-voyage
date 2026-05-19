@@ -490,9 +490,24 @@ public partial class Program
             // sibling group so the {id}/members/humans sub-route can carry
             // its own OpenAPI metadata.
             app.MapUnitTeamMembershipEndpoints().RequireAuthorization(RolePolicies.TenantUser);
-            // #2408: human ↔ connector-native identity mapping surface.
-            // Routes live under /api/v1/tenant/humans/{id}/identities.
-            app.MapHumanIdentityEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+            // ADR-0046 §7 / #2266 / #2267: the per-Human read-side envelope.
+            // Lives at /api/v1/tenant/humans/{id} and stays there per
+            // ADR-0047 §14 — it remains a unit-membership concern owned
+            // by ADR-0046.
+            app.MapHumanEnvelopeEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+
+            // ADR-0047 §2 / §14: connector-identity routes relocate onto the
+            // TenantUser principal under /api/v1/tenant/users/{id}/identities.
+            // The TenantUser envelope (GET / PATCH /api/v1/tenant/users/{id})
+            // lives on the same endpoint group.
+            app.MapTenantUserIdentityEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+
+            // ADR-0047 §14: 410 Gone stub on the prior
+            // /api/v1/tenant/humans/{id}/identities routes with a structured
+            // migration hint pointing at the new path. Anonymous (no auth
+            // requirement) so a calling CLI that's behind on auth still
+            // surfaces the migration hint instead of a 401.
+            app.MapRetiredHumanIdentityEndpoints();
             app.MapUnitPolicyEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapMembershipEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapPackageEndpoints().RequireAuthorization(RolePolicies.TenantUser);

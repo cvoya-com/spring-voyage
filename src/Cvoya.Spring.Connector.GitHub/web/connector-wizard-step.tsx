@@ -179,10 +179,21 @@ export function GitHubConnectorWizardStep({
   initialValue,
   gitHubSessionId,
 }: GitHubConnectorWizardStepProps) {
-  // Persisted on the binding. The wizard splits the chosen full_name
-  // client-side so the wire shape stays `(owner, repo, installationId)`.
-  const [owner, setOwner] = useState(initialValue?.owner ?? "");
-  const [repo, setRepo] = useState(initialValue?.repo ?? "");
+  // Persisted on the binding. ADR-0047 §11 reshape: the wire's `repo`
+  // field carries the qualified `owner/repo` string. Phase H of the
+  // umbrella reshapes the wizard step to match (auth-choice sub-step +
+  // qualified-repo input). Until then, the wizard splits the qualified
+  // value into the existing two-input form on load and rejoins on save.
+  const initialQualified = initialValue?.repo ?? "";
+  const initialSlash = initialQualified.indexOf("/");
+  const [owner, setOwner] = useState(
+    initialSlash > 0 ? initialQualified.slice(0, initialSlash) : "",
+  );
+  const [repo, setRepo] = useState(
+    initialSlash > 0
+      ? initialQualified.slice(initialSlash + 1)
+      : initialQualified,
+  );
   const [installationId, setInstallationId] = useState<number | null>(
     initialValue?.appInstallationId == null
       ? null
@@ -506,8 +517,8 @@ export function GitHubConnectorWizardStep({
       return;
     }
     onChange({
-      owner: trimmedOwner,
-      repo: trimmedRepo,
+      // ADR-0047 §11: send the qualified `owner/repo` form on the wire.
+      repo: `${trimmedOwner}/${trimmedRepo}`,
       appInstallationId: installationId,
       // #1127: omit `events` whenever the operator picked "Connector
       // defaults" so the server resolves the set itself. When they

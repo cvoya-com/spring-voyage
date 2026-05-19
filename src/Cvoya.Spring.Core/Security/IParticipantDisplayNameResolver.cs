@@ -34,6 +34,11 @@ namespace Cvoya.Spring.Core.Security;
 ///     <c>human:&lt;guid&gt;</c> →
 ///     <see cref="IHumanIdentityResolver.GetDisplayNameAsync"/>.
 ///   </description></item>
+///   <item><description>
+///     <c>tenant-user:&lt;guid&gt;</c> → <c>tenant_users.DisplayName</c>
+///     (ADR-0047 §1; new actor kind, resolved in <c>Cvoya.Spring.Dapr</c>
+///     against the <c>TenantUserEntity</c> table).
+///   </description></item>
 /// </list>
 ///
 /// <para>

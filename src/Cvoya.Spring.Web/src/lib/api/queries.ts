@@ -52,8 +52,6 @@ import type {
   CostSummaryResponse,
   DashboardSummary,
   ExpertiseDomainDto,
-  HumanConnectorIdentityRequest,
-  HumanConnectorIdentityResponse,
   HumanResponse,
   InboxItem,
   InitiativeLevelResponse,
@@ -742,25 +740,13 @@ export function useHuman(
   });
 }
 
-/**
- * Per-Human connector-identity list (#2269 / PR #2420). Backs the
- * Identity sub-tab of Human × Config; same data the CLI's
- * `spring human identity list` reads. The hook surfaces an empty list
- * on transport errors so the sub-tab can still mount its add form —
- * the operator's next action (POST) will re-fetch the list on success.
- */
-export function useHumanIdentities(
-  humanId: string,
-  opts?: SliceOptions<HumanConnectorIdentityResponse[]>,
-): UseQueryResult<HumanConnectorIdentityResponse[], Error> {
-  return useQuery({
-    queryKey: queryKeys.humans.identities(humanId),
-    queryFn: () => api.listHumanIdentities(humanId),
-    enabled: opts?.enabled ?? Boolean(humanId),
-    refetchInterval: opts?.refetchInterval,
-    staleTime: opts?.staleTime,
-  });
-}
+// ADR-0047 §§ 2, 14: connector-identity hooks relocate alongside the
+// API client wrappers (see client.ts). Phase H of the umbrella adds
+// `useTenantUserIdentities` / `useUpsertTenantUserIdentity` /
+// `useRemoveTenantUserIdentity` pointing at the new
+// /api/v1/tenant/users/{id}/identities routes; v0.1's freezing release
+// deletes the prior `useHumanIdentities` / `useUpsertHumanIdentity` /
+// `useRemoveHumanIdentity` hooks outright with no shim.
 
 /**
  * Read the team-role human members of a unit
@@ -806,60 +792,6 @@ export function useUnitSubUnitMembers(
     staleTime: opts?.staleTime,
   });
 }
-
-/**
- * Upsert a connector-identity row (#2269 / PR #2420). On success
- * invalidates the per-human identities list so the Identity sub-tab
- * re-renders with the new row. ApiError (409 conflict, 400 validation,
- * 404 human not found) bubbles up so call sites can surface the
- * problem-details copy via a toast / inline message.
- */
-export function useUpsertHumanIdentity(
-  humanId: string,
-): UseMutationResult<
-  HumanConnectorIdentityResponse,
-  Error,
-  HumanConnectorIdentityRequest
-> {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: HumanConnectorIdentityRequest) =>
-      api.upsertHumanIdentity(humanId, body),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.humans.identities(humanId),
-      });
-    },
-  });
-}
-
-/**
- * Remove a connector-identity row (#2269 / PR #2420). On success
- * invalidates the per-human identities list. The server endpoint is
- * idempotent (204 even when nothing matched) so this mutation cannot
- * surface a "not found" error path — the only failure modes are 400
- * (missing query params) and transport errors.
- */
-export interface RemoveHumanIdentityArgs {
-  connectorId: string;
-  connectorUserId: string;
-}
-
-export function useRemoveHumanIdentity(
-  humanId: string,
-): UseMutationResult<void, Error, RemoveHumanIdentityArgs> {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ connectorId, connectorUserId }: RemoveHumanIdentityArgs) =>
-      api.removeHumanIdentity(humanId, connectorId, connectorUserId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.humans.identities(humanId),
-      });
-    },
-  });
-}
-
 
 // ---------------------------------------------------------------------------
 // Activity

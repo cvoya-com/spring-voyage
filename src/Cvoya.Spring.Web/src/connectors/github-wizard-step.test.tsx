@@ -91,8 +91,9 @@ describe("GitHubConnectorWizardStep", () => {
       const last = onChange.mock.calls.at(-1)?.[0];
       expect(last).toEqual(
         expect.objectContaining({
-          owner: "acme",
-          repo: "platform",
+          // ADR-0047 §11: the wire shape collapses to a single qualified
+          // 'owner/repo' string.
+          repo: "acme/platform",
           appInstallationId: 7777,
         }),
       );
@@ -150,8 +151,7 @@ describe("GitHubConnectorWizardStep", () => {
       const last = onChange.mock.calls.at(-1)?.[0];
       expect(last).toEqual(
         expect.objectContaining({
-          owner: "acme",
-          repo: "platform",
+          repo: "acme/platform",
           reviewer: "alice",
         }),
       );
@@ -581,8 +581,7 @@ describe("GitHubConnectorWizardStep", () => {
       const last = onChange.mock.calls.at(-1)?.[0];
       expect(last).toEqual(
         expect.objectContaining({
-          owner: "acme",
-          repo: "platform",
+          repo: "acme/platform",
           appInstallationId: 7777,
         }),
       );
@@ -670,8 +669,7 @@ describe("GitHubConnectorWizardStep", () => {
         <GitHubConnectorWizardStep
           onChange={onChange}
           initialValue={{
-            owner: "acme",
-            repo: "platform",
+            repo: "acme/platform",
             appInstallationId: 7777,
             events: ["push", "release"],
             reviewer: undefined,
@@ -716,8 +714,7 @@ describe("GitHubConnectorWizardStep", () => {
         <GitHubConnectorWizardStep
           onChange={onChange}
           initialValue={{
-            owner: "acme",
-            repo: "platform",
+            repo: "acme/platform",
             appInstallationId: 7777,
             events: undefined,
             reviewer: undefined,

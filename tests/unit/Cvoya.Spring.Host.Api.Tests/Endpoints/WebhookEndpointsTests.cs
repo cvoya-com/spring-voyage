@@ -268,8 +268,7 @@ public class WebhookEndpointsTests : IClassFixture<WebhookEndpointsTests.Factory
                 // the webhook resolver can route the test payload to the
                 // mocked unit actor.
                 var config = new UnitGitHubConfig(
-                    Owner: TestOwner,
-                    Repo: TestRepo,
+                    Repo: $"{TestOwner}/{TestRepo}",
                     AppInstallationId: TestInstallationId);
                 var binding = new UnitConnectorBinding(
                     GitHubConnectorType.GitHubTypeId,

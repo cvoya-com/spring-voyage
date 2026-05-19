@@ -82,7 +82,7 @@ public class GitHubWebhookHandlerFilterTests
     public async Task ApplyInboundFilterAsync_FilterPasses_ReturnsMessage()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludeLabels: new[] { "spring-voyage" });
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
@@ -107,7 +107,7 @@ public class GitHubWebhookHandlerFilterTests
     public async Task ApplyInboundFilterAsync_FilterDrops_ReturnsNullAndEmitsActivity()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludeLabels: new[] { "spring-voyage" });
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
@@ -147,7 +147,7 @@ public class GitHubWebhookHandlerFilterTests
     public async Task ApplyInboundFilterAsync_ExcludeLabelDrops_EmitsAuditWithMatchedLabel()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             ExcludeLabels: new[] { "wip" });
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
@@ -200,7 +200,7 @@ public class GitHubWebhookHandlerFilterTests
         // matching the PR's user). When IncludePaths isn't configured the
         // handler must skip the /pulls/{n}/files round-trip entirely.
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludeAuthors: new[] { "opener" });
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
@@ -226,7 +226,7 @@ public class GitHubWebhookHandlerFilterTests
     public async Task ApplyInboundFilterAsync_IncludePathsSetAndMatches_AllowsViaFetch()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludePaths: new[] { "docs/" });
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
@@ -254,7 +254,7 @@ public class GitHubWebhookHandlerFilterTests
     public async Task ApplyInboundFilterAsync_IncludePathsSetAndDoesNotMatch_DropsWithAudit()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludePaths: new[] { "docs/" });
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
@@ -291,7 +291,7 @@ public class GitHubWebhookHandlerFilterTests
     public async Task ApplyInboundFilterAsync_IncludePathsSetButFetcherFails_PassesThroughUnfiltered()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludePaths: new[] { "docs/" });
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
@@ -321,7 +321,7 @@ public class GitHubWebhookHandlerFilterTests
     {
         // Pure issue events have no PR shape — fetcher must not be called.
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             IncludePaths: new[] { "docs/" });
         var binding = new UnitConnectorBinding(
             GitHubConnectorType.GitHubTypeId,
@@ -347,7 +347,7 @@ public class GitHubWebhookHandlerFilterTests
     public async Task ApplyInboundFilterAsync_PassesBindingInstallationIdToFetcher()
     {
         var config = new UnitGitHubConfig(
-            Owner: "acme", Repo: "platform",
+            Repo: "acme/platform",
             AppInstallationId: 9988L,
             IncludePaths: new[] { "docs/" });
         var binding = new UnitConnectorBinding(

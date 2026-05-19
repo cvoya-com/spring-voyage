@@ -179,8 +179,19 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
 
   const applyConfig = useCallback((c: UnitGitHubConfigResponse) => {
     setConfig(c);
-    setOwner(c.owner);
-    setRepo(c.repo);
+    // ADR-0047 §11: the wire shape collapses to a single qualified
+    // `owner/repo` string. Phase H of the umbrella reshapes this tab to
+    // match (auth-choice sub-step + qualified-repo input). Until then,
+    // split the qualified value into the existing two-input form so the
+    // existing layout keeps rendering.
+    const slash = c.repo?.indexOf("/") ?? -1;
+    if (slash > 0) {
+      setOwner(c.repo.slice(0, slash));
+      setRepo(c.repo.slice(slash + 1));
+    } else {
+      setOwner("");
+      setRepo(c.repo ?? "");
+    }
     // OpenAPI emits int64 as `number | string` — coerce to number for the
     // local form state. All realistic installation ids fit in
     // MAX_SAFE_INTEGER, so the coercion is lossless in practice.
@@ -426,8 +437,9 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
     setSaving(true);
     try {
       const resp = await api.putUnitGitHubConfig(unitId, {
-        owner: owner.trim(),
-        repo: repo.trim(),
+        // ADR-0047 §11: send the qualified `owner/repo` form on the wire.
+        // The local two-input form stays until Phase H reshapes the tab.
+        repo: `${owner.trim()}/${repo.trim()}`,
         // #1146 / parity with the wizard (#1127): omit `events` when
         // the operator picked "Connector defaults" so the server
         // resolves the set itself; forward the explicit list verbatim
@@ -464,10 +476,12 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
   };
 
   const statusBadge = useMemo(() => {
-    if (!config || !config.owner || !config.repo) {
+    if (!config || !config.repo || !config.repo.includes("/")) {
       return <Badge variant="outline">Not configured</Badge>;
     }
-    return <Badge variant="outline">{`${config.owner}/${config.repo}`}</Badge>;
+    // ADR-0047 §11: the binding's `repo` already carries the qualified
+    // `owner/repo` shape.
+    return <Badge variant="outline">{config.repo}</Badge>;
   }, [config]);
 
   const selectedFullName =
