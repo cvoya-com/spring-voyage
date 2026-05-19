@@ -56,15 +56,16 @@ test.describe("dashboard shell smoke", () => {
     await page.goto("/");
 
     // The Units → Explorer rename (#2473) renamed the nav label from
-    // "Units" to "Explorer"; the underlying path stays `/units`.
+    // "Units" to "Explorer"; #2517 moved the canonical entry path from
+    // `/units` to `/explorer`.
     await page.getByRole("link", { name: /^explorer$/i }).first().click();
 
     // Smoke scope: the URL changed and the shell is still hydrated.
     // Don't assert on data-bound content — the API is unreachable in
-    // this run, so the page renders skeletons or empty state. We accept
-    // either `/units` or `/explorer/units/` because the entry point
-    // self-redirects from one to the other when no node is selected.
-    await expect(page).toHaveURL(/\/(units|explorer\/units\/?)$/);
+    // this run, so the page renders skeletons or empty state. The nav
+    // link points to `/explorer` (#2517); backwards-compatible `/units`
+    // redirects are not required.
+    await expect(page).toHaveURL(/\/explorer(\/units\/?)?$/);
     await expect(page.getByRole("navigation").first()).toBeVisible();
   });
 });

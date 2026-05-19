@@ -514,9 +514,9 @@ describe("CreateUnitPage — catalog branch (#1563)", () => {
       { packageName: "spring-voyage/software-engineering", inputs: {} },
     ]);
 
-    // Poll returns active → redirect to /units.
+    // Poll returns active → redirect to /explorer.
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/units");
+      expect(pushMock).toHaveBeenCalledWith("/explorer");
     });
   });
 
@@ -752,7 +752,7 @@ describe("CreateUnitPage — CredentialsMissing inline retry (#2169)", () => {
     ]);
 
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/units");
+      expect(pushMock).toHaveBeenCalledWith("/explorer");
     });
   });
 
@@ -1735,7 +1735,7 @@ describe("CreateUnitPage — #1132 wizard state persistence", () => {
     expect(
       sessionStorage.getItem(`spring.wizard.unit-create.${runId}`),
     ).toBeNull();
-    expect(pushMock).toHaveBeenCalledWith("/units");
+    expect(pushMock).toHaveBeenCalledWith("/explorer");
   });
 });
 

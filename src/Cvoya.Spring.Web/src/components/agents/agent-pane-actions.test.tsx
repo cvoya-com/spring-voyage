@@ -296,7 +296,7 @@ describe("AgentPaneActions — Delete confirmation flow", () => {
       expect(deleteAgentMock).toHaveBeenCalledWith("ada");
     });
     await waitFor(() => {
-      expect(routerReplaceMock).toHaveBeenCalledWith("/units");
+      expect(routerReplaceMock).toHaveBeenCalledWith("/explorer");
     });
   });
 

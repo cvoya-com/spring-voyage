@@ -336,7 +336,7 @@ describe("UnitPaneActions — Delete confirmation flow", () => {
       expect(deleteUnitMock).toHaveBeenCalledWith("alpha", undefined);
     });
     await waitFor(() => {
-      expect(routerReplaceMock).toHaveBeenCalledWith("/units");
+      expect(routerReplaceMock).toHaveBeenCalledWith("/explorer");
     });
   });
 });
@@ -377,7 +377,7 @@ describe("UnitPaneActions — Force delete recovery (#1137)", () => {
       expect(deleteUnitMock).toHaveBeenLastCalledWith("alpha", { force: true });
     });
     await waitFor(() => {
-      expect(routerReplaceMock).toHaveBeenCalledWith("/units");
+      expect(routerReplaceMock).toHaveBeenCalledWith("/explorer");
     });
   });
 

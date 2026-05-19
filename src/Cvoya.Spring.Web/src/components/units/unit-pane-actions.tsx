@@ -200,7 +200,7 @@ export function UnitPaneActions({ node }: UnitPaneActionsProps) {
       setConfirmOpen(false);
       // Drop the query-string selection so the pane doesn't keep
       // showing a node the tree just lost.
-      router.replace("/units");
+      router.replace("/explorer");
     },
     onError: (err) => {
       // #1137: the API's lifecycle-status gate returns 409 with
@@ -228,7 +228,7 @@ export function UnitPaneActions({ node }: UnitPaneActionsProps) {
         description: node.name,
       });
       setForceConfirmOpen(false);
-      router.replace("/units");
+      router.replace("/explorer");
     },
     onError: (err) => {
       onError("Force delete")(err);

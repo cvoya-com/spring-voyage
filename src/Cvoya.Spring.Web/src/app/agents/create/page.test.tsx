@@ -290,7 +290,7 @@ describe("CreateAgentPage", () => {
       definitionJson: null,
     });
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/units");
+      expect(pushMock).toHaveBeenCalledWith("/explorer");
     });
   });
 

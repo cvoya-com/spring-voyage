@@ -27,8 +27,10 @@ describe("defaultRoutes (IA §2)", () => {
     expect(byPath["/"]).toBe("overview");
     expect(byPath["/activity"]).toBe("overview");
     expect(byPath["/analytics"]).toBe("overview");
+    // #2512: Explorer moved from Orchestrate to Overview.
+    // #2517: Explorer nav entry path changed from /units to /explorer.
+    expect(byPath["/explorer"]).toBe("overview");
 
-    expect(byPath["/units"]).toBe("orchestrate");
     expect(byPath["/inbox"]).toBe("orchestrate");
     expect(byPath["/discovery"]).toBe("orchestrate");
     // #1454: Engagement is the latest Orchestrate entry, sitting
@@ -77,6 +79,17 @@ describe("defaultRoutes (IA §2)", () => {
     const paths = defaultRoutes.map((r) => r.path);
     expect(paths).not.toContain("/directory");
     expect(paths).toContain("/discovery");
+  });
+
+  it("#2517: Explorer nav entry path is /explorer and activePatterns covers /units for backward compat", () => {
+    const explorer = defaultRoutes.find((r) => r.label === "Explorer");
+    expect(explorer).toBeDefined();
+    expect(explorer!.path).toBe("/explorer");
+    // /units is a legacy route that still hosts the Explorer canvas;
+    // the sidebar active state must light up when the operator is on it.
+    expect(explorer!.activePatterns).toContain("/units");
+    // /explorer/* deep-links (units, agents, humans) also light up the entry.
+    expect(explorer!.activePatterns?.some((p) => p.startsWith("/explorer/"))).toBe(true);
   });
 });
 

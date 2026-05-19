@@ -1123,7 +1123,7 @@ export default function CreateUnitPage() {
     if (runId !== "") {
       clearWizardRun(runId);
     }
-    router.push("/units");
+    router.push("/explorer");
   };
 
   /**
@@ -1503,7 +1503,7 @@ export default function CreateUnitPage() {
         }
       }
       toast({ title: "Install complete" });
-      router.push("/units");
+      router.push("/explorer");
     };
     void finishCatalogInstall();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1535,7 +1535,7 @@ export default function CreateUnitPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
       toast({ title: "Install aborted" });
-      router.push("/units");
+      router.push("/explorer");
     },
     onError: (err) => {
       const message = formatTranslatedError(err);
@@ -1628,7 +1628,7 @@ export default function CreateUnitPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
       toast({ title: "Unit cancelled", description: `Removed ${name}.` });
-      router.push("/units");
+      router.push("/explorer");
     },
     onError: (err) => {
       const message = formatTranslatedError(err);
@@ -1917,7 +1917,7 @@ export default function CreateUnitPage() {
     <div className="space-y-6">
       <Breadcrumbs
         items={[
-          { label: "Units", href: "/units" },
+          { label: "Explorer", href: "/explorer" },
           { label: "Create" },
         ]}
       />

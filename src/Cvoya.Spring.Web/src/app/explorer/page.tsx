@@ -1,18 +1,19 @@
 "use client";
 
-// `/explorer/humans/[id]` — canonical Explorer entry point for human
-// members (#2517). The `[id]` segment is a no-dash UUID. The
-// `<ExplorerSurface>` reads the full `human:<id>` selection from the
-// URL pathname via `selectedIdFromPathname` so the left-rail tree stays
-// visible and the detail pane renders the human's tabs, consistent with
-// `/explorer/units/<id>` and `/explorer/agents/<id>`.
+// Explorer index route at `/explorer` (#2517). The nav link for Explorer
+// points here; renders the Explorer canvas with no node pre-selected so
+// users land on the tenant root. Canonical deep-link URLs are
+// `/explorer/units/<id>`, `/explorer/agents/<id>`, and
+// `/explorer/humans/<id>`; the nav entry path is `/explorer` so the
+// browser bar shows `/explorer` rather than `/units` when the user
+// clicks the Explorer link in the sidebar.
 
 import { Suspense } from "react";
 import { Loader2 } from "lucide-react";
 
 import { ExplorerSurface } from "@/components/units/explorer-surface";
 
-export default function ExplorerHumansPage() {
+export default function ExplorerIndexPage() {
   return (
     <Suspense
       fallback={

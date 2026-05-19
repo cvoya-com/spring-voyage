@@ -477,7 +477,7 @@ export default function DashboardPage() {
   };
 
   const handleOpenExplorer = () => {
-    router.push("/units");
+    router.push("/explorer");
   };
 
   return (

@@ -68,10 +68,13 @@ vi.mock("@/lib/api/queries", () => ({
   }),
   useUnit: () => ({ data: null }),
   useAgent: () => ({ data: null }),
+  useHuman: () => ({ data: null, isLoading: true, isError: false }),
+  useCurrentUser: () => ({ data: null }),
   useUnitCostTimeseries: () => ({ data: null, isLoading: false }),
   useUnitExecution: () => ({ data: null, isLoading: false }),
   useUnitIssues: () => ({ data: null, isPending: false, isError: false }),
   useAgentIssues: () => ({ data: null, isPending: false, isError: false }),
+  useThreads: () => ({ data: null, isLoading: true, isError: false }),
   useIssueCounts: () => ({
     data: { counts: [] },
     isPending: false,
@@ -329,5 +332,70 @@ describe("ExplorerSurface — Explorer canvas (EXP-route)", () => {
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "/units/create");
     expect(link).toHaveTextContent(/new unit/i);
+  });
+
+  it("#2517: selecting a human node writes /explorer/humans/<guid> via replaceState (no router.replace)", async () => {
+    // Extend sampleTree with a human member so the tree renders a
+    // clickable human row. Human node ids use the `human://<guid>` scheme.
+    const humanGuid = "11111111-1111-1111-1111-111111111111";
+    const treeWithHuman = {
+      ...sampleTree,
+      children: [
+        ...(sampleTree.children ?? []),
+        {
+          id: `human://${humanGuid}`,
+          name: "Alice Human",
+          kind: "Human" as const,
+          status: "running" as const,
+        },
+      ],
+    };
+    useTenantTreeMock.mockReturnValue({
+      data: treeWithHuman,
+      isLoading: false,
+      isError: false,
+    });
+    render(wrap(<ExplorerSurface />));
+    await screen.findByTestId("unit-explorer");
+
+    historyReplaceStateMock.mockClear();
+    fireEvent.click(screen.getByTestId(`tree-row-human://${humanGuid}`));
+    await waitFor(() => expect(historyReplaceStateMock).toHaveBeenCalled());
+    const urlAfterSelect =
+      historyReplaceStateMock.mock.calls.at(-1)?.[2]?.toString() ?? "";
+    // Human navigation writes to /explorer/humans/<guid>, not /humans/<guid>.
+    expect(urlAfterSelect).toBe(
+      `/explorer/humans/${encodeURIComponent(humanGuid)}`,
+    );
+    // The Explorer does NOT bounce to a separate route via router.replace.
+    expect(routerReplaceMock).not.toHaveBeenCalled();
+  });
+
+  it("#2517: /explorer/humans/<id> URL seeds the selected human into the Explorer", async () => {
+    const humanGuid = "22222222-2222-2222-2222-222222222222";
+    seedUrl(`/explorer/humans/${humanGuid}`);
+    const treeWithHuman = {
+      ...sampleTree,
+      children: [
+        ...(sampleTree.children ?? []),
+        {
+          id: `human://${humanGuid}`,
+          name: "Bob Human",
+          kind: "Human" as const,
+          status: "running" as const,
+        },
+      ],
+    };
+    useTenantTreeMock.mockReturnValue({
+      data: treeWithHuman,
+      isLoading: false,
+      isError: false,
+    });
+    render(wrap(<ExplorerSurface />));
+    await screen.findByTestId("unit-explorer");
+    // The breadcrumb for the human node should be active.
+    expect(
+      screen.getByTestId(`detail-crumb-human://${humanGuid}`),
+    ).toHaveAttribute("aria-current", "page");
   });
 });
