@@ -158,6 +158,38 @@ Alerts:
 - **Persistent Store** — all events stored for replay and analytics (`ActivityEventPersister`)
 - **Notifications** — Slack, email, GitHub comments (via connectors)
 
+## Runtime activity capture — OTLP/HTTP plane (#2492)
+
+Runtime containers (agent, unit, sub-agents) ship spans, logs, and span events to the platform over **OTLP/HTTP+JSON** at `/otlp/v1/traces` and `/otlp/v1/logs`. The launcher (`SpringVoyageAgentLauncher`) injects the canonical OTel env vars:
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — `https://<platform>/otlp`
+- `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`
+- `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <per-invocation callback JWT>`
+- `OTEL_RESOURCE_ATTRIBUTES=sv.tenant.id=...,sv.subject.uuid=...,sv.subject.kind=agent|unit|human`
+
+Auth reuses the per-invocation callback token the launcher already mints for the dispatcher orchestration callback — no new credential primitive. The ingest controller cross-checks the resource attributes against the bearer JWT's claims so a leaked token can't be replayed against another subject; mismatches drop silently.
+
+### Capture, redaction, retention
+
+A tenant-scoped setting (`tenant_activity_settings.level`) gates the ingest at three levels — `off`, `summary`, `full`. OSS default is `full`; truncation at `summary` keeps the head and tail of every long string (>1024 chars) and marks the parent object with `truncated: true`. Library-defined redaction (`ActivityRedactor`) masks the well-known auth-header keys (`Authorization`, `Proxy-Authorization`, `X-API-Key`, `X-Auth-Token`, `Cookie`, `Set-Cookie`) and env-var keys matching `*_TOKEN` / `*_KEY` / `*_SECRET` / `*_PASSWORD`; in-line bearer/basic tokens in attribute values are scrubbed. Redaction runs **before** capture-level truncation so the masked marker stays intact through summary-level trimming.
+
+Per-tenant retention (`tenant_activity_settings.retention_days`, default 30 days) drives `ActivityRetentionPurgeService` — a daily background sweep that deletes `activity_events` rows older than the horizon. The sweep opens an `ITenantScopeBypass` scope so the cross-tenant query is auditable.
+
+### Best-effort capture
+
+A broken collector path must NOT block the A2A request/response path. The ingest service catches every publish failure, increments a per-batch `DroppedError` counter on the OTLP response, and lets the runtime carry on. The portal's existing Activity tab (`/api/v1/tenant/activity/stream` SSE) consumes the new event types (`RuntimeSpan`, `RuntimeLog`, `RuntimeProgress`, `LlmTurn`, `ToolCall`) identically to existing event types — the underlying bus is unchanged.
+
+### CLI live-tail
+
+`spring agent tail <id>`, `spring unit tail <id>`, `spring human tail <id>`, and `spring activity tail` all subscribe to the same SSE stream through the generated Kiota client (no raw HttpClient). Filter flags: `--thread`, `--message`, `--kind` (repeatable), `--from`, `--severity`. `--json` switches the output to one JSON object per event for `jq` consumers.
+
+### Out of scope (follow-ups)
+
+- **OTLP/protobuf encoding** — v0.1 ships JSON only. Adding protobuf is additive — runtimes simply set `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` and the ingest controller learns the new content type.
+- **Forwarding to a tenant-configured external OTel backend** (Datadog, Tempo, Jaeger). The OSS surface stays as a sink; the cloud overlay registers a decorating `IOtlpIngestService` to fan out.
+- **Tenant-defined PII redaction rules.** Only the library-defined match list ships in v0.1.
+- **Token-by-token LLM streaming.** Full-turn capture only via `sv.llm.turn` spans.
+
 > **Open issue: Event stream separation.** Currently, `ActivityEvent` covers both high-frequency execution events (`TokenDelta`, `ToolCall`, `ToolResult`) and higher-level activity events (`ThreadStarted`, `DecisionMade`). A single type simplifies the model and Rx.NET filtering handles volume. However, for very active agents the high-frequency stream may overwhelm consumers interested only in summaries. A future revision may separate these into two streams: a high-frequency execution stream and a lower-frequency activity stream.
 
 ---

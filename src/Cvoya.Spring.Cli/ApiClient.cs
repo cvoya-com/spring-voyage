@@ -1519,6 +1519,122 @@ public class SpringApiClient
         return result ?? throw new InvalidOperationException("Server returned an empty activity query response.");
     }
 
+    /// <summary>
+    /// Reads the tenant's activity-capture settings (level + retention)
+    /// from <c>GET /api/v1/tenant/activity/settings</c>. Issue #2492.
+    /// </summary>
+    public async Task<TenantActivitySettingsDto> GetActivitySettingsAsync(CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Activity.Settings.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            "Server returned an empty tenant activity-settings response.");
+    }
+
+    /// <summary>
+    /// Updates the tenant's activity-capture settings via
+    /// <c>PATCH /api/v1/tenant/activity/settings</c>. Either field may
+    /// be left <c>null</c> to leave the current value unchanged.
+    /// Issue #2492.
+    /// </summary>
+    public async Task<TenantActivitySettingsDto> UpdateActivitySettingsAsync(
+        string? level = null,
+        int? retentionDays = null,
+        CancellationToken ct = default)
+    {
+        var body = new UpdateTenantActivitySettingsRequest
+        {
+            Level = level,
+            RetentionDays = retentionDays,
+        };
+        var result = await _client.Api.V1.Tenant.Activity.Settings.PatchAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            "Server returned an empty tenant activity-settings response.");
+    }
+
+    /// <summary>
+    /// Streams activity events from <c>GET /api/v1/tenant/activity/stream</c>
+    /// using Server-Sent Events. The underlying <see cref="HttpClient"/>
+    /// is the one Kiota's request adapter holds — the SSE wire format
+    /// isn't modelled in OpenAPI, so we issue the request through the
+    /// already-authenticated client rather than building a parallel
+    /// raw <see cref="HttpClient"/>. Issue #2492.
+    /// </summary>
+    /// <param name="source">Optional source filter (<c>agent:&lt;id&gt;</c> / <c>unit:&lt;id&gt;</c> / <c>human:&lt;id&gt;</c>).</param>
+    /// <param name="threadId">Optional thread-id filter.</param>
+    /// <param name="messageId">Optional message-id filter.</param>
+    /// <param name="kinds">Optional event-kind whitelist (repeated query param).</param>
+    /// <param name="from">Optional time-window lower bound.</param>
+    /// <param name="severity">Optional severity floor.</param>
+    /// <param name="unitId">Optional unit scope (uses the unit-scoped SSE projection).</param>
+    /// <param name="ct">Cancellation token (cancels the SSE subscription).</param>
+    /// <returns>An async stream of raw SSE <c>data:</c> payloads.</returns>
+    public async IAsyncEnumerable<string> StreamActivityAsync(
+        string? source = null,
+        string? threadId = null,
+        string? messageId = null,
+        IReadOnlyList<string>? kinds = null,
+        DateTimeOffset? from = null,
+        string? severity = null,
+        string? unitId = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var url = $"{_baseUrl}/api/v1/tenant/activity/stream";
+        var query = new List<string>();
+        if (!string.IsNullOrEmpty(source)) query.Add($"source={Uri.EscapeDataString(source)}");
+        if (!string.IsNullOrEmpty(threadId)) query.Add($"thread={Uri.EscapeDataString(threadId)}");
+        if (!string.IsNullOrEmpty(messageId)) query.Add($"message={Uri.EscapeDataString(messageId)}");
+        if (!string.IsNullOrEmpty(severity)) query.Add($"severity={Uri.EscapeDataString(severity)}");
+        if (!string.IsNullOrEmpty(unitId)) query.Add($"unitId={Uri.EscapeDataString(unitId)}");
+        if (from is { } ts) query.Add($"from={Uri.EscapeDataString(ts.ToUniversalTime().ToString("o", System.Globalization.CultureInfo.InvariantCulture))}");
+        if (kinds is { Count: > 0 })
+        {
+            foreach (var k in kinds) query.Add($"kind={Uri.EscapeDataString(k)}");
+        }
+        if (query.Count > 0)
+        {
+            url += "?" + string.Join("&", query);
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+        using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new System.IO.StreamReader(stream);
+
+        var buffer = new System.Text.StringBuilder();
+        while (!ct.IsCancellationRequested)
+        {
+            string? line;
+            try
+            {
+                line = await reader.ReadLineAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                yield break;
+            }
+            if (line is null)
+            {
+                yield break;
+            }
+            if (string.IsNullOrEmpty(line))
+            {
+                if (buffer.Length > 0)
+                {
+                    yield return buffer.ToString();
+                    buffer.Clear();
+                }
+                continue;
+            }
+            if (line.StartsWith("data:", StringComparison.Ordinal))
+            {
+                if (buffer.Length > 0) buffer.AppendLine();
+                buffer.Append(line["data:".Length..].TrimStart());
+            }
+        }
+    }
+
     // Messages
 
     /// <summary>

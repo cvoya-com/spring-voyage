@@ -107,4 +107,50 @@ public enum ActivityEventType
     /// silently renumber existing events; append is the safe operation.
     /// </summary>
     ConnectorEventFiltered,
+
+    /// <summary>
+    /// Emitted on every OTLP span the platform's
+    /// <c>/otlp/v1/traces</c> ingest receives from a runtime container
+    /// (issue #2492). <see cref="ActivityEvent.Source"/> is the subject
+    /// the span is scoped to (the <c>sv.subject.uuid</c> resource
+    /// attribute, scheme inferred from <c>sv.subject.kind</c>).
+    /// <see cref="ActivityEvent.Details"/> carries the span name,
+    /// kind, start/end timestamps, attributes, and any span events
+    /// (subject to capture-level truncation applied server-side at
+    /// ingest). APPENDED per #956.
+    /// </summary>
+    RuntimeSpan,
+
+    /// <summary>
+    /// Emitted on every OTLP log record the platform's
+    /// <c>/otlp/v1/logs</c> ingest receives from a runtime container
+    /// (issue #2492). Body text is captured at <c>full</c>, truncated
+    /// to first/last N characters at <c>summary</c>, and dropped
+    /// entirely at <c>off</c>. <see cref="ActivityEvent.Details"/>
+    /// carries <c>severity_text</c>, <c>body</c>, <c>attributes</c>,
+    /// plus the resource attributes the producer set. APPENDED per #956.
+    /// </summary>
+    RuntimeLog,
+
+    /// <summary>
+    /// Emitted when a runtime emits a free-text progress event via the
+    /// <c>sv.progress</c> OTLP span event (issue #2492). The
+    /// <see cref="ActivityEvent.Summary"/> carries the human-facing
+    /// message; <see cref="ActivityEvent.Details"/> carries the source
+    /// span id and any additional structured attributes. APPENDED per
+    /// #956.
+    /// </summary>
+    RuntimeProgress,
+
+    /// <summary>
+    /// Emitted on every full LLM turn the runtime reports through OTLP
+    /// (issue #2492). <see cref="ActivityEvent.Details"/> carries the
+    /// model, prompt + completion text (subject to capture-level
+    /// truncation), and token counts. Distinct from
+    /// <see cref="CostIncurred"/>, which is the in-process cost
+    /// accounting event emitted on the host side; <c>LlmTurn</c>
+    /// captures what the runtime container's LLM call actually looked
+    /// like. APPENDED per #956.
+    /// </summary>
+    LlmTurn,
 }

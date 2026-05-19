@@ -45,6 +45,11 @@ public static class HumanCommand
             "identity moved to 'spring user identity ...' per ADR-0047 (Phase G of the umbrella).");
 
         command.Subcommands.Add(CreateHumanSetCommand(outputOption));
+
+        // #2492: `spring human tail <id>` — humans are activity subjects
+        // (messages sent / received, notifications dispatched).
+        command.Subcommands.Add(ActivityTailCommand.CreateHumanTail());
+
         return command;
     }
 

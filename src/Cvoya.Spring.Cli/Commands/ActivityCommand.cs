@@ -37,7 +37,81 @@ public static class ActivityCommand
 
         activityCommand.Subcommands.Add(CreateListCommand(outputOption));
 
+        // #2492: `spring activity tail` — live SSE stream of activity events
+        // with optional source / thread / message / kind / from / severity filters.
+        activityCommand.Subcommands.Add(ActivityTailCommand.CreateActivityTail());
+
+        // #2492: tenant capture-level + retention settings verbs.
+        activityCommand.Subcommands.Add(CreateSettingsCommand(outputOption));
+
         return activityCommand;
+    }
+
+    private static Command CreateSettingsCommand(Option<string> outputOption)
+    {
+        var settingsCommand = new Command(
+            "settings",
+            "Get or set the tenant's activity-capture settings (level + retention). Issue #2492.");
+
+        var showCommand = new Command("show", "Show the current capture level and retention horizon.");
+        showCommand.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var client = ClientFactory.Create();
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var snapshot = await client.GetActivitySettingsAsync(ct);
+            if (output == "json")
+            {
+                Console.WriteLine(OutputFormatter.FormatJson(snapshot));
+            }
+            else
+            {
+                Console.WriteLine($"level:           {snapshot.Level}");
+                Console.WriteLine($"retention_days:  {snapshot.RetentionDays}");
+            }
+        });
+        settingsCommand.Subcommands.Add(showCommand);
+
+        var levelOption = new Option<string?>("--level")
+        {
+            Description = "Capture level: off | summary | full.",
+        };
+        levelOption.AcceptOnlyFromAmong("off", "summary", "full");
+        var retentionOption = new Option<int?>("--retention-days")
+        {
+            Description = "Activity retention horizon in days (must be > 0).",
+        };
+        var setCommand = new Command(
+            "set",
+            "Update the tenant's activity-capture settings. At least one of --level or --retention-days is required.");
+        setCommand.Options.Add(levelOption);
+        setCommand.Options.Add(retentionOption);
+        setCommand.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var level = parseResult.GetValue(levelOption);
+            var retention = parseResult.GetValue(retentionOption);
+            if (string.IsNullOrEmpty(level) && retention is null)
+            {
+                Console.Error.WriteLine("Pass at least one of --level / --retention-days.");
+                Environment.Exit(2);
+                return;
+            }
+
+            var client = ClientFactory.Create();
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var snapshot = await client.UpdateActivitySettingsAsync(level, retention, ct);
+            if (output == "json")
+            {
+                Console.WriteLine(OutputFormatter.FormatJson(snapshot));
+            }
+            else
+            {
+                Console.WriteLine($"level:           {snapshot.Level}");
+                Console.WriteLine($"retention_days:  {snapshot.RetentionDays}");
+            }
+        });
+        settingsCommand.Subcommands.Add(setCommand);
+
+        return settingsCommand;
     }
 
     private static Command CreateListCommand(Option<string> outputOption)

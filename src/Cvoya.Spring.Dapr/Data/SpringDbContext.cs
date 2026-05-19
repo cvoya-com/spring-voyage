@@ -273,6 +273,15 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<PersistentAgentRuntimeEntity> PersistentAgentRuntime => Set<PersistentAgentRuntimeEntity>();
 
+    /// <summary>
+    /// Per-tenant activity-capture settings (#2492). One row per tenant
+    /// keyed on <c>tenant_id</c>; absence resolves to
+    /// <see cref="Cvoya.Spring.Core.Capabilities.ITenantActivitySettings.DefaultLevel"/>
+    /// / <see cref="Cvoya.Spring.Core.Capabilities.ITenantActivitySettings.DefaultRetentionDays"/>
+    /// at the service layer.
+    /// </summary>
+    public DbSet<TenantActivitySettingsEntity> TenantActivitySettings => Set<TenantActivitySettingsEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -320,6 +329,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new CloningPolicyEntityConfiguration());
         modelBuilder.ApplyConfiguration(new MemoryEntityConfiguration());
         modelBuilder.ApplyConfiguration(new PersistentAgentRuntimeEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantActivitySettingsEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id

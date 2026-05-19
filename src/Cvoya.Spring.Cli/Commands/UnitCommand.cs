@@ -172,6 +172,10 @@ public static class UnitCommand
         // result up via IUnitSkillBundleStore on the next dispatch.
         unitCommand.Subcommands.Add(SkillsCommand.CreateUnitSubcommand(outputOption));
 
+        // #2492: `spring unit tail <id>` — live activity-stream SSE for
+        // the unit and its descendants.
+        unitCommand.Subcommands.Add(ActivityTailCommand.CreateUnitTail());
+
         return unitCommand;
     }
 

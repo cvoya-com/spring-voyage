@@ -29,6 +29,13 @@ export function humanEventType(eventType: string): string {
     CostIncurred: "Cost incurred",
     TokenDelta: "Tokens used",
     ValidationProgress: "Validation progress",
+    // #2492: OTLP runtime activity-capture events.
+    RuntimeSpan: "Runtime span",
+    RuntimeLog: "Runtime log",
+    RuntimeProgress: "Progress",
+    LlmTurn: "LLM turn",
+    ToolCall: "Tool call",
+    ToolResult: "Tool result",
   };
   return MAP[eventType] ?? eventType;
 }
