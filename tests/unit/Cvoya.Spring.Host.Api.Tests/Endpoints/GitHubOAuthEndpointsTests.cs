@@ -33,7 +33,7 @@ public class GitHubOAuthEndpointsTests
     public async Task Authorize_ReturnsUrlAndState()
     {
         var service = Substitute.For<IGitHubOAuthService>();
-        service.BeginAuthorizationAsync(Arg.Any<IReadOnlyList<string>?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        service.BeginAuthorizationAsync(Arg.Any<IReadOnlyList<string>?>(), Arg.Any<string?>(), Arg.Any<OAuthInitiationContext?>(), Arg.Any<CancellationToken>())
             .Returns(new AuthorizeResult("https://github.com/login/oauth/authorize?state=abc", "abc"));
 
         await using var factory = CreateFactory(oauthService: service);
@@ -56,7 +56,7 @@ public class GitHubOAuthEndpointsTests
     public async Task Authorize_Unconfigured_Returns502()
     {
         var service = Substitute.For<IGitHubOAuthService>();
-        service.BeginAuthorizationAsync(Arg.Any<IReadOnlyList<string>?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        service.BeginAuthorizationAsync(Arg.Any<IReadOnlyList<string>?>(), Arg.Any<string?>(), Arg.Any<OAuthInitiationContext?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("GitHub:OAuth:ClientId is not configured."));
 
         await using var factory = CreateFactory(oauthService: service);
@@ -105,6 +105,55 @@ public class GitHubOAuthEndpointsTests
         body.ShouldContain("octocat");
         body.ShouldContain("http://localhost:3000");
         body.ShouldNotContain("secret-key");
+    }
+
+    [Fact]
+    public async Task Callback_WithPersistedSecret_SurfacesSecretNameInHandoffPage()
+    {
+        // ADR-0047 §13: the OAuth callback's persister writes the
+        // OAuth-issued token as a tenant secret and returns the name in
+        // the CallbackResult. The browser handoff page round-trips the
+        // name to the wizard (postMessage + localStorage fallback) so
+        // the binding-create call can wire `pat_secret_name`.
+        var bindingId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        var service = Substitute.For<IGitHubOAuthService>();
+        service.HandleCallbackAsync("the-code", "the-state", Arg.Any<CancellationToken>())
+            .Returns(new CallbackResult(
+                SessionId: "sess-2",
+                Login: "octocat",
+                Error: null,
+                ErrorDescription: null,
+                PatSecretName: $"binding/{bindingId:N}/github/pat",
+                BindingId: bindingId));
+        service.GetSessionAsync("sess-2", Arg.Any<CancellationToken>())
+            .Returns(new OAuthSession(
+                SessionId: "sess-2",
+                Login: "octocat",
+                UserId: 42L,
+                Scopes: "repo read:user",
+                AccessTokenStoreKey: "session-key",
+                RefreshTokenStoreKey: null,
+                ExpiresAt: null,
+                CreatedAt: DateTimeOffset.UtcNow,
+                ClientState: """{"targetOrigin":"http://localhost:3000/wizard"}""",
+                Initiation: new OAuthInitiationContext(
+                    OAuthInitiationIntent.BindingWizard, null, bindingId),
+                PatSecretName: $"binding/{bindingId:N}/github/pat"));
+
+        await using var factory = CreateFactory(oauthService: service);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/tenant/connectors/github/oauth/callback?code=the-code&state=the-state", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        body.ShouldContain($"binding/{bindingId:N}/github/pat");
+        body.ShouldContain(bindingId.ToString("N"));
+        // The actual token / store-key plaintext must never leak into
+        // the handoff page.
+        body.ShouldNotContain("session-key");
     }
 
     [Fact]
@@ -221,6 +270,45 @@ public class GitHubOAuthEndpointsTests
         raw.ShouldNotBeNull();
         raw.ShouldNotContain("opaque");
         raw.ShouldNotContain("AccessTokenStoreKey", Case.Insensitive);
+    }
+
+    [Fact]
+    public async Task GetSession_WithPersistedSecret_SurfacesSecretAndBindingFields()
+    {
+        // ADR-0047 §13: the session response carries the persisted
+        // secret name + binding id so non-browser callers (CLI) can read
+        // the same handoff fields the browser handoff page emits. The
+        // CLI verb 'spring user identity authorize-github' reads these
+        // off the session and prints the binding-create hint.
+        var bindingId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+        var service = Substitute.For<IGitHubOAuthService>();
+        service.GetSessionAsync("sess-with-secret", Arg.Any<CancellationToken>())
+            .Returns(new OAuthSession(
+                SessionId: "sess-with-secret",
+                Login: "octocat",
+                UserId: 42L,
+                Scopes: "repo read:user",
+                AccessTokenStoreKey: "opaque",
+                RefreshTokenStoreKey: null,
+                ExpiresAt: null,
+                CreatedAt: DateTimeOffset.UtcNow,
+                ClientState: null,
+                Initiation: new OAuthInitiationContext(
+                    OAuthInitiationIntent.BindingWizard, null, bindingId),
+                PatSecretName: $"binding/{bindingId:N}/github/pat"));
+
+        await using var factory = CreateFactory(oauthService: service);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/tenant/connectors/github/oauth/session/sess-with-secret", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<OAuthSessionResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.PatSecretName.ShouldBe($"binding/{bindingId:N}/github/pat");
+        body.BindingId.ShouldBe(bindingId.ToString("N"));
     }
 
     [Fact]

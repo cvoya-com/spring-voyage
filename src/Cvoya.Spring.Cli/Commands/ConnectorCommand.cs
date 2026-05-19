@@ -313,17 +313,37 @@ public static class ConnectorCommand
         // which only ships a GitHub config form. Additional connectors
         // will either add their own flag sets here or land as dedicated
         // subcommands alongside their typed surfaces.
-        var ownerOption = new Option<string?>("--owner")
-        {
-            Description = "GitHub repository owner (required when --type github).",
-        };
+        //
+        // ADR-0047 §11 reshape:
+        //   * `--owner` is dropped (the field is gone from UnitGitHubConfig
+        //     in Phase A). `--repo` accepts the qualified `owner/repo`
+        //     form only — unqualified inputs are rejected at parse time.
+        //   * `--pat-secret-name` is the alternate auth flag alongside
+        //     `--installation-id`; the binding-create gate (Phase B's
+        //     endpoint + Phase G's parse-time check) requires exactly
+        //     one of the two.
         var repoOption = new Option<string?>("--repo")
         {
-            Description = "GitHub repository name (required when --type github).",
+            Description =
+                "GitHub repository in qualified 'owner/repo' form (required when --type github). " +
+                "Per ADR-0047 §11 the binding's addressing concern is the qualified pair, " +
+                "not the owner and repo names as separate columns.",
         };
         var installationIdOption = new Option<string?>("--installation-id")
         {
-            Description = "Optional GitHub App installation id. When omitted the server uses the App-level default.",
+            Description =
+                "GitHub App installation id (App-installation auth path per ADR-0047 §6). " +
+                "Mutually exclusive with --pat-secret-name — exactly one of the two MUST be set " +
+                "at binding-create time per ADR-0047 §11.",
+        };
+        var patSecretNameOption = new Option<string?>("--pat-secret-name")
+        {
+            Description =
+                "Tenant-secret name addressing the PAT this binding pushes with (PAT auth path per " +
+                "ADR-0047 §§ 5–6). The default naming convention is " +
+                "'binding/<binding-id-no-dash>/github/pat'; operators who paste an existing secret " +
+                "name override it. Mutually exclusive with --installation-id — exactly one of the " +
+                "two MUST be set at binding-create time per ADR-0047 §11.",
         };
         var eventsOption = new Option<string[]?>("--events")
         {
@@ -364,9 +384,9 @@ public static class ConnectorCommand
             "Bind a unit to a connector and upsert its per-unit config. Mirrors the portal's unit Connector tab.");
         command.Options.Add(unitOption);
         command.Options.Add(typeOption);
-        command.Options.Add(ownerOption);
         command.Options.Add(repoOption);
         command.Options.Add(installationIdOption);
+        command.Options.Add(patSecretNameOption);
         command.Options.Add(eventsOption);
         command.Options.Add(reviewerOption);
         command.Options.Add(includeLabelOption);
@@ -378,9 +398,9 @@ public static class ConnectorCommand
         {
             var unitInput = parseResult.GetValue(unitOption)!;
             var type = parseResult.GetValue(typeOption)!;
-            var owner = parseResult.GetValue(ownerOption);
             var repo = parseResult.GetValue(repoOption);
             var installationId = parseResult.GetValue(installationIdOption);
+            var patSecretName = parseResult.GetValue(patSecretNameOption);
             var events = parseResult.GetValue(eventsOption);
             var reviewer = parseResult.GetValue(reviewerOption);
             var includeLabels = ExpandCommaSeparated(parseResult.GetValue(includeLabelOption));
@@ -403,11 +423,16 @@ public static class ConnectorCommand
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(owner) || string.IsNullOrWhiteSpace(repo))
+            // ADR-0047 §11: --repo is required and must carry the
+            // qualified `owner/repo` form. The endpoint defends in depth
+            // (Phase B's PutConfigAsync rejects unqualified inputs at the
+            // wire surface) but the CLI catches the common case at parse
+            // time so the operator sees a clear hint without a round
+            // trip.
+            var bindError = ValidateGitHubBindFlags(repo, installationId, patSecretName);
+            if (bindError is not null)
             {
-                await Console.Error.WriteLineAsync(
-                    "--owner and --repo are required when --type github. Example: " +
-                    "spring connector bind --unit eng --type github --owner acme --repo platform.");
+                await Console.Error.WriteLineAsync(bindError);
                 Environment.Exit(1);
                 return;
             }
@@ -428,16 +453,11 @@ public static class ConnectorCommand
 
             try
             {
-                // ADR-0047 §11: the wire shape collapses to a single qualified
-                // 'owner/repo' string. Phase G removes the --owner flag and
-                // changes --repo to accept the qualified form directly; until
-                // then the CLI joins the two halves locally.
-                var qualifiedRepo = repo!.Contains('/') ? repo! : $"{owner}/{repo}";
                 var result = await client.PutUnitGitHubConfigAsync(
                     unitId,
-                    qualifiedRepo,
+                    repo!,
                     installationId,
-                    patSecretName: null,
+                    patSecretName,
                     events,
                     reviewer,
                     addOnAssign: null,
@@ -945,6 +965,63 @@ public static class ConnectorCommand
         });
 
         return command;
+    }
+
+    /// <summary>
+    /// Validates the GitHub-specific bind flags per ADR-0047 §§ 11.
+    /// Returns a non-null error string (formatted for stderr) when:
+    /// <list type="bullet">
+    ///   <item><description><c>--repo</c> is missing or not in qualified <c>owner/repo</c> form.</description></item>
+    ///   <item><description>Neither <c>--installation-id</c> nor <c>--pat-secret-name</c> is supplied.</description></item>
+    ///   <item><description>Both auth flags are supplied (ambiguous binding-auth).</description></item>
+    /// </list>
+    /// Returns <c>null</c> when the flags are valid. Exposed
+    /// <c>internal</c> so unit tests can drive each branch without
+    /// spawning a process.
+    /// </summary>
+    internal static string? ValidateGitHubBindFlags(
+        string? repo,
+        string? installationId,
+        string? patSecretName)
+    {
+        if (string.IsNullOrWhiteSpace(repo))
+        {
+            return
+                "--repo is required when --type github. Per ADR-0047 §11 the binding's repo is a " +
+                "single qualified 'owner/repo' string — example: " +
+                "spring connector bind --unit eng --type github --repo acme/platform --installation-id 12345";
+        }
+
+        if (!repo.Contains('/'))
+        {
+            return
+                $"--repo '{repo}' is not in qualified 'owner/repo' form. Per ADR-0047 §11 the binding's " +
+                "addressing concern is the qualified pair, not the owner and repo names as separate columns. " +
+                "Pass the full 'owner/repo' string — example: --repo acme/platform.";
+        }
+
+        var hasApp = !string.IsNullOrWhiteSpace(installationId);
+        var hasPat = !string.IsNullOrWhiteSpace(patSecretName);
+
+        if (!hasApp && !hasPat)
+        {
+            return
+                "GitHub binding requires an auth credential. Per ADR-0047 §11 exactly one of " +
+                "--installation-id or --pat-secret-name MUST be supplied at binding-create time " +
+                "(GitHubBindingAuthRequired). Use --installation-id for the SV App / BYO App path, " +
+                "or --pat-secret-name for the PAT path " +
+                "(run 'spring user identity authorize-github' to mint a PAT secret).";
+        }
+
+        if (hasApp && hasPat)
+        {
+            return
+                "GitHub binding cannot use both --installation-id and --pat-secret-name. Per ADR-0047 §11 " +
+                "the binding's credential is single-valued (GitHubBindingAuthAmbiguous). Choose the " +
+                "App-installation path or the PAT path — not both.";
+        }
+
+        return null;
     }
 
     /// <summary>

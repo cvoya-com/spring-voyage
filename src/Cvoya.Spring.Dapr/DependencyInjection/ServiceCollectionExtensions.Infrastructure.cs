@@ -246,6 +246,14 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // on the TenantUser principal, not the Human row.
         services.TryAddScoped<ITenantUserConnectorIdentityResolver, TenantUserConnectorIdentityResolver>();
 
+        // ADR-0047 §13: write seam for the OAuth callback's optional
+        // identity-refresh path and for any non-HTTP caller that needs to
+        // upsert a tenant user's connector display identity without
+        // round-tripping through the API. Scoped because it consults
+        // SpringDbContext (scoped per request); TryAdd keeps the hosted
+        // overlay's decoration hook.
+        services.TryAddScoped<ITenantUserConnectorIdentityWriter, TenantUserConnectorIdentityWriter>();
+
         // Package-declared human resolution policy (ADR-0044). OSS default
         // auto-fills every declared role with the install caller's UUID;
         // the cloud overlay registers a tenant-aware variant ahead of this

@@ -52,6 +52,11 @@ public class Program
                 AuthCommand.Create(outputOption),
                 AgentCommand.Create(outputOption),
                 HumanCommand.Create(outputOption),
+                // ADR-0047 §§ 1–2, 12: TenantUser is a new actor kind and
+                // the connector-identity surface relocates here. Replaces
+                // the pre-ADR-0047 `spring human identity` verbs deleted in
+                // Phase A+B.
+                UserCommand.Create(outputOption),
                 UnitCommand.Create(outputOption),
                 MessageCommand.Create(outputOption),
                 ThreadCommand.Create(outputOption),

@@ -3656,6 +3656,11 @@ export interface components {
         OAuthAuthorizeRequest: {
             scopes: null | string[];
             clientState: null | string;
+            intent?: null | string;
+            /** Format: uuid */
+            tenantUserId?: null | string;
+            /** Format: uuid */
+            bindingId?: null | string;
         };
         OAuthAuthorizeResponse: {
             authorizeUrl: string;
@@ -3672,6 +3677,8 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             clientState: null | string;
+            patSecretName?: null | string;
+            bindingId?: null | string;
         };
         PackageConnectorBindings: {
             package: null | {
@@ -10283,9 +10290,9 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
-                "application/json": null | components["schemas"]["OAuthAuthorizeRequest"];
+                "application/json": components["schemas"]["OAuthAuthorizeRequest"];
             };
         };
         responses: {

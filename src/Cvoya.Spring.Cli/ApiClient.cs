@@ -1328,8 +1328,12 @@ public class SpringApiClient
     // Human ↔ connector-native identity mappings (#2408)
 
     /// <summary>
-    /// Returns the authenticated caller's profile, including the stable human
-    /// UUID. Backs the <c>--human</c>-omitted default in <c>spring human identity *</c>.
+    /// Returns the authenticated caller's profile, including the stable
+    /// human UUID. Backs the <c>--id</c>-omitted default on
+    /// <c>spring human set</c> (ADR-0046 §7); per ADR-0047 §§ 1, 12 the
+    /// tenant-user side of the equation lives at
+    /// <c>OssTenantUserIds.Operator</c> in OSS — a future <c>/me</c>
+    /// extension surfaces the tenant-user pair for cloud (#2487 OUT1).
     /// </summary>
     public async Task<UserProfileResponse> GetCurrentUserAsync(CancellationToken ct = default)
     {
@@ -1367,6 +1371,145 @@ public class SpringApiClient
     // verbs and their ApiClient wrappers; v0.1's freezing release deletes the
     // prior `spring human identity` verbs and their wrappers outright with
     // no shim.
+
+    /// <summary>
+    /// Upserts the calling tenant user's display identity for a connector
+    /// (ADR-0047 §§ 2, 14). POST <c>/api/v1/tenant/users/{tenantUserId}/identities</c>.
+    /// Re-running with a different <paramref name="username"/> on the same
+    /// connector replaces the row in place rather than creating a second
+    /// row.
+    /// </summary>
+    public async Task<TenantUserConnectorIdentityResponse> UpsertTenantUserConnectorIdentityAsync(
+        Guid tenantUserId,
+        string connectorId,
+        string username,
+        string? displayHandle,
+        CancellationToken ct = default)
+    {
+        var body = new TenantUserConnectorIdentityRequest
+        {
+            ConnectorId = connectorId,
+            Username = username,
+            DisplayHandle = displayHandle,
+        };
+        var result = await _client.Api.V1.Tenant.Users[tenantUserId].Identities
+            .PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty UpsertTenantUserConnectorIdentity response for tenant user '{tenantUserId:N}'.");
+    }
+
+    /// <summary>
+    /// Lists every connector identity mapped to <paramref name="tenantUserId"/>
+    /// (ADR-0047 §§ 2, 14). GET <c>/api/v1/tenant/users/{tenantUserId}/identities</c>.
+    /// </summary>
+    public async Task<IReadOnlyList<TenantUserConnectorIdentityResponse>> ListTenantUserConnectorIdentitiesAsync(
+        Guid tenantUserId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Users[tenantUserId].Identities
+            .GetAsync(cancellationToken: ct);
+        return result ?? new List<TenantUserConnectorIdentityResponse>();
+    }
+
+    /// <summary>
+    /// Removes the identity row for <paramref name="tenantUserId"/> +
+    /// (<paramref name="connectorId"/>, <paramref name="username"/>) per
+    /// ADR-0047 §§ 2, 14. DELETE
+    /// <c>/api/v1/tenant/users/{tenantUserId}/identities?connectorId=&amp;username=</c>.
+    /// Idempotent — a delete against a row that does not exist still
+    /// returns 204, so the CLI does not branch on prior presence.
+    /// </summary>
+    public Task RemoveTenantUserConnectorIdentityAsync(
+        Guid tenantUserId,
+        string connectorId,
+        string username,
+        CancellationToken ct = default)
+        => _client.Api.V1.Tenant.Users[tenantUserId].Identities.DeleteAsync(
+            config =>
+            {
+                config.QueryParameters.ConnectorId = connectorId;
+                config.QueryParameters.Username = username;
+            },
+            cancellationToken: ct);
+
+    // ADR-0047 §13: thin wrappers around the OAuth authorize / session
+    // endpoints. The CLI's `spring user identity authorize-github` verb
+    // drives BeginGitHubOAuthAuthorizationAsync, opens the resulting URL
+    // in the user's browser, listens on the configured loopback redirect,
+    // and reads the persisted secret name off the session lookup. Manual
+    // PAT paste skips OAuth entirely and writes the secret directly via
+    // the secret-store CLI verbs.
+
+    /// <summary>
+    /// Begins a GitHub OAuth authorization flow with the supplied intent
+    /// payload. POST <c>/api/v1/tenant/connectors/github/oauth/authorize</c>.
+    /// Returns the URL the caller should open in the user's browser and
+    /// the state value the callback will echo back.
+    /// </summary>
+    /// <param name="intent">
+    /// Initiation discriminator per ADR-0047 §13 — accepts
+    /// <c>"user-identity"</c>, <c>"binding-wizard"</c>, or <c>null</c> for
+    /// the legacy session-only flow.
+    /// </param>
+    /// <param name="tenantUserId">
+    /// Calling tenant user UUID for the <c>user-identity</c> intent;
+    /// <c>null</c> otherwise.
+    /// </param>
+    /// <param name="bindingId">
+    /// Pre-minted binding UUID for the <c>binding-wizard</c> intent
+    /// (ADR-0047 §13 option (a)); <c>null</c> otherwise.
+    /// </param>
+    /// <param name="scopes">
+    /// Per-request OAuth scope override; <c>null</c> falls back to the
+    /// server's configured default set.
+    /// </param>
+    /// <param name="clientState">
+    /// Opaque payload echoed back on the session after callback. The CLI
+    /// passes a JSON object containing <c>targetOrigin</c> so the
+    /// callback page can postMessage back to the right window.
+    /// </param>
+    public async Task<OAuthAuthorizeResponse> BeginGitHubOAuthAuthorizationAsync(
+        string? intent,
+        Guid? tenantUserId,
+        Guid? bindingId,
+        IReadOnlyList<string>? scopes,
+        string? clientState,
+        CancellationToken ct = default)
+    {
+        var body = new OAuthAuthorizeRequest
+        {
+            Scopes = scopes?.ToList(),
+            ClientState = clientState,
+            Intent = intent,
+            TenantUserId = tenantUserId,
+            BindingId = bindingId,
+        };
+        var result = await _client.Api.V1.Tenant.Connectors.Github.Oauth.Authorize
+            .PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            "Server returned an empty BeginGitHubOAuthAuthorization response.");
+    }
+
+    /// <summary>
+    /// Reads the OAuth session by id. GET
+    /// <c>/api/v1/tenant/connectors/github/oauth/session/{sessionId}</c>.
+    /// The CLI polls this after the browser callback fires so it can
+    /// surface the persisted secret name on the operator's terminal.
+    /// </summary>
+    public async Task<OAuthSessionResponse?> GetGitHubOAuthSessionAsync(
+        string sessionId,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.Api.V1.Tenant.Connectors.Github.Oauth.Session[sessionId]
+                .GetAsync(cancellationToken: ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+        {
+            return null;
+        }
+    }
 
     // Unit team-role membership (#2409 / ADR-0044 § 3). Backs
     // `spring unit members humans add|list|update|remove`.
