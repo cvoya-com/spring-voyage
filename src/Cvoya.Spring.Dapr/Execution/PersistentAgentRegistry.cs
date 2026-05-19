@@ -78,6 +78,20 @@ public class PersistentAgentRegistry(
     private readonly ConcurrentDictionary<string, int> _inFlightDispatches = new();
 
     /// <summary>
+    /// Timestamp of the first probe failure in the current failure streak,
+    /// per agent. Cleared when the next probe succeeds (counter goes back
+    /// to 0) and when the restart catch block runs. Used by
+    /// <see cref="RunHealthChecksAsync"/> to gate the threshold restart on
+    /// row freshness: if the EF row's <c>UpdatedAt</c> has moved forward
+    /// since this streak started, a sibling host process rewrote the row
+    /// (e.g. the worker's <c>A2AExecutionDispatcher</c> deployed a fresh
+    /// container) and our cached failure count is against an endpoint that
+    /// no longer exists. The local counter is reset and the restart is
+    /// skipped — the next sweep probes the (now-current) endpoint (#2519).
+    /// </summary>
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _firstFailureAt = new();
+
+    /// <summary>
     /// Cached <see cref="AgentDefinition"/> snapshot for every agent this
     /// process registered locally (i.e. it launched the container). Used
     /// by <see cref="TryRestartAsync"/> to look up the image / runtime /
@@ -172,17 +186,30 @@ public class PersistentAgentRegistry(
             db.PersistentAgentRuntime.Add(row);
         }
 
+        var now = DateTimeOffset.UtcNow;
         row.Endpoint = endpoint.ToString();
         row.ContainerId = containerId;
-        row.StartedAt = DateTimeOffset.UtcNow;
+        row.StartedAt = now;
         row.HealthStatus = AgentHealthStatus.Healthy;
         row.ConsecutiveFailures = 0;
         row.SidecarId = sidecarId;
         row.SidecarNetworkName = sidecarNetworkName;
         row.Image = definition?.Execution?.Image;
         row.OwnerHost = OwnerHostTag;
+        // #2519: PersistentAgentRuntimeEntity opts out of the default
+        // audit-pipeline UpdatedAt bump because the cross-process freshness
+        // gate must ignore bookkeeping writes (failure-counter increments,
+        // MarkUnhealthy flags). RegisterAsync is a fresh "container alive"
+        // signal, so we set UpdatedAt explicitly to advance the gate.
+        row.UpdatedAt = now;
 
         await db.SaveChangesAsync(cancellationToken);
+
+        // #2519: a fresh registration always resets this process's local
+        // failure-streak anchor — the row points at a new endpoint we
+        // launched, so any prior streak against the previous endpoint is
+        // irrelevant.
+        _firstFailureAt.TryRemove(agentId, out _);
 
         // Track which containers this process launched so StopAsync only
         // tears down the right set on graceful shutdown.
@@ -269,6 +296,7 @@ public class PersistentAgentRegistry(
 
         _localContainers.TryRemove(agentId, out _);
         _localDefinitions.TryRemove(agentId, out _);
+        _firstFailureAt.TryRemove(agentId, out _);
 
         _logger.LogInformation(EventIds.AgentUnregistered, "Persistent agent {AgentId} unregistered", agentId);
     }
@@ -353,6 +381,13 @@ public class PersistentAgentRegistry(
 
         row.HealthStatus = AgentHealthStatus.Unhealthy;
         row.ConsecutiveFailures = UnhealthyThreshold;
+        // #2519: UpdatedAt is intentionally not modified here. A
+        // MarkUnhealthy flag is not a fresh "container alive" signal;
+        // SpringDbContext.ApplyAuditTimestamps preserves the existing
+        // UpdatedAt for PersistentAgentRuntimeEntity Modified writes that
+        // don't explicitly set it. The cross-process freshness gate in
+        // RunHealthChecksAsync depends on this asymmetry to distinguish
+        // sibling heartbeats from bookkeeping writes.
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -417,6 +452,7 @@ public class PersistentAgentRegistry(
         var entry = ToEntry(agentId, row);
         _localContainers.TryRemove(agentId, out _);
         _localDefinitions.TryRemove(agentId, out _);
+        _firstFailureAt.TryRemove(agentId, out _);
 
         if (entry.ContainerId is not null)
         {
@@ -475,6 +511,7 @@ public class PersistentAgentRegistry(
         var entry = ToEntry(agentId, row);
         _localContainers.TryRemove(agentId, out _);
         _localDefinitions.TryRemove(agentId, out _);
+        _firstFailureAt.TryRemove(agentId, out _);
 
         if (entry.ContainerId is not null)
         {
@@ -541,6 +578,7 @@ public class PersistentAgentRegistry(
         await Task.WhenAll(stopTasks);
         _localContainers.Clear();
         _localDefinitions.Clear();
+        _firstFailureAt.Clear();
     }
 
     /// <summary>
@@ -594,7 +632,8 @@ public class PersistentAgentRegistry(
 
                 if (healthy)
                 {
-                    // Reset failure count on success.
+                    // Reset failure count and freshness anchor on success.
+                    _firstFailureAt.TryRemove(entry.AgentId, out _);
                     if (entry.ConsecutiveFailures > 0 || entry.HealthStatus != AgentHealthStatus.Healthy)
                     {
                         await UpdateHealthAsync(entry.AgentId, AgentHealthStatus.Healthy, 0, CancellationToken.None);
@@ -602,48 +641,13 @@ public class PersistentAgentRegistry(
                 }
                 else
                 {
-                    var failures = entry.ConsecutiveFailures + 1;
-
-                    // #2092: flip to Unhealthy on the first failure so the
-                    // dispatcher's pre-flight check on the next dispatch
-                    // can route through the auto-restart path before the
-                    // doomed A2A call goes out.
-                    await UpdateHealthAsync(entry.AgentId, AgentHealthStatus.Unhealthy, failures, CancellationToken.None);
-
-                    if (failures == 1)
-                    {
-                        _logger.LogInformation(
-                            EventIds.AgentUnhealthy,
-                            "Agent {AgentId} probe failed; marked Unhealthy after first failure (restart at threshold {Threshold})",
-                            entry.AgentId, UnhealthyThreshold);
-                    }
-
-                    if (failures >= UnhealthyThreshold)
-                    {
-                        _logger.LogWarning(
-                            EventIds.AgentUnhealthy,
-                            "Agent {AgentId} hit restart threshold after {Failures} consecutive failures; attempting restart",
-                            entry.AgentId, failures);
-
-                        // Background restart on the slow path. The dispatch
-                        // path still gets first crack via its pre-flight
-                        // check (#2092) so a real inbound turn doesn't wait
-                        // for this loop's threshold to elapse.
-                        await TryRestartAsync(entry);
-                    }
+                    await OnProbeFailureAsync(entry, exception: null);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Health check failed for agent {AgentId}", entry.AgentId);
-                var failures = entry.ConsecutiveFailures + 1;
-
-                await UpdateHealthAsync(entry.AgentId, AgentHealthStatus.Unhealthy, failures, CancellationToken.None);
-
-                if (failures >= UnhealthyThreshold)
-                {
-                    await TryRestartAsync(entry);
-                }
+                await OnProbeFailureAsync(entry, exception: ex);
             }
         }
     }
@@ -734,6 +738,120 @@ public class PersistentAgentRegistry(
         }
     }
 
+    /// <summary>
+    /// Records the outcome of a failing probe tick for <paramref name="entry"/>.
+    /// Stamps the local first-failure timestamp on the first observed failure
+    /// in a streak, flips the row to Unhealthy, increments
+    /// <see cref="PersistentAgentEntry.ConsecutiveFailures"/>, and — when the
+    /// streak reaches <see cref="UnhealthyThreshold"/> — gates the restart
+    /// attempt on row freshness (#2519) before dispatching to
+    /// <see cref="TryRestartAsync"/>.
+    /// </summary>
+    /// <param name="entry">The agent whose probe failed.</param>
+    /// <param name="exception">
+    /// The probe exception, if the failure surfaced as a thrown exception
+    /// rather than a clean <c>false</c> return. Used only for logging.
+    /// </param>
+    private async Task OnProbeFailureAsync(PersistentAgentEntry entry, Exception? exception)
+    {
+        var failures = entry.ConsecutiveFailures + 1;
+
+        // Stamp first-failure timestamp on streak start so the threshold
+        // restart can gate on row freshness below. Re-stamps after a
+        // successful probe cleared the entry are handled by the success
+        // branch in RunHealthChecksAsync.
+        _firstFailureAt.TryAdd(entry.AgentId, DateTimeOffset.UtcNow);
+
+        // #2092: flip to Unhealthy on the first failure so the dispatcher's
+        // pre-flight check on the next dispatch can route through the
+        // auto-restart path before the doomed A2A call goes out.
+        await UpdateHealthAsync(entry.AgentId, AgentHealthStatus.Unhealthy, failures, CancellationToken.None);
+
+        if (failures == 1 && exception is null)
+        {
+            _logger.LogInformation(
+                EventIds.AgentUnhealthy,
+                "Agent {AgentId} probe failed; marked Unhealthy after first failure (restart at threshold {Threshold})",
+                entry.AgentId, UnhealthyThreshold);
+        }
+
+        if (failures < UnhealthyThreshold)
+        {
+            return;
+        }
+
+        // #2519: before tearing down and relaunching, check whether the EF
+        // row has been rewritten since this failure streak started. The
+        // worker host's A2AExecutionDispatcher writes a fresh row when it
+        // auto-deploys an agent on inbound message and bumps UpdatedAt on
+        // a successful A2A POST; without this gate the API host's
+        // accumulated failure count against the previous endpoint clobbers
+        // the sibling's just-launched container.
+        var freshEntry = await TryGetAsync(entry.AgentId, CancellationToken.None);
+        if (freshEntry is not null
+            && _firstFailureAt.TryGetValue(entry.AgentId, out var firstFailureAt)
+            && freshEntry.UpdatedAt > firstFailureAt)
+        {
+            _logger.LogInformation(
+                EventIds.AgentRestarting,
+                "Agent {AgentId} hit restart threshold but the runtime row was rewritten by a sibling " +
+                "process at {RowUpdatedAt} after this streak began at {FirstFailureAt}; resetting " +
+                "local failure count and skipping restart this tick (#2519).",
+                entry.AgentId, freshEntry.UpdatedAt, firstFailureAt);
+
+            _firstFailureAt.TryRemove(entry.AgentId, out _);
+            await UpdateHealthAsync(entry.AgentId, AgentHealthStatus.Unknown, 0, CancellationToken.None);
+            return;
+        }
+
+        _logger.LogWarning(
+            EventIds.AgentUnhealthy,
+            "Agent {AgentId} hit restart threshold after {Failures} consecutive failures; attempting restart",
+            entry.AgentId, failures);
+
+        // Background restart on the slow path. The dispatch path still gets
+        // first crack via its pre-flight check (#2092) so a real inbound
+        // turn doesn't wait for this loop's threshold to elapse.
+        await TryRestartAsync(entry);
+    }
+
+    /// <summary>
+    /// Bumps the EF row's <c>UpdatedAt</c> column without touching any other
+    /// state. Called by <see cref="A2AExecutionDispatcher"/> on a successful
+    /// A2A POST so a sibling host's restart path (gated on row freshness in
+    /// <see cref="RunHealthChecksAsync"/>) sees the heartbeat and skips an
+    /// otherwise-scheduled restart against an endpoint a busy agent is
+    /// happily serving (#2519).
+    /// </summary>
+    /// <param name="agentId">The agent identifier.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    public async Task RecordDispatchHeartbeatAsync(
+        string agentId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+
+        var agentGuid = ParseAgentId(agentId);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var row = await db.PersistentAgentRuntime
+            .FirstOrDefaultAsync(r => r.AgentId == agentGuid, cancellationToken);
+
+        if (row is null)
+        {
+            return;
+        }
+
+        // The audit-timestamp pipeline in SpringDbContext stamps UpdatedAt
+        // on every Modified row; we mark the entity Modified via an unchanged
+        // re-assignment so the audit hook fires even though no logical column
+        // changed. This is the cheap heartbeat per-issue #2519 recommendation.
+        row.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     private async Task UpdateHealthAsync(
         string agentId,
         AgentHealthStatus status,
@@ -755,6 +873,15 @@ public class PersistentAgentRegistry(
 
         row.HealthStatus = status;
         row.ConsecutiveFailures = consecutiveFailures;
+        // #2519: UpdatedAt is intentionally not modified here. Probe
+        // bookkeeping writes (failure counter increments, success-branch
+        // "Healthy/0" resets, the freshness gate's Unknown flip) must not
+        // bump UpdatedAt — the cross-process freshness gate in
+        // RunHealthChecksAsync compares the column against the local
+        // first-failure timestamp, and a per-tick bump from our own probe
+        // loop would defeat it. SpringDbContext.ApplyAuditTimestamps
+        // preserves the existing UpdatedAt for PersistentAgentRuntimeEntity
+        // Modified writes that don't explicitly set it.
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -813,7 +940,16 @@ public class PersistentAgentRegistry(
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to restart persistent agent {AgentId}", entry.AgentId);
-            await RemoveAsync(entry.AgentId, CancellationToken.None);
+            // #2519: do NOT DELETE the row on restart failure — the row may
+            // describe a perfectly healthy container started by a sibling
+            // host process between the start of this failure streak and the
+            // threshold tick (the original symptom that filed this issue).
+            // Flip HealthStatus to Unknown + reset the failure count so the
+            // next sweep re-probes the (possibly fresh) endpoint, and clear
+            // the local first-failure timestamp so a recovered probe starts
+            // a clean streak.
+            await UpdateHealthAsync(entry.AgentId, AgentHealthStatus.Unknown, 0, CancellationToken.None);
+            _firstFailureAt.TryRemove(entry.AgentId, out _);
         }
     }
 
@@ -942,7 +1078,8 @@ public class PersistentAgentRegistry(
             Definition: definition,
             SidecarId: row.SidecarId,
             SidecarNetworkName: row.SidecarNetworkName,
-            Image: row.Image);
+            Image: row.Image,
+            UpdatedAt: row.UpdatedAt);
     }
 
     private static Guid ParseAgentId(string agentId)
@@ -1012,7 +1149,18 @@ public enum AgentHealthStatus
     Healthy,
 
     /// <summary>The agent has failed consecutive health probes and needs restart.</summary>
-    Unhealthy
+    Unhealthy,
+
+    /// <summary>
+    /// Health is not currently known to this process — used by the
+    /// freshness gate in <see cref="PersistentAgentRegistry.RunHealthChecksAsync"/>
+    /// when a sibling host process rewrote the row mid-streak (#2519) and
+    /// by <see cref="PersistentAgentRegistry.TryRestartAsync"/> when a
+    /// restart attempt failed but the row may describe a sibling-launched
+    /// container. The next sweep re-probes the endpoint and flips the
+    /// state back to Healthy or Unhealthy.
+    /// </summary>
+    Unknown
 }
 
 /// <summary>
@@ -1039,6 +1187,16 @@ public enum AgentHealthStatus
 /// column so cross-process readers can render the deployment badge's
 /// image field without rehydrating <see cref="Definition"/>.
 /// </param>
+/// <param name="UpdatedAt">
+/// UTC timestamp of the last write to the backing EF row. Bumped by
+/// every row write (register, mark-unhealthy, update-health) and by
+/// <see cref="PersistentAgentRegistry.RecordDispatchHeartbeatAsync"/>
+/// on a successful A2A dispatch. The health-sweep restart path
+/// (#2519) gates on this column to detect sibling-host writes between
+/// the start of a failure streak and the threshold tick — if the row
+/// has been rewritten since this process began counting failures,
+/// the count is against an endpoint the sibling has already replaced.
+/// </param>
 public record PersistentAgentEntry(
     string AgentId,
     Uri Endpoint,
@@ -1049,4 +1207,5 @@ public record PersistentAgentEntry(
     AgentDefinition? Definition = null,
     string? SidecarId = null,
     string? SidecarNetworkName = null,
-    string? Image = null);
+    string? Image = null,
+    DateTimeOffset UpdatedAt = default);
