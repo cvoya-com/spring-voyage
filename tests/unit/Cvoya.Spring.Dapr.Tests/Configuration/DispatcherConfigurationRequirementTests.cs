@@ -18,10 +18,13 @@ public class DispatcherConfigurationRequirementTests
     private static IOptions<DispatcherClientOptions> Opts(string? baseUrl = null, string? bearerToken = null) =>
         Options.Create(new DispatcherClientOptions { BaseUrl = baseUrl, BearerToken = bearerToken });
 
+    private static DispatcherConfigurationRequirementOptions Mandatory(bool isMandatory = true) =>
+        new(IsMandatory: isMandatory);
+
     [Fact]
-    public async Task ValidateAsync_MissingBaseUrl_ReturnsDisabledInformation()
+    public async Task ValidateAsync_NonMandatory_MissingBaseUrl_ReturnsDisabledInformation()
     {
-        var requirement = new DispatcherConfigurationRequirement(Opts(baseUrl: null));
+        var requirement = new DispatcherConfigurationRequirement(Opts(baseUrl: null), Mandatory(isMandatory: false));
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
 
@@ -37,9 +40,30 @@ public class DispatcherConfigurationRequirementTests
     }
 
     [Fact]
+    public async Task ValidateAsync_Mandatory_MissingBaseUrl_ReturnsInvalidWithFatalError()
+    {
+        // #2518: the API host runs PersistentAgentRegistry as a hosted
+        // service and that service hits the dispatcher on the restart
+        // path. A missing Dispatcher:BaseUrl must abort startup so
+        // operators see a clear configuration error instead of a runtime
+        // crash that DELETEs persistent_agent_runtime rows.
+        var requirement = new DispatcherConfigurationRequirement(Opts(baseUrl: null), Mandatory(isMandatory: true));
+
+        var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
+
+        status.Status.ShouldBe(ConfigurationStatus.Invalid);
+        status.Severity.ShouldBe(SeverityLevel.Error);
+        status.FatalError.ShouldNotBeNull();
+        status.Reason.ShouldNotBeNull();
+        status.Reason!.ShouldContain("PersistentAgentRegistry");
+        status.Suggestion.ShouldNotBeNull();
+        status.Suggestion!.ShouldContain("Dispatcher__BaseUrl");
+    }
+
+    [Fact]
     public async Task ValidateAsync_MalformedBaseUrl_ReturnsInvalid()
     {
-        var requirement = new DispatcherConfigurationRequirement(Opts(baseUrl: "this-is-not-a-url"));
+        var requirement = new DispatcherConfigurationRequirement(Opts(baseUrl: "this-is-not-a-url"), Mandatory());
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
 
@@ -52,7 +76,8 @@ public class DispatcherConfigurationRequirementTests
     public async Task ValidateAsync_NonHttpScheme_ReturnsInvalid()
     {
         var requirement = new DispatcherConfigurationRequirement(
-            Opts(baseUrl: "ftp://spring-dispatcher:8080/"));
+            Opts(baseUrl: "ftp://spring-dispatcher:8080/"),
+            Mandatory());
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
 
@@ -63,7 +88,8 @@ public class DispatcherConfigurationRequirementTests
     public async Task ValidateAsync_BaseUrlWithoutBearer_ReturnsMetWithWarning()
     {
         var requirement = new DispatcherConfigurationRequirement(
-            Opts(baseUrl: "http://spring-dispatcher:8080/"));
+            Opts(baseUrl: "http://spring-dispatcher:8080/"),
+            Mandatory());
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
 
@@ -76,7 +102,8 @@ public class DispatcherConfigurationRequirementTests
     public async Task ValidateAsync_ValidBaseUrlAndBearer_ReturnsMet()
     {
         var requirement = new DispatcherConfigurationRequirement(
-            Opts(baseUrl: "https://spring-dispatcher.example.com/", bearerToken: "s3cr3t"));
+            Opts(baseUrl: "https://spring-dispatcher.example.com/", bearerToken: "s3cr3t"),
+            Mandatory());
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
 
@@ -85,17 +112,26 @@ public class DispatcherConfigurationRequirementTests
     }
 
     [Fact]
-    public async Task RequirementMetadata_IsStable()
+    public async Task RequirementMetadata_Mandatory_IsStable()
     {
-        var requirement = new DispatcherConfigurationRequirement(Opts());
+        var requirement = new DispatcherConfigurationRequirement(Opts(), Mandatory(isMandatory: true));
 
         requirement.RequirementId.ShouldBe("dispatcher-endpoint");
         requirement.SubsystemName.ShouldBe("Dispatcher");
-        requirement.IsMandatory.ShouldBeFalse();
+        requirement.IsMandatory.ShouldBeTrue();
         requirement.EnvironmentVariableNames.ShouldContain("Dispatcher__BaseUrl");
         requirement.EnvironmentVariableNames.ShouldContain("Dispatcher__BearerToken");
         requirement.ConfigurationSectionPath.ShouldBe(DispatcherClientOptions.SectionName);
         requirement.DocumentationUrl.ShouldNotBeNull();
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task RequirementMetadata_NonMandatory_ReflectsRegistrationOptions()
+    {
+        var requirement = new DispatcherConfigurationRequirement(Opts(), Mandatory(isMandatory: false));
+
+        requirement.IsMandatory.ShouldBeFalse();
         await Task.CompletedTask;
     }
 }

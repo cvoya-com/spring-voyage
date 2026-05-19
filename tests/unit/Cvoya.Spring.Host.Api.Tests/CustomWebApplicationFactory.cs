@@ -395,6 +395,17 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("ConnectionStrings:SpringDb",
             "Host=test;Database=test;Username=test;Password=test");
 
+        // Satisfy DispatcherConfigurationRequirement (#2518 — mandatory on
+        // every host that runs PersistentAgentRegistry as a hosted service,
+        // which the API host does). The value is never actually called: the
+        // test factory's stubs replace IUnitContainerLifecycle and the
+        // PersistentAgentRegistry timer never runs because no
+        // persistent_agent_runtime rows exist in the in-memory database.
+        // The string just has to be a syntactically valid absolute http(s)
+        // URL so the validator doesn't trip the malformed-URL branch.
+        builder.UseSetting("Dispatcher:BaseUrl", "http://spring-dispatcher.test/");
+        builder.UseSetting("Dispatcher:BearerToken", "test-token");
+
         // Satisfy SecretsConfigurationRequirement (#639) — the integration
         // factory never configures a real AES key and the scoped tests
         // don't exercise the encryptor, so the ephemeral dev-key path is

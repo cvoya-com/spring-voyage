@@ -33,6 +33,13 @@ public class ServiceRegistrationTests : IDisposable
                 // replaces the DbContext with an in-memory provider.
                 builder.UseSetting("ConnectionStrings:SpringDb",
                     "Host=test;Database=test;Username=test;Password=test");
+                // #2518: Dispatcher:BaseUrl is mandatory on the API host —
+                // PersistentAgentRegistry is registered as a hosted service.
+                // Set a syntactically valid URL so the validator passes.
+                // The string is never actually called: this test only
+                // exercises endpoint DI resolution.
+                builder.UseSetting("Dispatcher:BaseUrl", "http://spring-dispatcher.test/");
+                builder.UseSetting("Dispatcher:BearerToken", "test-token");
                 // #639 SecretsConfigurationRequirement — use an ephemeral
                 // dev key so the validator reports Met+Warning instead of
                 // aborting on missing key material.

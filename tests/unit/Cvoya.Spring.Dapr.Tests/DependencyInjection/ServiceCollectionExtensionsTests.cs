@@ -128,8 +128,17 @@ public class ServiceCollectionExtensionsTests
         // missing DB connection string as the only failing mandatory
         // requirement, so the assertion does not have to untangle an
         // AggregateException of multiple mandatory failures.
+        // #2518 — Dispatcher:BaseUrl is now mandatory too. Set a valid
+        // URL via in-memory configuration so the missing DB connection
+        // string is the only failing mandatory requirement, keeping this
+        // test focused on the #261 regression (single InvalidOperationException
+        // instead of an AggregateException covering DB + dispatcher).
         var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>())
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Dispatcher:BaseUrl"] = "http://spring-dispatcher.test/",
+                ["Dispatcher:BearerToken"] = "test-token",
+            })
             .Build();
         // IConfiguration needs to be present in DI for the requirement's
         // constructor injection; AddCvoyaSpringDapr does not register it

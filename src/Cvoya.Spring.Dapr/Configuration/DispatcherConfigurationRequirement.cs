@@ -16,38 +16,49 @@ using Microsoft.Extensions.Options;
 /// <summary>
 /// Tier-1 requirement: the <c>spring-dispatcher</c> HTTP endpoint
 /// (<c>Dispatcher:BaseUrl</c> / <c>Dispatcher:BearerToken</c>) used by
-/// <see cref="DispatcherClientContainerRuntime"/> to launch and manage
-/// delegated-execution containers.
+/// <see cref="DispatcherClientContainerRuntime"/> and
+/// <see cref="DispatcherCallbackEnvironmentBuilder"/> to launch, manage, and
+/// inject callback environment into delegated-execution containers.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Mandatory flag is <c>false</c>.</b> Both the API and Worker hosts
-/// register the dispatcher client, but only the Worker actually invokes it
-/// (agent deploy, workflow-orchestration strategy). An API-only deployment
-/// with no dispatcher configured is a valid, expected topology — we report
-/// Disabled instead of aborting boot, and the API host never drives
-/// delegated execution so there is no "first call" to fail. On the Worker
-/// host the dispatcher-dependent features surface their own errors when the
-/// endpoint is missing at first call.
+/// <b>Mandatory on every host that runs <see cref="PersistentAgentRegistry"/>
+/// as a hosted service</b> — that is, every host where
+/// <c>AddCvoyaSpringExecution()</c> registers the hosted service (i.e. every
+/// runtime host other than design-time tooling such as the build-time OpenAPI
+/// emitter). API-side call sites that drive delegated execution include the
+/// background restart path (<see cref="PersistentAgentRegistry"/>'s health
+/// timer → <see cref="PersistentAgentRegistry.TryRestartAsync"/>) and the
+/// imperative endpoints in <c>AgentEndpoints</c> / <c>UnitEndpoints</c>
+/// (deploy, undeploy, runtime updates) that resolve
+/// <see cref="PersistentAgentLifecycle"/>. The Worker host also drives
+/// delegated execution (agent deploy, workflow-orchestration strategy).
+/// A missing <c>Dispatcher:BaseUrl</c> on either host previously deferred the
+/// error to the first dispatcher call — minutes after host start — and on the
+/// API host crashed the restart loop, after which the registry's catch
+/// branch DELETEd the <c>persistent_agent_runtime</c> row (issue #2518).
 /// </para>
 /// <para>
-/// Replaces the silent "fail at first use" throw that used to live inside
-/// <see cref="DispatcherClientContainerRuntime"/>: a blank
-/// <c>Dispatcher:BaseUrl</c> would deferred the error to the first
-/// <c>POST /v1/containers</c> call, many minutes after host start.
+/// The <c>IsMandatory</c> flag is set at registration time via
+/// <see cref="DispatcherConfigurationRequirementOptions"/>: production hosts
+/// register with <c>IsMandatory = true</c>; design-time tooling skips the
+/// validator entirely (see <c>ServiceCollectionExtensions.Infrastructure</c>
+/// — the requirement is registered only when <c>!isDocGen</c>).
 /// </para>
 /// <para>
 /// <b>Status mapping.</b>
 /// </para>
 /// <list type="bullet">
-///   <item>Missing <c>BaseUrl</c> → <see cref="ConfigurationStatus.Disabled"/> with a pointer at <c>Dispatcher:BaseUrl</c>.</item>
+///   <item>Missing <c>BaseUrl</c> on a mandatory host → <see cref="ConfigurationStatus.Invalid"/> with a fatal error; aborts host startup.</item>
+///   <item>Missing <c>BaseUrl</c> on a non-mandatory host (test harness opting out) → <see cref="ConfigurationStatus.Disabled"/> with a pointer at <c>Dispatcher:BaseUrl</c>.</item>
 ///   <item>Malformed <c>BaseUrl</c> (not a valid absolute HTTP(S) URI) → <see cref="ConfigurationStatus.Invalid"/>.</item>
 ///   <item>Valid <c>BaseUrl</c> but empty <c>BearerToken</c> → <see cref="ConfigurationStatus.Met"/> with <see cref="SeverityLevel.Warning"/> — the dispatcher will reject unauthorised requests at deploy time.</item>
 ///   <item>Valid <c>BaseUrl</c> and <c>BearerToken</c> → <see cref="ConfigurationStatus.Met"/>.</item>
 /// </list>
 /// </remarks>
 public sealed class DispatcherConfigurationRequirement(
-    IOptions<DispatcherClientOptions> optionsAccessor) : IConfigurationRequirement
+    IOptions<DispatcherClientOptions> optionsAccessor,
+    DispatcherConfigurationRequirementOptions registrationOptions) : IConfigurationRequirement
 {
     /// <inheritdoc />
     public string RequirementId => "dispatcher-endpoint";
@@ -59,7 +70,7 @@ public sealed class DispatcherConfigurationRequirement(
     public string SubsystemName => "Dispatcher";
 
     /// <inheritdoc />
-    public bool IsMandatory => false;
+    public bool IsMandatory => registrationOptions.IsMandatory;
 
     /// <inheritdoc />
     public IReadOnlyList<string> EnvironmentVariableNames { get; } =
@@ -70,7 +81,7 @@ public sealed class DispatcherConfigurationRequirement(
 
     /// <inheritdoc />
     public string Description =>
-        "HTTP endpoint of the spring-dispatcher service used by the Worker host to launch delegated-execution containers. Optional — hosts that never drive delegated execution (e.g. the OSS API host on its own) leave it unset.";
+        "HTTP endpoint of the spring-dispatcher service used by every host that runs PersistentAgentRegistry as a hosted service (API + Worker) to launch and supervise delegated-execution containers.";
 
     /// <inheritdoc />
     public Uri? DocumentationUrl { get; } =
@@ -83,12 +94,25 @@ public sealed class DispatcherConfigurationRequirement(
 
         if (string.IsNullOrWhiteSpace(options.BaseUrl))
         {
+            const string Suggestion =
+                "Set Dispatcher:BaseUrl (environment variable Dispatcher__BaseUrl=...) to the spring-dispatcher HTTP endpoint " +
+                "(e.g. http://host.containers.internal:8090/ on Podman or http://host.docker.internal:8090/ on Docker — " +
+                "the dispatcher runs as a host process, not in a container; see issue #1063).";
+
+            if (registrationOptions.IsMandatory)
+            {
+                const string Reason =
+                    "Dispatcher:BaseUrl is not set. PersistentAgentRegistry runs as a hosted service on this host " +
+                    "(API restart loop, deploy/undeploy endpoints, worker dispatch) and requires the dispatcher endpoint.";
+                return Task.FromResult(ConfigurationRequirementStatus.Invalid(
+                    reason: Reason,
+                    suggestion: Suggestion,
+                    fatalError: new InvalidOperationException(Reason + " " + Suggestion)));
+            }
+
             return Task.FromResult(ConfigurationRequirementStatus.Disabled(
                 reason: "Dispatcher:BaseUrl is not set — delegated-execution features (agent deploy, workflow orchestration) are unavailable on this host.",
-                suggestion:
-                    "Leave unset on hosts that never drive delegated execution (e.g. an OSS API host running on its own). " +
-                    "On the Worker host, set Dispatcher:BaseUrl (environment variable Dispatcher__BaseUrl=...) to the spring-dispatcher HTTP endpoint " +
-                    "(e.g. http://host.containers.internal:8090/ — the dispatcher runs on the host, not in a container; see issue #1063)."));
+                suggestion: Suggestion));
         }
 
         if (!Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var parsed)
@@ -115,3 +139,19 @@ public sealed class DispatcherConfigurationRequirement(
         return Task.FromResult(ConfigurationRequirementStatus.Met());
     }
 }
+
+/// <summary>
+/// Registration-time options for <see cref="DispatcherConfigurationRequirement"/>.
+/// Registered as a singleton by the DI extension that wires the requirement
+/// so the requirement can read its <c>IsMandatory</c> value from a normal
+/// DI constructor parameter (mirrors
+/// <see cref="DatabaseConfigurationRequirement.TestHarnessSignal"/>).
+/// </summary>
+/// <param name="IsMandatory">
+/// When <c>true</c>, a missing or malformed <c>Dispatcher:BaseUrl</c> aborts
+/// host startup. Production hosts always register with <c>true</c>; test
+/// harnesses that explicitly opt out of dispatcher-driven supervision (no
+/// <c>PersistentAgentRegistry</c> hosted service) may register with
+/// <c>false</c>.
+/// </param>
+public sealed record DispatcherConfigurationRequirementOptions(bool IsMandatory);

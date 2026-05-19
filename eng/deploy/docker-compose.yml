@@ -288,10 +288,26 @@ services:
       DAPR_APP_ID: spring-api
       DAPR_HTTP_ENDPOINT: http://spring-api-dapr:3500
       DAPR_GRPC_ENDPOINT: http://spring-api-dapr:50001
+      # The API host runs PersistentAgentRegistry as a hosted service and
+      # calls the dispatcher on the restart path (TryRestartAsync) and from
+      # the imperative deploy/undeploy endpoints. Without these env vars the
+      # registry's health timer crashes ~50s after boot and DELETEs the
+      # persistent_agent_runtime row from its catch branch — see #2518.
+      Dispatcher__BaseUrl: http://host.docker.internal:${SPRING_DISPATCHER_PORT:-8090}/
+      # See spring-worker for the rationale on the strict ${VAR:?} form —
+      # operators must source ${SPRING_HOST_STATE_DIR:-~/.spring-voyage/host}/dispatcher.env
+      # before `docker compose up`. A missing token surfaces as a startup
+      # failure instead of silent authentication-with-weak-literal.
+      Dispatcher__BearerToken: ${SPRING_DISPATCHER_WORKER_TOKEN:?must be set; source ~/.spring-voyage/host/dispatcher.env after './spring-voyage-host.sh start'}
     command: ["dotnet", "/app/Cvoya.Spring.Host.Api.dll"]
     volumes:
       - spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys
     networks: [spring-net]
+    # Reach the host-process dispatcher via host.docker.internal — see the
+    # spring-worker block for the cross-platform rationale. Docker Desktop
+    # adds the gateway entry automatically; Linux needs it spelled out.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       spring-api-dapr:
         condition: service_started

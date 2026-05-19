@@ -135,6 +135,14 @@ internal static class ServiceCollectionExtensionsInfrastructure
                 ServiceDescriptor.Singleton<IConfigurationRequirement, DaprStateStoreConfigurationRequirement>());
             services.TryAddEnumerable(
                 ServiceDescriptor.Singleton<IConfigurationRequirement, SecretsConfigurationRequirement>());
+            // #2518: the dispatcher requirement is mandatory on every host that
+            // runs PersistentAgentRegistry as a hosted service (i.e. every
+            // production host — the gate above already skips registration on
+            // design-time tooling). A missing Dispatcher:BaseUrl on the API
+            // host previously crashed the persistent-agent restart loop and
+            // DELETEd the persistent_agent_runtime row from the registry's
+            // catch branch; we now fail startup with a clear message instead.
+            services.AddSingleton(new DispatcherConfigurationRequirementOptions(IsMandatory: true));
             services.TryAddEnumerable(
                 ServiceDescriptor.Singleton<IConfigurationRequirement, DispatcherConfigurationRequirement>());
             // Stage 2 of #522 / #1063: ContainerRuntimeConfigurationRequirement
