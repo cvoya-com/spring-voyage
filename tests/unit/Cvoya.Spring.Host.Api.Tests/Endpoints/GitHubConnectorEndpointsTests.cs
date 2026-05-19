@@ -798,6 +798,38 @@ public class GitHubConnectorEndpointsTests
         properties.TryGetProperty("remove_on_assign", out _).ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task GetUserConfigSchema_ReturnsJsonSchema()
+    {
+        // ADR-0047 §4 / issue #2495: the GitHub connector contributes a
+        // strictly display-identity user-config schema at /user-config-schema.
+        // The route mirrors /config-schema's shape (200 + JsonElement body).
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/tenant/connectors/github/user-config-schema", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+        body.GetProperty("type").GetString().ShouldBe("object");
+        body.GetProperty("title").GetString().ShouldBe("GitHubUserConfig");
+
+        // username is the single required field — the row's only load-bearing
+        // value. display_handle is optional (falls back to username at render
+        // time). No PAT / installation override field is part of this schema.
+        body.GetProperty("required").EnumerateArray()
+            .Select(e => e.GetString())
+            .ShouldBe(new[] { "username" });
+
+        var properties = body.GetProperty("properties");
+        properties.TryGetProperty("username", out _).ShouldBeTrue();
+        properties.TryGetProperty("display_handle", out _).ShouldBeTrue();
+        properties.TryGetProperty("pat_secret_name", out _).ShouldBeFalse();
+        properties.TryGetProperty("app_installation_id", out _).ShouldBeFalse();
+    }
+
     // -----------------------------------------------------------------------
     // #1505 — user-scoped list-repositories (tenant-isolation)
     // -----------------------------------------------------------------------

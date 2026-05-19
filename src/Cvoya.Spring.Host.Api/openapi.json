@@ -7977,6 +7977,27 @@
         }
       }
     },
+    "/api/v1/tenant/connectors/github/user-config-schema": {
+      "get": {
+        "tags": [
+          "Connectors.GitHub"
+        ],
+        "summary": "Get the JSON Schema describing the GitHub connector per-TenantUser display-identity body",
+        "operationId": "GetGitHubConnectorUserConfigSchema",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonElement"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/connectors/github/oauth/authorize": {
       "post": {
         "tags": [

@@ -105,6 +105,30 @@ public interface IConnectorType
     Type ConfigType { get; }
 
     /// <summary>
+    /// The CLR type of the connector's per-<c>TenantUser</c> display-identity
+    /// config payload, or <c>null</c> when this connector has no
+    /// display-identity concept (e.g. unauthenticated read-only sources such
+    /// as Arxiv or WebSearch). The default implementation returns
+    /// <c>null</c> so connectors without a display-identity surface inherit
+    /// the no-op without code changes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Distinct from <see cref="ConfigType"/>. <see cref="ConfigType"/> is
+    /// the per-unit binding's config shape (addressing fields plus auth-side
+    /// fields). <see cref="UserConfigType"/> is the shape of the
+    /// <c>(tenant_user, connector)</c> row introduced by
+    /// <see href="https://github.com/cvoya-com/spring-voyage/blob/main/docs/decisions/0047-platform-user-human-split.md">ADR-0047</see>
+    /// §4 — strictly display identity (e.g. GitHub login, Slack handle) used
+    /// for <c>@</c>-mention rendering, <c>--add-reviewer</c> invocations, and
+    /// attribution. It is <strong>never</strong> an auth surface: no PAT, no
+    /// installation override, no token field of any kind belongs here.
+    /// Outbound credentials live on the unit binding row per ADR-0047 §11.
+    /// </para>
+    /// </remarks>
+    Type? UserConfigType => null;
+
+    /// <summary>
     /// Attaches connector-specific routes to the supplied group, which the
     /// host pre-scopes to <c>/api/v1/connectors/{slug}</c>. Implementations
     /// typically map:
@@ -125,6 +149,29 @@ public interface IConnectorType
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task<JsonElement?> GetConfigSchemaAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a JSON Schema describing <see cref="UserConfigType"/> — the
+    /// per-<c>TenantUser</c> display-identity surface this connector
+    /// contributes — or <c>null</c> when the connector has no
+    /// display-identity concept. The default implementation returns
+    /// <c>null</c> so connectors without a display-identity surface inherit
+    /// the no-op without code changes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The schema describes only display-identity fields per
+    /// <see href="https://github.com/cvoya-com/spring-voyage/blob/main/docs/decisions/0047-platform-user-human-split.md">ADR-0047</see>
+    /// §4 — for GitHub today, <c>{ username, display_handle? }</c>. It
+    /// <strong>never</strong> describes auth fields (no PAT, no installation
+    /// override); outbound credentials live on the unit binding per
+    /// ADR-0047 §11 and have their own schema via
+    /// <see cref="GetConfigSchemaAsync"/>.
+    /// </para>
+    /// </remarks>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task<JsonElement?> GetUserConfigSchemaAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<JsonElement?>(null);
 
     /// <summary>
     /// Called when a unit is transitioning to <c>Running</c> and is bound

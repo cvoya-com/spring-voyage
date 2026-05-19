@@ -193,6 +193,14 @@ public class GitHubConnectorType : IConnectorType
     public Type ConfigType => typeof(UnitGitHubConfig);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// ADR-0047 §4: GitHub contributes a strictly display-identity user-config
+    /// schema. The CLR shape is <see cref="GitHubUserConfig"/>; no PAT, no
+    /// installation override, no auth fields belong here.
+    /// </remarks>
+    public Type? UserConfigType => typeof(GitHubUserConfig);
+
+    /// <inheritdoc />
     public void MapRoutes(IEndpointRouteBuilder group)
     {
         // Per-unit typed config: GET/PUT under {unitId}/config. The PUT
@@ -276,6 +284,17 @@ public class GitHubConnectorType : IConnectorType
             .WithTags("Connectors.GitHub")
             .Produces<JsonElement>(StatusCodes.Status200OK);
 
+        // User-config-schema: returns a hand-authored JSON Schema for the
+        // per-TenantUser display-identity surface (ADR-0047 §4). Mirrors the
+        // /config-schema route's shape so the portal and CLI consume both
+        // surfaces uniformly. Returned as JsonElement for the same reason as
+        // /config-schema — a single concrete response type rather than a oneOf.
+        group.MapGet("/user-config-schema", GetUserConfigSchemaEndpointAsync)
+            .WithName("GetGitHubConnectorUserConfigSchema")
+            .WithSummary("Get the JSON Schema describing the GitHub connector per-TenantUser display-identity body")
+            .WithTags("Connectors.GitHub")
+            .Produces<JsonElement>(StatusCodes.Status200OK);
+
         // OAuth flow endpoints — authorize / callback / revoke / session.
         // Owned by GitHubOAuthEndpoints so this class stays focused on the
         // App-installation surface.
@@ -285,6 +304,17 @@ public class GitHubConnectorType : IConnectorType
     /// <inheritdoc />
     public Task<JsonElement?> GetConfigSchemaAsync(CancellationToken cancellationToken = default)
         => Task.FromResult<JsonElement?>(BuildConfigSchema());
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// ADR-0047 §4: a strictly display-identity schema —
+    /// <c>{ username (required), display_handle (optional) }</c>. No PAT, no
+    /// installation override; outbound credentials live on the unit binding
+    /// row per ADR-0047 §11 and are described by
+    /// <see cref="GetConfigSchemaAsync"/>.
+    /// </remarks>
+    public Task<JsonElement?> GetUserConfigSchemaAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<JsonElement?>(BuildUserConfigSchema());
 
     /// <inheritdoc />
     /// <remarks>
@@ -912,6 +942,11 @@ public class GitHubConnectorType : IConnectorType
         return Results.Ok(BuildConfigSchema());
     }
 
+    private static IResult GetUserConfigSchemaEndpointAsync()
+    {
+        return Results.Ok(BuildUserConfigSchema());
+    }
+
     private UnitGitHubConfigResponse ToResponse(string unitId, UnitGitHubConfig config)
     {
         // #1146: the persisted binding distinguishes "operator picked an
@@ -998,6 +1033,35 @@ public class GitHubConnectorType : IConnectorType
               "type": ["array", "null"],
               "items": { "type": "string" },
               "description": "Inbound webhook filter: file-path prefixes that gate PR-shape delivery (disjunctive). Ignored for pure issue events. Empty / null means no filter on this kind. Issue #2407."
+            }
+          }
+        }
+        """;
+        using var doc = JsonDocument.Parse(schema);
+        return doc.RootElement.Clone();
+    }
+
+    // Hand-authored schema mirroring GitHubUserConfig per ADR-0047 §4.
+    // Strictly display-identity: { username (required), display_handle?
+    // (optional) }. Built the same way as BuildConfigSchema so the two
+    // surfaces stay structurally aligned — if either ever drifts from its
+    // CLR record the contract tests will catch the mismatch.
+    private static JsonElement BuildUserConfigSchema()
+    {
+        const string schema = """
+        {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "GitHubUserConfig",
+          "type": "object",
+          "required": ["username"],
+          "properties": {
+            "username": {
+              "type": "string",
+              "description": "The GitHub login for this TenantUser (without the leading '@'). Required (ADR-0047 §4). Used for @-mention rendering, --add-reviewer invocations, and attribution."
+            },
+            "display_handle": {
+              "type": ["string", "null"],
+              "description": "Optional human-friendly rendering (e.g. 'Alice Smith (@alice)'). When null, render sites fall back to 'username'."
             }
           }
         }
