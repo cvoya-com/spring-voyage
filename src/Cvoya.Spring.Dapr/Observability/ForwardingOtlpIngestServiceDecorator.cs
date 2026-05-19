@@ -53,7 +53,11 @@ public class ForwardingOtlpIngestServiceDecorator(
     public const string HttpClientName = "spring-voyage.activity.forward";
 
     private const string ContentTypeJson = "application/json";
-    private const string ContentTypeProtobuf = "application/x-protobuf";
+
+    // Tenant-configured protocol value that selects the protobuf wire
+    // shape. Matches the launcher default (#2501) and the SDK's
+    // OTEL_EXPORTER_OTLP_PROTOCOL parsing in TelemetryClient.
+    private const string ProtocolHttpProtobuf = "http/protobuf";
 
     // Per-tenant last-result tracking for the health surface (#2503).
     // Keyed on the tenant guid because the row count is small (≤ tenants)
@@ -234,13 +238,17 @@ public class ForwardingOtlpIngestServiceDecorator(
         // already-redacted details payload. This keeps the forwarder
         // wire-compatible with generic OTLP/HTTP collectors (Datadog,
         // Tempo, Jaeger all accept logs via OTLP/HTTP).
-        var json = JsonSerializer.Serialize(BuildLogPayload(events));
-        // v0.1: protobuf forwarding falls back to JSON. The full
-        // protobuf path for activity forwarding requires re-encoding
-        // the platform's ActivityEvent shape into OTLP LogRecord
-        // protobufs — TODO(#2511).
-        _ = protocol;
         _ = path;
+
+        if (string.Equals(protocol, ProtocolHttpProtobuf, StringComparison.OrdinalIgnoreCase))
+        {
+            // #2511: honour `protocol: http/protobuf`. The encoder emits
+            // an ExportLogsServiceRequest mirroring the JSON shape
+            // field-for-field.
+            return (OtlpLogProtobufEncoder.EncodeLogs(events), OtlpLogProtobufEncoder.ContentType);
+        }
+
+        var json = JsonSerializer.Serialize(BuildLogPayload(events));
         return (Encoding.UTF8.GetBytes(json), ContentTypeJson);
     }
 

@@ -28,6 +28,15 @@
     </PackageReference>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Dapr.Workflow" />
+    <!-- #2511: OTLP/HTTP+protobuf wire-format support on the activity
+         forwarder. Google.Protobuf supplies CodedOutputStream so we can
+         emit a minimal OTLP LogRecord envelope when a tenant has
+         configured `protocol: http/protobuf` for its external collector.
+         The minimal wire shapes are inlined alongside the encoder —
+         see Observability/OtlpLogProtobufEncoder.cs — for the same
+         reason the ingest decoder inlines them in Host.Api: no public
+         OpenTelemetry.Proto NuGet exists. -->
+    <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
