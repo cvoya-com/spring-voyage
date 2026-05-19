@@ -161,10 +161,7 @@ class TestTelemetryEmitter:
         assert ok is True
         # Content-Type header carries the protobuf MIME (urllib's Request
         # capitalises header names case-insensitively).
-        content_type = (
-            captured["headers"].get("Content-type")
-            or captured["headers"].get("Content-Type")
-        )
+        content_type = captured["headers"].get("Content-type") or captured["headers"].get("Content-Type")
         assert content_type == "application/x-protobuf"
         # Body must be non-empty bytes; the first byte is the field tag for
         # resource_spans (field 1, wire type 2 = 0x0a).

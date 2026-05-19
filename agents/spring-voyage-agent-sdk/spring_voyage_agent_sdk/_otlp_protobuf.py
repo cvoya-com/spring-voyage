@@ -65,13 +65,13 @@ def _fill_resource(out: resource_pb2.Resource, resource: dict[str, Any]) -> None
 
 
 def _fill_span(out: trace_pb2.Span, span: dict[str, Any]) -> None:
-    if (trace_id := span.get("traceId")):
+    if trace_id := span.get("traceId"):
         out.trace_id = bytes.fromhex(trace_id)
-    if (span_id := span.get("spanId")):
+    if span_id := span.get("spanId"):
         out.span_id = bytes.fromhex(span_id)
-    if (parent := span.get("parentSpanId")):
+    if parent := span.get("parentSpanId"):
         out.parent_span_id = bytes.fromhex(parent)
-    if (name := span.get("name")):
+    if name := span.get("name"):
         out.name = name
     if (kind := span.get("kind")) is not None:
         out.kind = int(kind)
@@ -107,9 +107,9 @@ def _fill_log_record(out: logs_pb2.LogRecord, record: dict[str, Any]) -> None:
         _fill_any_value(out.body, body)
     for attr in record.get("attributes", []):
         _fill_kv(out.attributes.add(), attr)
-    if (trace_id := record.get("traceId")):
+    if trace_id := record.get("traceId"):
         out.trace_id = bytes.fromhex(trace_id)
-    if (span_id := record.get("spanId")):
+    if span_id := record.get("spanId"):
         out.span_id = bytes.fromhex(span_id)
 
 

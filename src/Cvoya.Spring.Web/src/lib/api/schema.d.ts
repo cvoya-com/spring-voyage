@@ -1642,6 +1642,23 @@ export interface paths {
         patch: operations["UpdateTenantActivitySettings"];
         trace?: never;
     };
+    "/api/v1/tenant/activity/settings/forward-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the most recent external-forward attempt result for the tenant (#2503). */
+        get: operations["GetTenantActivityForwardStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/threads": {
         parameters: {
             query?: never;
@@ -3383,6 +3400,23 @@ export interface components {
         ExpertiseResponse: {
             domains: components["schemas"]["ExpertiseDomainDto"][];
         };
+        ExternalForwardDto: {
+            endpoint: string;
+            protocol: string;
+            headers: {
+                [key: string]: string;
+            };
+            enabled: boolean;
+        };
+        ExternalForwardUpdateRequest: {
+            endpoint: null | string;
+            protocol: null | string;
+            headers: null | {
+                [key: string]: string;
+            };
+            enabled: null | boolean;
+            clear: null | boolean;
+        };
         GitHubCollaboratorResponse: {
             login: string;
             avatarUrl: null | string;
@@ -3928,10 +3962,17 @@ export interface components {
             status: components["schemas"]["ConfigurationReportStatus"];
             requirements: components["schemas"]["RequirementStatus"][];
         };
+        TenantActivityForwardStatusDto: {
+            kind: string;
+            /** Format: date-time */
+            observed_at: null | string;
+            message: null | string;
+        };
         TenantActivitySettingsDto: {
             level: string;
             /** Format: int32 */
             retention_days: number;
+            external_forward?: null | components["schemas"]["ExternalForwardDto"];
         };
         TenantResponse: {
             /** Format: uuid */
@@ -4300,6 +4341,7 @@ export interface components {
             level: null | string;
             /** Format: int32 */
             retention_days: null | number;
+            external_forward?: null | components["schemas"]["ExternalForwardUpdateRequest"];
         };
         UpdateTenantRequest: {
             displayName: null | string;
@@ -9013,6 +9055,26 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetTenantActivityForwardStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantActivityForwardStatusDto"];
                 };
             };
         };

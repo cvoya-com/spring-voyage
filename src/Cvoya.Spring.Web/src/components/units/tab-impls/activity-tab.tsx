@@ -453,7 +453,7 @@ export function ActivityTab({ kind, id }: ActivityTabProps) {
   // remaining filters narrow the in-memory set without an extra round
   // trip. The thread / message dropdowns are sourced from `result.items`
   // so they always offer real navigation targets.
-  const items = result?.items ?? [];
+  const items = useMemo(() => result?.items ?? [], [result]);
 
   const filteredItems = useMemo(() => {
     return items.filter((e) => {
