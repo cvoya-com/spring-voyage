@@ -117,6 +117,9 @@ A partition of the agent's mailbox for events from subscriptions, timers, and ob
 **OssTenantIds.Default**
 The deterministic v5 UUID owning every tenant-scoped row in a fresh OSS install: `dd55c4ea-8d72-5e43-a9df-88d07af02b69` (no-dash form: `dd55c4ea8d725e43a9df88d07af02b69`). Computed once over namespace `00000000-0000-0000-0000-000000000000` and label `cvoya/tenant/oss-default`, pinned as a literal in `src/Cvoya.Spring.Core/Tenancy/OssTenantIds.cs`. Recomputable from outside the platform via any v5 implementation. The class also exposes `DefaultDashed` and `DefaultNoDash` `const string` literals for grep-ability across configuration files, dashboards, and audit logs. See [Identifiers § 5](architecture/identifiers.md#5-the-oss-default-tenant-id) and [ADR-0036 § 8](decisions/0036-single-identity-model.md).
 
+**OssTenantUserIds.Operator**
+The deterministic v5 UUID owning the single OSS-operator `TenantUser` row: `5c4c8e29-d91b-5b50-8651-64536cfb68ee` (no-dash form: `5c4c8e29d91b5b50865164536cfb68ee`). Computed once over namespace `00000000-0000-0000-0000-000000000000` and label `cvoya/tenant-user/oss-operator`, pinned as a literal in `src/Cvoya.Spring.Core/Tenancy/OssTenantUserIds.cs`. The class also exposes `OperatorDashed` and `OperatorNoDash` `const string` literals. In OSS every `Human` resolves to this `TenantUser` through the `Human → TenantUser` mapping; the operator's GitHub / Slack / Linear handles are configured once on this row's `TenantUserConnectorIdentity` entries. See [Identifiers § 6](architecture/identifiers.md#6-the-oss-operator-tenantuser-id) and [ADR-0047 §§ 1, 3](decisions/0047-platform-user-human-split.md).
+
 **Observer**
 An agent that subscribes to another agent's activity stream (with permission).
 
@@ -134,6 +137,9 @@ A bundle of a prompt fragment (`.md`) and optional tool definitions (`.tools.jso
 
 **Tenant**
 An isolated organizational unit. Contains a root unit, users, and resources. Maps to a Dapr namespace. The top-level boundary for access control, billing, and resource isolation.
+
+**TenantUser**
+The authenticated principal of Spring Voyage scoped to one tenant — the operator in OSS, tenant members in cloud. A new actor kind added by [ADR-0047 §1](decisions/0047-platform-user-human-split.md), distinct from `Human` (which is a configuration entity declared by a package). Display-side connector identity — GitHub login, Slack handle — is owned by the `TenantUser`, not by the `Human` row, and stored on `TenantUserConnectorIdentity` rows keyed by `(tenant_id, tenant_user_id, connector_id)`. Natural key `(tenant_id, auth_subject)` — the same human authenticated against two tenants produces two distinct `TenantUser` rows. In OSS the single operator row is pinned by [`OssTenantUserIds.Operator`](#osstenantuseridsoperator). See [Tenants § TenantUser](concepts/tenants.md#tenantuser-the-authenticated-principal).
 
 **Tier 1 (Screening)**
 The first tier of the initiative cognition model. A small, locally-hosted LLM performs fast, cheap screening of events to decide whether the agent's primary LLM should be invoked.

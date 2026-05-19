@@ -69,15 +69,18 @@ inbound events flow as usual, lifecycle hooks fire, and the binding
 record drives whatever else the platform layers on top.
 
 The GitHub connector is intentionally **event-only at the platform-MCP
-boundary in v0.1**. It owns inbound webhooks, App-auth, the binding
+boundary in v0.1**. It owns inbound webhooks, App / PAT auth, the binding
 lifecycle, and per-launch runtime-context contribution (#2380), but
 registers **no `github.*` MCP tools**. Agents authored against GitHub
 run `gh` and `git` directly inside their container using the
-short-lived installation token and the owner / repo / reviewer metadata
-that `GitHubConnectorRuntimeContextContributor` injects through the
-`SPRING_CONNECTOR_GITHUB_*` env vars and the
-`connectors/github/binding.json` context file. The decision and the
-removed-tools list live in issues
+short-lived **outbound bearer token** and the owner / repo / reviewer
+metadata that `GitHubConnectorRuntimeContextContributor` injects through
+the `SPRING_CONNECTOR_GITHUB_*` env vars and the
+`connectors/github/binding.json` context file. The token is resolved at
+launch time per [ADR-0047 §6](../decisions/0047-platform-user-human-split.md):
+a freshly-minted installation access token on the App-installation
+branch, or the binding's PAT secret on the PAT branch. The decision and
+the removed-tools list live in issues
 [#2384](https://github.com/cvoya-com/spring-voyage/issues/2384) and
 [#2383](https://github.com/cvoya-com/spring-voyage/issues/2383); a
 hosted-overlay caching layer for selected reads is a v0.2
@@ -118,20 +121,25 @@ GitHub unit bindings may also carry optional label-roundtrip rules:
 GitHub binding and applies those labels to the originating issue with the
 connector's credentials.
 
-### Connector-identity auto-seed (`Reviewer` → `human_connector_identities`)
+### Connector-side display identity lives on the `TenantUser`
 
-When a unit's GitHub binding is created or updated with a non-empty
-`UnitGitHubConfig.Reviewer`, the connector calls the platform's
-`IConnectorIdentityAutoSeed` seam to upsert a row in the
-`human_connector_identities` table linking the operator's stable human
-UUID to the reviewer login. The seed is idempotent; concurrent writers
-and conflicting rows are silently absorbed so the binding-write path
-itself cannot fail on the seed. See
-[`docs/architecture/identifiers.md` § Connector-native identities](identifiers.md#11-connector-native-identities--the-bridge)
-for the full bridge model and CLI surface. The per-binding `Reviewer`
-field is being retired in v0.2 in favour of per-Human GitHub-handle
-configuration ([#2417](https://github.com/cvoya-com/spring-voyage/issues/2417));
-the table is the data carrier for both shapes.
+Display-side connector identity — the GitHub login or Slack handle the
+agent renders in `@`-mentions, `--add-reviewer` flags, and attribution
+lines — is owned by the caller's [`TenantUser`](../concepts/tenants.md#tenantuser-the-authenticated-principal),
+not by the unit binding ([ADR-0047 §§ 2, 7](../decisions/0047-platform-user-human-split.md)).
+The mapping rows live on `TenantUserConnectorIdentity` keyed by
+`(tenant_id, tenant_user_id, connector_id)` with a narrow shape
+(`username`, `display_handle?`) — no auth fields, no PAT, no
+installation override. Operators manage the rows on the per-user
+**User Identity** surface in the portal (and via `spring user identity`
+on the CLI); the unit binding never carries a display handle.
+
+In OSS every `Human` resolves to the single operator `TenantUser`
+through the [`Human → TenantUser` mapping](../concepts/humans.md#human--tenantuser-display-mapping),
+so the operator's GitHub login is configured once and serves every
+`Human` row declared by every installed package. See
+[`docs/architecture/identifiers.md` § Connector-native identities](identifiers.md#12-connector-native-identities--the-bridge)
+for the full bridge model, the table shape, and the CLI surface.
 
 ## Disabled-with-reason pattern
 
@@ -268,17 +276,33 @@ contract first, the storage and middleware land independently.
 
 ## Runtime-context contribution (#2380)
 
-A bound connector can deliver its identity and a short-lived credential
-into the runtime container by implementing
+A bound connector can deliver its identity and a short-lived **outbound
+bearer token** into the runtime container by implementing
 `IConnectorRuntimeContextContributor`. The dispatcher resolves every
 binding applicable to the subject (direct on the unit, or inherited via
 `unit_subunit_memberships`), invokes each contributor, and merges the
 contribution into the launch spec.
 
-Contributors are bound to the **per-launch** lifecycle: tokens are minted
-inside `ContributeAsync` and live only for the duration of the container.
-Rotation is handled by re-launching; contributors MUST NOT cache
-credentials across launches.
+Contributors are bound to the **per-launch** lifecycle: the credential
+is resolved inside `ContributeAsync` and lives only for the duration of
+the container. Rotation is handled by re-launching; contributors MUST
+NOT cache credentials across launches. For the GitHub connector the
+token resolution dispatches on the binding's pinned auth choice
+([ADR-0047 §6](../decisions/0047-platform-user-human-split.md)) — a
+freshly-minted installation access token on the App branch, the
+binding's PAT secret on the PAT branch. The contributor's env-var
+contract reflects the dispatch: `SPRING_CONNECTOR_GITHUB_TOKEN` and
+`SPRING_CONNECTOR_GITHUB_OWNER` / `_REPO` are emitted on every launch;
+`SPRING_CONNECTOR_GITHUB_INSTALLATION_ID` and
+`SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT` are emitted **only on the
+App-installation branch** (PAT secrets carry no installation id and
+rotate out-of-band, so the contributor does not synthesise an expiry).
+
+The prompt-context contributor (#2442) wraps the same surface for the
+agent's LLM — `GitHubConnectorRuntimeContextContributor.BuildPromptFragment`
+emits a markdown fragment that names the env-vars the container has and
+describes the token as an "outbound bearer token" rather than
+implementation-coupling the prompt to the App-installation branch.
 
 Each contributor's env vars must use the reserved namespace
 `SPRING_CONNECTOR_<SLUG_UPPER>_*` and its files must use the

@@ -2,9 +2,9 @@
 
 > **[Architecture Index](README.md)** | Related: [Messaging](messaging.md), [Units](units.md), [Tenants](../concepts/tenants.md)
 
-Spring Voyage operates on a single-identity model: every actor — unit, agent, human, connector, tenant — has exactly one stable identifier, a `Guid`. `display_name` is presentation-only. Slugs do not exist anywhere in the persistence, routing, or addressing layers. This document records the canonical wire forms and parser rules so every surface (URLs, JSON DTOs, manifests, CLI, log lines, address strings) emits and accepts identifiers consistently.
+Spring Voyage operates on a single-identity model: every actor — unit, agent, human, connector, tenant, tenant-user — has exactly one stable identifier, a `Guid`. `display_name` is presentation-only. Slugs do not exist anywhere in the persistence, routing, or addressing layers. This document records the canonical wire forms and parser rules so every surface (URLs, JSON DTOs, manifests, CLI, log lines, address strings) emits and accepts identifiers consistently.
 
-The durable architectural decision is [ADR 0036 — Single-identity model](../decisions/0036-single-identity-model.md). [ADR 0023](../decisions/0023-flat-actor-ids.md) (flat actor ids; single-hop routing) carries the routing semantics; the amendment block at the top of that ADR points back here for the identifier shape.
+The durable architectural decision is [ADR 0036 — Single-identity model](../decisions/0036-single-identity-model.md), amended by [ADR-0047](../decisions/0047-platform-user-human-split.md) §1 to include the `tenant-user` actor kind. [ADR 0023](../decisions/0023-flat-actor-ids.md) (flat actor ids; single-hop routing) carries the routing semantics; the amendment block at the top of that ADR points back here for the identifier shape.
 
 ---
 
@@ -13,6 +13,8 @@ The durable architectural decision is [ADR 0036 — Single-identity model](../de
 Every actor row has exactly one stable identifier: a `Guid`. The `Guid` is the primary key, the foreign-key target, the activity-log source, the wire-form identity, and the manifest cross-reference token. Within an actor's lifetime the `Guid` does not change — rename a unit, move an agent, swap a connector, the `Guid` is the same.
 
 There is no parallel string identifier with equal status. There is no slug column, no slug-shaped path, no namespace+name pair, no scoped handle. A `display_name` field exists for human-facing rendering; it is not unique, not addressable, not a foreign-key target, and validation rejects any `display_name` that parses as a Guid (so a token that looks Guid-shaped is unambiguously identity).
+
+The actor-kind enumeration is **unit, agent, human, connector, tenant, tenant-user**. The `tenant-user` kind was added by [ADR-0047 §1](../decisions/0047-platform-user-human-split.md) — the authenticated principal of Spring Voyage scoped to one tenant; see [Tenants — TenantUser](../concepts/tenants.md#tenantuser-the-authenticated-principal). Every property listed above applies unchanged across the enumeration.
 
 ---
 
@@ -99,7 +101,42 @@ Tenant-scoped writes do not set `TenantId` explicitly; `Cvoya.Spring.Dapr.Data.S
 
 ---
 
-## 6. Manifests: local symbols within a file, Guids across packages
+## 6. The OSS operator `TenantUser` id
+
+The OSS deployment ships with exactly one `TenantUser` — the operator. Its id is `OssTenantUserIds.Operator` — a deterministic v5 UUID derived once and pinned as a literal in `src/Cvoya.Spring.Core/Tenancy/OssTenantUserIds.cs` ([ADR-0047 §§ 1, 3](../decisions/0047-platform-user-human-split.md)):
+
+```
+namespace = 00000000-0000-0000-0000-000000000000
+label     = "cvoya/tenant-user/oss-operator"
+uuidv5    = 5c4c8e29-d91b-5b50-8651-64536cfb68ee
+```
+
+For grep-ability across configuration files, dashboards, and audit logs, the constant is exposed in three forms on the same class — mirroring the `OssTenantIds.Default` shape from § 5:
+
+| Member | Type | Value |
+|---|---|---|
+| `OssTenantUserIds.Operator` | `Guid` | `5c4c8e29-d91b-5b50-8651-64536cfb68ee` |
+| `OssTenantUserIds.OperatorDashed` | `const string` | `"5c4c8e29-d91b-5b50-8651-64536cfb68ee"` |
+| `OssTenantUserIds.OperatorNoDash` | `const string` | `"5c4c8e29d91b5b50865164536cfb68ee"` |
+
+```csharp
+public static class OssTenantUserIds
+{
+    public static readonly Guid Operator = new("5c4c8e29-d91b-5b50-8651-64536cfb68ee");
+    public const string OperatorDashed = "5c4c8e29-d91b-5b50-8651-64536cfb68ee";
+    public const string OperatorNoDash = "5c4c8e29d91b5b50865164536cfb68ee";
+}
+```
+
+The recipe (namespace + label) is the documentation; the literal is the pin. Any v5 implementation against the same namespace + label reproduces the value, so the constant is auditable from outside the platform. Reproduce with Python: `uuid.uuid5(uuid.UUID("00000000-0000-0000-0000-000000000000"), "cvoya/tenant-user/oss-operator")`.
+
+`OssTenantUserIds` and `OssTenantIds` are deliberately separate classes — they name different kinds of well-known id (tenant-user vs tenant). Co-locating them under one class would erode the discrimination ADR-0036 §1 worked to preserve.
+
+In OSS every `Human` row resolves to this single `TenantUser` through the `Human → TenantUser` mapping — see [Humans § Human → TenantUser display mapping](../concepts/humans.md#human--tenantuser-display-mapping) and [Tenants § TenantUser](../concepts/tenants.md#tenantuser-the-authenticated-principal).
+
+---
+
+## 7. Manifests: local symbols within a file, Guids across packages
 
 Inside a single manifest file, references between artefacts are **local symbols** scoped to the file. The artefact's `name` / `id` field IS the symbol — the install pipeline (`Cvoya.Spring.Dapr.Packaging.Install.LocalSymbolMap`) mints a fresh `Guid` per artefact and binds the local symbol to it, so the staging row and the activator's directory entry share a single Guid identity.
 
@@ -124,7 +161,7 @@ Path-style references (`unit://eng/backend/alice`) are rejected by the manifest 
 
 ---
 
-## 7. CLI: Guid for direct lookup, name for search
+## 8. CLI: Guid for direct lookup, name for search
 
 Every `show` verb on a tenant entity accepts both forms:
 
@@ -137,7 +174,7 @@ A token that parses as a Guid is **always** treated as identity, never as a name
 
 ---
 
-## 8. URLs
+## 9. URLs
 
 Public URL routes that take an actor identifier carry a `Guid` in 32-char no-dash hex:
 
@@ -153,7 +190,7 @@ JSON request and response bodies that carry the same id render it in dashed form
 
 ---
 
-## 9. Activity log
+## 10. Activity log
 
 Activity-log entries store the source actor's `Guid`. The display name renders at read time via `IDirectoryService` (live lookup) or `IParticipantDisplayNameResolver` (cached read-time resolution in `src/Cvoya.Spring.Host.Api/Services/ParticipantDisplayNameResolver.cs`). When an actor is renamed, every historical activity row immediately renders with the new name on the next read. When an actor is soft-deleted, the resolver snapshots the `display_name` at the moment of deletion onto the activity row so the audit history continues to render meaningfully — the snapshot is the only place the activity log ever stores a name, and only as a tombstone.
 
@@ -161,7 +198,7 @@ Activity-log entries store the source actor's `Guid`. The display name renders a
 
 ---
 
-## 10. Execution-config shape: `(runtime, model)`
+## 11. Execution-config shape: `(runtime, model)`
 
 The user-facing execution config on units and agents — the `ai:` block in
 manifests, on the wire DTOs, and in the portal/CLI — is the structured pair
@@ -187,45 +224,49 @@ slot stored on a unit / agent. See [ADR-0038](../decisions/0038-agent-runtime-an
 
 ---
 
-## 11. Connector-native identities — the bridge
+## 12. Connector-native identities — the bridge
 
-Spring Voyage operates on a single-identity model internally (§ 1), but the **outside world** addresses humans through connector-native identifiers — a GitHub login, a Slack member id, an email. The platform stores both forms and resolves between them on the boundary.
+Spring Voyage operates on a single-identity model internally (§ 1), but the **outside world** addresses humans through connector-native identifiers — a GitHub login, a Slack member id, an email. The platform stores both forms and resolves between them on the boundary. The display-side identity row lives on the [`TenantUser`](../concepts/tenants.md#tenantuser-the-authenticated-principal), not on the `Human` ([ADR-0047 §§ 2, 7](../decisions/0047-platform-user-human-split.md)) — a `Human` is a configuration entity declared by a package and resolves to a `TenantUser` through the [`Human → TenantUser` mapping](../concepts/humans.md#human--tenantuser-display-mapping); the `TenantUser` is the authenticated principal that owns the connector handle.
 
 | Surface | Identifier shape | Examples |
 |---|---|---|
 | `sv.*` MCP tools (`sv.send_message`, `sv.list_members`, future `sv.github.request_review`) | Stable `Guid` | `human:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7` |
-| Container-native CLI tools agents invoke (`gh`, `git`) — populated via the `SPRING_*` env-vars from [#2380](https://github.com/cvoya-com/spring-voyage/pull/2380) | Connector-native | `gh issue assign --add-assignee alice-mccoder` |
-| `human_connector_identities` table — the bridge | Pair `(human_id, connector_id, connector_user_id)` | `(8c5fab…, github, alice-mccoder)` |
+| Container-native CLI tools agents invoke (`gh`, `git`) — populated via the `SPRING_*` env-vars from [#2380](https://github.com/cvoya-com/spring-voyage/pull/2380) | Connector-native | `gh issue assign --add-assignee octocat` |
+| `TenantUserConnectorIdentity` table — the bridge | Triple `(tenant_id, tenant_user_id, connector_id)` | `(<tenant>, <operator-tu>, github)` with `username = octocat` |
 
-The bridge lets both surfaces stay in their natural form. An sv.* tool that needs to act on a GitHub user takes a `human_uuid` and internally resolves to the login via `IHumanConnectorIdentityResolver.ResolveUserIdAsync(humanId, "github")`. Conversely, an inbound webhook that arrives with a login resolves to the platform-native human UUID via `ResolveHumanAsync("github", "alice-mccoder")` before threading through the rest of the platform.
+The bridge lets both surfaces stay in their natural form. An `sv.*` tool that needs to act on a GitHub user takes a `human_uuid`, walks `Human → TenantUser → TenantUserConnectorIdentity for connector=github`, and resolves to the `username`. Conversely, an inbound webhook that arrives with a login resolves to the platform-native `tenant_user` UUID via `ITenantUserConnectorIdentityResolver.ResolveTenantUserAsync("github", "octocat")` before threading through the rest of the platform.
 
-The mapping rows live in the `human_connector_identities` table:
+The mapping rows live in the `TenantUserConnectorIdentities` table:
 
 | Column | Notes |
 |---|---|
 | `id` | Surrogate `Guid` PK |
 | `tenant_id` | `ITenantScopedEntity` |
-| `human_id` | FK to `humans.id` |
+| `tenant_user_id` | FK to `tenant_users.id` |
 | `connector_id` | Connector slug (`github`, `slack`, …) — matches `IConnectorType.Slug` |
-| `connector_user_id` | The stable external id — for GitHub this is the login string |
-| `display_handle` | Optional human-readable label |
+| `username` | The connector-side login (e.g. GitHub `octocat`, Slack `@alice`). No leading `@`. |
+| `display_handle` | Optional human-friendly rendering (e.g. `"Alice Smith (@alice)"`). Falls back to `username` when null. |
 | `created_at`, `updated_at` | Audit timestamps |
 
-The unique invariant `(tenant_id, connector_id, connector_user_id)` enforces "one external identity → at most one human per tenant." Including `human_id` in the uniqueness would let two humans claim the same login and defeat inbound resolution; it is intentionally excluded. The covering index `(tenant_id, human_id)` backs the "list this human's identities" read pattern.
+The natural key is `(tenant_id, tenant_user_id, connector_id)` — exactly one display-identity row per `(tenant_user, connector)`. The row is **strictly display identity** ([ADR-0047 §2](../decisions/0047-platform-user-human-split.md)) — no PAT, no installation override, no `config_json`, no auth fields. Outbound credentials live on the unit binding, not here.
 
-**Auto-seed.** When a unit's GitHub binding is created or updated and `UnitGitHubConfig.Reviewer` is set, the platform writes `(operator_human, github, <reviewer>)` to `human_connector_identities` if the tuple is not already claimed. The seed is idempotent and the binding-write path tolerates absent / conflicting rows — the auto-seed is an opportunistic UX shortcut, not a correctness invariant. v0.2 retires the per-binding `Reviewer` in favour of per-Human GitHub-handle configuration ([#2417](https://github.com/cvoya-com/spring-voyage/issues/2417)); the table is the data carrier for both shapes.
+The unique invariant `(tenant_id, connector_id, username)` backs inbound resolution ("which tenant user is this GitHub login?") — within a tenant a connector login maps to at most one tenant user. Cross-tenant the same login may legitimately appear on two different tenant-user rows in two different tenants (see [Tenants § cross-tenant identity is two rows](../concepts/tenants.md#cross-tenant-identity-is-two-rows)).
 
-**CLI.** `spring human identity set --connector <slug> --user-id <id> [--human <id>] [--display-handle <h>]`, `spring human identity list [--human <id>]`, and `spring human identity remove --connector <slug> --user-id <id> [--human <id>]` manage the rows. `--human` defaults to the authenticated caller's UUID (resolved through `/api/v1/tenant/auth/me`). Every CLI write routes through the Kiota-generated `SpringApiKiotaClient`.
+**OSS default.** Every `Human` row maps to `OssTenantUserIds.Operator` (§ 6), so all display-identity reads against humans resolve to the single operator `TenantUser`'s connector rows. The operator's GitHub login is configured once and serves every `Human` declared by every installed package.
 
-The decision is recorded in [#2408](https://github.com/cvoya-com/spring-voyage/issues/2408).
+**CLI.** `spring user identity set --connector <slug> --username <name> [--display-handle <h>]`, `spring user identity list`, and `spring user identity remove --connector <slug>` manage the rows for the authenticated caller's `TenantUser`. There is no `--human` flag — the row belongs to the caller's tenant user, not to a `Human`. Every CLI write routes through the Kiota-generated `SpringApiKiotaClient` against `/api/v1/tenant/users/{tenantUserId}/identities`.
+
+The decision is recorded in [ADR-0047](../decisions/0047-platform-user-human-split.md); the prior `HumanConnectorIdentity`-shaped scaffold from [#2408](https://github.com/cvoya-com/spring-voyage/issues/2408) is dropped and recreated under the new shape ([ADR-0047 §8](../decisions/0047-platform-user-human-split.md)).
 
 ---
 
 ## See also
 
 - [ADR 0036 — Single-identity model](../decisions/0036-single-identity-model.md) — the durable decision.
+- [ADR 0047 — TenantUser / human split; connector identity on the tenant user](../decisions/0047-platform-user-human-split.md) — the `tenant-user` actor kind, the `OssTenantUserIds.Operator` pin, the `TenantUserConnectorIdentity` shape.
 - [ADR 0023 — Flat actor ids; single-hop routing with directory resolution](../decisions/0023-flat-actor-ids.md) — the routing decision, amended at the top to point here.
 - [`docs/architecture/messaging.md`](messaging.md) — addressing inside the messaging layer.
 - [`docs/architecture/units.md`](units.md) — membership graph; how the directory walks it at resolution time.
-- [`docs/concepts/tenants.md`](../concepts/tenants.md) — tenants from the user's vantage.
+- [`docs/concepts/tenants.md`](../concepts/tenants.md) — tenants from the user's vantage, including the `TenantUser` actor kind.
+- [`docs/concepts/humans.md`](../concepts/humans.md) — humans as configuration entities; `Human → TenantUser` display mapping.
 - [`CONVENTIONS.md` § 12](../../CONVENTIONS.md#12-extensibility--tenancy) — tenancy code patterns.
