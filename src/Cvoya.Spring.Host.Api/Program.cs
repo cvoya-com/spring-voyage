@@ -18,6 +18,7 @@ using Cvoya.Spring.Dapr.CredentialHealth;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Endpoints;
+using Cvoya.Spring.Host.Api.Endpoints.Otlp;
 using Cvoya.Spring.Host.Api.OpenApi;
 using Cvoya.Spring.Host.Api.Services;
 using Cvoya.Spring.ModelProviders.DependencyInjection;
@@ -121,12 +122,20 @@ public partial class Program
             if (isLocalDev)
             {
                 builder.Services.AddAuthentication(AuthConstants.LocalDevScheme)
-                    .AddScheme<AuthenticationSchemeOptions, LocalDevAuthHandler>(AuthConstants.LocalDevScheme, null);
+                    .AddScheme<AuthenticationSchemeOptions, LocalDevAuthHandler>(AuthConstants.LocalDevScheme, null)
+                    // OTLP ingest endpoints (#2492) validate per-invocation
+                    // callback JWTs the launcher injects into the runtime
+                    // container. Registered as a sibling scheme so the auth
+                    // pipeline tries the JWT handler when the request hits
+                    // /otlp/v1/* (the endpoint explicitly requires this scheme).
+                    .AddScheme<AuthenticationSchemeOptions, OtlpCallbackAuthHandler>(AuthConstants.OtlpCallbackScheme, null);
             }
             else
             {
                 builder.Services.AddAuthentication(AuthConstants.ApiTokenScheme)
-                    .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthHandler>(AuthConstants.ApiTokenScheme, null);
+                    .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthHandler>(AuthConstants.ApiTokenScheme, null)
+                    // OTLP ingest endpoints (#2492) — see the local-dev branch above.
+                    .AddScheme<AuthenticationSchemeOptions, OtlpCallbackAuthHandler>(AuthConstants.OtlpCallbackScheme, null);
             }
 
             builder.Services.AddAuthorization(options =>
@@ -532,6 +541,10 @@ public partial class Program
             app.MapBudgetEndpoints();
             app.MapInitiativeEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapActivityEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+            // Activity-capture tenant settings (#2492). TenantOperator gate
+            // — capture level and retention horizon are operator-controlled,
+            // not per-user.
+            app.MapTenantActivitySettingsEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
             app.MapThreadEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapInboxEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapAnalyticsEndpoints().RequireAuthorization(RolePolicies.TenantUser);
@@ -578,6 +591,15 @@ public partial class Program
             // because they're an external ingress, not a user-facing tenant or
             // platform action.
             app.MapWebhookEndpoints();
+
+            // OTLP/HTTP+JSON ingest endpoints (#2492). Auth is the
+            // OtlpCallbackScheme (per-invocation callback JWT minted by
+            // the launcher); the endpoints sit outside the tenant API
+            // group because the auth surface is distinct from API tokens.
+            app.MapOtlpIngestEndpoints()
+                .RequireAuthorization(new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder(AuthConstants.OtlpCallbackScheme)
+                    .RequireAuthenticatedUser()
+                    .Build());
 
             await app.RunAsync();
         }

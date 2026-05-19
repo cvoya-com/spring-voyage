@@ -16,4 +16,11 @@ public static class AuthConstants
 
     /// <summary>The default user ID assigned when running in local dev mode.</summary>
     public const string DefaultLocalUserId = "local-dev-user";
+
+    /// <summary>
+    /// Authentication scheme name for the OTLP ingest endpoints (issue #2492).
+    /// Validates per-invocation callback JWTs the launcher injects into
+    /// the runtime container.
+    /// </summary>
+    public const string OtlpCallbackScheme = "OtlpCallback";
 }

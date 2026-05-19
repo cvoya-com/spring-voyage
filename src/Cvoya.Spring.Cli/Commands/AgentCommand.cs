@@ -163,6 +163,9 @@ public static class AgentCommand
         // lookup fails.
         agentCommand.Subcommands.Add(AgentValidateCommand.Create(outputOption, clientFactory));
 
+        // #2492: `spring agent tail <id>` — live activity-stream SSE.
+        agentCommand.Subcommands.Add(ActivityTailCommand.CreateAgentTail());
+
         return agentCommand;
     }
 

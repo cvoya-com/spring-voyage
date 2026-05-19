@@ -1624,6 +1624,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/activity/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the tenant's activity-capture settings (level + retention). */
+        get: operations["GetTenantActivitySettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update the tenant's activity-capture settings. */
+        patch: operations["UpdateTenantActivitySettings"];
+        trace?: never;
+    };
     "/api/v1/tenant/threads": {
         parameters: {
             query?: never;
@@ -2247,6 +2265,23 @@ export interface paths {
         };
         /** Get the JSON Schema describing the GitHub connector config body */
         get: operations["GetGitHubConnectorConfigSchema"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/connectors/github/user-config-schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the JSON Schema describing the GitHub connector per-TenantUser display-identity body */
+        get: operations["GetGitHubConnectorUserConfigSchema"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3886,6 +3921,11 @@ export interface components {
             status: components["schemas"]["ConfigurationReportStatus"];
             requirements: components["schemas"]["RequirementStatus"][];
         };
+        TenantActivitySettingsDto: {
+            level: string;
+            /** Format: int32 */
+            retention_days: number;
+        };
         TenantResponse: {
             /** Format: uuid */
             id: string;
@@ -4248,6 +4288,11 @@ export interface components {
         UpdateHumanRequest: {
             displayName?: null | string;
             description?: null | string;
+        };
+        UpdateTenantActivitySettingsRequest: {
+            level: null | string;
+            /** Format: int32 */
+            retention_days: null | number;
         };
         UpdateTenantRequest: {
             displayName: null | string;
@@ -8893,6 +8938,9 @@ export interface operations {
                 severity?: string;
                 unitId?: string;
                 thread?: string;
+                message?: string;
+                kind?: string[];
+                from?: string;
             };
             header?: never;
             path?: never;
@@ -8906,6 +8954,59 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    GetTenantActivitySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantActivitySettingsDto"];
+                };
+            };
+        };
+    };
+    UpdateTenantActivitySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTenantActivitySettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantActivitySettingsDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };
@@ -10127,6 +10228,26 @@ export interface operations {
         };
     };
     GetGitHubConnectorConfigSchema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JsonElement"];
+                };
+            };
+        };
+    };
+    GetGitHubConnectorUserConfigSchema: {
         parameters: {
             query?: never;
             header?: never;

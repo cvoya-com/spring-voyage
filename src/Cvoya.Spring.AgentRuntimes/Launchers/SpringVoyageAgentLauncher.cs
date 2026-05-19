@@ -172,6 +172,13 @@ public class SpringVoyageAgentLauncher(
 
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
+        // Issue #2492: OTLP/HTTP+JSON activity-capture plane.
+        // Reuses the per-invocation callback token (SPRING_CALLBACK_TOKEN)
+        // for OTLP auth — no new credential primitive. The OTLP endpoint
+        // sits on the platform's API host at /otlp/v1/, alongside the
+        // dispatcher's orchestration callback.
+        LauncherOtelEnvironment.Add(context, envVars);
+
         // ADR-0039 D4: when the agent has children, serialize the orchestration
         // tool descriptors into SPRING_ORCHESTRATION_TOOLS so the Spring Voyage
         // agent runtime can present them to the LLM as tool-call surfaces.

@@ -93,6 +93,9 @@ public static class ActivityEndpoints
         string? severity,
         string? unitId,
         string? thread,
+        string? message,
+        string[]? kind,
+        DateTimeOffset? from,
         CancellationToken cancellationToken)
     {
         var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.ActivityEndpoints");
@@ -165,6 +168,34 @@ public static class ActivityEndpoints
                 string.Equals(evt.CorrelationId, thread, StringComparison.Ordinal));
         }
 
+        // Message-scoped filter (#2492): forward only events whose Details
+        // payload carries a matching `sv.message.id` resource attribute or
+        // top-level `messageId` key. Matched case-insensitively so the
+        // OTLP runtime path (which stamps the canonical no-dash hex form)
+        // and the in-process path (which sometimes stamps dashed) both
+        // line up.
+        if (!string.IsNullOrEmpty(message))
+        {
+            stream = stream.Where(evt => MatchesMessage(evt, message));
+        }
+
+        // Event-kind multiselect (#2492). Accepts repeated `?kind=` query
+        // params; only events whose typed EventType matches one of the
+        // supplied names (case-insensitive) are forwarded.
+        if (kind is { Length: > 0 })
+        {
+            var allowed = new HashSet<string>(kind, StringComparer.OrdinalIgnoreCase);
+            stream = stream.Where(evt => allowed.Contains(evt.EventType.ToString()));
+        }
+
+        // Time-window lower bound (#2492). The SSE channel is "now-forward"
+        // by nature, but this filter is useful when a CLI reconnects after a
+        // network blip and wants to skip events older than its last seen.
+        if (from is { } fromTs)
+        {
+            stream = stream.Where(evt => evt.Timestamp >= fromTs);
+        }
+
         // Bounded channel decouples the Rx producer from the HTTP writer:
         // the subscription drops into a fixed-size queue, and a single
         // writer loop drains it in FIFO order. DropOldest handles the
@@ -219,6 +250,34 @@ public static class ActivityEndpoints
         {
             channel.Writer.TryComplete();
         }
+    }
+
+    private static bool MatchesMessage(ActivityEvent evt, string messageId)
+    {
+        if (evt.Details is null) return false;
+        var details = evt.Details.Value;
+        if (details.ValueKind != System.Text.Json.JsonValueKind.Object) return false;
+        if (details.TryGetProperty("sv.message.id", out var topLevel)
+            && topLevel.ValueKind == System.Text.Json.JsonValueKind.String
+            && string.Equals(topLevel.GetString(), messageId, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        if (details.TryGetProperty("messageId", out var camel)
+            && camel.ValueKind == System.Text.Json.JsonValueKind.String
+            && string.Equals(camel.GetString(), messageId, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        if (details.TryGetProperty("sv.resource", out var resource)
+            && resource.ValueKind == System.Text.Json.JsonValueKind.Object
+            && resource.TryGetProperty("sv.message.id", out var nested)
+            && nested.ValueKind == System.Text.Json.JsonValueKind.String
+            && string.Equals(nested.GetString(), messageId, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        return false;
     }
 
     /// <summary>

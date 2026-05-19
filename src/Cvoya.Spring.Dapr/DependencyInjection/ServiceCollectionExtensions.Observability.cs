@@ -81,6 +81,17 @@ internal static class ServiceCollectionExtensionsObservability
         // implementation through DI without touching call sites.
         services.TryAddScoped<IMessageQueryService, MessageQueryService>();
 
+        // Activity-capture (#2492): tenant settings + OTLP ingest +
+        // retention sweep. TryAdd so the private cloud overlay can swap
+        // in a decorated implementation (e.g. one that forwards to an
+        // external OTel backend) without touching the OSS endpoint.
+        services.TryAddScoped<ITenantActivitySettings, TenantActivitySettingsService>();
+        // OtlpIngestService keeps an in-process token-bucket per
+        // (subject, kind) so its rate-limiting state persists across
+        // requests; it resolves the scoped ITenantActivitySettings
+        // through a per-batch DI scope.
+        services.TryAddSingleton<IOtlpIngestService, OtlpIngestService>();
+
         // Hosted services that depend on runtime infrastructure (Dapr state store,
         // database). During build-time OpenAPI generation none of this is
         // available, so skip registration to avoid noisy startup errors. See #370.
@@ -89,6 +100,7 @@ internal static class ServiceCollectionExtensionsObservability
             services.AddHostedService<ActivityEventPersister>();
             services.AddHostedService<CostTracker>();
             services.AddHostedService<BudgetEnforcer>();
+            services.AddHostedService<ActivityRetentionPurgeService>();
         }
 
         return services;
