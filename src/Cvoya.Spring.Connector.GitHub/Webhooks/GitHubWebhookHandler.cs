@@ -12,6 +12,7 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -38,6 +39,7 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     private readonly IUnitConnectorBindingLookup? _bindingLookup;
     private readonly IActivityEventBus? _activityEventBus;
     private readonly IGitHubPullRequestFilesFetcher? _filesFetcher;
+    private readonly IServiceScopeFactory? _scopeFactory;
 
     /// <summary>
     /// Initializes the handler. The <paramref name="labelStateMachine"/> is
@@ -78,13 +80,24 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     /// (or a cloud-provided substitute) so the filter is effective for every
     /// PR shape. Issue #2407.
     /// </param>
+    /// <param name="scopeFactory">
+    /// Optional scope factory used to resolve the scoped
+    /// <see cref="IThreadRegistry"/> when stamping a participant-set thread
+    /// id on each webhook-translated message (issue #2514). When null —
+    /// e.g. legacy pure-unit-test fixtures — webhook-translated messages
+    /// fall through with <c>ThreadId: null</c> and the persistent A2A
+    /// dispatch path will refuse them; real hosts always wire this so the
+    /// participant-set <c>(connector://github, unit://&lt;id&gt;)</c> resolves
+    /// to a stable Guid-shaped thread per binding.
+    /// </param>
     public GitHubWebhookHandler(
         ILoggerFactory loggerFactory,
         LabelStateMachine? labelStateMachine = null,
         IUnitConnectorConfigStore? configStore = null,
         IUnitConnectorBindingLookup? bindingLookup = null,
         IActivityEventBus? activityEventBus = null,
-        IGitHubPullRequestFilesFetcher? filesFetcher = null)
+        IGitHubPullRequestFilesFetcher? filesFetcher = null,
+        IServiceScopeFactory? scopeFactory = null)
     {
         _logger = loggerFactory.CreateLogger<GitHubWebhookHandler>();
         _labelStateMachine = labelStateMachine ?? new LabelStateMachine(LabelStateMachineOptions.Default());
@@ -92,6 +105,7 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
         _bindingLookup = bindingLookup;
         _activityEventBus = activityEventBus;
         _filesFetcher = filesFetcher;
+        _scopeFactory = scopeFactory;
     }
 
     // Stable sentinel Guid for the GitHub connector's synthetic "from"
@@ -226,32 +240,83 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             return Array.Empty<Message>();
         }
 
+        // #2514: each translated fan-out message needs a stable Guid-shaped
+        // ThreadId before it reaches MessageRouter — the persistent A2A
+        // dispatch path mints a per-message SPRING_CALLBACK_TOKEN scoped to
+        // the thread id (#1943) and throws otherwise. The participant set
+        // is (connector://github, unit://<bindingUnitId>), so successive
+        // deliveries from the same binding thread under the same
+        // conversation. IThreadRegistry is scoped — open a single scope for
+        // the loop so multiple matching bindings amortise the activation
+        // cost, and rely on the registry's idempotent GetOrCreateAsync to
+        // collapse duplicates on the participant set.
         var matches = new List<Message>();
-        foreach (var entry in bindings)
+        IServiceScope? threadScope = null;
+        IThreadRegistry? threadRegistry = null;
+        try
         {
-            UnitGitHubConfig? cfg;
-            try
+            if (_scopeFactory is not null)
             {
-                cfg = entry.Binding.Config.Deserialize<UnitGitHubConfig>(ConfigJsonOptions);
-            }
-            catch (JsonException)
-            {
-                continue;
-            }
-            if (cfg is null
-                || !UnitGitHubConfig.TryParseRepo(cfg.Repo, out var cfgOwner, out var cfgRepo))
-            {
-                continue;
+                threadScope = _scopeFactory.CreateScope();
+                threadRegistry = threadScope.ServiceProvider.GetRequiredService<IThreadRegistry>();
             }
 
-            if (!string.Equals(cfgOwner, owner, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(cfgRepo, repo, StringComparison.OrdinalIgnoreCase))
+            foreach (var entry in bindings)
             {
-                continue;
-            }
+                UnitGitHubConfig? cfg;
+                try
+                {
+                    cfg = entry.Binding.Config.Deserialize<UnitGitHubConfig>(ConfigJsonOptions);
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
+                if (cfg is null
+                    || !UnitGitHubConfig.TryParseRepo(cfg.Repo, out var cfgOwner, out var cfgRepo))
+                {
+                    continue;
+                }
 
-            var destination = Address.For("unit", entry.UnitId);
-            matches.Add(translated with { Id = Guid.NewGuid(), To = destination });
+                if (!string.Equals(cfgOwner, owner, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(cfgRepo, repo, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var destination = Address.For("unit", entry.UnitId);
+                string? threadId = null;
+                if (threadRegistry is not null)
+                {
+                    threadId = await threadRegistry.GetOrCreateAsync(
+                        new[] { ConnectorAddress, destination }, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    // Defensive — production hosts always wire the scope
+                    // factory. Pure-unit-test fixtures that exercise the
+                    // resolve-shape without DI hit this path and produce
+                    // a message with ThreadId: null; the persistent
+                    // dispatch will refuse it. Logged as a warning so the
+                    // gap is visible in any host that mis-registers.
+                    _logger.LogWarning(
+                        "GitHub webhook: no IServiceScopeFactory available to resolve IThreadRegistry; " +
+                        "translated message for {Destination} will carry ThreadId: null (#2514).",
+                        destination);
+                }
+
+                matches.Add(translated with
+                {
+                    Id = Guid.NewGuid(),
+                    To = destination,
+                    ThreadId = threadId,
+                });
+            }
+        }
+        finally
+        {
+            threadScope?.Dispose();
         }
 
         if (matches.Count == 0)
