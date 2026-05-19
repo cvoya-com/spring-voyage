@@ -33,6 +33,23 @@ namespace Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 /// <param name="ClientState">
 /// Opaque client state echoed back from the authorize request, if any.
 /// </param>
+/// <param name="Initiation">
+/// Typed payload describing what initiated the flow per ADR-0047 §13.
+/// <c>null</c> when the caller did not declare an intent (legacy
+/// behaviour). Surfaced on the session so the portal / CLI can drive a
+/// post-callback wizard / refresh without re-deriving the intent.
+/// </param>
+/// <param name="PatSecretName">
+/// Tenant-scoped secret name the OAuth-issued PAT was persisted under
+/// per ADR-0047 §5. Set when <see cref="Initiation"/> indicates a flow
+/// that ought to mint a binding-usable credential
+/// (<see cref="OAuthInitiationIntent.UserIdentitySurface"/> or
+/// <see cref="OAuthInitiationIntent.BindingWizard"/>); <c>null</c> for
+/// the legacy unspecified path that only powers
+/// <c>list-repositories</c> and does not need a binding-side credential.
+/// The wizard reads this off the post-callback session to pre-fill
+/// <c>pat_secret_name</c> on the binding-create call.
+/// </param>
 public record OAuthSession(
     string SessionId,
     string Login,
@@ -42,4 +59,6 @@ public record OAuthSession(
     string? RefreshTokenStoreKey,
     DateTimeOffset? ExpiresAt,
     DateTimeOffset CreatedAt,
-    string? ClientState);
+    string? ClientState,
+    OAuthInitiationContext? Initiation = null,
+    string? PatSecretName = null);

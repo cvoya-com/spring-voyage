@@ -45,7 +45,8 @@ public class ConnectorCommandTests
     [InlineData("connector unbind github --force")]
     [InlineData("connector github label-rules set eng-team --add-on-assign triage --remove-on-assign needs-assignment")]
     [InlineData("connector github filter set eng-team --include-label spring-voyage --exclude-label wip --include-author alice --include-path docs/")]
-    [InlineData("connector bind --unit eng-team --type github --owner acme --repo platform --include-label spring-voyage --exclude-label wip --include-author alice --include-path docs/")]
+    [InlineData("connector bind --unit eng-team --type github --repo acme/platform --installation-id 12345 --include-label spring-voyage --exclude-label wip --include-author alice --include-path docs/")]
+    [InlineData("connector bind --unit eng-team --type github --repo acme/platform --pat-secret-name binding/abc/github/pat --include-label spring-voyage")]
     [InlineData("connector credentials status github")]
     public void ConnectorVerbs_Parse(string argLine)
     {
@@ -164,21 +165,135 @@ public class ConnectorCommandTests
     [Fact]
     public void ConnectorBind_ParsesGitHubOptions()
     {
+        // ADR-0047 §11 shape: `--repo` carries the qualified `owner/repo`
+        // form; `--owner` is gone; `--pat-secret-name` is the alternate
+        // auth path alongside `--installation-id`.
         var outputOption = CreateOutputOption();
         var connectorCommand = ConnectorCommand.Create(outputOption);
         var rootCommand = new RootCommand { Options = { outputOption } };
         rootCommand.Subcommands.Add(connectorCommand);
 
         var parseResult = rootCommand.Parse(
-            "connector bind --unit eng-team --type github --owner acme --repo platform --installation-id 12345 --events issues pull_request");
+            "connector bind --unit eng-team --type github --repo acme/platform --installation-id 12345 --events issues pull_request");
 
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue<string>("--unit").ShouldBe("eng-team");
         parseResult.GetValue<string>("--type").ShouldBe("github");
-        parseResult.GetValue<string>("--owner").ShouldBe("acme");
-        parseResult.GetValue<string>("--repo").ShouldBe("platform");
+        parseResult.GetValue<string>("--repo").ShouldBe("acme/platform");
         parseResult.GetValue<string>("--installation-id").ShouldBe("12345");
         parseResult.GetValue<string[]>("--events").ShouldBe(new[] { "issues", "pull_request" });
+    }
+
+    [Fact]
+    public void ConnectorBind_DropsOwnerFlag_PerAdr0047()
+    {
+        // ADR-0047 §11: `--owner` is structurally redundant once `--repo`
+        // carries the qualified `owner/repo` form. The parser must reject
+        // the flag so the operator gets a clear "unknown option" hint
+        // pointing at the new shape.
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse(
+            "connector bind --unit eng-team --type github --owner acme --repo platform");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void ConnectorBind_ParsesPatSecretName()
+    {
+        // ADR-0047 §11 adds `--pat-secret-name` alongside
+        // `--installation-id`. Each alone is a valid auth choice; the
+        // value just round-trips to the wire.
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse(
+            "connector bind --unit eng-team --type github --repo acme/platform --pat-secret-name binding/abc/github/pat");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--pat-secret-name").ShouldBe("binding/abc/github/pat");
+    }
+
+    // ADR-0047 §11 binding-auth gate parse-time checks. The action layer
+    // runs ValidateGitHubBindFlags before any wire call; covering each
+    // branch here keeps regressions cheap to diagnose without spawning
+    // a process (Environment.Exit would tear down the xUnit runner).
+
+    [Fact]
+    public void ValidateGitHubBindFlags_HappyApp_NoError()
+    {
+        ConnectorCommand.ValidateGitHubBindFlags(
+            repo: "acme/platform",
+            installationId: "12345",
+            patSecretName: null)
+            .ShouldBeNull();
+    }
+
+    [Fact]
+    public void ValidateGitHubBindFlags_HappyPat_NoError()
+    {
+        ConnectorCommand.ValidateGitHubBindFlags(
+            repo: "acme/platform",
+            installationId: null,
+            patSecretName: "binding/abc/github/pat")
+            .ShouldBeNull();
+    }
+
+    [Fact]
+    public void ValidateGitHubBindFlags_RepoMissing_ReportsRepoRequired()
+    {
+        var error = ConnectorCommand.ValidateGitHubBindFlags(
+            repo: null,
+            installationId: "12345",
+            patSecretName: null);
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("--repo is required");
+        error.ShouldContain("ADR-0047");
+    }
+
+    [Fact]
+    public void ValidateGitHubBindFlags_RepoUnqualified_ReportsAdrHint()
+    {
+        var error = ConnectorCommand.ValidateGitHubBindFlags(
+            repo: "platform",
+            installationId: "12345",
+            patSecretName: null);
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("qualified 'owner/repo'");
+    }
+
+    [Fact]
+    public void ValidateGitHubBindFlags_NeitherAuthFlag_ReportsAuthRequired()
+    {
+        var error = ConnectorCommand.ValidateGitHubBindFlags(
+            repo: "acme/platform",
+            installationId: null,
+            patSecretName: null);
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("GitHubBindingAuthRequired");
+        error.ShouldContain("--installation-id");
+        error.ShouldContain("--pat-secret-name");
+    }
+
+    [Fact]
+    public void ValidateGitHubBindFlags_BothAuthFlags_ReportsAuthAmbiguous()
+    {
+        var error = ConnectorCommand.ValidateGitHubBindFlags(
+            repo: "acme/platform",
+            installationId: "12345",
+            patSecretName: "binding/abc/github/pat");
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("GitHubBindingAuthAmbiguous");
     }
 
     [Fact]

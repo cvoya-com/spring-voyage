@@ -28,6 +28,7 @@ public class GitHubOAuthService : IGitHubOAuthService
     private readonly ISecretStore _secretStore;
     private readonly IOptionsMonitor<GitHubOAuthOptions> _options;
     private readonly IGitHubUserFetcher _userFetcher;
+    private readonly IOAuthTokenPersister _tokenPersister;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
 
@@ -39,6 +40,7 @@ public class GitHubOAuthService : IGitHubOAuthService
         ISecretStore secretStore,
         IOptionsMonitor<GitHubOAuthOptions> options,
         IGitHubUserFetcher userFetcher,
+        IOAuthTokenPersister tokenPersister,
         ILoggerFactory loggerFactory,
         TimeProvider? timeProvider = null)
     {
@@ -48,6 +50,7 @@ public class GitHubOAuthService : IGitHubOAuthService
         _secretStore = secretStore;
         _options = options;
         _userFetcher = userFetcher;
+        _tokenPersister = tokenPersister;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = loggerFactory.CreateLogger<GitHubOAuthService>();
     }
@@ -56,6 +59,7 @@ public class GitHubOAuthService : IGitHubOAuthService
     public async Task<AuthorizeResult> BeginAuthorizationAsync(
         IReadOnlyList<string>? scopesOverride,
         string? clientState,
+        OAuthInitiationContext? initiation,
         CancellationToken ct)
     {
         var options = _options.CurrentValue;
@@ -70,7 +74,8 @@ public class GitHubOAuthService : IGitHubOAuthService
             Scopes: scopes,
             RedirectUri: options.RedirectUri,
             ExpiresAt: _timeProvider.GetUtcNow().Add(options.StateTtl),
-            ClientState: clientState);
+            ClientState: clientState,
+            Initiation: initiation);
         await _stateStore.SaveAsync(entry, ct);
 
         var query = new List<string>
@@ -86,8 +91,10 @@ public class GitHubOAuthService : IGitHubOAuthService
 
         var url = $"{AuthorizeEndpoint}?{string.Join('&', query)}";
         _logger.LogInformation(
-            "Issued GitHub OAuth authorize URL (state prefix={StatePrefix}, scopes={Scopes})",
-            state[..Math.Min(6, state.Length)], scopes);
+            "Issued GitHub OAuth authorize URL (state prefix={StatePrefix}, scopes={Scopes}, intent={Intent})",
+            state[..Math.Min(6, state.Length)],
+            scopes,
+            initiation?.Intent ?? OAuthInitiationIntent.Unspecified);
         return new AuthorizeResult(url, state);
     }
 
@@ -137,6 +144,36 @@ public class GitHubOAuthService : IGitHubOAuthService
             return new CallbackResult(null, null, "user_fetch_failed", ex.Message);
         }
 
+        // ADR-0047 §13: persist the access token as a tenant secret under
+        // the binding-scoped naming convention from §5 and — for the
+        // user-identity flow — refresh the calling tenant user's display
+        // identity. The persister returns Skipped for the legacy flow,
+        // leaving the session-only behaviour pre-ADR-0047 unchanged.
+        OAuthTokenPersistOutcome persist;
+        try
+        {
+            persist = await _tokenPersister.PersistAsync(
+                exchange.AccessToken,
+                identity,
+                entry.Initiation,
+                ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Failed to persist OAuth-issued PAT as a tenant secret " +
+                "(intent={Intent})",
+                entry.Initiation?.Intent ?? OAuthInitiationIntent.Unspecified);
+            return new CallbackResult(null, null, "pat_persist_failed", ex.Message);
+        }
+
+        // The session store also keeps a per-session copy of the token
+        // under an ISecretStore key so the existing list-repositories
+        // path (which reads through the session, not the binding-scoped
+        // tenant secret) keeps working unchanged. The two storage slots
+        // are intentional: the session-keyed slot drives the per-caller
+        // user-scoped repo filter; the tenant-secret slot drives unit
+        // bindings.
         var accessKey = await _secretStore.WriteAsync(exchange.AccessToken, ct);
         string? refreshKey = null;
         if (!string.IsNullOrEmpty(exchange.RefreshToken))
@@ -154,15 +191,26 @@ public class GitHubOAuthService : IGitHubOAuthService
             RefreshTokenStoreKey: refreshKey,
             ExpiresAt: exchange.ExpiresAt,
             CreatedAt: _timeProvider.GetUtcNow(),
-            ClientState: entry.ClientState);
+            ClientState: entry.ClientState,
+            Initiation: entry.Initiation,
+            PatSecretName: persist.PatSecretName);
 
         await _sessionStore.SaveAsync(session, ct);
 
         _logger.LogInformation(
-            "OAuth session {SessionId} created for login {Login}",
-            sessionId, identity.Login);
+            "OAuth session {SessionId} created for login {Login} " +
+            "(intent={Intent}, persistedSecret={SecretName})",
+            sessionId, identity.Login,
+            entry.Initiation?.Intent ?? OAuthInitiationIntent.Unspecified,
+            persist.PatSecretName ?? "<none>");
 
-        return new CallbackResult(sessionId, identity.Login, null, null);
+        return new CallbackResult(
+            sessionId,
+            identity.Login,
+            Error: null,
+            ErrorDescription: null,
+            PatSecretName: persist.PatSecretName,
+            BindingId: persist.BindingId);
     }
 
     /// <inheritdoc />

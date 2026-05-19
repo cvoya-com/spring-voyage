@@ -32,6 +32,7 @@ public class GitHubOAuthServiceTests
         IOAuthStateStore? stateStore = null,
         IOAuthSessionStore? sessionStore = null,
         IGitHubUserFetcher? userFetcher = null,
+        IOAuthTokenPersister? tokenPersister = null,
         FakeTimeProvider? timeProvider = null)
     {
         options ??= new GitHubOAuthOptions
@@ -47,6 +48,21 @@ public class GitHubOAuthServiceTests
         stateStore ??= new InMemoryOAuthStateStore(NullLoggerFactory.Instance, timeProvider);
         sessionStore ??= new InMemoryOAuthSessionStore();
         userFetcher ??= Substitute.For<IGitHubUserFetcher>();
+        // ADR-0047 §13: persister is invoked only when the authorize call
+        // declared a non-`Unspecified` intent. The default substitute
+        // returns a Skipped outcome so every test that did not request
+        // token persistence sees the pre-ADR-0047 session-only behaviour.
+        if (tokenPersister is null)
+        {
+            tokenPersister = Substitute.For<IOAuthTokenPersister>();
+            tokenPersister
+                .PersistAsync(Arg.Any<string>(), Arg.Any<GitHubUserIdentity>(), Arg.Any<OAuthInitiationContext?>(), Arg.Any<CancellationToken>())
+                .Returns(new OAuthTokenPersistOutcome(
+                    OAuthTokenPersistKind.Skipped,
+                    PatSecretName: null,
+                    BindingId: null,
+                    IdentityOutcome: null));
+        }
 
         return new GitHubOAuthService(
             stateStore,
@@ -55,6 +71,7 @@ public class GitHubOAuthServiceTests
             secretStore,
             new OptionsMonitorStub(options),
             userFetcher,
+            tokenPersister,
             NullLoggerFactory.Instance,
             timeProvider);
     }
@@ -98,6 +115,7 @@ public class GitHubOAuthServiceTests
         var result = await service.BeginAuthorizationAsync(
             scopesOverride: null,
             clientState: "resume-after-link",
+            initiation: null,
             ct);
 
         result.AuthorizeUrl.ShouldStartWith("https://github.com/login/oauth/authorize?");
@@ -122,6 +140,7 @@ public class GitHubOAuthServiceTests
         var result = await service.BeginAuthorizationAsync(
             scopesOverride: new[] { "user:email", "read:org" },
             clientState: null,
+            initiation: null,
             ct);
 
         result.AuthorizeUrl.ShouldContain("scope=" + Uri.EscapeDataString("user:email read:org"));
@@ -137,7 +156,7 @@ public class GitHubOAuthServiceTests
         });
 
         await Should.ThrowAsync<InvalidOperationException>(() =>
-            service.BeginAuthorizationAsync(null, null, TestContext.Current.CancellationToken));
+            service.BeginAuthorizationAsync(null, null, null, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -168,7 +187,7 @@ public class GitHubOAuthServiceTests
             userFetcher: userFetcher);
         var ct = TestContext.Current.CancellationToken;
 
-        var auth = await service.BeginAuthorizationAsync(null, null, ct);
+        var auth = await service.BeginAuthorizationAsync(null, null, null, ct);
         var callback = await service.HandleCallbackAsync("the-code", auth.State, ct);
 
         callback.SessionId.ShouldNotBeNull();
@@ -191,6 +210,77 @@ public class GitHubOAuthServiceTests
         var replay = await service.HandleCallbackAsync("the-code", auth.State, ct);
         replay.SessionId.ShouldBeNull();
         replay.Error.ShouldBe("invalid_state");
+    }
+
+    [Fact]
+    public async Task HandleCallbackAsync_WithIntent_InvokesPersisterAndSurfacesSecretName()
+    {
+        // ADR-0047 §13: the callback hands the freshly-issued token off
+        // to IOAuthTokenPersister whenever the initiation context
+        // declared a non-Unspecified intent. The persisted secret name
+        // round-trips on the CallbackResult so the wizard / CLI can
+        // surface it to the operator.
+        var oauthHttp = Substitute.For<IGitHubOAuthHttpClient>();
+        oauthHttp.ExchangeCodeAsync("client-id", "client-secret", "the-code", "https://example.com/cb", Arg.Any<CancellationToken>())
+            .Returns(new OAuthTokenExchangeResult(
+                AccessToken: "ghu_abc",
+                RefreshToken: null,
+                ExpiresAt: null,
+                GrantedScopes: "repo read:user",
+                Error: null,
+                ErrorDescription: null));
+
+        var userFetcher = Substitute.For<IGitHubUserFetcher>();
+        userFetcher.GetAsync("ghu_abc", Arg.Any<CancellationToken>())
+            .Returns(new GitHubUserIdentity("octocat", 42, "Octo Cat", null));
+
+        var bindingId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        var persister = Substitute.For<IOAuthTokenPersister>();
+        persister.PersistAsync(
+                Arg.Any<string>(),
+                Arg.Any<GitHubUserIdentity>(),
+                Arg.Is<OAuthInitiationContext?>(c => c != null && c.Intent == OAuthInitiationIntent.BindingWizard),
+                Arg.Any<CancellationToken>())
+            .Returns(new OAuthTokenPersistOutcome(
+                OAuthTokenPersistKind.Persisted,
+                PatSecretName: $"binding/{bindingId:N}/github/pat",
+                BindingId: bindingId,
+                IdentityOutcome: null));
+
+        var stateStore = new InMemoryOAuthStateStore(NullLoggerFactory.Instance);
+        var sessionStore = new InMemoryOAuthSessionStore();
+        var service = CreateService(
+            oauthHttp: oauthHttp,
+            stateStore: stateStore,
+            sessionStore: sessionStore,
+            userFetcher: userFetcher,
+            tokenPersister: persister);
+        var ct = TestContext.Current.CancellationToken;
+
+        var initiation = new OAuthInitiationContext(
+            OAuthInitiationIntent.BindingWizard,
+            TenantUserId: null,
+            BindingId: bindingId);
+        var auth = await service.BeginAuthorizationAsync(null, null, initiation, ct);
+        var callback = await service.HandleCallbackAsync("the-code", auth.State, ct);
+
+        callback.SessionId.ShouldNotBeNull();
+        callback.PatSecretName.ShouldBe($"binding/{bindingId:N}/github/pat");
+        callback.BindingId.ShouldBe(bindingId);
+
+        // Session also carries the persisted secret name so a later
+        // /session/{id} read by the wizard surfaces the same payload.
+        var session = await sessionStore.GetAsync(callback.SessionId!, ct);
+        session.ShouldNotBeNull();
+        session!.PatSecretName.ShouldBe($"binding/{bindingId:N}/github/pat");
+        session.Initiation.ShouldNotBeNull();
+        session.Initiation!.Intent.ShouldBe(OAuthInitiationIntent.BindingWizard);
+
+        await persister.Received(1).PersistAsync(
+            "ghu_abc",
+            Arg.Any<GitHubUserIdentity>(),
+            Arg.Any<OAuthInitiationContext?>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -223,7 +313,7 @@ public class GitHubOAuthServiceTests
         var service = CreateService(oauthHttp: oauthHttp);
         var ct = TestContext.Current.CancellationToken;
 
-        var auth = await service.BeginAuthorizationAsync(null, null, ct);
+        var auth = await service.BeginAuthorizationAsync(null, null, null, ct);
         var callback = await service.HandleCallbackAsync("bad-code", auth.State, ct);
 
         callback.SessionId.ShouldBeNull();
@@ -277,7 +367,7 @@ public class GitHubOAuthServiceTests
             userFetcher: userFetcher);
         var ct = TestContext.Current.CancellationToken;
 
-        var auth = await service.BeginAuthorizationAsync(null, null, ct);
+        var auth = await service.BeginAuthorizationAsync(null, null, null, ct);
         var callback = await service.HandleCallbackAsync("code", auth.State, ct);
 
         var revoked = await service.RevokeAsync(callback.SessionId!, ct);

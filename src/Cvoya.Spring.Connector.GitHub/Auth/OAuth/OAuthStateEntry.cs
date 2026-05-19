@@ -32,9 +32,17 @@ namespace Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 /// back from the session after callback. Useful for the portal's "resume
 /// where the user left off" flow. Not interpreted by the connector.
 /// </param>
+/// <param name="Initiation">
+/// Typed payload describing what initiated the flow per ADR-0047 §13.
+/// <c>null</c> when the caller did not declare an intent (legacy
+/// behaviour). The callback consults this to decide whether to persist
+/// the OAuth-issued token as a tenant secret and / or refresh the
+/// calling <c>TenantUser</c>'s display identity.
+/// </param>
 public record OAuthStateEntry(
     string State,
     string Scopes,
     string RedirectUri,
     DateTimeOffset ExpiresAt,
-    string? ClientState);
+    string? ClientState,
+    OAuthInitiationContext? Initiation = null);

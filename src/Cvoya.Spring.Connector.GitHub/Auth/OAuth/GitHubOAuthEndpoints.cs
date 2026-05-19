@@ -57,15 +57,24 @@ public static class GitHubOAuthEndpoints
     }
 
     private static async Task<IResult> AuthorizeAsync(
-        [FromBody] OAuthAuthorizeRequest? request,
+        [FromBody] OAuthAuthorizeRequest request,
         [FromServices] IGitHubOAuthService service,
         CancellationToken ct)
     {
         try
         {
+            // ADR-0047 §13: the authorize body grows two optional fields
+            // that carry the intent payload through the state store and
+            // into the callback. Both default to the legacy unspecified
+            // flow when omitted, so pre-ADR-0047 callers (e.g. the existing
+            // portal "Link GitHub" panel that powers list-repositories)
+            // continue to work unchanged. The body itself is required —
+            // pre-ADR-0047 callers post an empty JSON object `{}`.
+            var initiation = TryBuildInitiation(request);
             var result = await service.BeginAuthorizationAsync(
-                scopesOverride: request?.Scopes,
-                clientState: request?.ClientState,
+                scopesOverride: request.Scopes,
+                clientState: request.ClientState,
+                initiation: initiation,
                 ct);
             return Results.Ok(new OAuthAuthorizeResponse(result.AuthorizeUrl, result.State));
         }
@@ -79,6 +88,34 @@ public static class GitHubOAuthEndpoints
                 detail: ex.Message,
                 statusCode: StatusCodes.Status502BadGateway);
         }
+    }
+
+    private static OAuthInitiationContext? TryBuildInitiation(OAuthAuthorizeRequest? request)
+    {
+        if (request is null)
+        {
+            return null;
+        }
+
+        var intent = request.Intent switch
+        {
+            null or "" => OAuthInitiationIntent.Unspecified,
+            "user-identity" => OAuthInitiationIntent.UserIdentitySurface,
+            "binding-wizard" => OAuthInitiationIntent.BindingWizard,
+            _ => OAuthInitiationIntent.Unspecified,
+        };
+
+        if (intent == OAuthInitiationIntent.Unspecified
+            && request.TenantUserId is null
+            && request.BindingId is null)
+        {
+            return null;
+        }
+
+        return new OAuthInitiationContext(
+            Intent: intent,
+            TenantUserId: request.TenantUserId,
+            BindingId: request.BindingId);
     }
 
     private static async Task<IResult> CallbackAsync(
@@ -99,6 +136,8 @@ public static class GitHubOAuthEndpoints
             return CallbackPage(
                 sessionId: null,
                 login: null,
+                patSecretName: null,
+                bindingId: null,
                 error: error,
                 reason: errorDescription ?? error,
                 targetOrigin: targetOrigin,
@@ -118,6 +157,8 @@ public static class GitHubOAuthEndpoints
                 return CallbackPage(
                     sessionId: null,
                     login: null,
+                    patSecretName: null,
+                    bindingId: null,
                     error: result.Error ?? "callback_failed",
                     reason: result.ErrorDescription ?? result.Error,
                     targetOrigin: null,
@@ -128,6 +169,8 @@ public static class GitHubOAuthEndpoints
             return CallbackPage(
                 sessionId: result.SessionId,
                 login: result.Login,
+                patSecretName: result.PatSecretName,
+                bindingId: result.BindingId,
                 error: null,
                 reason: null,
                 targetOrigin: TryReadTargetOrigin(session?.ClientState),
@@ -138,6 +181,8 @@ public static class GitHubOAuthEndpoints
             return CallbackPage(
                 sessionId: null,
                 login: null,
+                patSecretName: null,
+                bindingId: null,
                 error: "oauth_not_configured",
                 reason: ex.Message,
                 targetOrigin: null,
@@ -148,16 +193,25 @@ public static class GitHubOAuthEndpoints
     private static IResult CallbackPage(
         string? sessionId,
         string? login,
+        string? patSecretName,
+        Guid? bindingId,
         string? error,
         string? reason,
         string? targetOrigin,
         int statusCode)
     {
+        // ADR-0047 §13: pass the persisted secret name + binding id through
+        // the browser handoff so the wizard can wire `pat_secret_name`
+        // without a second API call. Identity-surface callers ignore the
+        // fields; wizard callers read them off both the postMessage payload
+        // and the localStorage fallback for cross-tab handoff.
         var message = JsonSerializer.Serialize(new
         {
             type = "spring-voyage:github-oauth-session",
             sessionId,
             login,
+            patSecretName,
+            bindingId = bindingId?.ToString("N"),
             error,
             reason,
         });
@@ -297,16 +351,47 @@ public static class GitHubOAuthEndpoints
             Scopes: session.Scopes,
             ExpiresAt: session.ExpiresAt,
             CreatedAt: session.CreatedAt,
-            ClientState: session.ClientState));
+            ClientState: session.ClientState,
+            PatSecretName: session.PatSecretName,
+            BindingId: session.Initiation?.BindingId?.ToString("N")));
     }
 }
 
 /// <summary>
-/// Request body for <c>POST /oauth/authorize</c>. Both fields are optional.
+/// Request body for <c>POST /oauth/authorize</c>. Fields are optional;
+/// callers that omit the body entirely get the legacy
+/// <see cref="OAuthInitiationIntent.Unspecified"/> flow that powers the
+/// existing <c>list-repositories</c> wizard panel.
 /// </summary>
 /// <param name="Scopes">Per-request scope override; <c>null</c> falls back to the configured default.</param>
 /// <param name="ClientState">Opaque state payload to echo back on the session after callback.</param>
-public record OAuthAuthorizeRequest(IReadOnlyList<string>? Scopes, string? ClientState);
+/// <param name="Intent">
+/// Declared intent per ADR-0047 §13. Accepted values:
+/// <c>user-identity</c> (the user-identity surface — persist the token
+/// and refresh the caller's GitHub display identity),
+/// <c>binding-wizard</c> (the new-unit wizard — persist the token under
+/// the wizard-supplied <paramref name="BindingId"/> so the binding-create
+/// call can wire <c>pat_secret_name</c>), or omitted / unknown (legacy
+/// session-only flow).
+/// </param>
+/// <param name="TenantUserId">
+/// The calling tenant user's stable UUID. Required for the
+/// <c>user-identity</c> intent so the callback knows whose display
+/// identity to refresh.
+/// </param>
+/// <param name="BindingId">
+/// Pre-minted binding UUID for the <c>binding-wizard</c> intent (ADR-0047
+/// §13 option (a)). The callback persists the token under
+/// <c>binding/&lt;BindingId-no-dash&gt;/github/pat</c> so the wizard's
+/// subsequent binding-create call references the same id without
+/// rewriting the secret.
+/// </param>
+public record OAuthAuthorizeRequest(
+    IReadOnlyList<string>? Scopes,
+    string? ClientState,
+    string? Intent = null,
+    Guid? TenantUserId = null,
+    Guid? BindingId = null);
 
 /// <summary>Response shape for <c>POST /oauth/authorize</c>.</summary>
 /// <param name="AuthorizeUrl">The URL to redirect the user to.</param>
@@ -314,6 +399,25 @@ public record OAuthAuthorizeRequest(IReadOnlyList<string>? Scopes, string? Clien
 public record OAuthAuthorizeResponse(string AuthorizeUrl, string State);
 
 /// <summary>Response shape for <c>GET /oauth/session/{sessionId}</c>.</summary>
+/// <param name="SessionId">Server-issued opaque session id.</param>
+/// <param name="Login">The GitHub login of the authorized user.</param>
+/// <param name="UserId">The GitHub numeric user id.</param>
+/// <param name="Scopes">Space-joined OAuth scopes GitHub actually granted.</param>
+/// <param name="ExpiresAt">When the token expires, or <c>null</c> when no expiry was advertised.</param>
+/// <param name="CreatedAt">When the session record was created.</param>
+/// <param name="ClientState">Opaque state payload echoed back from the authorize request.</param>
+/// <param name="PatSecretName">
+/// Tenant-scoped secret name the OAuth-issued token was persisted under
+/// per ADR-0047 §5, or <c>null</c> for the legacy flow that does not
+/// persist a binding-usable PAT. CLI / portal callers read this through
+/// the post-callback session lookup so the wizard can wire
+/// <c>pat_secret_name</c> on the binding-create call.
+/// </param>
+/// <param name="BindingId">
+/// Binding UUID the secret is addressed by (no-dash hex form). Matches
+/// the value the wizard supplied on the authorize call for the
+/// <c>binding-wizard</c> intent; <c>null</c> for the legacy flow.
+/// </param>
 public record OAuthSessionResponse(
     string SessionId,
     string Login,
@@ -321,4 +425,6 @@ public record OAuthSessionResponse(
     string Scopes,
     DateTimeOffset? ExpiresAt,
     DateTimeOffset CreatedAt,
-    string? ClientState);
+    string? ClientState,
+    string? PatSecretName = null,
+    string? BindingId = null);

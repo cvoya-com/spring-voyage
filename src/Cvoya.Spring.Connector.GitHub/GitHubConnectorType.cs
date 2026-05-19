@@ -126,6 +126,7 @@ public class GitHubConnectorType : IConnectorType
             var result = await oauthService.BeginAuthorizationAsync(
                 scopesOverride: null,
                 clientState: null,
+                initiation: null,
                 cancellationToken);
             return (result.AuthorizeUrl, result.State);
         }

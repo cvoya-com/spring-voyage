@@ -6,8 +6,9 @@ namespace Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 /// <summary>
 /// Orchestrates the OAuth flow. Composes <see cref="IOAuthStateStore"/>,
 /// <see cref="IGitHubOAuthHttpClient"/>, <see cref="IOAuthSessionStore"/>,
-/// and <see cref="Cvoya.Spring.Core.Secrets.ISecretStore"/> so the endpoint
-/// layer stays a thin HTTP shell.
+/// <see cref="Cvoya.Spring.Core.Secrets.ISecretStore"/>, and
+/// <see cref="IOAuthTokenPersister"/> so the endpoint layer stays a thin
+/// HTTP shell.
 /// </summary>
 public interface IGitHubOAuthService
 {
@@ -25,10 +26,20 @@ public interface IGitHubOAuthService
     /// Opaque state payload the caller wants echoed back on the session.
     /// Never interpreted by the service.
     /// </param>
+    /// <param name="initiation">
+    /// Typed payload declaring what initiated the flow per ADR-0047 §13.
+    /// Stored alongside the pending state entry and surfaced on the
+    /// callback so the persister can drive the binding-id-aware secret
+    /// write and the optional identity refresh. <c>null</c> falls
+    /// through as <see cref="OAuthInitiationIntent.Unspecified"/> — the
+    /// legacy session-only flow that powers the wizard's
+    /// <c>list-repositories</c> dropdown.
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     Task<AuthorizeResult> BeginAuthorizationAsync(
         IReadOnlyList<string>? scopesOverride,
         string? clientState,
+        OAuthInitiationContext? initiation,
         CancellationToken ct);
 
     /// <summary>
@@ -73,8 +84,25 @@ public record AuthorizeResult(string AuthorizeUrl, string State);
 /// <param name="Login">The GitHub login of the authorized user, or <c>null</c> on failure.</param>
 /// <param name="Error">GitHub-style error code (e.g. <c>invalid_state</c>, <c>access_denied</c>).</param>
 /// <param name="ErrorDescription">Human-readable detail of the failure.</param>
+/// <param name="PatSecretName">
+/// Tenant-scoped secret name the OAuth-issued token was persisted under
+/// per ADR-0047 §5, or <c>null</c> for the legacy flow that does not
+/// persist a binding-usable PAT. The wizard reads this through the
+/// browser handoff to pre-fill <c>pat_secret_name</c> on the
+/// subsequent binding-create call.
+/// </param>
+/// <param name="BindingId">
+/// Binding UUID the secret is addressed by, or <c>null</c> for the
+/// legacy flow. For the wizard intent this matches the UUID the wizard
+/// pre-minted on the authorize call (so the wizard's binding-create
+/// reuses the same id); for the user-identity intent the persister
+/// generates a transient UUID purely so the §5 secret-name shape is
+/// uniform.
+/// </param>
 public record CallbackResult(
     string? SessionId,
     string? Login,
     string? Error,
-    string? ErrorDescription);
+    string? ErrorDescription,
+    string? PatSecretName = null,
+    Guid? BindingId = null);

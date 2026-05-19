@@ -8104,17 +8104,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/OAuthAuthorizeRequest"
-                  }
-                ]
+                "$ref": "#/components/schemas/OAuthAuthorizeRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -13507,6 +13501,26 @@
               "null",
               "string"
             ]
+          },
+          "intent": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tenantUserId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "bindingId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -13562,6 +13576,18 @@
             "format": "date-time"
           },
           "clientState": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "patSecretName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bindingId": {
             "type": [
               "null",
               "string"

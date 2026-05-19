@@ -192,6 +192,15 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IOAuthSessionStore, InMemoryOAuthSessionStore>();
         services.TryAddSingleton<IGitHubOAuthHttpClient, GitHubOAuthHttpClient>();
         services.TryAddSingleton<IGitHubUserFetcher, OctokitGitHubUserFetcher>();
+        // ADR-0047 §13: persists OAuth-issued tokens as tenant secrets
+        // under the binding-scoped naming convention and refreshes the
+        // calling tenant user's display identity when the flow was
+        // initiated from the user-identity surface. Singleton-safe via
+        // IServiceScopeFactory; the persister captures it and creates a
+        // fresh scope per call so the scoped ISecretRegistry /
+        // ITenantContext / ITenantUserConnectorIdentityWriter
+        // dependencies activate cleanly.
+        services.TryAddSingleton<IOAuthTokenPersister, OAuthTokenPersister>();
         services.TryAddSingleton<IGitHubOAuthService, GitHubOAuthService>();
         services.TryAddSingleton<IGitHubOAuthClientFactory, GitHubOAuthClientFactory>();
         // #1505: user-scope resolver for the list-repositories endpoint. Resolves
