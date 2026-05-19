@@ -43,13 +43,12 @@ public class LabelRoutingRoundtripSubscriberTests
     public LabelRoutingRoundtripSubscriberTests()
     {
         _logger = Substitute.For<ILogger<LabelRoutingRoundtripSubscriber>>();
-        _connector.CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>())
-            .Returns(_client);
-        // Per-binding overload added in #2385 — return the same fake client
-        // for any installation id so binding-aware tests can assert which
-        // overload was called without losing the happy-path behaviour.
-        _connector.CreateAuthenticatedClientAsync(
-            Arg.Any<long>(), Arg.Any<CancellationToken>())
+        // ADR-0047 §6: the connector exposes one binding-aware client
+        // factory. The resolver behind the call decides App vs PAT; the
+        // tests stub the factory directly so they don't have to model
+        // the dispatch internals.
+        _connector.CreateAuthenticatedClientForBindingAsync(
+            Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(_client);
         _subscriber = new LabelRoutingRoundtripSubscriber(_bus, _connector, _configStore, _logger);
     }
@@ -82,52 +81,55 @@ public class LabelRoutingRoundtripSubscriberTests
     }
 
     [Fact]
-    public async Task Apply_BindingInstallationId_DrivesAuth()
+    public async Task Apply_AppInstallationBinding_PassesBindingThroughToFactory()
     {
-        // Per-binding installation ids drive label-roundtrip auth (#2385).
-        // When AppInstallationId is set on the binding, the subscriber MUST
-        // call the connector's (long, CancellationToken) overload instead of
-        // falling through to the global-default path.
+        // ADR-0047 §6: the binding is the single auth dispatch input.
+        // The subscriber hands the binding payload to the connector's
+        // factory; the resolver inside picks App or PAT based on which
+        // field is set. The subscriber itself never branches on auth
+        // type — that is the resolver's job.
         var unit = UnitAddress();
-        RegisterConfig(unit, new UnitGitHubConfig(
+        var config = new UnitGitHubConfig(
             "acme/widgets",
             AppInstallationId: 4242,
-            AddOnAssign: new[] { "in-progress" }));
+            AddOnAssign: new[] { "in-progress" });
+        RegisterConfig(unit, config);
 
         await _subscriber.ApplyRoundtripAsync(BuildEvent(unit, number: 42),
             TestContext.Current.CancellationToken);
 
         await _connector.Received(1)
-            .CreateAuthenticatedClientAsync(4242, Arg.Any<CancellationToken>());
-        await _connector.DidNotReceive()
-            .CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>());
+            .CreateAuthenticatedClientForBindingAsync(
+                Arg.Is<UnitGitHubConfig>(c =>
+                    c.AppInstallationId == 4242
+                    && c.PatSecretName == null
+                    && c.Repo == "acme/widgets"),
+                Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Apply_BindingWithoutInstallationId_FallsBackToGlobal()
+    public async Task Apply_PatBinding_PassesBindingThroughToFactory()
     {
-        // null AppInstallationId is the documented fallback for OSS
-        // deployments that never bound a per-unit installation (#2385).
-        // The subscriber must call the parameterless overload so the
-        // connector's global default kicks in. ADR-0047 §11 also allows
-        // PAT auth as an alternative; bindings on the PAT path likewise
-        // surface null AppInstallationId here. Phase D wires the resolver
-        // dispatch; for the label-roundtrip path the parameterless
-        // overload covers both fallback flavours.
+        // PAT-bound binding: same call shape, different field. The
+        // connector's factory carries the binding into the resolver,
+        // which then walks the tenant secret store.
         var unit = UnitAddress();
-        RegisterConfig(unit, new UnitGitHubConfig(
+        var config = new UnitGitHubConfig(
             "acme/widgets",
             AppInstallationId: null,
             PatSecretName: "binding/test/github/pat",
-            AddOnAssign: new[] { "in-progress" }));
+            AddOnAssign: new[] { "in-progress" });
+        RegisterConfig(unit, config);
 
         await _subscriber.ApplyRoundtripAsync(BuildEvent(unit, number: 42),
             TestContext.Current.CancellationToken);
 
         await _connector.Received(1)
-            .CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>());
-        await _connector.DidNotReceive()
-            .CreateAuthenticatedClientAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+            .CreateAuthenticatedClientForBindingAsync(
+                Arg.Is<UnitGitHubConfig>(c =>
+                    c.AppInstallationId == null
+                    && c.PatSecretName == "binding/test/github/pat"),
+                Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -238,7 +240,8 @@ public class LabelRoutingRoundtripSubscriberTests
             TestContext.Current.CancellationToken);
 
         _client.Issue.Labels.ReceivedCalls().ShouldBeEmpty();
-        await _connector.DidNotReceive().CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>());
+        await _connector.DidNotReceive().CreateAuthenticatedClientForBindingAsync(
+            Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -316,7 +319,8 @@ public class LabelRoutingRoundtripSubscriberTests
         var gate = new TaskCompletionSource();
         var handlerFinished = new TaskCompletionSource();
 
-        _connector.CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>())
+        _connector.CreateAuthenticatedClientForBindingAsync(
+                Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(async callInfo =>
             {
                 var ct = callInfo.Arg<CancellationToken>();
@@ -327,10 +331,9 @@ public class LabelRoutingRoundtripSubscriberTests
             });
 
         var unit = UnitAddress();
-        // The test stubs the parameterless overload of
-        // CreateAuthenticatedClientAsync, so the binding configures the
-        // PAT auth path (per ADR-0047 §11 the binding row pins one of
-        // AppInstallationId or PatSecretName) to land on that overload.
+        // ADR-0047 §6: the binding feeds one auth resolver entry point.
+        // This test pins the PAT path on the binding so the in-flight
+        // call hits the resolver branch the stub controls.
         RegisterConfig(unit, new UnitGitHubConfig(
             "acme/widgets",
             AppInstallationId: null,
@@ -343,7 +346,7 @@ public class LabelRoutingRoundtripSubscriberTests
 
         // Wait for the handler to have entered the auth call — it's now in-flight.
         await WaitForAsync(() =>
-            _connector.ReceivedCalls().Any(c => c.GetMethodInfo().Name == "CreateAuthenticatedClientAsync"));
+            _connector.ReceivedCalls().Any(c => c.GetMethodInfo().Name == "CreateAuthenticatedClientForBindingAsync"));
 
         // Kick off StopAsync. It must not return until the handler finishes.
         var stopTask = _subscriber.StopAsync(TestContext.Current.CancellationToken);

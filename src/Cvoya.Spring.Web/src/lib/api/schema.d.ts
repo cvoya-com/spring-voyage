@@ -2255,6 +2255,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/connectors/github/user-config-schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the JSON Schema describing the GitHub connector per-TenantUser display-identity body */
+        get: operations["GetGitHubConnectorUserConfigSchema"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/connectors/github/oauth/authorize": {
         parameters: {
             query?: never;
@@ -9939,6 +9956,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     ListGitHubInstallations: {
@@ -10127,6 +10153,26 @@ export interface operations {
         };
     };
     GetGitHubConnectorConfigSchema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JsonElement"];
+                };
+            };
+        };
+    };
+    GetGitHubConnectorUserConfigSchema: {
         parameters: {
             query?: never;
             header?: never;

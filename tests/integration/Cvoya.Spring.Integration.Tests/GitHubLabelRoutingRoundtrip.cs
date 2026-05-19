@@ -63,16 +63,16 @@ public class GitHubLabelRoutingRoundtrip
         var response = CreateResponse();
         var threadId = Guid.NewGuid();
 
-        connector.CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>())
+        connector.CreateAuthenticatedClientForBindingAsync(
+                Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(client);
         child.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(response);
         harness.RegisterAgent(Child, child);
-        // ADR-0047 §11: the binding pins one auth path. This integration
-        // uses the PAT path so the parameterless
-        // CreateAuthenticatedClientAsync stub above is the resolver
-        // surface invoked. Phase D wires the App-installation path
-        // through a different resolver entry point.
+        // ADR-0047 §6: every outbound call hands the binding to the
+        // connector's CreateAuthenticatedClientForBindingAsync; the
+        // resolver behind it dispatches App vs PAT. This integration
+        // uses the PAT path to pin the broader fan-out shape.
         RegisterConfig(configStore, new UnitGitHubConfig(
             "acme/platform",
             AppInstallationId: null,

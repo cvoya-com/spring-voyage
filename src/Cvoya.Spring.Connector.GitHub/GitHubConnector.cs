@@ -10,6 +10,7 @@ using System.Text.Json;
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
+using Cvoya.Spring.Core.Messaging;
 
 using Microsoft.Extensions.Logging;
 
@@ -45,22 +46,20 @@ public class GitHubConnector : IGitHubConnector
     /// </summary>
     public const string OctokitHttpClientName = "github-octokit";
 
-    private readonly GitHubAppAuth _auth;
+    private readonly GitHubBindingAuthResolver _authResolver;
     private readonly GitHubWebhookHandler _webhookHandler;
     private readonly IWebhookSignatureValidator _signatureValidator;
     private readonly GitHubConnectorOptions _options;
     private readonly IGitHubRateLimitTracker _rateLimitTracker;
     private readonly GitHubRetryOptions _retryOptions;
-    private readonly IInstallationTokenCache _tokenCache;
     private readonly IHttpMessageHandlerFactory? _handlerFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
 
     /// <summary>
-    /// Initializes the connector. When <paramref name="tokenCache"/> is null
-    /// (legacy call sites in tests that don't wire it up) the connector falls
-    /// back to a best-effort no-op cache so behaviour stays equivalent to
-    /// re-minting on every call.
+    /// Initialises the connector. ADR-0047 §6: every outbound GitHub call
+    /// originating from a unit goes through <see cref="GitHubBindingAuthResolver"/>;
+    /// the connector no longer carries an "App JWT" surface of its own.
     /// </summary>
     /// <remarks>
     /// When <paramref name="handlerFactory"/> is supplied, Octokit's inner
@@ -73,26 +72,23 @@ public class GitHubConnector : IGitHubConnector
     /// wraps the retry handler around a fresh <see cref="HttpClientHandler"/>.
     /// </remarks>
     public GitHubConnector(
-        GitHubAppAuth auth,
+        GitHubBindingAuthResolver authResolver,
         GitHubWebhookHandler webhookHandler,
         IWebhookSignatureValidator signatureValidator,
         GitHubConnectorOptions options,
         IGitHubRateLimitTracker rateLimitTracker,
         GitHubRetryOptions retryOptions,
         ILoggerFactory loggerFactory,
-        IInstallationTokenCache? tokenCache = null,
         IHttpMessageHandlerFactory? handlerFactory = null)
     {
-        _auth = auth;
+        ArgumentNullException.ThrowIfNull(authResolver);
+        _authResolver = authResolver;
         _webhookHandler = webhookHandler;
         _signatureValidator = signatureValidator;
         _options = options;
         _rateLimitTracker = rateLimitTracker;
         _retryOptions = retryOptions;
         _loggerFactory = loggerFactory;
-        _tokenCache = tokenCache ?? new InstallationTokenCache(
-            new InstallationTokenCacheOptions(),
-            loggerFactory);
         _handlerFactory = handlerFactory;
         _logger = loggerFactory.CreateLogger<GitHubConnector>();
     }
@@ -103,18 +99,14 @@ public class GitHubConnector : IGitHubConnector
     public IGitHubWebhookHandler WebhookHandler => _webhookHandler;
 
     /// <summary>
-    /// Gets the authentication handler for GitHub App operations.
-    /// </summary>
-    public GitHubAppAuth Auth => _auth;
-
-    /// <summary>
     /// Processes an incoming webhook payload, validates its signature,
-    /// translates the event into a domain message, and applies any
-    /// per-binding inbound filter declared on the target unit's
-    /// <see cref="UnitGitHubConfig"/> (issue #2407). A filter-drop is
-    /// indistinguishable from "event type not handled" — both surface as
-    /// <see cref="WebhookOutcome.Ignored"/> so the webhook endpoint still
-    /// ACKs 202 to GitHub.
+    /// translates the event into one domain message per matching binding
+    /// within the receiving tenant per ADR-0047 §10, and applies each
+    /// binding's per-binding inbound filter (issue #2407). Bindings whose
+    /// filter drops the event are excluded from the result; when every
+    /// matching binding drops, the outcome is
+    /// <see cref="WebhookOutcome.Ignored"/>, identical to the
+    /// "event-type not handled" / "no binding matched" surface.
     /// </summary>
     /// <param name="eventType">The GitHub event type from the X-GitHub-Event header.</param>
     /// <param name="payload">The raw webhook payload body.</param>
@@ -122,8 +114,9 @@ public class GitHubConnector : IGitHubConnector
     /// <param name="cancellationToken">Cancellation propagated from the request.</param>
     /// <returns>
     /// A <see cref="WebhookHandleResult"/> distinguishing invalid-signature,
-    /// accepted-but-ignored, and translated-message outcomes so the endpoint
-    /// can map each to the correct HTTP status (401 / 202 / 202-with-routing).
+    /// accepted-but-ignored, and one-or-more-translated-messages outcomes
+    /// so the endpoint can map each to the correct HTTP status (401 /
+    /// 202 / 202-with-routing).
     /// </returns>
     public async Task<WebhookHandleResult> HandleWebhookAsync(
         string eventType,
@@ -142,32 +135,39 @@ public class GitHubConnector : IGitHubConnector
         }
 
         using var document = JsonDocument.Parse(payload);
-        var message = await _webhookHandler
+        var translated = await _webhookHandler
             .TranslateEventAsync(eventType, document.RootElement, cancellationToken)
             .ConfigureAwait(false);
 
-        if (message is null)
+        if (translated.Count == 0)
         {
-            // Either the event type was not handled, or no unit binding
-            // matched the inbound (installation_id, owner, repo) triple
-            // (#2456 — App-level delivery only; unbound deliveries are
-            // dropped silently). The connector treats both shapes
-            // identically — Ignored → webhook endpoint returns 202.
+            // Either the event type was not handled, or no binding in the
+            // receiving tenant matched the inbound (owner, repo) pair per
+            // ADR-0047 §10. The connector treats both shapes identically —
+            // Ignored → webhook endpoint returns 202.
             return WebhookHandleResult.Ignored;
         }
 
-        // Per-binding inbound filter (issue #2407). When the unit binding
-        // configures label / author / path filters, evaluate them against
-        // the translated payload and short-circuit to Ignored on a drop.
-        // The handler emits an audit ActivityEvent on drop so operators can
-        // see why a particular event was suppressed.
-        var filtered = await _webhookHandler
-            .ApplyInboundFilterAsync(message, eventType, cancellationToken)
-            .ConfigureAwait(false);
+        // Per-binding inbound filter (issue #2407). Each binding has its
+        // own filter set; evaluate every translated message independently
+        // and keep only the ones whose binding passed. The handler emits
+        // an audit ActivityEvent per drop so operators can see why a
+        // particular binding suppressed the event.
+        var passed = new List<Message>(capacity: translated.Count);
+        foreach (var message in translated)
+        {
+            var filtered = await _webhookHandler
+                .ApplyInboundFilterAsync(message, eventType, cancellationToken)
+                .ConfigureAwait(false);
+            if (filtered is not null)
+            {
+                passed.Add(filtered);
+            }
+        }
 
-        return filtered is null
+        return passed.Count == 0
             ? WebhookHandleResult.Ignored
-            : WebhookHandleResult.Translated(filtered);
+            : WebhookHandleResult.Translated(passed);
     }
 
     /// <summary>
@@ -196,57 +196,35 @@ public class GitHubConnector : IGitHubConnector
     }
 
     /// <summary>
-    /// Creates an authenticated <see cref="IGitHubClient"/> using the
-    /// connector's global default <see cref="GitHubConnectorOptions.InstallationId"/>.
-    /// Issue #2385 made the binding-aware overload the canonical path for
-    /// unit-owned platform work; this overload remains the documented fallback
-    /// for connector-level admin flows (credential validation, install URL,
-    /// the OSS legacy single-installation deployment) where no unit binding
-    /// is in play. Throws when the global option is not configured.
+    /// Creates an authenticated <see cref="IGitHubClient"/> for the
+    /// supplied binding per ADR-0047 §6. The connector resolves the
+    /// binding's pinned credential through
+    /// <see cref="GitHubBindingAuthResolver"/> — App-installation token
+    /// mint when <see cref="UnitGitHubConfig.AppInstallationId"/> is set,
+    /// tenant-secret-store PAT read when
+    /// <see cref="UnitGitHubConfig.PatSecretName"/> is set — and wires the
+    /// result into Octokit. Marked <c>virtual</c> so test subclasses can
+    /// substitute a pre-built client without exchanging a JWT for a token
+    /// or reading a secret store.
     /// </summary>
+    /// <param name="binding">The unit's GitHub binding payload.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    /// <returns>An authenticated GitHub client.</returns>
-    public virtual Task<IGitHubClient> CreateAuthenticatedClientAsync(CancellationToken cancellationToken = default)
-    {
-        var installationId = _options.InstallationId
-            ?? throw new InvalidOperationException(
-                "InstallationId must be configured to create an authenticated client without a binding context. "
-                + "Platform-owned work that targets a unit binding should call the (long, CancellationToken) overload "
-                + "with the binding's AppInstallationId — see issue #2385.");
-
-        return CreateAuthenticatedClientAsync(installationId, cancellationToken);
-    }
-
-    /// <summary>
-    /// Creates an authenticated <see cref="IGitHubClient"/> for the supplied
-    /// installation id. Marked <c>virtual</c> so test subclasses can substitute
-    /// a pre-built client without exchanging a JWT for a token. The token
-    /// cache is keyed on <paramref name="installationId"/> so per-installation
-    /// tokens never collide — see <see cref="IInstallationTokenCache"/>.
-    /// Issue #2385.
-    /// </summary>
-    public virtual async Task<IGitHubClient> CreateAuthenticatedClientAsync(
-        long installationId,
+    /// <returns>An authenticated GitHub client scoped to the binding.</returns>
+    public virtual async Task<IGitHubClient> CreateAuthenticatedClientForBindingAsync(
+        UnitGitHubConfig binding,
         CancellationToken cancellationToken = default)
     {
-        if (installationId <= 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(installationId),
-                installationId,
-                "Installation id must be a positive GitHub App installation id.");
-        }
+        ArgumentNullException.ThrowIfNull(binding);
 
-        var minted = await _tokenCache.GetOrMintAsync(
-            installationId,
-            (id, ct) => _auth.MintInstallationTokenAsync(id, ct),
-            cancellationToken);
+        var credential = await _authResolver
+            .ResolveAsync(binding, cancellationToken)
+            .ConfigureAwait(false);
 
-        var client = new GitHubClient(BuildConnection(minted.Token));
+        var client = new GitHubClient(BuildConnection(credential.Token));
 
         _logger.LogDebug(
-            "Created authenticated GitHub client for installation {InstallationId}",
-            installationId);
+            "Created authenticated GitHub client for binding (kind={Kind}, repo={Repo}).",
+            credential.Kind, SanitizeForLog(binding.Repo));
 
         return client;
     }
@@ -256,7 +234,7 @@ public class GitHubConnector : IGitHubConnector
     /// retry <see cref="DelegatingHandler"/> plugged into the underlying
     /// HTTP pipeline. Marked <c>virtual</c> so downstream consumers (e.g. the
     /// cloud repo) can substitute their own pipeline without re-implementing
-    /// the whole <see cref="CreateAuthenticatedClientAsync"/> method.
+    /// the whole <see cref="CreateAuthenticatedClientForBindingAsync"/> method.
     /// </summary>
     protected virtual IConnection BuildConnection(string token)
     {

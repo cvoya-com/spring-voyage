@@ -219,7 +219,7 @@ public class GitHubWebhookHandlerFilterTests
 
         result.ShouldBe(translated);
         await fetcher.DidNotReceive().FetchAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<long?>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -235,7 +235,7 @@ public class GitHubWebhookHandlerFilterTests
         store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>()).Returns(binding);
 
         var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
-        fetcher.FetchAsync("acme", "platform", 42, null, Arg.Any<CancellationToken>())
+        fetcher.FetchAsync("acme", "platform", 42, Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(new[] { "docs/foo.md", "src/Bar.cs" });
 
         var handler = new GitHubWebhookHandler(
@@ -247,7 +247,7 @@ public class GitHubWebhookHandlerFilterTests
         var result = await handler.ApplyInboundFilterAsync(translated, "pull_request", TestContext.Current.CancellationToken);
 
         result.ShouldBe(translated);
-        await fetcher.Received(1).FetchAsync("acme", "platform", 42, null, Arg.Any<CancellationToken>());
+        await fetcher.Received(1).FetchAsync("acme", "platform", 42, Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -263,7 +263,7 @@ public class GitHubWebhookHandlerFilterTests
         store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>()).Returns(binding);
 
         var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
-        fetcher.FetchAsync("acme", "platform", 42, null, Arg.Any<CancellationToken>())
+        fetcher.FetchAsync("acme", "platform", 42, Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(new[] { "src/Bar.cs" });
 
         var bus = Substitute.For<IActivityEventBus>();
@@ -300,7 +300,7 @@ public class GitHubWebhookHandlerFilterTests
         store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>()).Returns(binding);
 
         var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
-        fetcher.FetchAsync("acme", "platform", 42, null, Arg.Any<CancellationToken>())
+        fetcher.FetchAsync("acme", "platform", 42, Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns((IReadOnlyList<string>?)null);
 
         var handler = new GitHubWebhookHandler(
@@ -340,12 +340,15 @@ public class GitHubWebhookHandlerFilterTests
 
         result.ShouldBe(translated);
         await fetcher.DidNotReceive().FetchAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<long?>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ApplyInboundFilterAsync_PassesBindingInstallationIdToFetcher()
+    public async Task ApplyInboundFilterAsync_PassesBindingToFetcher()
     {
+        // ADR-0047 §6: the fetcher receives the full binding payload so
+        // the resolver behind it can dispatch on whichever auth field is
+        // set (App-installation token mint OR tenant-secret-store PAT).
         var config = new UnitGitHubConfig(
             Repo: "acme/platform",
             AppInstallationId: 9988L,
@@ -357,7 +360,8 @@ public class GitHubWebhookHandlerFilterTests
         store.GetAsync(TargetUnitHex, Arg.Any<CancellationToken>()).Returns(binding);
 
         var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
-        fetcher.FetchAsync("acme", "platform", 42, 9988L, Arg.Any<CancellationToken>())
+        fetcher.FetchAsync(
+                "acme", "platform", 42, Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(new[] { "docs/x.md" });
 
         var handler = new GitHubWebhookHandler(
@@ -368,7 +372,10 @@ public class GitHubWebhookHandlerFilterTests
 
         await handler.ApplyInboundFilterAsync(translated, "pull_request", TestContext.Current.CancellationToken);
 
-        await fetcher.Received(1).FetchAsync("acme", "platform", 42, 9988L, Arg.Any<CancellationToken>());
+        await fetcher.Received(1).FetchAsync(
+            "acme", "platform", 42,
+            Arg.Is<UnitGitHubConfig>(c => c.AppInstallationId == 9988L),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

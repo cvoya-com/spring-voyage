@@ -3,7 +3,7 @@
 
 namespace Cvoya.Spring.Connector.GitHub.Webhooks;
 
-using System.Net;
+using Cvoya.Spring.Connector.GitHub.Auth;
 
 using Microsoft.Extensions.Logging;
 
@@ -11,9 +11,10 @@ using Octokit;
 
 /// <summary>
 /// Default <see cref="IGitHubPullRequestFilesFetcher"/> built on
-/// <see cref="IGitHubConnector.CreateAuthenticatedClientAsync"/>. Authenticates
-/// as the connector's configured GitHub App installation and pages through
-/// <c>GET /repos/{owner}/{repo}/pulls/{number}/files</c> via Octokit's
+/// <see cref="IGitHubConnector.CreateAuthenticatedClientForBindingAsync"/>.
+/// Authenticates through the binding's pinned credential (ADR-0047 §6) and
+/// pages through <c>GET /repos/{owner}/{repo}/pulls/{number}/files</c> via
+/// Octokit's
 /// <see cref="IPullRequestsClient.Files(string, string, int, ApiOptions)"/>.
 /// </summary>
 /// <remarks>
@@ -80,30 +81,40 @@ public class OctokitGitHubPullRequestFilesFetcher : IGitHubPullRequestFilesFetch
         string owner,
         string repo,
         int number,
-        long? installationId,
+        UnitGitHubConfig binding,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(owner);
         ArgumentException.ThrowIfNullOrWhiteSpace(repo);
+        ArgumentNullException.ThrowIfNull(binding);
         if (number <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(number));
         }
 
-        // Authenticate against the binding's installation when the unit
-        // recorded one (#2385). null falls through to the connector's
-        // global default — the documented OSS-fallback path that lets
-        // single-installation deployments keep working without re-binding.
+        // ADR-0047 §6: outbound auth is a single dispatch on the binding's
+        // pinned credential — App-installation token mint or tenant-secret-
+        // store PAT, decided at binding-create time. The connector hides
+        // the dispatch behind CreateAuthenticatedClientForBindingAsync.
         IGitHubClient client;
         try
         {
             var connector = _connectorAccessor()
                 ?? throw new InvalidOperationException("Connector accessor returned null.");
-            client = installationId is { } installId and > 0
-                ? await connector.CreateAuthenticatedClientAsync(installId, cancellationToken)
-                    .ConfigureAwait(false)
-                : await connector.CreateAuthenticatedClientAsync(cancellationToken)
-                    .ConfigureAwait(false);
+            client = await connector
+                .CreateAuthenticatedClientForBindingAsync(binding, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (GitHubBindingAuthMissingException ex)
+        {
+            // Use-time auth-missing collapses to the same "fail open"
+            // contract as transport failures below: the filter cannot
+            // evaluate the path set, so the caller passes the event
+            // through unfiltered.
+            _logger.LogWarning(ex,
+                "Binding auth missing for {Owner}/{Repo}#{Number}; path filter will fail open.",
+                owner, repo, number);
+            return null;
         }
         catch (Exception ex)
         {

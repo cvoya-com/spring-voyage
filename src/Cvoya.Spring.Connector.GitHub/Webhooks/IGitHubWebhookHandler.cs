@@ -14,21 +14,22 @@ using Cvoya.Spring.Core.Messaging;
 public interface IGitHubWebhookHandler
 {
     /// <summary>
-    /// Translates a GitHub webhook event into a domain message and
-    /// resolves the destination unit by matching the inbound payload's
-    /// <c>(installation_id, owner, repo)</c> triple against the unit
-    /// bindings the platform knows about (issue #2456).
+    /// Translates a GitHub webhook event into one domain message per
+    /// matching unit binding in the receiving tenant per ADR-0047 §10.
+    /// The matcher keys on the payload's <c>(owner, repo)</c> within the
+    /// tenant; many bindings per <c>(tenant, owner, repo)</c> is supported.
     /// </summary>
     /// <param name="eventType">The GitHub event type from the X-GitHub-Event header.</param>
     /// <param name="payload">The parsed JSON payload.</param>
     /// <param name="cancellationToken">A token to cancel the binding lookup.</param>
     /// <returns>
-    /// A unit-addressed domain <see cref="Message"/>, or <c>null</c> when
-    /// the event type is not handled or no unit is bound to the
-    /// inbound payload's <c>(installation_id, owner, repo)</c>. The
-    /// connector treats both shapes identically — silent drop, ACK 202.
+    /// One unit-addressed domain <see cref="Message"/> per matching
+    /// binding. Returns an empty list when the event type is not handled
+    /// or no binding in the receiving tenant matches the inbound payload's
+    /// <c>(owner, repo)</c>. The connector treats both shapes identically
+    /// — silent drop, ACK 202.
     /// </returns>
-    Task<Message?> TranslateEventAsync(
+    Task<IReadOnlyList<Message>> TranslateEventAsync(
         string eventType, JsonElement payload, CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -174,6 +174,13 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<GitHubAppAuth>();
 
+        // ADR-0047 §6: the single binding-read dispatch for outbound
+        // GitHub auth. Singleton because the resolver itself holds no
+        // tenant-scoped state — it captures IServiceScopeFactory so the
+        // scoped ISecretResolver + ITenantContext are created per call
+        // on the PAT branch.
+        services.TryAddSingleton<GitHubBindingAuthResolver>();
+
         // OAuth App auth surface — issue #233. Registers options, storage,
         // the low-level HTTP client (named HttpClient), the orchestration
         // service, and the OAuth-authenticated client factory. All TryAdd*

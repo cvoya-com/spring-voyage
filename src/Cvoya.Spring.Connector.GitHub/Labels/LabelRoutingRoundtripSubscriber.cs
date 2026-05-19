@@ -249,14 +249,24 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
         IGitHubClient client;
         try
         {
-            // Authenticate against the binding's installation when the unit
-            // recorded one (#2385). null falls through to the connector's
-            // global default — the documented OSS-fallback path.
-            client = config.AppInstallationId is { } installId and > 0
-                ? await _connector.CreateAuthenticatedClientAsync(installId, cancellationToken)
-                    .ConfigureAwait(false)
-                : await _connector.CreateAuthenticatedClientAsync(cancellationToken)
-                    .ConfigureAwait(false);
+            // ADR-0047 §6: the binding's pinned credential is the single
+            // dispatch — App-installation token or PAT, decided at
+            // binding-create time. The resolver hides the dispatch behind
+            // CreateAuthenticatedClientForBindingAsync.
+            client = await _connector
+                .CreateAuthenticatedClientForBindingAsync(config, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Connector.GitHub.Auth.GitHubBindingAuthMissingException ex)
+        {
+            // The binding's pinned credential could not be materialised at
+            // use time (secret missing, installation token mint rejected).
+            // The roundtrip is best-effort — log and skip so the
+            // subscription stays live for the next decision.
+            _logger.LogWarning(ex,
+                "Binding auth missing for label roundtrip on {Owner}/{Repo}#{Number}; skipping.",
+                owner, repo, number);
+            return;
         }
         catch (Exception ex)
         {

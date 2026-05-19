@@ -135,6 +135,84 @@ public class GitHubConnectorEndpointsTests
     }
 
     [Fact]
+    public async Task PutConfig_CrossTenantClaimsSameRepo_Returns409_GitHubCrossTenantRepoBindingConflict()
+    {
+        // ADR-0047 §10: cross-tenant (owner, repo) collision is rejected
+        // at binding-create time. Once installation_id is out of the
+        // routing fabric, the inbound webhook payload carries no tenant
+        // signal — two tenants both claiming the same repo cannot be
+        // disambiguated, so the second create-time attempt is rejected
+        // structurally.
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        var probe = Substitute.For<IConnectorBindingCrossTenantProbe>();
+        probe.HasCrossTenantBindingAsync(
+                GitHubConnectorType.GitHubTypeId,
+                "acme/platform",
+                Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        await using var factory = CreateFactory(
+            configStore: configStore, crossTenantProbe: probe);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest(
+            "acme/platform",
+            AppInstallationId: 4242L,
+            Events: new[] { "issues" });
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+        body.GetProperty("code").GetString().ShouldBe("GitHubCrossTenantRepoBindingConflict");
+        body.GetProperty("repo").GetString().ShouldBe("acme/platform");
+
+        // The config store must NOT have been called — the rejection
+        // happens BEFORE the row is inserted.
+        await configStore.DidNotReceiveWithAnyArgs().SetAsync(
+            Arg.Any<string>(),
+            Arg.Any<Guid>(),
+            Arg.Any<JsonElement>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PutConfig_SameRepoInSameTenant_Persists()
+    {
+        // ADR-0047 §10: in-tenant fan-out is supported — a second binding
+        // for the same (owner, repo) within the same tenant is NOT
+        // rejected. The probe stub returns false (no cross-tenant
+        // collision); the rest of the create flow runs.
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        var probe = Substitute.For<IConnectorBindingCrossTenantProbe>();
+        probe.HasCrossTenantBindingAsync(
+                Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        await using var factory = CreateFactory(
+            configStore: configStore, crossTenantProbe: probe);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest(
+            "acme/platform",
+            AppInstallationId: 4242L,
+            Events: new[] { "issues" });
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await configStore.Received(1).SetAsync(
+            Arg.Any<string>(),
+            Arg.Any<Guid>(),
+            Arg.Any<JsonElement>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task PutConfig_BothAppAndPat_Returns400_GitHubBindingAuthAmbiguous()
     {
         // ADR-0047 §11: both set is rejected with the structured code
@@ -1195,7 +1273,8 @@ public class GitHubConnectorEndpointsTests
         bool appEnabled = true,
         IOAuthSessionStore? sessionStore = null,
         ISecretStore? secretStore = null,
-        IGitHubUserScopeResolver? scopeResolver = null)
+        IGitHubUserScopeResolver? scopeResolver = null,
+        IConnectorBindingCrossTenantProbe? crossTenantProbe = null)
     {
         var baseFactory = new CustomWebApplicationFactory();
         return baseFactory.WithWebHostBuilder(builder =>
@@ -1315,6 +1394,18 @@ public class GitHubConnectorEndpointsTests
                         services.Remove(d);
                     }
                     services.AddSingleton(scopeResolver);
+                }
+
+                if (crossTenantProbe is not null)
+                {
+                    var descriptors = services
+                        .Where(d => d.ServiceType == typeof(IConnectorBindingCrossTenantProbe))
+                        .ToList();
+                    foreach (var d in descriptors)
+                    {
+                        services.Remove(d);
+                    }
+                    services.AddSingleton(crossTenantProbe);
                 }
 
                 services.AddSingleton<GitHubConnectorType>();

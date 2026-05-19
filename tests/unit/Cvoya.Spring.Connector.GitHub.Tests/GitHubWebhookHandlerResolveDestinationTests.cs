@@ -18,24 +18,22 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Coverage for the App-level webhook resolution path (#2456) —
-/// <see cref="GitHubWebhookHandler.TranslateEventAsync"/> resolves the
-/// destination unit from the inbound payload's <c>(installation_id,
-/// owner, repo)</c> triple via <see cref="IUnitConnectorBindingLookup"/>,
-/// or drops the delivery silently when no binding matches.
+/// Coverage for the ADR-0047 §10 webhook resolution path —
+/// <see cref="GitHubWebhookHandler.TranslateEventAsync"/> keys on
+/// <c>(owner, repo)</c> within the receiving tenant and returns one
+/// translated message per matching binding (fan-out). The binding lookup
+/// is tenant-scoped at the EF layer so cross-tenant rows do not surface.
 /// </summary>
 public class GitHubWebhookHandlerResolveDestinationTests
 {
-    private static readonly string UnitHex =
-        new Guid("dddddddd-0000-0000-0000-000000000001").ToString("N");
+    private static readonly string UnitHexA =
+        new Guid("aaaaaaaa-0000-0000-0000-000000000001").ToString("N");
+    private static readonly string UnitHexB =
+        new Guid("bbbbbbbb-0000-0000-0000-000000000002").ToString("N");
 
     [Fact]
     public async Task TranslateEventAsync_NoBindingMatches_DropsSilently()
     {
-        // Payload references installation 999 and a repo no unit is bound
-        // to. The lookup returns an empty list (or a list of bindings none
-        // of which match the triple) — the handler returns null, which
-        // the connector surfaces as Ignored / ACK 202 to GitHub.
         var lookup = Substitute.For<IUnitConnectorBindingLookup>();
         lookup
             .ListByConnectorTypeAsync(GitHubConnectorType.GitHubTypeId, Arg.Any<CancellationToken>())
@@ -47,24 +45,18 @@ public class GitHubWebhookHandlerResolveDestinationTests
 
         var payload = BuildIssuePayload(installationId: 999, owner: "ghost", repo: "phantom");
 
-        var message = await handler.TranslateEventAsync(
+        var messages = await handler.TranslateEventAsync(
             "issues", payload, TestContext.Current.CancellationToken);
 
-        message.ShouldBeNull();
+        messages.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task TranslateEventAsync_BindingMatchesTriple_RoutesToUnit()
+    public async Task TranslateEventAsync_SingleBindingMatches_RoutesToUnit()
     {
         var config = new UnitGitHubConfig(
             Repo: "acme/platform", AppInstallationId: 42L);
-        var binding = new UnitConnectorBinding(
-            GitHubConnectorType.GitHubTypeId,
-            JsonSerializer.SerializeToElement(config));
-        var lookup = Substitute.For<IUnitConnectorBindingLookup>();
-        lookup
-            .ListByConnectorTypeAsync(GitHubConnectorType.GitHubTypeId, Arg.Any<CancellationToken>())
-            .Returns(new[] { new UnitConnectorBindingEntry(UnitHex, binding) });
+        var lookup = LookupReturning(UnitHexA, config);
 
         var handler = new GitHubWebhookHandler(
             NullLoggerFactory.Instance,
@@ -72,27 +64,20 @@ public class GitHubWebhookHandlerResolveDestinationTests
 
         var payload = BuildIssuePayload(installationId: 42, owner: "acme", repo: "platform");
 
-        var message = await handler.TranslateEventAsync(
+        var messages = await handler.TranslateEventAsync(
             "issues", payload, TestContext.Current.CancellationToken);
 
-        message.ShouldNotBeNull();
-        message!.To.Scheme.ShouldBe("unit");
-        message.To.Path.ShouldBe(UnitHex);
+        messages.Count.ShouldBe(1);
+        messages[0].To.Scheme.ShouldBe("unit");
+        messages[0].To.Path.ShouldBe(UnitHexA);
     }
 
     [Fact]
     public async Task TranslateEventAsync_OwnerCaseMismatch_StillMatches()
     {
-        // GitHub login comparisons are case-insensitive.
         var config = new UnitGitHubConfig(
             Repo: "Acme/Platform", AppInstallationId: 42L);
-        var binding = new UnitConnectorBinding(
-            GitHubConnectorType.GitHubTypeId,
-            JsonSerializer.SerializeToElement(config));
-        var lookup = Substitute.For<IUnitConnectorBindingLookup>();
-        lookup
-            .ListByConnectorTypeAsync(GitHubConnectorType.GitHubTypeId, Arg.Any<CancellationToken>())
-            .Returns(new[] { new UnitConnectorBindingEntry(UnitHex, binding) });
+        var lookup = LookupReturning(UnitHexA, config);
 
         var handler = new GitHubWebhookHandler(
             NullLoggerFactory.Instance,
@@ -100,63 +85,188 @@ public class GitHubWebhookHandlerResolveDestinationTests
 
         var payload = BuildIssuePayload(installationId: 42, owner: "acme", repo: "platform");
 
-        var message = await handler.TranslateEventAsync(
+        var messages = await handler.TranslateEventAsync(
             "issues", payload, TestContext.Current.CancellationToken);
 
-        message.ShouldNotBeNull();
-        message!.To.Path.ShouldBe(UnitHex);
+        messages.Count.ShouldBe(1);
+        messages[0].To.Path.ShouldBe(UnitHexA);
     }
 
     [Fact]
-    public async Task TranslateEventAsync_InstallationIdMismatch_Drops()
+    public async Task TranslateEventAsync_InstallationIdMismatch_StillMatchesUnderOwnerRepoKey()
     {
-        // Owner / repo match but installation does not — must not match
-        // (different installation could legitimately ship a same-named
-        // repo, especially in personal-account fork patterns).
+        // ADR-0047 §10: installation_id leaves the routing fabric. The
+        // matcher keys on (owner, repo) within the receiving tenant; the
+        // binding's stored installation_id is no longer part of the
+        // match. Cross-tenant collisions are handled at binding-create
+        // time, not at delivery time — see CrossTenantPayload_DoesNotMatch.
         var config = new UnitGitHubConfig(
             Repo: "acme/platform", AppInstallationId: 42L);
-        var binding = new UnitConnectorBinding(
-            GitHubConnectorType.GitHubTypeId,
-            JsonSerializer.SerializeToElement(config));
-        var lookup = Substitute.For<IUnitConnectorBindingLookup>();
-        lookup
-            .ListByConnectorTypeAsync(GitHubConnectorType.GitHubTypeId, Arg.Any<CancellationToken>())
-            .Returns(new[] { new UnitConnectorBindingEntry(UnitHex, binding) });
+        var lookup = LookupReturning(UnitHexA, config);
 
         var handler = new GitHubWebhookHandler(
             NullLoggerFactory.Instance,
             bindingLookup: lookup);
 
+        // Owner / repo match; installation does not. Still matches —
+        // installation is no longer a routing key.
         var payload = BuildIssuePayload(installationId: 99, owner: "acme", repo: "platform");
 
-        var message = await handler.TranslateEventAsync(
+        var messages = await handler.TranslateEventAsync(
             "issues", payload, TestContext.Current.CancellationToken);
 
-        message.ShouldBeNull();
+        messages.Count.ShouldBe(1);
+        messages[0].To.Path.ShouldBe(UnitHexA);
     }
 
     [Fact]
-    public async Task TranslateEventAsync_InstallationEvent_UsesInstallationFallback()
+    public async Task TranslateEventAsync_RepoMismatch_Drops()
     {
-        // installation / installation_repositories / projects_v2* events
-        // are App-level and don't carry repository coordinates. The
-        // resolver falls back to the first binding whose installation
-        // matches so the operator still sees lifecycle signal.
         var config = new UnitGitHubConfig(
             Repo: "acme/platform", AppInstallationId: 42L);
-        var binding = new UnitConnectorBinding(
-            GitHubConnectorType.GitHubTypeId,
-            JsonSerializer.SerializeToElement(config));
-        var lookup = Substitute.For<IUnitConnectorBindingLookup>();
-        lookup
-            .ListByConnectorTypeAsync(GitHubConnectorType.GitHubTypeId, Arg.Any<CancellationToken>())
-            .Returns(new[] { new UnitConnectorBindingEntry(UnitHex, binding) });
+        var lookup = LookupReturning(UnitHexA, config);
 
         var handler = new GitHubWebhookHandler(
             NullLoggerFactory.Instance,
             bindingLookup: lookup);
 
-        // installation.created payload — no repository field.
+        var payload = BuildIssuePayload(installationId: 42, owner: "acme", repo: "other-repo");
+
+        var messages = await handler.TranslateEventAsync(
+            "issues", payload, TestContext.Current.CancellationToken);
+
+        messages.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task TranslateEventAsync_GhWebhookForwardPayloadWithoutInstallationId_StillMatches()
+    {
+        // UC4 — `gh webhook forward` delivers payloads without an
+        // `installation` field. The pre-ADR-0047 two-case matcher
+        // dropped these; the new (owner, repo) key resolves them.
+        var config = new UnitGitHubConfig(
+            Repo: "acme/platform", AppInstallationId: 42L);
+        var lookup = LookupReturning(UnitHexA, config);
+
+        var handler = new GitHubWebhookHandler(
+            NullLoggerFactory.Instance,
+            bindingLookup: lookup);
+
+        var data = new
+        {
+            action = "opened",
+            repository = new
+            {
+                name = "platform",
+                full_name = "acme/platform",
+                owner = new { login = "acme" },
+            },
+            issue = new
+            {
+                number = 1,
+                title = "x",
+                body = "y",
+                labels = Array.Empty<object>(),
+            },
+        };
+        var payload = JsonSerializer.SerializeToElement(data);
+
+        var messages = await handler.TranslateEventAsync(
+            "issues", payload, TestContext.Current.CancellationToken);
+
+        messages.Count.ShouldBe(1);
+        messages[0].To.Path.ShouldBe(UnitHexA);
+    }
+
+    [Fact]
+    public async Task TranslateEventAsync_MultipleBindingsSameRepo_FansOutWithinTenant()
+    {
+        // ADR-0047 §10: many bindings per (tenant, owner, repo) is
+        // supported. The matcher returns one message per binding; each
+        // binding's per-binding filter decides processing. Load-bearing
+        // example from the ADR: frontend-team + backend-team units, both
+        // bound to the same monorepo, divergent label filters.
+        var frontendConfig = new UnitGitHubConfig(
+            Repo: "acme/platform",
+            AppInstallationId: 42L,
+            IncludeLabels: new[] { "frontend" });
+        var backendConfig = new UnitGitHubConfig(
+            Repo: "acme/platform",
+            AppInstallationId: 42L,
+            IncludeLabels: new[] { "backend" });
+        var lookup = Substitute.For<IUnitConnectorBindingLookup>();
+        lookup
+            .ListByConnectorTypeAsync(GitHubConnectorType.GitHubTypeId, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new UnitConnectorBindingEntry(UnitHexA, BindingFor(frontendConfig)),
+                new UnitConnectorBindingEntry(UnitHexB, BindingFor(backendConfig)),
+            });
+
+        var handler = new GitHubWebhookHandler(
+            NullLoggerFactory.Instance,
+            bindingLookup: lookup);
+
+        var payload = BuildIssuePayload(installationId: 42, owner: "acme", repo: "platform");
+
+        var messages = await handler.TranslateEventAsync(
+            "issues", payload, TestContext.Current.CancellationToken);
+
+        messages.Count.ShouldBe(2);
+        var addresses = messages.Select(m => m.To.Path).ToHashSet();
+        addresses.ShouldContain(UnitHexA);
+        addresses.ShouldContain(UnitHexB);
+
+        // Every fanned-out message has a unique Id so downstream observers
+        // see two distinct deliveries rather than collapsing on a shared key.
+        messages[0].Id.ShouldNotBe(messages[1].Id);
+    }
+
+    [Fact]
+    public async Task TranslateEventAsync_CrossTenantPayload_DoesNotMatchReceivingTenant()
+    {
+        // Security property: the binding lookup is tenant-scoped at the
+        // EF layer (via the SpringDbContext query filter on
+        // UnitConnectorBindingEntity). A binding for "acme/platform" in
+        // another tenant is structurally invisible to a webhook arriving
+        // in the receiving tenant. The handler models this by relying on
+        // the lookup's tenant scoping — when the lookup returns no rows,
+        // the matcher cannot mis-route the payload regardless of
+        // (owner, repo) match.
+        var lookup = Substitute.For<IUnitConnectorBindingLookup>();
+        lookup
+            .ListByConnectorTypeAsync(GitHubConnectorType.GitHubTypeId, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<UnitConnectorBindingEntry>());
+
+        var handler = new GitHubWebhookHandler(
+            NullLoggerFactory.Instance,
+            bindingLookup: lookup);
+
+        var payload = BuildIssuePayload(installationId: 42, owner: "acme", repo: "platform");
+
+        var messages = await handler.TranslateEventAsync(
+            "issues", payload, TestContext.Current.CancellationToken);
+
+        messages.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task TranslateEventAsync_PayloadWithoutRepository_Drops()
+    {
+        // installation / installation_repositories / projects_v2* events
+        // carry no (owner, repo) coordinates. Phase E intentionally
+        // drops them under the new key; the supplementary org-event
+        // delivery path lands in a later phase. The matcher must NOT
+        // mis-route them under fan-out (which would deliver one copy to
+        // every binding in the tenant).
+        var config = new UnitGitHubConfig(
+            Repo: "acme/platform", AppInstallationId: 42L);
+        var lookup = LookupReturning(UnitHexA, config);
+
+        var handler = new GitHubWebhookHandler(
+            NullLoggerFactory.Instance,
+            bindingLookup: lookup);
+
         var data = new
         {
             action = "created",
@@ -170,43 +280,26 @@ public class GitHubWebhookHandlerResolveDestinationTests
         };
         var payload = JsonSerializer.SerializeToElement(data);
 
-        var message = await handler.TranslateEventAsync(
+        var messages = await handler.TranslateEventAsync(
             "installation", payload, TestContext.Current.CancellationToken);
 
-        message.ShouldNotBeNull();
-        message!.To.Path.ShouldBe(UnitHex);
+        messages.ShouldBeEmpty();
     }
 
-    [Fact]
-    public async Task TranslateEventAsync_RepoOnlyEvent_DoesNotFallbackToInstallation()
+    private static IUnitConnectorBindingLookup LookupReturning(
+        string unitHex, UnitGitHubConfig config)
     {
-        // Repo-shaped events (issues, pull_request, …) MUST match the
-        // full (installation_id, owner, repo) triple — they must not ride
-        // the installation-fallback path used for App-level events. A
-        // binding for repo A in installation X must not catch an event
-        // for repo B in installation X.
-        var config = new UnitGitHubConfig(
-            Repo: "acme/platform", AppInstallationId: 42L);
-        var binding = new UnitConnectorBinding(
-            GitHubConnectorType.GitHubTypeId,
-            JsonSerializer.SerializeToElement(config));
         var lookup = Substitute.For<IUnitConnectorBindingLookup>();
         lookup
             .ListByConnectorTypeAsync(GitHubConnectorType.GitHubTypeId, Arg.Any<CancellationToken>())
-            .Returns(new[] { new UnitConnectorBindingEntry(UnitHex, binding) });
-
-        var handler = new GitHubWebhookHandler(
-            NullLoggerFactory.Instance,
-            bindingLookup: lookup);
-
-        // Same installation, different repo — must drop.
-        var payload = BuildIssuePayload(installationId: 42, owner: "acme", repo: "other-repo");
-
-        var message = await handler.TranslateEventAsync(
-            "issues", payload, TestContext.Current.CancellationToken);
-
-        message.ShouldBeNull();
+            .Returns(new[] { new UnitConnectorBindingEntry(unitHex, BindingFor(config)) });
+        return lookup;
     }
+
+    private static UnitConnectorBinding BindingFor(UnitGitHubConfig config) =>
+        new(
+            GitHubConnectorType.GitHubTypeId,
+            JsonSerializer.SerializeToElement(config));
 
     private static JsonElement BuildIssuePayload(long installationId, string owner, string repo)
     {
