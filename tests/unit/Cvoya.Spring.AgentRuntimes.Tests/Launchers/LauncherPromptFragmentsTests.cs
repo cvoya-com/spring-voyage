@@ -36,6 +36,11 @@ public class LauncherPromptFragmentsTests
             .GetField("ConcurrentThreadsGuard", BindingFlags.Public | BindingFlags.Static)!
             .GetValue(null)!;
 
+    private static string ResponseDiscipline =>
+        (string)FragmentsType
+            .GetField("ResponseDiscipline", BindingFlags.Public | BindingFlags.Static)!
+            .GetValue(null)!;
+
     private static string Compose(string prompt, bool concurrentThreads) =>
         (string)FragmentsType
             .GetMethod("Compose", BindingFlags.Public | BindingFlags.Static)!
@@ -62,40 +67,56 @@ public class LauncherPromptFragmentsTests
     }
 
     [Fact]
-    public void Compose_ConcurrentThreadsFalse_ReturnsUserPromptVerbatim()
+    public void ResponseDiscipline_CarriesTheLoadBearingClauses()
     {
-        // false default is safe — no guard emitted. The user's prompt
-        // body is the entire returned string.
-        var composed = Compose(SampleUserPrompt, concurrentThreads: false);
+        // Issue #2493: every launched runtime sees these three numbered
+        // requirements. Pin them so a reword has to be deliberate.
+        var guard = ResponseDiscipline;
 
-        composed.ShouldBe(SampleUserPrompt);
-        composed.ShouldNotContain("Spring Voyage runtime guard");
+        guard.ShouldContain("Spring Voyage runtime guard — response discipline");
+        guard.ShouldContain("final reply A2A message");
+        guard.ShouldContain("sv.report_progress");
+        guard.ShouldContain("Silent success is a regression");
+        guard.ShouldContain("End Spring Voyage runtime guard — response discipline");
     }
 
     [Fact]
-    public void Compose_ConcurrentThreadsTrue_PrependsGuardBeforeUserPrompt()
+    public void Compose_ConcurrentThreadsFalse_StillPrependsResponseDiscipline()
+    {
+        // Issue #2493: ResponseDiscipline is always-on, independent of
+        // the concurrent_threads flag.
+        var composed = Compose(SampleUserPrompt, concurrentThreads: false);
+
+        composed.ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        composed.ShouldEndWith(SampleUserPrompt);
+        composed.ShouldNotContain("concurrent_threads is on");
+    }
+
+    [Fact]
+    public void Compose_ConcurrentThreadsTrue_PrependsBothGuards_ResponseDisciplineFirst()
     {
         var composed = Compose(SampleUserPrompt, concurrentThreads: true);
 
-        composed.ShouldStartWith("## Spring Voyage runtime guard");
+        composed.ShouldStartWith("## Spring Voyage runtime guard — response discipline");
         composed.ShouldEndWith(SampleUserPrompt);
         composed.ShouldContain(SampleUserPrompt, Case.Sensitive);
-
-        // Composition order matters — the guard MUST come first so the
-        // model treats it as platform-level instructions ahead of the
-        // user's narrative (model attention biases toward early context).
-        composed.IndexOf("Spring Voyage runtime guard", StringComparison.Ordinal)
+        // Response discipline precedes the concurrent-threads guard
+        // (model attention biases toward early context — the universal
+        // contract goes first).
+        composed.IndexOf("response discipline", StringComparison.Ordinal)
+            .ShouldBeLessThan(composed.IndexOf("concurrent_threads is on", StringComparison.Ordinal));
+        // Both precede the user's prompt.
+        composed.IndexOf("concurrent_threads is on", StringComparison.Ordinal)
             .ShouldBeLessThan(composed.IndexOf(SampleUserPrompt, StringComparison.Ordinal));
     }
 
     [Fact]
-    public void Compose_ConcurrentThreadsTrue_EmptyPrompt_StillEmitsGuard()
+    public void Compose_EmptyPrompt_StillEmitsResponseDiscipline()
     {
-        // An empty user prompt is unusual but not invalid — the guard
-        // still emits so the model sees the constraints regardless.
-        var composed = Compose(string.Empty, concurrentThreads: true);
+        // A sparse / empty prompt still gets the universal guard.
+        var composed = Compose(string.Empty, concurrentThreads: false);
 
-        composed.ShouldStartWith("## Spring Voyage runtime guard");
-        composed.ShouldContain("End Spring Voyage runtime guard");
+        composed.ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        composed.ShouldContain("End Spring Voyage runtime guard — response discipline");
     }
 }

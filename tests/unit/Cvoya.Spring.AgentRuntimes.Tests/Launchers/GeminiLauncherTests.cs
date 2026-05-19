@@ -76,7 +76,10 @@ public class GeminiLauncherTests
 
         prep.WorkspaceMountPath.ShouldBe("/workspace");
         prep.WorkspaceFiles.Keys.ShouldBe(new[] { "GEMINI.md", ".gemini/settings.json" }, ignoreOrder: true);
-        prep.WorkspaceFiles["GEMINI.md"].ShouldBe(context.Prompt);
+        // Issue #2493: every launcher prepends the always-on
+        // ResponseDiscipline fragment; the user's prompt is the tail.
+        prep.WorkspaceFiles["GEMINI.md"].ShouldEndWith(context.Prompt);
+        prep.WorkspaceFiles["GEMINI.md"].ShouldContain("Spring Voyage runtime guard — response discipline");
 
         using var settings = ParseGeminiSettings(prep);
         var server = settings.RootElement.GetProperty("mcpServers").GetProperty("spring-voyage");
@@ -93,7 +96,8 @@ public class GeminiLauncherTests
         prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("Spring Voyage runtime guard — response discipline");
         _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
@@ -205,12 +209,14 @@ public class GeminiLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsGuardToGEMINImd_AndSystemPromptEnv()
+    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuardsToGEMINImd_AndSystemPromptEnv()
     {
-        // #2096 / ADR-0041: when concurrent_threads is on, the assembled
-        // prompt the model sees (GEMINI.md, SPRING_SYSTEM_PROMPT) MUST
-        // start with the shared launcher guard. The user's prompt body
-        // is preserved in full — the guard composes, it does not replace.
+        // #2096 / ADR-0041 + #2493: when concurrent_threads is on, the
+        // assembled prompt the model sees (GEMINI.md, SPRING_SYSTEM_PROMPT)
+        // MUST start with the ResponseDiscipline guard (always-on) and
+        // additionally carry the ConcurrentThreadsGuard. The user's prompt
+        // body is preserved in full — the guards compose, they do not
+        // replace.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nAnalyze thoroughly.",
             mcpToken: "gemini-secret-token") with
@@ -218,18 +224,20 @@ public class GeminiLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceFiles["GEMINI.md"].ShouldStartWith("## Spring Voyage runtime guard");
+        prep.WorkspaceFiles["GEMINI.md"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        prep.WorkspaceFiles["GEMINI.md"].ShouldContain("concurrent_threads is on");
         prep.WorkspaceFiles["GEMINI.md"].ShouldContain(context.Prompt);
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("concurrent_threads is on");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsFalse_LeavesPromptVerbatim()
+    public async Task PrepareAsync_ConcurrentThreadsFalse_StillPrependsResponseDisciplineGuard()
     {
-        // The guard MUST NOT fire when the agent stays on the safe-default
-        // mode — we don't want to bias every agent away from valid
-        // patterns just because the launcher has a guard available.
+        // Issue #2493: the ResponseDiscipline guard is universal — every
+        // launched runtime sees it. The ConcurrentThreadsGuard remains
+        // gated on the flag.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nAnalyze thoroughly.",
             mcpToken: "gemini-secret-token") with
@@ -237,9 +245,12 @@ public class GeminiLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceFiles["GEMINI.md"].ShouldBe(context.Prompt);
-        prep.WorkspaceFiles["GEMINI.md"].ShouldNotContain("Spring Voyage runtime guard");
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        prep.WorkspaceFiles["GEMINI.md"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        prep.WorkspaceFiles["GEMINI.md"].ShouldEndWith(context.Prompt);
+        prep.WorkspaceFiles["GEMINI.md"].ShouldNotContain("concurrent_threads is on");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldNotContain("concurrent_threads is on");
     }
 
     [Fact]

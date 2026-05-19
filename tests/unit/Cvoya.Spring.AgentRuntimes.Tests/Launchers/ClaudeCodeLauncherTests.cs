@@ -75,7 +75,11 @@ public class ClaudeCodeLauncherTests
 
         prep.WorkspaceMountPath.ShouldBe("/workspace");
         prep.WorkspaceFiles.Keys.ShouldBe(new[] { "CLAUDE.md", ".mcp.json" }, ignoreOrder: true);
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldBe(context.Prompt);
+        // Issue #2493: every launcher prepends the always-on
+        // ResponseDiscipline fragment; the user's prompt is the tail of
+        // the assembled body.
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldEndWith(context.Prompt);
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldContain("Spring Voyage runtime guard — response discipline");
 
         var parsed = JsonDocument.Parse(prep.WorkspaceFiles[".mcp.json"]).RootElement;
         var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
@@ -92,7 +96,8 @@ public class ClaudeCodeLauncherTests
         prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("Spring Voyage runtime guard — response discipline");
         _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
@@ -179,9 +184,12 @@ public class ClaudeCodeLauncherTests
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         // The bridge will pipe this on `claude`'s stdin (PR 5). It must
-        // carry the same prompt body the launcher already exposes via
-        // CLAUDE.md and SPRING_SYSTEM_PROMPT — no new format.
-        prep.StdinPayload.ShouldBe(context.Prompt);
+        // carry the same composed prompt body the launcher exposes via
+        // CLAUDE.md and SPRING_SYSTEM_PROMPT — including the always-on
+        // ResponseDiscipline guard (issue #2493). The user's prompt body
+        // is the tail.
+        prep.StdinPayload.ShouldEndWith(context.Prompt);
+        prep.StdinPayload.ShouldContain("Spring Voyage runtime guard — response discipline");
         prep.StdinPayload.ShouldNotBeNullOrWhiteSpace();
     }
 
@@ -338,39 +346,48 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsGuardToCLAUDEmd_AndStdin()
+    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuardsToCLAUDEmd_AndStdin()
     {
-        // #2096 / ADR-0041: when concurrent_threads is on, the assembled
-        // prompt the model sees (CLAUDE.md, SPRING_SYSTEM_PROMPT,
-        // StdinPayload) MUST start with the shared launcher guard. The
-        // user's prompt body is preserved in full — the guard composes,
-        // it does not replace.
+        // #2096 / ADR-0041 + #2493: when concurrent_threads is on, the
+        // assembled prompt the model sees (CLAUDE.md, SPRING_SYSTEM_PROMPT,
+        // StdinPayload) MUST start with the always-on ResponseDiscipline
+        // guard and additionally carry the ConcurrentThreadsGuard. The
+        // user's prompt body is preserved — the guards compose, they do
+        // not replace.
         var context = CreateContext() with { ConcurrentThreads = true };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldStartWith("## Spring Voyage runtime guard");
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldContain("concurrent_threads is on");
         prep.WorkspaceFiles["CLAUDE.md"].ShouldContain(context.Prompt);
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("concurrent_threads is on");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
-        prep.StdinPayload.ShouldStartWith("## Spring Voyage runtime guard");
+        prep.StdinPayload.ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        prep.StdinPayload.ShouldContain("concurrent_threads is on");
         prep.StdinPayload.ShouldContain(context.Prompt);
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsFalse_LeavesPromptVerbatim()
+    public async Task PrepareAsync_ConcurrentThreadsFalse_StillPrependsResponseDisciplineGuard()
     {
-        // The guard MUST NOT fire when the agent stays on the safe-default
-        // mode — we don't want to bias every agent away from valid
-        // patterns just because the launcher has a guard available.
+        // Issue #2493: the ResponseDiscipline guard is universal — every
+        // launched runtime sees it. The ConcurrentThreadsGuard remains
+        // gated on the flag.
         var context = CreateContext() with { ConcurrentThreads = false };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldBe(context.Prompt);
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldNotContain("Spring Voyage runtime guard");
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
-        prep.StdinPayload.ShouldBe(context.Prompt);
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldEndWith(context.Prompt);
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldNotContain("concurrent_threads is on");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldNotContain("concurrent_threads is on");
+        prep.StdinPayload.ShouldStartWith("## Spring Voyage runtime guard — response discipline");
+        prep.StdinPayload.ShouldEndWith(context.Prompt);
+        prep.StdinPayload.ShouldNotContain("concurrent_threads is on");
     }
 
     private static AgentLaunchContext CreateContext(

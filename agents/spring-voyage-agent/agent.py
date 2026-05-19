@@ -79,7 +79,14 @@ from dapr_agents.types.message import (
     ToolMessage,
     UserMessage,
 )
-from spring_voyage_agent_sdk import IAgentContext, Message, Response, ShutdownReason, run
+from spring_voyage_agent_sdk import (
+    IAgentContext,
+    Message,
+    Response,
+    RuntimeContext,
+    ShutdownReason,
+    run,
+)
 
 from mcp_bridge import create_tool_proxy, discover_tools
 
@@ -243,9 +250,15 @@ async def on_message(message: Message):
             thread_dir,
         )
 
+    rt = RuntimeContext.current()
+    rt.report_progress(
+        f"received message on thread {message.thread_id}",
+        kind="turn_start",
+    )
+
     try:
         await _ensure_configured_model(_agent_build)
-        result_text = await _run_agentic_loop(_agent_build, user_text)
+        result_text = await _run_agentic_loop(_agent_build, user_text, rt)
         if not result_text:
             # An empty result means the loop exited without producing any
             # visible text — typically because the LLM returned an empty
@@ -261,6 +274,7 @@ async def on_message(message: Message):
                 message.message_id,
                 message.thread_id,
             )
+            rt.report_progress("agent loop returned empty result", kind="turn_failed")
             yield Response(error=("Agent produced an empty response (LLM returned no content and no tool calls)."))
             return
         logger.info(
@@ -269,9 +283,14 @@ async def on_message(message: Message):
             message.thread_id,
             len(result_text),
         )
+        rt.report_progress(
+            f"turn complete ({len(result_text)} chars in reply)",
+            kind="turn_complete",
+        )
         yield Response(text=result_text, final=True)
     except Exception as exc:
         logger.exception("Agent loop failed for message %s", message.message_id)
+        rt.report_progress(f"agent loop failed: {exc}", kind="turn_failed")
         yield Response(error=f"Agent loop failed: {exc}")
 
 
@@ -298,7 +317,11 @@ async def on_shutdown(reason: ShutdownReason) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
+async def _run_agentic_loop(
+    build: AgentBuild,
+    user_text: str,
+    rt: RuntimeContext | None = None,
+) -> str:
     """Run a tool-calling loop until the LLM returns a final assistant
     message (no further tool calls) or ``SPRING_AGENT_MAX_STEPS`` rounds
     elapse. Returns the assistant's final textual response.
@@ -307,8 +330,15 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
     gRPC, no workflow / actor placement involvement) plus, if the model
     asked for tools, one HTTP call per tool invocation against the
     Spring MCP server.
+
+    When invoked through the SDK runtime (issue #2493) ``rt`` carries
+    the active :class:`RuntimeContext` so the loop can emit telemetry
+    spans for each LLM turn and tool call. Called from unit tests
+    without an SDK context, ``rt`` may be ``None`` — every emission is
+    then a no-op via :meth:`RuntimeContext.current`.
     """
     max_steps = int(os.environ.get("SPRING_AGENT_MAX_STEPS", str(DEFAULT_MAX_STEPS)))
+    rt = rt or RuntimeContext.current()
 
     messages: List[BaseMessage] = []
     if build.system_prompt:
@@ -325,6 +355,7 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
             len(messages),
             len(build.tools),
         )
+        rt.report_progress(f"LLM turn {step + 1}/{max_steps}", kind="llm_turn_start")
         # DaprChatClient.generate is synchronous and blocks until daprd
         # returns the Conversation call's response — which is the full LLM
         # turn (Ollama on a slow host can take tens of seconds). Running it
@@ -340,11 +371,16 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
         # 200 while the LLM call is in flight.
         step_started = loop.time()
         try:
-            response = await asyncio.to_thread(
-                build.llm.generate,
-                messages=messages,
-                tools=build.tools,
-            )
+            async with rt.llm_turn(build.model, prompt=None) as llm_span:
+                response = await asyncio.to_thread(
+                    build.llm.generate,
+                    messages=messages,
+                    tools=build.tools,
+                )
+                # The dapr-agents response shape doesn't expose token
+                # counts in a normalised form, so we record only what's
+                # available without making the call site brittle.
+                llm_span.set_completion(None)
         except Exception:
             logger.exception(
                 "LLM generate() raised at step %d/%d after %.1fs",
@@ -447,17 +483,19 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
                 continue
 
             try:
-                tool_result = await tool.arun(**tool_args)
-                tool_elapsed = loop.time() - tool_started
-                result_repr = str(tool_result) if tool_result is not None else ""
-                logger.info(
-                    "Step %d/%d tool '%s' returned in %.2fs (result_chars=%d)",
-                    step + 1,
-                    max_steps,
-                    tool_name,
-                    tool_elapsed,
-                    len(result_repr),
-                )
+                async with rt.tool_call(tool_name, tool_args) as tool_span:
+                    tool_result = await tool.arun(**tool_args)
+                    tool_elapsed = loop.time() - tool_started
+                    result_repr = str(tool_result) if tool_result is not None else ""
+                    tool_span.set_result(tool_result)
+                    logger.info(
+                        "Step %d/%d tool '%s' returned in %.2fs (result_chars=%d)",
+                        step + 1,
+                        max_steps,
+                        tool_name,
+                        tool_elapsed,
+                        len(result_repr),
+                    )
             except Exception as exc:
                 tool_elapsed = loop.time() - tool_started
                 logger.exception(
@@ -466,6 +504,10 @@ async def _run_agentic_loop(build: AgentBuild, user_text: str) -> str:
                     max_steps,
                     tool_name,
                     tool_elapsed,
+                )
+                rt.report_progress(
+                    f"tool '{tool_name}' raised after {tool_elapsed:.2f}s: {exc}",
+                    kind="tool_failed",
                 )
                 tool_result = f"Error invoking tool '{tool_name}': {exc}"
 

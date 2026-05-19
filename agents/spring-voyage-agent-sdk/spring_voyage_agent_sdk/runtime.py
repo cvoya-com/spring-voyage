@@ -71,6 +71,8 @@ from starlette.applications import Starlette
 
 from spring_voyage_agent_sdk.context import IAgentContext
 from spring_voyage_agent_sdk.hooks import AgentHooks
+from spring_voyage_agent_sdk.runtime_context import RuntimeContext
+from spring_voyage_agent_sdk.telemetry import TelemetryEmitter
 from spring_voyage_agent_sdk.types import Message, Response, Sender, ShutdownReason
 
 logger = logging.getLogger("spring-voyage-agent-sdk.runtime")
@@ -78,6 +80,19 @@ logger = logging.getLogger("spring-voyage-agent-sdk.runtime")
 _DEFAULT_PORT = 8999
 _INIT_TIMEOUT_SECONDS = 30
 _SHUTDOWN_GRACE_SECONDS = 30
+
+# Stock response text the safety net synthesizes when the user's
+# ``on_message`` exits without yielding a ``Response(final=True)``.
+# Kept terse and neutral so it's not mistaken for the agent's real
+# voice; the activity log carries the structural detail (issue #2493).
+SAFETY_NET_REPLY = "Turn completed without an explicit final response. See the activity log for details."
+
+# Reason recorded on the ``response_discipline_violation`` event when
+# the safety net fires.
+_RESPONSE_DISCIPLINE_VIOLATION_REASON = (
+    "Handler exited without yielding a Response(final=True) or any text; "
+    "synthesised reply emitted by SDK safety net (issue #2493)."
+)
 
 
 def _extract_text_from_parts(parts: Any) -> str:
@@ -198,81 +213,115 @@ class _SdkAgentExecutor(AgentExecutor):
 
         Supports both async generators (``async def on_message`` that yields)
         and regular coroutines (``async def on_message`` that returns a value).
+
+        Issue #2493: wraps the call in a :class:`RuntimeContext` so the
+        handler can reach the telemetry primitives via
+        ``RuntimeContext.current()``. If the handler exits without
+        yielding any text or any final response, the SDK synthesizes
+        a stock final reply, emits a ``response_discipline_violation``
+        telemetry event, and ships the reply to the platform anyway —
+        the silent-success failure mode that motivated the issue.
         """
         message = _build_message_from_a2a(context)
 
-        result = self._hooks.on_message(message)
-
-        # Collect text fragments for the final artifact.
-        text_chunks: list[str] = []
-        error_text: str | None = None
-
-        if hasattr(result, "__aiter__"):
-            # Async generator / async iterable path.
-            async for chunk in result:
-                response: Response = chunk
-                if response.error:
-                    error_text = response.error
-                    break
-                if response.text:
-                    text_chunks.append(response.text)
-        elif asyncio.iscoroutine(result):
-            # Plain coroutine that returns a single value.
-            value = await result
-            if isinstance(value, Response):
-                if value.error:
-                    error_text = value.error
-                elif value.text:
-                    text_chunks.append(value.text)
-            elif value is not None:
-                text_chunks.append(str(value))
-        else:
-            # Sync iterable — run in executor to avoid blocking the event loop.
-            loop = asyncio.get_event_loop()
-            items = await loop.run_in_executor(None, list, result)  # type: ignore[arg-type]
-            for chunk in items:
-                response = chunk
-                if response.error:
-                    error_text = response.error
-                    break
-                if response.text:
-                    text_chunks.append(response.text)
-
-        if error_text is not None:
-            logger.error(
-                "on_message hook reported an error for task %s: %s",
-                context.task_id,
-                error_text,
-            )
-            await updater.failed(updater.new_agent_message([Part(text=error_text)]))
-            return
-
-        full_text = "".join(text_chunks)
-        if not full_text:
-            # The hook returned (or its async-generator exhausted) without
-            # yielding any text and without raising. Completing the task
-            # silently here would surface as "agent produced no response"
-            # to the platform — and the platform has historically logged
-            # nothing in that case, leaving the user staring at an empty
-            # chat. Per spec §1.2 a hook MUST either yield text, yield
-            # an error, or raise; reaching this point is a contract
-            # violation by the hook implementation. Surface it as a
-            # failed task so the platform records an event the operator
-            # can see.
-            error_msg = (
-                "on_message hook returned no text and no error — "
-                "this is a contract violation (spec §1.2). Surfacing "
-                "as task failure rather than silent empty completion."
-            )
-            logger.error("Task %s: %s", context.task_id, error_msg)
-            await updater.failed(updater.new_agent_message([Part(text=error_msg)]))
-            return
-
-        await updater.add_artifact(
-            parts=[Part(text=full_text)],
-            name="response",
+        runtime_context = RuntimeContext(
+            emitter=TelemetryEmitter.from_environment(),
+            thread_id=message.thread_id or None,
+            message_id=message.message_id or None,
         )
-        await updater.complete()
+        token = runtime_context.bind()
+        try:
+            result = self._hooks.on_message(message)
+
+            # Collect text fragments for the final artifact.
+            text_chunks: list[str] = []
+            error_text: str | None = None
+            saw_final = False
+
+            if hasattr(result, "__aiter__"):
+                # Async generator / async iterable path.
+                async for chunk in result:
+                    response: Response = chunk
+                    if response.error:
+                        error_text = response.error
+                        break
+                    if response.text:
+                        text_chunks.append(response.text)
+                    if response.final:
+                        saw_final = True
+            elif asyncio.iscoroutine(result):
+                # Plain coroutine that returns a single value.
+                value = await result
+                if isinstance(value, Response):
+                    if value.error:
+                        error_text = value.error
+                    elif value.text:
+                        text_chunks.append(value.text)
+                    if value.final:
+                        saw_final = True
+                elif value is not None:
+                    text_chunks.append(str(value))
+                    saw_final = True
+            else:
+                # Sync iterable — run in executor to avoid blocking the event loop.
+                loop = asyncio.get_event_loop()
+                items = await loop.run_in_executor(None, list, result)  # type: ignore[arg-type]
+                for chunk in items:
+                    response = chunk
+                    if response.error:
+                        error_text = response.error
+                        break
+                    if response.text:
+                        text_chunks.append(response.text)
+                    if response.final:
+                        saw_final = True
+
+            if error_text is not None:
+                logger.error(
+                    "on_message hook reported an error for task %s: %s",
+                    context.task_id,
+                    error_text,
+                )
+                await updater.failed(updater.new_agent_message([Part(text=error_text)]))
+                return
+
+            full_text = "".join(text_chunks)
+            if not full_text and not saw_final:
+                # Response-discipline safety net (issue #2493). The
+                # handler completed without yielding any text *and*
+                # without explicitly marking a final Response. Previously
+                # the SDK failed the task here; now we synthesize a stock
+                # reply, ship it, and emit a structured violation event
+                # so the platform records "agent forgot to reply" rather
+                # than "agent failed silently".
+                logger.warning(
+                    "Response-discipline violation on task %s thread %s: "
+                    "on_message exited without yielding a final response. "
+                    "Synthesising stock reply (#2493 safety net).",
+                    context.task_id,
+                    context.context_id,
+                )
+                runtime_context.emit_response_discipline_violation(
+                    reason=_RESPONSE_DISCIPLINE_VIOLATION_REASON,
+                )
+                full_text = SAFETY_NET_REPLY
+
+            if not full_text:
+                # ``saw_final=True`` but no text — the handler explicitly
+                # signalled completion with empty content. Substitute the
+                # safety-net reply rather than ship an empty artifact.
+                full_text = SAFETY_NET_REPLY
+
+            runtime_context.mark_final_response_observed()
+
+            await updater.add_artifact(
+                parts=[Part(text=full_text)],
+                name="response",
+            )
+            await updater.complete()
+        finally:
+            RuntimeContext.unbind(token)
+            runtime_context.finish()
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Cancel a running task."""
