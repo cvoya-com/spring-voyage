@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Activity,
   ChevronDown,
@@ -8,6 +9,7 @@ import {
   DollarSign,
   RefreshCw,
   TrendingDown,
+  X,
 } from "lucide-react";
 
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
@@ -30,7 +32,7 @@ import type {
   ActivityQueryResult,
   ActivitySeverity,
 } from "@/lib/api/types";
-import { formatCost, humanEventType, timeAgo } from "@/lib/utils";
+import { cn, formatCost, humanEventType, timeAgo } from "@/lib/utils";
 
 /**
  * Subjects the unified activity tab can be driven by. The activity feed
@@ -78,6 +80,39 @@ const AGENT_WINDOW_OPTIONS = [
 ] as const;
 
 type AgentWindowOption = (typeof AGENT_WINDOW_OPTIONS)[number];
+
+// #2502: filter-chip event-kind whitelist. The list pulls the runtime
+// event kinds plus the most common platform kinds operators tag a
+// session by; the dropdown still surfaces every kind present in the
+// current window so users discover new ones organically.
+const KNOWN_EVENT_KINDS = [
+  "RuntimeSpan",
+  "RuntimeLog",
+  "RuntimeProgress",
+  "LlmTurn",
+  "ToolCall",
+  "ToolResult",
+  "MessageReceived",
+  "MessageSent",
+  "DecisionMade",
+  "ErrorOccurred",
+  "WorkflowStepCompleted",
+  "CostIncurred",
+] as const;
+
+// #2502: quick-preset durations for the time-range chip.
+const TIME_RANGE_PRESETS = [
+  { label: "Last 5m", minutes: 5 },
+  { label: "Last 15m", minutes: 15 },
+  { label: "Last 1h", minutes: 60 },
+  { label: "Last 24h", minutes: 24 * 60 },
+] as const;
+
+const URL_PARAM_KINDS = "kinds";
+const URL_PARAM_THREAD = "thread";
+const URL_PARAM_MESSAGE = "message";
+const URL_PARAM_FROM = "from";
+const URL_PARAM_TO = "to";
 
 /**
  * True when an activity row carries an expandable structured payload —
@@ -255,18 +290,132 @@ function AgentCostCards({ agentId }: { agentId: string }) {
 }
 
 /**
+ * #2502: filter-chip primitive shared across the Activity-tab filter
+ * row. Mirrors the tenant-wide `/activity` page's chip styling so
+ * operators see the same active/inactive treatment on both surfaces.
+ * Kept local: this is the only file under the unit/agent tab tree
+ * that needs the chip primitive, and the tenant-wide page already owns
+ * its own copy with different content — keeping them in sync via shared
+ * design tokens (Tailwind classes), not a shared component.
+ */
+function FilterChip({
+  label,
+  active,
+  children,
+}: {
+  label: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      className={cn(
+        "inline-flex min-w-0 items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors",
+        active
+          ? "border-primary/40 bg-primary/10 text-foreground"
+          : "border-border bg-muted/40 text-muted-foreground hover:text-foreground",
+      )}
+    >
+      <span className="shrink-0 font-medium uppercase tracking-wide text-[10px] text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+/**
+ * Activity-tab filters state. Each field maps to a URL search-param so
+ * a refresh / share / deep-link preserves the filter set. Filter
+ * composition is AND: a row is rendered iff every active filter passes.
+ */
+interface ActivityFilters {
+  kinds: Set<string>;
+  thread: string;
+  message: string;
+  from: string; // ISO-8601 lower bound (inclusive); empty = unbounded.
+  to: string; // ISO-8601 upper bound (inclusive); empty = unbounded.
+}
+
+function readFiltersFromUrl(params: URLSearchParams): ActivityFilters {
+  const kinds = new Set<string>();
+  for (const v of params.getAll(URL_PARAM_KINDS)) {
+    if (v) {
+      kinds.add(v);
+    }
+  }
+  return {
+    kinds,
+    thread: params.get(URL_PARAM_THREAD) ?? "",
+    message: params.get(URL_PARAM_MESSAGE) ?? "",
+    from: params.get(URL_PARAM_FROM) ?? "",
+    to: params.get(URL_PARAM_TO) ?? "",
+  };
+}
+
+function writeFiltersToUrl(
+  current: URLSearchParams,
+  filters: ActivityFilters,
+): string {
+  const next = new URLSearchParams(current);
+  next.delete(URL_PARAM_KINDS);
+  for (const k of filters.kinds) {
+    next.append(URL_PARAM_KINDS, k);
+  }
+  if (filters.thread) next.set(URL_PARAM_THREAD, filters.thread);
+  else next.delete(URL_PARAM_THREAD);
+  if (filters.message) next.set(URL_PARAM_MESSAGE, filters.message);
+  else next.delete(URL_PARAM_MESSAGE);
+  if (filters.from) next.set(URL_PARAM_FROM, filters.from);
+  else next.delete(URL_PARAM_FROM);
+  if (filters.to) next.set(URL_PARAM_TO, filters.to);
+  else next.delete(URL_PARAM_TO);
+  return next.toString();
+}
+
+/**
  * Subject-agnostic activity tab. Renders the canonical event feed
  * (REST baseline + SSE stream-driven invalidation) with expandable
  * structured-payload rows for both units and agents. When `kind`
  * is `"Agent"`, the agent-only cost sparkline and per-model breakdown
  * cards render above the feed.
+ *
+ * #2502: composable filter chips above the feed — event-kind
+ * multiselect, thread dropdown, message dropdown, time-range picker.
+ * Filter state lives in URL search params so navigation preserves
+ * the view; chips reuse the tokens established by the tenant-wide
+ * `/activity` page (rounded full pill, primary/10 tint on active).
  */
 export function ActivityTab({ kind, id }: ActivityTabProps) {
   const scheme = SOURCE_SCHEME[kind];
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const filters = useMemo(
+    () => readFiltersFromUrl(new URLSearchParams(searchParams?.toString() ?? "")),
+    [searchParams],
+  );
+
+  const setFilters = (next: ActivityFilters) => {
+    const current = new URLSearchParams(searchParams?.toString() ?? "");
+    const search = writeFiltersToUrl(current, next);
+    router.replace(`${pathname}${search ? `?${search}` : ""}`, { scroll: false });
+  };
 
   // REST baseline — paginated query for this subject's events. The
-  // stream layered on top keeps it fresh (#437).
-  const queryParams = { source: `${scheme}:${id}`, pageSize: "20" };
+  // stream layered on top keeps it fresh (#437). Time-range params are
+  // forwarded to the API so filters compose with server-side pagination.
+  const queryParams: Record<string, string> = useMemo(() => {
+    const p: Record<string, string> = {
+      source: `${scheme}:${id}`,
+      pageSize: "20",
+    };
+    if (filters.from) p.from = filters.from;
+    if (filters.to) p.to = filters.to;
+    return p;
+  }, [scheme, id, filters.from, filters.to]);
+
   const {
     data: result,
     error,
@@ -291,12 +440,103 @@ export function ActivityTab({ kind, id }: ActivityTabProps) {
   // state (no URL persistence) — expansion is ephemeral context, not a
   // navigation surface.
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const toggleExpanded = (id: string) =>
+  const toggleExpanded = (rowId: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
       return next;
+    });
+
+  // Visible items after client-side composition of the kind / thread /
+  // message filters. The server already applied the time-range; the
+  // remaining filters narrow the in-memory set without an extra round
+  // trip. The thread / message dropdowns are sourced from `result.items`
+  // so they always offer real navigation targets.
+  const items = result?.items ?? [];
+
+  const filteredItems = useMemo(() => {
+    return items.filter((e) => {
+      if (filters.kinds.size > 0 && !filters.kinds.has(e.eventType)) {
+        return false;
+      }
+      if (filters.thread && e.correlationId !== filters.thread) {
+        return false;
+      }
+      if (
+        filters.message
+        && (e as { messageId?: string }).messageId !== filters.message
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [items, filters.kinds, filters.thread, filters.message]);
+
+  // Distinct values for the dropdowns. Threads / messages come from the
+  // currently-loaded events; that keeps the chips honest (they only
+  // expose values an operator can actually drill into without a fresh
+  // server query).
+  const distinctThreads = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of items) {
+      if (e.correlationId) set.add(e.correlationId);
+    }
+    return Array.from(set).sort();
+  }, [items]);
+
+  const distinctMessages = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of items) {
+      const messageId = (e as { messageId?: string }).messageId;
+      if (!messageId) continue;
+      if (filters.thread && e.correlationId !== filters.thread) continue;
+      set.add(messageId);
+    }
+    return Array.from(set).sort();
+  }, [items, filters.thread]);
+
+  // Event kinds: union of the well-known list and any kinds the current
+  // window surfaces. Operators can't accidentally hide events whose
+  // kind we don't yet have a label for — the dropdown still shows the
+  // raw value.
+  const eventKindChoices = useMemo(() => {
+    const set = new Set<string>(KNOWN_EVENT_KINDS);
+    for (const e of items) set.add(e.eventType);
+    return Array.from(set).sort();
+  }, [items]);
+
+  const anyFilter =
+    filters.kinds.size > 0
+    || filters.thread !== ""
+    || filters.message !== ""
+    || filters.from !== ""
+    || filters.to !== "";
+
+  const toggleKind = (kindValue: string) => {
+    const next = new Set(filters.kinds);
+    if (next.has(kindValue)) next.delete(kindValue);
+    else next.add(kindValue);
+    setFilters({ ...filters, kinds: next });
+  };
+
+  const applyTimePreset = (minutes: number) => {
+    const to = new Date();
+    const from = new Date(to.getTime() - minutes * 60 * 1000);
+    setFilters({
+      ...filters,
+      from: from.toISOString(),
+      to: to.toISOString(),
+    });
+  };
+
+  const clearFilters = () =>
+    setFilters({
+      kinds: new Set(),
+      thread: "",
+      message: "",
+      from: "",
+      to: "",
     });
 
   const emptyMessage =
@@ -304,9 +544,153 @@ export function ActivityTab({ kind, id }: ActivityTabProps) {
       ? "No activity for this agent yet."
       : "No activity events for this unit.";
 
+  const emptyFilteredMessage =
+    "No events match the current filters.";
+
   return (
     <div className="space-y-4" data-testid={`tab-${scheme}-activity`}>
       {kind === "Agent" ? <AgentCostCards agentId={id} /> : null}
+
+      {/* #2502: filter chip row. Visual density matches the tenant-wide
+          /activity page — same rounded pill, same primary/10 tint on
+          active chips. */}
+      <Card>
+        <CardContent className="pt-4">
+          <div
+            className="flex flex-wrap items-center gap-2"
+            data-testid={`tab-${scheme}-activity-filters`}
+          >
+            <FilterChip label="Kinds" active={filters.kinds.size > 0}>
+              <select
+                aria-label="Event Kind"
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    toggleKind(e.target.value);
+                    e.target.value = "";
+                  }
+                }}
+                data-testid="activity-filter-kind-select"
+                className="h-7 w-40 rounded-full border-0 bg-transparent text-xs focus-visible:outline-none"
+              >
+                <option value="">Add kind…</option>
+                {eventKindChoices.map((k) => (
+                  <option key={k} value={k} disabled={filters.kinds.has(k)}>
+                    {humanEventType(k)}
+                  </option>
+                ))}
+              </select>
+            </FilterChip>
+            {Array.from(filters.kinds).map((k) => (
+              <Badge
+                key={k}
+                variant="secondary"
+                className="cursor-pointer text-[11px]"
+                onClick={() => toggleKind(k)}
+                data-testid={`activity-filter-kind-chip-${k}`}
+              >
+                {humanEventType(k)}
+                <X className="ml-1 inline h-3 w-3" aria-hidden />
+              </Badge>
+            ))}
+            <FilterChip label="Thread" active={filters.thread !== ""}>
+              <select
+                aria-label="Thread"
+                value={filters.thread}
+                onChange={(e) =>
+                  setFilters({ ...filters, thread: e.target.value, message: "" })
+                }
+                data-testid="activity-filter-thread-select"
+                className="h-7 w-40 rounded-full border-0 bg-transparent text-xs font-mono focus-visible:outline-none"
+              >
+                <option value="">All threads</option>
+                {distinctThreads.map((t) => (
+                  <option key={t} value={t}>
+                    {t.slice(0, 12)}
+                  </option>
+                ))}
+              </select>
+            </FilterChip>
+            <FilterChip label="Message" active={filters.message !== ""}>
+              <select
+                aria-label="Message"
+                value={filters.message}
+                onChange={(e) =>
+                  setFilters({ ...filters, message: e.target.value })
+                }
+                data-testid="activity-filter-message-select"
+                className="h-7 w-40 rounded-full border-0 bg-transparent text-xs font-mono focus-visible:outline-none"
+              >
+                <option value="">All messages</option>
+                {distinctMessages.map((m) => (
+                  <option key={m} value={m}>
+                    {m.slice(0, 12)}
+                  </option>
+                ))}
+              </select>
+            </FilterChip>
+            <FilterChip
+              label="Time"
+              active={filters.from !== "" || filters.to !== ""}
+            >
+              <div className="flex items-center gap-1">
+                {TIME_RANGE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => applyTimePreset(preset.minutes)}
+                    className="rounded-full bg-transparent px-1.5 py-0.5 text-[11px] hover:bg-accent/50"
+                    data-testid={`activity-filter-time-preset-${preset.minutes}m`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+                <input
+                  type="datetime-local"
+                  aria-label="From"
+                  value={filters.from ? filters.from.slice(0, 16) : ""}
+                  onChange={(e) =>
+                    setFilters({
+                      ...filters,
+                      from: e.target.value
+                        ? new Date(e.target.value).toISOString()
+                        : "",
+                    })
+                  }
+                  data-testid="activity-filter-from-input"
+                  className="h-6 rounded-full border-0 bg-transparent px-1 text-[11px] focus-visible:outline-none"
+                />
+                <span className="text-[11px] text-muted-foreground">→</span>
+                <input
+                  type="datetime-local"
+                  aria-label="To"
+                  value={filters.to ? filters.to.slice(0, 16) : ""}
+                  onChange={(e) =>
+                    setFilters({
+                      ...filters,
+                      to: e.target.value
+                        ? new Date(e.target.value).toISOString()
+                        : "",
+                    })
+                  }
+                  data-testid="activity-filter-to-input"
+                  className="h-6 rounded-full border-0 bg-transparent px-1 text-[11px] focus-visible:outline-none"
+                />
+              </div>
+            </FilterChip>
+            {anyFilter && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                data-testid="activity-filter-clear"
+                className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -334,18 +718,25 @@ export function ActivityTab({ kind, id }: ActivityTabProps) {
           )}
           {isLoading && !result ? (
             <p className="text-sm text-muted-foreground">Loading activity...</p>
-          ) : (result as ActivityQueryResult | undefined)?.items.length === 0 ? (
+          ) : items.length === 0 ? (
             <p
               className="text-sm text-muted-foreground"
               data-testid={`tab-${scheme}-activity-empty`}
             >
               {emptyMessage}
             </p>
+          ) : filteredItems.length === 0 ? (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid={`tab-${scheme}-activity-filtered-empty`}
+            >
+              {emptyFilteredMessage}
+            </p>
           ) : (
             // `aria-live="polite"` so screen readers announce new events as
             // they stream in (portal design doc §7 — accessibility).
             <div className="space-y-0" aria-live="polite">
-              {result?.items.map((e) => {
+              {filteredItems.map((e) => {
                 const expandable = hasDetails(e);
                 const isOpen = expanded.has(e.id);
                 const detailsId = `activity-details-${e.id}`;

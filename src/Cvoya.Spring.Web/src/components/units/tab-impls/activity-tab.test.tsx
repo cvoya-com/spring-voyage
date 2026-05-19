@@ -8,6 +8,7 @@ import { ActivityTab } from "./activity-tab";
 const mockQueryActivity = vi.fn();
 const mockGetAgentCostTimeseries = vi.fn();
 const mockGetAgentCostBreakdown = vi.fn();
+const mockRouterReplace = vi.fn();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -23,6 +24,15 @@ vi.mock("@/lib/api/client", () => ({
 // it out — the tests cover the REST-backed query layer here.
 vi.mock("@/lib/stream/use-activity-stream", () => ({
   useActivityStream: () => ({ events: [], connected: false }),
+}));
+
+// #2502: the activity tab reads filter state from URL search params via
+// next/navigation. Stub the hooks so tests can inspect router writes
+// and prime the filter state.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mockRouterReplace, push: vi.fn() }),
+  usePathname: () => "/explorer/units/eng-team",
+  useSearchParams: () => new URLSearchParams(""),
 }));
 
 const mockResult = {
@@ -391,5 +401,119 @@ describe("ActivityTab (Agent subject)", () => {
 
     const details = await screen.findByTestId("activity-row-details");
     expect(details).toHaveTextContent('"reasonCode": "BudgetExceeded"');
+  });
+});
+
+// #2502: filter chips above the unit/agent activity feed.
+describe("ActivityTab filter chips (#2502)", () => {
+  beforeEach(() => {
+    mockQueryActivity.mockReset();
+    mockRouterReplace.mockReset();
+    mockQueryActivity.mockResolvedValue({
+      items: [
+        {
+          id: "evt-llm",
+          source: "unit://eng-team",
+          eventType: "LlmTurn",
+          severity: "Info",
+          summary: "Turn alpha",
+          correlationId: "thread-1",
+          messageId: "msg-1",
+          cost: null,
+          timestamp: new Date().toISOString(),
+        },
+        {
+          id: "evt-log",
+          source: "unit://eng-team",
+          eventType: "RuntimeLog",
+          severity: "Info",
+          summary: "Runtime hello",
+          correlationId: "thread-2",
+          messageId: "msg-2",
+          cost: null,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+      totalCount: 2,
+      page: 1,
+      pageSize: 20,
+    });
+    mockGetAgentCostTimeseries.mockReset();
+    mockGetAgentCostBreakdown.mockReset();
+  });
+
+  it("renders the four filter chips", async () => {
+    render(
+      <Wrapper>
+        <ActivityTab kind="Unit" id="eng-team" />
+      </Wrapper>,
+    );
+    expect(
+      await screen.findByTestId("tab-unit-activity-filters"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("activity-filter-kind-select"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("activity-filter-thread-select"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("activity-filter-message-select"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("activity-filter-from-input"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("activity-filter-to-input"),
+    ).toBeInTheDocument();
+  });
+
+  it("populates the thread dropdown from the loaded events", async () => {
+    render(
+      <Wrapper>
+        <ActivityTab kind="Unit" id="eng-team" />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Turn alpha")).toBeInTheDocument();
+    });
+    const select = screen.getByTestId(
+      "activity-filter-thread-select",
+    ) as HTMLSelectElement;
+    const values = Array.from(select.options).map((o) => o.value);
+    expect(values).toContain("thread-1");
+    expect(values).toContain("thread-2");
+  });
+
+  it("time-range preset writes ISO from/to params to the URL", async () => {
+    render(
+      <Wrapper>
+        <ActivityTab kind="Unit" id="eng-team" />
+      </Wrapper>,
+    );
+    const preset = await screen.findByTestId("activity-filter-time-preset-5m");
+    fireEvent.click(preset);
+    expect(mockRouterReplace).toHaveBeenCalled();
+    const url = mockRouterReplace.mock.calls[0][0] as string;
+    expect(url).toContain("from=");
+    expect(url).toContain("to=");
+  });
+
+  it("adding a kind via the dropdown writes the kind to the URL", async () => {
+    render(
+      <Wrapper>
+        <ActivityTab kind="Unit" id="eng-team" />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Turn alpha")).toBeInTheDocument();
+    });
+    const kindSelect = screen.getByTestId(
+      "activity-filter-kind-select",
+    ) as HTMLSelectElement;
+    fireEvent.change(kindSelect, { target: { value: "LlmTurn" } });
+    expect(mockRouterReplace).toHaveBeenCalled();
+    const url = mockRouterReplace.mock.calls[0][0] as string;
+    expect(url).toContain("kinds=LlmTurn");
   });
 });
