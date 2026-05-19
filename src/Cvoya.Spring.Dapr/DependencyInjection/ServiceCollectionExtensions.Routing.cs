@@ -84,6 +84,16 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvMemorySkillRegistry>(
             sp => sp.GetRequiredService<SvMemorySkillRegistry>()));
 
+        // Spring Voyage runtime reflection tools (#2493). Exposes
+        // sv.report_progress so runtimes that use MCP (rather than the
+        // SDK helper) can publish RuntimeProgress events through the
+        // same activity-bus path. Singleton — depends only on the
+        // ingest service and tenant context, both of which are
+        // singleton-safe.
+        services.TryAddSingleton<SvRuntimeSkillRegistry>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvRuntimeSkillRegistry>(
+            sp => sp.GetRequiredService<SvRuntimeSkillRegistry>()));
+
         // Routing
         services.AddSingleton<DirectoryCache>();
         services.TryAddSingleton<IDirectoryService, DirectoryService>();
