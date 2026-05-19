@@ -78,6 +78,32 @@ const translators: Record<string, ProblemTranslator> = {
       stringField(problem, "detail") ??
       "Check the host logs (`spring agent logs <id>` or `kubectl logs`) and retry.",
   }),
+  // ADR-0047 §11 binding-auth gate. The wizard's auth-choice sub-step
+  // is the operator-facing surface that prevents these from firing in
+  // practice; the inline translation here covers the back-channel
+  // paths (direct API call, hand-edited binding) so the message stays
+  // legible.
+  GitHubBindingAuthRequired: () => ({
+    title:
+      "Pick an auth choice for the GitHub binding (App installation or PAT secret).",
+    nextStep:
+      "ADR-0047 §11: bindings pin one outbound credential at create time. Set either an App installation id or a tenant secret name addressing a PAT.",
+  }),
+  GitHubBindingAuthAmbiguous: () => ({
+    title:
+      "Only one of App installation id and PAT secret name may be set on a GitHub binding.",
+    nextStep:
+      "ADR-0047 §11: the binding's outbound credential is single-valued. Clear one of the two fields.",
+  }),
+  // ADR-0047 §10 — cross-tenant `(owner, repo)` collision rejected at
+  // binding-create time so the webhook routing key has no tenant
+  // disambiguation problem.
+  GitHubCrossTenantRepoBindingConflict: (problem) => ({
+    title: "Another tenant already binds this repository.",
+    nextStep:
+      stringField(problem, "detail") ??
+      "ADR-0047 §10: webhook routing keys are tenant-scoped. Ask the other tenant to release the binding, or pick a different repository.",
+  }),
 };
 
 export function translateApiError(err: unknown): TranslatedError {

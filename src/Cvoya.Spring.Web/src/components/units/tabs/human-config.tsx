@@ -44,6 +44,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { IdCard, Link2, Plug, Settings2, Trash2, UserRound } from "lucide-react";
 
@@ -369,9 +370,15 @@ function HumanIdentitySubTab(_props: { humanId: string }) {
       <CardContent className="space-y-2 text-sm text-muted-foreground">
         <p>
           Connector-native identities (e.g. GitHub login) now live on the
-          tenant-user principal, not the Human row (ADR-0047). The new
-          surface is the portal&apos;s user-identity page; Phase H of the
-          umbrella wires it.
+          tenant-user principal, not the Human row (ADR-0047). The portal
+          surface is{" "}
+          <Link
+            href="/settings/user-identity"
+            className="underline underline-offset-2"
+          >
+            Settings → User identity
+          </Link>
+          .
         </p>
       </CardContent>
     </Card>

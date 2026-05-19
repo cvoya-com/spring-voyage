@@ -27,12 +27,17 @@ import type {
   InstallPackageDetail,
   InstallStatusResponse,
   MessageResponse,
+  OAuthAuthorizeRequest,
+  OAuthSessionResponse,
   PackageInstallTarget,
   PersistentAgentDeploymentResponse,
   PersistentAgentLogsResponse,
   ScalePersistentAgentRequest,
   SendMessageRequest,
   SetBudgetRequest,
+  TenantUserConnectorIdentityRequest,
+  TenantUserConnectorIdentityResponse,
+  TenantUserResponse,
   UnitAgentMemberResponse,
   UnitBoundaryResponse,
   UnitConnectorBindingRequest,
@@ -1336,15 +1341,26 @@ export const api = {
       ),
     ),
   /**
-   * #1663: starts the GitHub OAuth flow used by the wizard / connector
-   * tab to mint a session id. Returns the GitHub authorize URL the
-   * caller redirects the user to and the server-issued state value the
-   * callback later validates. The portal opens the URL in a popup; the
-   * API callback page posts the resulting session id back to the opener
-   * so the connector UI can cache it without a paste-back field.
+   * #1663 / ADR-0047 §13: starts the GitHub OAuth flow used by the
+   * wizard / connector tab / user-identity page. Returns the GitHub
+   * authorize URL the caller redirects the user to and the
+   * server-issued state value the callback later validates. The portal
+   * opens the URL in a popup; the API callback page posts the resulting
+   * payload (session id, login, plus — for the binding-wizard intent —
+   * the persisted `patSecretName` and `bindingId`) back to the opener
+   * so the wizard wires `pat_secret_name` without a paste-back field.
+   *
+   * The optional `intent` discriminates the two flows ADR-0047 §13
+   * codifies: `"binding-wizard"` (the wizard pre-mints a binding UUID
+   * client-side and the OAuth token-persister writes a binding-scoped
+   * tenant secret named `binding/<bindingId-no-dash>/github/pat`) vs.
+   * `"user-identity"` (the user-identity page refreshes the calling
+   * tenant user's GitHub `username` from the OAuth user-info response;
+   * the secret persists under a transient binding id the operator can
+   * forget via the orphan-secrets list if it goes unused).
    */
   beginGitHubOAuthAuthorize: async (
-    body?: { scopes?: string[] | null; clientState?: string | null },
+    body?: Partial<OAuthAuthorizeRequest>,
   ) =>
     unwrap(
       await fetchClient.POST(
@@ -1353,6 +1369,9 @@ export const api = {
           body: {
             scopes: body?.scopes ?? null,
             clientState: body?.clientState ?? null,
+            intent: body?.intent ?? null,
+            tenantUserId: body?.tenantUserId ?? null,
+            bindingId: body?.bindingId ?? null,
           },
         },
       ),
@@ -2085,6 +2104,85 @@ export const api = {
         params: { path: { id } },
       }),
     );
+  },
+
+  // TenantUser surface (ADR-0047 §§ 2, 14). Display-identity rows owned by
+  // the authenticated principal. The user-identity page on /settings/
+  // user-identity reads these; the page never accepts a PAT (auth-side
+  // credentials live on unit bindings, ADR-0047 §11).
+  getTenantUser: async (
+    tenantUserId: string,
+  ): Promise<TenantUserResponse> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/users/{tenantUserId}", {
+        params: { path: { tenantUserId } },
+      }),
+    ) as TenantUserResponse,
+  listTenantUserIdentities: async (
+    tenantUserId: string,
+  ): Promise<TenantUserConnectorIdentityResponse[]> =>
+    unwrap(
+      await fetchClient.GET(
+        "/api/v1/tenant/users/{tenantUserId}/identities",
+        { params: { path: { tenantUserId } } },
+      ),
+    ) as TenantUserConnectorIdentityResponse[],
+  upsertTenantUserIdentity: async (
+    tenantUserId: string,
+    body: TenantUserConnectorIdentityRequest,
+  ): Promise<TenantUserConnectorIdentityResponse> =>
+    unwrap(
+      await fetchClient.POST(
+        "/api/v1/tenant/users/{tenantUserId}/identities",
+        { params: { path: { tenantUserId } }, body },
+      ),
+    ) as TenantUserConnectorIdentityResponse,
+  removeTenantUserIdentity: async (
+    tenantUserId: string,
+    args: { connectorId: string; username: string },
+  ): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE(
+        "/api/v1/tenant/users/{tenantUserId}/identities",
+        {
+          params: {
+            path: { tenantUserId },
+            query: {
+              connectorId: args.connectorId,
+              username: args.username,
+            } as never,
+          },
+        },
+      ),
+    );
+  },
+
+  // Per-connector user-config (display-identity) schema (ADR-0047 §4).
+  // Each connector contributes a JSON schema the user-identity surface
+  // renders form fields from. v0.1 ships only GitHub; once a second
+  // connector lands the per-slug wrappers replicate this shape.
+  getGitHubUserConfigSchema: async (): Promise<unknown> =>
+    unwrap(
+      await fetchClient.GET(
+        "/api/v1/tenant/connectors/github/user-config-schema",
+      ),
+    ),
+  // Per-session OAuth read (ADR-0047 §13). Used by the wizard's
+  // auth-choice sub-step when the postMessage handoff drops or the
+  // operator re-opens the popup tab — pollable read returns the
+  // persisted `patSecretName` + `bindingId` so the wizard can recover
+  // mid-flow. Never returns the token value.
+  getGitHubOAuthSession: async (
+    sessionId: string,
+  ): Promise<OAuthSessionResponse | null> => {
+    const result = await fetchClient.GET(
+      "/api/v1/tenant/connectors/github/oauth/session/{sessionId}",
+      { params: { path: { sessionId } } },
+    );
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result) as OAuthSessionResponse;
   },
 };
 

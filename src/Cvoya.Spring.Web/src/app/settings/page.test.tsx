@@ -130,6 +130,7 @@ describe("SettingsPage", () => {
 
     const hrefs = links.map((l) => l.href);
     expect(hrefs).toEqual([
+      "/settings/user-identity",
       "/settings/skills",
       "/settings/packages",
       "/settings/model-providers",
@@ -139,6 +140,7 @@ describe("SettingsPage", () => {
     // The tile's text content carries both label and description; only
     // assert the label shows up — descriptions are free to evolve.
     const labelsByHref: Record<string, string> = {
+      "/settings/user-identity": "User identity",
       "/settings/skills": "Skills",
       "/settings/packages": "Packages",
       "/settings/model-providers": "Model providers",

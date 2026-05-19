@@ -15,7 +15,7 @@ This page covers humans in two roles: as ACL-bound platform subjects (the part t
 | Participate in threads (receive + send messages) | Yes |
 | Be a member of a unit | Yes — via the unified `members:` grammar (see below) and the post-install permission surface |
 | Hold permissions on a unit (configure, operate, view) | Yes — distinct from team-role membership |
-| Have an inbound connector binding (Slack handle, GitHub handle, email) | Yes |
+| Be addressable through a connector (Slack handle, GitHub handle, email) | Yes — via the `Human → TenantUser` mapping; the handle itself lives on the [`TenantUser`](tenants.md#tenantuser-the-authenticated-principal), not on the `Human` row ([ADR-0047 §§ 2, 7](../decisions/0047-platform-user-human-split.md)) |
 | Have an outbound connector binding (translate external events into messages) | No — that's a unit/connector concern |
 | Be cloned, deployed, scaled | No |
 | Have memory, skills, traces, expertise, budget, policy, runtime | No |
@@ -94,19 +94,35 @@ The template schema lives in [`src/Cvoya.Spring.Manifest/HumanTemplateManifest.c
 
 Each install-time `- human:` declaration is resolved through the `IPackageHumanResolutionPolicy` DI seam ([ADR-0044 §4](../decisions/0044-team-role-vs-platform-role.md), preserved by [ADR-0046 §10](../decisions/0046-unified-members-grammar.md)).
 
-- **OSS default** — every declaration mints a fresh `HumanEntity` row with a newly-generated Guid and a derived `DisplayName` (`"Operator · <roles[0]>"`, falling back to `"Operator"` when no roles are declared). Two `- human:` entries in one unit produce two distinct rows; the OSS deployment maps both to the operator's identity through the connector-identity surface. This keeps the Identity / Connector / DisplayName affordances uniform across declarations — the portal's Humans list sees N rows with sensible labels, no special-casing for the operator UUID.
-- **Hosted overlay** — concrete cloud-side implementations decide whether to mint a fresh row or to bind to an existing tenant member (operator-fills-all, prompt-per-slot, match-by-claim, reject). The `{human_id → user_id}` mapping table that would let one tenant member fill multiple declarations is **v0.2** and explicitly out of scope.
+- **OSS default** — every declaration mints a fresh `HumanEntity` row with a newly-generated Guid and a derived `DisplayName` (`"Operator · <roles[0]>"`, falling back to `"Operator"` when no roles are declared). Two `- human:` entries in one unit produce two distinct rows; the OSS deployment maps every `Human` to the single OSS-operator `TenantUser` (`OssTenantUserIds.Operator`) through the `Human → TenantUser` mapping described in [Human → TenantUser display mapping](#human--tenantuser-display-mapping) below. This keeps the Identity / Connector / DisplayName affordances uniform across declarations — the portal's Humans list sees N rows with sensible labels, no special-casing for the operator UUID.
+- **Hosted overlay** — concrete cloud-side implementations decide whether to mint a fresh row or to bind to an existing tenant member (operator-fills-all, prompt-per-slot, match-by-claim, reject). The `{human_id → tenant_user_id}` mapping table that would let one tenant user fill multiple declarations is **v0.2** and explicitly out of scope ([ADR-0047](../decisions/0047-platform-user-human-split.md) §7, "OUT2" in the umbrella).
 
 Membership is keyed by `(tenant, unit, human)` in `unit_memberships_humans` ([ADR-0046 §7](../decisions/0046-unified-members-grammar.md)); `roles`, `expertise`, and `notifications` are jsonb columns on the row. Two declarations with the same `roles` produce two distinct rows backed by two distinct `HumanEntity` Guids — the unit has two "positions" of that role.
 
 Platform ACLs are deliberately **not** a manifest concern. Package authors have no authority to grant tenant permissions; the resolver writes the team-membership row only. ACL grants stay on `unit_human_permissions` and are managed through the existing `/api/v1/tenant/units/{id}/humans/{humanId}/permissions` surface.
 
+## `Human → TenantUser` display mapping
+
+A `Human` row is a **configuration entity** introduced by a package — a slot on a unit's team that names a role, an expertise set, and notification preferences. A `TenantUser` row is the **authenticated principal** of Spring Voyage scoped to one tenant (the operator in OSS, tenant members in cloud). The two are deliberately distinct: a package author can declare team slots without knowing who will fill them; the deployment decides which `TenantUser` answers for each slot at install time.
+
+Display-side connector identity — the GitHub login, the Slack handle, the human-friendly rendering name on a connector — is owned by the **`TenantUser`**, not by the `Human`. The `Human` row itself carries no connector-identity fields ([ADR-0047](../decisions/0047-platform-user-human-split.md) §§ 2, 7). The resolution path is:
+
+```
+Human (configuration slot) → TenantUser (authenticated principal) → TenantUserConnectorIdentity (display fields per connector)
+```
+
+When an agent renders `@<human-name>` in a PR comment or calls `--add-reviewer <login>`, the agent walks `Human → TenantUser → TenantUserConnectorIdentity` for the connector and reads the `username` from the tenant-user's row. The outbound API call's **credential** is, separately and unconnectedly, the unit binding's pinned credential (App-installation or PAT secret — [ADR-0047 §6](../decisions/0047-platform-user-human-split.md)). The mapping is the display / mention / attribution seam, never the auth seam.
+
+**OSS default.** Every `Human` row maps to the single OSS-operator `TenantUser` pinned by `OssTenantUserIds.Operator` (deterministic v5 UUID — see [Tenants](tenants.md#oss-operator-tenantuser) and [Identifiers § 6](../architecture/identifiers.md#6-the-oss-operator-tenantuser-id)). N declared `Human` rows resolve to the same one tenant user, which carries the operator's GitHub / Slack / Linear handles once. No duplication onto every `Human` row.
+
+**Hosted overlay.** Per-`Human` explicit override (binding `Human X` to `TenantUser Y` independent of the default policy) is **v0.2** — OUT2 in the umbrella. v0.1 ships the derived projection (default-to-operator in OSS; the resolution policy's choice in hosted).
+
 ## Post-install editing
 
 `HumanEntity` gains `Description` alongside the existing `DisplayName` ([ADR-0046](../decisions/0046-unified-members-grammar.md)); both are editable after install through two parallel surfaces:
 
-- **Portal** — Human × Config × General lets operators edit `displayName` and `description` on the loaded human row.
-- **CLI** — `spring human set --display-name "…" --description "…"` ([`src/Cvoya.Spring.Cli/Commands/HumanCommand.cs`](../../src/Cvoya.Spring.Cli/Commands/HumanCommand.cs)). At least one of `--display-name` / `--description` must be supplied; omitted flags leave the existing value untouched; pass `""` to clear `description`.
+- **Portal** — Human × Config × General lets operators edit `displayName` and `description` on the loaded human row. The Human page intentionally does **not** carry a per-connector identity sub-tab — connector handles live on the calling user's [User Identity](../guide/user/portal.md) surface (one `TenantUserConnectorIdentity` per `(tenant_user, connector)`), not per `Human` row.
+- **CLI** — `spring human set --display-name "…" --description "…"` ([`src/Cvoya.Spring.Cli/Commands/HumanCommand.cs`](../../src/Cvoya.Spring.Cli/Commands/HumanCommand.cs)). At least one of `--display-name` / `--description` must be supplied; omitted flags leave the existing value untouched; pass `""` to clear `description`. The display-identity verbs (`set`, `list`, `remove`) live under `spring user identity …`, targeting the calling `TenantUser`, per [ADR-0047 §12](../decisions/0047-platform-user-human-split.md).
 
 These are operator-facing affordances; the package author's declared values land at install time and are then editable independently of the package YAML. Reinstalling the package against a refined YAML does not retroactively overwrite operator edits — same deferral as the wider "no install-time upsert" rule.
 
@@ -133,9 +149,9 @@ Human entries deliberately **omit** the `live_status` field that agent and unit 
 
 The portal's `NodeKind` (`src/Cvoya.Spring.Web/src/components/units/aggregate.ts`) was extended to include `"Human"` under #2266 / #2267. Humans are a fourth Explorer subject with a minimal canonical tab set:
 
-- **Overview** — personal info (display name, username, email, platform role, created-at). Renders the "You" badge when the loaded human matches the currently-authenticated caller.
+- **Overview** — personal info (display name, description, platform role, created-at). Renders the "You" badge when the loaded human matches the currently-authenticated caller's mapped `TenantUser` ([ADR-0047 §7](../decisions/0047-platform-user-human-split.md)).
 - **Messages** — threads the human is addressed in.
-- **Config** — Identity + Connector sub-tabs (the inbound-routing binding) and the General sub-tab (display name + description editing).
+- **Config** — General sub-tab (display name + description editing). Connector handles (GitHub login, Slack handle, etc.) are **not** edited here — they belong to the calling `TenantUser` and are managed on the per-user User Identity page in the portal (and via `spring user identity` on the CLI). The mapping from `Human` to `TenantUser` resolves the rendered handle at display time.
 
 No Memory, Agents, Skills, Traces, Clones, Policies, Budgets, or Deployment tabs — humans don't have those surfaces.
 
@@ -143,6 +159,7 @@ Human pages live at `/humans/<guid>` and are reached either directly (Cmd-K, act
 
 ## See also
 
+- [ADR-0047](../decisions/0047-platform-user-human-split.md) — `TenantUser` actor kind; display-side connector identity owned by the `TenantUser`; `Human → TenantUser` mapping; the `OssTenantUserIds.Operator` pin.
 - [ADR-0046](../decisions/0046-unified-members-grammar.md) — unified `members:` grammar; humans as a member kind; `HumanTemplate`; vocabulary trim.
 - [ADR-0044](../decisions/0044-team-role-vs-platform-role.md) — team role vs. platform role; the `IPackageHumanResolutionPolicy` seam (§§ 1, 4 survive ADR-0046 unchanged).
 - [ADR-0039 — Units are agents](../decisions/0039-units-are-agents.md) — what makes a unit an agent (and by contrast, what makes a human *not* an agent).

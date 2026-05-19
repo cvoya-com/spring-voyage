@@ -18,15 +18,24 @@
 // alongside `connector-tab.tsx` in `src/Cvoya.Spring.Web/src/connectors/
 // registry.ts` so both entry points are statically known at build time.
 //
-// #1133: the surface dropped manual owner / repo / installation pickers in
-// favour of a single Repository dropdown sourced from the aggregated
-// `/list-repositories` endpoint, plus a Reviewer dropdown sourced from
-// `/list-collaborators` for the chosen repo. The installation id is no
-// longer user-visible — it rides along on every repository row so the
-// wire shape stays the same.
+// ADR-0047 §11 / Phase H reshape (#2508):
+//
+// * `owner` is gone from the wire shape (`UnitGitHubConfigRequest.repo`
+//   carries the qualified `owner/repo` string). The wizard surfaces a
+//   single qualified-repo input — picking a row from the repository
+//   dropdown is the primary path; manual entry is accepted but
+//   validated against the `owner/repo` shape at form-validation time.
+// * The auth-choice sub-step (ADR-0047 §6 / §11): the wizard explicitly
+//   prompts for App installation OR PAT secret before letting the
+//   operator pass the step. App installation is auto-selected when the
+//   chosen row carries an `installationId`; the operator can override
+//   to PAT (either OAuth-acquired or paste-an-existing-name).
+// * 400 GitHubBindingAuthRequired / GitHubBindingAuthAmbiguous and 409
+//   GitHubCrossTenantRepoBindingConflict surface as inline messages on
+//   the install step (the wizard renders the bubbled error).
 
-import { useCallback, useEffect, useState } from "react";
-import { Github, Loader2, Lock, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Github, KeyRound, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ApiError, api } from "@/lib/api/client";
@@ -42,6 +51,7 @@ import {
   getAllowedOAuthCallbackOrigins,
   GH_OAUTH_CALLBACK_MESSAGE_TYPE,
   GH_OAUTH_CALLBACK_STORAGE_KEY,
+  mintBindingId,
   parseOAuthCallbackPayload,
   parseStoredOAuthCallback,
   readStoredOAuthSessionId,
@@ -59,11 +69,12 @@ const GITHUB_APP_DOCS_URL =
 // option, and it can never collide with a real GitHub login.
 const NO_REVIEWER = "";
 
-// Shape of the Problem+JSON the GitHub connector returns when the App
-// credentials are not configured at the deployment level (#609 / #1186).
-// The actor and the wizard speak the same contract: `disabled: true` plus
-// a human-readable `reason`. The wizard turns that into a friendly panel
-// instead of leaking the raw RFC 9110 envelope through `err.message`.
+// `owner/repo` validator (ADR-0047 §11). One slash, both segments
+// non-empty, no leading/trailing whitespace. The server clamps
+// stricter; the inline message gives the operator a fast-feedback hint
+// before they hit Next.
+const QUALIFIED_REPO_RE = /^[^\s/]+\/[^\s/]+$/;
+
 interface ConnectorDisabledProblem {
   disabled: true;
   reason: string;
@@ -80,11 +91,6 @@ function isConnectorDisabledProblem(
   );
 }
 
-/**
- * Extracts the disabled-with-reason payload from an {@link ApiError} thrown
- * by the connector-scoped GitHub endpoints. Returns `null` for any other
- * shape — the caller falls back to the generic error path.
- */
 function extractDisabledReason(err: unknown): string | null {
   if (!(err instanceof ApiError) || err.status !== 404) {
     return null;
@@ -95,12 +101,6 @@ function extractDisabledReason(err: unknown): string | null {
   return null;
 }
 
-/**
- * #1663: extracts the missing-OAuth payload from an {@link ApiError}
- * thrown by the connector-scoped `list-repositories` endpoint. The 401
- * is fail-closed and carries a structured body the UI uses to render a
- * "Link your GitHub account" panel rather than a raw envelope.
- */
 function extractMissingOAuth(
   err: unknown,
 ): GitHubMissingOAuthResponse | null {
@@ -118,10 +118,6 @@ function extractMissingOAuth(
   return null;
 }
 
-// Mirror of the event set in connector-tab.tsx. Kept duplicated on purpose
-// — changing the set of offered events in one surface shouldn't silently
-// change it in the other. The server clamps anything the user picks to the
-// connector's known-safe list.
 const AVAILABLE_EVENTS: readonly string[] = [
   "issues",
   "pull_request",
@@ -130,23 +126,26 @@ const AVAILABLE_EVENTS: readonly string[] = [
   "release",
 ];
 
-// Mirror of `GitHubConnectorType.DefaultEvents`. The server falls back to
-// this set whenever the wire `events` field is null or empty, so the
-// wizard surfaces the same list as the informational row under the
-// "Connector defaults" toggle. Kept duplicated on purpose — changing the
-// defaults in one place shouldn't silently change them in the other.
-// (#1127)
 const DEFAULT_EVENTS: readonly string[] = [
   "issues",
   "pull_request",
   "issue_comment",
 ];
 
+/**
+ * Auth-choice discriminator (ADR-0047 §11). Either an App installation
+ * id or a PAT secret name lands on the binding — exactly one. Tracked
+ * locally so the radio control's selection state survives the OAuth
+ * round-trip even when `installationId` is reset between repo picks.
+ */
+type AuthChoice = "app" | "pat";
+
 export interface GitHubConnectorWizardStepProps {
   /**
    * Fires whenever the form produces a new valid config payload (or `null`
    * when the form is incomplete). The wizard listens to this and stores
-   * the latest payload; on Step 5 it bundles it into the create-unit call.
+   * the latest payload; on the Install step it bundles it into the
+   * create-unit call.
    */
   onChange: (body: UnitGitHubConfigRequest | null) => void;
 
@@ -168,49 +167,42 @@ export interface GitHubConnectorWizardStepProps {
 }
 
 /**
- * Wizard-mode GitHub connector configuration. Presents a single Repository
- * dropdown sourced from the aggregated `/list-repositories` endpoint and a
- * Reviewer dropdown that re-fetches whenever the repo selection changes
- * (#1133). Bubbles a {@link UnitGitHubConfigRequest} up to the parent
- * wizard.
+ * Wizard-mode GitHub connector configuration. Renders the qualified
+ * repository input (with a repository dropdown for App-detected rows),
+ * an auth-choice sub-step (App installation vs. PAT secret), and the
+ * reviewer + events controls. Bubbles a {@link UnitGitHubConfigRequest}
+ * up to the parent wizard.
  */
 export function GitHubConnectorWizardStep({
   onChange,
   initialValue,
   gitHubSessionId,
 }: GitHubConnectorWizardStepProps) {
-  // Persisted on the binding. ADR-0047 §11 reshape: the wire's `repo`
-  // field carries the qualified `owner/repo` string. Phase H of the
-  // umbrella reshapes the wizard step to match (auth-choice sub-step +
-  // qualified-repo input). Until then, the wizard splits the qualified
-  // value into the existing two-input form on load and rejoins on save.
-  const initialQualified = initialValue?.repo ?? "";
-  const initialSlash = initialQualified.indexOf("/");
-  const [owner, setOwner] = useState(
-    initialSlash > 0 ? initialQualified.slice(0, initialSlash) : "",
-  );
-  const [repo, setRepo] = useState(
-    initialSlash > 0
-      ? initialQualified.slice(initialSlash + 1)
-      : initialQualified,
-  );
+  // ADR-0047 §11 reshape: a single qualified-repo input. The wizard no
+  // longer splits `owner/repo` locally; the form value is the
+  // qualified string the wire shape carries.
+  const [repo, setRepo] = useState(initialValue?.repo ?? "");
   const [installationId, setInstallationId] = useState<number | null>(
     initialValue?.appInstallationId == null
       ? null
       : Number(initialValue.appInstallationId),
   );
+  const [patSecretName, setPatSecretName] = useState<string>(
+    initialValue?.pat_secret_name ?? "",
+  );
+
+  // Auth choice seeded from the initial value when present (the
+  // operator may navigate back to the step after picking a path on the
+  // first visit). Default is "app" — the historical OSS default and
+  // the path with the simplest UX when the repository dropdown
+  // populates.
+  const seededAuthChoice: AuthChoice =
+    initialValue?.pat_secret_name && initialValue.pat_secret_name.length > 0
+      ? "pat"
+      : "app";
+  const [authChoice, setAuthChoice] = useState<AuthChoice>(seededAuthChoice);
+
   const [reviewer, setReviewer] = useState(initialValue?.reviewer ?? "");
-  // #1127: split webhook-event handling into "use connector defaults" vs.
-  // "explicit set". `useDefaults` drives both the wire shape (omit
-  // `events` so the server applies its own defaults) AND the UI (the
-  // event row becomes informational — checkmarks reflect DEFAULT_EVENTS,
-  // boxes are disabled). Initial value:
-  //   * no initialValue.events (or empty)  -> defaults checked
-  //   * initialValue.events provided        -> defaults unchecked
-  // We seed the explicit `events` state with DEFAULT_EVENTS rather than
-  // [] so the first click of "uncheck Connector defaults" lands the
-  // operator on the same row of marks they were already living with —
-  // not an empty form they then have to re-tick.
   const initialUseDefaults =
     initialValue?.events == null || initialValue.events.length === 0;
   const [useDefaults, setUseDefaults] = useState<boolean>(initialUseDefaults);
@@ -235,67 +227,41 @@ export function GitHubConnectorWizardStep({
   );
 
   const [installUrl, setInstallUrl] = useState<string | null>(null);
-  // When the connector reports `disabled: true` at the deployment level
-  // (no GitHub App credentials configured), we hide the install/refresh
-  // affordances entirely and render a remediation panel pointing at the
-  // CLI / docs. Drives the friendly path for #1186.
   const [disabledReason, setDisabledReason] = useState<string | null>(null);
-  // #1663: when the list-repositories endpoint reports `missingOAuth:
-  // true` (no usable GitHub OAuth session), the panel hides every other
-  // affordance and renders a "Link your GitHub account" prompt with the
-  // server-supplied authorize URL. The link is the only recovery path —
-  // until the operator completes the OAuth dance there is no safe way
-  // to populate the repository dropdown.
   const [missingOAuth, setMissingOAuth] =
     useState<GitHubMissingOAuthResponse | null>(null);
-  // Active session id — initialized from the prop, otherwise from the
-  // browser-cached value. When the OAuth callback page posts back the
-  // new session we update both this state and sessionStorage so the
-  // post-bind tab picks up the same session without forcing a re-link.
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     gitHubSessionId ?? readStoredOAuthSessionId(),
   );
   const [linkingOAuth, setLinkingOAuth] = useState(false);
   const [awaitingOAuthCallback, setAwaitingOAuthCallback] = useState(false);
   const [oAuthLinkError, setOAuthLinkError] = useState<string | null>(null);
-  // #1132: tracks an in-flight repositories refetch driven by the
-  // Recheck button (or the Refresh affordance on the repository
-  // dropdown). The button reads this to disable itself + announce a
-  // busy state via `aria-busy`. Distinct from `reposLoading` (which
-  // also covers the initial mount fetch) so the Recheck button only
-  // shows the "Rechecking…" copy when the user explicitly asks for a
-  // refresh.
   const [rechecking, setRechecking] = useState(false);
 
-  // #1132: lifted out of the mount effect so the Recheck button can
-  // re-run the fetch without re-mounting the component (and without the
-  // monotonic-token gymnastics the previous implementation used). The
-  // function is stable across renders when activeSessionId doesn't
-  // change — the sessionId is passed on each call so the dependency
-  // array only grows by one entry.
-  //
-  // Note: every setState below happens AFTER an `await`, which is
-  // important — it keeps `react-hooks/set-state-in-effect` quiet when
-  // the mount effect calls this function (the rule only flags
-  // synchronous setState before the first suspension point).
+  // OAuth-for-PAT state (ADR-0047 §13). The auth-choice sub-step pre-
+  // mints a binding UUID before opening the popup so the OAuth
+  // callback writes its secret under `binding/<id-no-dash>/github/
+  // pat`; the wizard reuses the same id on the binding-create call.
+  // We keep the minted id alive across re-renders so the operator can
+  // retry the popup without re-allocating.
+  const pendingBindingIdRef = useRef<string | null>(null);
+  const [authorizingPat, setAuthorizingPat] = useState(false);
+  const [awaitingPatCallback, setAwaitingPatCallback] = useState(false);
+  const [patAuthorizeError, setPatAuthorizeError] = useState<string | null>(
+    null,
+  );
+
   const fetchRepositories = useCallback(async () => {
     let list: GitHubRepositoryResponse[] = [];
     let disabled: string | null = null;
     let missing: GitHubMissingOAuthResponse | null = null;
     try {
-      // #1663: pass the cached GitHub OAuth session id. Without one the
-      // backend returns 401 missingOAuth and the catch block renders
-      // the link-account panel. Passing one that has expired produces
-      // the same shape — the operator re-links and we move on.
       list = await api.listGitHubRepositories(activeSessionId ?? undefined);
       setRepositories(list);
       setReposError(null);
       setDisabledReason(null);
       setMissingOAuth(null);
     } catch (err) {
-      // missingOAuth is the new fail-closed state introduced by #1663.
-      // Render the link panel before falling through to the existing
-      // disabled / generic error paths.
       missing = extractMissingOAuth(err);
       if (missing !== null) {
         setMissingOAuth(missing);
@@ -303,9 +269,6 @@ export function GitHubConnectorWizardStep({
         setReposError(null);
         setRepositories([]);
       } else {
-        // disabled-with-reason is a first-class connector state, not a
-        // failure (#1186). Render the remediation panel instead of the
-        // raw RFC 9110 envelope.
         disabled = extractDisabledReason(err);
         if (disabled !== null) {
           setDisabledReason(disabled);
@@ -319,16 +282,6 @@ export function GitHubConnectorWizardStep({
         setRepositories([]);
       }
     }
-    // Fetch the install URL whenever the empty-state banner will show
-    // (either the list came back empty, or the call errored). #599: the
-    // previous implementation only fetched on the catch branch, so
-    // platforms where the App simply has no installations surfaced a
-    // banner with no call-to-action link.
-    //
-    // Skip the install-URL fetch when the connector is disabled or the
-    // OAuth session is missing — those panels render their own CTAs
-    // and the install-url endpoint either 404s with the disabled body
-    // or is irrelevant until the operator has linked their account.
     if (disabled === null && missing === null && list.length === 0) {
       try {
         const { url } = await api.getGitHubInstallUrl();
@@ -339,10 +292,6 @@ export function GitHubConnectorWizardStep({
     }
   }, [activeSessionId]);
 
-  // #1132: imperative wrapper for the Recheck / Refresh buttons. Lifts
-  // the `rechecking` flag around the fetch so the UI can render the
-  // spinner / aria-busy state without leaking that concern into the
-  // mount-time effect.
   const recheckRepositories = useCallback(async () => {
     setRechecking(true);
     try {
@@ -358,9 +307,6 @@ export function GitHubConnectorWizardStep({
     setMissingOAuth(null);
     setOAuthLinkError(null);
     setAwaitingOAuthCallback(false);
-    // The fetchRepositories closure still refers to the previous
-    // activeSessionId for one render — explicitly call the API with
-    // the just-linked value so the panel updates immediately.
     setRechecking(true);
     try {
       const list = await api.listGitHubRepositories(sessionId);
@@ -381,9 +327,6 @@ export function GitHubConnectorWizardStep({
     }
   }, []);
 
-  // Kicks off the GitHub OAuth flow when the operator has no linked
-  // session. The API callback returns a tiny browser page that posts the
-  // new session back to this component; no copy/paste step is needed.
   const linkGitHubAccount = useCallback(async () => {
     setLinkingOAuth(true);
     setOAuthLinkError(null);
@@ -415,6 +358,49 @@ export function GitHubConnectorWizardStep({
     }
   }, []);
 
+  /**
+   * Pre-mints a binding UUID, opens the OAuth popup with the
+   * `binding-wizard` intent, and waits for the callback page's
+   * postMessage / localStorage handoff. The handoff carries the
+   * persisted `patSecretName` + `bindingId` (ADR-0047 §13); the local
+   * state is updated as soon as the payload arrives.
+   */
+  const authorizePat = useCallback(async () => {
+    setPatAuthorizeError(null);
+    setAuthorizingPat(true);
+    const popup = window.open(
+      "",
+      "spring-voyage-github-oauth-pat",
+      "popup,width=720,height=760",
+    );
+    if (popup === null) {
+      setPatAuthorizeError(
+        "Your browser blocked the GitHub authorization window.",
+      );
+      setAuthorizingPat(false);
+      return;
+    }
+    setAwaitingPatCallback(true);
+    popup.focus();
+    try {
+      const bindingId = mintBindingId();
+      pendingBindingIdRef.current = bindingId;
+      const result = await api.beginGitHubOAuthAuthorize({
+        clientState: buildOAuthClientState(),
+        intent: "binding-wizard",
+        bindingId,
+      });
+      popup.location.href = result.authorizeUrl;
+    } catch (err) {
+      popup.close();
+      setAwaitingPatCallback(false);
+      pendingBindingIdRef.current = null;
+      setPatAuthorizeError(formatTranslatedError(err));
+    } finally {
+      setAuthorizingPat(false);
+    }
+  }, []);
+
   useEffect(() => {
     const allowedOrigins = getAllowedOAuthCallbackOrigins();
     const handlePayload = (value: unknown) => {
@@ -422,8 +408,28 @@ export function GitHubConnectorWizardStep({
       if (payload === null) return;
       if (payload.error) {
         setAwaitingOAuthCallback(false);
-        setOAuthLinkError(payload.reason ?? payload.error);
+        setAwaitingPatCallback(false);
+        // Route the error to whichever flow is in flight.
+        if (pendingBindingIdRef.current !== null) {
+          setPatAuthorizeError(payload.reason ?? payload.error);
+          pendingBindingIdRef.current = null;
+        } else {
+          setOAuthLinkError(payload.reason ?? payload.error);
+        }
         return;
+      }
+      // Binding-wizard handoff: persist the secret name + binding id on
+      // the local form so the wizard's binding-create call rides
+      // through the PAT branch.
+      if (payload.patSecretName) {
+        setPatSecretName(payload.patSecretName);
+        setAuthChoice("pat");
+        // Clear App-side state — the binding's auth is mutually-
+        // exclusive (ADR-0047 §11) and the form's onChange must not
+        // bubble both fields.
+        setInstallationId(null);
+        setAwaitingPatCallback(false);
+        pendingBindingIdRef.current = null;
       }
       if (payload.sessionId) {
         void acceptOAuthSession(payload.sessionId);
@@ -452,7 +458,6 @@ export function GitHubConnectorWizardStep({
     };
   }, [acceptOAuthSession]);
 
-  // -- Repositories (mount fetch) -------------------------------------------
   useEffect(() => {
     let cancelled = false;
     setReposLoading(true);
@@ -468,19 +473,28 @@ export function GitHubConnectorWizardStep({
     };
   }, [fetchRepositories]);
 
-  // -- Collaborators (re-fetched whenever the repo selection changes) -------
+  // Collaborators (re-fetched whenever the repo selection changes).
+  // ADR-0047 §11: the qualified `owner/repo` string is what the wire
+  // carries; the collaborators endpoint still takes owner+repo
+  // separately so we split locally before the call. `installationId`
+  // is required by the collaborators endpoint; when the operator
+  // picked the PAT path (no installation id) we skip the call — the
+  // dropdown collapses to the manual "(none)" row.
   useEffect(() => {
+    const slash = repo.indexOf("/");
     if (
+      authChoice !== "app" ||
       installationId == null ||
-      owner.trim() === "" ||
-      repo.trim() === ""
+      slash <= 0 ||
+      slash === repo.length - 1
     ) {
-      // No repo chosen yet — clear stale state so the dropdown collapses.
       setCollaborators(null);
       setCollaboratorsError(null);
       setCollaboratorsLoading(false);
       return;
     }
+    const owner = repo.slice(0, slash);
+    const repoName = repo.slice(slash + 1);
     let cancelled = false;
     setCollaboratorsLoading(true);
     (async () => {
@@ -488,7 +502,7 @@ export function GitHubConnectorWizardStep({
         const list = await api.listGitHubCollaborators(
           installationId,
           owner,
-          repo,
+          repoName,
         );
         if (cancelled) return;
         setCollaborators(list);
@@ -504,28 +518,58 @@ export function GitHubConnectorWizardStep({
     return () => {
       cancelled = true;
     };
-  }, [installationId, owner, repo]);
+  }, [authChoice, installationId, repo]);
 
-  // -- Bubble validated state up to the wizard ------------------------------
-  // Null when the minimum required field (a chosen repository) is missing
-  // so the wizard knows not to bundle a partially-filled config.
+  // Form-validation message — non-null when the operator has typed a
+  // repo string but it does not match the qualified shape. Drives the
+  // inline hint and gates the onChange bubble below.
+  const repoValidationError = useMemo<string | null>(() => {
+    const trimmed = repo.trim();
+    if (trimmed === "") return null;
+    if (!QUALIFIED_REPO_RE.test(trimmed)) {
+      return "Use the 'owner/repo' form (e.g. octocat/Hello-World).";
+    }
+    return null;
+  }, [repo]);
+
+  // Bubble validated state up to the wizard. Null when the form is
+  // incomplete or the auth-choice gate is unsatisfied.
   useEffect(() => {
-    const trimmedOwner = owner.trim();
     const trimmedRepo = repo.trim();
-    if (!trimmedOwner || !trimmedRepo || installationId == null) {
+    if (trimmedRepo === "" || repoValidationError !== null) {
+      onChange(null);
+      return;
+    }
+    // ADR-0047 §11: exactly one of App installation / PAT secret. The
+    // wizard refuses to bundle a payload until the auth-choice is
+    // resolved.
+    if (authChoice === "app") {
+      if (installationId == null) {
+        onChange(null);
+        return;
+      }
+      onChange({
+        repo: trimmedRepo,
+        appInstallationId: installationId,
+        events: useDefaults
+          ? undefined
+          : events.length > 0
+            ? events
+            : undefined,
+        reviewer: reviewer.trim() === "" ? undefined : reviewer.trim(),
+      });
+      return;
+    }
+    // PAT path. The secret-name field must be non-empty before the
+    // wizard advances; OAuth-completion writes the name automatically.
+    const trimmedSecret = patSecretName.trim();
+    if (trimmedSecret === "") {
       onChange(null);
       return;
     }
     onChange({
-      // ADR-0047 §11: send the qualified `owner/repo` form on the wire.
-      repo: `${trimmedOwner}/${trimmedRepo}`,
-      appInstallationId: installationId,
-      // #1127: omit `events` whenever the operator picked "Connector
-      // defaults" so the server resolves the set itself. When they
-      // picked an explicit list we forward it verbatim — the server
-      // still falls back to its defaults if we somehow send an empty
-      // list, but bubbling the explicit selection is the user's
-      // intent of record either way.
+      repo: trimmedRepo,
+      pat_secret_name: trimmedSecret,
       events: useDefaults
         ? undefined
         : events.length > 0
@@ -533,7 +577,17 @@ export function GitHubConnectorWizardStep({
           : undefined,
       reviewer: reviewer.trim() === "" ? undefined : reviewer.trim(),
     });
-  }, [owner, repo, installationId, events, reviewer, useDefaults, onChange]);
+  }, [
+    repo,
+    repoValidationError,
+    authChoice,
+    installationId,
+    patSecretName,
+    events,
+    reviewer,
+    useDefaults,
+    onChange,
+  ]);
 
   const toggleEvent = (e: string) => {
     setEvents((prev) =>
@@ -541,15 +595,8 @@ export function GitHubConnectorWizardStep({
     );
   };
 
-  // The dropdown's value is the full_name; we split client-side so the
-  // wire shape stays `(owner, repo, installationId)`. Selecting "" clears
-  // the selection.
-  const selectedFullName =
-    owner !== "" && repo !== "" ? `${owner}/${repo}` : "";
-
-  const handleRepoChange = (next: string) => {
+  const handleRepoDropdownChange = (next: string) => {
     if (next === "") {
-      setOwner("");
       setRepo("");
       setInstallationId(null);
       setReviewer("");
@@ -557,18 +604,47 @@ export function GitHubConnectorWizardStep({
     }
     const match = repositories?.find((r) => r.fullName === next) ?? null;
     if (match === null) return;
-    setOwner(match.owner);
-    setRepo(match.repo);
+    setRepo(match.fullName);
+    // ADR-0047 §11: the App-installation id is the binding's
+    // credential when the operator stays on the App branch. Set it
+    // whenever a row is picked; the operator can flip to PAT later
+    // (we clear `installationId` in `setAuthChoice` for the radio).
     setInstallationId(Number(match.installationId));
-    // Selecting a different repo invalidates the previously chosen
-    // reviewer — collaborators are repo-scoped.
-    setReviewer("");
+    if (authChoice === "app") {
+      setReviewer("");
+    }
   };
 
-  // Combined busy flag for the dropdown + Refresh button. Both the
-  // initial mount fetch (`reposLoading`) and any subsequent recheck
-  // (`rechecking`) should disable the dropdown / spin the icon.
+  const handleAuthChoiceChange = (next: AuthChoice) => {
+    setAuthChoice(next);
+    if (next === "app") {
+      // Switching to App clears any pending PAT state — the binding's
+      // auth is single-valued.
+      setPatSecretName("");
+      pendingBindingIdRef.current = null;
+      setAwaitingPatCallback(false);
+    } else {
+      // Switching to PAT clears the App installation id so the wire
+      // shape only carries the chosen field.
+      setInstallationId(null);
+      setReviewer("");
+    }
+  };
+
   const repoBusy = reposLoading || rechecking;
+
+  // The repository dropdown only renders rows the operator can pick
+  // *and* the App has visibility into. When the qualified-repo input
+  // doesn't match a row, the dropdown collapses to the placeholder
+  // option — the operator is free-typing.
+  const matchingDropdownRow = useMemo(() => {
+    const trimmed = repo.trim();
+    if (trimmed === "" || !QUALIFIED_REPO_RE.test(trimmed)) return "";
+    if (repositories?.some((r) => r.fullName === trimmed)) {
+      return trimmed;
+    }
+    return "";
+  }, [repo, repositories]);
 
   return (
     <div className="space-y-4 rounded-md border border-border bg-muted/30 p-4">
@@ -619,12 +695,6 @@ export function GitHubConnectorWizardStep({
         </div>
       )}
 
-      {/* #1663: missing-OAuth-session panel. The list-repositories endpoint
-          is fail-closed against session-less callers — without a linked
-          GitHub OAuth session the dropdown can't render any rows safely.
-          The panel sends the operator off to github.com via a popup; the
-          API callback page posts the resulting session id back here and
-          this component stores it in sessionStorage for the post-bind tab. */}
       {disabledReason === null && missingOAuth !== null && (
         <div
           role="alert"
@@ -687,18 +757,10 @@ export function GitHubConnectorWizardStep({
           >
             <p className="font-medium">No GitHub repositories visible.</p>
             <p className="mt-1 text-foreground">
-              Install the GitHub App on your account or organisation, and
-              grant it access to at least one repository, before binding this
-              unit.
+              Install the GitHub App on a repository the unit will write to,
+              or pick the &quot;Use a PAT secret&quot; auth choice below and
+              type the qualified <code>owner/repo</code> manually.
             </p>
-            {/* #1132: Install-app routes the operator off-site to GitHub
-                — once they install the App, GitHub redirects them away,
-                and they then have to manually return to the wizard. The
-                old code never re-fetched, so the panel stayed stuck on
-                "No installations" and the operator hit a dead end. The
-                Recheck button re-runs the same `list-repositories`
-                fetch in place; it's announced as `aria-busy` while in
-                flight and disabled to avoid double-clicks. */}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {installUrl && (
                 <a
@@ -748,105 +810,298 @@ export function GitHubConnectorWizardStep({
         )}
 
       {disabledReason === null && missingOAuth === null && (
-        <label className="block space-y-1">
-          <span className="text-xs text-muted-foreground">
-            Repository<span className="text-destructive"> *</span>
-          </span>
-          <div className="flex items-center gap-2">
+        <>
+          {/* Repository (qualified `owner/repo`). The dropdown is
+              populated from the App-visible repositories; manual entry
+              is accepted when the operator is on the PAT branch (or
+              the App simply has no visibility into the target repo
+              yet). ADR-0047 §11 dropped the owner field; the single
+              input carries the qualified string. */}
+          <label className="block space-y-1">
+            <span className="text-xs text-muted-foreground">
+              Repository<span className="text-destructive"> *</span>
+            </span>
+            {repositories && repositories.length > 0 && (
+              <div className="flex items-center gap-2">
+                <select
+                  aria-label="Repository (from GitHub App installations)"
+                  className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                  value={matchingDropdownRow}
+                  onChange={(e) =>
+                    handleRepoDropdownChange(e.target.value)
+                  }
+                  disabled={repoBusy}
+                >
+                  <option value="">
+                    {repoBusy
+                      ? "Loading repositories…"
+                      : "Select from App installations…"}
+                  </option>
+                  {repositories?.map((r) => (
+                    <option
+                      key={`${r.installationId}:${r.repositoryId}`}
+                      value={r.fullName}
+                    >
+                      {r.fullName}
+                      {r.private ? " (private)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void recheckRepositories()}
+                  aria-label="Refresh repositories"
+                  aria-busy={repoBusy}
+                  disabled={repoBusy}
+                >
+                  {repoBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            )}
+            <input
+              type="text"
+              aria-label="Repository (qualified owner/repo)"
+              data-testid="github-repo-qualified"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono"
+              placeholder="octocat/Hello-World"
+              value={repo}
+              onChange={(e) => {
+                setRepo(e.target.value);
+                // Free-typing breaks the dropdown selection so the
+                // installation id no longer auto-fills. Clear it; the
+                // operator either re-picks from the dropdown or
+                // switches to the PAT branch.
+                if (
+                  !repositories?.some((r) => r.fullName === e.target.value)
+                ) {
+                  setInstallationId(null);
+                }
+              }}
+            />
+            {repoValidationError !== null && (
+              <span
+                className="block text-[11px] text-destructive"
+                role="alert"
+                data-testid="github-repo-validation"
+              >
+                {repoValidationError}
+              </span>
+            )}
+            <span className="block text-[11px] text-muted-foreground">
+              ADR-0047 §11: bindings store the qualified
+              <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+                owner/repo
+              </code>
+              form.
+              {matchingDropdownRow !== "" && (
+                <>
+                  {" "}
+                  Picked from App installation
+                  <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+                    {installationId}
+                  </code>
+                  .
+                </>
+              )}
+            </span>
+          </label>
+
+          {/* Auth-choice sub-step (ADR-0047 §§ 6, 11). Exactly one of
+              App installation / PAT secret lands on the binding; the
+              wizard surfaces the trade-off explicitly so the operator
+              picks deliberately. The two branches share validation
+              wiring above — the wire payload is gated on the chosen
+              branch having a usable value. */}
+          <fieldset
+            className="space-y-2 rounded-md border border-border bg-background p-3"
+            data-testid="github-auth-choice"
+          >
+            <legend className="px-1 text-xs font-medium text-muted-foreground">
+              Auth choice
+            </legend>
+            <p className="text-[11px] text-muted-foreground">
+              The binding pins one outbound credential at create time
+              (ADR-0047 §11). Pick App installation when the SV App is
+              installed on the repo; pick PAT secret for repos the App
+              is not installed on (e.g. public repos, operator-
+              controlled credentials).
+            </p>
+            <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-2 text-sm">
+              <input
+                type="radio"
+                name="github-auth-choice"
+                value="app"
+                checked={authChoice === "app"}
+                onChange={() => handleAuthChoiceChange("app")}
+                data-testid="github-auth-choice-app"
+                className="mt-1"
+              />
+              <span className="flex-1">
+                <span className="inline-flex items-center gap-1 font-medium">
+                  <ShieldCheck
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
+                  Use an App installation
+                </span>
+                <span className="block text-[11px] text-muted-foreground">
+                  Outbound writes mint installation tokens for the
+                  picked App. Pick a row from the repository dropdown
+                  above to auto-fill the installation id.
+                </span>
+                {authChoice === "app" && (
+                  <span className="mt-1 block text-[11px] text-muted-foreground">
+                    Installation id:{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                      {installationId ?? "(none selected)"}
+                    </code>
+                  </span>
+                )}
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-2 text-sm">
+              <input
+                type="radio"
+                name="github-auth-choice"
+                value="pat"
+                checked={authChoice === "pat"}
+                onChange={() => handleAuthChoiceChange("pat")}
+                data-testid="github-auth-choice-pat"
+                className="mt-1"
+              />
+              <span className="flex-1">
+                <span className="inline-flex items-center gap-1 font-medium">
+                  <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                  Use a PAT secret
+                </span>
+                <span className="block text-[11px] text-muted-foreground">
+                  Outbound writes use a tenant secret addressing a
+                  personal access token (ADR-0047 §5). Recommended
+                  path: authorize via GitHub (the OAuth flow writes the
+                  secret automatically). Alternative: paste an existing
+                  tenant secret name.
+                </span>
+                {authChoice === "pat" && (
+                  <span className="mt-2 block space-y-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void authorizePat()}
+                      disabled={authorizingPat}
+                      data-testid="github-pat-authorize"
+                      aria-busy={authorizingPat}
+                    >
+                      {authorizingPat ? (
+                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Github className="mr-1 h-4 w-4" />
+                      )}
+                      {authorizingPat
+                        ? "Opening…"
+                        : "Authorize with GitHub"}
+                    </Button>
+                    {awaitingPatCallback && (
+                      <span className="block text-[11px] text-muted-foreground">
+                        Finish authorization in the GitHub window. The
+                        secret name will fill in automatically.
+                      </span>
+                    )}
+                    {patAuthorizeError && (
+                      <span className="block text-[11px] text-destructive">
+                        Authorization did not complete:{" "}
+                        {patAuthorizeError}
+                      </span>
+                    )}
+                    <input
+                      type="text"
+                      aria-label="PAT secret name"
+                      data-testid="github-pat-secret-name"
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono"
+                      placeholder="binding/<id>/github/pat (or paste an existing tenant secret name)"
+                      value={patSecretName}
+                      onChange={(e) => setPatSecretName(e.target.value)}
+                    />
+                    <span className="block text-[11px] text-muted-foreground">
+                      The tenant secret name the binding stores
+                      (ADR-0047 §5). The OAuth flow writes
+                      <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+                        binding/&lt;id&gt;/github/pat
+                      </code>
+                      ; pasting an existing name overrides the default.
+                    </span>
+                  </span>
+                )}
+              </span>
+            </label>
+          </fieldset>
+        </>
+      )}
+
+      {disabledReason === null &&
+        missingOAuth === null &&
+        authChoice === "app" &&
+        installationId != null && (
+          <label className="block space-y-1">
+            <span className="text-xs text-muted-foreground">
+              Default reviewer
+            </span>
             <select
-              aria-label="Repository"
-              className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-              value={selectedFullName}
-              onChange={(e) => handleRepoChange(e.target.value)}
-              disabled={repoBusy || (repositories?.length ?? 0) === 0}
+              aria-label="Default reviewer"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={reviewer}
+              onChange={(e) => setReviewer(e.target.value)}
+              disabled={collaboratorsLoading}
             >
-              <option value="">
-                {repoBusy
-                  ? "Loading repositories…"
-                  : (repositories?.length ?? 0) === 0
-                    ? "No repositories available"
-                    : "Select a repository…"}
+              <option value={NO_REVIEWER}>
+                {collaboratorsLoading
+                  ? "Loading collaborators…"
+                  : "(none — agents pick per call)"}
               </option>
-              {repositories?.map((r) => (
-                <option key={`${r.installationId}:${r.repositoryId}`} value={r.fullName}>
-                  {r.fullName}
-                  {r.private ? " (private)" : ""}
+              {collaborators?.map((c) => (
+                <option key={c.login} value={c.login}>
+                  {c.login}
                 </option>
               ))}
             </select>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void recheckRepositories()}
-              aria-label="Refresh repositories"
-              aria-busy={repoBusy}
-              disabled={repoBusy}
-            >
-              {repoBusy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
-          {selectedFullName !== "" && (
+            {collaboratorsError && (
+              <span className="block text-[11px] text-destructive">
+                Could not load collaborators: {collaboratorsError}
+              </span>
+            )}
             <span className="block text-[11px] text-muted-foreground">
-              {repositories?.find((r) => r.fullName === selectedFullName)
-                ?.private && (
-                <span className="inline-flex items-center gap-1">
-                  <Lock className="h-3 w-3" aria-hidden="true" />
-                  Private repository.{" "}
-                </span>
-              )}
-              The GitHub App installation covering this repo will be used.
+              Requested as the reviewer when this unit&apos;s agents open
+              pull requests. Optional — agents that pass a reviewer
+              explicitly still override per-call.
             </span>
-          )}
-        </label>
-      )}
+          </label>
+        )}
 
-      {disabledReason === null && missingOAuth === null && installationId != null && (
+      {disabledReason === null && missingOAuth === null && authChoice === "pat" && (
         <label className="block space-y-1">
           <span className="text-xs text-muted-foreground">
             Default reviewer
           </span>
-          <select
-            aria-label="Default reviewer"
+          <input
+            type="text"
+            aria-label="Default reviewer (PAT path)"
             className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+            placeholder="GitHub login (optional)"
             value={reviewer}
             onChange={(e) => setReviewer(e.target.value)}
-            disabled={collaboratorsLoading}
-          >
-            <option value={NO_REVIEWER}>
-              {collaboratorsLoading
-                ? "Loading collaborators…"
-                : "(none — agents pick per call)"}
-            </option>
-            {collaborators?.map((c) => (
-              <option key={c.login} value={c.login}>
-                {c.login}
-              </option>
-            ))}
-          </select>
-          {collaboratorsError && (
-            <span className="block text-[11px] text-destructive">
-              Could not load collaborators: {collaboratorsError}
-            </span>
-          )}
+          />
           <span className="block text-[11px] text-muted-foreground">
-            Requested as the reviewer when this unit&apos;s agents open pull
-            requests. Optional — agents that pass a reviewer explicitly still
-            override per-call.
+            Collaborator lookup is App-installation-scoped; on the PAT
+            path you type the reviewer login manually.
           </span>
         </label>
       )}
 
-      {/* #1127: webhook event selection. The "Connector defaults" toggle
-          is the primary control. While it's checked the per-event row
-          becomes purely informational — checkmarks reflect what the
-          server would apply (DEFAULT_EVENTS) and the inputs are
-          disabled. Unchecking it pre-populates the explicit list with
-          the same defaults so the operator starts from "what was
-          already happening", not an empty form. */}
       <fieldset className="space-y-2">
         <legend className="text-xs text-muted-foreground">
           Webhook events

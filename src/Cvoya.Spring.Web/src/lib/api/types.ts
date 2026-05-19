@@ -132,11 +132,51 @@ export type CreateAgentRequest = Schemas["CreateAgentRequest"];
  */
 export type HumanResponse = Schemas["HumanResponse"];
 
-// TenantUserConnectorIdentityRequest / Response types live in
-// `src/lib/api/schema.d.ts` (regenerated from the OpenAPI surface); Phase H
-// of umbrella #2487 re-exports them here when it builds the portal
-// user-identity UI. Knip rejects unused exports, so we don't re-export
-// them speculatively.
+// ---------------------------------------------------------------------------
+// TenantUser surface (ADR-0047 §§ 2, 14) — display-identity rows owned by
+// the authenticated principal, separate from `Human` configuration rows.
+// Phase H of umbrella #2487 consumes these on the new
+// `/settings/user-identity` page and on the new-unit wizard's
+// auth-choice sub-step.
+// ---------------------------------------------------------------------------
+
+/** GET /api/v1/tenant/users/{tenantUserId} response envelope. */
+export type TenantUserResponse = Schemas["TenantUserResponse"];
+
+/**
+ * POST /api/v1/tenant/users/{tenantUserId}/identities request body — the
+ * per-connector display-identity upsert. ADR-0047 §4: `username` is the
+ * connector-side login (e.g. GitHub `octocat`), `displayHandle` is an
+ * optional human-friendly rendering. Strictly display-identity; no PAT
+ * or auth fields land in this shape.
+ */
+export type TenantUserConnectorIdentityRequest =
+  Schemas["TenantUserConnectorIdentityRequest"];
+
+/**
+ * GET /api/v1/tenant/users/{tenantUserId}/identities item / POST response
+ * envelope. One row per `(tenant_user, connector)` pair.
+ */
+export type TenantUserConnectorIdentityResponse =
+  Schemas["TenantUserConnectorIdentityResponse"];
+
+/**
+ * POST /api/v1/tenant/connectors/github/oauth/authorize request body —
+ * the OAuth start envelope. ADR-0047 §13 adds `intent` (binding-wizard
+ * vs. user-identity), `tenantUserId`, and `bindingId` (wizard pre-mints
+ * the binding UUID client-side so the OAuth-callback persistence path
+ * can scope the resulting secret name).
+ */
+export type OAuthAuthorizeRequest = Schemas["OAuthAuthorizeRequest"];
+
+/**
+ * GET /api/v1/tenant/connectors/github/oauth/session/{sessionId} response.
+ * Carries the persisted secret name (`patSecretName`) and binding id
+ * (`bindingId`) for the wizard's pre-mint flow, plus the GitHub login
+ * the user-identity surface populates `username` from. Never carries
+ * the token value.
+ */
+export type OAuthSessionResponse = Schemas["OAuthSessionResponse"];
 
 // ---------------------------------------------------------------------------
 // Platform metadata + Auth surface — consumed by the Settings drawer (#451).

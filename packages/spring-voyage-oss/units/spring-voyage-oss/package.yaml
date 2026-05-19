@@ -187,9 +187,13 @@ members:
       expertise: [triage, code-review, architecture, design, dotnet, web, escalation]
       notifications: ["escalation", "completion"]
 # The umbrella holds the SOLE GitHub connector binding for this package.
-# Webhooks are matched against bindings by (installation_id, owner, repo);
-# duplicating the requirement on sub-units would yield non-deterministic
-# delivery (first match wins). Sub-units inherit $GITHUB_TOKEN and the
+# Webhooks are matched against bindings by (tenant, owner, repo) per
+# ADR-0047 §10 — every binding in the receiving tenant whose (owner, repo)
+# matches receives the event, and per-binding filters decide which units
+# process it. Duplicating the binding on sub-units would create a second
+# tenant-scoped binding on the same (owner, repo) pair and fan the event
+# out twice; that is a misconfiguration here because the orchestration
+# role belongs to the umbrella. Sub-units inherit $GITHUB_TOKEN and the
 # other GitHub env vars through the platform's binding-walk (closest
 # binding in the parent chain wins, #2380).
 requires:
