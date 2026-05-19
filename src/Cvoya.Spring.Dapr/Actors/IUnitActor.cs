@@ -319,12 +319,14 @@ public interface IUnitActor : IAgent
     /// <summary>
     /// Returns a coarse runtime-status snapshot of this unit — the same
     /// shape <see cref="IAgentActor.GetRuntimeStatusAsync"/> returns for
-    /// agents (#2100). Units do not currently track per-thread mailbox
-    /// channels (they invoke the runtime path directly per
-    /// <c>HandleDomainMessageAsync</c>), so the snapshot reports zero
-    /// in-flight / queued / channels today; the API layer combines this
-    /// with the <c>PersistentAgentRegistry</c> health probe to project
-    /// <c>idle</c> or <c>unavailable</c>.
+    /// agents (#2100). The in-flight + channel counts come from the
+    /// unit's per-thread dispatcher tracker populated by
+    /// <c>HandleDomainMessageAsync</c> (#2491); queued is zero because
+    /// the unit's dispatch path is fire-and-forget through
+    /// <see cref="IRuntimeInvocationPath"/> with no FIFO queue ahead of
+    /// the dispatcher. The API layer combines this with the
+    /// <c>PersistentAgentRegistry</c> health probe to project <c>busy</c>
+    /// / <c>idle</c> / <c>unavailable</c>.
     /// </summary>
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>A snapshot of the unit's runtime state.</returns>

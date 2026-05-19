@@ -54,6 +54,17 @@ public class UnitActor : Actor, IUnitActor
     private readonly Cvoya.Spring.Core.Issues.IIssueWriter? _issueWriter;
 
     /// <summary>
+    /// Per-thread dispatcher tracker — one entry per thread the unit is
+    /// currently dispatching through <see cref="IRuntimeInvocationPath"/>
+    /// (#2491). Surfaced through <see cref="GetRuntimeStatusAsync"/> so
+    /// MCP discovery and the portal runtime-status endpoint see actual
+    /// in-flight counts instead of the pre-#2491 hard-coded zero. Shared
+    /// shape with <see cref="AgentActor"/> — both subjects sit on the
+    /// same runtime-invocation seam per ADR-0039.
+    /// </summary>
+    private readonly ActorDispatchChannelTracker _activeWorkByThread = new();
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="UnitActor"/> class.
     /// </summary>
     /// <param name="host">The actor host providing runtime services.</param>
@@ -1047,15 +1058,22 @@ public class UnitActor : Actor, IUnitActor
         };
 
     /// <summary>
-    /// Handles a cancel message by logging the cancellation request.
+    /// Handles a cancel message by cancelling the active dispatcher for
+    /// the supplied thread, if any. Per ADR-0030 §44 the cancel is
+    /// per-thread — other threads keep running.
     /// </summary>
-    private Task<Message?> HandleCancelAsync(Message message, CancellationToken ct)
+    private async Task<Message?> HandleCancelAsync(Message message, CancellationToken ct)
     {
         _ = ct;
         _logger.LogInformation("Unit {ActorId} received cancel for thread {ThreadId}",
             Id.GetId(), message.ThreadId);
 
-        return Task.FromResult<Message?>(CreateAckResponse(message));
+        if (!string.IsNullOrEmpty(message.ThreadId))
+        {
+            await _activeWorkByThread.CancelAsync(message.ThreadId);
+        }
+
+        return CreateAckResponse(message);
     }
 
     /// <summary>
@@ -1133,7 +1151,10 @@ public class UnitActor : Actor, IUnitActor
 
     /// <summary>
     /// Handles a domain message by invoking the unit's runtime through the
-    /// shared runtime path.
+    /// shared runtime path. Records the thread in
+    /// <see cref="_activeWorkByThread"/> for the duration of the call so
+    /// <see cref="GetRuntimeStatusAsync"/> reports a non-zero in-flight
+    /// count while the runtime is dispatching (#2491).
     /// </summary>
     private async Task<Message?> HandleDomainMessageAsync(Message message, CancellationToken ct)
     {
@@ -1141,18 +1162,36 @@ public class UnitActor : Actor, IUnitActor
             "Unit {ActorId} invoking runtime path for domain message {MessageId}",
             Id.GetId(), message.Id);
 
-        // Forward the unit actor's own activity-emission delegate so that
-        // dispatch errors (e.g. credential-resolution failures) surface in
-        // the unit's Activity feed rather than being silently dropped by
-        // the lean overload's no-op default (#2211). The lean path owns
-        // dispatch-exit handling for units: there is no per-thread
-        // mailbox state to drain yet, but a dispatcher "no response"
-        // completion is still emitted as a neutral activity row (#2207).
-        await _runtimeInvocationPath.InvokeAsync(
-            Address,
-            message,
-            ct,
-            emitActivity: EmitActivityEventAsync);
+        // Per-thread bookkeeping: the lean InvokeAsync overload awaits the
+        // dispatcher and returns when the pipeline has launched the
+        // runtime (per IRuntimeInvocationPath docstring), so an Enter /
+        // Exit pair around the call mirrors what AgentActor does with its
+        // own tracker. Cancel messages on the same thread (see
+        // HandleCancelAsync) cancel the entry's CTS, but the unit's lean
+        // dispatch path does not currently consume the token — that's a
+        // follow-up if cancel-mid-dispatch becomes a hard requirement
+        // (#2491 scope is the status surface only).
+        var threadKey = message.ThreadId ?? message.Id.ToString("N");
+        _activeWorkByThread.Enter(threadKey);
+        try
+        {
+            // Forward the unit actor's own activity-emission delegate so that
+            // dispatch errors (e.g. credential-resolution failures) surface in
+            // the unit's Activity feed rather than being silently dropped by
+            // the lean overload's no-op default (#2211). The lean path owns
+            // dispatch-exit handling for units: there is no per-thread
+            // mailbox state to drain yet, but a dispatcher "no response"
+            // completion is still emitted as a neutral activity row (#2207).
+            await _runtimeInvocationPath.InvokeAsync(
+                Address,
+                message,
+                ct,
+                emitActivity: EmitActivityEventAsync);
+        }
+        finally
+        {
+            _activeWorkByThread.Exit(threadKey);
+        }
         return null;
     }
 
@@ -1172,19 +1211,21 @@ public class UnitActor : Actor, IUnitActor
     public Task<Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport> GetRuntimeStatusAsync(
         CancellationToken ct = default)
     {
-        // Units do not currently track per-thread mailbox channels — every
-        // domain message goes straight through `_runtimeInvocationPath`
-        // (see HandleDomainMessageAsync), so there is no in-actor queue
-        // depth to surface. The API layer combines the zero report below
-        // with the PersistentAgentRegistry health probe (units share the
-        // registry with agents) to project either `idle` or `unavailable`
-        // (#2100). When per-unit channel mailboxes land we backfill this
-        // method to mirror AgentActor.GetRuntimeStatusAsync.
+        // #2491: surface per-thread channel counts populated by
+        // HandleDomainMessageAsync. Units dispatch fire-and-forget through
+        // the shared IRuntimeInvocationPath (per ADR-0039), so there is no
+        // FIFO queue ahead of the dispatcher — `queued` stays zero by
+        // design. The in-flight count is the number of threads with an
+        // active dispatcher, mirroring what AgentActor reports from its
+        // ThreadChannel state. The API layer combines this report with
+        // the PersistentAgentRegistry health probe to project the wire
+        // `busy` / `queued` / `idle` / `unavailable` value (#2100).
         _ = ct;
+        var inFlight = _activeWorkByThread.InFlightCount;
         return Task.FromResult(new Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport(
-            InFlightThreadCount: 0,
+            InFlightThreadCount: inFlight,
             QueuedMessageCount: 0,
-            ChannelCount: 0,
+            ChannelCount: inFlight,
             ObservedAt: DateTimeOffset.UtcNow));
     }
 

@@ -75,12 +75,16 @@ public class AgentActor(
     private readonly IReadOnlyList<ISkillRegistry> _skillRegistries = skillRegistries.ToList();
 
     /// <summary>
-    /// Per-thread cancellation sources — one per thread the agent is
-    /// currently dispatching. Cancel-message handling cancels only the
-    /// requested thread's source; other threads continue independently
-    /// (ADR-0030 §44).
+    /// Per-thread dispatcher tracker — one entry per thread the agent is
+    /// currently dispatching, carrying that thread's
+    /// <see cref="CancellationTokenSource"/>. Cancel-message handling
+    /// cancels only the requested thread's source; other threads continue
+    /// independently (ADR-0030 §44). Shared with <see cref="UnitActor"/>
+    /// (#2491) so both subjects on the
+    /// <see cref="IRuntimeInvocationPath"/> seam expose the same in-flight
+    /// bookkeeping.
     /// </summary>
-    private readonly Dictionary<string, CancellationTokenSource> _activeWorkByThread = new();
+    private readonly ActorDispatchChannelTracker _activeWorkByThread = new();
 
     /// <summary>
     /// Agent-wide serialisation lock used when the agent's
@@ -391,12 +395,7 @@ public class AgentActor(
 
         // Cancel any dispatcher running for this thread. Other threads'
         // dispatchers are untouched.
-        if (_activeWorkByThread.TryGetValue(threadId, out var cts))
-        {
-            await cts.CancelAsync();
-            cts.Dispose();
-            _activeWorkByThread.Remove(threadId);
-        }
+        await _activeWorkByThread.CancelAsync(threadId);
 
         var channel = await GetChannelAsync(threadId, cancellationToken);
         if (channel is not null)
@@ -532,12 +531,7 @@ public class AgentActor(
                 {
                     return;
                 }
-                if (_activeWorkByThread.TryGetValue(ct, out var cts))
-                {
-                    await cts.CancelAsync();
-                    cts.Dispose();
-                    _activeWorkByThread.Remove(ct);
-                }
+                await _activeWorkByThread.CancelAsync(ct);
             },
             setPaused: (ct) => StateManager.SetStateAsync(StateKeys.AgentPaused, true, ct),
             emitActivity: EmitActivityEventAsync,
@@ -595,8 +589,7 @@ public class AgentActor(
             saveChannel: (ch, ct) => SaveChannelAsync(ch, ct),
             dispatch: async (ch, eff, ct) =>
             {
-                var cts = new CancellationTokenSource();
-                _activeWorkByThread[ch.ThreadId] = cts;
+                var cts = _activeWorkByThread.Enter(ch.ThreadId);
                 var context = await BuildPromptAssemblyContextAsync(ch, eff, ct);
                 PendingDispatchTask = DispatchAsync(ch.Messages[0], context, cts.Token);
             },
@@ -973,11 +966,7 @@ public class AgentActor(
         {
             // Channel was already cleared (e.g. by a per-thread cancel).
             // Drop the per-thread CTS bookkeeping if it's still around.
-            if (_activeWorkByThread.TryGetValue(threadId, out var cts))
-            {
-                cts.Dispose();
-                _activeWorkByThread.Remove(threadId);
-            }
+            _activeWorkByThread.Exit(threadId);
             _logger.LogDebug(
                 "Actor {ActorId} OnDispatchExitAsync no-op for thread {ThreadId} (reason: {Reason}).",
                 Id.GetId(), threadId, reason);
@@ -995,11 +984,7 @@ public class AgentActor(
 
         // Dispose the per-thread CTS — the dispatcher returned, the token
         // is no longer needed.
-        if (_activeWorkByThread.TryGetValue(threadId, out var existingCts))
-        {
-            existingCts.Dispose();
-            _activeWorkByThread.Remove(threadId);
-        }
+        _activeWorkByThread.Exit(threadId);
 
         if (channel.Messages.Count == 0)
         {
@@ -1024,8 +1009,7 @@ public class AgentActor(
         var head = channel.Messages[0];
         var effective = await ResolveEffectiveMetadataAsync(head, cancellationToken);
         var context = await BuildPromptAssemblyContextAsync(channel, effective, cancellationToken);
-        var newCts = new CancellationTokenSource();
-        _activeWorkByThread[threadId] = newCts;
+        var newCts = _activeWorkByThread.Enter(threadId);
         PendingDispatchTask = DispatchAsync(head, context, newCts.Token);
     }
 
