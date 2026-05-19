@@ -23,7 +23,7 @@ using Cvoya.Spring.Dapr.Execution;
 /// separate from <c>agent_live_config</c> because the lifetime is
 /// different — <c>agent_live_config</c> persists across deploys / restarts;
 /// this row is created on
-/// <see cref="PersistentAgentRegistry.Register"/> and dropped on
+/// <see cref="PersistentAgentRegistry.RegisterAsync"/> and dropped on
 /// <see cref="PersistentAgentRegistry.UndeployAsync"/> or
 /// <see cref="PersistentAgentRegistry.StopContainerAsync"/>.
 /// </para>
@@ -109,8 +109,14 @@ public class PersistentAgentRuntimeEntity : ITenantScopedEntity
     public string? OwnerHost { get; set; }
 
     /// <summary>
-    /// UTC timestamp of the last write to this row. Stamped by the
-    /// <c>SpringDbContext</c> audit-timestamp pipeline.
+    /// UTC timestamp of the most recent "container alive" signal for this
+    /// row — set by <see cref="PersistentAgentRegistry.RegisterAsync"/>
+    /// (fresh launch) and <see cref="PersistentAgentRegistry.RecordDispatchHeartbeatAsync"/>
+    /// (successful A2A dispatch). Bookkeeping writes (failure counter
+    /// increments, MarkUnhealthy flags) preserve the existing value;
+    /// <c>SpringDbContext.ApplyAuditTimestamps</c> has a #2519 carve-out
+    /// that suppresses the usual auto-bump for this entity. The
+    /// cross-process health sweep keys its freshness gate on this column.
     /// </summary>
     public DateTimeOffset UpdatedAt { get; set; }
 }

@@ -765,9 +765,10 @@ public class A2AExecutionDispatcher(
         // id, so the in-flight suppression doesn't hide actual breakage.
         using var dispatchScope = persistentAgentRegistry.BeginDispatch(agentId);
 
+        SvMessage? response;
         try
         {
-            return await SendA2AMessageAsync(
+            response = await SendA2AMessageAsync(
                 endpoint,
                 agentId,
                 containerId,
@@ -787,6 +788,18 @@ public class A2AExecutionDispatcher(
             await persistentAgentRegistry.MarkUnhealthyAsync(agentId, containerId, cancellationToken);
             throw;
         }
+
+        // #2519: a successful A2A POST is the strongest possible "this
+        // container is alive" signal. Bump the runtime row's UpdatedAt so
+        // sibling host processes' health-sweep freshness gate skips an
+        // otherwise-scheduled restart against this still-busy agent. Failures
+        // are not heartbeats — the catch block above already marked the row
+        // Unhealthy without bumping UpdatedAt. Heartbeat is detached from
+        // the caller's cancellation token: a successful dispatch must record
+        // its own freshness signal even if the upstream actor turn was
+        // cancelled after we got the response.
+        await persistentAgentRegistry.RecordDispatchHeartbeatAsync(agentId, CancellationToken.None);
+        return response;
     }
 
     /// <summary>

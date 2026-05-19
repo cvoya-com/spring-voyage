@@ -640,6 +640,111 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
+    public async Task DispatchAsync_PersistentAgent_SuccessfulSend_BumpsRegistryUpdatedAt()
+    {
+        // #2519 part 3: a successful A2A POST is the strongest possible
+        // "the container is alive" signal. The dispatcher records a
+        // freshness heartbeat by bumping the runtime row's UpdatedAt so a
+        // sibling host's health-sweep freshness gate (#2519 part 1) skips
+        // an otherwise-scheduled restart against this still-busy agent.
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId,
+                "My Agent",
+                "instructions",
+                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        await _persistentRegistry.RegisterAsync(
+            AgentId,
+            new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/"),
+            "existing-container",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var before = await _persistentRegistry.TryGetAsync(AgentId, TestContext.Current.CancellationToken);
+        before.ShouldNotBeNull();
+        var beforeUpdatedAt = before!.UpdatedAt;
+
+        // Give the wall clock at least one tick of separation so the
+        // strictly-greater assertion is not sensitive to clock resolution.
+        await Task.Delay(10, TestContext.Current.CancellationToken);
+
+        var message = CreateMessage(threadId: Guid.NewGuid().ToString("D"));
+        // Pre-flight probe runs on the registry's container runtime, not the
+        // dispatcher's — configure both so the dispatch completes.
+        _persistentContainerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+        InstallA2AStub();
+
+        var result = await _dispatcher.DispatchAsync(
+            message, context: null, TestContext.Current.CancellationToken);
+        result.ShouldNotBeNull();
+
+        var after = await _persistentRegistry.TryGetAsync(AgentId, TestContext.Current.CancellationToken);
+        after.ShouldNotBeNull();
+        after!.UpdatedAt.ShouldBeGreaterThan(beforeUpdatedAt);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_PersistentAgent_A2ACallThrows_DoesNotBumpUpdatedAt()
+    {
+        // The heartbeat is gated on a successful send only — a thrown
+        // A2A call marks the row Unhealthy via MarkUnhealthyAsync (which
+        // intentionally does NOT bump UpdatedAt, #2519). Without this
+        // asymmetry, a failed dispatch would still advance the freshness
+        // gate and hide an actual outage from sibling restart paths.
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId,
+                "My Agent",
+                "instructions",
+                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        await _persistentRegistry.RegisterAsync(
+            AgentId,
+            new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/"),
+            "existing-container",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var before = await _persistentRegistry.TryGetAsync(AgentId, TestContext.Current.CancellationToken);
+        before.ShouldNotBeNull();
+        var beforeUpdatedAt = before!.UpdatedAt;
+
+        await Task.Delay(10, TestContext.Current.CancellationToken);
+
+        var message = CreateMessage(threadId: Guid.NewGuid().ToString("D"));
+        // Pre-flight probe goes through PersistentAgentRegistry.ProbeLivenessAsync,
+        // which uses the registry's container runtime (not the dispatcher's).
+        // Configure both so the pre-flight passes; SendHttpJsonAsync on the
+        // dispatcher's runtime throws so the catch path marks Unhealthy.
+        _persistentContainerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+        _containerRuntime.SendHttpJsonAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("connection refused"));
+
+        var act = () => _dispatcher.DispatchAsync(
+            message, context: null, TestContext.Current.CancellationToken);
+        await Should.ThrowAsync<Exception>(act);
+
+        var after = await _persistentRegistry.TryGetAsync(AgentId, TestContext.Current.CancellationToken);
+        after.ShouldNotBeNull();
+        // Status flipped to Unhealthy by MarkUnhealthyAsync, but UpdatedAt
+        // is unchanged: the freshness gate must distinguish "container
+        // alive" signals from "container died" flags.
+        after!.HealthStatus.ShouldBe(AgentHealthStatus.Unhealthy);
+        after.UpdatedAt.ShouldBe(beforeUpdatedAt);
+    }
+
+    [Fact]
     public async Task DispatchAsync_PersistentAgent_MalformedThreadId_ThrowsBeforeIssuingCallbackToken()
     {
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())

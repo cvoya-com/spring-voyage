@@ -277,8 +277,12 @@ public class PersistentAgentRegistryTests : IDisposable
     }
 
     [Fact]
-    public async Task RunHealthChecksAsync_ConsecutiveFailures_MarksUnhealthy()
+    public async Task RunHealthChecksAsync_ConsecutiveFailures_KeepsRowAfterRestartFailure()
     {
+        // #2519: restart failure no longer DELETEs the row — it flips
+        // HealthStatus to Unknown and resets the counter so the next sweep
+        // re-probes the endpoint. The row may describe a sibling-launched
+        // container the local restart attempt couldn't see.
         _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
@@ -299,16 +303,12 @@ public class PersistentAgentRegistryTests : IDisposable
             await _registry.RunHealthChecksAsync();
         }
 
-        // After threshold failures + restart attempt, agent should be removed
-        // (restart fails because A2A endpoint never becomes ready with mock).
-        // Or it could be marked unhealthy. Let's check what happened.
         var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
-
-        // Either removed (restart failed) or unhealthy.
-        if (entry is not null)
-        {
-            entry.HealthStatus.ShouldBe(AgentHealthStatus.Unhealthy);
-        }
+        entry.ShouldNotBeNull();
+        // Restart failed but the row remains; HealthStatus is Unknown so
+        // the next sweep re-probes (#2519).
+        entry!.HealthStatus.ShouldBe(AgentHealthStatus.Unknown);
+        entry.ConsecutiveFailures.ShouldBe(0);
     }
 
     [Fact]
@@ -593,14 +593,14 @@ public class PersistentAgentRegistryTests : IDisposable
     }
 
     [Fact]
-    public async Task RunHealthChecksAsync_RestartAttemptFailure_DropsEntry()
+    public async Task RunHealthChecksAsync_RestartAttemptFailure_KeepsRowAndFlipsToUnknown()
     {
-        // The registry's restart path is one-shot: TryRestartAsync calls
-        // PersistentAgentLifecycle.DeployAsync, and if that throws, the
-        // entry is removed from the registry rather than retried in place.
-        // This caps the per-tick restart attempt to a single try — a
-        // permanently broken agent doesn't loop forever inside the timer.
-        // Re-deploys go through the explicit `spring agent deploy` path.
+        // #2519 (replaces the prior "DropsEntry" behaviour): the registry's
+        // restart path is still one-shot, but on failure it no longer DELETEs
+        // the row. The row may describe a perfectly healthy container started
+        // by a sibling host process between the start of this failure streak
+        // and the threshold tick. Keep the row, flip HealthStatus to Unknown,
+        // and let the next sweep re-probe the endpoint.
         _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
@@ -620,7 +620,95 @@ public class PersistentAgentRegistryTests : IDisposable
         }
 
         var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
-        entry.ShouldBeNull();
+        entry.ShouldNotBeNull();
+        entry!.HealthStatus.ShouldBe(AgentHealthStatus.Unknown);
+        entry.ConsecutiveFailures.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task RunHealthChecksAsync_SiblingHeartbeatBeforeThreshold_SkipsRestart()
+    {
+        // #2519 freshness gate: when the row's UpdatedAt advances past the
+        // first-failure timestamp the registry stamped at streak start, a
+        // sibling host process has rewritten the row since this streak
+        // began — the local failure count is against an endpoint the
+        // sibling has already replaced. The threshold tick must NOT restart;
+        // it resets the streak and flips to Unknown so the next sweep
+        // re-probes the (now-current) endpoint.
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(false));
+
+        var endpoint = new Uri("http://localhost:8999/");
+        var definition = new AgentDefinition(Agent1Id, "Test Agent", null,
+            new AgentExecutionConfig("claude-code", "image:v1", Hosting: AgentHostingMode.Persistent));
+        // Use the agent provider so a hypothetical DeployAsync call would
+        // proceed past the early-return — failing this expectation surfaces
+        // the unwanted restart attempt.
+        _agentProvider.GetByIdAsync(Agent1Id, Arg.Any<CancellationToken>()).Returns(definition);
+
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", definition, cancellationToken: Ct);
+
+        // First failure tick stamps the local first-failure timestamp and
+        // flips to Unhealthy.
+        await _registry.RunHealthChecksAsync();
+
+        // Sibling host process writes a heartbeat against the row — the
+        // RecordDispatchHeartbeatAsync entry point models that.
+        await _registry.RecordDispatchHeartbeatAsync(Agent1Id, Ct);
+
+        // Drive the streak to the threshold. The freshness gate must fire
+        // on the threshold tick and skip the restart entirely.
+        for (var i = 1; i < PersistentAgentRegistry.UnhealthyThreshold; i++)
+        {
+            await _registry.RunHealthChecksAsync();
+        }
+
+        var entry = await _registry.TryGetAsync(Agent1Id, Ct);
+        entry.ShouldNotBeNull();
+        // Row still present (not DELETEd by a restart attempt).
+        entry!.ContainerId.ShouldBe("container-1");
+        // Counter reset by the gate, status flipped to Unknown.
+        entry.ConsecutiveFailures.ShouldBe(0);
+        entry.HealthStatus.ShouldBe(AgentHealthStatus.Unknown);
+        // The freshness gate skipped the restart path: no container
+        // teardown / relaunch happened.
+        await _containerRuntime.DidNotReceive().StartAsync(
+            Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecordDispatchHeartbeatAsync_BumpsUpdatedAt()
+    {
+        // #2519 part 3: a successful A2A dispatch records a freshness
+        // heartbeat by bumping UpdatedAt on the runtime row. This is the
+        // signal the cross-process freshness gate (above) keys on.
+        var endpoint = new Uri("http://localhost:8999/");
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", cancellationToken: Ct);
+
+        var before = await _registry.TryGetAsync(Agent1Id, Ct);
+        before.ShouldNotBeNull();
+        var beforeUpdatedAt = before!.UpdatedAt;
+
+        // Give the wall-clock at least one tick of separation so the
+        // strictly-greater comparison below isn't sensitive to clock
+        // resolution on fast CI machines.
+        await Task.Delay(10, Ct);
+        await _registry.RecordDispatchHeartbeatAsync(Agent1Id, Ct);
+
+        var after = await _registry.TryGetAsync(Agent1Id, Ct);
+        after.ShouldNotBeNull();
+        after!.UpdatedAt.ShouldBeGreaterThan(beforeUpdatedAt);
+    }
+
+    [Fact]
+    public async Task RecordDispatchHeartbeatAsync_UnknownAgent_DoesNotThrow()
+    {
+        // No-op when the row no longer exists (operator deleted it between
+        // the dispatch start and the heartbeat write). Keeping this silent
+        // matches the design contract: the heartbeat is a best-effort
+        // freshness signal, not a correctness primitive.
+        await _registry.RecordDispatchHeartbeatAsync(Agent1Id, Ct);
     }
 
     /// <summary>

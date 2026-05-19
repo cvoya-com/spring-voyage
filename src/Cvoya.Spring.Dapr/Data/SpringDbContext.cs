@@ -560,7 +560,22 @@ public class SpringDbContext : DbContext
             {
                 if (entry.Properties.FirstOrDefault(p => p.Metadata.Name == "UpdatedAt") is { } updatedAt)
                 {
-                    updatedAt.CurrentValue = now;
+                    // #2519 carve-out: PersistentAgentRuntimeEntity drives
+                    // the cross-process freshness gate keyed on UpdatedAt.
+                    // Probe-bookkeeping writes (failure counter increments,
+                    // MarkUnhealthy flags) must not bump the column or the
+                    // gate fires against the registry's own writes. The
+                    // registry opts its "fresh container alive" signals
+                    // (RegisterAsync, RecordDispatchHeartbeatAsync) into a
+                    // bump by setting CurrentValue explicitly — that value
+                    // falls through to the EF write untouched here. All
+                    // other Modified writes to this entity leave UpdatedAt
+                    // alone, which is exactly the freshness-gate semantic
+                    // we need.
+                    if (entry.Entity is not PersistentAgentRuntimeEntity)
+                    {
+                        updatedAt.CurrentValue = now;
+                    }
                 }
             }
         }
