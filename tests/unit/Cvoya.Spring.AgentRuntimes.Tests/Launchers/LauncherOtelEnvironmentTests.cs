@@ -33,7 +33,10 @@ public class LauncherOtelEnvironmentTests
         LauncherOtelEnvironment.Add(context, envVars);
 
         envVars[LauncherOtelEnvironment.OtlpEndpointEnvVar].ShouldBe("https://platform.example.com/otlp");
-        envVars[LauncherOtelEnvironment.OtlpProtocolEnvVar].ShouldBe("http/json");
+        // #2501: the launcher now defaults to OTLP/HTTP+protobuf for new
+        // runtime spawns. http/json is still accepted by the ingest
+        // controller; this assertion pins the default the launcher emits.
+        envVars[LauncherOtelEnvironment.OtlpProtocolEnvVar].ShouldBe(LauncherOtelEnvironment.DefaultOtlpProtocol);
         envVars[LauncherOtelEnvironment.OtlpHeadersEnvVar].ShouldBe("Authorization=Bearer the-jwt-token");
         envVars[LauncherOtelEnvironment.OtlpResourceAttributesEnvVar].ShouldContain("sv.tenant.id=");
         envVars[LauncherOtelEnvironment.OtlpResourceAttributesEnvVar].ShouldContain("sv.subject.uuid=");

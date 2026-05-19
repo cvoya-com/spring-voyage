@@ -9,6 +9,11 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
+    <!-- #2501: optional OTLP/HTTP+protobuf emit path. When the
+         launcher sets OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf the
+         SDK encodes payloads via Google.Protobuf; http/json remains
+         the fallback wire format. -->
+    <PackageReference Include="Google.Protobuf" />
   </ItemGroup>
 
   <ItemGroup>

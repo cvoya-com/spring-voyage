@@ -15,6 +15,12 @@ dependencies = [
     # PyYAML for loading agent-definition.yaml (optional at runtime;
     # the SDK falls back to JSON if YAML is absent).
     "PyYAML>=6.0",
+    # #2501: OTLP/HTTP+protobuf telemetry emission. opentelemetry-proto
+    # provides the generated Python OTLP message types; we wire them up
+    # in spring_voyage_agent_sdk.telemetry when
+    # OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf. http/json remains the
+    # SDK fallback.
+    "opentelemetry-proto>=1.20,<2",
 ]
 
 [project.optional-dependencies]

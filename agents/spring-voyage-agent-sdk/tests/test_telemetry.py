@@ -126,6 +126,79 @@ class TestTelemetryEmitter:
         assert emitter.resource_attributes["sv.tenant.id"] == "t1"
         assert emitter.resource_attributes["service.name"] == "spring-voyage/agent"
 
+    def test_emit_span_protobuf_posts_with_protobuf_content_type(self):
+        """#2501: when configured for http/protobuf, the SDK posts the
+        protobuf envelope under the application/x-protobuf MIME type."""
+        captured: dict[str, Any] = {}
+
+        def _fake_urlopen(request, timeout):  # noqa: ANN001
+            captured["url"] = request.full_url
+            captured["body"] = request.data
+            captured["headers"] = dict(request.headers)
+            return _FakeResponse(200)
+
+        with patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+            emitter = TelemetryEmitter(
+                endpoint="https://api.example.com/otlp",
+                resource_attributes={
+                    "sv.tenant.id": "tenant1",
+                    "sv.subject.uuid": "subject1",
+                    "sv.subject.kind": "agent",
+                },
+                protocol="http/protobuf",
+            )
+            assert emitter.protocol == "http/protobuf"
+            ok = emitter.emit_span(
+                name="sv.tool.call",
+                trace_id=new_trace_id(),
+                span_id=new_span_id(),
+                parent_span_id=new_span_id(),
+                start_unix_nanos=1000,
+                end_unix_nanos=2000,
+                attributes={"tool.name": "acme.echo"},
+            )
+
+        assert ok is True
+        # Content-Type header carries the protobuf MIME (urllib's Request
+        # capitalises header names case-insensitively).
+        content_type = (
+            captured["headers"].get("Content-type")
+            or captured["headers"].get("Content-Type")
+        )
+        assert content_type == "application/x-protobuf"
+        # Body must be non-empty bytes; the first byte is the field tag for
+        # resource_spans (field 1, wire type 2 = 0x0a).
+        body = captured["body"]
+        assert isinstance(body, bytes)
+        assert len(body) > 0
+        assert body[0] == 0x0A
+
+        # Round-trip the protobuf body through the upstream proto types
+        # to confirm the structure is well-formed.
+        from opentelemetry.proto.collector.trace.v1 import trace_service_pb2
+
+        request = trace_service_pb2.ExportTraceServiceRequest()
+        request.ParseFromString(body)
+        assert len(request.resource_spans) == 1
+        rs = request.resource_spans[0]
+        # Resource attributes survived the round-trip.
+        kv = {a.key: a.value.string_value for a in rs.resource.attributes}
+        assert kv["sv.tenant.id"] == "tenant1"
+        span = rs.scope_spans[0].spans[0]
+        assert span.name == "sv.tool.call"
+
+    def test_protocol_defaults_to_json_when_unset(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_PROTOCOL", raising=False)
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.example.com/otlp")
+        emitter = TelemetryEmitter.from_environment()
+        assert emitter.protocol == "http/json"
+
+    def test_protocol_http_protobuf_picked_from_env(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.example.com/otlp")
+        emitter = TelemetryEmitter.from_environment()
+        assert emitter.protocol == "http/protobuf"
+
     def test_progress_event_shape(self):
         event = TelemetryEmitter.progress_event(
             "starting work",

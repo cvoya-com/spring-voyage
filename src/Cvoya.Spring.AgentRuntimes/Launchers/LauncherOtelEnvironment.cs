@@ -39,8 +39,16 @@ public static class LauncherOtelEnvironment
     /// </summary>
     public const string OtlpEndpointEnvVar = "OTEL_EXPORTER_OTLP_ENDPOINT";
 
-    /// <summary>OTLP wire protocol selector — JSON for v0.1.</summary>
+    /// <summary>OTLP wire protocol selector — <c>http/protobuf</c> or <c>http/json</c>.</summary>
     public const string OtlpProtocolEnvVar = "OTEL_EXPORTER_OTLP_PROTOCOL";
+
+    /// <summary>
+    /// Default OTLP wire protocol the launcher pins for new runtime
+    /// spawns (issue #2501). Protobuf is leaner on the wire and is the
+    /// OTel spec's recommendation; <c>http/json</c> is still accepted by
+    /// the ingest controller for callers that prefer it.
+    /// </summary>
+    public const string DefaultOtlpProtocol = "http/protobuf";
 
     /// <summary>Per-OTLP bearer-token authentication header injection.</summary>
     public const string OtlpHeadersEnvVar = "OTEL_EXPORTER_OTLP_HEADERS";
@@ -86,7 +94,10 @@ public static class LauncherOtelEnvironment
         // Rewrite the callback path to the sibling /otlp prefix.
         var otlpEndpoint = $"{baseUri.Scheme}://{baseUri.Authority}{OtlpRoutePrefix}";
         envVars[OtlpEndpointEnvVar] = otlpEndpoint;
-        envVars[OtlpProtocolEnvVar] = "http/json";
+        // #2501: default to OTLP/HTTP+protobuf for new runtime spawns.
+        // The ingest controller still accepts http/json for SDKs that
+        // pin the JSON form explicitly.
+        envVars[OtlpProtocolEnvVar] = DefaultOtlpProtocol;
 
         if (envVars.TryGetValue(AgentCallbackEnvironmentContract.CallbackTokenEnvVar, out var callbackToken)
             && !string.IsNullOrEmpty(callbackToken))
