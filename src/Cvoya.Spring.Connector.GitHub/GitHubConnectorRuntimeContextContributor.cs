@@ -18,30 +18,33 @@ using Microsoft.Extensions.Logging;
 /// <see cref="IConnectorPromptContextContributor"/> (#2442). For every
 /// container launch whose subject inherits — directly or via the unit
 /// hierarchy — a binding to <see cref="GitHubConnectorType"/>, this
-/// contributor emits the owner / repo / installation id / reviewer
-/// identity plus a freshly-minted, short-lived installation token, AND
-/// a platform-layer markdown fragment telling the agent which env-vars
-/// it received and how to use them. The container's <c>gh</c> /
-/// <c>git</c> tooling uses the token to authenticate against the
-/// bound repository; <c>GITHUB_TOKEN</c> is published as a convenience
-/// alias so the ecosystem CLIs pick it up natively (#2442).
+/// contributor emits the owner / repo / reviewer identity plus an
+/// outbound bearer token resolved through
+/// <see cref="GitHubBindingAuthResolver"/> per ADR-0047 §6, AND a
+/// platform-layer markdown fragment telling the agent which env-vars it
+/// received and how to use them. The container's <c>gh</c> / <c>git</c>
+/// tooling uses the token to authenticate against the bound repository;
+/// <c>GITHUB_TOKEN</c> is published as a convenience alias so the
+/// ecosystem CLIs pick it up natively (#2442).
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Per-launch lifecycle.</b> The token is minted inside
+/// <b>Per-launch lifecycle.</b> The credential is resolved inside
 /// <see cref="ContributeAsync"/> and lives only for the duration of the
-/// container. Rotation happens by re-launching — the seam contract explicitly
-/// disallows caching tokens across launches.
+/// container. On the App branch the value is a freshly-minted short-lived
+/// installation token; on the PAT branch the value is the tenant-secret-
+/// store entry. Rotation happens by re-launching — the seam contract
+/// explicitly disallows caching credentials across launches.
 /// </para>
 /// <para>
 /// <b>Env vars produced.</b>
 /// <list type="bullet">
 ///   <item><description><c>SPRING_CONNECTOR_GITHUB_OWNER</c> — repository owner login.</description></item>
 ///   <item><description><c>SPRING_CONNECTOR_GITHUB_REPO</c> — repository name.</description></item>
-///   <item><description><c>SPRING_CONNECTOR_GITHUB_INSTALLATION_ID</c> — GitHub App installation id (decimal).</description></item>
+///   <item><description><c>SPRING_CONNECTOR_GITHUB_INSTALLATION_ID</c> — GitHub App installation id (decimal). Only set on the App-installation branch; omitted when the binding uses a PAT.</description></item>
 ///   <item><description><c>SPRING_CONNECTOR_GITHUB_REVIEWER</c> — chosen reviewer login (omitted when the binding declares no reviewer).</description></item>
-///   <item><description><c>SPRING_CONNECTOR_GITHUB_TOKEN</c> — short-lived installation access token (the value GitHub returns from <c>POST /app/installations/{id}/access_tokens</c>).</description></item>
-///   <item><description><c>SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT</c> — ISO-8601 UTC expiry the container can use to plan its own work without re-minting.</description></item>
+///   <item><description><c>SPRING_CONNECTOR_GITHUB_TOKEN</c> — the outbound bearer the container authenticates with (installation access token on the App branch, PAT on the PAT branch).</description></item>
+///   <item><description><c>SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT</c> — ISO-8601 UTC expiry the container can use to plan its own work without re-minting. Only set on the App-installation branch; PAT secrets rotate out-of-band so the contributor does not synthesise an expiry.</description></item>
 /// </list>
 /// </para>
 /// <para>
@@ -59,7 +62,7 @@ using Microsoft.Extensions.Logging;
 /// </para>
 /// </remarks>
 public class GitHubConnectorRuntimeContextContributor(
-    GitHubAppAuth auth,
+    GitHubBindingAuthResolver authResolver,
     ILogger<GitHubConnectorRuntimeContextContributor> logger)
     : IConnectorRuntimeContextContributor, IConnectorPromptContextContributor
 {
@@ -126,44 +129,40 @@ public class GitHubConnectorRuntimeContextContributor(
             return ConnectorRuntimeContextContribution.Empty;
         }
 
-        if (config.AppInstallationId is null or 0)
-        {
-            // Without an installation id the connector cannot mint a token.
-            // The validation surface should have caught this earlier; if it
-            // didn't, surface a clean dispatch error so the operator can
-            // re-bind with an explicit installation choice.
-            logger.LogWarning(
-                "GitHub runtime context: binding on unit {Unit:N} has no installation id; " +
-                "skipping the contribution. Subject={Subject}.",
-                request.BindingOwnerUnitId, request.Subject);
-            return ConnectorRuntimeContextContribution.Empty;
-        }
-
-        var installationId = config.AppInstallationId.Value;
-        InstallationAccessToken minted;
+        GitHubAuthCredential credential;
         try
         {
-            // Mint directly through the GitHubAppAuth path (the same one
-            // GitHubConnector.CreateAuthenticatedClientAsync uses for
-            // outbound API calls). The seam contract is per-launch, so
-            // we deliberately bypass the installation-token cache here —
-            // a fresh token per container launch keeps the credential
-            // window short and predictable.
-            minted = await auth.MintInstallationTokenAsync(installationId, cancellationToken);
+            // ADR-0047 §6: the binding-create gate (§11) pins exactly one
+            // of AppInstallationId / PatSecretName; the resolver
+            // dispatches on whichever is set. The seam contract is
+            // per-launch — the resolver's installation-token-cache layer
+            // coalesces concurrent mints across launches without leaking
+            // a stale token to a launching container.
+            credential = await authResolver.ResolveAsync(config, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             throw;
         }
-        catch (Exception ex)
+        catch (GitHubBindingAuthMissingException ex)
         {
             // Re-throw so the dispatcher surfaces the failure to the
             // operator — silently dropping the contribution would leave
             // the container with no token, which is worse than a clean
-            // dispatch failure.
+            // dispatch failure. Preserve the structured code by passing
+            // the typed exception unchanged.
+            logger.LogWarning(ex,
+                "GitHub runtime context: binding auth missing for unit {Unit:N}; " +
+                "failing the launch. Subject={Subject}.",
+                request.BindingOwnerUnitId, request.Subject);
+            throw;
+        }
+        catch (Exception ex)
+        {
             throw new InvalidOperationException(
-                $"Failed to mint a GitHub installation access token for installation {installationId} " +
-                $"(unit {request.BindingOwnerUnitId:N}, subject {request.Subject}): {ex.Message}",
+                $"Failed to resolve a GitHub credential for unit {request.BindingOwnerUnitId:N} " +
+                $"(subject {request.Subject}): {ex.Message}",
                 ex);
         }
 
@@ -171,10 +170,26 @@ public class GitHubConnectorRuntimeContextContributor(
         {
             [EnvOwner] = owner,
             [EnvRepo] = repoName,
-            [EnvInstallationId] = installationId.ToString(CultureInfo.InvariantCulture),
-            [EnvToken] = minted.Token,
-            [EnvTokenExpiresAt] = minted.ExpiresAt.ToString("o", CultureInfo.InvariantCulture),
+            [EnvToken] = credential.Token,
         };
+
+        // Installation-id env-var only makes sense on the App branch;
+        // PAT bindings have no installation id. The container's gh / git
+        // tooling uses the token alone — installation_id is for
+        // contributors that mint additional installation-scoped tokens
+        // (none in OSS today).
+        if (credential.Kind == GitHubAuthCredentialKind.AppInstallation
+            && config.AppInstallationId is { } installationId and > 0)
+        {
+            envVars[EnvInstallationId] = installationId.ToString(CultureInfo.InvariantCulture);
+        }
+
+        // Token-expiry env-var is only set on the App branch. PATs rotate
+        // out-of-band; the resolver does not synthesise an expiry.
+        if (credential.ExpiresAt is { } expiresAt)
+        {
+            envVars[EnvTokenExpiresAt] = expiresAt.ToString("o", CultureInfo.InvariantCulture);
+        }
 
         // Reviewer is optional — omit the env var entirely when the
         // binding declared no default reviewer so the container sees a
@@ -188,10 +203,12 @@ public class GitHubConnectorRuntimeContextContributor(
         var bindingDoc = new GitHubBindingFile(
             Owner: owner,
             Repo: repoName,
-            InstallationId: installationId,
+            InstallationId: credential.Kind == GitHubAuthCredentialKind.AppInstallation
+                ? config.AppInstallationId
+                : null,
             Reviewer: string.IsNullOrWhiteSpace(config.Reviewer) ? null : config.Reviewer,
             OwnerUnitId: request.BindingOwnerUnitId,
-            TokenExpiresAt: minted.ExpiresAt);
+            TokenExpiresAt: credential.ExpiresAt);
         var bindingJson = JsonSerializer.Serialize(bindingDoc, BindingFileJson);
 
         var contextFiles = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -204,13 +221,13 @@ public class GitHubConnectorRuntimeContextContributor(
         // the alias is the convenience hop for gh / git auth.
         var aliasVars = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            [EnvTokenWellKnownAlias] = minted.Token,
+            [EnvTokenWellKnownAlias] = credential.Token,
         };
 
         logger.LogInformation(
             "GitHub runtime context contributed for subject {Subject}: owner={Owner} repo={Repo} " +
-            "installation={InstallationId} reviewer={Reviewer} ownerUnit={OwnerUnit:N}",
-            request.Subject, owner, repoName, installationId,
+            "kind={Kind} reviewer={Reviewer} ownerUnit={OwnerUnit:N}",
+            request.Subject, owner, repoName, credential.Kind,
             string.IsNullOrWhiteSpace(config.Reviewer) ? "(none)" : config.Reviewer,
             request.BindingOwnerUnitId);
 
@@ -276,8 +293,8 @@ public class GitHubConnectorRuntimeContextContributor(
             - $SPRING_CONNECTOR_GITHUB_OWNER       — repo owner ({{owner}})
             - $SPRING_CONNECTOR_GITHUB_REPO        — repo name ({{repo}})
             - $SPRING_CONNECTOR_GITHUB_REVIEWER    — operator's GitHub login for review requests / assignee fallback
-            - $SPRING_CONNECTOR_GITHUB_TOKEN       — short-lived installation token (also exposed as $GITHUB_TOKEN for gh / git compatibility)
-            - $SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT — token expiry (UTC ISO)
+            - $SPRING_CONNECTOR_GITHUB_TOKEN       — outbound bearer token (also exposed as $GITHUB_TOKEN for gh / git compatibility)
+            - $SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT — token expiry (UTC ISO; only set on the App-installation auth path)
 
             Use `gh` and `git` against the bound repo:
 
@@ -300,8 +317,8 @@ public class GitHubConnectorRuntimeContextContributor(
     private sealed record GitHubBindingFile(
         string Owner,
         string Repo,
-        long InstallationId,
+        long? InstallationId,
         string? Reviewer,
         Guid OwnerUnitId,
-        DateTimeOffset TokenExpiresAt);
+        DateTimeOffset? TokenExpiresAt);
 }

@@ -111,11 +111,19 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddSingleton<IUnitConnectorRuntimeStore, UnitActorConnectorRuntimeStore>();
 
         // #2456 — connector-agnostic "list bindings of this type" seam.
-        // GitHub uses it to resolve the destination unit from
-        // (installation_id, owner, repo) on App-level webhook deliveries.
-        // Backed by the EF binding store; TryAdd so cloud overlays can
-        // substitute tenant-aware variants.
+        // GitHub uses it to fan out an inbound webhook payload across
+        // every matching binding in the receiving tenant per
+        // ADR-0047 §10. Backed by the EF binding store; TryAdd so cloud
+        // overlays can substitute tenant-aware variants.
         services.TryAddSingleton<IUnitConnectorBindingLookup, UnitActorConnectorBindingLookup>();
+
+        // ADR-0047 §10 — connector-agnostic cross-tenant fingerprint
+        // probe. The connector's binding-create endpoint calls this
+        // before inserting the row; a true result triggers
+        // GitHubCrossTenantRepoBindingConflict (HTTP 409). Backed by an
+        // IgnoreQueryFilters EF query across the whole binding table,
+        // restricted to other tenants by an explicit Where clause.
+        services.TryAddSingleton<IConnectorBindingCrossTenantProbe, UnitConnectorBindingCrossTenantProbe>();
 
         // #2359: the unit-start connector dispatcher must register here, not
         // in the API host. UnitActor.TryAutoStartAsync runs in the Worker

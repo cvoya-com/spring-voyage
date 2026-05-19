@@ -3,7 +3,6 @@
 
 namespace Cvoya.Spring.Connector.GitHub.Tests;
 
-using System.Security.Cryptography;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
@@ -19,7 +18,8 @@ using Xunit;
 
 /// <summary>
 /// Unit tests for <see cref="GitHubConnectorRuntimeContextContributor"/> —
-/// the #2380 GitHub-side adoption of the connector-runtime-context seam.
+/// the #2380 GitHub-side adoption of the connector-runtime-context seam,
+/// re-targeted onto ADR-0047 §6's binding-auth resolver.
 /// </summary>
 public class GitHubConnectorRuntimeContextContributorTests
 {
@@ -29,7 +29,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     private static readonly DateTimeOffset TokenExpiry = new(2026, 5, 17, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task ContributeAsync_ValidBinding_EmitsExpectedEnvVars()
+    public async Task ContributeAsync_AppInstallationBinding_EmitsExpectedEnvVars()
     {
         var config = new UnitGitHubConfig(
             Repo: "acme/platform",
@@ -37,9 +37,7 @@ public class GitHubConnectorRuntimeContextContributorTests
             Events: null,
             Reviewer: "reviewer-login");
         var binding = MakeBinding(config);
-        var auth = new FakeGitHubAppAuth("ghs_minted-token-123", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var contributor = BuildContributor(AppResolver("ghs_minted-token-123", TokenExpiry));
 
         var contribution = await contributor.ContributeAsync(
             new ConnectorRuntimeContextRequest(Subject, OwnerUnit, binding, TenantId),
@@ -63,9 +61,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     public async Task ContributeAsync_EnvVarsRespectSeamNamespace()
     {
         var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: "rev"));
-        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var contributor = BuildContributor(AppResolver("t", TokenExpiry));
 
         var contribution = await contributor.ContributeAsync(
             new ConnectorRuntimeContextRequest(Subject, OwnerUnit, binding, TenantId),
@@ -81,9 +77,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     public async Task ContributeAsync_NoReviewer_OmitsReviewerEnvVar()
     {
         var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: null));
-        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var contributor = BuildContributor(AppResolver("t", TokenExpiry));
 
         var contribution = await contributor.ContributeAsync(
             new ConnectorRuntimeContextRequest(Subject, OwnerUnit, binding, TenantId),
@@ -97,9 +91,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     public async Task ContributeAsync_WhitespaceReviewer_OmitsReviewerEnvVar()
     {
         var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: "   "));
-        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var contributor = BuildContributor(AppResolver("t", TokenExpiry));
 
         var contribution = await contributor.ContributeAsync(
             new ConnectorRuntimeContextRequest(Subject, OwnerUnit, binding, TenantId),
@@ -113,9 +105,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     public async Task ContributeAsync_WritesBindingJsonFile_WithoutTokenInBody()
     {
         var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: "rev"));
-        var auth = new FakeGitHubAppAuth("ghs_secret", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var contributor = BuildContributor(AppResolver("ghs_secret", TokenExpiry));
 
         var contribution = await contributor.ContributeAsync(
             new ConnectorRuntimeContextRequest(Subject, OwnerUnit, binding, TenantId),
@@ -139,9 +129,7 @@ public class GitHubConnectorRuntimeContextContributorTests
         // contributor returns Empty. Pre-ADR-0047 row shape — kept under
         // test as a regression guard.
         var binding = MakeBinding(new UnitGitHubConfig("platform", 4242, Reviewer: null));
-        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var contributor = BuildContributor(AppResolver("t", TokenExpiry));
 
         var contribution = await contributor.ContributeAsync(
             new ConnectorRuntimeContextRequest(Subject, OwnerUnit, binding, TenantId),
@@ -151,43 +139,76 @@ public class GitHubConnectorRuntimeContextContributorTests
     }
 
     [Fact]
-    public async Task ContributeAsync_MissingInstallationId_ReturnsEmpty()
+    public async Task ContributeAsync_PatBinding_EmitsTokenWithoutInstallationOrExpiry()
     {
-        var binding = MakeBinding(new UnitGitHubConfig("acme/platform", AppInstallationId: null));
-        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        // PAT branch: the resolver supplies the secret value, the
+        // contributor emits it under SPRING_CONNECTOR_GITHUB_TOKEN, and
+        // the installation-id / token-expires-at env-vars are omitted
+        // because they would be meaningless without an App installation
+        // behind the credential.
+        var config = new UnitGitHubConfig(
+            Repo: "acme/platform",
+            AppInstallationId: null,
+            PatSecretName: "binding/abc/github/pat",
+            Reviewer: "rev");
+        var binding = MakeBinding(config);
+        var contributor = BuildContributor(PatResolver("ghp_personal-token"));
 
         var contribution = await contributor.ContributeAsync(
             new ConnectorRuntimeContextRequest(Subject, OwnerUnit, binding, TenantId),
             TestContext.Current.CancellationToken);
 
-        contribution.ShouldBe(ConnectorRuntimeContextContribution.Empty);
+        contribution.EnvironmentVariables.ShouldContainKeyAndValue(
+            GitHubConnectorRuntimeContextContributor.EnvOwner, "acme");
+        contribution.EnvironmentVariables.ShouldContainKeyAndValue(
+            GitHubConnectorRuntimeContextContributor.EnvRepo, "platform");
+        contribution.EnvironmentVariables.ShouldContainKeyAndValue(
+            GitHubConnectorRuntimeContextContributor.EnvToken, "ghp_personal-token");
+        contribution.EnvironmentVariables.ShouldNotContainKey(
+            GitHubConnectorRuntimeContextContributor.EnvInstallationId);
+        contribution.EnvironmentVariables.ShouldNotContainKey(
+            GitHubConnectorRuntimeContextContributor.EnvTokenExpiresAt);
+        contribution.WellKnownAliasEnvironmentVariables.ShouldNotBeNull();
+        contribution.WellKnownAliasEnvironmentVariables!.ShouldContainKeyAndValue(
+            GitHubConnectorRuntimeContextContributor.EnvTokenWellKnownAlias, "ghp_personal-token");
     }
 
     [Fact]
-    public async Task ContributeAsync_TokenMintFails_PropagatesException()
+    public async Task ContributeAsync_AuthMissing_PropagatesException()
+    {
+        // The resolver raised the use-time auth-missing signal; the
+        // contributor MUST surface it unchanged so the dispatcher fails
+        // the launch with a structured error rather than landing a
+        // half-configured container with no GitHub credential.
+        var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: "rev"));
+        var resolver = ThrowingResolver(new GitHubBindingAuthMissingException("secret gone"));
+        var contributor = BuildContributor(resolver);
+
+        await Should.ThrowAsync<GitHubBindingAuthMissingException>(async () =>
+            await contributor.ContributeAsync(
+                new ConnectorRuntimeContextRequest(Subject, OwnerUnit, binding, TenantId),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ContributeAsync_ResolverThrowsUnexpected_WrappedAsInvalidOperationException()
     {
         var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: "rev"));
-        var auth = new ThrowingGitHubAppAuth(new HttpRequestException("github 500"));
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var resolver = ThrowingResolver(new HttpRequestException("github 500"));
+        var contributor = BuildContributor(resolver);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
             await contributor.ContributeAsync(
                 new ConnectorRuntimeContextRequest(Subject, OwnerUnit, binding, TenantId),
                 TestContext.Current.CancellationToken));
 
-        ex.Message.ShouldContain("4242");
+        ex.Message.ShouldContain(OwnerUnit.ToString("N"));
     }
 
     [Fact]
     public void ConnectorTypeId_MatchesGitHubConnectorType()
     {
-        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
-
+        var contributor = BuildContributor(AppResolver("t", TokenExpiry));
         contributor.ConnectorTypeId.ShouldBe(GitHubConnectorType.GitHubTypeId);
     }
 
@@ -201,9 +222,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     public async Task ContributeAsync_PublishesGithubTokenAliasWithSameValue()
     {
         var binding = MakeBinding(new UnitGitHubConfig("acme/platform", 4242, Reviewer: "rev"));
-        var auth = new FakeGitHubAppAuth("ghs_dual-presence-token", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var contributor = BuildContributor(AppResolver("ghs_dual-presence-token", TokenExpiry));
 
         var contribution = await contributor.ContributeAsync(
             new ConnectorRuntimeContextRequest(Subject, OwnerUnit, binding, TenantId),
@@ -224,9 +243,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     public async Task GetPromptHintsAsync_ValidBinding_ReturnsFragmentNamingTheRepo()
     {
         var binding = MakeBinding(new UnitGitHubConfig("cvoya-com/spring-voyage", 4242, Reviewer: "rev"));
-        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var contributor = BuildContributor(AppResolver("t", TokenExpiry));
 
         var fragment = await contributor.GetPromptHintsAsync(
             Subject, OwnerUnit, binding, TestContext.Current.CancellationToken);
@@ -247,12 +264,9 @@ public class GitHubConnectorRuntimeContextContributorTests
     public async Task GetPromptHintsAsync_UnqualifiedRepo_ReturnsNull()
     {
         // ADR-0047 §11: unqualified repo (no `/`) is rejected by
-        // TryParseRepo so the contributor returns null. This covers both
-        // pre-ADR-0047 owner-only and repo-only row shapes.
+        // TryParseRepo so the contributor returns null.
         var binding = MakeBinding(new UnitGitHubConfig("platform", 4242, Reviewer: null));
-        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var contributor = BuildContributor(AppResolver("t", TokenExpiry));
 
         var fragment = await contributor.GetPromptHintsAsync(
             Subject, OwnerUnit, binding, TestContext.Current.CancellationToken);
@@ -264,9 +278,7 @@ public class GitHubConnectorRuntimeContextContributorTests
     public async Task GetPromptHintsAsync_EmptyRepo_ReturnsNull()
     {
         var binding = MakeBinding(new UnitGitHubConfig("", 4242, Reviewer: null));
-        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var contributor = BuildContributor(AppResolver("t", TokenExpiry));
 
         var fragment = await contributor.GetPromptHintsAsync(
             Subject, OwnerUnit, binding, TestContext.Current.CancellationToken);
@@ -283,9 +295,7 @@ public class GitHubConnectorRuntimeContextContributorTests
         // assembly.
         var malformed = JsonSerializer.SerializeToElement("not-an-object");
         var binding = new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, malformed);
-        var auth = new FakeGitHubAppAuth("t", TokenExpiry);
-        var contributor = new GitHubConnectorRuntimeContextContributor(
-            auth, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+        var contributor = BuildContributor(AppResolver("t", TokenExpiry));
 
         var fragment = await contributor.GetPromptHintsAsync(
             Subject, OwnerUnit, binding, TestContext.Current.CancellationToken);
@@ -296,9 +306,8 @@ public class GitHubConnectorRuntimeContextContributorTests
     [Fact]
     public void BuildPromptFragment_RendersTheCanonicalShape()
     {
-        // Snapshot-style assertion: pin the static fragment shape so future
-        // reflows are deliberate. Mirrors the exact text in issue #2442's
-        // body.
+        // Snapshot-style assertion: pin the static fragment shape so
+        // future reflows are deliberate.
         var fragment = GitHubConnectorRuntimeContextContributor.BuildPromptFragment(
             "cvoya-com", "spring-voyage");
 
@@ -308,8 +317,8 @@ public class GitHubConnectorRuntimeContextContributorTests
             "- $SPRING_CONNECTOR_GITHUB_OWNER       — repo owner (cvoya-com)\n" +
             "- $SPRING_CONNECTOR_GITHUB_REPO        — repo name (spring-voyage)\n" +
             "- $SPRING_CONNECTOR_GITHUB_REVIEWER    — operator's GitHub login for review requests / assignee fallback\n" +
-            "- $SPRING_CONNECTOR_GITHUB_TOKEN       — short-lived installation token (also exposed as $GITHUB_TOKEN for gh / git compatibility)\n" +
-            "- $SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT — token expiry (UTC ISO)\n\n" +
+            "- $SPRING_CONNECTOR_GITHUB_TOKEN       — outbound bearer token (also exposed as $GITHUB_TOKEN for gh / git compatibility)\n" +
+            "- $SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT — token expiry (UTC ISO; only set on the App-installation auth path)\n\n" +
             "Use `gh` and `git` against the bound repo:\n\n" +
             "  REPO=\"$SPRING_CONNECTOR_GITHUB_OWNER/$SPRING_CONNECTOR_GITHUB_REPO\"\n" +
             "  gh issue list --repo \"$REPO\" --milestone v0.1 --state open\n\n" +
@@ -321,43 +330,94 @@ public class GitHubConnectorRuntimeContextContributorTests
 
     private static UnitConnectorBinding MakeBinding(UnitGitHubConfig config)
     {
-        var element = JsonSerializer.SerializeToElement(config, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var element = JsonSerializer.SerializeToElement(
+            config, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         return new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, element);
     }
 
+    private static GitHubConnectorRuntimeContextContributor BuildContributor(
+        GitHubBindingAuthResolver resolver) =>
+        new(resolver, NullLogger<GitHubConnectorRuntimeContextContributor>.Instance);
+
+    private static GitHubBindingAuthResolver AppResolver(string token, DateTimeOffset expiresAt) =>
+        new StubBindingAuthResolver(
+            new GitHubAuthCredential(token, GitHubAuthCredentialKind.AppInstallation, expiresAt));
+
+    private static GitHubBindingAuthResolver PatResolver(string token) =>
+        new StubBindingAuthResolver(
+            new GitHubAuthCredential(token, GitHubAuthCredentialKind.PersonalAccessToken, ExpiresAt: null));
+
+    private static GitHubBindingAuthResolver ThrowingResolver(Exception ex) =>
+        new StubBindingAuthResolver(ex);
+
     /// <summary>
-    /// Test double for <see cref="GitHubAppAuth"/> that returns a canned
-    /// installation access token without performing JWT generation or HTTP.
+    /// Test double for <see cref="GitHubBindingAuthResolver"/> that
+    /// returns a canned <see cref="GitHubAuthCredential"/> without touching
+    /// the App auth surface or the secret store. Mirrors the pattern the
+    /// old test used to stub <c>GitHubAppAuth</c> before ADR-0047 §6
+    /// moved the dispatch behind the resolver seam.
     /// </summary>
-    private sealed class FakeGitHubAppAuth(string token, DateTimeOffset expiresAt)
-        : GitHubAppAuth(BuildOptions(), NullLoggerFactory.Instance)
+    private sealed class StubBindingAuthResolver : GitHubBindingAuthResolver
     {
-        public override Task<InstallationAccessToken> MintInstallationTokenAsync(
-            long installationId,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(new InstallationAccessToken(token, expiresAt));
-    }
+        private readonly GitHubAuthCredential? _credential;
+        private readonly Exception? _exception;
 
-    private sealed class ThrowingGitHubAppAuth(Exception ex)
-        : GitHubAppAuth(BuildOptions(), NullLoggerFactory.Instance)
-    {
-        public override Task<InstallationAccessToken> MintInstallationTokenAsync(
-            long installationId,
-            CancellationToken cancellationToken = default)
-            => throw ex;
-    }
-
-    private static GitHubConnectorOptions BuildOptions()
-    {
-        // Generate a real RSA key per call. The fake / throwing auth subclasses
-        // override MintInstallationTokenAsync and never call GenerateJwt(), so
-        // this key is unused except to satisfy GitHubAppAuth's constructor
-        // invariants. Mirrors the existing GitHubAppAuthTests pattern.
-        using var rsa = RSA.Create(2048);
-        return new GitHubConnectorOptions
+        public StubBindingAuthResolver(GitHubAuthCredential credential)
+            : base(
+                new StubAppAuth(),
+                NSubstitute.Substitute.For<IInstallationTokenCache>(),
+                NoOpScopeFactory.Instance,
+                NullLogger<GitHubBindingAuthResolver>.Instance)
         {
-            AppId = 1,
-            PrivateKeyPem = rsa.ExportRSAPrivateKeyPem(),
-        };
+            _credential = credential;
+        }
+
+        public StubBindingAuthResolver(Exception exception)
+            : base(
+                new StubAppAuth(),
+                NSubstitute.Substitute.For<IInstallationTokenCache>(),
+                NoOpScopeFactory.Instance,
+                NullLogger<GitHubBindingAuthResolver>.Instance)
+        {
+            _exception = exception;
+        }
+
+        public override Task<GitHubAuthCredential> ResolveAsync(
+            UnitGitHubConfig binding,
+            CancellationToken cancellationToken = default)
+        {
+            if (_exception is not null)
+            {
+                throw _exception;
+            }
+            return Task.FromResult(_credential!);
+        }
+    }
+
+    private sealed class StubAppAuth : GitHubAppAuth
+    {
+        public StubAppAuth()
+            : base(BuildOptions(), NullLoggerFactory.Instance)
+        {
+        }
+
+        private static GitHubConnectorOptions BuildOptions()
+        {
+            using var rsa = System.Security.Cryptography.RSA.Create(2048);
+            return new GitHubConnectorOptions
+            {
+                AppId = 1,
+                PrivateKeyPem = rsa.ExportRSAPrivateKeyPem(),
+            };
+        }
+    }
+
+    private sealed class NoOpScopeFactory : Microsoft.Extensions.DependencyInjection.IServiceScopeFactory
+    {
+        public static readonly NoOpScopeFactory Instance = new();
+
+        public Microsoft.Extensions.DependencyInjection.IServiceScope CreateScope() =>
+            throw new InvalidOperationException(
+                "StubBindingAuthResolver bypasses the scope factory.");
     }
 }

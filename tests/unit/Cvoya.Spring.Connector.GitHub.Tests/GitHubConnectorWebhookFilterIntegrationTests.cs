@@ -72,7 +72,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
         // Drop must surface as Ignored — the same outcome the endpoint
         // already maps to HTTP 202 (no routing call follows).
         result.Outcome.ShouldBe(WebhookOutcome.Ignored);
-        result.Message.ShouldBeNull();
+        result.Messages.ShouldBeEmpty();
 
         await bus.Received(1).PublishAsync(
             Arg.Is<ActivityEvent>(e =>
@@ -114,8 +114,8 @@ public class GitHubConnectorWebhookFilterIntegrationTests
             TestContext.Current.CancellationToken);
 
         result.Outcome.ShouldBe(WebhookOutcome.Translated);
-        result.Message.ShouldNotBeNull();
-        result.Message!.To.Path.ShouldBe(TargetUnitHex);
+        result.Messages.Count.ShouldBe(1);
+        result.Messages[0].To.Path.ShouldBe(TargetUnitHex);
 
         await bus.DidNotReceive().PublishAsync(
             Arg.Any<ActivityEvent>(),
@@ -129,7 +129,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
             Repo: "acme/platform",
             IncludePaths: new[] { "docs/" });
         var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
-        fetcher.FetchAsync("acme", "platform", 9, Arg.Any<long?>(), Arg.Any<CancellationToken>())
+        fetcher.FetchAsync("acme", "platform", 9, Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(new[] { "docs/feature.md", "src/Other.cs" });
 
         var (connector, bus) = BuildConnector(config, fetcher);
@@ -161,9 +161,9 @@ public class GitHubConnectorWebhookFilterIntegrationTests
             TestContext.Current.CancellationToken);
 
         result.Outcome.ShouldBe(WebhookOutcome.Translated);
-        result.Message.ShouldNotBeNull();
+        result.Messages.Count.ShouldBe(1);
         await fetcher.Received(1).FetchAsync(
-            "acme", "platform", 9, Arg.Any<long?>(), Arg.Any<CancellationToken>());
+            "acme", "platform", 9, Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>());
         await bus.DidNotReceive().PublishAsync(
             Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>());
     }
@@ -175,7 +175,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
             Repo: "acme/platform",
             IncludePaths: new[] { "docs/" });
         var fetcher = Substitute.For<IGitHubPullRequestFilesFetcher>();
-        fetcher.FetchAsync("acme", "platform", 9, Arg.Any<long?>(), Arg.Any<CancellationToken>())
+        fetcher.FetchAsync("acme", "platform", 9, Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(new[] { "src/Only.cs" });
 
         var (connector, bus) = BuildConnector(config, fetcher);
@@ -253,7 +253,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
             TestContext.Current.CancellationToken);
 
         await fetcher.DidNotReceive().FetchAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<long?>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>());
     }
 
     private static (GitHubConnector connector, IActivityEventBus bus) BuildConnector(
@@ -266,12 +266,10 @@ public class GitHubConnectorWebhookFilterIntegrationTests
             InstallationId = 1,
         };
 
-        // Pin a known AppInstallationId on the binding so the webhook
-        // resolver (#2456) can match the payload's installation.id
-        // against this unit's binding. Tests inject the same id on the
-        // payload's `installation` object so the resolver finds the
-        // unit and the filter chain receives the unit-addressed message
-        // it expects.
+        // The filter integration tests exercise the matcher + filter chain.
+        // Outbound auth is not on the path under test — supply a stub
+        // resolver so GitHubConnector's dependency is satisfied without
+        // booting GitHubAppAuth's RSA / HTTP surface.
         var pinnedConfig = config with { AppInstallationId = 1 };
 
         var binding = new UnitConnectorBinding(
@@ -294,7 +292,7 @@ public class GitHubConnectorWebhookFilterIntegrationTests
             filesFetcher: fetcher);
 
         var connector = new GitHubConnector(
-            new GitHubAppAuth(options, NullLoggerFactory.Instance),
+            new StubAuthResolver(),
             handler,
             new WebhookSignatureValidator(),
             options,
@@ -302,6 +300,50 @@ public class GitHubConnectorWebhookFilterIntegrationTests
             new GitHubRetryOptions(),
             NullLoggerFactory.Instance);
         return (connector, bus);
+    }
+
+    /// <summary>
+    /// Stub resolver that never resolves a credential — these tests do
+    /// not exercise outbound auth. Subclassing keeps the binding
+    /// dependency satisfied at construction time without spinning up the
+    /// real <see cref="GitHubAppAuth"/> RSA pipeline.
+    /// </summary>
+    private sealed class StubAuthResolver : GitHubBindingAuthResolver
+    {
+        public StubAuthResolver()
+            : base(
+                BuildAppAuth(),
+                Substitute.For<IInstallationTokenCache>(),
+                NoOpScopeFactory.Instance,
+                NullLogger<GitHubBindingAuthResolver>.Instance)
+        {
+        }
+
+        public override Task<GitHubAuthCredential> ResolveAsync(
+            UnitGitHubConfig binding,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException(
+                "Outbound auth is not on the path under test in these fixtures.");
+
+        private static GitHubAppAuth BuildAppAuth()
+        {
+            using var rsa = System.Security.Cryptography.RSA.Create(2048);
+            var options = new GitHubConnectorOptions
+            {
+                AppId = 1,
+                PrivateKeyPem = rsa.ExportRSAPrivateKeyPem(),
+            };
+            return new GitHubAppAuth(options, NullLoggerFactory.Instance);
+        }
+    }
+
+    private sealed class NoOpScopeFactory : Microsoft.Extensions.DependencyInjection.IServiceScopeFactory
+    {
+        public static readonly NoOpScopeFactory Instance = new();
+
+        public Microsoft.Extensions.DependencyInjection.IServiceScope CreateScope() =>
+            throw new InvalidOperationException(
+                "Resolver scope factory is not on the path under test in these fixtures.");
     }
 
     private static string Sign(string payload, string secret)

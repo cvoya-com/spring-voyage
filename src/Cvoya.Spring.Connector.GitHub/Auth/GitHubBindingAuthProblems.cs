@@ -55,6 +55,26 @@ public static class GitHubBindingAuthProblems
     public const string AuthAmbiguousCode = "GitHubBindingAuthAmbiguous";
 
     /// <summary>
+    /// Structured <c>code</c> extension value returned when an inbound
+    /// binding-create / -update would collide with an existing binding for
+    /// the same <c>(owner, repo)</c> pair in a different tenant per
+    /// ADR-0047 §10. Cross-tenant collision is structurally rejected so the
+    /// webhook routing key — <c>(owner, repo)</c> within the receiving
+    /// tenant — never has to disambiguate between tenants on payloads
+    /// GitHub delivers without a tenant signal.
+    /// </summary>
+    public const string CrossTenantConflictCode = "GitHubCrossTenantRepoBindingConflict";
+
+    /// <summary>
+    /// Stable URI placed into <c>type</c> on the cross-tenant 409 response.
+    /// Mirrors the binding-auth problem-type URI so CLI / portal handlers
+    /// can pattern-match on the structured <c>code</c> extension regardless
+    /// of which endpoint emitted the conflict.
+    /// </summary>
+    public const string CrossTenantProblemType =
+        "https://docs.cvoya.com/spring/errors/github-cross-tenant-repo-binding-conflict";
+
+    /// <summary>
     /// Returns a 400 problem-details response carrying the
     /// "neither set" structured code. Surfaced when an operator submits a
     /// binding-create / update payload without an <c>appInstallationId</c>
@@ -121,4 +141,28 @@ public static class GitHubBindingAuthProblems
         }
         return null;
     }
+
+    /// <summary>
+    /// Returns a 409 problem-details response carrying the cross-tenant
+    /// conflict structured code per ADR-0047 §10. Surfaced when an inbound
+    /// binding-create / -update would land a binding for an
+    /// <c>(owner, repo)</c> pair already bound in a different tenant. The
+    /// well-known SV App's installation model prevents this in practice in
+    /// cloud (one installation backs one tenant); BYO App deployments
+    /// inherit the rejection structurally.
+    /// </summary>
+    public static IResult CrossTenantConflict(string repo) =>
+        Results.Problem(
+            type: CrossTenantProblemType,
+            title: "GitHub binding collides with another tenant's binding",
+            detail: $"The repository '{repo}' is already bound by a unit in a different tenant. " +
+                    "Webhook routing for a repo can be claimed by only one tenant at a time " +
+                    "(ADR-0047 §10); ask the other tenant to release the binding or pick a " +
+                    "different repository.",
+            statusCode: StatusCodes.Status409Conflict,
+            extensions: new Dictionary<string, object?>
+            {
+                ["code"] = CrossTenantConflictCode,
+                ["repo"] = repo,
+            });
 }

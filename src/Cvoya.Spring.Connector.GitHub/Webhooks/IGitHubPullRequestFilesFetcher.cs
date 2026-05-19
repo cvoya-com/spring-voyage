@@ -34,18 +34,19 @@ public interface IGitHubPullRequestFilesFetcher
 {
     /// <summary>
     /// Fetches the changed-files list for the specified pull request,
-    /// authenticated as the binding's app installation.
+    /// authenticated through the binding's pinned credential per
+    /// ADR-0047 §6 (App-installation token mint OR tenant-secret-store
+    /// PAT, whichever the binding chose at create time).
     /// </summary>
     /// <param name="owner">The repository owner login.</param>
     /// <param name="repo">The repository name.</param>
     /// <param name="number">The pull request number.</param>
-    /// <param name="installationId">
-    /// The GitHub App installation id to authenticate as. Drives the
-    /// per-binding auth path introduced by #2385. When <c>null</c>, the
-    /// fetcher falls back to
-    /// <see cref="GitHubConnector.CreateAuthenticatedClientAsync(CancellationToken)"/>'s
-    /// global default — the documented OSS-fallback path for
-    /// single-installation deployments.
+    /// <param name="binding">
+    /// The unit's GitHub binding payload. Drives outbound auth through
+    /// <see cref="Auth.GitHubBindingAuthResolver"/>: App-installation
+    /// token mint when <see cref="UnitGitHubConfig.AppInstallationId"/>
+    /// is set, tenant-secret-store PAT read when
+    /// <see cref="UnitGitHubConfig.PatSecretName"/> is set.
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>
@@ -57,6 +58,6 @@ public interface IGitHubPullRequestFilesFetcher
         string owner,
         string repo,
         int number,
-        long? installationId,
+        UnitGitHubConfig binding,
         CancellationToken cancellationToken = default);
 }

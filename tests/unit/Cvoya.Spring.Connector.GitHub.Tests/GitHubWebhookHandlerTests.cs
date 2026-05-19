@@ -242,15 +242,15 @@ public class GitHubWebhookHandlerTests
     public async Task TranslateEventAsync_NoBindingLookup_DropsSilently()
     {
         // Without an IUnitConnectorBindingLookup wired (legacy unit-test
-        // setup) the handler has no way to address the event at a unit
-        // and returns null — surfaced to the connector as
+        // setup) the handler has no way to address the event at any unit
+        // and returns an empty list — surfaced to the connector as
         // WebhookOutcome.Ignored, ACK 202 to GitHub.
         var payload = CreateIssuePayload("opened");
 
-        var message = await _handler.TranslateEventAsync(
+        var messages = await _handler.TranslateEventAsync(
             "issues", payload, TestContext.Current.CancellationToken);
 
-        message.ShouldBeNull();
+        messages.ShouldBeEmpty();
     }
 
     [Fact]

@@ -218,7 +218,8 @@ public class GitHubConnectorType : IConnectorType
             .WithTags("Connectors.GitHub")
             .Accepts<UnitGitHubConfigRequest>("application/json")
             .Produces<UnitGitHubConfigResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status400BadRequest);
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         // Connector-scoped actions — not tied to a single unit.
         group.MapGet("/actions/list-installations", ListInstallationsAsync)
@@ -554,6 +555,22 @@ public class GitHubConnectorType : IConnectorType
         if (authProblem is not null)
         {
             return authProblem;
+        }
+
+        // ADR-0047 §10 — reject cross-tenant collisions structurally.
+        // Once installation_id is out of the routing fabric, the inbound
+        // webhook payload for an (owner, repo) carries no tenant signal,
+        // so two tenants both claiming the same repo cannot be
+        // disambiguated. The probe walks every other tenant's GitHub
+        // bindings before the row is inserted so the rejection is
+        // atomic relative to the create.
+        var probe = _serviceProvider.GetService(typeof(IConnectorBindingCrossTenantProbe))
+            as IConnectorBindingCrossTenantProbe;
+        if (probe is not null
+            && await probe.HasCrossTenantBindingAsync(GitHubTypeId, request.Repo, cancellationToken)
+                .ConfigureAwait(false))
+        {
+            return GitHubBindingAuthProblems.CrossTenantConflict(request.Repo);
         }
 
         var actorId = await ResolveUnitActorIdAsync(unitId, cancellationToken);

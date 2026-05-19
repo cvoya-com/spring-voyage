@@ -37,7 +37,7 @@ public class OctokitGitHubPullRequestFilesFetcherTests
 
         var fetcher = BuildFetcher(client);
 
-        var result = await fetcher.FetchAsync("o", "r", 1, null, TestContext.Current.CancellationToken);
+        var result = await fetcher.FetchAsync("o", "r", 1, AppBinding(), TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result.ShouldBe(new[] { "a.cs", "b.cs", "c.cs" });
@@ -52,7 +52,7 @@ public class OctokitGitHubPullRequestFilesFetcherTests
 
         var fetcher = BuildFetcher(client);
 
-        var result = await fetcher.FetchAsync("o", "r", 1, null, TestContext.Current.CancellationToken);
+        var result = await fetcher.FetchAsync("o", "r", 1, AppBinding(), TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result.ShouldBeEmpty();
@@ -87,7 +87,7 @@ public class OctokitGitHubPullRequestFilesFetcherTests
 
         var fetcher = BuildFetcher(client);
 
-        var result = await fetcher.FetchAsync("o", "r", 7, null, TestContext.Current.CancellationToken);
+        var result = await fetcher.FetchAsync("o", "r", 7, AppBinding(), TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result.Count.ShouldBe(217);
@@ -109,7 +109,7 @@ public class OctokitGitHubPullRequestFilesFetcherTests
 
         var fetcher = BuildFetcher(client);
 
-        var result = await fetcher.FetchAsync("o", "r", 99, null, TestContext.Current.CancellationToken);
+        var result = await fetcher.FetchAsync("o", "r", 99, AppBinding(), TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result.ShouldBeEmpty();
@@ -126,7 +126,7 @@ public class OctokitGitHubPullRequestFilesFetcherTests
 
         var fetcher = BuildFetcher(client);
 
-        var result = await fetcher.FetchAsync("o", "r", 1, null, TestContext.Current.CancellationToken);
+        var result = await fetcher.FetchAsync("o", "r", 1, AppBinding(), TestContext.Current.CancellationToken);
 
         // PR vanished — path filter sees no files and drops the event.
         result.ShouldNotBeNull();
@@ -142,7 +142,7 @@ public class OctokitGitHubPullRequestFilesFetcherTests
 
         var fetcher = BuildFetcher(client);
 
-        var result = await fetcher.FetchAsync("o", "r", 1, null, TestContext.Current.CancellationToken);
+        var result = await fetcher.FetchAsync("o", "r", 1, AppBinding(), TestContext.Current.CancellationToken);
 
         // Transport blip — fail open so the operator's subscription isn't
         // silently broken by a transient GitHub outage.
@@ -158,7 +158,7 @@ public class OctokitGitHubPullRequestFilesFetcherTests
 
         var fetcher = BuildFetcher(client);
 
-        var result = await fetcher.FetchAsync("o", "r", 1, null, TestContext.Current.CancellationToken);
+        var result = await fetcher.FetchAsync("o", "r", 1, AppBinding(), TestContext.Current.CancellationToken);
 
         result.ShouldBeNull();
     }
@@ -173,7 +173,7 @@ public class OctokitGitHubPullRequestFilesFetcherTests
 
         var fetcher = BuildFetcher(client);
 
-        await fetcher.FetchAsync("o", "r", 1, null, TestContext.Current.CancellationToken);
+        await fetcher.FetchAsync("o", "r", 1, AppBinding(), TestContext.Current.CancellationToken);
 
         captured.ShouldNotBeNull();
         captured!.PageSize.ShouldBe(100);
@@ -188,83 +188,107 @@ public class OctokitGitHubPullRequestFilesFetcherTests
             connectorAccessor: () => throw new InvalidOperationException("no auth"),
             loggerFactory: NullLoggerFactory.Instance);
 
-        var result = await fetcher.FetchAsync("o", "r", 1, null, TestContext.Current.CancellationToken);
+        var result = await fetcher.FetchAsync("o", "r", 1, AppBinding(), TestContext.Current.CancellationToken);
 
         result.ShouldBeNull();
     }
 
     [Fact]
-    public async Task FetchAsync_BindingInstallationId_AuthenticatesPerInstallation()
+    public async Task FetchAsync_AppBinding_AuthenticatesThroughResolver()
     {
-        // The fetcher must honour the binding's installation id (#2385) and
-        // stop falling through to the connector's global default for
-        // unit-owned platform work. The OSS fetcher previously logged the
-        // override and used the global default; that behaviour was unsafe in
-        // any deployment with more than one installation.
+        // ADR-0047 §6: the fetcher hands the binding to the connector,
+        // which dispatches to the resolver. The resolver behind the
+        // factory picks App vs PAT; the fetcher itself never branches on
+        // auth type — that is the resolver's job.
         var client = Substitute.For<IGitHubClient>();
         client.PullRequest.Files("o", "r", 1, Arg.Any<ApiOptions>())
             .Returns(Array.Empty<PullRequestFile>());
 
         var connector = Substitute.For<IGitHubConnector>();
-        connector.CreateAuthenticatedClientAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
-            .Returns(client);
-        connector.CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>())
+        connector.CreateAuthenticatedClientForBindingAsync(
+                Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(client);
 
         var fetcher = new OctokitGitHubPullRequestFilesFetcher(
             connectorAccessor: () => connector,
             loggerFactory: NullLoggerFactory.Instance);
 
-        await fetcher.FetchAsync("o", "r", 1, installationId: 9001, TestContext.Current.CancellationToken);
+        var binding = new UnitGitHubConfig("o/r", AppInstallationId: 9001);
+
+        await fetcher.FetchAsync("o", "r", 1, binding, TestContext.Current.CancellationToken);
 
         await connector.Received(1)
-            .CreateAuthenticatedClientAsync(9001, Arg.Any<CancellationToken>());
-        await connector.DidNotReceive()
-            .CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>());
+            .CreateAuthenticatedClientForBindingAsync(
+                Arg.Is<UnitGitHubConfig>(c => c.AppInstallationId == 9001),
+                Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task FetchAsync_NullInstallationId_FallsBackToGlobal()
+    public async Task FetchAsync_PatBinding_AuthenticatesThroughResolver()
     {
-        // null installation id is the documented fallback (#2385) — used by
-        // single-installation OSS deployments that never bound a per-unit
-        // installation. The connector's parameterless overload must be the
-        // one that fires.
+        // PAT-bound binding: same call shape, different field. The
+        // connector's factory carries the binding into the resolver,
+        // which then walks the tenant secret store.
         var client = Substitute.For<IGitHubClient>();
         client.PullRequest.Files("o", "r", 1, Arg.Any<ApiOptions>())
             .Returns(Array.Empty<PullRequestFile>());
 
         var connector = Substitute.For<IGitHubConnector>();
-        connector.CreateAuthenticatedClientAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
-            .Returns(client);
-        connector.CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>())
+        connector.CreateAuthenticatedClientForBindingAsync(
+                Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(client);
 
         var fetcher = new OctokitGitHubPullRequestFilesFetcher(
             connectorAccessor: () => connector,
             loggerFactory: NullLoggerFactory.Instance);
 
-        await fetcher.FetchAsync("o", "r", 1, installationId: null, TestContext.Current.CancellationToken);
+        var binding = new UnitGitHubConfig("o/r", PatSecretName: "binding/abc/github/pat");
+
+        await fetcher.FetchAsync("o", "r", 1, binding, TestContext.Current.CancellationToken);
 
         await connector.Received(1)
-            .CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>());
-        await connector.DidNotReceive()
-            .CreateAuthenticatedClientAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+            .CreateAuthenticatedClientForBindingAsync(
+                Arg.Is<UnitGitHubConfig>(c => c.PatSecretName == "binding/abc/github/pat"),
+                Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FetchAsync_AuthMissingFromResolver_FailsOpen()
+    {
+        // When the resolver raises GitHubBindingAuthMissing — secret
+        // gone, installation token mint rejected — the fetcher must
+        // surface null so the caller fails open consistent with
+        // transport-failure semantics. Closing on auth-missing would
+        // silently break webhook routing for legitimate operators who
+        // are just rotating credentials.
+        var connector = Substitute.For<IGitHubConnector>();
+        connector.CreateAuthenticatedClientForBindingAsync(
+                Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
+            .Throws(new Cvoya.Spring.Connector.GitHub.Auth.GitHubBindingAuthMissingException("secret gone"));
+
+        var fetcher = new OctokitGitHubPullRequestFilesFetcher(
+            connectorAccessor: () => connector,
+            loggerFactory: NullLoggerFactory.Instance);
+
+        var result = await fetcher.FetchAsync(
+            "o", "r", 1, AppBinding(), TestContext.Current.CancellationToken);
+
+        result.ShouldBeNull();
     }
 
     private static OctokitGitHubPullRequestFilesFetcher BuildFetcher(IGitHubClient client)
     {
         var connector = Substitute.For<IGitHubConnector>();
-        connector.CreateAuthenticatedClientAsync(Arg.Any<CancellationToken>()).Returns(client);
-        // Per-binding overload added in #2385 — also returns the fake client
-        // so tests that pass an installation id get the same Octokit
-        // substitute the global-default path would have produced.
-        connector.CreateAuthenticatedClientAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
+        connector.CreateAuthenticatedClientForBindingAsync(
+                Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(client);
         return new OctokitGitHubPullRequestFilesFetcher(
             connectorAccessor: () => connector,
             loggerFactory: NullLoggerFactory.Instance);
     }
+
+    private static UnitGitHubConfig AppBinding() =>
+        new("o/r", AppInstallationId: 4242);
 
     private static PullRequestFile[] BuildFiles(params string[] names) =>
         names.Select(n => CreatePullRequestFile(n)).ToArray();

@@ -137,18 +137,25 @@ public static class WebhookEndpoints
                 return Results.Accepted();
 
             case WebhookOutcome.Translated:
-                var message = result.Message!;
-                var routeResult = await messageRouter.RouteAsync(message, cancellationToken);
-
-                if (!routeResult.IsSuccess)
+                // ADR-0047 §10: one inbound webhook delivery can land
+                // multiple messages, one per matching binding within the
+                // receiving tenant. Route each in turn; a routing failure
+                // on one binding does not prevent delivery to the others.
+                // Every routing failure is logged but the response stays
+                // 202 so GitHub never retries (the failure is a
+                // platform-level issue, not a payload-level one).
+                foreach (var message in result.Messages)
                 {
-                    // Routing failure is a platform-level issue, not a GitHub retry signal.
-                    // Log and acknowledge so GitHub does not retry indefinitely.
-                    logger.LogWarning(
-                        "GitHub webhook event {EventType} (delivery {DeliveryId}) produced a message but routing failed: {Error}",
-                        safeEventType,
-                        safeDeliveryId,
-                        routeResult.Error?.Message ?? "unknown error");
+                    var routeResult = await messageRouter.RouteAsync(message, cancellationToken);
+                    if (!routeResult.IsSuccess)
+                    {
+                        logger.LogWarning(
+                            "GitHub webhook event {EventType} (delivery {DeliveryId}) produced a message for {Destination} but routing failed: {Error}",
+                            safeEventType,
+                            safeDeliveryId,
+                            message.To,
+                            routeResult.Error?.Message ?? "unknown error");
+                    }
                 }
 
                 return Results.Accepted();
