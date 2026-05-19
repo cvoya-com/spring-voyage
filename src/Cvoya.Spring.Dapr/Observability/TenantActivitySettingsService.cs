@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Observability;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
@@ -57,7 +59,65 @@ public class TenantActivitySettingsService(
             : new TenantActivitySettingsSnapshot(
                 tenantId,
                 ParseLevel(row.Level),
-                row.RetentionDays);
+                row.RetentionDays,
+                ParseExternalForward(row.ExternalForwardConfig));
+    }
+
+    /// <summary>
+    /// Parses the persisted external-forward jsonb document. Malformed
+    /// JSON resolves to <c>null</c> (forwarding disabled) so a bad row
+    /// can never block the capture path.
+    /// </summary>
+    internal static ExternalOtelForwardConfig? ParseExternalForward(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var endpoint = root.TryGetProperty("endpoint", out var e) ? e.GetString() ?? string.Empty : string.Empty;
+            var protocol = root.TryGetProperty("protocol", out var p) ? p.GetString() ?? "http/protobuf" : "http/protobuf";
+            var enabled = root.TryGetProperty("enabled", out var en) && en.ValueKind == JsonValueKind.True;
+            var headers = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (root.TryGetProperty("headers", out var h) && h.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in h.EnumerateObject())
+                {
+                    if (prop.Value.ValueKind == JsonValueKind.String)
+                    {
+                        headers[prop.Name] = prop.Value.GetString() ?? string.Empty;
+                    }
+                }
+            }
+            if (string.IsNullOrEmpty(endpoint))
+            {
+                return null;
+            }
+            return new ExternalOtelForwardConfig(endpoint, protocol, headers, enabled);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Serialises an <see cref="ExternalOtelForwardConfig"/> for persistence.</summary>
+    internal static string? SerializeExternalForward(ExternalOtelForwardConfig? config)
+    {
+        if (config is null)
+        {
+            return null;
+        }
+        return JsonSerializer.Serialize(new
+        {
+            endpoint = config.Endpoint,
+            protocol = config.Protocol,
+            headers = config.Headers,
+            enabled = config.Enabled,
+        });
     }
 
     /// <inheritdoc />
@@ -65,6 +125,7 @@ public class TenantActivitySettingsService(
         Guid tenantId,
         ActivityCaptureLevel? level,
         int? retentionDays,
+        ExternalForwardUpdate? externalForward = null,
         CancellationToken cancellationToken = default)
     {
         if (retentionDays is { } days && days <= 0)
@@ -85,6 +146,7 @@ public class TenantActivitySettingsService(
                 TenantId = tenantId,
                 Level = (level ?? ITenantActivitySettings.DefaultLevel).ToString(),
                 RetentionDays = retentionDays ?? ITenantActivitySettings.DefaultRetentionDays,
+                ExternalForwardConfig = SerializeForwardUpdate(externalForward, currentJson: null),
                 CreatedAt = now,
                 UpdatedAt = now,
             };
@@ -100,6 +162,10 @@ public class TenantActivitySettingsService(
             {
                 row.RetentionDays = retentionDays.Value;
             }
+            if (externalForward is not null)
+            {
+                row.ExternalForwardConfig = SerializeForwardUpdate(externalForward, row.ExternalForwardConfig);
+            }
             row.UpdatedAt = now;
         }
 
@@ -108,7 +174,21 @@ public class TenantActivitySettingsService(
         return new TenantActivitySettingsSnapshot(
             tenantId,
             ParseLevel(row.Level),
-            row.RetentionDays);
+            row.RetentionDays,
+            ParseExternalForward(row.ExternalForwardConfig));
+    }
+
+    private static string? SerializeForwardUpdate(ExternalForwardUpdate? update, string? currentJson)
+    {
+        if (update is null)
+        {
+            return currentJson;
+        }
+        if (update.ClearExisting)
+        {
+            return null;
+        }
+        return SerializeExternalForward(update.Config);
     }
 
     private static ActivityCaptureLevel ParseLevel(string raw)

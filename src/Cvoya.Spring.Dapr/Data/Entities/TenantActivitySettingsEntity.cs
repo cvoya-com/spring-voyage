@@ -34,6 +34,17 @@ public class TenantActivitySettingsEntity
     /// <summary>Retention horizon in days. Must be &gt; 0.</summary>
     public int RetentionDays { get; set; }
 
+    /// <summary>
+    /// JSON-encoded external OpenTelemetry forwarding configuration
+    /// (#2503). Null when forwarding is disabled / unset. Shape:
+    /// <c>{ "endpoint": "...", "protocol": "http/json"|"http/protobuf",
+    /// "headers": { "k": "v" }, "enabled": true }</c>. Persisted as text
+    /// rather than discrete columns because the headers map is open-shaped
+    /// and the rest of the block is opaque to the OSS read path — the
+    /// forwarder decorator parses the JSON at use time.
+    /// </summary>
+    public string? ExternalForwardConfig { get; set; }
+
     /// <summary>When the row was first persisted.</summary>
     public DateTimeOffset CreatedAt { get; set; }
 

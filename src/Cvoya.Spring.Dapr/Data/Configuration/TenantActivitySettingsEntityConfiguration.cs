@@ -29,6 +29,12 @@ internal class TenantActivitySettingsEntityConfiguration
         builder.Property(e => e.TenantId).HasColumnName("tenant_id").HasColumnType("uuid");
         builder.Property(e => e.Level).HasColumnName("level").IsRequired().HasMaxLength(32);
         builder.Property(e => e.RetentionDays).HasColumnName("retention_days").IsRequired();
+        // #2503: optional external OTel forwarding block, serialised as JSON.
+        // jsonb in PostgreSQL; nullable so unconfigured tenants keep a
+        // clean row.
+        builder.Property(e => e.ExternalForwardConfig)
+            .HasColumnName("external_forward_config")
+            .HasColumnType("jsonb");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
     }

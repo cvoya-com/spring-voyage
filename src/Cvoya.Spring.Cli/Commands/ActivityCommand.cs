@@ -44,7 +44,40 @@ public static class ActivityCommand
         // #2492: tenant capture-level + retention settings verbs.
         activityCommand.Subcommands.Add(CreateSettingsCommand(outputOption));
 
+        // #2503: external-forward status verb (read-only operator surface).
+        activityCommand.Subcommands.Add(CreateForwardCommand(outputOption));
+
         return activityCommand;
+    }
+
+    private static Command CreateForwardCommand(Option<string> outputOption)
+    {
+        var forwardCommand = new Command(
+            "forward",
+            "Operator-facing visibility into the external OTel-backend forwarder (#2503).");
+
+        var statusCommand = new Command(
+            "status",
+            "Show the most recent forward attempt result for the current tenant.");
+        statusCommand.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var client = ClientFactory.Create();
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var snapshot = await client.GetActivityForwardStatusAsync(ct);
+            if (output == "json")
+            {
+                Console.WriteLine(OutputFormatter.FormatJson(snapshot));
+            }
+            else
+            {
+                Console.WriteLine($"kind:         {snapshot.Kind}");
+                Console.WriteLine($"observed_at:  {snapshot.ObservedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "(never)"}");
+                Console.WriteLine($"message:      {snapshot.Message ?? string.Empty}");
+            }
+        });
+        forwardCommand.Subcommands.Add(statusCommand);
+
+        return forwardCommand;
     }
 
     private static Command CreateSettingsCommand(Option<string> outputOption)
