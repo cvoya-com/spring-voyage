@@ -24,11 +24,11 @@ Issue #2299 ties (1)–(4) together by proposing a single move: every standalone
 A "standalone artefact" is any artefact that is referenced by name and shipped as a discrete unit of authoring — every Package, Unit, Agent, Skill, Workflow, AgentTemplate, and UnitTemplate that appears in the catalog. Each one is a folder; the folder's root file is always named `package.yaml` and carries the kind in a top-level `kind:` discriminator (per ADR-0037 §1):
 
 ```
-spring-voyage-oss/                         # kind: Package (the install root)
+example-package/                           # kind: Package (the install root)
 ├── package.yaml
 ├── README.md
 ├── units/
-│   └── sv-oss-software-engineering/       # kind: Unit
+│   └── example-team/                      # kind: Unit
 │       ├── package.yaml
 │       ├── README.md
 │       ├── agents/

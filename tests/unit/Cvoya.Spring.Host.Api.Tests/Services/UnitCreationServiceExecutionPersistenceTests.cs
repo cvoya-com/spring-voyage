@@ -56,11 +56,11 @@ public class UnitCreationServiceExecutionPersistenceTests
         // UnitDefinitionEntity row (which the in-memory directory stub
         // doesn't upsert) with the *exact* id the store will look up.
         var actorGuid = Guid.NewGuid();
-        var (service, scopeFactory) = BuildService("sv-oss-software-engineering", actorGuid);
+        var (service, scopeFactory) = BuildService("sv-oss-1666-exec", actorGuid);
 
         var manifest = new UnitManifest
         {
-            Name = "sv-oss-software-engineering",
+            Name = "sv-oss-1666-exec",
             Description = "regression #1666 — execution block must persist",
             // ADR-0038: ai.runtime (the agent-runtime catalogue id) is the
             // durable id; ExecutionManifest no longer carries Tool or Provider.
@@ -71,7 +71,7 @@ public class UnitCreationServiceExecutionPersistenceTests
             },
             Execution = new ExecutionManifest
             {
-                Image = "ghcr.io/cvoya/sv-oss-software-engineering:latest",
+                Image = "ghcr.io/cvoya/sv-oss-1666-exec:latest",
                 Model = "claude-sonnet-4",
             },
         };
@@ -98,7 +98,7 @@ public class UnitCreationServiceExecutionPersistenceTests
             "execution block was not persisted onto unit_definitions.definition");
         execution.ValueKind.ShouldBe(JsonValueKind.Object);
         execution.GetProperty("image").GetString()
-            .ShouldBe("ghcr.io/cvoya/sv-oss-software-engineering:latest");
+            .ShouldBe("ghcr.io/cvoya/sv-oss-1666-exec:latest");
         // ADR-0038: tool is no longer persisted. The internal `agent` slot
         // (renamed to `runtime` on the wire) carries the catalogue runtime
         // id. #2204: the manifest's `ai.model.provider` is now persisted

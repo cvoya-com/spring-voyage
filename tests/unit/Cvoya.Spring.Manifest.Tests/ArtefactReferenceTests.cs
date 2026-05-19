@@ -16,7 +16,7 @@ using Xunit;
 public class ArtefactReferenceTests
 {
     [Theory]
-    [InlineData("sv-oss-program-management", ArtefactKind.Unit, null, "sv-oss-program-management", false)]
+    [InlineData("spring-voyage-oss", ArtefactKind.Unit, null, "spring-voyage-oss", false)]
     [InlineData("software-engineer", ArtefactKind.Agent, null, "software-engineer", false)]
     [InlineData("code-review", ArtefactKind.Skill, null, "code-review", false)]
     [InlineData("oss-operator", ArtefactKind.HumanTemplate, null, "oss-operator", false)]

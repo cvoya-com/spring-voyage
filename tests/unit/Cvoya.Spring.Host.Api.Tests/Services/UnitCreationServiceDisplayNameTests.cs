@@ -59,9 +59,9 @@ public class UnitCreationServiceDisplayNameTests
         {
             ApiVersion = "spring.voyage/v1",
             Kind = "Unit",
-            Name = "sv-oss-software-engineering",
-            DisplayName = "Software Engineering",
-            Description = "OSS software engineering team.",
+            Name = "spring-voyage-oss",
+            DisplayName = "Spring Voyage OSS",
+            Description = "OSS dogfooding org for Spring Voyage.",
         };
 
         var result = await fixture.Service.CreateFromManifestAsync(
@@ -70,10 +70,10 @@ public class UnitCreationServiceDisplayNameTests
             CancellationToken.None);
 
         // Service-level response carries the resolved DisplayName.
-        result.Unit.DisplayName.ShouldBe("Software Engineering");
+        result.Unit.DisplayName.ShouldBe("Spring Voyage OSS");
         // Directory write got the same value.
         await fixture.Directory.Received(1).RegisterAsync(
-            Arg.Is<DirectoryEntry>(e => e.DisplayName == "Software Engineering"),
+            Arg.Is<DirectoryEntry>(e => e.DisplayName == "Spring Voyage OSS"),
             Arg.Any<CancellationToken>());
     }
 
@@ -90,9 +90,9 @@ public class UnitCreationServiceDisplayNameTests
         {
             ApiVersion = "spring.voyage/v1",
             Kind = "Unit",
-            Name = "sv-oss-software-engineering",
-            DisplayName = "Software Engineering",
-            Description = "OSS software engineering team.",
+            Name = "spring-voyage-oss",
+            DisplayName = "Spring Voyage OSS",
+            Description = "OSS dogfooding org for Spring Voyage.",
         };
 
         var result = await fixture.Service.CreateFromManifestAsync(

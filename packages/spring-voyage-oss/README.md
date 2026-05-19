@@ -1,6 +1,6 @@
 # Spring Voyage OSS Dogfooding Package
 
-The package stands up a working organisation that can triage issues, ship PRs, and keep the program plan honest — all backed by the **Spring Voyage** GitHub App. Install it once and the two role-flavoured sub-units take over from there.
+The package stands up a working organisation that can triage issues, ship PRs, and keep the program plan honest — all backed by the **Spring Voyage** GitHub App. Install it once and the engineer and PM agent members take over from there.
 
 ## Catalog visibility
 
@@ -8,16 +8,17 @@ This package ships as part of the platform and is **automatically visible in the
 
 ## What this package ships
 
-- **Umbrella unit** (`units/spring-voyage-oss/`, display name *Spring Voyage OSS*) — routes incoming work between the two sub-units.
-  - `sv-oss-software-engineering` (*Software Engineering*) — five engineer instances (`ada`, `hopper`, `knuth`, `ritchie`, `turing`) all stamped from the package's `software-engineer` AgentTemplate. Owns implementation, code review, and the build/test/lint loop; dispatches focused work to repository-defined persona subagents under `.claude/agents/`. Five instances let the orchestrator parallelise genuinely independent work without one instance blocking another.
-  - `sv-oss-program-management` (*Program Management*) — two PM instances (`drucker`, `deming`) stamped from the package's `program-manager` AgentTemplate. Owns issue triage, milestone hygiene, and native sub-issue / blocked-by relationships against whichever plan version is active under `docs/plan/`. Two instances let triage run concurrently on disjoint issue sets.
+- **Unit** (`units/spring-voyage-oss/`, display name *Spring Voyage OSS*) — a single router unit. It receives GitHub-webhook-derived events on its mailbox and dispatches each one directly to the agent best suited to handle it. Members attached directly to the unit:
+  - **Engineers** (5 instances stamped from the package's `software-engineer` AgentTemplate): `ada`, `hopper`, `knuth`, `ritchie`, `turing`. Own implementation, code review, and the build/test/lint loop; dispatch focused work to repository-defined persona subagents under `.claude/agents/`. Five instances let the router parallelise genuinely independent work without one instance blocking another.
+  - **PMs** (2 instances stamped from the `program-manager` AgentTemplate): `drucker`, `deming`. Own issue triage, milestone hygiene, and native sub-issue / blocked-by relationships against whichever plan version is active under `docs/plan/`. Two instances let triage run concurrently on disjoint issue sets.
+  - **Human overall-lead** — escalation target when the router cannot resolve where a message belongs.
 - **AgentTemplates** (`templates/`):
   - `software-engineer` — the shared instructions / model / image / capabilities every engineer instance inherits.
   - `program-manager` — the shared instructions / model / image / capabilities every PM instance inherits.
 
-Per ADR-0043 §5g, each engineer / PM is declared inline on the sub-unit's `members:` list as `- agent: { name: <instance>, from: <template>, displayName: "<label>" }`. At install time the inline body is stamped into a fresh concrete agent: the named template is cloned per §5d (scalars on the instance win, the template fills the rest) and the inline `displayName:` flows through to the persisted agent. Each instance gets a fresh Guid identity and runs in its own container, so multiple instances can handle independent tasks concurrently.
+Per ADR-0043 §5g, each engineer / PM is declared inline on the unit's `members:` list as `- agent: { name: <instance>, from: <template>, displayName: "<label>" }`. At install time the inline body is stamped into a fresh concrete agent: the named template is cloned per §5d (scalars on the instance win, the template fills the rest) and the inline `displayName:` flows through to the persisted agent. Each instance gets a fresh Guid identity and runs in its own container, so multiple instances can handle independent tasks concurrently.
 
-The umbrella `spring-voyage-oss` unit binds the `github` connector. Webhooks delivered to the platform match by `(tenant, owner, repo)` per [ADR-0047](../../docs/decisions/0047-platform-user-human-split.md) §10 and fan out to every binding in the receiving tenant whose `(owner, repo)` matches; per-binding filters decide which units process the event. In this package the umbrella holds the sole binding for the repo, so the event lands on the umbrella's mailbox and it delegates to whichever sub-unit owns the work. Sub-units do not bind the connector themselves — they inherit `$GITHUB_TOKEN` and the other GitHub env vars from the umbrella's binding via the platform's connector binding-walk (closest binding in the parent chain wins). Both sub-units rely on the repository's checked-in instructions (`CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the `docs/architecture/` and `docs/decisions/` indexes, and whichever plan version is active under `docs/plan/`) and the canonical slash-command skills under `.agents/skills/` (`/build`, `/test`, `/lint`, `/triage`, `/areas`, `/adr-new`, `/openapi-diff`, `/web`). The package itself ships no agent prompts that duplicate those documents — when the project's rules or active milestone change, the in-repo source of truth is the only thing to edit.
+The `spring-voyage-oss` unit binds the `github` connector. Webhooks delivered to the platform match by `(tenant, owner, repo)` per [ADR-0047](../../docs/decisions/0047-platform-user-human-split.md) §10 and fan out to every binding in the receiving tenant whose `(owner, repo)` matches; per-binding filters decide which units process the event. In this package the unit holds the sole binding for the repo, so the event lands on the unit's mailbox and it delegates directly to the right agent member. Agents do not bind the connector themselves — they inherit `$GITHUB_TOKEN` and the other GitHub env vars from the unit's binding via the platform's connector binding-walk (closest binding in the parent chain wins). Agents rely on the repository's checked-in instructions (`CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the `docs/architecture/` and `docs/decisions/` indexes, and whichever plan version is active under `docs/plan/`) and the canonical slash-command skills under `.agents/skills/` (`/build`, `/test`, `/lint`, `/triage`, `/areas`, `/adr-new`, `/openapi-diff`, `/web`). The package itself ships no agent prompts that duplicate those documents — when the project's rules or active milestone change, the in-repo source of truth is the only thing to edit.
 
 ## Required inputs
 
@@ -30,14 +31,14 @@ To find the installation ID: go to **GitHub → your org → Settings → GitHub
 
 ## Image references
 
-Each sub-unit pins an OSS-flavoured agent image:
+Each agent role pins an OSS-flavoured agent image (declared on the AgentTemplate it stamps from):
 
-| Sub-unit | Image |
+| Role | Image |
 | --- | --- |
-| `sv-oss-software-engineering` | `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest` |
-| `sv-oss-program-management` | `ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest` |
+| `software-engineer` (engineers) | `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest` |
+| `program-manager` (PMs) | `ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest` |
 
-The umbrella unit inherits the package-level default image (`ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest`) declared on `package.yaml`. The two role images `FROM` `spring-voyage-agent-base`, install the Claude Code CLI, and add per-role tooling (Software Engineering: .NET 10 SDK, `gh` CLI, Playwright, `ruff`; Program Management: `gh` CLI, `markdownlint-cli2`).
+The unit itself inherits the package-level default image (`ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest`) declared on `package.yaml`. The two role images `FROM` `spring-voyage-agent-base`, install the Claude Code CLI, and add per-role tooling (engineer: .NET 10 SDK, `gh` CLI, Playwright, `ruff`; PM: `gh` CLI, `markdownlint-cli2`).
 
 Build them locally with:
 
@@ -57,13 +58,11 @@ spring package install spring-voyage-oss \
   --input github_installation_id=<installation-id>
 ```
 
-The command installs all three units (umbrella + two sub-units) in a single atomic operation. If any step fails, the whole install rolls back. On success the install report shows each unit reaching `active`:
+The command installs the unit and its agent members in a single atomic operation. If any step fails, the whole install rolls back. On success the install report shows the unit reaching `active`:
 
 ```
 install: <install-id>   status: active
   spring-voyage-oss             active
-  sv-oss-software-engineering   active
-  sv-oss-program-management     active
 ```
 
 Inspect an install later with:
@@ -81,17 +80,17 @@ Navigate to `/units/create` in the Spring Voyage portal.
 3. Fill in the two inputs — qualified `owner/repo` and installation ID — on the inputs form.
 4. Click **Install**.
 
-The status view shows each unit moving from staging to active as activation completes. The install is atomic: either all three units reach active, or the whole install rolls back.
+The status view shows the unit moving from staging to active as activation completes. The install is atomic: either the unit reaches active, or the whole install rolls back.
 
 ## Post-install checks
 
-- Confirm each unit is active: `spring package status <install-id>`.
-- Send a triage prompt to `sv-oss-program-management` and confirm it returns a milestone + label + sub-issue/blocked-by recommendation.
-- Send a planning prompt to `sv-oss-software-engineering` and confirm it routes against scope discipline and the `area:*` label scheme.
+- Confirm the unit is active: `spring package status <install-id>`.
+- Send a triage prompt addressed to the `spring-voyage-oss` unit (the router) carrying a `work_assignment` with no `area:*` label and confirm the router delegates it to a PM agent that returns a milestone + label + sub-issue/blocked-by recommendation.
+- Send a planning prompt addressed to the unit carrying a `work_assignment` with an `area:*` label and confirm the router delegates it to an engineer agent that routes against scope discipline and the `area:*` label scheme.
 
 ## Identity
 
-All GitHub reads and writes from agents in this organisation go through the umbrella's single binding to the **Spring Voyage** GitHub App. No other GitHub identity is referenced anywhere in this package's YAML, prompts, or instructions — that is a non-negotiable property of the package.
+All GitHub reads and writes from agents in this organisation go through the unit's single binding to the **Spring Voyage** GitHub App. No other GitHub identity is referenced anywhere in this package's YAML, prompts, or instructions — that is a non-negotiable property of the package.
 
 ### Alternative: PAT auth (operator-driven, not package-driven)
 

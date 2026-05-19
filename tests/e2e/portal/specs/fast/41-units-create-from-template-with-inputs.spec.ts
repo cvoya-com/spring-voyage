@@ -26,12 +26,11 @@ test.describe("units — create from package with inputs (catalog wizard)", () =
     page,
     tracker,
   }) => {
-    // The OSS package's root unit is `spring-voyage-oss`; deleting it
-    // with `?recursive=true` (the tracker's default) cascades through
-    // the two sub-units the manifest declares.
+    // The OSS package ships a single flat unit (`spring-voyage-oss`)
+    // after #2525 — engineer and PM agents attach directly. Deleting
+    // the unit with `?recursive=true` (the tracker's default) cascades
+    // through its agent members.
     tracker.unit("spring-voyage-oss");
-    tracker.unit("sv-oss-software-engineering");
-    tracker.unit("sv-oss-program-management");
 
     await page.goto("/units/create");
 
