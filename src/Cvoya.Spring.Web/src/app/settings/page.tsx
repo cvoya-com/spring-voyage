@@ -27,6 +27,7 @@ import Link from "next/link";
 import {
   Cpu,
   GraduationCap,
+  IdCard,
   Package as PackageIcon,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -53,6 +54,13 @@ interface SettingsTile {
  * the admin-carveout surfaces (Agent runtimes, System configuration).
  */
 const SETTINGS_TILES: readonly SettingsTile[] = [
+  {
+    href: "/settings/user-identity",
+    label: "User identity",
+    description:
+      "Your display identity per connector — GitHub login for @-mentions and reviewer invocations, etc. No PAT input (ADR-0047 §4).",
+    icon: IdCard,
+  },
   {
     href: "/settings/skills",
     label: "Skills",

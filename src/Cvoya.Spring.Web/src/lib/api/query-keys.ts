@@ -109,10 +109,33 @@ export const queryKeys = {
   humans: {
     all: ["humans"] as const,
     detail: (id: string) => ["humans", "detail", id] as const,
-    // ADR-0047 §§ 2, 14: connector-identity keys relocate alongside the
-    // /api/v1/tenant/users/{id}/identities surface. Phase H of the
-    // umbrella adds `tenantUsers.identities(id)`; the per-Human slot is
+    // ADR-0047 §§ 2, 14: connector-identity keys relocate onto the
+    // `tenantUsers` surface below. The per-Human identity slot is
     // removed with no shim per v0.1's freezing-release policy.
+  },
+
+  /**
+   * TenantUser surface (ADR-0047 §§ 2, 14). The `/settings/user-identity`
+   * page reads through these slices and the wizard's auth-choice
+   * sub-step invalidates `identities(id)` when an OAuth completion
+   * lands a new GitHub `username` on the calling tenant user.
+   */
+  tenantUsers: {
+    all: ["tenantUsers"] as const,
+    detail: (id: string) => ["tenantUsers", "detail", id] as const,
+    identities: (id: string) =>
+      ["tenantUsers", "identities", id] as const,
+  },
+
+  /**
+   * Tenant-scoped secrets (#615) used by the user-identity page's
+   * orphan-secret listing (ADR-0047 §5: the wizard's pre-mint flow
+   * writes secrets at `binding/<bindingId>/github/pat`; if the operator
+   * abandons the wizard the secret persists for cleanup).
+   */
+  tenantSecrets: {
+    all: ["tenantSecrets"] as const,
+    list: () => ["tenantSecrets", "list"] as const,
   },
 
   activity: {

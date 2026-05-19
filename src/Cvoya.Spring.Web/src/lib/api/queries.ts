@@ -67,6 +67,9 @@ import type {
   TenantCostTimeseriesResponse,
   ThroughputRollupResponse,
   TokenResponse,
+  SecretMetadata,
+  TenantUserConnectorIdentityResponse,
+  TenantUserResponse,
   UnitBoundaryResponse,
   UnitDashboardSummary,
   UnitDetailResponse,
@@ -740,13 +743,65 @@ export function useHuman(
   });
 }
 
-// ADR-0047 §§ 2, 14: connector-identity hooks relocate alongside the
-// API client wrappers (see client.ts). Phase H of the umbrella adds
-// `useTenantUserIdentities` / `useUpsertTenantUserIdentity` /
-// `useRemoveTenantUserIdentity` pointing at the new
-// /api/v1/tenant/users/{id}/identities routes; v0.1's freezing release
-// deletes the prior `useHumanIdentities` / `useUpsertHumanIdentity` /
-// `useRemoveHumanIdentity` hooks outright with no shim.
+// ---------------------------------------------------------------------------
+// TenantUser surface (ADR-0047 §§ 2, 14). Powers the `/settings/
+// user-identity` page (display-only) and the wizard's auth-choice
+// sub-step (the wizard pre-mints a binding UUID client-side and
+// optionally refreshes the calling tenant user's `username` from the
+// OAuth user-info response).
+// ---------------------------------------------------------------------------
+
+/** GET /api/v1/tenant/users/{tenantUserId} envelope. */
+export function useTenantUser(
+  tenantUserId: string,
+  opts?: SliceOptions<TenantUserResponse | null>,
+): UseQueryResult<TenantUserResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.tenantUsers.detail(tenantUserId),
+    queryFn: async () => {
+      try {
+        return await api.getTenantUser(tenantUserId);
+      } catch {
+        // The page renders a "could not load" state when the row is
+        // missing; the 404 path on this endpoint should not happen for
+        // the OSS operator (the row is pinned by `OssTenantUserIds.
+        // Operator` and seeded at boot).
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(tenantUserId),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/** GET /api/v1/tenant/users/{tenantUserId}/identities — one row per connector. */
+export function useTenantUserIdentities(
+  tenantUserId: string,
+  opts?: SliceOptions<TenantUserConnectorIdentityResponse[]>,
+): UseQueryResult<TenantUserConnectorIdentityResponse[], Error> {
+  return useQuery({
+    queryKey: queryKeys.tenantUsers.identities(tenantUserId),
+    queryFn: async () => api.listTenantUserIdentities(tenantUserId),
+    enabled: opts?.enabled ?? Boolean(tenantUserId),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/** GET /api/v1/tenant/secrets — used by the user-identity page's orphan-secret list. */
+export function useTenantSecrets(
+  opts?: SliceOptions<SecretMetadata[]>,
+): UseQueryResult<SecretMetadata[], Error> {
+  return useQuery({
+    queryKey: queryKeys.tenantSecrets.list(),
+    queryFn: async () => {
+      const resp = await api.listTenantSecrets();
+      return resp.secrets ?? [];
+    },
+    ...opts,
+  });
+}
 
 /**
  * Read the team-role human members of a unit
