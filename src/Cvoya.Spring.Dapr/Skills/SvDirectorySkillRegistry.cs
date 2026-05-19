@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Skills;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
@@ -13,8 +14,12 @@ using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Execution;
+
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -32,11 +37,18 @@ using Microsoft.Extensions.Logging;
 /// <b>Universal entry shape.</b> Every tool returns or includes one or more
 /// entries with the same fields:
 /// <c>{ uuid, kind, display_name, parent_uuids, description, expertise,
-/// member_count, live_status }</c>. <c>kind</c> is one of <c>"agent"</c>,
-/// <c>"unit"</c>, or <c>"tenant"</c>. <c>parent_uuids</c> is always a list
-/// (possibly empty for the tenant sentinel). <c>member_count</c> is
-/// populated only for unit-kind entries; <c>expertise</c> is empty for the
-/// tenant sentinel.
+/// member_count, live_status? }</c>. <c>kind</c> is one of <c>"agent"</c>,
+/// <c>"unit"</c>, <c>"human"</c>, or <c>"tenant"</c>. <c>parent_uuids</c> is
+/// always a list (possibly empty for the tenant sentinel).
+/// <c>member_count</c> is populated only for unit-kind entries;
+/// <c>expertise</c> is empty for the tenant sentinel. <c>live_status</c>
+/// (#2491) carries the advisory runtime snapshot from
+/// <see cref="Cvoya.Spring.Core.Agents.AgentRuntimeStatusReport"/> on agent
+/// and unit entries; it is omitted entirely from the wire shape for
+/// <c>human</c> and <c>tenant</c> entries (humans have no runtime; the
+/// tenant sentinel is non-addressable). Per-subject failures on the
+/// actor-proxy read are tolerated — the affected entry simply omits the
+/// field while siblings keep theirs.
 /// </para>
 /// <para>
 /// <b>Tenant sentinel.</b> The tenant is rendered as an entry with
@@ -94,6 +106,9 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
     /// <summary>Tool name for <c>sv.get_parents</c>.</summary>
     public const string GetParentsTool = "sv.get_parents";
+
+    /// <summary>Tool name for <c>sv.get_status</c> (#2491).</summary>
+    public const string GetStatusTool = "sv.get_status";
 
     /// <summary>Default page size for list tools, mirroring DirectorySearchResponse.</summary>
     public const int DefaultLimit = 50;
@@ -154,19 +169,31 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     private readonly IUnitMemberGraphStore _memberGraphStore;
     private readonly IUnitHumanMembershipStore _humanMembershipStore;
     private readonly IExpertiseStore _expertiseStore;
-    private readonly PersistentAgentRegistry _agentRegistry;
+    private readonly IActorProxyFactory _actorProxyFactory;
     private readonly ITenantContext _tenantContext;
     private readonly ILogger _logger;
 
     private readonly IReadOnlyList<ToolDefinition> _tools;
 
     /// <summary>Builds the registry with its singleton dependencies.</summary>
+    /// <param name="scopeFactory">Scope factory for the per-call scoped reads (definitions, repositories).</param>
+    /// <param name="memberGraphStore">Read seam over <c>unit_memberships</c> / <c>unit_subunit_memberships</c>.</param>
+    /// <param name="humanMembershipStore">Read seam over <c>unit_memberships_humans</c>.</param>
+    /// <param name="expertiseStore">Read seam for the actor expertise surfaced on every entry.</param>
+    /// <param name="actorProxyFactory">
+    /// Factory for building <see cref="IAgentActor"/> / <see cref="IUnitActor"/>
+    /// proxies (#2491). The registry calls <c>GetRuntimeStatusAsync</c> on the
+    /// proxy to populate the <c>live_status</c> field on agent / unit entries.
+    /// Per-subject failures are tolerated — see <see cref="ResolveLiveStatusAsync"/>.
+    /// </param>
+    /// <param name="tenantContext">Current-tenant resolver (the tenant sentinel anchors at <see cref="ITenantContext.CurrentTenantId"/>).</param>
+    /// <param name="loggerFactory">Logger factory for diagnostic logging.</param>
     public SvDirectorySkillRegistry(
         IServiceScopeFactory scopeFactory,
         IUnitMemberGraphStore memberGraphStore,
         IUnitHumanMembershipStore humanMembershipStore,
         IExpertiseStore expertiseStore,
-        PersistentAgentRegistry agentRegistry,
+        IActorProxyFactory actorProxyFactory,
         ITenantContext tenantContext,
         ILoggerFactory loggerFactory)
     {
@@ -174,7 +201,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         _memberGraphStore = memberGraphStore;
         _humanMembershipStore = humanMembershipStore;
         _expertiseStore = expertiseStore;
-        _agentRegistry = agentRegistry;
+        _actorProxyFactory = actorProxyFactory;
         _tenantContext = tenantContext;
         _logger = loggerFactory.CreateLogger<SvDirectorySkillRegistry>();
 
@@ -184,9 +211,11 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 GetSelfTool,
                 "Returns metadata for the calling agent or unit (the entity whose runtime is " +
                 "executing this tool call). Output is a single entry: " +
-                "{ uuid, kind, display_name, parent_uuids, description, expertise, member_count, live_status }. " +
+                "{ uuid, kind, display_name, parent_uuids, description, expertise, member_count, live_status? }. " +
                 "Use this as the bootstrap when navigating the unit hierarchy — the entry's " +
-                "parent_uuids are the starting point for sv.get_parents / sv.list_members.",
+                "parent_uuids are the starting point for sv.get_parents / sv.list_members. " +
+                "live_status is an advisory snapshot of in-flight work — see sv.get_status for " +
+                "details; the field is omitted on entries whose kind doesn't carry runtime state.",
                 EmptyObjectSchema),
             new ToolDefinition(
                 GetMemberTool,
@@ -204,7 +233,9 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "team roles surfaces as a single entry whose roles array carries every role. " +
                 "Sub-unit members are NOT recursively expanded — call sv.list_members again on " +
                 "a sub-unit's uuid to walk further. Pagination via limit (default 50, max 200) " +
-                "and offset; total_count carries the unfiltered total.",
+                "and offset; total_count carries the unfiltered total. Agent and unit entries " +
+                "additionally carry an advisory live_status object — see sv.get_status; the " +
+                "field is omitted entirely on human entries.",
                 UuidPagedArgSchema),
             new ToolDefinition(
                 GetSiblingsTool,
@@ -218,6 +249,18 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 GetParentsTool,
                 "Returns the parents of the entity identified by uuid. For top-level units the " +
                 "list contains the tenant sentinel entry (kind='tenant'). " + TenantSentinelWarning,
+                UuidArgSchema),
+            new ToolDefinition(
+                GetStatusTool,
+                "Returns the advisory runtime-status snapshot for a single agent or unit " +
+                "identified by uuid. Output shape: { uuid, kind, display_name, live_status? }. " +
+                "live_status is { in_flight, queued, channels, observed_at } where in_flight is " +
+                "the count of threads currently being dispatched, queued is messages waiting " +
+                "behind in-flight heads (agents only; units' lean dispatch has no queue), and " +
+                "channels is the total per-thread channels tracked. The field is omitted for " +
+                "kind='human' (humans have no runtime). Snapshots are advisory — they reflect " +
+                "the state at the moment of the call and may be stale by the time you act on " +
+                "them; the actor mailbox is the ordering authority. " + TenantSentinelWarning,
                 UuidArgSchema),
         };
     }
@@ -255,6 +298,8 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 return await GetSiblingsAsync(arguments, context, cancellationToken);
             case GetParentsTool:
                 return await GetParentsAsync(arguments, context, cancellationToken);
+            case GetStatusTool:
+                return await GetStatusAsync(arguments, context, cancellationToken);
             default:
                 throw new SkillNotFoundException(toolName);
         }
@@ -278,6 +323,48 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
         var entry = await BuildEntryAsync(targetUuid, kind, ct, displayNameOverride);
         return SerializeEntry(entry);
+    }
+
+    /// <summary>
+    /// Implements <c>sv.get_status</c> (#2491). Returns a slim projection
+    /// — <c>{ uuid, kind, display_name, live_status? }</c> — for one
+    /// subject identified by uuid. Same error shape as <c>sv.get_member</c>:
+    /// an unknown / unparseable uuid throws <see cref="ArgumentException"/>,
+    /// which the MCP server surfaces as a typed tool error.
+    /// </summary>
+    private async Task<JsonElement> GetStatusAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
+    {
+        var targetUuid = RequireUuidArg(args, "uuid");
+        var (kind, displayNameOverride) = await ResolveKindAsync(targetUuid, ct);
+        if (kind == KindUnit)
+        {
+            await EnsureDirectoryReadAllowedAsync(context, targetUuid, ct);
+        }
+
+        // Resolve the display name through the same path BuildEntryAsync
+        // uses so the slim projection's display_name field matches what a
+        // sibling sv.get_member call would have returned. The tenant
+        // sentinel and human kinds skip the live-status probe entirely.
+        string displayName;
+        if (string.Equals(kind, KindTenant, StringComparison.Ordinal))
+        {
+            displayName = await ResolveTenantDisplayNameAsync(_tenantContext.CurrentTenantId, ct);
+        }
+        else if (!string.IsNullOrWhiteSpace(displayNameOverride))
+        {
+            displayName = displayNameOverride!;
+        }
+        else
+        {
+            var (_, dbDisplayName) = await ReadDefinitionAsync(targetUuid, kind, ct);
+            displayName = !string.IsNullOrWhiteSpace(dbDisplayName)
+                ? dbDisplayName!
+                : await ResolveDisplayNameAsync(Address.For(kind, targetUuid), ct);
+        }
+
+        var liveStatus = await ResolveLiveStatusAsync(targetUuid, kind, ct);
+
+        return SerializeStatusEntry(targetUuid, kind, displayName, liveStatus);
     }
 
     private async Task<JsonElement> ListMembersAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
@@ -408,6 +495,10 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             .Select(r => r.Trim())
             .ToList();
 
+        // ADR-0044 § 5 / #2491: humans have no runtime status — the
+        // `live_status` field is omitted entirely from the wire shape
+        // (null on the projection; the serializer skips writing the
+        // property when LiveStatus is null).
         return new DirectoryEntry(
             Uuid: humanUuid,
             Kind: KindHuman,
@@ -416,7 +507,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             Description: string.Empty,
             Expertise: expertise,
             MemberCount: null,
-            LiveStatus: "n/a",
+            LiveStatus: null,
             Roles: roles);
     }
 
@@ -571,7 +662,12 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             memberCount = members.Count;
         }
 
-        var liveStatus = await ResolveLiveStatusAsync(uuid, ct);
+        // #2491: live_status carries the actor's per-thread channel
+        // snapshot for agent / unit kinds. Returns null on any failure
+        // (unreachable actor, unsupported kind) so the serializer omits
+        // the property — the wire shape distinguishes "no runtime"
+        // from "runtime reported zero".
+        var liveStatus = await ResolveLiveStatusAsync(uuid, kind, ct);
 
         return new DirectoryEntry(
             Uuid: uuid,
@@ -590,6 +686,9 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         var tenantUuid = GuidFormatter.Format(tenantGuid);
         var tenantDisplayName = await ResolveTenantDisplayNameAsync(tenantGuid, ct);
 
+        // The tenant sentinel is non-addressable and has no runtime —
+        // `live_status` is omitted from the wire shape (null on the
+        // projection; the serializer skips writing the property).
         return new DirectoryEntry(
             Uuid: tenantUuid,
             Kind: KindTenant,
@@ -598,7 +697,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             Description: "Top-level tenant marker. Non-addressable — present only so callers can distinguish 'has a unit parent' from 'has a unit parent AND is also at the top level'.",
             Expertise: Array.Empty<ExpertiseDomain>(),
             MemberCount: null,
-            LiveStatus: "n/a");
+            LiveStatus: null);
     }
 
     private async Task<(string Description, string? DisplayName)> ReadDefinitionAsync(string uuid, string kind, CancellationToken ct)
@@ -750,20 +849,61 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         return verdict.IsAllowed;
     }
 
-    private async Task<string> ResolveLiveStatusAsync(string uuid, CancellationToken ct)
+    /// <summary>
+    /// Resolves the advisory runtime-status snapshot for the supplied
+    /// subject (#2491). For agents and units this round-trips through the
+    /// actor proxy to <c>GetRuntimeStatusAsync</c>; for any other kind
+    /// (human, tenant, unknown) returns <c>null</c> so the caller omits
+    /// the field from the wire shape entirely.
+    /// </summary>
+    /// <remarks>
+    /// Per-subject failures are tolerated: a Dapr remoting hiccup, an
+    /// actor that hasn't been activated, or any other transient error
+    /// surfaces as <c>null</c> rather than propagating. Status is
+    /// advisory — a stale or missing snapshot is correct by design;
+    /// the actor mailbox is the ordering authority.
+    /// </remarks>
+    private async Task<AgentRuntimeStatusReport?> ResolveLiveStatusAsync(
+        string uuid, string kind, CancellationToken ct)
     {
-        var entry = await _agentRegistry.TryGetAsync(uuid, ct);
-        if (entry is null)
+        if (!GuidFormatter.TryParse(uuid, out var guid))
         {
-            return "unknown";
+            return null;
         }
 
-        return entry.HealthStatus switch
+        try
         {
-            AgentHealthStatus.Healthy => "online",
-            AgentHealthStatus.Unhealthy => "unhealthy",
-            _ => "unknown",
-        };
+            var actorId = new ActorId(GuidFormatter.Format(guid));
+            if (string.Equals(kind, KindAgent, StringComparison.Ordinal))
+            {
+                var proxy = _actorProxyFactory.CreateActorProxy<IAgentActor>(
+                    actorId, nameof(AgentActor));
+                return await proxy.GetRuntimeStatusAsync(ct);
+            }
+
+            if (string.Equals(kind, KindUnit, StringComparison.Ordinal))
+            {
+                var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
+                    actorId, nameof(UnitActor));
+                return await proxy.GetRuntimeStatusAsync(ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Best-effort indicator — per-subject failures must not break
+            // the surrounding list / single-entry response. Log at
+            // Information so operators can see runtime-status read
+            // failures without crowding the default Warning channel.
+            _logger.LogInformation(ex,
+                "live_status read failed for {Kind} uuid {Uuid}; omitting from response.",
+                kind, uuid);
+        }
+
+        return null;
     }
 
     private static (string Uuid, string Kind) ParseCaller(ToolCallContext context)
@@ -821,6 +961,33 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     {
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Serializes the slim <c>sv.get_status</c> projection (#2491):
+    /// <c>{ uuid, kind, display_name, live_status? }</c>. Mirrors the
+    /// omit-on-null contract of the directory entry's <c>live_status</c>
+    /// field — humans and unreachable actors produce a response without
+    /// the property.
+    /// </summary>
+    private static JsonElement SerializeStatusEntry(
+        string uuid, string kind, string displayName, AgentRuntimeStatusReport? liveStatus)
+    {
+        using var stream = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("uuid", uuid);
+            writer.WriteString("kind", kind);
+            writer.WriteString("display_name", displayName);
+            if (liveStatus is { } report)
+            {
+                writer.WritePropertyName("live_status");
+                WriteLiveStatus(writer, report);
+            }
+            writer.WriteEndObject();
+        }
+        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
     }
 
     private static JsonElement SerializeEntry(DirectoryEntry entry)
@@ -905,7 +1072,16 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         {
             writer.WriteNull("member_count");
         }
-        writer.WriteString("live_status", entry.LiveStatus);
+        // #2491: omit `live_status` entirely when the projection carries
+        // no report (humans, tenant sentinel, and any agent / unit whose
+        // actor proxy call failed). The field's absence is the contract
+        // — callers MUST treat missing == "no runtime here" rather than
+        // assume zero.
+        if (entry.LiveStatus is { } report)
+        {
+            writer.WritePropertyName("live_status");
+            WriteLiveStatus(writer, report);
+        }
 
         // ADR-0046 §9: emit `roles: string[]` uniformly on every entry
         // kind (agent / unit / human), serialising as `[]` when the entry
@@ -926,6 +1102,22 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         writer.WriteEndObject();
     }
 
+    /// <summary>
+    /// Writes one <see cref="AgentRuntimeStatusReport"/> as the
+    /// <c>live_status</c> object (#2491). Field names mirror what the
+    /// <c>sv.get_status</c> tool description advertises: <c>in_flight</c>,
+    /// <c>queued</c>, <c>channels</c>, <c>observed_at</c>.
+    /// </summary>
+    private static void WriteLiveStatus(Utf8JsonWriter writer, AgentRuntimeStatusReport report)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("in_flight", report.InFlightThreadCount);
+        writer.WriteNumber("queued", report.QueuedMessageCount);
+        writer.WriteNumber("channels", report.ChannelCount);
+        writer.WriteString("observed_at", report.ObservedAt.ToString("O"));
+        writer.WriteEndObject();
+    }
+
     private sealed record DirectoryEntry(
         string Uuid,
         string Kind,
@@ -934,6 +1126,6 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         string Description,
         IReadOnlyList<ExpertiseDomain> Expertise,
         int? MemberCount,
-        string LiveStatus,
+        AgentRuntimeStatusReport? LiveStatus,
         IReadOnlyList<string>? Roles = null);
 }

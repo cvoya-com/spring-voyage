@@ -3,18 +3,17 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Skills;
 
-using System.Net.Http;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
-using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
-using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Skills;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
+
+using global::Dapr.Actors.Client;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -41,38 +40,14 @@ public class SvDirectorySkillRegistryContractTests
     private readonly IUnitHumanMembershipStore _humanMembershipStore =
         new InMemoryUnitHumanMembershipStore();
     private readonly IExpertiseStore _expertiseStore = Substitute.For<IExpertiseStore>();
+    private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
-    private readonly PersistentAgentRegistry _agentRegistry;
 
     public SvDirectorySkillRegistryContractTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _tenantContext.CurrentTenantId.Returns(Guid.NewGuid());
-        _agentRegistry = BuildPersistentAgentRegistry();
-    }
-
-    private static PersistentAgentRegistry BuildPersistentAgentRegistry()
-    {
-        // PersistentAgentRegistry is concrete; the contract tests don't
-        // exercise its behaviour, only need a constructible instance so
-        // the registry's TryGet path returns "no entry" cleanly.
-        var loggerFactory = Substitute.For<ILoggerFactory>();
-        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        var containerRuntime = Substitute.For<IContainerRuntime>();
-        var lifecycle = new ContainerLifecycleManager(
-            containerRuntime,
-            Substitute.For<IDaprSidecarManager>(),
-            Microsoft.Extensions.Options.Options.Create(new DaprSidecarOptions()),
-            loggerFactory);
-        var volumes = new AgentVolumeManager(containerRuntime, loggerFactory);
-        return new PersistentAgentRegistry(
-            containerRuntime,
-            Substitute.For<IHttpClientFactory>(),
-            lifecycle,
-            volumes,
-            Substitute.For<IServiceScopeFactory>(),
-            loggerFactory);
     }
 
     private SvDirectorySkillRegistry CreateRegistry() => new(
@@ -80,16 +55,19 @@ public class SvDirectorySkillRegistryContractTests
         _memberGraphStore,
         _humanMembershipStore,
         _expertiseStore,
-        _agentRegistry,
+        _actorProxyFactory,
         _tenantContext,
         _loggerFactory);
 
     [Fact]
-    public void GetToolDefinitions_AdvertisesAllFiveSvTools()
+    public void GetToolDefinitions_AdvertisesAllSixSvTools()
     {
         var registry = CreateRegistry();
         var tools = registry.GetToolDefinitions();
 
+        // #2491: sv.get_status joins the surface alongside the original
+        // five tools. Order is stable so callers caching tool slots see
+        // the new tool appended after the navigation set.
         tools.Select(t => t.Name).ShouldBe(new[]
         {
             SvDirectorySkillRegistry.GetSelfTool,
@@ -97,6 +75,7 @@ public class SvDirectorySkillRegistryContractTests
             SvDirectorySkillRegistry.ListMembersTool,
             SvDirectorySkillRegistry.GetSiblingsTool,
             SvDirectorySkillRegistry.GetParentsTool,
+            SvDirectorySkillRegistry.GetStatusTool,
         });
     }
 

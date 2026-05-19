@@ -6,13 +6,11 @@ namespace Cvoya.Spring.Dapr.Tests.Skills;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Core.Capabilities;
-using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
@@ -22,15 +20,15 @@ using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
-using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Skills;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
+
+using global::Dapr.Actors.Client;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 
 using NSubstitute;
 
@@ -72,7 +70,9 @@ public class SvDirectorySkillRegistry_HumanMembersTests
         entry.ParentUuids.ShouldHaveSingleItem().ShouldBe(GuidFormatter.Format(UnitId));
         // member_count is not populated for humans (humans aren't aggregates).
         entry.MemberCount.ShouldBeNull();
-        entry.LiveStatus.ShouldBe("n/a");
+        // #2491: humans carry no live_status — the field is omitted from
+        // the wire shape entirely (absence, not null).
+        entry.HasLiveStatus.ShouldBeFalse();
     }
 
     [Fact]
@@ -337,39 +337,25 @@ public class SvDirectorySkillRegistry_HumanMembersTests
 
             var loggerFactory = NullLoggerFactory.Instance;
 
+            // #2491: the registry calls IActorProxyFactory to resolve
+            // live_status for agent / unit entries. For the human-members
+            // tests we don't exercise the live-status path (the assertions
+            // pin the human / role projection only), so a substitute that
+            // returns null proxies is enough — the actor calls then
+            // throw and the registry tolerates the failure by omitting
+            // live_status from the affected entries.
+            var actorProxyFactory = Substitute.For<IActorProxyFactory>();
+
             var registry = new SvDirectorySkillRegistry(
                 scopeFactory,
                 memberGraph,
                 _membershipStore,
                 expertiseStore,
-                BuildPersistentAgentRegistry(loggerFactory, scopeFactory),
+                actorProxyFactory,
                 tenantContext,
                 loggerFactory);
 
             return new BuiltFixture(registry);
-        }
-
-        private static PersistentAgentRegistry BuildPersistentAgentRegistry(
-            ILoggerFactory loggerFactory, IServiceScopeFactory scopeFactory)
-        {
-            var containerRuntime = Substitute.For<IContainerRuntime>();
-            var lifecycle = new ContainerLifecycleManager(
-                containerRuntime,
-                Substitute.For<IDaprSidecarManager>(),
-                Options.Create(new DaprSidecarOptions()),
-                loggerFactory);
-            var volumes = new AgentVolumeManager(containerRuntime, loggerFactory);
-            // #2468: the registry reads SpringDbContext through the scope
-            // factory on every TryGetAsync, so we share the test's main
-            // scope factory rather than a substitute that can't resolve
-            // the context.
-            return new PersistentAgentRegistry(
-                containerRuntime,
-                Substitute.For<IHttpClientFactory>(),
-                lifecycle,
-                volumes,
-                scopeFactory,
-                loggerFactory);
         }
     }
 
@@ -417,7 +403,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
         IReadOnlyList<string> ParentUuids,
         IReadOnlyList<ExpertiseProjection> Expertise,
         int? MemberCount,
-        string LiveStatus,
+        bool HasLiveStatus,
         IReadOnlyList<string> Roles)
     {
         public static EntryProjection From(JsonElement el)
@@ -451,7 +437,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
                 ParentUuids: parentUuids,
                 Expertise: expertise,
                 MemberCount: memberCount,
-                LiveStatus: el.GetProperty("live_status").GetString() ?? string.Empty,
+                HasLiveStatus: el.TryGetProperty("live_status", out _),
                 Roles: roles);
         }
     }

@@ -263,8 +263,8 @@ public static class UnitEndpoints
     /// Returns the runtime-status indicator for a unit (#2100). Mirrors
     /// <c>AgentEndpoints.GetAgentRuntimeStatusAsync</c>: registry health
     /// gate first; on healthy / no-registry-entry, ask the unit actor for
-    /// its per-thread channel snapshot (zero today — see
-    /// <c>UnitActor.GetRuntimeStatusAsync</c>).
+    /// its per-thread channel snapshot (populated by the unit's
+    /// dispatch tracker as of #2491).
     /// </summary>
     private static async Task<IResult> GetUnitRuntimeStatusAsync(
         string id,

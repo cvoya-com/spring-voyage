@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Tests.Actors;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Lifecycle;
@@ -190,6 +191,77 @@ public class UnitActorTests
             message,
             Arg.Any<CancellationToken>(),
             Arg.Is<Func<ActivityEvent, CancellationToken, Task>?>(d => d != null));
+    }
+
+    // --- Runtime-status snapshot (#2491) ---
+
+    [Fact]
+    public async Task GetRuntimeStatusAsync_NoActiveWork_ReportsZero()
+    {
+        // Pre-#2491 the unit reported zero unconditionally because the
+        // per-thread channel tracker did not exist. The idle baseline
+        // stays zero — the bug fixed in #2491 is that the *busy* case
+        // also reported zero, not that the idle case is wrong.
+        var report = await _actor.GetRuntimeStatusAsync(TestContext.Current.CancellationToken);
+
+        report.InFlightThreadCount.ShouldBe(0);
+        report.QueuedMessageCount.ShouldBe(0);
+        report.ChannelCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetRuntimeStatusAsync_DuringDispatch_ReportsOneInFlight()
+    {
+        // Acceptance criterion: a unit with active work reports non-zero
+        // in_flight (currently returns zero — this is the bug fixed
+        // here). We stall the runtime path so it does not return before
+        // the snapshot is taken — the tracker enters on the call site
+        // and exits in the finally block, so observing it between
+        // InvokeAsync and its completion is the only valid window.
+        var release = new TaskCompletionSource();
+        AgentRuntimeStatusReport? snapshotDuringDispatch = null;
+
+        _runtimeInvocationPath
+            .InvokeAsync(
+                Arg.Any<Address>(),
+                Arg.Any<Message>(),
+                Arg.Any<CancellationToken>(),
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
+            .Returns(async _ =>
+            {
+                // Snapshot inside the invocation — at this point the
+                // tracker has entered for the current thread.
+                snapshotDuringDispatch = await _actor.GetRuntimeStatusAsync(
+                    TestContext.Current.CancellationToken);
+                await release.Task;
+            });
+
+        var message = CreateMessage();
+        var receiveTask = _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        release.SetResult();
+        await receiveTask;
+
+        snapshotDuringDispatch.ShouldNotBeNull();
+        snapshotDuringDispatch!.InFlightThreadCount.ShouldBe(1);
+        // Units' lean dispatch has no FIFO queue ahead of the dispatcher —
+        // queued stays zero by design (#2491 design note).
+        snapshotDuringDispatch.QueuedMessageCount.ShouldBe(0);
+        snapshotDuringDispatch.ChannelCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetRuntimeStatusAsync_AfterDispatchReturns_ReportsZero()
+    {
+        // The finally-block in HandleDomainMessageAsync must clear the
+        // tracker on dispatch return so a one-off dispatch doesn't leave
+        // a permanent "in-flight" reading.
+        var message = CreateMessage();
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        var report = await _actor.GetRuntimeStatusAsync(TestContext.Current.CancellationToken);
+
+        report.InFlightThreadCount.ShouldBe(0);
+        report.ChannelCount.ShouldBe(0);
     }
 
     // --- Control Message Tests ---

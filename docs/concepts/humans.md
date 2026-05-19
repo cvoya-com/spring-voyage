@@ -127,6 +127,8 @@ The platform-internal directory tool `sv.list_members(unit_id)` surfaces humans 
 
 `roles` is multi-valued (renamed and re-typed from ADR-0044 §5's single-valued `team_role`). Agent and unit entries gain the same optional `roles` / `expertise` fields — additive on those kinds. An agent that wants to ask "who is the security lead on my team?" looks the field up on the response from this tool.
 
+Human entries deliberately **omit** the `live_status` field that agent and unit entries carry — humans have no runtime in v0.1, so there is nothing to surface (see [#2491](https://github.com/cvoya-com/spring-voyage/issues/2491)). Field absence — not a null value — is the contract; callers MUST treat missing `live_status` as "no runtime here".
+
 ## Portal scope
 
 The portal's `NodeKind` (`src/Cvoya.Spring.Web/src/components/units/aggregate.ts`) was extended to include `"Human"` under #2266 / #2267. Humans are a fourth Explorer subject with a minimal canonical tab set:
