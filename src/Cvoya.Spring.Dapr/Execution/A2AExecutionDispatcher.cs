@@ -89,8 +89,9 @@ public class A2AExecutionDispatcher(
         ?? throw new ArgumentNullException(nameof(tenantContext));
     // ADR-0039 D3: orchestration tool descriptors are resolved per-invocation
     // and threaded through AgentLaunchContext so launchers can attach them
-    // to the runtime container. The provider returns an empty array for
-    // leaf agents.
+    // to the runtime container. The provider returns an empty array when
+    // the addressed entity has no children in the member graph; entity
+    // type is not a gate.
     private readonly IOrchestrationToolProvider _orchestrationToolProvider = orchestrationToolProvider
         ?? throw new ArgumentNullException(nameof(orchestrationToolProvider));
     // ADR-0038: launchers are keyed on the catalogue runtime entry's
@@ -237,13 +238,14 @@ public class A2AExecutionDispatcher(
         var tenantId = _tenantContext.CurrentTenantId;
         var tenantConfigJson = SerialiseTenantConfigJson(tenantId);
 
-        // ADR-0039 D3: resolve the orchestration tools available to this agent
+        // ADR-0039 D3: resolve the orchestration tools available to this
         // address on this thread. Threads them into the launch context so
         // launchers (D4–D7) can attach them to the runtime's tool surface.
-        // For leaf agents the provider returns an empty array. The provider's
-        // contract takes a Guid thread id; today's wire form is a free-form
-        // string — when it is not Guid-shaped (e.g. legacy callers, synthetic
-        // test threads) we pass Guid.Empty so the provider's per-thread hook
+        // The provider returns an empty array when the addressed entity has
+        // no children; entity type is not a gate. The provider's contract
+        // takes a Guid thread id; today's wire form is a free-form string —
+        // when it is not Guid-shaped (e.g. legacy callers, synthetic test
+        // threads) we pass Guid.Empty so the provider's per-thread hook
         // sees a deterministic value rather than a parse failure.
         var threadGuid = Guid.TryParse(threadId, out var parsedThreadGuid)
             ? parsedThreadGuid

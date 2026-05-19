@@ -19,20 +19,22 @@ Persistent containers are launched once and receive multiple A2A turns. Their la
 
 ## Authorization Model
 
-The orchestration SDK is structurally callable only by unit processes: processes launched as the runtime for a unit. Leaf agents can reply through their normal runtime output path, and A2A messaging remains available through the existing A2A protocol, but leaf agents are rejected when they call orchestration methods.
+The platform does not gate orchestration by entity type; calls succeed whenever the caller's direct-child membership permits. Agents and units both reach the dispatcher under their own address scheme. The dispatcher rejects callers whose scheme is neither `unit://` nor `agent://` (e.g. `human://`, `connector://`) with `UnsupportedCallerScheme`.
+
+A2A messaging remains available to every addressable entity through the existing A2A protocol, separately from this SDK.
 
 Dispatcher authorization gates:
 
 | Gate | Rejection reason |
 | --- | --- |
 | Invalid or expired callback token | `InvalidToken` |
-| Leaf-agent caller | `CallerIsNotUnit` |
+| Caller scheme is not `unit://` or `agent://` | `UnsupportedCallerScheme` |
 | Target is not a direct child | `TargetNotChild` |
-| Target equals the calling unit | `SelfDelegation` |
+| Target equals the caller | `SelfDelegation` |
 | Delegation depth budget is exhausted | `DepthExceeded` |
 | Target crosses the tenant boundary | `CrossTenant` |
 
-Targets must be direct children of the calling unit. Cross-level delegation is not supported in v0.1. The token is scoped to the current tenant, caller, thread, and inbound message. For persistent containers, use the per-message `message.metadata.callbackToken` from the inbound A2A metadata for the current turn and discard it when the turn completes.
+Targets must be direct children of the caller. Cross-level delegation is not supported in v0.1. The token is scoped to the current tenant, caller, thread, and inbound message. For persistent containers, use the per-message `message.metadata.callbackToken` from the inbound A2A metadata for the current turn and discard it when the turn completes.
 
 ## Typed Client Surface
 
@@ -79,7 +81,7 @@ Child targets are Spring Voyage address strings such as `agent:aaaaaaaa000000000
 | Exception | When thrown |
 | --- | --- |
 | `MissingCallbackEnvironmentException` | `SPRING_CALLBACK_URL` or `SPRING_CALLBACK_TOKEN` is absent when calling `SpringAgent.FromEnvironment()`. |
-| `OrchestrationAuthException` | The dispatcher rejects authentication or orchestration authorization. `Reason` carries values such as `InvalidToken`, `CallerIsNotUnit`, `TargetNotChild`, `SelfDelegation`, `DepthExceeded`, or `CrossTenant`. |
+| `OrchestrationAuthException` | The dispatcher rejects authentication or orchestration authorization. `Reason` carries values such as `InvalidToken`, `UnsupportedCallerScheme`, `TargetNotChild`, `SelfDelegation`, `DepthExceeded`, or `CrossTenant`. |
 | `OrchestrationTransportException` | HTTP transport failures, timeouts, invalid dispatcher JSON, or non-success responses outside the authorization model. |
 
 ## Workflow-State Guidance

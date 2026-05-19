@@ -248,7 +248,6 @@ public sealed class OrchestrationClient : IOrchestrationClient
         {
             null or "" => null,
             "InvalidToken" => "InvalidToken",
-            "OrchestrationCallerIsNotUnit" => "CallerIsNotUnit",
             "OrchestrationTargetNotChild" => "TargetNotChild",
             "OrchestrationSelfDelegation" => "SelfDelegation",
             "OrchestrationDepthExceeded" => "DepthExceeded",

@@ -66,7 +66,8 @@ public class PersistentAgentLifecycle(
     private readonly IRuntimeCatalog _runtimeCatalog = runtimeCatalog
         ?? throw new ArgumentNullException(nameof(runtimeCatalog));
     // ADR-0039 D3: orchestration tools resolved per-deploy and threaded
-    // into the launch context. Leaf agents see an empty array.
+    // into the launch context. Returns empty when the target has no children
+    // in the member graph; entity type is not a gate.
     private readonly IOrchestrationToolProvider _orchestrationToolProvider = orchestrationToolProvider
         ?? throw new ArgumentNullException(nameof(orchestrationToolProvider));
 
@@ -152,15 +153,15 @@ public class PersistentAgentLifecycle(
 
         var sessionId = $"persistent-{agentId}";
         var prompt = definition.Instructions ?? string.Empty;
-        // The explicit-deploy path always targets an agent address (see the
-        // Address.AgentScheme reference a few lines below), so the session's
-        // caller-kind is hard-coded to the agent scheme.
-        var session = mcpServer.IssueSession(agentId, sessionId, Address.AgentScheme);
+        // ADR-0039: a unit-as-agent definition returns UnitId == AgentId; a
+        // leaf agent's UnitId is the parent unit id (or null). Use the
+        // discriminator to pick the deploy-target scheme.
+        var scheme = string.Equals(definition.UnitId, definition.AgentId, StringComparison.Ordinal)
+            ? Address.UnitScheme
+            : Address.AgentScheme;
+        var session = mcpServer.IssueSession(agentId, sessionId, scheme);
 
-        // ADR-0039 D3: resolve orchestration tools for this address. The
-        // explicit-deploy path always targets an agent address; pass
-        // Guid.Empty for the thread-id slot since deploy is agent-level.
-        var deployTarget = Address.For(Address.AgentScheme, agentId);
+        var deployTarget = Address.For(scheme, agentId);
         var orchestrationTools = _orchestrationToolProvider.GetOrchestrationTools(deployTarget, Guid.Empty);
 
         var launchContext = new AgentLaunchContext(

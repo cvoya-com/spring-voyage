@@ -161,7 +161,7 @@ Only `status` is required. The platform-side handler probes the child via the ex
 
 ## 3. Per-runtime attachment mechanism
 
-The launcher consults [`IOrchestrationToolProvider.GetOrchestrationTools(agent, threadId)`](../../src/Cvoya.Spring.Core/Orchestration/IOrchestrationToolProvider.cs) at launch time. The default platform implementation is [`DirectoryOrchestrationToolProvider`](../../src/Cvoya.Spring.Dapr/Orchestration/DirectoryOrchestrationToolProvider.cs) — it returns the closed five-tool descriptor array when the addressed unit has at least one direct member, and an empty array otherwise (see § 4).
+The launcher consults [`IOrchestrationToolProvider.GetOrchestrationTools(agent, threadId)`](../../src/Cvoya.Spring.Core/Orchestration/IOrchestrationToolProvider.cs) at launch time. The default platform implementation is [`DirectoryOrchestrationToolProvider`](../../src/Cvoya.Spring.Dapr/Orchestration/DirectoryOrchestrationToolProvider.cs) — it returns the closed five-tool descriptor array when the addressed entity has at least one direct member in the membership graph, and an empty array otherwise (see § 4). The check is purely membership-based; entity type (agent vs unit) is not a gate.
 
 The descriptor array is carried into the launcher on `AgentLaunchContext.OrchestrationTools` ([`IAgentRuntimeLauncher.cs`](../../src/Cvoya.Spring.Core/Execution/IAgentRuntimeLauncher.cs)). Each launcher then attaches the descriptors using its runtime's native mechanism.
 
@@ -249,13 +249,12 @@ The runtime image reads `SPRING_ORCHESTRATION_TOOLS` at startup, deserializes th
 
 ## 4. Tools attached only when children exist
 
-A leaf agent's runtime is launched with **no orchestration tools**. The provider's contract:
+An entity's runtime is launched with **no orchestration tools** when the membership graph records no children for that entity. The provider's contract is uniform across address schemes (per the 2026-05-19 amendment to ADR-0039 § 3):
 
-- `agent://` address → empty array (leaf agents structurally have no children, ADR-0039 § 1).
-- `unit://` address with zero members → empty array.
-- `unit://` address with at least one member → the closed five-descriptor array.
+- Any address with zero direct members in the membership graph → empty array.
+- Any address with at least one direct member → the closed five-descriptor array.
 
-The absence of the tools is the signal — runtime instructions do not need an ambient "I am a leaf" flag. A unit with zero children is still a unit on the address dimension; its launcher will not attach orchestration tools, but the unit can later gain children and the next launch will attach them automatically.
+Entity type (agent vs unit) is **not** consulted. The absence of the tools is the signal — runtime instructions do not need an ambient flag. An entity with zero children can later gain children and the next launch will attach them automatically.
 
 The launcher consults the provider on every launch, so membership changes propagate at the next invocation without operator action.
 
@@ -265,18 +264,20 @@ The launcher consults the provider on every launch, so membership changes propag
 
 Runtime authors **do not enforce these gates** — the platform-side handler [`OrchestrationToolHandlers`](../../src/Cvoya.Spring.Dapr/Orchestration/OrchestrationToolHandlers.cs) applies them on every call regardless of which transport (MCP, env-var registry, or SDK callback) reached it. Runtime authors must **surface failures cleanly** so an agent's instructions can react.
 
-The dispatcher applies these gates in order (per ADR-0039 § 3):
+The dispatcher applies these gates in order (per ADR-0039 § 3, as amended 2026-05-19):
 
 | # | Gate | HTTP status | Dispatcher reject code |
 |---|---|---|---|
 | 1 | Token validation (signature, expiry, claim shape) | 401 | `InvalidToken` |
-| 2 | Caller is a unit (`unit://` scheme) | 403 | `OrchestrationCallerIsNotUnit` |
+| 2 | Caller scheme is `unit://` or `agent://` (rejects `human://`, `connector://`, etc.) | 403 | `UnsupportedCallerScheme` |
 | 3 | Target is a direct child of the caller | 404 | `OrchestrationTargetNotChild` |
 | 4 | Self-delegation rejected | 400 | `OrchestrationSelfDelegation` |
 | 5 | Per-thread orchestration depth budget (default 8) | 429 | `OrchestrationDepthExceeded` |
 | 6 | Cross-tenant containment | 403 | `OrchestrationCrossTenant` |
 
-Cross-link: the same model applies to the SDK transport — see [`agent-sdk.md` § Authorization Model](agent-sdk.md#authorization-model). The single source of truth is [ADR-0039 § 3](../decisions/0039-units-are-agents.md#authorization-rules--the-sdk-is-unit-callable-only).
+Entity type (agent vs unit) is **not** a gate; the platform makes no assumption about who can orchestrate. An agent without children naturally fails gate 3 (`OrchestrationTargetNotChild`) on any delegation attempt.
+
+Cross-link: the same model applies to the SDK transport — see [`agent-sdk.md` § Authorization Model](agent-sdk.md#authorization-model). The single source of truth is [ADR-0039 § 3](../decisions/0039-units-are-agents.md#authorization-rules) (see the amendment at the top of the ADR for the entity-type-gating removal).
 
 **What runtime authors must do.** When the runtime's tool-call surface receives a non-success response from the platform, surface the reject code to the agent's instructions. For MCP-based runtimes this is the standard MCP error envelope; for the env-var registry runtime it is the dispatcher's JSON error body. The agent's instructions can then decide whether to retry, fall back to a different child, or answer directly.
 

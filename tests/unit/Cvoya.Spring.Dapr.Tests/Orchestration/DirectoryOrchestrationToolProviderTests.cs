@@ -18,11 +18,12 @@ using Xunit;
 
 /// <summary>
 /// Tests for <see cref="DirectoryOrchestrationToolProvider"/>. Pins the
-/// "leaf agents get no tools, units with at least one child get the closed
-/// five-tool set" contract from ADR-0039 §3.
+/// "addresses with at least one child get the closed five-tool set;
+/// addresses with no children get an empty array" contract from ADR-0039 §3
+/// (as amended 2026-05-19). Entity type is not a gate.
 /// </summary>
 /// <remarks>
-/// #2081: the provider now reads members directly from
+/// #2081: the provider reads members directly from
 /// <see cref="IUnitMemberGraphStore"/> rather than calling
 /// <c>IUnitActor.GetMembersAsync</c> through a Dapr actor proxy — the
 /// pre-fix path deadlocked when the provider was invoked from inside a
@@ -30,9 +31,11 @@ using Xunit;
 /// </remarks>
 public class DirectoryOrchestrationToolProviderTests
 {
-    private static readonly Guid LeafAgentId = new("aaaaaaaa-0000-0000-0000-000000000001");
+    private static readonly Guid EmptyAgentId = new("aaaaaaaa-0000-0000-0000-000000000001");
+    private static readonly Guid AgentWithChildrenId = new("aaaaaaaa-0000-0000-0000-000000000002");
     private static readonly Guid OneChildUnitId = new("bbbbbbbb-0000-0000-0000-000000000001");
     private static readonly Guid ThreeChildrenUnitId = new("bbbbbbbb-0000-0000-0000-000000000002");
+    private static readonly Guid EmptyUnitId = new("bbbbbbbb-0000-0000-0000-000000000003");
 
     private readonly IUnitMemberGraphStore _memberGraphStore = Substitute.For<IUnitMemberGraphStore>();
     private readonly ILogger<DirectoryOrchestrationToolProvider> _logger =
@@ -56,15 +59,54 @@ public class DirectoryOrchestrationToolProviderTests
     private DirectoryOrchestrationToolProvider CreateProvider() =>
         new(_memberGraphStore, _logger);
 
+    private static readonly OrchestrationToolName[] ExpectedToolset =
+    [
+        OrchestrationToolName.ListChildren,
+        OrchestrationToolName.InspectChild,
+        OrchestrationToolName.DelegateToChild,
+        OrchestrationToolName.FanoutToChildren,
+        OrchestrationToolName.QueryChildStatus,
+    ];
+
     [Fact]
-    public void GetOrchestrationTools_LeafAgent_ReturnsEmpty()
+    public void GetOrchestrationTools_AgentWithNoChildren_ReturnsEmpty()
     {
         var provider = CreateProvider();
-        var leaf = new Address(Address.AgentScheme, LeafAgentId);
+        var address = new Address(Address.AgentScheme, EmptyAgentId);
 
-        var tools = provider.GetOrchestrationTools(leaf, Guid.NewGuid());
+        var tools = provider.GetOrchestrationTools(address, Guid.NewGuid());
 
         tools.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void GetOrchestrationTools_UnitWithNoChildren_ReturnsEmpty()
+    {
+        var provider = CreateProvider();
+        var address = new Address(Address.UnitScheme, EmptyUnitId);
+
+        var tools = provider.GetOrchestrationTools(address, Guid.NewGuid());
+
+        tools.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void GetOrchestrationTools_AgentWithChildren_ReturnsFiveDescriptors()
+    {
+        // Per the 2026-05-19 amendment to ADR-0039 §3, entity type is not a
+        // gate. If the membership graph records children for an `agent://`
+        // address, the toolset is attached.
+        _members[AgentWithChildrenId] = new[]
+        {
+            new Address(Address.AgentScheme, Guid.NewGuid()),
+        };
+        var provider = CreateProvider();
+        var address = new Address(Address.AgentScheme, AgentWithChildrenId);
+
+        var tools = provider.GetOrchestrationTools(address, Guid.NewGuid());
+
+        tools.Length.ShouldBe(5);
+        tools.Select(t => t.Name).ShouldBe(ExpectedToolset);
     }
 
     [Fact]
@@ -80,14 +122,7 @@ public class DirectoryOrchestrationToolProviderTests
         var tools = provider.GetOrchestrationTools(unit, Guid.NewGuid());
 
         tools.Length.ShouldBe(5);
-        tools.Select(t => t.Name).ShouldBe(new[]
-        {
-            OrchestrationToolName.ListChildren,
-            OrchestrationToolName.InspectChild,
-            OrchestrationToolName.DelegateToChild,
-            OrchestrationToolName.FanoutToChildren,
-            OrchestrationToolName.QueryChildStatus,
-        });
+        tools.Select(t => t.Name).ShouldBe(ExpectedToolset);
 
         // Each descriptor must carry both schemas as concrete JSON objects;
         // ADR-0039 §3 advertises them through the launcher's tool surface.
@@ -113,16 +148,9 @@ public class DirectoryOrchestrationToolProviderTests
         var tools = provider.GetOrchestrationTools(unit, Guid.NewGuid());
 
         // The descriptor set is static — it does not scale with the child
-        // count. The five canonical tools are always present when the unit
-        // has at least one child.
+        // count. The five canonical tools are always present when the
+        // address has at least one child.
         tools.Length.ShouldBe(5);
-        tools.Select(t => t.Name).ShouldBe(new[]
-        {
-            OrchestrationToolName.ListChildren,
-            OrchestrationToolName.InspectChild,
-            OrchestrationToolName.DelegateToChild,
-            OrchestrationToolName.FanoutToChildren,
-            OrchestrationToolName.QueryChildStatus,
-        });
+        tools.Select(t => t.Name).ShouldBe(ExpectedToolset);
     }
 }

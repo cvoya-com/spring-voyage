@@ -20,7 +20,8 @@ using Cvoya.Spring.Core.Messaging;
 /// returned <see cref="OrchestrationToolDescriptor"/> array carries the
 /// canonical <see cref="OrchestrationToolName"/> and the JSON Schemas the
 /// caller advertises to the agent runtime. Empty array is a valid result
-/// (a leaf agent has no children to orchestrate).
+/// when the addressed entity has no children to orchestrate. Entity type
+/// (agent vs unit) is not consulted; the membership graph is.
 /// </para>
 /// <para>
 /// The <paramref name="threadId"/> parameter is part of the contract so a
@@ -35,8 +36,7 @@ public interface IOrchestrationToolProvider
     /// <summary>
     /// Returns the orchestration tools available to <paramref name="agent"/>
     /// within thread <paramref name="threadId"/>. Returns an empty array
-    /// when the agent has no orchestration surface (e.g. a leaf agent
-    /// with no children).
+    /// when the addressed entity has no children to orchestrate.
     /// </summary>
     /// <param name="agent">The address of the agent whose orchestration tools are being requested.</param>
     /// <param name="threadId">The conversation thread the tools are scoped to.</param>

@@ -90,15 +90,25 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleListChildren_NonUnitCaller_ThrowsCallerIsNotUnit()
+    public async Task HandleListChildren_AgentCallerWithChildren_ReturnsDescriptors()
     {
+        // Per the 2026-05-19 amendment to ADR-0039 §3, entity type is not a
+        // gate. An `agent://` caller whose membership graph records a child
+        // gets the same descriptor surface as a unit caller would.
         var handlers = CreateHandlers();
         var caller = Agent(NonChildAgentId);
+        var child = Agent(ChildAgentId);
+        RegisterMembers(caller, child);
 
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleListChildrenAsync(caller, TenantId, Guid.NewGuid(), TestContext.Current.CancellationToken));
+        var result = await handlers.HandleListChildrenAsync(
+            caller,
+            TenantId,
+            Guid.NewGuid(),
+            TestContext.Current.CancellationToken);
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationCallerIsNotUnit);
+        result.Length.ShouldBe(1);
+        result[0].Address.ShouldBe(child);
+        await AssertNoDecisionPublishedAsync();
     }
 
     [Fact]
@@ -171,8 +181,11 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_NonUnitCaller_ThrowsCallerIsNotUnit()
+    public async Task HandleDelegateToChild_AgentCallerWithoutChildren_ThrowsTargetNotChild()
     {
+        // ADR-0039 §3 (2026-05-19 amendment): the platform does not gate by
+        // entity type. An agent caller with no recorded children fails the
+        // membership gate (gate 3) — not a type gate.
         var handlers = CreateHandlers();
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
@@ -185,7 +198,33 @@ public class OrchestrationToolHandlersTests
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationCallerIsNotUnit);
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
+    }
+
+    [Fact]
+    public async Task HandleDelegateToChild_AgentCallerWithChild_RoutesSuccessfully()
+    {
+        var handlers = CreateHandlers();
+        var caller = Agent(NonChildAgentId);
+        var target = Agent(ChildAgentId);
+        var response = CreateResponse(target, caller);
+        var agent = Substitute.For<IAgent>();
+
+        RegisterMembers(caller, target);
+        RegisterAgent(target, agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(response);
+
+        var result = await handlers.HandleDelegateToChildAsync(
+            caller,
+            TenantId,
+            target,
+            CreateMessage(),
+            null,
+            Guid.NewGuid(),
+            TestContext.Current.CancellationToken);
+
+        result.ShouldBe(response);
     }
 
     [Fact]
@@ -486,8 +525,10 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleFanoutToChildren_NonUnitCaller_ThrowsCallerIsNotUnit()
+    public async Task HandleFanoutToChildren_AgentCallerWithoutChildren_ThrowsTargetNotChild()
     {
+        // ADR-0039 §3 (2026-05-19 amendment): an agent caller with no
+        // recorded children fails the membership gate, not a type gate.
         var handlers = CreateHandlers();
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
@@ -500,7 +541,7 @@ public class OrchestrationToolHandlersTests
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationCallerIsNotUnit);
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
     }
 
     [Fact]
@@ -663,8 +704,10 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleInspectChild_NonUnitCaller_ThrowsCallerIsNotUnit()
+    public async Task HandleInspectChild_AgentCallerWithoutChildren_ThrowsTargetNotChild()
     {
+        // ADR-0039 §3 (2026-05-19 amendment): an agent caller with no
+        // recorded children fails the membership gate, not a type gate.
         var handlers = CreateHandlers();
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
@@ -675,7 +718,7 @@ public class OrchestrationToolHandlersTests
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationCallerIsNotUnit);
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
     }
 
     [Fact]
@@ -748,8 +791,10 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleQueryChildStatus_NonUnitCaller_ThrowsCallerIsNotUnit()
+    public async Task HandleQueryChildStatus_AgentCallerWithoutChildren_ThrowsTargetNotChild()
     {
+        // ADR-0039 §3 (2026-05-19 amendment): an agent caller with no
+        // recorded children fails the membership gate, not a type gate.
         var handlers = CreateHandlers();
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
@@ -760,7 +805,7 @@ public class OrchestrationToolHandlersTests
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationCallerIsNotUnit);
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
     }
 
     [Fact]

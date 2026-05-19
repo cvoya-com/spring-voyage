@@ -19,6 +19,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 using Shouldly;
 
@@ -266,6 +267,60 @@ public class PersistentAgentLifecycleTests
             () => _lifecycle.GetLogsAsync(GhostId, cancellationToken: ct));
 
         ex.Message.ShouldContain("not deployed");
+    }
+
+    [Fact]
+    public async Task Deploy_LeafAgentDefinition_IssuesAgentSchemeSession()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var parentUnitId = GuidFormatter.Format(Guid.NewGuid());
+        _agentProvider.GetByIdAsync(AgentAId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentAId,
+                "A",
+                null,
+                new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Persistent),
+                UnitId: parentUnitId));
+
+        _mcpServer.Endpoint.Returns("http://localhost:5040/mcp");
+        _mcpServer.IssueSession(AgentAId, $"persistent-{AgentAId}", Address.AgentScheme)
+            .Returns(new McpSession("tok", AgentAId, $"persistent-{AgentAId}", Address.AgentScheme,
+                new Address(Address.AgentScheme, AgentAGuid)));
+        _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("test stops here"));
+
+        await Should.ThrowAsync<InvalidOperationException>(
+            () => _lifecycle.DeployAsync(AgentAId, cancellationToken: ct));
+
+        _mcpServer.Received(1).IssueSession(AgentAId, $"persistent-{AgentAId}", Address.AgentScheme);
+    }
+
+    [Fact]
+    public async Task Deploy_UnitAsAgentDefinition_IssuesUnitSchemeSession()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _agentProvider.GetByIdAsync(AgentAId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentAId,
+                "A",
+                null,
+                new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Persistent),
+                UnitId: AgentAId));
+
+        _mcpServer.Endpoint.Returns("http://localhost:5040/mcp");
+        _mcpServer.IssueSession(AgentAId, $"persistent-{AgentAId}", Address.UnitScheme)
+            .Returns(new McpSession("tok", AgentAId, $"persistent-{AgentAId}", Address.UnitScheme,
+                new Address(Address.UnitScheme, AgentAGuid)));
+        AgentLaunchContext? captured = null;
+        _launcher.PrepareAsync(Arg.Do<AgentLaunchContext>(c => captured = c), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("test stops here"));
+
+        await Should.ThrowAsync<InvalidOperationException>(
+            () => _lifecycle.DeployAsync(AgentAId, cancellationToken: ct));
+
+        _mcpServer.Received(1).IssueSession(AgentAId, $"persistent-{AgentAId}", Address.UnitScheme);
+        captured.ShouldNotBeNull();
+        captured!.AgentAddress!.Scheme.ShouldBe(Address.UnitScheme);
     }
 
     [Fact]

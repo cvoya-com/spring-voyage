@@ -25,7 +25,6 @@ public sealed class OrchestrationException : Exception
 
     public static class RejectCodes
     {
-        public const string OrchestrationCallerIsNotUnit = nameof(OrchestrationCallerIsNotUnit);
         public const string OrchestrationTargetNotChild = nameof(OrchestrationTargetNotChild);
         public const string OrchestrationSelfDelegation = nameof(OrchestrationSelfDelegation);
         public const string OrchestrationDepthExceeded = nameof(OrchestrationDepthExceeded);

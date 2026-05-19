@@ -260,8 +260,8 @@ public static class OrchestrationCallbackEndpoints
         {
             error = Error(
                 StatusCodes.Status403Forbidden,
-                OrchestrationException.RejectCodes.OrchestrationCallerIsNotUnit,
-                $"Orchestration callbacks can only be invoked by unit or agent callers. Caller was '{claims.AgentAddress}'.");
+                "UnsupportedCallerScheme",
+                $"Orchestration callbacks support unit:// and agent:// callers; got '{claims.AgentAddress}'.");
             return false;
         }
 
@@ -414,8 +414,6 @@ public static class OrchestrationCallbackEndpoints
     {
         var statusCode = ex.RejectCode switch
         {
-            OrchestrationException.RejectCodes.OrchestrationCallerIsNotUnit =>
-                StatusCodes.Status403Forbidden,
             OrchestrationException.RejectCodes.OrchestrationTargetNotChild =>
                 StatusCodes.Status404NotFound,
             OrchestrationException.RejectCodes.OrchestrationSelfDelegation =>

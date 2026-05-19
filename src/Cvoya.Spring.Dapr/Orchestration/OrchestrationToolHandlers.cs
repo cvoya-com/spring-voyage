@@ -34,7 +34,6 @@ public class OrchestrationToolHandlers(
     {
         ArgumentNullException.ThrowIfNull(caller);
 
-        EnsureUnitCaller(caller);
         await EnsureCallerTenantAsync(caller, tenantId, ct);
 
         // no OrchestrationDecision event per ADR-0039 §4.
@@ -51,7 +50,6 @@ public class OrchestrationToolHandlers(
         ArgumentNullException.ThrowIfNull(caller);
         ArgumentNullException.ThrowIfNull(target);
 
-        EnsureUnitCaller(caller);
         await EnsureCallerTenantAsync(caller, tenantId, ct);
         await EnsureDirectChildrenAsync(caller, [target], ct);
         await EnsureTargetTenantAsync(target, tenantId, ct);
@@ -89,7 +87,6 @@ public class OrchestrationToolHandlers(
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(message);
 
-        EnsureUnitCaller(caller);
         await EnsureCallerTenantAsync(caller, tenantId, ct);
         await EnsureDirectChildrenAsync(caller, [target], ct);
         await EnsureTargetTenantAsync(target, tenantId, ct);
@@ -160,7 +157,6 @@ public class OrchestrationToolHandlers(
         ArgumentNullException.ThrowIfNull(targets);
         ArgumentNullException.ThrowIfNull(message);
 
-        EnsureUnitCaller(caller);
         await EnsureCallerTenantAsync(caller, tenantId, ct);
         await EnsureDirectChildrenAsync(caller, targets, ct);
         foreach (var target in targets)
@@ -217,7 +213,6 @@ public class OrchestrationToolHandlers(
         ArgumentNullException.ThrowIfNull(caller);
         ArgumentNullException.ThrowIfNull(target);
 
-        EnsureUnitCaller(caller);
         await EnsureCallerTenantAsync(caller, tenantId, ct);
         await EnsureDirectChildrenAsync(caller, [target], ct);
         await EnsureTargetTenantAsync(target, tenantId, ct);
@@ -329,16 +324,6 @@ public class OrchestrationToolHandlers(
 
         value = parsed;
         return true;
-    }
-
-    private static void EnsureUnitCaller(Address caller)
-    {
-        if (!string.Equals(caller.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new OrchestrationException(
-                OrchestrationException.RejectCodes.OrchestrationCallerIsNotUnit,
-                $"Orchestration tools can only be invoked by unit callers. Caller was '{caller}'.");
-        }
     }
 
     private async Task EnsureCallerTenantAsync(

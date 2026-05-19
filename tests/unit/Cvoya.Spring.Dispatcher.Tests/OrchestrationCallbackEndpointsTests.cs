@@ -61,8 +61,12 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task DelegateToChild_NonUnitCaller_Returns403()
+    public async Task DelegateToChild_AgentCallerWithoutChildren_Returns404TargetNotChild()
     {
+        // ADR-0039 §3 (2026-05-19 amendment): the platform does not gate by
+        // entity type. An `agent://` caller with no recorded children fails
+        // the membership gate, surfacing as 404 OrchestrationTargetNotChild
+        // rather than the legacy 403 OrchestrationCallerIsNotUnit.
         using var factory = new OrchestrationDispatcherFactory();
         var caller = new Address(Address.AgentScheme, Guid.Parse("dddddddd-0000-0000-0000-000000000001"));
         var client = factory.CreateCallbackClient(caller);
@@ -72,10 +76,50 @@ public class OrchestrationCallbackEndpointsTests
             DelegateRequest(caller, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         var json = await ReadJsonAsync(response);
         json.GetProperty("error").GetString()
-            .ShouldBe(OrchestrationException.RejectCodes.OrchestrationCallerIsNotUnit);
+            .ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
+    }
+
+    [Fact]
+    public async Task DelegateToChild_AgentCallerWithChild_Returns200()
+    {
+        // ADR-0039 §3 (2026-05-19 amendment): agent callers with the
+        // membership relationship complete successfully.
+        using var factory = new OrchestrationDispatcherFactory();
+        var caller = new Address(Address.AgentScheme, Guid.Parse("dddddddd-0000-0000-0000-000000000002"));
+        var agent = Substitute.For<IAgent>();
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(CreateResponse(ChildAddress, caller));
+
+        factory.RegisterMembers(caller, ChildAddress);
+        factory.RegisterAgent(ChildAddress, agent);
+        var client = factory.CreateCallbackClient(caller);
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/runtime/orchestration/delegate-to-child",
+            DelegateRequest(caller, ChildAddress, factory.ThreadId),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task DelegateToChild_UnsupportedCallerScheme_Returns403()
+    {
+        using var factory = new OrchestrationDispatcherFactory();
+        var caller = new Address(Address.HumanScheme, Guid.Parse("cccccccc-0000-0000-0000-000000000001"));
+        var client = factory.CreateCallbackClient(caller);
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/runtime/orchestration/delegate-to-child",
+            DelegateRequest(caller, ChildAddress, factory.ThreadId),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        var json = await ReadJsonAsync(response);
+        json.GetProperty("error").GetString().ShouldBe("UnsupportedCallerScheme");
     }
 
     [Fact]

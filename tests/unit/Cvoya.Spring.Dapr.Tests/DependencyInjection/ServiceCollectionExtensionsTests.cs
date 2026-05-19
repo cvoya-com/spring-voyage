@@ -86,8 +86,9 @@ public class ServiceCollectionExtensionsTests
     /// ADR-0039 D2: <c>AddCvoyaSpringDapr</c> must register a default
     /// <see cref="IOrchestrationToolProvider"/> so callers can resolve it
     /// unconditionally. The OSS platform default is the directory-backed
-    /// provider, which returns the closed orchestration-tool set for units
-    /// with children and an empty tool array for leaf agents.
+    /// provider, which returns the closed orchestration-tool set when the
+    /// addressed entity has at least one child in the membership graph and
+    /// an empty tool array otherwise.
     /// </summary>
     [Fact]
     public void AddCvoyaSpringDapr_RegistersDirectoryOrchestrationToolProviderAsDefault()

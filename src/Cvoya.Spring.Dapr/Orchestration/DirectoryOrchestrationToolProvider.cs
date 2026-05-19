@@ -15,36 +15,21 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// Default <see cref="IOrchestrationToolProvider"/> backing the v0.1
 /// orchestration-tool surface defined in ADR-0039 §3. Returns the closed
-/// five-tool set when the addressed agent has at least one child; returns
-/// an empty array otherwise.
+/// five-tool set when the addressed entity has at least one child in the
+/// member graph; returns an empty array otherwise. Address scheme is not a
+/// gate.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Decision tree per call:
+/// The provider reads the entity's member list via the EF-backed
+/// <see cref="IUnitMemberGraphStore"/>. Empty list ⇒ no tools attached;
+/// non-empty ⇒ return the cached descriptor set. Whether the address is
+/// <c>agent://</c> or <c>unit://</c> is not consulted: an agent that the
+/// directory records as having members gets the toolset, and a unit that
+/// the directory records as empty does not. Schemes the membership store
+/// has no rows for (e.g. <c>human://</c>, <c>connector://</c>) naturally
+/// return an empty result.
 /// </para>
-/// <list type="bullet">
-///   <item>
-///     <description>
-///       <c>agent://</c> address — a leaf agent has no children by definition
-///       (ADR-0039 §1). Return <see cref="Array.Empty{T}"/>.
-///     </description>
-///   </item>
-///   <item>
-///     <description>
-///       <c>unit://</c> address — read the unit's member list via the
-///       EF-backed <see cref="IUnitMemberGraphStore"/>. Empty list ⇒ no
-///       tools attached; non-empty ⇒ return the cached descriptor set.
-///     </description>
-///   </item>
-///   <item>
-///     <description>
-///       Any other scheme — defensive empty result. Orchestration tools
-///       are scoped to the agent / unit dispatch surface; non-agent
-///       schemes (<c>human://</c>, <c>connector://</c>) are not callers
-///       of this provider in v0.1.
-///     </description>
-///   </item>
-/// </list>
 /// <para>
 /// The five descriptors are static — built once from embedded JSON schema
 /// resources at startup — so per-call work is bounded by the membership
@@ -90,35 +75,21 @@ public class DirectoryOrchestrationToolProvider : IOrchestrationToolProvider
     {
         ArgumentNullException.ThrowIfNull(agent);
 
-        // Leaf agents structurally have no children (ADR-0039 §1). Skip the
-        // membership round-trip for the common case.
-        if (string.Equals(agent.Scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase))
-        {
-            return Array.Empty<OrchestrationToolDescriptor>();
-        }
-
-        // Only unit-shaped addresses can compose children in v0.1. Any other
-        // scheme is not an orchestration caller — return empty defensively.
-        if (!string.Equals(agent.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
-        {
-            return Array.Empty<OrchestrationToolDescriptor>();
-        }
-
         return HasChildren(agent)
             ? _toolset
             : Array.Empty<OrchestrationToolDescriptor>();
     }
 
     /// <summary>
-    /// Reads the unit's persisted member list directly from the EF-backed
+    /// Reads the entity's persisted member list directly from the EF-backed
     /// <see cref="IUnitMemberGraphStore"/> and reports whether at least
     /// one member is present. Failures (transient EF glitch) degrade to
-    /// "no children": attaching tools to a unit whose membership we could
-    /// not confirm would surface broken delegation calls to the runtime,
-    /// so the conservative answer is to suppress the toolset until the
-    /// next launch retry.
+    /// "no children": attaching tools to an entity whose membership we
+    /// could not confirm would surface broken delegation calls to the
+    /// runtime, so the conservative answer is to suppress the toolset
+    /// until the next launch retry.
     /// </summary>
-    private bool HasChildren(Address unitAddress)
+    private bool HasChildren(Address address)
     {
         try
         {
@@ -129,7 +100,7 @@ public class DirectoryOrchestrationToolProvider : IOrchestrationToolProvider
             // straight to Postgres — no Dapr actor proxy, no re-entrancy
             // risk (#2081).
             var members = Task.Run(() =>
-                _memberGraphStore.GetMembersAsync(unitAddress.Id)).GetAwaiter().GetResult();
+                _memberGraphStore.GetMembersAsync(address.Id)).GetAwaiter().GetResult();
 
             return members is { Count: > 0 };
         }
@@ -137,8 +108,8 @@ public class DirectoryOrchestrationToolProvider : IOrchestrationToolProvider
         {
             _logger.LogWarning(
                 ex,
-                "Failed to read members for {UnitAddress} while resolving orchestration tools; treating as a leaf for this launch.",
-                unitAddress);
+                "Failed to read members for {Address} while resolving orchestration tools; suppressing toolset for this launch.",
+                address);
             return false;
         }
     }

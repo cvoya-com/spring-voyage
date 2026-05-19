@@ -13,12 +13,12 @@ using Cvoya.Spring.Core.Messaging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Per ADR-0039 §3 "Authorization rules — the SDK is unit-callable only,"
-/// every callback into the dispatcher carries a token that the validator
+/// Every callback into the dispatcher carries a token that the validator
 /// integrity-checks before any handler runs. The validator does not consult
-/// the directory; the address-scheme gate, target-is-direct-child gate,
-/// self-delegation gate, depth gate, and tenant-containment gate live in
-/// the endpoint handler (D13).
+/// the directory; the target-is-direct-child gate, self-delegation gate,
+/// depth gate, and tenant-containment gate live in the endpoint handler.
+/// The platform does not gate orchestration by entity type — see ADR-0039
+/// §3 (as amended).
 /// </para>
 /// <para>
 /// This record is the wire-shape, free of JWT concerns. The issuer
@@ -37,12 +37,11 @@ using Cvoya.Spring.Core.Messaging;
 /// claim against the resolved caller's tenant on every call.
 /// </param>
 /// <param name="AgentAddress">
-/// The agent (or unit) address the runtime is invoked for. The SDK is
-/// structurally unit-callable only — endpoint handlers reject
-/// <c>agent://</c>-shaped addresses with 403
-/// <c>OrchestrationCallerIsNotUnit</c>. The validator does not enforce the
-/// address-scheme rule; it preserves the claim verbatim so the handler can
-/// gate on it.
+/// The agent (or unit) address the runtime is invoked for. The platform
+/// does not gate orchestration by entity type; agents and units both reach
+/// the dispatcher under their own scheme and the membership / self /
+/// depth / tenant gates handle authorisation. The validator preserves the
+/// claim verbatim.
 /// </param>
 /// <param name="ThreadId">
 /// The thread the inbound message belongs to. Every callback during this
