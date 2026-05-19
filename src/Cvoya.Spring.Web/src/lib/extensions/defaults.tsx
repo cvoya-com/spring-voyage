@@ -6,8 +6,8 @@
 // The v2 IA (plan §2 of umbrella #815) groups the sidebar into three
 // visible clusters:
 //
-//   • Overview     — Dashboard, Activity, Analytics
-//   • Orchestrate  — Units (Explorer), Inbox, Discovery
+//   • Overview     — Dashboard, Activity, Analytics, Explorer
+//   • Orchestrate  — Inbox, Discovery, Engagement
 //   • Control      — Connectors, Policies, Budgets, Settings
 //
 // Every route below declares which cluster it belongs to via
@@ -105,22 +105,18 @@ export const defaultRoutes: readonly RouteEntry[] = [
       "Deep-dive charts: cost, throughput, and wait-time breakdowns.",
   },
 
-  // ----- Orchestrate ------------------------------------------------
-  // orderHint lives in one global sequence so the merged-registry sort
-  // (by orderHint alone, across clusters) preserves the declared
-  // Overview → Orchestrate → Control reading order when both are
-  // equivalent. The cluster bucketing is separate: the sidebar groups
-  // by `navSection` before it renders.
   {
     // #2473: renamed from "Units" to "Explorer"; path stays /units as
     // that page is still the Explorer host. The new /explorer/units/<id>
     // path-based URLs are the canonical deep-links; /units remains the
     // nav entry so the active state covers /units and /explorer/units/*.
+    // #2512: moved from Orchestrate to Overview so Explorer lives under
+    // the Dashboard section alongside Activity and Analytics.
     path: "/units",
     label: "Explorer",
     icon: Network,
-    navSection: "orchestrate",
-    orderHint: 40,
+    navSection: "overview",
+    orderHint: 35,
     keywords: ["units", "teams", "groups", "agents", "explorer", "spring unit list"],
     description:
       "Canonical Explorer — units, agents, policies, and memory in one tree.",
@@ -128,6 +124,13 @@ export const defaultRoutes: readonly RouteEntry[] = [
     // so the sidebar active state lights up when on a deep entity URL.
     activePatterns: ["/explorer/"],
   },
+
+  // ----- Orchestrate ------------------------------------------------
+  // orderHint lives in one global sequence so the merged-registry sort
+  // (by orderHint alone, across clusters) preserves the declared
+  // Overview → Orchestrate → Control reading order when both are
+  // equivalent. The cluster bucketing is separate: the sidebar groups
+  // by `navSection` before it renders.
   {
     path: "/inbox",
     label: "Inbox",

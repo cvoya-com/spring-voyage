@@ -27,8 +27,9 @@ describe("defaultRoutes (IA §2)", () => {
     expect(byPath["/"]).toBe("overview");
     expect(byPath["/activity"]).toBe("overview");
     expect(byPath["/analytics"]).toBe("overview");
+    // #2512: Explorer moved from Orchestrate to Overview.
+    expect(byPath["/units"]).toBe("overview");
 
-    expect(byPath["/units"]).toBe("orchestrate");
     expect(byPath["/inbox"]).toBe("orchestrate");
     expect(byPath["/discovery"]).toBe("orchestrate");
     // #1454: Engagement is the latest Orchestrate entry, sitting

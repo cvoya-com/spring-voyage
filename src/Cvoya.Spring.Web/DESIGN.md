@@ -183,7 +183,7 @@ The `.sv-h1` / `.sv-h2` / `.sv-h3` / `.sv-body` / `.sv-helper` / `.sv-code` help
 
 ## 4. Information architecture
 
-Ten items, three groups. The sidebar groups them visually; a hosted `settings` cluster is reserved for tenant-management surfaces that the hosted build layers on via `registerExtension(...)` — empty in the OSS build.
+Eleven items, three groups. The sidebar groups them visually; a hosted `settings` cluster is reserved for tenant-management surfaces that the hosted build layers on via `registerExtension(...)` — empty in the OSS build.
 
 ```mermaid
 flowchart LR
@@ -191,11 +191,12 @@ flowchart LR
     Dashboard["Dashboard /"]
     Activity["Activity /activity"]
     Analytics["Analytics /analytics"]
+    Units["Explorer /units"]
   end
   subgraph ORCHESTRATE
-    Units["Units Explorer /units"]
     Inbox["Inbox /inbox"]
     Discovery["Discovery /discovery"]
+    Engagement["Engagement /engagement"]
   end
   subgraph CONTROL
     Connectors["Connectors /connectors"]
@@ -209,11 +210,11 @@ The `NavSection` union (`src/lib/extensions/types.ts`) declares the four groups 
 
 **Why the groups split this way.**
 
-- **Overview** answers "what's happening?" — at-a-glance and deep-dive views.
-- **Orchestrate** answers "what do I need to act on right now?" — the Explorer (the single surface where units and agents are acted on), Inbox (conversations awaiting a response), Discovery (the expertise directory).
+- **Overview** answers "what's happening?" — at-a-glance and deep-dive views, plus the Explorer as the canonical browsing surface for units and agents.
+- **Orchestrate** answers "what do I need to act on right now?" — Inbox (conversations awaiting a response), Discovery (the expertise directory), Engagement (start or resume a conversation).
 - **Control** answers "what's the long-lived configuration?" — Connectors, Policies, Budgets, Settings. These are deliberately top-level because they're high-touch admin surfaces checked daily; burying them inside `/settings` would add friction.
 
-`/inbox` lives with Orchestrate (not Overview) because it reads better next to the surface where the operator takes the next action. `/analytics` stays in Overview as the canonical deep-dive surface: the Tenant Budgets and Tenant Activity tabs inside the Explorer carry *summary* rollups; `/analytics`, `/analytics/costs`, `/analytics/throughput`, and `/analytics/waits` carry the full charts, filters, and per-axis breakdowns.
+`/inbox` lives with Orchestrate (not Overview) because it reads better next to the surface where the operator takes the next action. `/analytics` stays in Overview as the canonical deep-dive surface: the Tenant Budgets and Tenant Activity tabs inside the Explorer carry *summary* rollups; `/analytics`, `/analytics/costs`, `/analytics/throughput`, and `/analytics/waits` carry the full charts, filters, and per-axis breakdowns. The Explorer (`/units`) moves to Overview (#2512) so Dashboard, Activity, Analytics, and Explorer all live under the same "what's happening?" cluster — the Explorer is primarily a browsing and monitoring surface, not an action triage queue.
 
 ### 4.1 Route manifest
 
