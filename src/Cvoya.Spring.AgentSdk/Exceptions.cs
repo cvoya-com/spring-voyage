@@ -36,6 +36,20 @@ public sealed class OrchestrationTransportException : Exception
     }
 }
 
+/// <summary>
+/// Wrapper raised by <see cref="SpringAgent.RunWithResponseDisciplineAsync"/>
+/// when the user's delegate threw — the inner exception carries the
+/// original cause. The safety-net reply has already been posted by the
+/// time this is thrown. Issue #2493.
+/// </summary>
+public sealed class SpringAgentHandlerException : Exception
+{
+    public SpringAgentHandlerException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
 public sealed class MissingCallbackEnvironmentException : Exception
 {
     public MissingCallbackEnvironmentException(string variableName)
