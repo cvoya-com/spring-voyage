@@ -7,17 +7,34 @@ using System;
 using System.Runtime.CompilerServices;
 
 /// <summary>
-/// Sets <c>SPRING_SECRETS_AES_KEY</c> for the duration of every test in
-/// this assembly. Required because the platform no longer ships an
-/// in-memory ephemeral dev key — every <c>SecretsEncryptor</c> instance
-/// constructed during host startup needs a real base64 32-byte key. We
-/// set it once at module load (before any test factory builds a host)
-/// rather than on every <c>UseSetting</c> call site, which is what
-/// <c>Cvoya.Spring.Dapr.Tests</c>'s collection-based serialiser does.
-/// The value is a freshly-generated random 32-byte base64 string,
-/// non-weak by the classifier's standards, and irrelevant outside the
-/// test process.
+/// Sets <c>SPRING_SECRETS_AES_KEY</c> and the dispatcher env vars for the
+/// duration of every test in this assembly.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <c>SPRING_SECRETS_AES_KEY</c> is required because the platform no longer
+/// ships an in-memory ephemeral dev key — every <c>SecretsEncryptor</c>
+/// instance constructed during host startup needs a real base64 32-byte key.
+/// </para>
+/// <para>
+/// The <c>Dispatcher__*</c> env vars satisfy the now-mandatory
+/// <c>DispatcherConfigurationRequirement</c> (#2518). The API host runs
+/// <c>PersistentAgentRegistry</c> as a hosted service and the validator
+/// aborts startup if the dispatcher endpoint is unset. The values are
+/// never actually called from the test process: every test that exercises
+/// dispatcher-dependent code paths swaps the relevant services for mocks
+/// via <c>CustomWebApplicationFactory</c>. The URL just has to be a
+/// syntactically valid absolute http(s) URI so the validator does not trip
+/// the malformed-URL branch.
+/// </para>
+/// <para>
+/// We set them once at module load (before any test factory builds a host)
+/// rather than on every <c>UseSetting</c> call site, which keeps the bare
+/// <c>new WebApplicationFactory&lt;Program&gt;()</c> usages across the
+/// suite from each having to learn the dispatcher contract. Existing
+/// values are preserved so an operator can override them at the shell.
+/// </para>
+/// </remarks>
 internal static class SecretsTestEnvironmentInitializer
 {
     /// <summary>Deterministic AES-256 base64 key for tests.</summary>
@@ -32,6 +49,16 @@ internal static class SecretsTestEnvironmentInitializer
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SPRING_SECRETS_AES_KEY")))
         {
             Environment.SetEnvironmentVariable("SPRING_SECRETS_AES_KEY", TestAesKeyBase64);
+        }
+
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Dispatcher__BaseUrl")))
+        {
+            Environment.SetEnvironmentVariable("Dispatcher__BaseUrl", "http://spring-dispatcher.test/");
+        }
+
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Dispatcher__BearerToken")))
+        {
+            Environment.SetEnvironmentVariable("Dispatcher__BearerToken", "test-token");
         }
     }
 }

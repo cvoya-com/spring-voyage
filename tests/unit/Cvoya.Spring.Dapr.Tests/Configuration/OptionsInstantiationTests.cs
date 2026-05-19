@@ -50,7 +50,15 @@ public class OptionsInstantiationTests
     /// <c>IOptions&lt;T&gt;</c>. These are allowed to lack a parameterless ctor.
     /// Keep this list extremely short — each entry is a liability.
     /// </summary>
-    private static readonly HashSet<string> Exclusions = new(StringComparer.Ordinal);
+    private static readonly HashSet<string> Exclusions = new(StringComparer.Ordinal)
+    {
+        // #2518: registration-time options consumed directly as a singleton
+        // by DispatcherConfigurationRequirement (not via IOptions<T>). The
+        // positional-record shape is appropriate because the value is
+        // constructed explicitly inside AddCvoyaSpringDapr, not bound from
+        // IConfiguration through OptionsFactory<T>.
+        "Cvoya.Spring.Dapr.Configuration.DispatcherConfigurationRequirementOptions",
+    };
 
     [Fact]
     public void AllOptionsTypes_HaveParameterlessConstructor()

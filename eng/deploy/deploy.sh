@@ -861,11 +861,29 @@ stop_dispatcher() {
 
 start_api() {
     # DataProtection keys: see start_worker for the rationale (#337).
+    #
+    # Dispatcher wiring: the API host runs PersistentAgentRegistry as a
+    # hosted service and calls the dispatcher on the restart path
+    # (TryRestartAsync) and from the imperative deploy/undeploy
+    # endpoints (AgentEndpoints, UnitEndpoints). Without these env vars
+    # the registry's health timer crashes ~50s after boot and DELETEs
+    # the persistent_agent_runtime row from its catch branch — see
+    # issue #2518. cmd_up runs start_worker first, which already calls
+    # load_dispatcher_env and exits if the token is missing, so the
+    # API host transitively benefits from that guard; we re-source for
+    # idempotency in case operators call `start_api` directly.
+    load_dispatcher_env
+    local dispatcher_port="${SPRING_DISPATCHER_PORT:-8090}"
+    if [[ -z "${SPRING_DISPATCHER_WORKER_TOKEN:-}" ]]; then
+        die "SPRING_DISPATCHER_WORKER_TOKEN is not set. The dispatcher must be started first ('${HOST_SCRIPT##"${REPO_ROOT}"/} start') so it can write the bearer token to ${DISPATCHER_ENV_FILE} for the API host to source."
+    fi
     run_container spring-api \
         --env-file "${RESOLVED_ENV_FILE}" \
         -e "DAPR_APP_ID=spring-api" \
         -e "DAPR_HTTP_ENDPOINT=http://spring-api-dapr:3500" \
         -e "DAPR_GRPC_ENDPOINT=http://spring-api-dapr:50001" \
+        -e "Dispatcher__BaseUrl=http://host.containers.internal:${dispatcher_port}/" \
+        -e "Dispatcher__BearerToken=${SPRING_DISPATCHER_WORKER_TOKEN}" \
         -v spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys \
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         dotnet /app/Cvoya.Spring.Host.Api.dll

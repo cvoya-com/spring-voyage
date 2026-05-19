@@ -36,3 +36,31 @@ internal static class SecretsTestEnvironmentInitializer
         }
     }
 }
+
+/// <summary>
+/// Sets default <c>Dispatcher__BaseUrl</c> / <c>Dispatcher__BearerToken</c>
+/// values process-wide so tests that exercise the full DI graph
+/// (<c>AddCvoyaSpringDapr</c> + <c>StartupConfigurationValidator</c>) do
+/// not trip the now-mandatory <see cref="Cvoya.Spring.Dapr.Configuration.DispatcherConfigurationRequirement"/>
+/// (#2518). Individual tests that specifically validate the missing-URL
+/// branch construct their own requirement instance and pass an
+/// <c>IOptions&lt;DispatcherClientOptions&gt;</c> with empty values, so
+/// the process-wide default has no effect on them. Existing operator
+/// env-var values are preserved.
+/// </summary>
+internal static class DispatcherTestEnvironmentInitializer
+{
+    [ModuleInitializer]
+    public static void Initialize()
+    {
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Dispatcher__BaseUrl")))
+        {
+            Environment.SetEnvironmentVariable("Dispatcher__BaseUrl", "http://spring-dispatcher.test/");
+        }
+
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Dispatcher__BearerToken")))
+        {
+            Environment.SetEnvironmentVariable("Dispatcher__BearerToken", "test-token");
+        }
+    }
+}
