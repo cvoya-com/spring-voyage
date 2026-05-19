@@ -72,8 +72,7 @@ class TestProgressRateLimiter:
         elapsed = time.monotonic() - start
         upper_bound = burst + int(rate * elapsed) + 2  # +2 slack for monotonic drift
         assert accepted <= upper_bound, (
-            f"accepted={accepted} attempts={attempts} elapsed={elapsed:.3f}s "
-            f"upper_bound={upper_bound}"
+            f"accepted={accepted} attempts={attempts} elapsed={elapsed:.3f}s upper_bound={upper_bound}"
         )
 
     def test_warning_throttled(self, caplog: pytest.LogCaptureFixture):

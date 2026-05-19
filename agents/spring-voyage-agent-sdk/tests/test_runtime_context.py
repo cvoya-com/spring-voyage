@@ -91,11 +91,7 @@ class TestRuntimeContext:
             ctx.finish()
 
         # At least one span emission with an sv.progress event.
-        progress_spans = [
-            s
-            for s in emitter.spans
-            if any(e.get("name") == "sv.progress" for e in s.get("events", []))
-        ]
+        progress_spans = [s for s in emitter.spans if any(e.get("name") == "sv.progress" for e in s.get("events", []))]
         assert progress_spans, "Expected at least one span carrying an sv.progress event"
         # The event's attributes come back as the KV list shape because
         # ``TelemetryEmitter.progress_event`` converts before attaching.
@@ -189,8 +185,7 @@ class TestRuntimeContext:
             for e in s.get("events", [])
             if e.get("name") == "sv.progress"
             and any(
-                a["key"] == "kind"
-                and a["value"].get("stringValue") == KIND_RESPONSE_DISCIPLINE_VIOLATION
+                a["key"] == "kind" and a["value"].get("stringValue") == KIND_RESPONSE_DISCIPLINE_VIOLATION
                 for a in e.get("attributes", [])
             )
         ]
@@ -254,9 +249,7 @@ class TestSafetyNet:
     """
 
     @pytest.mark.asyncio
-    async def test_handler_without_final_response_synthesizes_reply(
-        self, caplog: pytest.LogCaptureFixture
-    ):
+    async def test_handler_without_final_response_synthesizes_reply(self, caplog: pytest.LogCaptureFixture):
         async def on_message(_message: Message):
             # Pretend to do work but never yield.
             return
@@ -280,8 +273,7 @@ class TestSafetyNet:
 
         # The stock reply was added as an artifact.
         artifact_calls = [
-            call for call in eq.enqueue_event.call_args_list
-            if "artifact" in type(call.args[0]).__name__.lower()
+            call for call in eq.enqueue_event.call_args_list if "artifact" in type(call.args[0]).__name__.lower()
         ]
         assert artifact_calls, "Expected the safety net to emit a final artifact"
         # The task was completed (not failed).
@@ -291,10 +283,7 @@ class TestSafetyNet:
         assert isinstance(last, TaskStatusUpdateEvent)
         assert last.status.state == TaskState.TASK_STATE_COMPLETED
         # Warning logged.
-        assert any(
-            "Response-discipline violation" in rec.getMessage()
-            for rec in caplog.records
-        )
+        assert any("Response-discipline violation" in rec.getMessage() for rec in caplog.records)
 
     @pytest.mark.asyncio
     async def test_handler_with_final_response_skips_safety_net(self):

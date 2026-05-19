@@ -85,10 +85,7 @@ _SHUTDOWN_GRACE_SECONDS = 30
 # ``on_message`` exits without yielding a ``Response(final=True)``.
 # Kept terse and neutral so it's not mistaken for the agent's real
 # voice; the activity log carries the structural detail (issue #2493).
-SAFETY_NET_REPLY = (
-    "Turn completed without an explicit final response. "
-    "See the activity log for details."
-)
+SAFETY_NET_REPLY = "Turn completed without an explicit final response. See the activity log for details."
 
 # Reason recorded on the ``response_discipline_violation`` event when
 # the safety net fires.

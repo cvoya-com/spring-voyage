@@ -126,9 +126,7 @@ class ProgressRateLimiter:
         rate_per_second: float | None = None,
         burst: int | None = None,
     ) -> None:
-        self._rate = rate_per_second if rate_per_second is not None else _env_float(
-            _ENV_RATE, _DEFAULT_RATE_PER_SECOND
-        )
+        self._rate = rate_per_second if rate_per_second is not None else _env_float(_ENV_RATE, _DEFAULT_RATE_PER_SECOND)
         self._burst = burst if burst is not None else _env_int(_ENV_BURST, _DEFAULT_BURST)
         self._buckets: dict[tuple[str, str], TokenBucket] = {}
         self._buckets_lock = threading.Lock()

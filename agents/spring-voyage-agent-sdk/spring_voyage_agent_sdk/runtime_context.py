@@ -498,16 +498,12 @@ class _ToolCallContextManager:
         self._span: ToolCallSpan | None = None
 
     async def __aenter__(self) -> ToolCallSpan:
-        if not self._context._rate_limiter.try_acquire(
-            self._context.subject_uuid, KIND_TOOL_CALL
-        ):
+        if not self._context._rate_limiter.try_acquire(self._context.subject_uuid, KIND_TOOL_CALL):
             # The rate limiter is shared with progress events, but
             # tool-call spans are still emitted lazily on a separate
             # bucket. If we got rate-limited, hand the caller a span
             # whose finish is a no-op (its emitter is disabled).
-            self._context._rate_limiter.log_drop(
-                self._context.subject_uuid, KIND_TOOL_CALL
-            )
+            self._context._rate_limiter.log_drop(self._context.subject_uuid, KIND_TOOL_CALL)
             self._span = ToolCallSpan(
                 name=self._name,
                 args=self._args,
@@ -548,12 +544,8 @@ class _LlmTurnContextManager:
         self._span: LlmTurnSpan | None = None
 
     async def __aenter__(self) -> LlmTurnSpan:
-        if not self._context._rate_limiter.try_acquire(
-            self._context.subject_uuid, KIND_LLM_TURN
-        ):
-            self._context._rate_limiter.log_drop(
-                self._context.subject_uuid, KIND_LLM_TURN
-            )
+        if not self._context._rate_limiter.try_acquire(self._context.subject_uuid, KIND_LLM_TURN):
+            self._context._rate_limiter.log_drop(self._context.subject_uuid, KIND_LLM_TURN)
             self._span = LlmTurnSpan(
                 model=self._model,
                 prompt=self._prompt,

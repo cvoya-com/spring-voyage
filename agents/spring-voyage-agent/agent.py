@@ -252,7 +252,8 @@ async def on_message(message: Message):
 
     rt = RuntimeContext.current()
     rt.report_progress(
-        f"received message on thread {message.thread_id}", kind="turn_start",
+        f"received message on thread {message.thread_id}",
+        kind="turn_start",
     )
 
     try:
@@ -283,7 +284,8 @@ async def on_message(message: Message):
             len(result_text),
         )
         rt.report_progress(
-            f"turn complete ({len(result_text)} chars in reply)", kind="turn_complete",
+            f"turn complete ({len(result_text)} chars in reply)",
+            kind="turn_complete",
         )
         yield Response(text=result_text, final=True)
     except Exception as exc:
@@ -353,9 +355,7 @@ async def _run_agentic_loop(
             len(messages),
             len(build.tools),
         )
-        rt.report_progress(
-            f"LLM turn {step + 1}/{max_steps}", kind="llm_turn_start"
-        )
+        rt.report_progress(f"LLM turn {step + 1}/{max_steps}", kind="llm_turn_start")
         # DaprChatClient.generate is synchronous and blocks until daprd
         # returns the Conversation call's response — which is the full LLM
         # turn (Ollama on a slow host can take tens of seconds). Running it

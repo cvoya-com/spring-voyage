@@ -17,6 +17,14 @@ dotnet format SpringVoyage.slnx --verify-no-changes
 npm run lint
 npm --workspace=spring-voyage-dashboard run knip
 npm --workspace=spring-voyage-dashboard run typecheck
+
+# Python agents — ruff lint + format check (CI: "Lint Python agents")
+# Run unconditionally; cheap (~10s) and CI runs it whenever any agents/ file changes.
+# If ruff is not installed: pip install ruff   (CI pins no version; takes the latest)
+ruff check agents/spring-voyage-agent/
+ruff check agents/spring-voyage-agent-sdk/
+ruff format --check agents/spring-voyage-agent/
+ruff format --check agents/spring-voyage-agent-sdk/
 ```
 
 If `dotnet format` reports issues, fix them with:
@@ -25,13 +33,20 @@ If `dotnet format` reports issues, fix them with:
 dotnet format SpringVoyage.slnx
 ```
 
-then re-run `--verify-no-changes` to confirm. ESLint auto-fix is `npm run lint:fix`.
+If `ruff format --check` reports issues, fix them with:
 
-Other CI lint jobs that are NOT in this skill because they are either
+```bash
+ruff format agents/spring-voyage-agent/ agents/spring-voyage-agent-sdk/
+```
+
+Re-run the `--verify-no-changes` / `--check` variants to confirm. ESLint auto-fix is `npm run lint:fix`.
+
+**Ruff version skew:** CI installs ruff via `pip install ruff` (no pinned version) so the canonical format can drift across CI runs. If `ruff format --check` passes locally but CI disagrees, install the version CI is using into a temp venv (e.g. `python3 -m venv /tmp/ruff && /tmp/ruff/bin/pip install ruff==<ci-version>`) and re-run.
+
+Other CI lint jobs that are NOT in this skill because they are
 narrowly scoped or run only when their files actually change — invoke
 explicitly when touching the relevant area:
 
-- `Lint Python agents` — `ruff check agents/` (when editing `agents/`)
 - `Lint agent definitions` — script in `.github/workflows/ci.yml` job
   `lint-agent-definitions` (when editing `agents/*/agent.yaml`)
 - `Lint connector web submodules` — `eslint src/Cvoya.Spring.Connector.*/web`

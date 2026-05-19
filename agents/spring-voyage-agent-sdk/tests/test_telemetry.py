@@ -31,14 +31,17 @@ class TestTelemetryEmitter:
         emitter = TelemetryEmitter(endpoint=None)
         assert emitter.enabled is False
         # All emit_* methods are no-ops when disabled.
-        assert emitter.emit_span(
-            name="x",
-            trace_id="0" * 32,
-            span_id="0" * 16,
-            parent_span_id=None,
-            start_unix_nanos=0,
-            end_unix_nanos=0,
-        ) is False
+        assert (
+            emitter.emit_span(
+                name="x",
+                trace_id="0" * 32,
+                span_id="0" * 16,
+                parent_span_id=None,
+                start_unix_nanos=0,
+                end_unix_nanos=0,
+            )
+            is False
+        )
         assert emitter.emit_log(severity="INFO", body="hi") is False
 
     def test_emit_span_posts_otlp_envelope(self):
@@ -96,18 +99,19 @@ class TestTelemetryEmitter:
         with patch("urllib.request.urlopen", side_effect=_fail):
             emitter = TelemetryEmitter(endpoint="https://api.example.com/otlp")
             # Must return False, not raise.
-            assert emitter.emit_span(
-                name="sv.tool.call",
-                trace_id="0" * 32,
-                span_id="0" * 16,
-                parent_span_id=None,
-                start_unix_nanos=0,
-                end_unix_nanos=0,
-            ) is False
+            assert (
+                emitter.emit_span(
+                    name="sv.tool.call",
+                    trace_id="0" * 32,
+                    span_id="0" * 16,
+                    parent_span_id=None,
+                    start_unix_nanos=0,
+                    end_unix_nanos=0,
+                )
+                is False
+            )
 
-    def test_from_environment_parses_headers_and_resource_attrs(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_from_environment_parses_headers_and_resource_attrs(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://otlp.example/otlp")
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer t,X-A=1")
         monkeypatch.setenv(
