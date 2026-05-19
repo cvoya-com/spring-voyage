@@ -26,7 +26,9 @@ The reframing in [#1629](https://github.com/cvoya-com/spring-voyage/issues/1629)
 
 ### 1. Every actor has one identity: a `Guid`
 
-Every actor — unit, agent, human, connector, tenant — has exactly one stable identifier: a `Guid`. The `Guid` is the primary key, the foreign-key target, the activity-log source, the wire-form identity, and the manifest cross-reference token. There is no parallel string identifier with equal status. Within a single actor's lifetime the `Guid` does not change, ever; rename a unit, move an agent, swap a connector — the `Guid` is the same.
+Every actor — unit, agent, human, connector, tenant, tenant-user — has exactly one stable identifier: a `Guid`. The `Guid` is the primary key, the foreign-key target, the activity-log source, the wire-form identity, and the manifest cross-reference token. There is no parallel string identifier with equal status. Within a single actor's lifetime the `Guid` does not change, ever; rename a unit, move an agent, swap a connector — the `Guid` is the same.
+
+> **Amended by [ADR-0047](0047-platform-user-human-split.md) (2026-05-18):** the actor-kind enumeration extends to include `tenant-user` — the authenticated principal of Spring Voyage scoped to one tenant. The new kind inherits every property listed here unchanged (Guid identity, presentation-only `display_name`, name cannot parse as a Guid, membership graph is the addressing fabric). The OSS deployment ships with exactly one `tenant-user` row (the operator), pinned by a deterministic v5 UUID per ADR-0047 §3 in `OssTenantUserIds.Operator` — the same recipe decision 8 below uses for the OSS default tenant.
 
 Rejected: typed wrappers (`AgentId`, `UnitId`, `TenantId` as separate value types). Considered briefly during the implementation pass for #1629; the cost is real (every cast site, every conversion, every EF Core type configuration, every JSON converter, every Kiota-generated client) and the gain is the kind of compile-time check that already trips at the message-receiver boundary — schemes are checked at address parse time. `Guid` end-to-end is the simplest contract that does the job.
 

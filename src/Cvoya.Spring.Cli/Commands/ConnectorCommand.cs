@@ -254,10 +254,10 @@ public static class ConnectorCommand
                 {
                     typedConfig = new
                     {
-                        owner = config.Owner,
                         repo = config.Repo,
                         events = config.Events,
                         appInstallationId = config.AppInstallationId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                        patSecretName = config.PatSecretName,
                     };
                 }
             }
@@ -428,11 +428,16 @@ public static class ConnectorCommand
 
             try
             {
+                // ADR-0047 §11: the wire shape collapses to a single qualified
+                // 'owner/repo' string. Phase G removes the --owner flag and
+                // changes --repo to accept the qualified form directly; until
+                // then the CLI joins the two halves locally.
+                var qualifiedRepo = repo!.Contains('/') ? repo! : $"{owner}/{repo}";
                 var result = await client.PutUnitGitHubConfigAsync(
                     unitId,
-                    owner!,
-                    repo!,
+                    qualifiedRepo,
                     installationId,
+                    patSecretName: null,
                     events,
                     reviewer,
                     addOnAssign: null,
@@ -450,7 +455,7 @@ public static class ConnectorCommand
                 else
                 {
                     Console.WriteLine(
-                        $"Unit '{unitInput}' bound to connector 'github' ({result.Owner}/{result.Repo}).");
+                        $"Unit '{unitInput}' bound to connector 'github' ({result.Repo}).");
                 }
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
@@ -916,9 +921,9 @@ public static class ConnectorCommand
                 var current = await client.GetRequiredUnitGitHubConfigAsync(bindingId, ct);
                 await client.PutUnitGitHubConfigAsync(
                     bindingId,
-                    current.Owner!,
                     current.Repo!,
                     current.AppInstallationId?.ToString(CultureInfo.InvariantCulture),
+                    current.PatSecretName,
                     current.EventsAreDefault == true ? null : current.Events,
                     current.Reviewer,
                     addOnAssign: current.AddOnAssign,
@@ -1005,9 +1010,9 @@ public static class ConnectorCommand
                 var current = await client.GetRequiredUnitGitHubConfigAsync(bindingId, ct);
                 await client.PutUnitGitHubConfigAsync(
                     bindingId,
-                    current.Owner!,
                     current.Repo!,
                     current.AppInstallationId?.ToString(CultureInfo.InvariantCulture),
+                    current.PatSecretName,
                     current.EventsAreDefault == true ? null : current.Events,
                     current.Reviewer,
                     addOnAssign: addOnAssign,

@@ -16,7 +16,6 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Secrets;
-using Cvoya.Spring.Core.Security;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -496,11 +495,35 @@ public class GitHubConnectorType : IConnectorType
         HttpContext httpContext,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.Owner) || string.IsNullOrWhiteSpace(request.Repo))
+        if (string.IsNullOrWhiteSpace(request.Repo))
         {
             return Results.Problem(
-                detail: "Both 'owner' and 'repo' are required.",
+                detail: "'repo' is required and must be in 'owner/repo' qualified form.",
                 statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // ADR-0047 §11: Repo must be the qualified `owner/repo` form. The
+        // wizard / CLI reject unqualified inputs before they reach the
+        // server, but the server defends in depth — a one-segment value
+        // would land a half-name on the binding row and make every
+        // downstream Octokit call malformed.
+        if (!request.Repo.Contains('/'))
+        {
+            return Results.Problem(
+                detail: "'repo' must be in qualified 'owner/repo' form (ADR-0047 §11). " +
+                        $"Got '{request.Repo}'.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // ADR-0047 §11 exactly-one-of gate. The binding-create-time check
+        // here is the structural guarantee Phase D / §6 relies on at use
+        // time — without this the connector's outbound auth path would
+        // need a runtime ambiguity check.
+        var authProblem = GitHubBindingAuthProblems.ValidateOrProblem(
+            request.AppInstallationId, request.PatSecretName);
+        if (authProblem is not null)
+        {
+            return authProblem;
         }
 
         var actorId = await ResolveUnitActorIdAsync(unitId, cancellationToken);
@@ -513,10 +536,18 @@ public class GitHubConnectorType : IConnectorType
         var reviewer = string.IsNullOrWhiteSpace(request.Reviewer)
             ? null
             : request.Reviewer.Trim();
+
+        // Trim the PAT secret name. The auth gate above already rejected
+        // whitespace-only values; this just normalises a clean string for
+        // downstream secret-store reads.
+        var patSecretName = string.IsNullOrWhiteSpace(request.PatSecretName)
+            ? null
+            : request.PatSecretName.Trim();
+
         var config = new UnitGitHubConfig(
-            request.Owner,
             request.Repo,
             request.AppInstallationId,
+            patSecretName,
             events,
             reviewer,
             request.AddOnAssign,
@@ -529,35 +560,14 @@ public class GitHubConnectorType : IConnectorType
         var payload = JsonSerializer.SerializeToElement(config, ConfigJson);
         await _configStore.SetAsync(actorId, GitHubTypeId, payload, cancellationToken);
 
-        // #2408: auto-seed the operator's GitHub identity from the binding
-        // write when a Reviewer was supplied. The seed call is idempotent
-        // and silently skipped when no authenticated caller is present
-        // (workflow-driven re-binds, etc.). Resolved through the request-
-        // scope so the scoped IConnectorIdentityAutoSeed resolves cleanly;
-        // GetService keeps the connector working when the seam isn't
-        // registered (test harnesses that pre-date #2408).
-        if (!string.IsNullOrWhiteSpace(reviewer))
-        {
-            var autoSeed = httpContext.RequestServices.GetService(typeof(IConnectorIdentityAutoSeed))
-                as IConnectorIdentityAutoSeed;
-            if (autoSeed is not null)
-            {
-                try
-                {
-                    await autoSeed.SeedForCallerAsync(
-                        connectorId: Slug,
-                        connectorUserId: reviewer,
-                        displayHandle: null,
-                        cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Failed to auto-seed connector identity for reviewer '{Reviewer}' on unit '{UnitId}'; binding write itself succeeded.",
-                        reviewer, unitId);
-                }
-            }
-        }
+        // ADR-0047 §2 / §13: per-`TenantUser` connector-identity capture
+        // moves to the OAuth flow (Phase F). The pre-ADR-0047 auto-seed of
+        // the operator's GitHub identity from the binding's reviewer field
+        // is dropped — that was semantically wrong (reviewer is some other
+        // GitHub user, not the caller) and only worked in the
+        // operator-is-reviewer OSS case. Phase F wires the OAuth user-info
+        // path that populates `TenantUserConnectorIdentity.username` from
+        // the GitHub API instead.
 
         return Results.Ok(ToResponse(unitId, config));
     }
@@ -914,9 +924,9 @@ public class GitHubConnectorType : IConnectorType
         var eventsAreDefault = config.Events is not { Count: > 0 };
         return new UnitGitHubConfigResponse(
             unitId,
-            config.Owner,
             config.Repo,
             config.AppInstallationId,
+            config.PatSecretName,
             eventsAreDefault ? DefaultEvents : config.Events!,
             config.Reviewer,
             eventsAreDefault,
@@ -939,11 +949,17 @@ public class GitHubConnectorType : IConnectorType
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "UnitGitHubConfigRequest",
           "type": "object",
-          "required": ["owner", "repo"],
+          "required": ["repo"],
           "properties": {
-            "owner": { "type": "string", "description": "The repository owner (user or organization login)." },
-            "repo": { "type": "string", "description": "The repository name." },
-            "appInstallationId": { "type": ["integer", "null"], "description": "The GitHub App installation id powering the binding." },
+            "repo": { "type": "string", "description": "The qualified repository name in 'owner/repo' form (ADR-0047 §11)." },
+            "appInstallationId": {
+              "type": ["integer", "null"],
+              "description": "The GitHub App installation id powering the binding. Exactly one of 'appInstallationId' or 'pat_secret_name' MUST be set (ADR-0047 §11); the binding-create endpoint rejects neither/both with GitHubBindingAuthRequired / GitHubBindingAuthAmbiguous."
+            },
+            "pat_secret_name": {
+              "type": ["string", "null"],
+              "description": "Tenant-secret name addressing the PAT the binding pushes with (ADR-0047 §5). Exactly one of 'appInstallationId' or 'pat_secret_name' MUST be set; the resolver looks up the secret by name at outbound-call time through ISecretResolver."
+            },
             "events": {
               "type": ["array", "null"],
               "items": { "type": "string" },

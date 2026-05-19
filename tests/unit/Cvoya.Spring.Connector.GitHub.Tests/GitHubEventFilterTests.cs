@@ -263,8 +263,7 @@ public class GitHubEventFilterTests
         IReadOnlyList<string>? includeAuthors = null,
         IReadOnlyList<string>? includePaths = null) =>
         new(
-            Owner: "acme",
-            Repo: "platform",
+            Repo: "acme/platform",
             IncludeLabels: includeLabels,
             ExcludeLabels: excludeLabels,
             IncludeAuthors: includeAuthors,

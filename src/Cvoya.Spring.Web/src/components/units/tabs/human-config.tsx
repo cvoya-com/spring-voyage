@@ -69,15 +69,10 @@ import { api, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatTranslatedError } from "@/lib/api/translate-error";
 import {
-  useConnectorTypes,
   useCurrentUser,
   useHuman,
-  useHumanIdentities,
-  useRemoveHumanIdentity,
-  useUpsertHumanIdentity,
 } from "@/lib/api/queries";
 import type {
-  HumanConnectorIdentityResponse,
   UpdateHumanRequest,
 } from "@/lib/api/types";
 import {
@@ -351,320 +346,35 @@ function HumanGeneralSubTab({ humanId }: { humanId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Identity sub-tab — list + add form + remove confirmation.
+// Identity sub-tab — placeholder for the relocated surface.
+//
+// ADR-0047 §§ 2, 14: connector-native identity moves off the Human row
+// onto the new TenantUser principal. Phase H of the umbrella adds the
+// new portal user-identity page consuming the relocated
+// /api/v1/tenant/users/{id}/identities routes; v0.1's freezing release
+// removes the prior list / add / remove surface here and leaves an
+// explanatory note in its place so deep-link visitors land on a clean
+// "moved to ..." message instead of a blank panel.
 // ---------------------------------------------------------------------------
 
-function HumanIdentitySubTab({ humanId }: { humanId: string }) {
-  const identitiesQuery = useHumanIdentities(humanId);
-  const connectorsQuery = useConnectorTypes();
-  const removeMutation = useRemoveHumanIdentity(humanId);
-  const upsertMutation = useUpsertHumanIdentity(humanId);
-  const { toast } = useToast();
-
-  // Confirm-dialog state for deletes. The dialog is mounted at the
-  // panel level (one instance, payload-driven) so the row buttons stay
-  // declarative — same precedent as `<MembershipDialog>`.
-  const [pendingRemoval, setPendingRemoval] =
-    useState<HumanConnectorIdentityResponse | null>(null);
-
-  const rows = identitiesQuery.data ?? [];
-  const installedConnectors = useMemo(
-    () => connectorsQuery.data ?? [],
-    [connectorsQuery.data],
-  );
-
-  const handleConfirmRemove = async () => {
-    if (!pendingRemoval) return;
-    try {
-      await removeMutation.mutateAsync({
-        connectorId: pendingRemoval.connectorId,
-        connectorUserId: pendingRemoval.connectorUserId,
-      });
-      toast({
-        title: "Identity removed",
-        description: `${pendingRemoval.connectorId}:${pendingRemoval.connectorUserId}`,
-      });
-      setPendingRemoval(null);
-    } catch (err) {
-      // Stay on the dialog so the operator can retry / cancel; surface
-      // the failure via a toast.
-      toast({
-        title: "Failed to remove identity",
-        description: errorMessage(err),
-        variant: "destructive",
-      });
-    }
-  };
-
+function HumanIdentitySubTab(_props: { humanId: string }) {
   return (
     <Card data-testid="tab-human-config-identity">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <IdCard className="h-4 w-4" aria-hidden="true" /> Connector
-          identities
+          identities have moved
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {identitiesQuery.isLoading ? (
-          <div className="space-y-2" data-testid="tab-human-config-identity-loading">
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-9 w-full" />
-          </div>
-        ) : rows.length === 0 ? (
-          <div
-            className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-center text-sm"
-            data-testid="tab-human-config-identity-empty"
-          >
-            <UserRound
-              className="mx-auto h-5 w-5 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <p className="mt-2 font-medium">No connector identities yet</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Map a connector login (e.g. a GitHub username) to this human
-              so messages addressed via the connector reach{" "}
-              <code>human:&lt;guid&gt;</code>.
-            </p>
-          </div>
-        ) : (
-          <ul
-            className="divide-y rounded-md border border-border"
-            data-testid="tab-human-config-identity-list"
-          >
-            {rows.map((row) => (
-              <li
-                key={`${row.connectorId}:${row.connectorUserId}`}
-                className="flex items-center gap-3 px-3 py-2 text-sm"
-                data-testid="tab-human-config-identity-row"
-              >
-                <Badge variant="outline" className="font-mono text-xs">
-                  {row.connectorId}
-                </Badge>
-                <span className="truncate font-mono">
-                  {row.connectorUserId}
-                </span>
-                {row.displayHandle ? (
-                  <span className="truncate text-xs text-muted-foreground">
-                    {row.displayHandle}
-                  </span>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="ml-auto"
-                  onClick={() => setPendingRemoval(row)}
-                  aria-label={`Remove identity ${row.connectorId}:${row.connectorUserId}`}
-                  data-testid="tab-human-config-identity-remove"
-                >
-                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <AddIdentityForm
-          humanId={humanId}
-          connectors={installedConnectors.map((c) => ({
-            slug: c.typeSlug,
-            displayName: c.displayName,
-          }))}
-          connectorsLoading={connectorsQuery.isLoading}
-          submitting={upsertMutation.isPending}
-          onSubmit={async (body) => {
-            try {
-              await upsertMutation.mutateAsync(body);
-              toast({
-                title: "Identity saved",
-                description: `${body.connectorId}:${body.connectorUserId}`,
-              });
-              return { ok: true };
-            } catch (err) {
-              const msg = errorMessage(err);
-              toast({
-                title: "Failed to save identity",
-                description: msg,
-                variant: "destructive",
-              });
-              return { ok: false, message: msg };
-            }
-          }}
-        />
-      </CardContent>
-
-      <ConfirmDialog
-        open={pendingRemoval !== null}
-        title="Remove connector identity?"
-        description={
-          pendingRemoval
-            ? `Disconnects ${pendingRemoval.connectorId}:${pendingRemoval.connectorUserId} from this human. Inbound messages addressed via this identity will stop resolving.`
-            : ""
-        }
-        confirmLabel="Remove"
-        onConfirm={handleConfirmRemove}
-        onCancel={() => setPendingRemoval(null)}
-        pending={removeMutation.isPending}
-      />
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Add-identity form. Extracted into its own component so the panel
-// state stays simple and so it can be tested in isolation.
-// ---------------------------------------------------------------------------
-
-interface ConnectorChoice {
-  slug: string;
-  displayName: string;
-}
-
-interface AddIdentityFormProps {
-  humanId: string;
-  connectors: readonly ConnectorChoice[];
-  connectorsLoading: boolean;
-  submitting: boolean;
-  /**
-   * Returns `{ ok: true }` on success so the form can reset; on failure
-   * returns `{ ok: false }` plus an optional message that becomes the
-   * inline error copy (e.g. 409 "already claimed by another human"
-   * surfaced as ProblemDetails).
-   */
-  onSubmit: (body: {
-    connectorId: string;
-    connectorUserId: string;
-    displayHandle: string | null;
-  }) => Promise<{ ok: true } | { ok: false; message?: string }>;
-}
-
-function AddIdentityForm({
-  humanId,
-  connectors,
-  connectorsLoading,
-  submitting,
-  onSubmit,
-}: AddIdentityFormProps) {
-  // The select tracks an explicit user choice (`""` when un-touched).
-  // The effective value the form submits is computed each render:
-  // the user's choice when they made one, otherwise the first
-  // installed connector slug. Deriving the default avoids a
-  // setState-in-effect cascade — flagged by `react-hooks/set-state-in-effect`
-  // and consistent with the React docs' "derived state" guidance.
-  const [chosenConnectorId, setChosenConnectorId] = useState<string>("");
-  const [connectorUserId, setConnectorUserId] = useState("");
-  const [displayHandle, setDisplayHandle] = useState("");
-  const [inlineError, setInlineError] = useState<string | null>(null);
-
-  const effectiveConnectorId = chosenConnectorId
-    ? chosenConnectorId
-    : connectors[0]?.slug ?? "";
-
-  const canSubmit =
-    !submitting &&
-    !connectorsLoading &&
-    effectiveConnectorId.trim().length > 0 &&
-    connectorUserId.trim().length > 0;
-
-  const submit = async () => {
-    setInlineError(null);
-    const trimmedConnector = effectiveConnectorId.trim();
-    const trimmedUser = connectorUserId.trim();
-    if (!trimmedConnector || !trimmedUser) {
-      setInlineError("Both connector and user id are required.");
-      return;
-    }
-
-    const result = await onSubmit({
-      connectorId: trimmedConnector,
-      connectorUserId: trimmedUser,
-      displayHandle: displayHandle.trim() ? displayHandle.trim() : null,
-    });
-    if (result.ok) {
-      // Preserve the chosen connector so the operator can add multiple
-      // identities in the same connector without re-picking; only the
-      // user id + handle are reset.
-      setConnectorUserId("");
-      setDisplayHandle("");
-    } else if (result.message) {
-      setInlineError(result.message);
-    }
-  };
-
-  return (
-    <form
-      className="rounded-md border border-border bg-muted/10 p-3 text-sm"
-      data-testid="tab-human-config-identity-add"
-      data-human-id={humanId}
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[180px_1fr_1fr_auto] sm:items-end">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Connector</span>
-          <select
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            value={effectiveConnectorId}
-            onChange={(e) => setChosenConnectorId(e.target.value)}
-            disabled={connectorsLoading || connectors.length === 0}
-            aria-label="Connector"
-            data-testid="tab-human-config-identity-connector"
-          >
-            {connectors.length === 0 ? (
-              <option value="">No connectors installed</option>
-            ) : (
-              connectors.map((c) => (
-                <option key={c.slug} value={c.slug}>
-                  {c.displayName} ({c.slug})
-                </option>
-              ))
-            )}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">
-            Connector user id
-          </span>
-          <Input
-            value={connectorUserId}
-            onChange={(e) => setConnectorUserId(e.target.value)}
-            placeholder="e.g. octocat"
-            aria-label="Connector user id"
-            data-testid="tab-human-config-identity-user-id"
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">
-            Display handle (optional)
-          </span>
-          <Input
-            value={displayHandle}
-            onChange={(e) => setDisplayHandle(e.target.value)}
-            placeholder="e.g. @octocat"
-            aria-label="Display handle"
-            data-testid="tab-human-config-identity-handle"
-          />
-        </label>
-        <Button
-          type="submit"
-          disabled={!canSubmit}
-          data-testid="tab-human-config-identity-add-submit"
-        >
-          {submitting ? "Saving…" : "Add"}
-        </Button>
-      </div>
-      {inlineError ? (
-        <p
-          role="alert"
-          className="mt-2 text-xs text-destructive"
-          data-testid="tab-human-config-identity-add-error"
-        >
-          {inlineError}
+      <CardContent className="space-y-2 text-sm text-muted-foreground">
+        <p>
+          Connector-native identities (e.g. GitHub login) now live on the
+          tenant-user principal, not the Human row (ADR-0047). The new
+          surface is the portal&apos;s user-identity page; Phase H of the
+          umbrella wires it.
         </p>
-      ) : null}
-    </form>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -741,5 +451,3 @@ function errorMessage(err: unknown): string {
 }
 
 registerTab("Human", "Config", HumanConfigTab);
-
-export default HumanConfigTab;

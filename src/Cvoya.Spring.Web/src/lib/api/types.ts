@@ -132,25 +132,11 @@ export type CreateAgentRequest = Schemas["CreateAgentRequest"];
  */
 export type HumanResponse = Schemas["HumanResponse"];
 
-/**
- * POST `/api/v1/tenant/humans/{humanId}/identities` request body
- * (#2408 / PR #2420). The mapping is `(connectorId, connectorUserId)` →
- * the platform human Guid, with an optional `displayHandle` rendered in
- * the operator surfaces (e.g., the GitHub login `@savas`). See
- * `docs/concepts/humans.md` for the identity-resolution semantics.
- */
-export type HumanConnectorIdentityRequest =
-  Schemas["HumanConnectorIdentityRequest"];
-
-/**
- * GET / POST `/api/v1/tenant/humans/{humanId}/identities` response row
- * (#2408 / PR #2420). Carries the platform `humanId`, the connector slug,
- * the connector-native user id, an optional display handle, and the
- * row's `createdAt` / `updatedAt`. Consumed by the Human × Config →
- * Identity sub-tab (#2269).
- */
-export type HumanConnectorIdentityResponse =
-  Schemas["HumanConnectorIdentityResponse"];
+// TenantUserConnectorIdentityRequest / Response types live in
+// `src/lib/api/schema.d.ts` (regenerated from the OpenAPI surface); Phase H
+// of umbrella #2487 re-exports them here when it builds the portal
+// user-identity UI. Knip rejects unused exports, so we don't re-export
+// them speculatively.
 
 // ---------------------------------------------------------------------------
 // Platform metadata + Auth surface — consumed by the Settings drawer (#451).

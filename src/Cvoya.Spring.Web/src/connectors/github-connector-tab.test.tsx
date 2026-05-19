@@ -56,11 +56,12 @@ function configFixture(
 ): UnitGitHubConfigResponse {
   // Defaults match a freshly bound unit: repo + installation set, no
   // explicit reviewer, server-resolved events (eventsAreDefault: true).
+  // ADR-0047 §11: the wire shape uses a single qualified 'owner/repo'.
   return {
     unitId: "u1",
-    owner: "acme",
-    repo: "platform",
+    repo: "acme/platform",
     appInstallationId: 7777,
+    pat_secret_name: null,
     events: [...DEFAULT_EVENTS],
     reviewer: null,
     eventsAreDefault: true,

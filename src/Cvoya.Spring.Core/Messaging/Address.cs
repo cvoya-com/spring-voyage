@@ -44,6 +44,14 @@ public record Address(
     public const string HumanScheme = "human";
 
     /// <summary>
+    /// Canonical scheme for tenant-user-shaped addresses (ADR-0047 §1) —
+    /// the authenticated principal of Spring Voyage scoped to one tenant.
+    /// Pinned here as part of the actor-kind audit ADR-0047 § "Costs"
+    /// flagged; Phase F (OAuth wiring) is the first runtime consumer.
+    /// </summary>
+    public const string TenantUserScheme = "tenant-user";
+
+    /// <summary>
     /// Convenience accessor returning the Guid identity rendered in the
     /// canonical no-dash 32-char hex form. Useful for callers that need
     /// a string actor key (Dapr <c>ActorId</c> construction, log

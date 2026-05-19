@@ -68,9 +68,15 @@ public class GitHubLabelRoutingRoundtrip
         child.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(response);
         harness.RegisterAgent(Child, child);
+        // ADR-0047 §11: the binding pins one auth path. This integration
+        // uses the PAT path so the parameterless
+        // CreateAuthenticatedClientAsync stub above is the resolver
+        // surface invoked. Phase D wires the App-installation path
+        // through a different resolver entry point.
         RegisterConfig(configStore, new UnitGitHubConfig(
-            "acme",
-            "platform",
+            "acme/platform",
+            AppInstallationId: null,
+            PatSecretName: "binding/test/github/pat",
             AddOnAssign: new[] { "triage" },
             RemoveOnAssign: new[] { "needs-assignment" }));
 

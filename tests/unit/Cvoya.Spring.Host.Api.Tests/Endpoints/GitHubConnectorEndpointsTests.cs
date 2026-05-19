@@ -105,6 +105,127 @@ public class GitHubConnectorEndpointsTests
     }
 
     [Fact]
+    public async Task PutConfig_NeitherAppNorPat_Returns400_GitHubBindingAuthRequired()
+    {
+        // ADR-0047 §11 exactly-one-of gate. Both null is rejected with the
+        // structured code 'GitHubBindingAuthRequired' — the binding-create
+        // surface refuses to land a row that has no outbound credential.
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest(
+            "acme/platform", AppInstallationId: null, PatSecretName: null, Events: new[] { "issues" });
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+        body.GetProperty("code").GetString().ShouldBe("GitHubBindingAuthRequired");
+
+        // The config store must NOT have been called — the gate fires
+        // before the persist.
+        await configStore.DidNotReceiveWithAnyArgs().SetAsync(
+            Arg.Any<string>(),
+            Arg.Any<Guid>(),
+            Arg.Any<JsonElement>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PutConfig_BothAppAndPat_Returns400_GitHubBindingAuthAmbiguous()
+    {
+        // ADR-0047 §11: both set is rejected with the structured code
+        // 'GitHubBindingAuthAmbiguous'. The binding refuses to silently
+        // pick one of the two — the operator must choose at create time.
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest(
+            "acme/platform",
+            AppInstallationId: 1001,
+            PatSecretName: "binding/abc123/github/pat",
+            Events: new[] { "issues" });
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+        body.GetProperty("code").GetString().ShouldBe("GitHubBindingAuthAmbiguous");
+
+        await configStore.DidNotReceiveWithAnyArgs().SetAsync(
+            Arg.Any<string>(),
+            Arg.Any<Guid>(),
+            Arg.Any<JsonElement>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PutConfig_PatSecretNameAlone_Persists()
+    {
+        // ADR-0047 §11: PAT auth path is accepted in isolation. The
+        // pat_secret_name lands on the persisted JSON; the connector
+        // resolves the secret through ISecretResolver at outbound-call
+        // time (Phase D).
+        var captured = default(JsonElement?);
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        configStore.SetAsync(
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Do<JsonElement>(j => captured = j.Clone()),
+            Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest(
+            "acme/platform",
+            AppInstallationId: null,
+            PatSecretName: "binding/abc123/github/pat",
+            Events: new[] { "issues" });
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        captured.ShouldNotBeNull();
+        captured!.Value.GetProperty("pat_secret_name").GetString().ShouldBe("binding/abc123/github/pat");
+
+        var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.PatSecretName.ShouldBe("binding/abc123/github/pat");
+        body.AppInstallationId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task PutConfig_UnqualifiedRepo_Returns400()
+    {
+        // ADR-0047 §11: 'repo' must be qualified 'owner/repo' form. The
+        // server defends in depth even though CLI / portal reject
+        // unqualified inputs before they reach the endpoint.
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest(
+            "just-a-name",
+            AppInstallationId: 1001,
+            PatSecretName: null,
+            Events: new[] { "issues" });
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task PutConfig_UpsertsBinding()
     {
         var configStore = Substitute.For<IUnitConnectorConfigStore>();
@@ -113,7 +234,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var request = new UnitGitHubConfigRequest(
-            "acme", "platform", AppInstallationId: 1001, Events: new[] { "issues" });
+            "acme/platform", AppInstallationId: 1001, Events: new[] { "issues" });
 
         var response = await client.PutAsJsonAsync(
             "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
@@ -145,7 +266,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var request = new UnitGitHubConfigRequest(
-            "acme", "platform", AppInstallationId: 1001, Reviewer: "octocat");
+            "acme/platform", AppInstallationId: 1001, Reviewer: "octocat");
 
         var response = await client.PutAsJsonAsync(
             "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
@@ -174,8 +295,8 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var request = new UnitGitHubConfigRequest(
-            "acme",
-            "platform",
+            "acme/platform",
+            AppInstallationId: 1001,
             AddOnAssign: new[] { "in-progress" },
             RemoveOnAssign: new[] { "agent:backend" });
 
@@ -212,7 +333,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var request = new UnitGitHubConfigRequest(
-            "acme", "platform", Reviewer: "   ");
+            "acme/platform", AppInstallationId: 1001, Reviewer: "   ");
 
         var response = await client.PutAsJsonAsync(
             "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
@@ -243,10 +364,9 @@ public class GitHubConnectorEndpointsTests
         var configStore = Substitute.For<IUnitConnectorConfigStore>();
         var stored = JsonSerializer.SerializeToElement(
             new UnitGitHubConfig(
-                "acme",
-                "platform",
-                1001,
-                new[] { "issues" },
+                "acme/platform",
+                AppInstallationId: 1001,
+                Events: new[] { "issues" },
                 AddOnAssign: new[] { "in-progress" },
                 RemoveOnAssign: new[] { "agent:backend" }));
         configStore.GetAsync("u1", Arg.Any<CancellationToken>())
@@ -260,8 +380,7 @@ public class GitHubConnectorEndpointsTests
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
         body.ShouldNotBeNull();
-        body!.Owner.ShouldBe("acme");
-        body.Repo.ShouldBe("platform");
+        body!.Repo.ShouldBe("acme/platform");
         body.AppInstallationId.ShouldBe(1001);
         body.Events.ShouldContain("issues");
         body.AddOnAssign.ShouldBe(new[] { "in-progress" });
@@ -282,7 +401,7 @@ public class GitHubConnectorEndpointsTests
         // toggle checked and the per-event row disabled.
         var configStore = Substitute.For<IUnitConnectorConfigStore>();
         var stored = JsonSerializer.SerializeToElement(
-            new UnitGitHubConfig("acme", "platform", 1001, Events: null));
+            new UnitGitHubConfig("acme/platform", AppInstallationId: 1001, Events: null));
         configStore.GetAsync("u1", Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, stored));
 
@@ -308,7 +427,7 @@ public class GitHubConnectorEndpointsTests
         var explicitDefaults = new[] { "issues", "pull_request", "issue_comment" };
         var configStore = Substitute.For<IUnitConnectorConfigStore>();
         var stored = JsonSerializer.SerializeToElement(
-            new UnitGitHubConfig("acme", "platform", 1001, explicitDefaults));
+            new UnitGitHubConfig("acme/platform", AppInstallationId: 1001, Events: explicitDefaults));
         configStore.GetAsync("u1", Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, stored));
 
@@ -337,7 +456,7 @@ public class GitHubConnectorEndpointsTests
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
-        var request = new UnitGitHubConfigRequest("acme", "platform", AppInstallationId: 1001);
+        var request = new UnitGitHubConfigRequest("acme/platform", AppInstallationId: 1001);
 
         var response = await client.PutAsJsonAsync(
             "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
@@ -664,9 +783,17 @@ public class GitHubConnectorEndpointsTests
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
         body.TryGetProperty("type", out var type).ShouldBeTrue();
         type.GetString().ShouldBe("object");
+        // ADR-0047 §11: 'repo' is the single required field (qualified
+        // 'owner/repo'); 'owner' is dropped from the binding shape and
+        // the auth choice (appInstallationId OR pat_secret_name) is
+        // enforced by the dedicated GitHubBindingAuthRequired /
+        // GitHubBindingAuthAmbiguous gate at create / update time, not
+        // by the JSON Schema's `required` array.
         body.GetProperty("required").EnumerateArray().Select(e => e.GetString())
-            .ShouldContain("owner");
+            .ShouldContain("repo");
         var properties = body.GetProperty("properties");
+        properties.TryGetProperty("repo", out _).ShouldBeTrue();
+        properties.TryGetProperty("pat_secret_name", out _).ShouldBeTrue();
         properties.TryGetProperty("add_on_assign", out _).ShouldBeTrue();
         properties.TryGetProperty("remove_on_assign", out _).ShouldBeTrue();
     }

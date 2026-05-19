@@ -59,8 +59,8 @@ public class LabelRoutingRoundtripSubscriberTests
     {
         var unit = UnitAddress();
         RegisterConfig(unit, new UnitGitHubConfig(
-            "acme",
-            "widgets",
+            "acme/widgets",
+            AppInstallationId: 4242L,
             AddOnAssign: new[] { "in-progress" },
             RemoveOnAssign: new[] { "agent:backend" }));
         await _subscriber.StartAsync(TestContext.Current.CancellationToken);
@@ -90,8 +90,7 @@ public class LabelRoutingRoundtripSubscriberTests
         // falling through to the global-default path.
         var unit = UnitAddress();
         RegisterConfig(unit, new UnitGitHubConfig(
-            "acme",
-            "widgets",
+            "acme/widgets",
             AppInstallationId: 4242,
             AddOnAssign: new[] { "in-progress" }));
 
@@ -110,11 +109,16 @@ public class LabelRoutingRoundtripSubscriberTests
         // null AppInstallationId is the documented fallback for OSS
         // deployments that never bound a per-unit installation (#2385).
         // The subscriber must call the parameterless overload so the
-        // connector's global default kicks in.
+        // connector's global default kicks in. ADR-0047 §11 also allows
+        // PAT auth as an alternative; bindings on the PAT path likewise
+        // surface null AppInstallationId here. Phase D wires the resolver
+        // dispatch; for the label-roundtrip path the parameterless
+        // overload covers both fallback flavours.
         var unit = UnitAddress();
         RegisterConfig(unit, new UnitGitHubConfig(
-            "acme",
-            "widgets",
+            "acme/widgets",
+            AppInstallationId: null,
+            PatSecretName: "binding/test/github/pat",
             AddOnAssign: new[] { "in-progress" }));
 
         await _subscriber.ApplyRoundtripAsync(BuildEvent(unit, number: 42),
@@ -131,8 +135,8 @@ public class LabelRoutingRoundtripSubscriberTests
     {
         var unit = UnitAddress();
         RegisterConfig(unit, new UnitGitHubConfig(
-            "acme",
-            "widgets",
+            "acme/widgets",
+            AppInstallationId: 4242L,
             AddOnAssign: new[] { "in-progress" }));
         await _subscriber.StartAsync(TestContext.Current.CancellationToken);
 
@@ -225,8 +229,8 @@ public class LabelRoutingRoundtripSubscriberTests
     {
         var unit = UnitAddress();
         RegisterConfig(unit, new UnitGitHubConfig(
-            "acme",
-            "widgets",
+            "acme/widgets",
+            AppInstallationId: 4242L,
             AddOnAssign: Array.Empty<string>(),
             RemoveOnAssign: Array.Empty<string>()));
 
@@ -242,8 +246,8 @@ public class LabelRoutingRoundtripSubscriberTests
     {
         var unit = UnitAddress();
         RegisterConfig(unit, new UnitGitHubConfig(
-            "acme",
-            "widgets",
+            "acme/widgets",
+            AppInstallationId: 4242L,
             AddOnAssign: new[] { "in-progress" }));
         var evt = BuildEvent(unit, number: 42, includeIssueMetadata: false);
 
@@ -323,9 +327,14 @@ public class LabelRoutingRoundtripSubscriberTests
             });
 
         var unit = UnitAddress();
+        // The test stubs the parameterless overload of
+        // CreateAuthenticatedClientAsync, so the binding configures the
+        // PAT auth path (per ADR-0047 §11 the binding row pins one of
+        // AppInstallationId or PatSecretName) to land on that overload.
         RegisterConfig(unit, new UnitGitHubConfig(
-            "acme",
-            "widgets",
+            "acme/widgets",
+            AppInstallationId: null,
+            PatSecretName: "binding/test/github/pat",
             AddOnAssign: new[] { "in-progress" }));
 
         await _subscriber.StartAsync(TestContext.Current.CancellationToken);

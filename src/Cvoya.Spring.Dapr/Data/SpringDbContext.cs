@@ -121,13 +121,26 @@ public class SpringDbContext : DbContext
     public DbSet<HumanEntity> Humans => Set<HumanEntity>();
 
     /// <summary>
-    /// Gets the set of human ↔ connector-native identity mapping rows
-    /// (#2408). One row per <c>(tenant, connector, connector_user_id)</c>
-    /// tuple; backs <see cref="Cvoya.Spring.Core.Security.IHumanConnectorIdentityResolver"/>
-    /// so the platform can resolve a connector login (e.g. a GitHub handle)
-    /// to a stable human UUID and vice-versa.
+    /// Gets the set of <c>TenantUser</c> rows (ADR-0047 §1). Each row is
+    /// an authenticated principal of Spring Voyage scoped to one tenant;
+    /// the natural key is <c>(tenant_id, auth_subject)</c> with
+    /// <c>auth_subject</c> nullable so OSS rows pinned by
+    /// <see cref="Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator"/>
+    /// can exist without an OAuth subject claim.
     /// </summary>
-    public DbSet<HumanConnectorIdentityEntity> HumanConnectorIdentities => Set<HumanConnectorIdentityEntity>();
+    public DbSet<TenantUserEntity> TenantUsers => Set<TenantUserEntity>();
+
+    /// <summary>
+    /// Gets the set of <c>TenantUser</c> ↔ connector-native display-
+    /// identity mapping rows (ADR-0047 §2). One row per
+    /// <c>(tenant, tenant_user, connector)</c> tuple; backs
+    /// <see cref="Cvoya.Spring.Core.Security.ITenantUserConnectorIdentityResolver"/>
+    /// so the platform can resolve a connector login (e.g. a GitHub
+    /// handle) to a stable <c>TenantUser</c> UUID and vice-versa. The
+    /// row is strictly display-identity: no PAT, no installation
+    /// override, no auth fields.
+    /// </summary>
+    public DbSet<TenantUserConnectorIdentityEntity> TenantUserConnectorIdentities => Set<TenantUserConnectorIdentityEntity>();
 
     /// <summary>
     /// Gets the set of tenant-scoped daily cost budget rows (ADR-0040 / #2045).
@@ -289,7 +302,8 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new TenantSkillBundleBindingEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantRecordEntityConfiguration());
         modelBuilder.ApplyConfiguration(new HumanEntityConfiguration());
-        modelBuilder.ApplyConfiguration(new HumanConnectorIdentityEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantUserEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantUserConnectorIdentityEntityConfiguration());
         modelBuilder.ApplyConfiguration(new PackageInstallEntityConfiguration());
         modelBuilder.ApplyConfiguration(new BudgetLimitEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ThreadEntityConfiguration());
@@ -359,10 +373,18 @@ public class SpringDbContext : DbContext
         modelBuilder.Entity<HumanEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
 
-        // Human ↔ connector-native identity mappings (#2408): tenant-scoped,
-        // no soft-delete. Removed identities are hard-deleted so the unique
-        // index slot frees up immediately.
-        modelBuilder.Entity<HumanConnectorIdentityEntity>()
+        // TenantUser principals (ADR-0047 §1): tenant-scoped, no soft-delete.
+        // OSS deployments carry exactly one row (the operator) pinned by
+        // OssTenantUserIds.Operator; cloud deployments carry many per tenant.
+        modelBuilder.Entity<TenantUserEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // TenantUser ↔ connector display-identity mappings (ADR-0047 §2):
+        // tenant-scoped, no soft-delete. Removed identities are hard-
+        // deleted so both unique-index slots ((tenant, tenant_user,
+        // connector) natural key + (tenant, connector, username)
+        // reverse-lookup) free up immediately.
+        modelBuilder.Entity<TenantUserConnectorIdentityEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
 
         // Package install tracking: tenant-scoped, no soft-delete.

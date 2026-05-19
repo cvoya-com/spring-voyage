@@ -227,8 +227,15 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
             return;
         }
 
-        var owner = config.Owner;
-        var repo = config.Repo;
+        if (!UnitGitHubConfig.TryParseRepo(config.Repo, out var owner, out var repo))
+        {
+            _logger.LogWarning(
+                "Decision event {EventId}: binding repo '{Repo}' is not in qualified " +
+                "'owner/repo' form (ADR-0047 §11); skipping label roundtrip",
+                evt.Id, config.Repo);
+            return;
+        }
+
         var addList = config.AddOnAssign ?? Array.Empty<string>();
         var removeList = config.RemoveOnAssign ?? Array.Empty<string>();
         if (addList.Count == 0 && removeList.Count == 0)

@@ -3270,16 +3270,68 @@
         }
       }
     },
-    "/api/v1/tenant/humans/{humanId}/identities": {
-      "post": {
+    "/api/v1/tenant/users/{tenantUserId}": {
+      "get": {
         "tags": [
-          "Humans"
+          "TenantUsers"
         ],
-        "summary": "Create or update a human ↔ connector identity mapping",
-        "operationId": "UpsertHumanConnectorIdentity",
+        "summary": "Read a single tenant user's read-side envelope.",
+        "description": "Returns the canonical fields needed by the portal's user-identity page and the CLI's read verbs. Identity lists live on the dedicated /identities sub-resource and are NOT embedded here.",
+        "operationId": "GetTenantUser",
         "parameters": [
           {
-            "name": "humanId",
+            "name": "tenantUserId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantUserResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "TenantUsers"
+        ],
+        "summary": "Update a tenant user's editable identity fields (display name, description).",
+        "description": "Omitted fields leave the existing value untouched (PATCH semantics). DisplayName is validated via DisplayNameProblems.ValidateOrProblem; description has no length limit. Returns the post-write TenantUserResponse.",
+        "operationId": "UpdateTenantUser",
+        "parameters": [
+          {
+            "name": "tenantUserId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3292,7 +3344,75 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/HumanConnectorIdentityRequest"
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UpdateTenantUserRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantUserResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/users/{tenantUserId}/identities": {
+      "post": {
+        "tags": [
+          "TenantUsers"
+        ],
+        "summary": "Create or update a tenant-user ↔ connector display-identity mapping (ADR-0047 §2).",
+        "operationId": "UpsertTenantUserConnectorIdentity",
+        "parameters": [
+          {
+            "name": "tenantUserId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantUserConnectorIdentityRequest"
               }
             }
           },
@@ -3304,7 +3424,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HumanConnectorIdentityResponse"
+                  "$ref": "#/components/schemas/TenantUserConnectorIdentityResponse"
                 }
               }
             }
@@ -3343,13 +3463,13 @@
       },
       "get": {
         "tags": [
-          "Humans"
+          "TenantUsers"
         ],
-        "summary": "List every connector identity row mapped to this human",
-        "operationId": "ListHumanConnectorIdentities",
+        "summary": "List every connector identity row mapped to this tenant user.",
+        "operationId": "ListTenantUserConnectorIdentities",
         "parameters": [
           {
-            "name": "humanId",
+            "name": "tenantUserId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3366,7 +3486,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/HumanConnectorIdentityResponse"
+                    "$ref": "#/components/schemas/TenantUserConnectorIdentityResponse"
                   }
                 }
               }
@@ -3376,13 +3496,13 @@
       },
       "delete": {
         "tags": [
-          "Humans"
+          "TenantUsers"
         ],
-        "summary": "Remove a connector identity mapping. Idempotent — returns 204 even when nothing matched.",
-        "operationId": "RemoveHumanConnectorIdentity",
+        "summary": "Remove a connector identity mapping by (tenantUser, connector, username). Idempotent — returns 204 even when nothing matched.",
+        "operationId": "RemoveTenantUserConnectorIdentity",
         "parameters": [
           {
-            "name": "humanId",
+            "name": "tenantUserId",
             "in": "path",
             "required": true,
             "schema": {
@@ -3398,7 +3518,7 @@
             }
           },
           {
-            "name": "connectorUserId",
+            "name": "username",
             "in": "query",
             "schema": {
               "type": "string"
@@ -12307,65 +12427,6 @@
           }
         }
       },
-      "HumanConnectorIdentityRequest": {
-        "required": [
-          "connectorId",
-          "connectorUserId",
-          "displayHandle"
-        ],
-        "type": "object",
-        "properties": {
-          "connectorId": {
-            "type": "string"
-          },
-          "connectorUserId": {
-            "type": "string"
-          },
-          "displayHandle": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "HumanConnectorIdentityResponse": {
-        "required": [
-          "humanId",
-          "connectorId",
-          "connectorUserId",
-          "displayHandle",
-          "createdAt",
-          "updatedAt"
-        ],
-        "type": "object",
-        "properties": {
-          "humanId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "connectorId": {
-            "type": "string"
-          },
-          "connectorUserId": {
-            "type": "string"
-          },
-          "displayHandle": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
       "HumanResponse": {
         "required": [
           "id",
@@ -14566,6 +14627,105 @@
           }
         }
       },
+      "TenantUserConnectorIdentityRequest": {
+        "required": [
+          "connectorId",
+          "username",
+          "displayHandle"
+        ],
+        "type": "object",
+        "properties": {
+          "connectorId": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "displayHandle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "TenantUserConnectorIdentityResponse": {
+        "required": [
+          "tenantUserId",
+          "connectorId",
+          "username",
+          "displayHandle",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "tenantUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "connectorId": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "displayHandle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TenantUserResponse": {
+        "required": [
+          "id",
+          "authSubject",
+          "displayName",
+          "description",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authSubject": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "ThreadDetailResponse": {
         "required": [
           "summary",
@@ -15090,14 +15250,10 @@
       },
       "UnitGitHubConfigRequest": {
         "required": [
-          "owner",
           "repo"
         ],
         "type": "object",
         "properties": {
-          "owner": {
-            "type": "string"
-          },
           "repo": {
             "type": "string"
           },
@@ -15107,6 +15263,12 @@
               "integer"
             ],
             "format": "int64"
+          },
+          "pat_secret_name": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "events": {
             "type": [
@@ -15182,9 +15344,9 @@
       "UnitGitHubConfigResponse": {
         "required": [
           "unitId",
-          "owner",
           "repo",
           "appInstallationId",
+          "pat_secret_name",
           "events",
           "reviewer",
           "eventsAreDefault"
@@ -15192,9 +15354,6 @@
         "type": "object",
         "properties": {
           "unitId": {
-            "type": "string"
-          },
-          "owner": {
             "type": "string"
           },
           "repo": {
@@ -15206,6 +15365,12 @@
               "integer"
             ],
             "format": "int64"
+          },
+          "pat_secret_name": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "events": {
             "type": "array",
@@ -15837,6 +16002,23 @@
           }
         }
       },
+      "UpdateTenantUserRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "UpdateUnitAgentMemberRequest": {
         "type": "object",
         "properties": {
@@ -16133,6 +16315,9 @@
     },
     {
       "name": "Humans"
+    },
+    {
+      "name": "TenantUsers"
     },
     {
       "name": "UnitPolicy"

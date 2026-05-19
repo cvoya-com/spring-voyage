@@ -813,20 +813,44 @@ export interface paths {
         patch: operations["UpdateHuman"];
         trace?: never;
     };
-    "/api/v1/tenant/humans/{humanId}/identities": {
+    "/api/v1/tenant/users/{tenantUserId}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List every connector identity row mapped to this human */
-        get: operations["ListHumanConnectorIdentities"];
+        /**
+         * Read a single tenant user's read-side envelope.
+         * @description Returns the canonical fields needed by the portal's user-identity page and the CLI's read verbs. Identity lists live on the dedicated /identities sub-resource and are NOT embedded here.
+         */
+        get: operations["GetTenantUser"];
         put?: never;
-        /** Create or update a human ↔ connector identity mapping */
-        post: operations["UpsertHumanConnectorIdentity"];
-        /** Remove a connector identity mapping. Idempotent — returns 204 even when nothing matched. */
-        delete: operations["RemoveHumanConnectorIdentity"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a tenant user's editable identity fields (display name, description).
+         * @description Omitted fields leave the existing value untouched (PATCH semantics). DisplayName is validated via DisplayNameProblems.ValidateOrProblem; description has no length limit. Returns the post-write TenantUserResponse.
+         */
+        patch: operations["UpdateTenantUser"];
+        trace?: never;
+    };
+    "/api/v1/tenant/users/{tenantUserId}/identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List every connector identity row mapped to this tenant user. */
+        get: operations["ListTenantUserConnectorIdentities"];
+        put?: never;
+        /** Create or update a tenant-user ↔ connector display-identity mapping (ADR-0047 §2). */
+        post: operations["UpsertTenantUserConnectorIdentity"];
+        /** Remove a connector identity mapping by (tenantUser, connector, username). Idempotent — returns 204 even when nothing matched. */
+        delete: operations["RemoveTenantUserConnectorIdentity"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3354,22 +3378,6 @@ export interface components {
             fullName: string;
             private: boolean;
         };
-        HumanConnectorIdentityRequest: {
-            connectorId: string;
-            connectorUserId: string;
-            displayHandle: null | string;
-        };
-        HumanConnectorIdentityResponse: {
-            /** Format: uuid */
-            humanId: string;
-            connectorId: string;
-            connectorUserId: string;
-            displayHandle: null | string;
-            /** Format: date-time */
-            createdAt: string;
-            /** Format: date-time */
-            updatedAt: string;
-        };
         HumanResponse: {
             /** Format: uuid */
             id: string;
@@ -3914,6 +3922,33 @@ export interface components {
         TenantTreeResponse: {
             tree: components["schemas"]["TenantTreeNode"];
         };
+        TenantUserConnectorIdentityRequest: {
+            connectorId: string;
+            username: string;
+            displayHandle: null | string;
+        };
+        TenantUserConnectorIdentityResponse: {
+            /** Format: uuid */
+            tenantUserId: string;
+            connectorId: string;
+            username: string;
+            displayHandle: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        TenantUserResponse: {
+            /** Format: uuid */
+            id: string;
+            authSubject: null | string;
+            displayName: string;
+            description: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         ThreadDetailResponse: {
             summary: components["schemas"]["ThreadSummaryResponse"];
             events: components["schemas"]["ThreadEventResponse"][];
@@ -4060,10 +4095,10 @@ export interface components {
             model?: null | components["schemas"]["AiModelDto"];
         };
         UnitGitHubConfigRequest: {
-            owner: string;
             repo: string;
             /** Format: int64 */
             appInstallationId?: null | number;
+            pat_secret_name?: null | string;
             events?: null | string[];
             reviewer?: null | string;
             add_on_assign?: null | string[];
@@ -4075,10 +4110,10 @@ export interface components {
         };
         UnitGitHubConfigResponse: {
             unitId: string;
-            owner: string;
             repo: string;
             /** Format: int64 */
             appInstallationId: null | number;
+            pat_secret_name: null | string;
             events: string[];
             reviewer: null | string;
             eventsAreDefault: boolean;
@@ -4216,6 +4251,10 @@ export interface components {
         };
         UpdateTenantRequest: {
             displayName: null | string;
+        };
+        UpdateTenantUserRequest: {
+            displayName?: null | string;
+            description?: null | string;
         };
         UpdateUnitAgentMemberRequest: {
             roles?: null | string[];
@@ -6735,12 +6774,12 @@ export interface operations {
             };
         };
     };
-    ListHumanConnectorIdentities: {
+    GetTenantUser: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                humanId: string;
+                tenantUserId: string;
             };
             cookie?: never;
         };
@@ -6752,23 +6791,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HumanConnectorIdentityResponse"][];
+                    "application/json": components["schemas"]["TenantUserResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
     };
-    UpsertHumanConnectorIdentity: {
+    UpdateTenantUser: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                humanId: string;
+                tenantUserId: string;
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
-                "application/json": components["schemas"]["HumanConnectorIdentityRequest"];
+                "application/json": null | components["schemas"]["UpdateTenantUserRequest"];
             };
         };
         responses: {
@@ -6778,7 +6835,73 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HumanConnectorIdentityResponse"];
+                    "application/json": components["schemas"]["TenantUserResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    ListTenantUserConnectorIdentities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantUserId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantUserConnectorIdentityResponse"][];
+                };
+            };
+        };
+    };
+    UpsertTenantUserConnectorIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantUserId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantUserConnectorIdentityRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantUserConnectorIdentityResponse"];
                 };
             };
             /** @description Bad Request */
@@ -6810,15 +6933,15 @@ export interface operations {
             };
         };
     };
-    RemoveHumanConnectorIdentity: {
+    RemoveTenantUserConnectorIdentity: {
         parameters: {
             query?: {
                 connectorId?: string;
-                connectorUserId?: string;
+                username?: string;
             };
             header?: never;
             path: {
-                humanId: string;
+                tenantUserId: string;
             };
             cookie?: never;
         };

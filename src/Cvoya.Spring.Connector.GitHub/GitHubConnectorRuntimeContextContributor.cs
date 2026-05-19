@@ -117,12 +117,11 @@ public class GitHubConnectorRuntimeContextContributor(
         }
 
         if (config is null
-            || string.IsNullOrWhiteSpace(config.Owner)
-            || string.IsNullOrWhiteSpace(config.Repo))
+            || !UnitGitHubConfig.TryParseRepo(config.Repo, out var owner, out var repoName))
         {
             logger.LogWarning(
-                "GitHub runtime context: binding on unit {Unit:N} is missing owner / repo; " +
-                "skipping the contribution. Subject={Subject}.",
+                "GitHub runtime context: binding on unit {Unit:N} is missing a qualified " +
+                "'owner/repo' value; skipping the contribution. Subject={Subject}.",
                 request.BindingOwnerUnitId, request.Subject);
             return ConnectorRuntimeContextContribution.Empty;
         }
@@ -170,8 +169,8 @@ public class GitHubConnectorRuntimeContextContributor(
 
         var envVars = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            [EnvOwner] = config.Owner,
-            [EnvRepo] = config.Repo,
+            [EnvOwner] = owner,
+            [EnvRepo] = repoName,
             [EnvInstallationId] = installationId.ToString(CultureInfo.InvariantCulture),
             [EnvToken] = minted.Token,
             [EnvTokenExpiresAt] = minted.ExpiresAt.ToString("o", CultureInfo.InvariantCulture),
@@ -187,8 +186,8 @@ public class GitHubConnectorRuntimeContextContributor(
         }
 
         var bindingDoc = new GitHubBindingFile(
-            Owner: config.Owner,
-            Repo: config.Repo,
+            Owner: owner,
+            Repo: repoName,
             InstallationId: installationId,
             Reviewer: string.IsNullOrWhiteSpace(config.Reviewer) ? null : config.Reviewer,
             OwnerUnitId: request.BindingOwnerUnitId,
@@ -211,7 +210,7 @@ public class GitHubConnectorRuntimeContextContributor(
         logger.LogInformation(
             "GitHub runtime context contributed for subject {Subject}: owner={Owner} repo={Repo} " +
             "installation={InstallationId} reviewer={Reviewer} ownerUnit={OwnerUnit:N}",
-            request.Subject, config.Owner, config.Repo, installationId,
+            request.Subject, owner, repoName, installationId,
             string.IsNullOrWhiteSpace(config.Reviewer) ? "(none)" : config.Reviewer,
             request.BindingOwnerUnitId);
 
@@ -243,17 +242,16 @@ public class GitHubConnectorRuntimeContextContributor(
         }
 
         if (config is null
-            || string.IsNullOrWhiteSpace(config.Owner)
-            || string.IsNullOrWhiteSpace(config.Repo))
+            || !UnitGitHubConfig.TryParseRepo(config.Repo, out var owner, out var repoName))
         {
             logger.LogWarning(
-                "GitHub prompt context: binding on unit {Unit:N} is missing owner / repo; " +
-                "skipping the hint. Subject={Subject}.",
+                "GitHub prompt context: binding on unit {Unit:N} is missing a qualified " +
+                "'owner/repo' value; skipping the hint. Subject={Subject}.",
                 bindingOwnerUnitId, subject);
             return Task.FromResult<string?>(null);
         }
 
-        var fragment = BuildPromptFragment(config.Owner, config.Repo);
+        var fragment = BuildPromptFragment(owner, repoName);
         return Task.FromResult<string?>(fragment);
     }
 

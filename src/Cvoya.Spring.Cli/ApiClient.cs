@@ -1361,56 +1361,12 @@ public class SpringApiClient
         return await _client.Api.V1.Tenant.Humans[humanId].PatchAsync(body, cancellationToken: ct);
     }
 
-    /// <summary>
-    /// Upserts a human ↔ connector identity row. 409 surfaces when another
-    /// human already claims the same <c>(connector, user_id)</c> tuple in
-    /// the current tenant.
-    /// </summary>
-    public async Task<HumanConnectorIdentityResponse> UpsertHumanConnectorIdentityAsync(
-        Guid humanId,
-        string connectorId,
-        string connectorUserId,
-        string? displayHandle = null,
-        CancellationToken ct = default)
-    {
-        var body = new HumanConnectorIdentityRequest
-        {
-            ConnectorId = connectorId,
-            ConnectorUserId = connectorUserId,
-            DisplayHandle = string.IsNullOrWhiteSpace(displayHandle) ? null : displayHandle,
-        };
-        var result = await _client.Api.V1.Tenant.Humans[humanId].Identities
-            .PostAsync(body, cancellationToken: ct);
-        return result ?? throw new InvalidOperationException(
-            $"Server returned an empty UpsertHumanConnectorIdentity response for human '{humanId:N}'.");
-    }
-
-    /// <summary>
-    /// Lists every connector identity row mapped to <paramref name="humanId"/>.
-    /// </summary>
-    public async Task<IReadOnlyList<HumanConnectorIdentityResponse>> ListHumanConnectorIdentitiesAsync(
-        Guid humanId,
-        CancellationToken ct = default)
-    {
-        var result = await _client.Api.V1.Tenant.Humans[humanId].Identities
-            .GetAsync(cancellationToken: ct);
-        return result ?? new List<HumanConnectorIdentityResponse>();
-    }
-
-    /// <summary>
-    /// Removes a connector identity row by <c>(human, connector, user_id)</c>.
-    /// Idempotent — returns 204 even when nothing matched.
-    /// </summary>
-    public Task RemoveHumanConnectorIdentityAsync(
-        Guid humanId,
-        string connectorId,
-        string connectorUserId,
-        CancellationToken ct = default)
-        => _client.Api.V1.Tenant.Humans[humanId].Identities.DeleteAsync(config =>
-        {
-            config.QueryParameters.ConnectorId = connectorId;
-            config.QueryParameters.ConnectorUserId = connectorUserId;
-        }, cancellationToken: ct);
+    // Per ADR-0047 §§ 2, 14 the connector-identity surface relocates onto
+    // the TenantUser principal under /api/v1/tenant/users/{id}/identities.
+    // Phase G of the umbrella adds the `spring user identity {set,list,remove}`
+    // verbs and their ApiClient wrappers; v0.1's freezing release deletes the
+    // prior `spring human identity` verbs and their wrappers outright with
+    // no shim.
 
     // Unit team-role membership (#2409 / ADR-0044 § 3). Backs
     // `spring unit members humans add|list|update|remove`.
@@ -1933,9 +1889,9 @@ public class SpringApiClient
     /// </summary>
     public async Task<UnitGitHubConfigResponse> PutUnitGitHubConfigAsync(
         string unitId,
-        string owner,
         string repo,
         string? appInstallationId,
+        string? patSecretName,
         IReadOnlyList<string>? events,
         string? reviewer = null,
         IReadOnlyList<string>? addOnAssign = null,
@@ -1948,13 +1904,16 @@ public class SpringApiClient
     {
         var request = new UnitGitHubConfigRequest
         {
-            Owner = owner,
+            // ADR-0047 §11: Repo is the qualified `owner/repo` form. The
+            // CLI rejects unqualified inputs at parse time (Phase G); the
+            // server defends in depth.
             Repo = repo,
             AppInstallationId = string.IsNullOrWhiteSpace(appInstallationId)
                 ? null
                 : long.TryParse(appInstallationId, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsedId)
                     ? parsedId
                     : null,
+            PatSecretName = string.IsNullOrWhiteSpace(patSecretName) ? null : patSecretName,
             Events = events?.ToList(),
             Reviewer = string.IsNullOrWhiteSpace(reviewer) ? null : reviewer,
             AddOnAssign = addOnAssign?.ToList(),
