@@ -23,10 +23,8 @@ from __future__ import annotations
 
 import contextvars
 import logging
-import os
 import time
-from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 
 from spring_voyage_agent_sdk.rate_limit import ProgressRateLimiter, default_limiter
 from spring_voyage_agent_sdk.telemetry import (
