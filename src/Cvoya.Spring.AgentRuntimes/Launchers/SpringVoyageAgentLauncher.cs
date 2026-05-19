@@ -141,10 +141,18 @@ public class SpringVoyageAgentLauncher(
         //
         // SPRING_THREAD_ID and SPRING_SYSTEM_PROMPT have no D1-spec equivalents
         // and are retained as launcher-specific vars.
+        // Issue #2493: prepend the always-on ResponseDiscipline fragment
+        // (and the conditional ConcurrentThreadsGuard) before the user's
+        // assembled prompt. Same composition path the CLI launchers use,
+        // so every agent runtime sees the response-discipline instructions
+        // — including the Python reference agent that consumes
+        // SPRING_SYSTEM_PROMPT directly.
+        var assembledPrompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
+
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
-            ["SPRING_SYSTEM_PROMPT"] = context.Prompt,
+            ["SPRING_SYSTEM_PROMPT"] = assembledPrompt,
             ["SPRING_MODEL"] = model,
             ["SPRING_LLM_PROVIDER"] = provider,
             // AGENT_PORT is the env var the in-container agent.py binds to

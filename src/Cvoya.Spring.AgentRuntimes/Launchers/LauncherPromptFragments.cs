@@ -25,12 +25,41 @@ using Cvoya.Spring.Core.Execution;
 /// catches the case where the model independently decides to invoke one.
 /// </para>
 /// <para>
-/// Python SDK runtimes do not consume this fragment — the SDK author
-/// writes their own code and the prompt-guard idea does not apply.
+/// Issue #2493 added the <see cref="ResponseDiscipline"/> fragment,
+/// composed in by *every* launcher unconditionally (including the
+/// Spring Voyage Agent launcher used by the Python reference agent).
+/// Unlike <see cref="ConcurrentThreadsGuard"/>, response discipline is
+/// universal — every triggering message MUST result in a final reply
+/// regardless of whether the agent opts into concurrent threads.
 /// </para>
 /// </remarks>
 internal static class LauncherPromptFragments
 {
+    /// <summary>
+    /// Always-on prompt fragment prepended by every launcher before the
+    /// user's assembled prompt body, independent of any flag (issue
+    /// #2493). The platform's "silent success" failure mode — an agent
+    /// performs work but never sends a final reply — is the direct
+    /// motivation. The fragment instructs the model to:
+    /// <list type="number">
+    /// <item><description>send a final reply A2A message for every triggering message;</description></item>
+    /// <item><description>emit progress updates via <c>sv.report_progress</c> for work expected to take more than ~10 seconds;</description></item>
+    /// <item><description>send an explicit completion message — including on failure.</description></item>
+    /// </list>
+    /// The fragment is wrapped in stable header / footer markers so
+    /// launcher tests can pin its presence without coupling to the
+    /// prose.
+    /// </summary>
+    public const string ResponseDiscipline =
+        "## Spring Voyage runtime guard — response discipline\n\n" +
+        "You are a member on Spring Voyage. Every triggering message you receive MUST result in:\n\n" +
+        "1. A final reply A2A message addressed to the requester. Use your runtime's reply primitive " +
+        "(e.g. `Response(text=..., final=True)` from the SV Agent SDK, or your runtime's equivalent).\n" +
+        "2. (For work expected to take more than ~10 seconds) Progress updates via `sv.report_progress` — " +
+        "emit meaningful narrative beats: starting work, tool calls underway, intermediate results, blockers encountered.\n" +
+        "3. An explicit completion message. Failure replies are required just as success replies are.\n\n" +
+        "Do NOT exit silently after performing work. Silent success is a regression.\n\n" +
+        "## End Spring Voyage runtime guard — response discipline\n\n";
     /// <summary>
     /// Marker prepended to the user's assembled prompt by every CLI-runtime
     /// launcher when the resolved agent / unit
@@ -69,18 +98,22 @@ internal static class LauncherPromptFragments
         "## End Spring Voyage runtime guard\n\n";
 
     /// <summary>
-    /// Composes the per-runtime system-prompt fragment with the user's
-    /// assembled prompt body when the launcher's
-    /// <see cref="AgentLaunchContext.ConcurrentThreads"/> flag is
-    /// <c>true</c>. The guard fragment is prepended (not appended /
-    /// substituted) so the model sees it as platform-level instructions
-    /// before the user's narrative. When the flag is <c>false</c>, the
-    /// caller's prompt is returned verbatim.
+    /// Composes the platform's system-prompt fragments with the user's
+    /// assembled prompt body. Order (issue #2493):
+    /// <list type="number">
+    /// <item><description><see cref="ResponseDiscipline"/> — always prepended.</description></item>
+    /// <item><description><see cref="ConcurrentThreadsGuard"/> — appended after when <paramref name="concurrentThreads"/> is <c>true</c>.</description></item>
+    /// <item><description>The user's prompt body — last.</description></item>
+    /// </list>
+    /// Both guards are prepended (not appended / substituted) so the
+    /// model sees them as platform-level instructions before the user's
+    /// narrative — model attention biases toward what comes first in
+    /// long contexts.
     /// </summary>
     /// <param name="prompt">
     /// The assembled prompt from <see cref="AgentLaunchContext.Prompt"/>.
-    /// May be <c>null</c> or empty — the fragment still emits, so callers
-    /// who need the guard to fire on a sparse prompt get it.
+    /// May be <c>null</c> or empty — the guards still emit, so callers
+    /// who need them to fire on a sparse prompt get them.
     /// </param>
     /// <param name="concurrentThreads">
     /// The resolved <see cref="AgentLaunchContext.ConcurrentThreads"/>
@@ -88,13 +121,13 @@ internal static class LauncherPromptFragments
     /// </param>
     public static string Compose(string prompt, bool concurrentThreads)
     {
-        if (!concurrentThreads)
+        var body = prompt ?? string.Empty;
+        // Order: ResponseDiscipline first (universal), then
+        // ConcurrentThreadsGuard (conditional), then the user's prompt.
+        if (concurrentThreads)
         {
-            return prompt;
+            return ResponseDiscipline + ConcurrentThreadsGuard + body;
         }
-
-        // Prepend so the guard precedes the user's narrative — model
-        // attention biases toward what comes first in long contexts.
-        return ConcurrentThreadsGuard + (prompt ?? string.Empty);
+        return ResponseDiscipline + body;
     }
 }
