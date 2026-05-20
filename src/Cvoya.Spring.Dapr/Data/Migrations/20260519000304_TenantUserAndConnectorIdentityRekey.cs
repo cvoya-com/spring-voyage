@@ -56,9 +56,10 @@ public partial class TenantUserAndConnectorIdentityRekey : Migration
     /// <inheritdoc />
     protected override void Up(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.DropTable(
-            name: "human_connector_identities",
-            schema: "spring");
+        // The migration that created human_connector_identities was removed
+        // before v0.1 shipped, so on a clean deploy the table never exists.
+        // Drop it only where a pre-v0.1 dev database still carries it.
+        migrationBuilder.Sql("DROP TABLE IF EXISTS spring.human_connector_identities;");
 
         migrationBuilder.CreateTable(
             name: "tenant_user_connector_identities",
