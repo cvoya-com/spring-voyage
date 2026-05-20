@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dispatcher.Auth;
@@ -27,7 +28,374 @@ public static class OrchestrationCallbackEndpoints
         group.MapPost("/delegate-to", DelegateToAsync);
         group.MapPost("/fanout-to", FanoutToAsync);
 
+        // MCP streamable-HTTP transport. The claude-code / codex launchers
+        // write a `spring-orchestration` server (type: "http") into the agent
+        // container's .mcp.json, pointed at the orchestration route-prefix
+        // ROOT. The CLI POSTs JSON-RPC 2.0 (`initialize`, `tools/list`,
+        // `tools/call`) there — without this handler the MCP handshake 404s
+        // and the CLI silently drops the server. An in-group MapPost("")
+        // pattern does not match the bare prefix, so the root handler is
+        // mapped directly on `endpoints`. ASP.NET Core route matching
+        // normalises a trailing slash, so this single route matches both the
+        // launcher's bare-prefix url and the `…/` form. The two REST
+        // sub-routes above stay as-is — they serve OrchestrationClient.
+        endpoints.MapPost(RoutePrefix, McpRpcAsync);
+
         return endpoints;
+    }
+
+    internal static async Task<IResult> McpRpcAsync(
+        [FromBody] McpJsonRpcRequest? request,
+        CallbackTokenValidator tokenValidator,
+        OrchestrationToolHandlers handlers,
+        IOrchestrationToolProvider toolProvider,
+        HttpContext httpContext,
+        CancellationToken cancellationToken)
+    {
+        var requestId = request?.Id;
+
+        if (!TryValidateMcpCallback(httpContext, tokenValidator, out var claims, out var authError))
+        {
+            return McpError(StatusCodes.Status401Unauthorized, requestId, McpErrorCodes.Unauthorized, authError);
+        }
+
+        if (request is null || string.IsNullOrEmpty(request.Method))
+        {
+            return McpError(
+                StatusCodes.Status200OK, requestId, McpErrorCodes.InvalidRequest,
+                "Empty or malformed JSON-RPC request.");
+        }
+
+        switch (request.Method)
+        {
+            case "initialize":
+                return McpResult(requestId, BuildInitializeResult());
+
+            case "tools/list":
+                return McpResult(requestId, BuildToolListResult(toolProvider, claims));
+
+            case "tools/call":
+                return await HandleMcpToolCallAsync(request, requestId, claims, handlers, cancellationToken);
+
+            default:
+                return McpError(
+                    StatusCodes.Status200OK, requestId, McpErrorCodes.MethodNotFound,
+                    $"Method '{request.Method}' is not supported.");
+        }
+    }
+
+    private static object BuildInitializeResult() => new
+    {
+        protocolVersion = "2024-11-05",
+        serverInfo = new { name = "spring-orchestration", version = "1.0.0" },
+        capabilities = new { tools = new { } },
+    };
+
+    private static object BuildToolListResult(
+        IOrchestrationToolProvider toolProvider,
+        CallbackToken claims)
+    {
+        var descriptors = toolProvider.GetOrchestrationTools(claims.AgentAddress, claims.ThreadId);
+
+        var tools = descriptors
+            .Select(descriptor => new
+            {
+                name = ToWireName(descriptor.Name),
+                description = ExtractSchemaDescription(descriptor.InputSchema),
+                inputSchema = descriptor.InputSchema,
+            })
+            .ToArray();
+
+        return new { tools };
+    }
+
+    private static async Task<IResult> HandleMcpToolCallAsync(
+        McpJsonRpcRequest request,
+        JsonElement? requestId,
+        CallbackToken claims,
+        OrchestrationToolHandlers handlers,
+        CancellationToken cancellationToken)
+    {
+        if (request.Params is not { ValueKind: JsonValueKind.Object } paramsElement)
+        {
+            return McpError(
+                StatusCodes.Status200OK, requestId, McpErrorCodes.InvalidParams,
+                "tools/call requires a params object.");
+        }
+
+        if (!paramsElement.TryGetProperty("name", out var nameProp) ||
+            nameProp.ValueKind != JsonValueKind.String)
+        {
+            return McpError(
+                StatusCodes.Status200OK, requestId, McpErrorCodes.InvalidParams,
+                "tools/call requires a 'name' string.");
+        }
+
+        var toolName = nameProp.GetString()!;
+        var arguments = paramsElement.TryGetProperty("arguments", out var argsProp) &&
+                        argsProp.ValueKind == JsonValueKind.Object
+            ? argsProp
+            : default;
+
+        switch (toolName)
+        {
+            case "delegate_to":
+                return await HandleMcpDelegateToAsync(requestId, arguments, claims, handlers, cancellationToken);
+
+            case "fanout_to":
+                return await HandleMcpFanoutToAsync(requestId, arguments, claims, handlers, cancellationToken);
+
+            default:
+                return McpError(
+                    StatusCodes.Status200OK, requestId, McpErrorCodes.MethodNotFound,
+                    $"Tool '{toolName}' is not an orchestration tool.");
+        }
+    }
+
+    private static async Task<IResult> HandleMcpDelegateToAsync(
+        JsonElement? requestId,
+        JsonElement arguments,
+        CallbackToken claims,
+        OrchestrationToolHandlers handlers,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetStringArgument(arguments, "address", out var addressValue))
+        {
+            return McpToolError(requestId, "delegate_to requires an 'address' string argument.");
+        }
+
+        if (!Address.TryParse(addressValue, out var target) || target is null)
+        {
+            return McpToolError(requestId, $"'{addressValue}' is not a valid Spring Voyage address.");
+        }
+
+        var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
+        var message = BuildMcpMessage(claims, target, ExtractMessagePayload(arguments));
+
+        try
+        {
+            var response = await handlers.HandleDelegateToAsync(
+                claims.AgentAddress,
+                claims.TenantId,
+                target,
+                message,
+                reason,
+                claims.ThreadId,
+                cancellationToken);
+
+            return McpToolResult(requestId, ToCallbackMessage(response), isError: false);
+        }
+        catch (OrchestrationException ex)
+        {
+            return McpOrchestrationToolError(requestId, ex);
+        }
+    }
+
+    private static async Task<IResult> HandleMcpFanoutToAsync(
+        JsonElement? requestId,
+        JsonElement arguments,
+        CallbackToken claims,
+        OrchestrationToolHandlers handlers,
+        CancellationToken cancellationToken)
+    {
+        if (arguments.ValueKind != JsonValueKind.Object ||
+            !arguments.TryGetProperty("addresses", out var addressesProp) ||
+            addressesProp.ValueKind != JsonValueKind.Array)
+        {
+            return McpToolError(requestId, "fanout_to requires an 'addresses' array argument.");
+        }
+
+        var targets = new List<Address>();
+        foreach (var element in addressesProp.EnumerateArray())
+        {
+            var addressValue = element.ValueKind == JsonValueKind.String ? element.GetString() : null;
+            if (!Address.TryParse(addressValue, out var target) || target is null)
+            {
+                return McpToolError(requestId, $"'{addressValue}' is not a valid Spring Voyage address.");
+            }
+
+            targets.Add(target);
+        }
+
+        var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
+        var message = BuildMcpMessage(
+            claims,
+            targets.Count > 0 ? targets[0] : claims.AgentAddress,
+            ExtractMessagePayload(arguments));
+
+        try
+        {
+            var results = await handlers.HandleFanoutToAsync(
+                claims.AgentAddress,
+                claims.TenantId,
+                targets,
+                message,
+                reason,
+                claims.ThreadId,
+                cancellationToken);
+
+            var mapped = results
+                .Select(result => new FanoutTargetResult(
+                    result.Target.ToString(),
+                    result.Error is null,
+                    result.Error?.Message,
+                    ToCallbackMessage(result.Response)))
+                .ToArray();
+
+            return McpToolResult(requestId, mapped, isError: false);
+        }
+        catch (OrchestrationException ex)
+        {
+            return McpOrchestrationToolError(requestId, ex);
+        }
+    }
+
+    private static bool TryValidateMcpCallback(
+        HttpContext httpContext,
+        CallbackTokenValidator tokenValidator,
+        out CallbackToken claims,
+        out string error)
+    {
+        claims = default!;
+        error = string.Empty;
+
+        if (!TryExtractBearerToken(httpContext, out var token))
+        {
+            error = "Authorization header must contain a bearer callback token.";
+            return false;
+        }
+
+        try
+        {
+            claims = tokenValidator.Validate(token);
+        }
+        catch (CallbackTokenValidationException ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+
+        if (!IsSupportedCallerScheme(claims.AgentAddress))
+        {
+            error =
+                $"Orchestration callbacks support unit:// and agent:// callers; got '{claims.AgentAddress}'.";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Builds an orchestration <see cref="Message"/> from a model-supplied
+    /// tool-call argument. The <c>message</c> argument is opaque per the
+    /// embedded input schema (<c>description</c>-only, no <c>type</c>): a JSON
+    /// string is wrapped as <c>{ content: &lt;string&gt; }</c> (mirroring the
+    /// REST <see cref="BuildMessage"/>); a JSON object is passed through; any
+    /// other shape (or a missing argument) yields an empty object payload.
+    /// </summary>
+    private static Message BuildMcpMessage(CallbackToken claims, Address target, JsonElement payload)
+    {
+        return new Message(
+            claims.MessageId,
+            claims.AgentAddress,
+            target,
+            MessageType.Domain,
+            GuidFormatter.Format(claims.ThreadId),
+            payload,
+            DateTimeOffset.UtcNow);
+    }
+
+    private static JsonElement ExtractMessagePayload(JsonElement arguments)
+    {
+        if (arguments.ValueKind == JsonValueKind.Object &&
+            arguments.TryGetProperty("message", out var message))
+        {
+            return message.ValueKind switch
+            {
+                JsonValueKind.String =>
+                    JsonSerializer.SerializeToElement(new { content = message.GetString() }),
+                JsonValueKind.Object => message,
+                _ => JsonSerializer.SerializeToElement(new { }),
+            };
+        }
+
+        return JsonSerializer.SerializeToElement(new { });
+    }
+
+    private static bool TryGetStringArgument(JsonElement arguments, string name, out string? value)
+    {
+        value = null;
+        if (arguments.ValueKind == JsonValueKind.Object &&
+            arguments.TryGetProperty(name, out var prop) &&
+            prop.ValueKind == JsonValueKind.String)
+        {
+            value = prop.GetString();
+            return value is not null;
+        }
+
+        return false;
+    }
+
+    private static string ExtractSchemaDescription(JsonElement inputSchema)
+    {
+        if (inputSchema.ValueKind == JsonValueKind.Object &&
+            inputSchema.TryGetProperty("description", out var description) &&
+            description.ValueKind == JsonValueKind.String)
+        {
+            return description.GetString() ?? string.Empty;
+        }
+
+        return string.Empty;
+    }
+
+    private static string ToWireName(OrchestrationToolName name) => name switch
+    {
+        OrchestrationToolName.DelegateTo => "delegate_to",
+        OrchestrationToolName.FanoutTo => "fanout_to",
+        _ => name.ToString(),
+    };
+
+    private static IResult McpResult(JsonElement? id, object result) =>
+        Results.Json(new McpJsonRpcResponse(id, result), statusCode: StatusCodes.Status200OK);
+
+    private static IResult McpError(int statusCode, JsonElement? id, int code, string message) =>
+        Results.Json(
+            new McpJsonRpcErrorResponse(id, new McpJsonRpcError(code, message)),
+            statusCode: statusCode);
+
+    /// <summary>
+    /// Wraps an MCP <c>tools/call</c> outcome in the standard result envelope
+    /// (<c>{ content: [{ type: "text", text: &lt;json&gt; }], isError }</c>).
+    /// The text block carries the JSON the model sees — serialized so it
+    /// matches the REST response shapes (<see cref="OrchestrationCallbackMessage"/>
+    /// for delegate, <see cref="FanoutTargetResult"/><c>[]</c> for fanout).
+    /// </summary>
+    private static IResult McpToolResult(JsonElement? id, object? payload, bool isError)
+    {
+        var text = JsonSerializer.Serialize(payload);
+        return McpResult(id, new
+        {
+            content = new[] { new { type = "text", text } },
+            isError,
+        });
+    }
+
+    private static IResult McpToolError(JsonElement? id, string message) =>
+        McpResult(id, new
+        {
+            content = new[] { new { type = "text", text = message } },
+            isError = true,
+        });
+
+    private static IResult McpOrchestrationToolError(JsonElement? id, OrchestrationException ex) =>
+        McpToolError(id, $"{ex.RejectCode}: {ex.Message}");
+
+    private static class McpErrorCodes
+    {
+        public const int InvalidRequest = -32600;
+        public const int MethodNotFound = -32601;
+        public const int InvalidParams = -32602;
+        public const int Unauthorized = -32001;
     }
 
     internal static async Task<IResult> DelegateToAsync(

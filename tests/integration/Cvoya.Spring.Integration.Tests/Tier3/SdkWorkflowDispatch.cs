@@ -195,6 +195,9 @@ public class SdkWorkflowDispatch
             // ADR-0039 §3 gate 6 — single-tenant resolver is the OSS default.
             builder.Services.AddSingleton<IOrchestrationTenantResolver, SingleTenantOrchestrationTenantResolver>();
             builder.Services.AddSingleton<OrchestrationToolHandlers>();
+            // The MCP root handler registered by MapOrchestrationCallbackEndpoints
+            // resolves IOrchestrationToolProvider for its tools/list response.
+            builder.Services.AddSingleton<IOrchestrationToolProvider, DirectoryOrchestrationToolProvider>();
 
             var app = builder.Build();
             app.MapOrchestrationCallbackEndpoints();
