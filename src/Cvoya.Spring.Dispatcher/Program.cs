@@ -106,7 +106,6 @@ public partial class Program
                 JsonSerializerOptions = ActorRemotingJsonOptions.Instance,
             }));
         builder.Services.TryAddSingleton<IAgentProxyResolver, AgentProxyResolver>();
-        builder.Services.TryAddSingleton<OrchestrationDepthCounter>();
         builder.Services.TryAddSingleton<ActivityEventBus>();
         builder.Services.TryAddSingleton<IActivityEventBus>(sp => sp.GetRequiredService<ActivityEventBus>());
         // ADR-0039 §3 gate 6 — single-tenant resolver is the OSS default;

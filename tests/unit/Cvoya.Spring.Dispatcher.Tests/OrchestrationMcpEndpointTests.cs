@@ -108,12 +108,14 @@ public class OrchestrationMcpEndpointTests
     }
 
     [Fact]
-    public async Task ToolsCall_DelegateTo_RoutesMessageAndReturnsResponse()
+    public async Task ToolsCall_DelegateTo_DeliversMessageAndReturnsDeliveryAck()
     {
+        // ADR-0049 — tools/call delegate_to returns a delivery
+        // acknowledgement in the MCP envelope, never the target's response.
         using var factory = new OrchestrationDispatcherFactory();
         var agent = Substitute.For<IAgent>();
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(ChildAddress, UnitAddress));
+            .Returns((Message?)null);
         factory.RegisterAgent(ChildAddress, agent);
 
         var client = factory.CreateCallbackClient(UnitAddress);
@@ -139,19 +141,20 @@ public class OrchestrationMcpEndpointTests
 
         var text = result.GetProperty("content")[0].GetProperty("text").GetString();
         var inner = JsonSerializer.Deserialize<JsonElement>(text!);
-        inner.GetProperty("messageContent").GetString().ShouldBe("done");
+        inner.GetProperty("delivered").GetBoolean().ShouldBeTrue();
+        inner.GetProperty("target").GetString().ShouldBe(ChildAddress.ToString());
     }
 
     [Fact]
-    public async Task ToolsCall_FanoutTo_ReturnsPerTargetResults()
+    public async Task ToolsCall_FanoutTo_ReturnsPerTargetDeliveryOutcomes()
     {
         using var factory = new OrchestrationDispatcherFactory();
         var firstAgent = Substitute.For<IAgent>();
         var secondAgent = Substitute.For<IAgent>();
         firstAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(ChildAddress, UnitAddress));
+            .Returns((Message?)null);
         secondAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(OtherChildAddress, UnitAddress, "also done"));
+            .Returns((Message?)null);
         factory.RegisterAgent(ChildAddress, firstAgent);
         factory.RegisterAgent(OtherChildAddress, secondAgent);
 
@@ -178,9 +181,10 @@ public class OrchestrationMcpEndpointTests
 
         var text = result.GetProperty("content")[0].GetProperty("text").GetString();
         var inner = JsonSerializer.Deserialize<JsonElement>(text!);
-        inner.GetArrayLength().ShouldBe(2);
-        inner[0].GetProperty("success").GetBoolean().ShouldBeTrue();
-        inner[1].GetProperty("success").GetBoolean().ShouldBeTrue();
+        var deliveries = inner.GetProperty("deliveries");
+        deliveries.GetArrayLength().ShouldBe(2);
+        deliveries[0].GetProperty("delivered").GetBoolean().ShouldBeTrue();
+        deliveries[1].GetProperty("delivered").GetBoolean().ShouldBeTrue();
     }
 
     [Fact]
@@ -233,6 +237,38 @@ public class OrchestrationMcpEndpointTests
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var json = await ReadJsonAsync(response);
         json.GetProperty("result").GetProperty("isError").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ToolsCall_DelegateTo_TerminalDeliveryFailure_ReturnsIsErrorResult()
+    {
+        // ADR-0049 §6 — a transient ReceiveAsync failure that persists past
+        // the retry budget surfaces to the model as an isError tools/call
+        // result carrying the OrchestrationDeliveryFailed reject code.
+        using var factory = new OrchestrationDispatcherFactory();
+        var agent = Substitute.For<IAgent>();
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns<Message?>(_ => throw new InvalidOperationException("dapr is down"));
+        factory.RegisterAgent(ChildAddress, agent);
+
+        var client = factory.CreateCallbackClient(UnitAddress);
+
+        var response = await client.PostAsJsonAsync(
+            McpRoute,
+            Rpc("tools/call", new
+            {
+                name = "delegate_to",
+                arguments = new { address = ChildAddress.ToString(), message = "do the work" },
+            }),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var json = await ReadJsonAsync(response);
+        var result = json.GetProperty("result");
+        result.GetProperty("isError").GetBoolean().ShouldBeTrue();
+        var text = result.GetProperty("content")[0].GetProperty("text").GetString();
+        text.ShouldNotBeNull();
+        text.ShouldContain(OrchestrationException.RejectCodes.OrchestrationDeliveryFailed);
     }
 
     [Fact]
@@ -295,16 +331,6 @@ public class OrchestrationMcpEndpointTests
     private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response) =>
         await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
 
-    private static Message CreateResponse(Address from, Address to, string content = "done") =>
-        new(
-            Guid.NewGuid(),
-            from,
-            to,
-            MessageType.Domain,
-            Guid.NewGuid().ToString("N"),
-            JsonSerializer.SerializeToElement(new { content }),
-            DateTimeOffset.UtcNow);
-
     private sealed class OrchestrationDispatcherFactory : DispatcherWebApplicationFactory
     {
         private static readonly byte[] SigningKey =
@@ -350,6 +376,15 @@ public class OrchestrationMcpEndpointTests
 
                 services.AddSingleton(CreateAgentProxyResolver());
                 services.AddSingleton(_keyProvider);
+
+                // Tighten the ADR-0049 delivery retry budget so the
+                // terminal-failure path exhausts in milliseconds under test.
+                services.Configure<OrchestrationDeliveryOptions>(options =>
+                {
+                    options.MaxAttempts = 3;
+                    options.Budget = TimeSpan.FromSeconds(2);
+                    options.InitialBackoff = TimeSpan.FromMilliseconds(1);
+                });
             });
         }
 

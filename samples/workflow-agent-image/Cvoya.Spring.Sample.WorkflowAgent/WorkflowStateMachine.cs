@@ -29,12 +29,18 @@ public static class WorkflowStateMachine
             ? child0
             : child1;
 
-        var response = await client.DelegateAsync(
+        // ADR-0049 — delegate_to is a one-way delivery: the ack confirms the
+        // message reached the target's mailbox, it does not carry the
+        // target's work product. A response, if any, arrives later as a
+        // separate one-way message on the thread.
+        var ack = await client.DelegateAsync(
             threadId,
             target,
             inboundMessage,
             cancellationToken);
 
-        return response.Result;
+        return ack.Delivered
+            ? $"Delegated to {ack.Target} (message {ack.MessageId})."
+            : $"Delegation to {ack.Target} was not accepted.";
     }
 }

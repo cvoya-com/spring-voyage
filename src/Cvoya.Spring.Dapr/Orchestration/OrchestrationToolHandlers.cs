@@ -12,15 +12,47 @@ using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
 
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+/// <summary>
+/// Delivery acknowledgement for a single <c>delegate_to</c> message-delivery
+/// tool call (ADR-0049 §2). It confirms the message was durably placed in the
+/// recipient's mailbox — it never carries the recipient's response.
+/// </summary>
+public sealed record DelegateDeliveryAck(
+    bool Delivered,
+    Guid MessageId,
+    Address Target,
+    Guid ThreadId);
+
+/// <summary>
+/// Per-target delivery outcome for a <c>fanout_to</c> call (ADR-0049 §2).
+/// Reports whether the message reached each recipient's mailbox — not the
+/// recipients' work products.
+/// </summary>
+public sealed record FanoutDeliveryAck(
+    Address Target,
+    bool Delivered,
+    string? Error);
 
 public class OrchestrationToolHandlers(
     IAgentProxyResolver agentProxyResolver,
-    OrchestrationDepthCounter depthCounter,
     ILogger<OrchestrationToolHandlers> logger,
     IActivityEventBus activityEventBus,
-    IOrchestrationTenantResolver tenantResolver)
+    IOrchestrationTenantResolver tenantResolver,
+    IOptions<OrchestrationDeliveryOptions>? deliveryOptions = null)
 {
-    public async Task<Message?> HandleDelegateToAsync(
+    private readonly OrchestrationDeliveryOptions _deliveryOptions =
+        deliveryOptions?.Value ?? new OrchestrationDeliveryOptions();
+
+    /// <summary>
+    /// Delivers <paramref name="message"/> to <paramref name="target"/> and
+    /// returns a delivery acknowledgement (ADR-0049). Delivery is synchronous
+    /// with bounded retry; the tool never blocks on the recipient's runtime.
+    /// Validation failures and terminal delivery failures throw
+    /// <see cref="OrchestrationException"/>.
+    /// </summary>
+    public async Task<DelegateDeliveryAck> HandleDelegateToAsync(
         Address caller,
         Guid tenantId,
         Address target,
@@ -37,8 +69,6 @@ public class OrchestrationToolHandlers(
         EnsureNotSelfTarget(caller, target);
         await EnsureTargetTenantAsync(target, tenantId, ct);
 
-        using var depthScope = depthCounter.Increment(threadId);
-
         if (!string.IsNullOrWhiteSpace(reason))
         {
             logger.LogInformation(
@@ -50,11 +80,9 @@ public class OrchestrationToolHandlers(
                 reason);
         }
 
-        Message? response;
-
         try
         {
-            response = await SendToTargetAsync(caller, target, message, ct);
+            await DeliverWithRetryAsync(caller, target, message, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -82,15 +110,22 @@ public class OrchestrationToolHandlers(
             OrchestrationDecisionKind.Delegate,
             [target],
             OrchestrationDecisionStatus.Routed,
-            response is null ? [] : [response.Id],
+            [],
             reason,
             BuildDecisionMetadata(message.Payload),
             ct);
 
-        return response;
+        return new DelegateDeliveryAck(true, message.Id, target, threadId);
     }
 
-    public async Task<(Address Target, Message? Response, Exception? Error)[]> HandleFanoutToAsync(
+    /// <summary>
+    /// Delivers <paramref name="message"/> to every target in parallel and
+    /// returns a per-target delivery outcome (ADR-0049). Synchronous
+    /// validation failures throw <see cref="OrchestrationException"/> before
+    /// any delivery attempt; a transient delivery failure surfaces as that
+    /// target's outcome, not as a thrown exception.
+    /// </summary>
+    public async Task<IReadOnlyList<FanoutDeliveryAck>> HandleFanoutToAsync(
         Address caller,
         Guid tenantId,
         IReadOnlyList<Address> targets,
@@ -110,8 +145,6 @@ public class OrchestrationToolHandlers(
             await EnsureTargetTenantAsync(target, tenantId, ct);
         }
 
-        using var depthScope = depthCounter.Increment(threadId);
-
         if (!string.IsNullOrWhiteSpace(reason))
         {
             logger.LogInformation(
@@ -123,15 +156,13 @@ public class OrchestrationToolHandlers(
                 reason);
         }
 
-        var tasks = targets.Select(target => SendToTargetResultAsync(caller, target, message, ct)).ToArray();
-        var results = await Task.WhenAll(tasks);
-        var status = results.Any(result => result.Error is not null)
+        var tasks = targets
+            .Select(target => DeliverOutcomeAsync(caller, target, message, ct))
+            .ToArray();
+        var outcomes = await Task.WhenAll(tasks);
+        var status = outcomes.Any(outcome => !outcome.Delivered)
             ? OrchestrationDecisionStatus.Failed
             : OrchestrationDecisionStatus.Routed;
-        var resultMessageIds = results
-            .Where(result => result.Response is not null)
-            .Select(result => result.Response!.Id)
-            .ToArray();
 
         await PublishDecisionAsync(
             caller,
@@ -141,12 +172,12 @@ public class OrchestrationToolHandlers(
             OrchestrationDecisionKind.Fanout,
             targets.ToArray(),
             status,
-            resultMessageIds,
+            [],
             reason,
             metadata: null,
             ct);
 
-        return results;
+        return outcomes;
     }
 
     private async Task PublishDecisionAsync(
@@ -307,14 +338,26 @@ public class OrchestrationToolHandlers(
         }
     }
 
-    private async Task<Message?> SendToTargetAsync(
+    /// <summary>
+    /// Delivers a message to one target with bounded retry (ADR-0049 §4). A
+    /// successful <c>ReceiveAsync</c> is a durable mailbox enqueue and the
+    /// fast-enqueue invariant (§5) means it returns in milliseconds — the
+    /// loop blocks only on the enqueue, never on the recipient's runtime.
+    /// Only transient infrastructure failures are retried; an
+    /// <see cref="OrchestrationException"/> (validation) is never retried and
+    /// propagates immediately. A retry budget exhausted by transient failures
+    /// surfaces as a terminal <see cref="OrchestrationException"/>.
+    /// </summary>
+    private async Task DeliverWithRetryAsync(
         Address caller,
         Address target,
         Message message,
         CancellationToken ct)
     {
         var proxy = agentProxyResolver.Resolve(target.Scheme, GuidFormatter.Format(target.Id))
-            ?? throw new InvalidOperationException($"Could not resolve orchestration target '{target}'.");
+            ?? throw new OrchestrationException(
+                OrchestrationException.RejectCodes.OrchestrationDeliveryFailed,
+                $"Could not resolve orchestration target '{target}'.");
 
         var outbound = message with
         {
@@ -322,10 +365,66 @@ public class OrchestrationToolHandlers(
             To = target,
         };
 
-        return await proxy.ReceiveAsync(outbound, ct);
+        var deadline = DateTimeOffset.UtcNow + _deliveryOptions.Budget;
+        var backoff = _deliveryOptions.InitialBackoff;
+        Exception? lastTransient = null;
+
+        for (var attempt = 1; attempt <= _deliveryOptions.MaxAttempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            try
+            {
+                await proxy.ReceiveAsync(outbound, ct);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (OrchestrationException)
+            {
+                // Validation rejection from the recipient — never transient.
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // ADR-0049 §4 — the only thing that can fail a mailbox
+                // enqueue is transient infrastructure. Retry within budget.
+                lastTransient = ex;
+                logger.LogWarning(
+                    ex,
+                    "Transient delivery failure for orchestration message {MessageId} to {Target} (attempt {Attempt}/{MaxAttempts}).",
+                    message.Id,
+                    target,
+                    attempt,
+                    _deliveryOptions.MaxAttempts);
+            }
+
+            if (attempt >= _deliveryOptions.MaxAttempts)
+            {
+                break;
+            }
+
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            var delay = backoff < remaining ? backoff : remaining;
+            await Task.Delay(delay, ct);
+            backoff += backoff;
+        }
+
+        throw new OrchestrationException(
+            OrchestrationException.RejectCodes.OrchestrationDeliveryFailed,
+            $"Delivery of orchestration message '{message.Id}' to '{target}' failed after " +
+            $"{_deliveryOptions.MaxAttempts} attempt(s) within the delivery budget.",
+            lastTransient ?? new InvalidOperationException("Delivery failed."));
     }
 
-    private async Task<(Address Target, Message? Response, Exception? Error)> SendToTargetResultAsync(
+    private async Task<FanoutDeliveryAck> DeliverOutcomeAsync(
         Address caller,
         Address target,
         Message message,
@@ -333,12 +432,16 @@ public class OrchestrationToolHandlers(
     {
         try
         {
-            var response = await SendToTargetAsync(caller, target, message, ct);
-            return (target, response, null);
+            await DeliverWithRetryAsync(caller, target, message, ct);
+            return new FanoutDeliveryAck(target, true, null);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            return (target, null, ex);
+            return new FanoutDeliveryAck(target, false, ex.Message);
         }
     }
 

@@ -14,6 +14,7 @@ using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
 
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -22,6 +23,12 @@ using Shouldly;
 
 using Xunit;
 
+/// <summary>
+/// Covers <see cref="OrchestrationToolHandlers"/> under the ADR-0049 delivery
+/// contract: <c>delegate_to</c> / <c>fanout_to</c> return a delivery
+/// acknowledgement, never the target's response; delivery is synchronous with
+/// bounded retry over transient failures.
+/// </summary>
 public class OrchestrationToolHandlersTests
 {
     private static readonly Guid UnitId = new("bbbbbbbb-0000-0000-0000-000000000001");
@@ -61,7 +68,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateTo_AnyAddressableTarget_RoutesSuccessfully()
+    public async Task HandleDelegateTo_AnyAddressableTarget_DeliversSuccessfully()
     {
         // ADR-0039 §3 (2026-05-19 amendment): the platform does not gate on
         // membership. Delegating to any addressable target in the same tenant
@@ -69,23 +76,27 @@ public class OrchestrationToolHandlersTests
         var handlers = CreateHandlers();
         var caller = Agent(new Guid("dddddddd-0000-0000-0000-000000000099"));
         var target = Agent(ChildAgentId);
-        var response = CreateResponse(target, caller);
         var agent = Substitute.For<IAgent>();
 
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(response);
+            .Returns((Message?)null);
 
-        var result = await handlers.HandleDelegateToAsync(
+        var message = CreateMessage();
+        var threadId = Guid.NewGuid();
+        var ack = await handlers.HandleDelegateToAsync(
             caller,
             TenantId,
             target,
-            CreateMessage(),
+            message,
             null,
-            Guid.NewGuid(),
+            threadId,
             TestContext.Current.CancellationToken);
 
-        result.ShouldBe(response);
+        ack.Delivered.ShouldBeTrue();
+        ack.Target.ShouldBe(target);
+        ack.MessageId.ShouldBe(message.Id);
+        ack.ThreadId.ShouldBe(threadId);
     }
 
     [Fact]
@@ -157,34 +168,59 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateTo_DepthBudgetExhausted_ThrowsDepthExceeded()
+    public async Task HandleDelegateTo_TransientFailureThenSuccess_DeliversWithinRetryBudget()
     {
-        var depthCounter = new OrchestrationDepthCounter(maxDepth: 1);
-        var handlers = CreateHandlers(depthCounter);
+        // ADR-0049 §4 — a transient ReceiveAsync failure is retried; a later
+        // attempt that succeeds yields a delivered ack.
+        var handlers = CreateHandlers(FastRetryOptions());
         var caller = Unit();
         var target = Agent(ChildAgentId);
-        var threadId = Guid.NewGuid();
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource<Message?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var agent = Substitute.For<IAgent>();
+        var attempts = 0;
 
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
-                started.TrySetResult();
-                return release.Task;
+                attempts++;
+                return attempts < 2
+                    ? throw new InvalidOperationException("transient dapr hiccup")
+                    : Task.FromResult<Message?>(null);
             });
 
-        var firstCall = handlers.HandleDelegateToAsync(
+        var ack = await handlers.HandleDelegateToAsync(
             caller,
             TenantId,
             target,
             CreateMessage(),
             null,
-            threadId,
+            Guid.NewGuid(),
             TestContext.Current.CancellationToken);
-        await started.Task.WaitAsync(TestContext.Current.CancellationToken);
+
+        ack.Delivered.ShouldBeTrue();
+        attempts.ShouldBe(2);
+
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(evt => IsDecisionEvent(
+                evt,
+                OrchestrationDecisionKind.Delegate,
+                OrchestrationDecisionStatus.Routed)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task HandleDelegateTo_TransientFailureExhaustsBudget_ThrowsDeliveryFailed()
+    {
+        // ADR-0049 §6 — persistent transient failure surfaces as a terminal
+        // OrchestrationDeliveryFailed tool error and a Failed decision.
+        var handlers = CreateHandlers(FastRetryOptions());
+        var caller = Unit();
+        var target = Agent(ChildAgentId);
+        var agent = Substitute.For<IAgent>();
+
+        RegisterAgent(target, agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException("dapr is down"));
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleDelegateToAsync(
@@ -193,13 +229,18 @@ public class OrchestrationToolHandlersTests
                 target,
                 CreateMessage(),
                 null,
-                threadId,
+                Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationDepthExceeded);
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationDeliveryFailed);
+        await agent.Received(3).ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
 
-        release.SetResult(null);
-        await firstCall;
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(evt => IsDecisionEvent(
+                evt,
+                OrchestrationDecisionKind.Delegate,
+                OrchestrationDecisionStatus.Failed)),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -208,7 +249,6 @@ public class OrchestrationToolHandlersTests
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
-        var response = CreateResponse(target, caller);
         var message = CreateMessage();
         var threadId = Guid.NewGuid();
         Message? delivered = null;
@@ -216,9 +256,9 @@ public class OrchestrationToolHandlersTests
 
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Do<Message>(m => delivered = m), Arg.Any<CancellationToken>())
-            .Returns(response);
+            .Returns((Message?)null);
 
-        var result = await handlers.HandleDelegateToAsync(
+        var ack = await handlers.HandleDelegateToAsync(
             caller,
             TenantId,
             target,
@@ -227,7 +267,7 @@ public class OrchestrationToolHandlersTests
             threadId,
             TestContext.Current.CancellationToken);
 
-        result.ShouldBe(response);
+        ack.Delivered.ShouldBeTrue();
         delivered.ShouldNotBeNull();
         delivered!.From.ShouldBe(caller);
         delivered.To.ShouldBe(target);
@@ -247,7 +287,7 @@ public class OrchestrationToolHandlersTests
         decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
         decision.Targets.ShouldBe([target]);
         decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
-        decision.ResultMessageIds.ShouldBe([response.Id]);
+        decision.ResultMessageIds.ShouldBeEmpty();
         decision.Reason.ShouldBeNull();
         decision.Metadata.ShouldBeNull();
         decision.DecisionId.ShouldNotBe(Guid.Empty);
@@ -264,7 +304,7 @@ public class OrchestrationToolHandlersTests
 
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(target, caller));
+            .Returns((Message?)null);
 
         await handlers.HandleDelegateToAsync(
             caller,
@@ -295,7 +335,7 @@ public class OrchestrationToolHandlersTests
 
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(target, caller));
+            .Returns((Message?)null);
 
         await handlers.HandleDelegateToAsync(
             caller,
@@ -311,7 +351,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateTo_Exception_EmitsFailed()
+    public async Task HandleDelegateTo_UnresolvableTarget_ThrowsDeliveryFailedAndEmitsFailed()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -320,10 +360,9 @@ public class OrchestrationToolHandlersTests
         var threadId = Guid.NewGuid();
         const string reason = "target owns the work";
 
-        _agentProxyResolver.Resolve(target.Scheme, target.Id.ToString("N"))
-            .Throws(new InvalidOperationException("resolver failed"));
+        // No agent registered for the target — the proxy resolver returns null.
 
-        await Should.ThrowAsync<InvalidOperationException>(() =>
+        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             handlers.HandleDelegateToAsync(
                 caller,
                 TenantId,
@@ -332,6 +371,8 @@ public class OrchestrationToolHandlersTests
                 reason,
                 threadId,
                 TestContext.Current.CancellationToken));
+
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationDeliveryFailed);
 
         await _activityEventBus.Received(1).PublishAsync(
             Arg.Is<ActivityEvent>(evt => IsDecisionEvent(
@@ -353,7 +394,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateTo_HappyPath_WithReason_RoundTrips()
+    public async Task HandleDelegateTo_HappyPath_WithReason_LogsReason()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -363,7 +404,7 @@ public class OrchestrationToolHandlersTests
 
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(target, caller));
+            .Returns((Message?)null);
 
         await handlers.HandleDelegateToAsync(
             caller,
@@ -429,14 +470,12 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleFanoutTo_HappyPath_EmitsRouted()
+    public async Task HandleFanoutTo_HappyPath_EmitsRoutedAndReportsDeliveries()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var targetOne = Agent(ChildAgentId);
         var targetTwo = Agent(OtherChildAgentId);
-        var responseOne = CreateResponse(targetOne, caller);
-        var responseTwo = CreateResponse(targetTwo, caller);
         var message = CreateMessage();
         var threadId = Guid.NewGuid();
         const string reason = "ask both targets";
@@ -446,11 +485,11 @@ public class OrchestrationToolHandlersTests
         RegisterAgent(targetOne, agentOne);
         RegisterAgent(targetTwo, agentTwo);
         agentOne.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(responseOne);
+            .Returns((Message?)null);
         agentTwo.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(responseTwo);
+            .Returns((Message?)null);
 
-        var results = await handlers.HandleFanoutToAsync(
+        var outcomes = await handlers.HandleFanoutToAsync(
             caller,
             TenantId,
             [targetOne, targetTwo],
@@ -459,13 +498,13 @@ public class OrchestrationToolHandlersTests
             threadId,
             TestContext.Current.CancellationToken);
 
-        results.Length.ShouldBe(2);
-        results[0].Target.ShouldBe(targetOne);
-        results[0].Response.ShouldBe(responseOne);
-        results[0].Error.ShouldBeNull();
-        results[1].Target.ShouldBe(targetTwo);
-        results[1].Response.ShouldBe(responseTwo);
-        results[1].Error.ShouldBeNull();
+        outcomes.Count.ShouldBe(2);
+        outcomes[0].Target.ShouldBe(targetOne);
+        outcomes[0].Delivered.ShouldBeTrue();
+        outcomes[0].Error.ShouldBeNull();
+        outcomes[1].Target.ShouldBe(targetTwo);
+        outcomes[1].Delivered.ShouldBeTrue();
+        outcomes[1].Error.ShouldBeNull();
 
         await _activityEventBus.Received(1).PublishAsync(
             Arg.Is<ActivityEvent>(evt => IsDecisionEvent(
@@ -481,18 +520,17 @@ public class OrchestrationToolHandlersTests
         decision.Kind.ShouldBe(OrchestrationDecisionKind.Fanout);
         decision.Targets.ShouldBe([targetOne, targetTwo]);
         decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
-        decision.ResultMessageIds.ShouldBe([responseOne.Id, responseTwo.Id]);
+        decision.ResultMessageIds.ShouldBeEmpty();
         decision.Reason.ShouldBe(reason);
     }
 
     [Fact]
-    public async Task HandleFanoutTo_PartialFailure_EmitsFailed()
+    public async Task HandleFanoutTo_PartialDeliveryFailure_EmitsFailedAndReportsOutcomes()
     {
-        var handlers = CreateHandlers();
+        var handlers = CreateHandlers(FastRetryOptions());
         var caller = Unit();
         var targetOne = Agent(ChildAgentId);
         var targetTwo = Agent(OtherChildAgentId);
-        var response = CreateResponse(targetOne, caller);
         var message = CreateMessage();
         var threadId = Guid.NewGuid();
         var successfulAgent = Substitute.For<IAgent>();
@@ -501,11 +539,11 @@ public class OrchestrationToolHandlersTests
         RegisterAgent(targetOne, successfulAgent);
         RegisterAgent(targetTwo, failingAgent);
         successfulAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(response);
+            .Returns((Message?)null);
         failingAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Throws(new InvalidOperationException("target failed"));
+            .Throws(new InvalidOperationException("target unreachable"));
 
-        var results = await handlers.HandleFanoutToAsync(
+        var outcomes = await handlers.HandleFanoutToAsync(
             caller,
             TenantId,
             [targetOne, targetTwo],
@@ -514,13 +552,13 @@ public class OrchestrationToolHandlersTests
             threadId,
             TestContext.Current.CancellationToken);
 
-        results.Length.ShouldBe(2);
-        results[0].Target.ShouldBe(targetOne);
-        results[0].Response.ShouldBe(response);
-        results[0].Error.ShouldBeNull();
-        results[1].Target.ShouldBe(targetTwo);
-        results[1].Response.ShouldBeNull();
-        results[1].Error.ShouldBeOfType<InvalidOperationException>();
+        outcomes.Count.ShouldBe(2);
+        outcomes[0].Target.ShouldBe(targetOne);
+        outcomes[0].Delivered.ShouldBeTrue();
+        outcomes[0].Error.ShouldBeNull();
+        outcomes[1].Target.ShouldBe(targetTwo);
+        outcomes[1].Delivered.ShouldBeFalse();
+        outcomes[1].Error.ShouldNotBeNull();
 
         await _activityEventBus.Received(1).PublishAsync(
             Arg.Is<ActivityEvent>(evt => IsDecisionEvent(
@@ -536,16 +574,25 @@ public class OrchestrationToolHandlersTests
         decision.Kind.ShouldBe(OrchestrationDecisionKind.Fanout);
         decision.Targets.ShouldBe([targetOne, targetTwo]);
         decision.Status.ShouldBe(OrchestrationDecisionStatus.Failed);
-        decision.ResultMessageIds.ShouldBe([response.Id]);
+        decision.ResultMessageIds.ShouldBeEmpty();
     }
 
-    private OrchestrationToolHandlers CreateHandlers(OrchestrationDepthCounter? depthCounter = null) =>
+    private static IOptions<OrchestrationDeliveryOptions> FastRetryOptions() =>
+        Options.Create(new OrchestrationDeliveryOptions
+        {
+            MaxAttempts = 3,
+            Budget = TimeSpan.FromSeconds(2),
+            InitialBackoff = TimeSpan.FromMilliseconds(1),
+        });
+
+    private OrchestrationToolHandlers CreateHandlers(
+        IOptions<OrchestrationDeliveryOptions>? deliveryOptions = null) =>
         new(
             _agentProxyResolver,
-            depthCounter ?? new OrchestrationDepthCounter(),
             _logger,
             _activityEventBus,
-            _tenantResolver);
+            _tenantResolver,
+            deliveryOptions);
 
     private OrchestrationDecision ReadSingleDecision(Address caller)
     {
@@ -635,15 +682,5 @@ public class OrchestrationToolHandlersTests
                     title = "Different upstream",
                 },
             }),
-            DateTimeOffset.UtcNow);
-
-    private static Message CreateResponse(Address from, Address to) =>
-        new(
-            Guid.NewGuid(),
-            from,
-            to,
-            MessageType.Domain,
-            Guid.NewGuid().ToString(),
-            JsonSerializer.SerializeToElement(new { Content = "done" }),
             DateTimeOffset.UtcNow);
 }

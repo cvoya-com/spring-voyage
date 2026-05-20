@@ -28,10 +28,10 @@ public class SpringAgentSafetyNetTests
         }
 
         public Task<DelegateResponse> DelegateAsync(string threadId, string targetUnitId, string prompt, CancellationToken cancellationToken = default)
-            => Task.FromResult(new DelegateResponse(string.Empty, string.Empty));
+            => Task.FromResult(new DelegateResponse(true, string.Empty, string.Empty, string.Empty));
 
         public Task<FanoutResponse> FanoutAsync(string threadId, IReadOnlyList<string> targetUnitIds, string prompt, CancellationToken cancellationToken = default)
-            => Task.FromResult(new FanoutResponse(Array.Empty<FanoutResult>()));
+            => Task.FromResult(new FanoutResponse(string.Empty, string.Empty, Array.Empty<FanoutDelivery>()));
     }
 
     private static TelemetryClient NewDisabledTelemetryClient()

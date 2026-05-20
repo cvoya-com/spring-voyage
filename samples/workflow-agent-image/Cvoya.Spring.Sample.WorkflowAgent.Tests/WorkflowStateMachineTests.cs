@@ -24,7 +24,7 @@ public class WorkflowStateMachineTests
             using var _ = new EnvironmentScope(("SPRING_CHILD_0", "child-0"), ("SPRING_CHILD_1", "child-1"));
             var client = Substitute.For<IOrchestrationClient>();
             client.DelegateAsync("t1", "child-0", "write some code", Arg.Any<CancellationToken>())
-                .Returns(new DelegateResponse("msg-1", "result from child-0"));
+                .Returns(new DelegateResponse(true, "msg-1", "child-0", "t1"));
 
             var result = await WorkflowStateMachine.RunAsync(
                 client,
@@ -32,7 +32,8 @@ public class WorkflowStateMachineTests
                 "write some code",
                 TestContext.Current.CancellationToken);
 
-            result.ShouldBe("result from child-0");
+            // ADR-0049 — RunAsync reports the delivery acknowledgement.
+            result.ShouldContain("Delegated to child-0");
         }
         finally
         {
@@ -49,7 +50,7 @@ public class WorkflowStateMachineTests
             using var _ = new EnvironmentScope(("SPRING_CHILD_0", "child-0"), ("SPRING_CHILD_1", "child-1"));
             var client = Substitute.For<IOrchestrationClient>();
             client.DelegateAsync("t1", "child-1", "draft a plan", Arg.Any<CancellationToken>())
-                .Returns(new DelegateResponse("msg-2", "result from child-1"));
+                .Returns(new DelegateResponse(true, "msg-2", "child-1", "t1"));
 
             var result = await WorkflowStateMachine.RunAsync(
                 client,
@@ -57,7 +58,8 @@ public class WorkflowStateMachineTests
                 "draft a plan",
                 TestContext.Current.CancellationToken);
 
-            result.ShouldBe("result from child-1");
+            // ADR-0049 — RunAsync reports the delivery acknowledgement.
+            result.ShouldContain("Delegated to child-1");
         }
         finally
         {

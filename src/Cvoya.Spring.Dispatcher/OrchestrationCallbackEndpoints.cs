@@ -174,7 +174,7 @@ public static class OrchestrationCallbackEndpoints
 
         try
         {
-            var response = await handlers.HandleDelegateToAsync(
+            var ack = await handlers.HandleDelegateToAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 target,
@@ -183,7 +183,7 @@ public static class OrchestrationCallbackEndpoints
                 claims.ThreadId,
                 cancellationToken);
 
-            return McpToolResult(requestId, ToCallbackMessage(response), isError: false);
+            return McpToolResult(requestId, ToDelegateAck(ack), isError: false);
         }
         catch (OrchestrationException ex)
         {
@@ -225,7 +225,7 @@ public static class OrchestrationCallbackEndpoints
 
         try
         {
-            var results = await handlers.HandleFanoutToAsync(
+            var outcomes = await handlers.HandleFanoutToAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 targets,
@@ -234,15 +234,13 @@ public static class OrchestrationCallbackEndpoints
                 claims.ThreadId,
                 cancellationToken);
 
-            var mapped = results
-                .Select(result => new FanoutTargetResult(
-                    result.Target.ToString(),
-                    result.Error is null,
-                    result.Error?.Message,
-                    ToCallbackMessage(result.Response)))
-                .ToArray();
-
-            return McpToolResult(requestId, mapped, isError: false);
+            // ADR-0049 §6 — a fanout where every delivery failed is itself a
+            // terminal failure; surface it to the model with isError: true.
+            var anyDelivered = outcomes.Any(outcome => outcome.Delivered);
+            return McpToolResult(
+                requestId,
+                ToFanoutAck(message.Id, claims.ThreadId, outcomes),
+                isError: outcomes.Count > 0 && !anyDelivered);
         }
         catch (OrchestrationException ex)
         {
@@ -366,9 +364,9 @@ public static class OrchestrationCallbackEndpoints
     /// <summary>
     /// Wraps an MCP <c>tools/call</c> outcome in the standard result envelope
     /// (<c>{ content: [{ type: "text", text: &lt;json&gt; }], isError }</c>).
-    /// The text block carries the JSON the model sees — serialized so it
-    /// matches the REST response shapes (<see cref="OrchestrationCallbackMessage"/>
-    /// for delegate, <see cref="FanoutTargetResult"/><c>[]</c> for fanout).
+    /// The text block carries the JSON the model sees — the same delivery
+    /// acknowledgement the REST sub-routes return (<see cref="DelegateToResponse"/>
+    /// for delegate, <see cref="FanoutToResponse"/> for fanout — ADR-0049).
     /// </summary>
     private static IResult McpToolResult(JsonElement? id, object? payload, bool isError)
     {
@@ -416,7 +414,7 @@ public static class OrchestrationCallbackEndpoints
 
         try
         {
-            var response = await handlers.HandleDelegateToAsync(
+            var ack = await handlers.HandleDelegateToAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 target,
@@ -425,7 +423,7 @@ public static class OrchestrationCallbackEndpoints
                 claims.ThreadId,
                 cancellationToken);
 
-            return Results.Ok(new DelegateToResponse(ToCallbackMessage(response)));
+            return Results.Ok(ToDelegateAck(ack));
         }
         catch (OrchestrationException ex)
         {
@@ -469,7 +467,7 @@ public static class OrchestrationCallbackEndpoints
 
         try
         {
-            var results = await handlers.HandleFanoutToAsync(
+            var outcomes = await handlers.HandleFanoutToAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 targets,
@@ -478,18 +476,33 @@ public static class OrchestrationCallbackEndpoints
                 claims.ThreadId,
                 cancellationToken);
 
-            return Results.Ok(new FanoutToResponse(
-                results.Select(result => new FanoutTargetResult(
-                    result.Target.ToString(),
-                    result.Error is null,
-                    result.Error?.Message,
-                    ToCallbackMessage(result.Response))).ToArray()));
+            return Results.Ok(ToFanoutAck(message.Id, claims.ThreadId, outcomes));
         }
         catch (OrchestrationException ex)
         {
             return MapOrchestrationException(ex);
         }
     }
+
+    // ADR-0049 — REST + MCP both serialise the handler's delivery
+    // acknowledgements through these mappers, so the SDK and the MCP
+    // transport see one wire contract.
+    private static DelegateToResponse ToDelegateAck(DelegateDeliveryAck ack) =>
+        new(ack.Delivered, ack.MessageId, ack.Target.ToString(), ack.ThreadId);
+
+    private static FanoutToResponse ToFanoutAck(
+        Guid messageId,
+        Guid threadId,
+        IReadOnlyList<FanoutDeliveryAck> outcomes) =>
+        new(
+            messageId,
+            threadId,
+            outcomes
+                .Select(outcome => new FanoutDeliveryOutcome(
+                    outcome.Target.ToString(),
+                    outcome.Delivered,
+                    outcome.Error))
+                .ToArray());
 
     private static bool TryValidateCallback(
         HttpContext httpContext,
@@ -634,48 +647,6 @@ public static class OrchestrationCallbackEndpoints
             DateTimeOffset.UtcNow);
     }
 
-    private static OrchestrationCallbackMessage? ToCallbackMessage(Message? message)
-    {
-        if (message is null)
-        {
-            return null;
-        }
-
-        return new OrchestrationCallbackMessage(
-            message.Id,
-            message.From.ToString(),
-            message.To.ToString(),
-            message.ThreadId,
-            ExtractMessageContent(message.Payload));
-    }
-
-    private static string ExtractMessageContent(JsonElement payload)
-    {
-        if (payload.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
-        {
-            return string.Empty;
-        }
-
-        if (payload.ValueKind == JsonValueKind.String)
-        {
-            return payload.GetString() ?? string.Empty;
-        }
-
-        if (payload.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var property in payload.EnumerateObject())
-            {
-                if (string.Equals(property.Name, "content", StringComparison.OrdinalIgnoreCase) &&
-                    property.Value.ValueKind == JsonValueKind.String)
-                {
-                    return property.Value.GetString() ?? string.Empty;
-                }
-            }
-        }
-
-        return payload.GetRawText();
-    }
-
     private static IResult MapOrchestrationException(OrchestrationException ex)
     {
         var statusCode = ex.RejectCode switch
@@ -684,6 +655,11 @@ public static class OrchestrationCallbackEndpoints
                 StatusCodes.Status400BadRequest,
             OrchestrationException.RejectCodes.OrchestrationDepthExceeded =>
                 StatusCodes.Status429TooManyRequests,
+            // ADR-0049 §6 — terminal delivery failure means the platform is
+            // degraded (transient infrastructure persisted past the R/T
+            // budget). 503 tells the caller the condition is transient.
+            OrchestrationException.RejectCodes.OrchestrationDeliveryFailed =>
+                StatusCodes.Status503ServiceUnavailable,
             // ADR-0039 §3 gate 6 — cross-tenant containment maps to 403,
             // matching every other "you are not authorised on this surface"
             // gate the dispatcher applies. The SDK already maps this code

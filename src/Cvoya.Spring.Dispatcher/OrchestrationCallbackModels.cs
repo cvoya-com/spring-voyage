@@ -14,8 +14,14 @@ public sealed record DelegateToRequest(
     [property: JsonPropertyName("messageContent")] string MessageContent,
     [property: JsonPropertyName("reason")] string? Reason);
 
+// ADR-0049 — `delegate_to` is an RPC whose response is a delivery
+// acknowledgement: the message was durably placed in the recipient's
+// mailbox. It never carries the recipient's response.
 public sealed record DelegateToResponse(
-    [property: JsonPropertyName("message")] OrchestrationCallbackMessage? Message);
+    [property: JsonPropertyName("delivered")] bool Delivered,
+    [property: JsonPropertyName("messageId")] Guid MessageId,
+    [property: JsonPropertyName("target")] string Target,
+    [property: JsonPropertyName("threadId")] Guid ThreadId);
 
 public sealed record FanoutToRequest(
     [property: JsonPropertyName("callerAddress")] string CallerAddress,
@@ -25,21 +31,18 @@ public sealed record FanoutToRequest(
     [property: JsonPropertyName("messageContent")] string MessageContent,
     [property: JsonPropertyName("reason")] string? Reason);
 
+// ADR-0049 — `fanout_to` delivers to all targets in parallel and reports a
+// per-target delivery outcome (delivered / failed), not the recipients'
+// work products.
 public sealed record FanoutToResponse(
-    [property: JsonPropertyName("results")] FanoutTargetResult[] Results);
-
-public sealed record FanoutTargetResult(
-    [property: JsonPropertyName("target")] string Target,
-    [property: JsonPropertyName("success")] bool Success,
-    [property: JsonPropertyName("errorMessage")] string? ErrorMessage,
-    [property: JsonPropertyName("message")] OrchestrationCallbackMessage? Message);
-
-public sealed record OrchestrationCallbackMessage(
     [property: JsonPropertyName("messageId")] Guid MessageId,
-    [property: JsonPropertyName("fromAddress")] string FromAddress,
-    [property: JsonPropertyName("toAddress")] string ToAddress,
-    [property: JsonPropertyName("threadId")] string? ThreadId,
-    [property: JsonPropertyName("messageContent")] string MessageContent);
+    [property: JsonPropertyName("threadId")] Guid ThreadId,
+    [property: JsonPropertyName("deliveries")] FanoutDeliveryOutcome[] Deliveries);
+
+public sealed record FanoutDeliveryOutcome(
+    [property: JsonPropertyName("target")] string Target,
+    [property: JsonPropertyName("delivered")] bool Delivered,
+    [property: JsonPropertyName("error")] string? Error);
 
 public sealed record OrchestrationCallbackErrorResponse(
     [property: JsonPropertyName("error")] string Error,

@@ -47,7 +47,7 @@ public class OrchestrationCallbackEndpointsTests
         var caller = new Address(Address.AgentScheme, Guid.Parse("dddddddd-0000-0000-0000-000000000001"));
         var agent = Substitute.For<IAgent>();
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(ChildAddress, caller));
+            .Returns((Message?)null);
 
         factory.RegisterAgent(ChildAddress, agent);
         var client = factory.CreateCallbackClient(caller);
@@ -69,7 +69,7 @@ public class OrchestrationCallbackEndpointsTests
         var caller = new Address(Address.AgentScheme, Guid.Parse("dddddddd-0000-0000-0000-000000000002"));
         var agent = Substitute.For<IAgent>();
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(ChildAddress, caller));
+            .Returns((Message?)null);
 
         factory.RegisterAgent(ChildAddress, agent);
         var client = factory.CreateCallbackClient(caller);
@@ -117,50 +117,14 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task DelegateTo_DepthBudgetExhausted_Returns429()
+    public async Task DelegateTo_HappyPath_ReturnsDeliveryAck()
     {
-        using var factory = new OrchestrationDispatcherFactory(maxDepth: 1);
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource<Message?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var agent = Substitute.For<IAgent>();
-        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(_ =>
-            {
-                started.TrySetResult();
-                return release.Task;
-            });
-
-        factory.RegisterAgent(ChildAddress, agent);
-        var client = factory.CreateCallbackClient(UnitAddress);
-
-        var firstRequest = client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
-            TestContext.Current.CancellationToken);
-        await started.Task.WaitAsync(TestContext.Current.CancellationToken);
-
-        var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
-            TestContext.Current.CancellationToken);
-
-        response.StatusCode.ShouldBe((HttpStatusCode)429);
-        var json = await ReadJsonAsync(response);
-        json.GetProperty("error").GetString()
-            .ShouldBe(OrchestrationException.RejectCodes.OrchestrationDepthExceeded);
-
-        release.SetResult(CreateResponse(ChildAddress, UnitAddress));
-        var firstResponse = await firstRequest;
-        firstResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-    }
-
-    [Fact]
-    public async Task DelegateTo_HappyPath_Returns200()
-    {
+        // ADR-0049 — delegate_to returns a delivery acknowledgement, never
+        // the target's response.
         using var factory = new OrchestrationDispatcherFactory();
         var agent = Substitute.For<IAgent>();
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(ChildAddress, UnitAddress));
+            .Returns((Message?)null);
 
         factory.RegisterAgent(ChildAddress, agent);
         var client = factory.CreateCallbackClient(UnitAddress);
@@ -172,19 +136,21 @@ public class OrchestrationCallbackEndpointsTests
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var json = await ReadJsonAsync(response);
-        json.GetProperty("message").GetProperty("messageContent").GetString().ShouldBe("done");
+        json.GetProperty("delivered").GetBoolean().ShouldBeTrue();
+        json.GetProperty("target").GetString().ShouldBe(ChildAddress.ToString());
+        json.TryGetProperty("messageId", out _).ShouldBeTrue();
     }
 
     [Fact]
-    public async Task FanoutTo_HappyPath_Returns200()
+    public async Task FanoutTo_HappyPath_ReturnsPerTargetDeliveryOutcomes()
     {
         using var factory = new OrchestrationDispatcherFactory();
         var firstAgent = Substitute.For<IAgent>();
         var secondAgent = Substitute.For<IAgent>();
         firstAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(ChildAddress, UnitAddress));
+            .Returns((Message?)null);
         secondAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(OtherChildAddress, UnitAddress, "also done"));
+            .Returns((Message?)null);
 
         factory.RegisterAgent(ChildAddress, firstAgent);
         factory.RegisterAgent(OtherChildAddress, secondAgent);
@@ -205,10 +171,10 @@ public class OrchestrationCallbackEndpointsTests
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var json = await ReadJsonAsync(response);
-        var results = json.GetProperty("results");
-        results.GetArrayLength().ShouldBe(2);
-        results[0].GetProperty("success").GetBoolean().ShouldBeTrue();
-        results[1].GetProperty("success").GetBoolean().ShouldBeTrue();
+        var deliveries = json.GetProperty("deliveries");
+        deliveries.GetArrayLength().ShouldBe(2);
+        deliveries[0].GetProperty("delivered").GetBoolean().ShouldBeTrue();
+        deliveries[1].GetProperty("delivered").GetBoolean().ShouldBeTrue();
     }
 
     [Fact]
@@ -290,16 +256,6 @@ public class OrchestrationCallbackEndpointsTests
     private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response) =>
         await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
 
-    private static Message CreateResponse(Address from, Address to, string content = "done") =>
-        new(
-            Guid.NewGuid(),
-            from,
-            to,
-            MessageType.Domain,
-            Guid.NewGuid().ToString("N"),
-            JsonSerializer.SerializeToElement(new { content }),
-            DateTimeOffset.UtcNow);
-
     private sealed class OrchestrationDispatcherFactory : DispatcherWebApplicationFactory
     {
         private static readonly byte[] SigningKey =
@@ -311,12 +267,10 @@ public class OrchestrationCallbackEndpointsTests
         ];
 
         private readonly Dictionary<string, IAgent> _agents = new();
-        private readonly OrchestrationDepthCounter _depthCounter;
         private readonly ITenantSigningKeyProvider _keyProvider;
 
-        public OrchestrationDispatcherFactory(int maxDepth = OrchestrationDepthCounter.DefaultMaxDepth)
+        public OrchestrationDispatcherFactory()
         {
-            _depthCounter = new OrchestrationDepthCounter(maxDepth);
             _keyProvider = Substitute.For<ITenantSigningKeyProvider>();
             _keyProvider.GetSigningKey(Arg.Any<Guid>()).Returns(SigningKey);
         }
@@ -344,11 +298,9 @@ public class OrchestrationCallbackEndpointsTests
             {
                 services.RemoveAll<IAgentProxyResolver>();
                 services.RemoveAll<ITenantSigningKeyProvider>();
-                services.RemoveAll<OrchestrationDepthCounter>();
 
                 services.AddSingleton(CreateAgentProxyResolver());
                 services.AddSingleton(_keyProvider);
-                services.AddSingleton(_depthCounter);
             });
         }
 

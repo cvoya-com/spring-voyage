@@ -1,30 +1,41 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "fanout_to.output",
-  "description": "Output of fanout_to — array of (address, response, status) triples per ADR-0039 §3.",
+  "description": "Output of fanout_to — per-target delivery acknowledgements (ADR-0049). The message is delivered to every target in parallel; each entry reports whether it reached that target's mailbox. It never carries the targets' responses.",
   "type": "object",
   "properties": {
-    "results": {
+    "messageId": {
+      "type": "string",
+      "description": "Id of the delivered message."
+    },
+    "threadId": {
+      "type": "string",
+      "description": "Id of the thread the message was delivered on."
+    },
+    "deliveries": {
       "type": "array",
+      "description": "One delivery outcome per target.",
       "items": {
         "type": "object",
         "properties": {
-          "address": {
-            "type": "string"
-          },
-          "response": {
-            "description": "The target's response payload, or null when the call did not complete."
-          },
-          "status": {
+          "target": {
             "type": "string",
-            "enum": ["accepted", "routed", "failed"]
+            "description": "Address of the target."
+          },
+          "delivered": {
+            "type": "boolean",
+            "description": "True when the message was durably enqueued in the target's mailbox."
+          },
+          "error": {
+            "type": ["string", "null"],
+            "description": "Failure reason when delivery did not succeed; null otherwise."
           }
         },
-        "required": ["address", "status"],
-        "additionalProperties": true
+        "required": ["target", "delivered"],
+        "additionalProperties": false
       }
     }
   },
-  "required": ["results"],
+  "required": ["messageId", "threadId", "deliveries"],
   "additionalProperties": false
 }

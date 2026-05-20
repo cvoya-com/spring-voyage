@@ -131,7 +131,6 @@ public class GitHubLabelRoutingRoundtrip
 
         var handlers = new OrchestrationToolHandlers(
             agentProxyResolver,
-            new OrchestrationDepthCounter(),
             Substitute.For<ILogger<OrchestrationToolHandlers>>(),
             bus,
             new SingleTenantOrchestrationTenantResolver());

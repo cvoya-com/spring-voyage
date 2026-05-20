@@ -89,7 +89,6 @@ internal static class ServiceCollectionExtensionsOrchestration
         // TryAdd keeps the override hook open for hosts that need a decorated
         // or tenant-scoped provider.
         services.TryAddSingleton<IOrchestrationToolProvider, DirectoryOrchestrationToolProvider>();
-        services.TryAddSingleton<OrchestrationDepthCounter>();
         services.TryAddSingleton<OrchestrationToolHandlers>();
 
         // ADR-0039 §3 gate 6 — cross-tenant containment. The OSS overlay
