@@ -374,6 +374,47 @@ export class A2AHandler {
       };
     }
 
+    // ADR-0041 / #2094: If the create path fails with "Session ID … is already
+    // in use", Claude wrote the session file in a prior run but the
+    // seen-threads marker was never persisted (e.g. the bridge process crashed
+    // between the CLI exit and the appendFileSync, or a webhook was redelivered
+    // concurrently so two sends raced on the same thread id). Recover by
+    // marking the thread as seen and retrying with --resume. The marker write
+    // in the happy path below then keeps future sends on the resume path.
+    if (
+      result.exitCode !== 0 &&
+      !result.cancelled &&
+      threadId &&
+      this.deps.threadBinding &&
+      !this.threadIdRegistry.has(threadId) &&
+      result.stderr.includes("is already in use")
+    ) {
+      this.threadIdRegistry.add(threadId);
+      const retryArgv = this.composeArgv(threadId, this.deps.threadBinding);
+      stderrLines.length = 0;
+      try {
+        result = await runAgentBridge({
+          argv: retryArgv,
+          stdin: userText,
+          env: spawnEnv,
+          signal: abort.signal,
+          cancelGraceMs: this.deps.cancelGraceMs,
+          onStderrLine: (line) => {
+            stderrLines.push(line);
+          },
+        });
+      } catch (err) {
+        task.state = "failed";
+        task.errorMessage = (err as Error).message;
+        this.tasks.set(taskId, task);
+        return {
+          jsonrpc: "2.0",
+          id,
+          result: this.buildTaskResponse(taskId, task, stderrLines),
+        };
+      }
+    }
+
     if (result.cancelled) {
       task.state = "canceled";
     } else if (result.exitCode === 0) {

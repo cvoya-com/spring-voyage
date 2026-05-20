@@ -528,6 +528,45 @@ describe("A2AHandler.handle — thread-id binding (ADR-0041 / #2094)", () => {
     assert.deepEqual(argv, ["user-arg"]);
   });
 
+  it("recovers from 'Session ID already in use' by retrying with --resume", async () => {
+    // Regression: if the seen-threads marker was lost but Claude's session
+    // file survived (crash-before-marker-write, or concurrent duplicate
+    // delivery), the bridge uses --session-id and Claude rejects with
+    // "is already in use". The handler must detect that, mark the thread as
+    // seen, and immediately retry with --resume — the caller sees "completed".
+    const ws = workspaceTempdir();
+    try {
+      const registry = new ThreadIdRegistry(ws);
+      // Stub: --session-id → exit 1 + "already in use"; --resume → exit 0.
+      const script =
+        "const a=process.argv;" +
+        "if(a.includes('--session-id')){" +
+        "process.stderr.write('Error: Session ID x is already in use.');process.exit(1);" +
+        "}else{process.stdout.write('resumed-ok');}";
+      const handler = makeHandler(
+        [PROCESS_NODE, "-e", script, "--"],
+        process.env,
+        { createArg: "--session-id", resumeArg: "--resume" },
+        registry,
+      );
+      const threadId = "cccccccc-dddd-eeee-ffff-000000000000";
+      const res = await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { contextId: threadId, parts: [{ text: "hi" }] } },
+        id: "recover",
+      });
+      const task = res.result as Record<string, unknown>;
+      assert.equal((task["status"] as Record<string, unknown>)["state"], "completed");
+      const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+      assert.equal(artifacts[0]?.parts[0]?.text, "resumed-ok");
+      // Registry must now know about this thread so future sends use --resume.
+      assert.equal(registry.has(threadId), true, "thread must be marked seen after recovery");
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   it("does not mark thread as seen when CLI fails (next send retries create)", async () => {
     // If the CLI exits non-zero, the session file may not have been
     // written; the next send must re-attempt the create path so a
