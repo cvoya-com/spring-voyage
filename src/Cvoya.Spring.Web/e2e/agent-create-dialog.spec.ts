@@ -301,7 +301,6 @@ async function openCreateDialogFromMembersTab(page: Page) {
 }
 
 async function fillIdentityAndSubmit(page: Page, displayName = "Ada") {
-  await page.getByLabel("Agent id").fill("ada");
   await page.getByLabel("Display name").fill(displayName);
   await page.getByTestId("agent-create-submit").click();
 }
