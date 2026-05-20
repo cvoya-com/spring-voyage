@@ -6,9 +6,9 @@ For the internals — mailbox partitioning, cancellation semantics, pub/sub stre
 
 ## Concepts at a glance
 
-Spring Voyage models every addressable participant — a named agent, a composite unit, a human operator, a connector — as an **actor** with a stable `Guid` identity. A **message** travels from a `From` address to a `To` address, optionally carrying a **thread id** so the receiving actor knows whether to treat the incoming text as the start of new work or as a follow-up to work already in flight.
+Spring Voyage models each routable participant — a named agent, a composite unit, a human operator — as an **actor** with a stable `Guid` identity. A **message** travels from a `From` address to a `To` address, optionally carrying a **thread id** so the receiving actor knows whether to treat the incoming text as the start of new work or as a follow-up to work already in flight. A **connector** also has an address, but it is a non-routable bridge, not an actor — its address appears only as a message's `From`, identifying the external origin of an inbound event ([ADR-0048](../../decisions/0048-event-vs-request-message-semantics.md)).
 
-An address is the pair `(scheme, Guid)` and renders on the wire as `scheme:<32-hex-no-dash>` — for example `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`. There is no path-shaped address; identity is the `Guid`. The platform does not inspect message content to decide routing; it reads the `To` scheme and id, looks the actor up in the directory, and delivers the message once. The actor on the receiving end — an `AgentActor`, `UnitActor`, `HumanActor`, or connector — is responsible for turning the payload into work.
+An address is the pair `(scheme, Guid)` and renders on the wire as `scheme:<32-hex-no-dash>` — for example `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`. There is no path-shaped address; identity is the `Guid`. The platform does not inspect message content to decide routing; it reads the `To` scheme and id, looks the actor up in the directory, and delivers the message once. The actor on the receiving end — an `AgentActor`, `UnitActor`, or `HumanActor` — is responsible for turning the payload into work.
 
 See [Identifiers](../../architecture/identifiers.md) for the full identifier model (wire forms, parser rules, OSS default tenant id, manifest grammar, CLI search-with-context), and [Messaging architecture — Addressing](../../architecture/messaging.md#addressing) for the routing surface.
 
@@ -20,7 +20,7 @@ The CLI exposes a single command for sending messages:
 spring message send <address> "<text>" [--thread <id>]
 ```
 
-The address is `scheme:<32-hex-no-dash>` for one of `agent`, `unit`, `human`, or `connector`. The text is wrapped in a domain message and delivered to the destination actor. A new thread is started when `--thread` is omitted; passing an existing thread id appends the message to that thread.
+The address is `scheme:<32-hex-no-dash>` for one of `agent`, `unit`, or `human`. The text is wrapped in a domain message and delivered to the destination actor. A new thread is started when `--thread` is omitted; passing an existing thread id appends the message to that thread.
 
 Every `spring message send` call prints the generated message id and thread id so scripts can correlate follow-ups.
 
@@ -119,7 +119,8 @@ See [Observing Activity](observing.md#conversations-and-inbox) for more examples
 | `agent`       | `agent:<32-hex-no-dash>`       | You know exactly which member should handle the work.                                                |
 | `unit`        | `unit:<32-hex-no-dash>`        | You want the unit's runtime to handle the work (answer directly or delegate to a child via the orchestration tools). |
 | `human`       | `human:<32-hex-no-dash>`       | You want to route a message to a human participant (notifications, approvals, escalations).         |
-| `connector`   | `connector:<32-hex-no-dash>`   | You want to invoke a connector (e.g. a GitHub connector) as if it were a peer actor.                |
+
+There is no `connector` send target: connectors are non-routable bridges ([ADR-0048](../../decisions/0048-event-vs-request-message-semantics.md)). A connector translates inbound external events into messages and exposes outbound skills agents invoke — you never send a message *to* one.
 
 Address parsers are lenient: the dashed Guid form (`agent:8c5fab2a-8e7e-4b9c-92f1-d8a3b4c5d6e7`) is accepted everywhere, but the canonical render uses the no-dash form. `display_name` is presentation-only — never an addressable handle. Use `spring agent show <name>` / `spring unit show <name>` to look up the canonical id when you only know a name.
 

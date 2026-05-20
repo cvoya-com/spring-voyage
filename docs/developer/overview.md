@@ -23,7 +23,7 @@ src/
     Execution/                    # IAgentRuntimeLauncher, AgentLaunchSpec
     Observability/                # IActivityObservable, ActivityEvent
   Spring.Dapr/                    # Dapr implementations of Core interfaces
-    Actors/                       # AgentActor, UnitActor, ConnectorActor, HumanActor
+    Actors/                       # AgentActor, UnitActor, HumanActor
     Execution/                    # A2AExecutionDispatcher, runtime invocation glue
   Spring.A2A/                     # A2A protocol client and server
   Spring.Connector.GitHub/        # GitHub connector (C#)
