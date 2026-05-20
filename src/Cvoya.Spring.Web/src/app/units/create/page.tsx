@@ -69,8 +69,8 @@ import {
   useUnitExecution,
 } from "@/lib/api/queries";
 import {
-  loadImageHistory,
   recordImageReference,
+  useImageHistory,
 } from "@/lib/image-history";
 import { queryKeys } from "@/lib/api/query-keys";
 import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
@@ -686,12 +686,12 @@ export default function CreateUnitPage() {
     return result;
   }, [tenantTreeQuery.data]);
 
-  // #622 / #968: recently-used image references. Loaded once on mount
-  // from localStorage; the list grows when the wizard successfully
-  // creates a unit with a non-blank image.
-  const [imageHistory, setImageHistory] = useState<string[]>(() =>
-    loadImageHistory(),
-  );
+  // #622 / #968: recently-used image references. Read via
+  // `useImageHistory()` (a `useSyncExternalStore` adapter) so the SSR
+  // render and the client's hydration render agree — see #2568. The
+  // list refreshes automatically when `recordImageReference()` writes a
+  // new entry, because that write dispatches a `storage` event.
+  const imageHistory = useImageHistory();
 
   // ADR-0035 decision 5: catalog source — list of installed packages.
   // Fetched once per session (cached). The catalog step renders a
@@ -1391,12 +1391,13 @@ export default function CreateUnitPage() {
       if (runId !== "") {
         clearWizardRun(runId);
       }
-      // Record image history for scratch path.
+      // Record image history for scratch path. `recordImageReference`
+      // dispatches a `storage` event, so the `useImageHistory()` hook
+      // re-reads on its own — no explicit setState needed.
       if (form.source === "scratch") {
         const submittedImage = form.image.trim();
         if (submittedImage) {
           recordImageReference(submittedImage);
-          setImageHistory(loadImageHistory());
         }
       }
     },

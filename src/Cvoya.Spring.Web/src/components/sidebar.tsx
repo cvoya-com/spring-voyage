@@ -10,7 +10,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 import { BrandMark } from "@/components/brand-mark";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -50,9 +56,35 @@ function writeStoredCollapsed(collapsed: boolean): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(COLLAPSE_STORAGE_KEY, collapsed ? "1" : "0");
+    // `setItem` does not fire `storage` events in the originating tab, so
+    // dispatch one manually to nudge `useSyncExternalStore` to re-read.
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: COLLAPSE_STORAGE_KEY }),
+    );
   } catch {
     // Storage unavailable — preference is session-only, which is fine.
   }
+}
+
+// External-store adapter around the collapse preference. Reading
+// `localStorage` inside a render-time `useState` initializer diverges
+// between SSR (always `false`) and the client's first/hydration render
+// (the stored value), which trips React's hydration-mismatch error
+// #418 — the sidebar is mounted from `app/layout.tsx`, so it affected
+// every route. `useSyncExternalStore` solves this the same way
+// `lib/theme.tsx` does: the stable `serverSnapshot` (`false`) is used
+// for both the SSR render and the client's hydration render, then the
+// live snapshot is adopted post-mount. The `subscribe` function
+// listens for `storage` events so a collapse toggled in another tab —
+// or by `writeStoredCollapsed` in this tab — is picked up immediately.
+function subscribeToCollapsed(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+
+function collapsedServerSnapshot(): boolean {
+  return false;
 }
 
 /**
@@ -67,14 +99,16 @@ export function Sidebar() {
   const pathname = usePathname();
   const { routes, auth } = useExtensions();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState<boolean>(() =>
-    readStoredCollapsed(),
+  const collapsed = useSyncExternalStore(
+    subscribeToCollapsed,
+    readStoredCollapsed,
+    collapsedServerSnapshot,
   );
   const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      writeStoredCollapsed(!prev);
-      return !prev;
-    });
+    // Write the flipped preference; `writeStoredCollapsed` dispatches a
+    // `storage` event so `useSyncExternalStore` re-reads and the new
+    // value flows back through `collapsed`.
+    writeStoredCollapsed(!readStoredCollapsed());
   };
 
   // Keyboard shortcut: Cmd+\ (Mac) / Ctrl+\ (Windows/Linux).
@@ -101,8 +135,8 @@ export function Sidebar() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-    // toggleCollapsed reads collapsed via the setCollapsed functional
-    // updater — the effect doesn't need to re-run when collapsed changes.
+    // toggleCollapsed re-reads the stored value at call time, so the
+    // effect doesn't need to re-run when `collapsed` changes.
   }, []);
 
   // Auto-close the mobile drawer when the route changes. Using the

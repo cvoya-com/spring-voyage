@@ -44,7 +44,7 @@ import { useAgentDeployment, useAgentLogs } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatTranslatedError } from "@/lib/api/translate-error";
 import type { PersistentAgentDeploymentResponse } from "@/lib/api/types";
-import { loadImageHistory } from "@/lib/image-history";
+import { useImageHistory } from "@/lib/image-history";
 import { timeAgo } from "@/lib/utils";
 
 type HealthVariant = "default" | "success" | "warning" | "destructive";
@@ -85,7 +85,7 @@ export function LifecyclePanel({
   const deployment = deploymentQuery.data ?? initialDeployment ?? null;
 
   const [imageOverride, setImageOverride] = useState("");
-  const [imageHistory] = useState(() => loadImageHistory());
+  const imageHistory = useImageHistory();
   const [tailInput, setTailInput] = useState("200");
   const [logsVisible, setLogsVisible] = useState(false);
   const [pendingVerb, setPendingVerb] = useState<

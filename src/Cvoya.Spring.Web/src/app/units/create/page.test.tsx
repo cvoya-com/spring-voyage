@@ -99,6 +99,10 @@ const mockRecordImageReference = vi.fn<(ref: string) => void>();
 vi.mock("@/lib/image-history", () => ({
   loadImageHistory: () => mockLoadImageHistory(),
   recordImageReference: (ref: string) => mockRecordImageReference(ref),
+  // #2568: the page now reads history via the `useImageHistory()`
+  // hook. The mock returns `mockLoadImageHistory()` directly so tests
+  // keep controlling the history store through that spy.
+  useImageHistory: () => mockLoadImageHistory(),
 }));
 
 const toastMock = vi.fn();
