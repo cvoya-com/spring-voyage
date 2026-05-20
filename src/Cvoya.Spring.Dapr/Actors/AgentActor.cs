@@ -179,7 +179,14 @@ public class AgentActor(
 
             await EmitActivityEventAsync(ActivityEventType.ErrorOccurred,
                 $"Error processing message {message.Id}: {ex.Message}",
-                cancellationToken);
+                cancellationToken,
+                details: JsonSerializer.SerializeToElement(new
+                {
+                    error = ex.Message,
+                    agentId = Id.GetId(),
+                    threadId = message.ThreadId,
+                }),
+                correlationId: message.ThreadId);
 
             return CreateErrorResponse(message, ex.Message);
         }

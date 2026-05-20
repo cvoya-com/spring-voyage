@@ -679,6 +679,41 @@ public class UnitActorTests
     }
 
     [Fact]
+    public async Task ReceiveAsync_UnhandledExceptionDuringMessageHandling_EmitsErrorOccurredWithStructuredDetails()
+    {
+        // Arrange: make the runtime-invocation path throw a non-SpringException.
+        // The UnitActor catch block (#2551) must populate { error, agentId,
+        // threadId } so the portal activity feed can surface the failure
+        // without raw log access.
+        var threadId = Guid.NewGuid().ToString();
+        var message = CreateMessage(threadId: threadId);
+        const string errorText = "unexpected runtime failure";
+
+        _runtimeInvocationPath
+            .InvokeAsync(
+                Arg.Any<Address>(),
+                message,
+                Arg.Any<CancellationToken>(),
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
+            .Returns(_ => throw new InvalidOperationException(errorText));
+
+        // Act
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        // Assert
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ErrorOccurred &&
+                e.Severity == ActivitySeverity.Error &&
+                e.CorrelationId == threadId &&
+                e.Details.HasValue &&
+                e.Details.Value.GetProperty("error").GetString() == errorText &&
+                e.Details.Value.GetProperty("agentId").GetString() == TestUnitActorId &&
+                e.Details.Value.GetProperty("threadId").GetString() == threadId),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ReceiveAsync_ActivityEventBusFailure_DoesNotBreakActor()
     {
         _activityEventBus.PublishAsync(Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>())
