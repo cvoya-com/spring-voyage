@@ -4,14 +4,15 @@ Communication in Spring Voyage is built on two primitives: **addresses** (how en
 
 ## Addressable Entities
 
-Everything that can send or receive a message is **addressable**. The four types of addressable entities are:
+Three kinds of entity are **routable actors** — each has a mailbox and can receive a message:
 
 | Entity | Description |
 |--------|-------------|
 | **Agent** | An autonomous AI entity (or a unit acting as one) |
 | **Unit** | A composite agent — group of agents that appears as one to the outside |
 | **Human** | A human participant in a unit |
-| **Connector** | A bridge to an external system (GitHub, Slack, etc.) |
+
+A **connector** also has an address (`connector:<id>`), but it is **not** a routable actor — it is a bridge to an external system (GitHub, Slack, etc.). A connector address appears only as a message's `From`, identifying the external origin of an inbound event; nothing routes a message *to* a connector. See [Connectors](connectors.md) and [ADR-0048](../decisions/0048-event-vs-request-message-semantics.md).
 
 A pub/sub **topic** is a separate primitive (see [Pub/Sub Topics](#pubsub-topics) below); it is not an addressable actor.
 
@@ -55,6 +56,12 @@ Messages are classified into types that determine how the platform handles them:
 | **PolicyUpdate** | Platform applies runtime policy changes | Always to control channel |
 
 The platform never inspects the payload of a Domain message. Domain-specific semantics (e.g., "implement-feature", "review-pr") are structured data within the payload, defined by domain packages as conventions.
+
+### Domain Messaging Is One-Way
+
+Domain messages are **one-way events** — a notification that something happened, delivered to a unit or agent. The sender is not blocked waiting on a return value, and the platform does not route a "reply" back to the sender. When a unit/agent finishes processing a domain message, its output is **recorded on the thread**; if a response or follow-up is warranted, the unit/agent acts through its tools or sends a *new* one-way message on the thread. Request/reply, where a flow needs it, is a pattern built on threads — not a transport primitive.
+
+Control-plane queries (`StatusQuery`, `HealthCheck`) are the exception: they are synchronous infrastructure probes and return their result to the caller directly. See [ADR-0048](../decisions/0048-event-vs-request-message-semantics.md).
 
 ### Routing is Platform-Controlled
 

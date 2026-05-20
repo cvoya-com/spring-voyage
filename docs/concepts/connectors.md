@@ -10,8 +10,10 @@ A **connector** is a pluggable adapter that bridges an external system to a unit
 
 Every connector provides two things:
 
-1. **Event translation** -- external events (a new GitHub issue, a Slack message, a Figma comment) are translated into platform messages and routed to the appropriate agents.
+1. **Event translation** -- external events (a new GitHub issue, a Slack message, a Figma comment) are translated into one-way platform messages addressed at the bound unit.
 2. **Skills** -- capabilities that agents can use to act on external systems (create a PR, send a Slack message, export a Figma design).
+
+These are a connector's only two surfaces — an inbound event translator and an outbound skill provider. A connector is **not** a routable actor: nothing sends a message *to* a connector. See [ADR-0048](../decisions/0048-event-vs-request-message-semantics.md).
 
 ## Connector Categories
 
@@ -27,13 +29,13 @@ Every connector provides two things:
 
 ## How Connectors Participate
 
-Connectors are addressable entities -- they have an address of the form `connector:<32-hex-no-dash>` (e.g., `connector:a1b2c3d4e5f6789012345678901234ab`), can receive messages, and emit an activity stream. They are implemented as Dapr actors, just like agents and units.
+A connector has an address of the form `connector:<32-hex-no-dash>` (e.g., `connector:a1b2c3d4e5f6789012345678901234ab`), but it is **not** a routable actor — connectors are non-routable bridges ([ADR-0048](../decisions/0048-event-vs-request-message-semantics.md)). The connector address appears only as the `From` of an inbound event message, identifying the external origin; nothing routes a message *to* a connector.
 
 When a connector is attached to a unit, it:
 
 1. Begins listening for external events from the connected system
-2. Translates those events into platform messages
-3. Routes messages to the unit; the unit's runtime decides whether to answer directly or delegate to a child via the orchestration tools (see [ADR-0039](../decisions/0039-units-are-agents.md))
+2. Translates those events into one-way platform messages
+3. Delivers each message to the unit; the unit's runtime decides whether to answer directly or delegate to a child via the orchestration tools (see [ADR-0039](../decisions/0039-units-are-agents.md))
 4. Registers its skills with the unit, making them available to all agents
 
 ## Skill Discovery
@@ -54,7 +56,7 @@ For straightforward integrations (cron triggers, HTTP webhooks, SMTP), connector
 
 ### Rich Connectors
 
-For bidirectional, stateful, domain-aware integrations (GitHub, Slack, Figma), connectors are custom actors with full event translation, connection management, and skill provision.
+For bidirectional, stateful, domain-aware integrations (GitHub, Slack, Figma), connectors are custom code — webhook handlers, event translators, and skill registries — with full event translation, connection management, and skill provision. They are not actors; nothing routes a message to a connector.
 
 ## Authentication
 

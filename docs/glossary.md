@@ -43,10 +43,7 @@ The five-step reasoning process agents use during initiative: Perceive, Reflect,
 The active shared space where participants converse, coordinate, and get work done. The UX active-workspace surface — what a user opens to do something today. Recorded by the system as a **Thread** and presented in product navigation as an **Engagement**. Example phrasing: "Open collaboration with the writing agent." See `docs/concepts/threads.md` for positioning across the three layers (Thread / Engagement / Collaboration).
 
 **Connector**
-A pluggable adapter bridging an external system (GitHub, Slack, Figma, etc.) to a unit. Provides event translation (external events become platform messages) and skills (capabilities agents can use).
-
-**Connector Actor (ConnectorActor)**
-The Dapr virtual actor implementing a connector. Manages event translation, outbound skills, and connection lifecycle.
+A pluggable adapter bridging an external system (GitHub, Slack, Figma, etc.) to a unit. Provides event translation (external events become one-way platform messages) and skills (capabilities agents can use). A connector is a non-routable bridge — not an actor; nothing routes a message to it ([ADR-0048](decisions/0048-event-vs-request-message-semantics.md)).
 
 **Conversation**
 **Superseded by Thread.** The pre-v0.1 term for what is now a thread. v0.1 leaves a free hand on schema and API change (see `docs/architecture/thread-model.md` § Q10 — no migration, no legacy partition), so there is no `ConversationId` field surviving on disk; the rename is uniform. See **Thread**.
