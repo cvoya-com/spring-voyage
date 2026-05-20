@@ -52,8 +52,12 @@ const EXPLORER_HUMANS_PREFIX = "/explorer/humans/";
  * Pull the selected node id from the current pathname.
  *
  * - `/explorer/units/<id>`  → returns `<id>` (unit/agent/tenant address)
- * - `/explorer/humans/<id>` → returns `human:<id>` so the human node is
- *   looked up in the tree by its scheme-prefixed address (#2517).
+ * - `/explorer/humans/<id>` → returns `human://<no-dash-guid>` so the
+ *   human node is looked up in the tree by its scheme-prefixed address
+ *   (#2517). The UUID is normalised to no-dash form here because the
+ *   server emits human node ids as `human://<no-dash-guid>` (using
+ *   `GuidFormatter.Format`), while the URL may carry either form; the
+ *   `byId` index key must match the server-emitted form exactly (#2531).
  */
 function selectedIdFromPathname(pathname: string): string | undefined {
   if (pathname.startsWith(EXPLORER_UNITS_PREFIX)) {
@@ -71,7 +75,13 @@ function selectedIdFromPathname(pathname: string): string | undefined {
     if (!raw) return undefined;
     // Re-hydrate the `human://<guid>` address so the tree index can resolve
     // it against the canonical node id emitted by the server (#2517).
-    return `human://${decodeURIComponent(raw)}`;
+    // Normalise to no-dash so the key matches the `byId` entry regardless
+    // of whether the URL carries the dashed or no-dash UUID form (#2531).
+    const decoded = decodeURIComponent(raw);
+    const nodash = decoded.replace(/-/g, "");
+    const normalized =
+      /^[0-9a-f]{32}$/i.test(nodash) ? nodash : decoded;
+    return `human://${normalized}`;
   }
   return undefined;
 }
@@ -215,8 +225,15 @@ function adaptValidatedNode(node: ValidatedTenantTreeNode): TreeNode {
 /**
  * #2266: parse the Guid out of an Explorer `human:<guid>` selection.
  * Accepts both `human:<guid>` and `human://<guid>`. Returns the Guid
- * when matched, `null` otherwise so the caller can fall through to
- * unit-tree resolution.
+ * in no-dash 32-char hex form (CONVENTIONS wire format for URL path
+ * segments) when matched, `null` otherwise so the caller can fall
+ * through to unit-tree resolution.
+ *
+ * Emitting no-dash keeps the `/explorer/humans/<guid>` URL segment
+ * consistent with the no-dash convention used for unit/agent ids and
+ * ensures round-trips through `selectedIdFromPathname` produce a key
+ * that matches the server-emitted `human://<no-dash-guid>` node id
+ * in the `byId` index (#2531).
  */
 function parseHumanSelection(raw: string): string | null {
   const candidate = raw.startsWith("human://")
@@ -228,8 +245,8 @@ function parseHumanSelection(raw: string): string | null {
   const UUID_RE =
     /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
   if (!UUID_RE.test(candidate)) return null;
-  if (candidate.length === 32) {
-    return `${candidate.slice(0, 8)}-${candidate.slice(8, 12)}-${candidate.slice(12, 16)}-${candidate.slice(16, 20)}-${candidate.slice(20)}`;
-  }
-  return candidate;
+  // Always emit no-dash form for the URL path segment (CONVENTIONS §2
+  // "wire form on URLs"). Strip any dashes so both dashed and no-dash
+  // inputs produce the canonical 32-char hex output.
+  return candidate.replace(/-/g, "");
 }
