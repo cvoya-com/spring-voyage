@@ -10,6 +10,14 @@ The participant-set model and its design rationale are settled in [`docs/archite
 
 ---
 
+## Domain Messaging Is One-Way
+
+Domain messages are **one-way events**: a message delivered to a unit or agent is a notification that something happened — a request from a person, a connector-translated external event, a timer, or work reported by another agent. No sender is blocked on a return value.
+
+When a dispatch completes, the runtime's response is **recorded on the originating thread** (`MessageRouter.PersistAsync` writes the `messages` row) and is **never routed back** to `Message.From`. A unit/agent that wants to respond acts through its tools or sends a *new* one-way message on the thread. The thread is the correlation primitive; request/reply, where a flow needs it, is a pattern built on top — not a transport feature.
+
+Control-plane queries (`StatusQuery`, `HealthCheck`) keep a synchronous reply: they are in-actor infrastructure probes, not domain messaging. See [ADR-0048](../decisions/0048-event-vs-request-message-semantics.md).
+
 ## Agent Mailbox & Message Processing
 
 ### The Core Question: How Does an Agent Handle Concurrent Messages?
@@ -102,7 +110,7 @@ msg4: (T1)                   → routed to T1's FIFO queue
 
 **Lifelong record (ADR-0030, #2074).** A thread is the unique, persistent, system-level record for a participant set; it carries no thread-level lifecycle state. The legacy operator-driven close API (`POST /threads/{id}/close`) and the `ThreadClosed` activity event were vestiges of the pre-#1268 chat-container metaphor and have been removed. The legitimate "I'm done with this thread" semantic is a per-(thread, participant) `ParticipantStateChanged` transition to `removed`.
 
-**Auto-clear on dispatch failure (#1036).** When the off-turn `RunDispatchAsync` task observes a non-zero `ExitCode` on the dispatcher response (or an unhandled exception), the actor emits an `ErrorOccurred` event with the exit code + first stderr line, still routes the failure response back to the original sender, and then self-invokes `ClearThreadDispatchAsync` via `IActorProxyFactory` so the state mutation runs on a fresh actor turn (the off-turn dispatch task must not touch `StateManager` directly). The clear helper removes the in-flight pointer for that thread, emits a `StateChanged` Active→Idle event, and lets the next per-thread dispatch proceed — so a single failed dispatch no longer permanently bricks an agent.
+**Auto-clear on dispatch failure (#1036).** When the off-turn `RunDispatchAsync` task observes a non-zero `ExitCode` on the dispatcher response (or an unhandled exception), the actor emits an `ErrorOccurred` event with the exit code + first stderr line, still records the failure response on the originating thread (domain messaging is one-way — ADR-0048; the response is recorded, not routed back to a sender), and then self-invokes `ClearThreadDispatchAsync` via `IActorProxyFactory` so the state mutation runs on a fresh actor turn (the off-turn dispatch task must not touch `StateManager` directly). The clear helper removes the in-flight pointer for that thread, emits a `StateChanged` Active→Idle event, and lets the next per-thread dispatch proceed — so a single failed dispatch no longer permanently bricks an agent.
 
 ### Asynchronous Work Dispatch & Cancellation
 

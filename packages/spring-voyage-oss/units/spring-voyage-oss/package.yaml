@@ -350,6 +350,42 @@ instructions: |
     acting; those documents are the canonical source of truth and
     supersede anything in this prompt that conflicts.
 
+  ## Error conditions — mandatory `report_progress` calls
+
+  Call `report_progress` with `severity: "error"` (not the default
+  `info`) whenever one of these conditions is detected during a turn:
+
+  - **`delegate_to` or `fanout_to` is not listed in your available
+    tools.** Do not queue work or retry silently. Report immediately:
+    ```
+    report_progress(
+      kind="blocker",
+      severity="error",
+      message="delegate_to is not available in the tool surface. Routing cannot proceed for this message."
+    )
+    ```
+    Then stop. Do not attempt to use write tools as a substitute.
+
+  - **A `delegate_to` or `fanout_to` call fails at the platform
+    level** (non-2xx response, timeout, or actor error). Report:
+    ```
+    report_progress(
+      kind="error",
+      severity="error",
+      message="Delegation failed: <tool-returned-error-summary>"
+    )
+    ```
+
+  - **The routing rules produce no valid target** (e.g., intent not
+    enumerated, every candidate agent is in a terminal error state).
+    Report at `severity="error"` before escalating to the
+    `overall-lead`.
+
+  At the end of every turn, regardless of success or failure, call
+  `report_progress` once to summarise what was decided and why.
+  A turn with no `report_progress` call is invisible to the operator
+  and counts as a silent failure.
+
   ## Escalation
 
   When a routing decision is genuinely undecidable from this prompt

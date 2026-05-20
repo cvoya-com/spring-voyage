@@ -222,19 +222,19 @@ spec:
       value: "https://api.example.com/webhook"
 ```
 
-### Rich Connectors (Custom Actors)
+### Rich Connectors (Custom Code)
 
 For bidirectional, stateful integrations, create a .NET project:
 
 ```
 packages/my-domain/connectors/my-service/
   Spring.Connector.MyService.csproj
-  MyServiceConnectorActor.cs
+  MyServiceConnector.cs
   MyServiceEventTranslator.cs
   MyServiceSkills.cs
 ```
 
-Rich connectors implement the connector interface, translate external events to platform messages, and provide skills for agents.
+Rich connectors translate external events into one-way platform messages and register skills for agents. A connector is a non-routable bridge — it is code, not an actor, and nothing routes a message to it ([ADR-0048](../decisions/0048-event-vs-request-message-semantics.md)).
 
 ## Building and Testing
 

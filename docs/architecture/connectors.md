@@ -6,7 +6,7 @@
 
 ## Connector Model
 
-Connectors bridge external systems to the unit. They provide two things: **event translation** (external events → messages) and **skills** (capabilities agents can use to act on external systems).
+Connectors bridge external systems to the unit. They provide two things: **event translation** (external events → one-way messages) and **skills** (capabilities agents can use to act on external systems). A connector is a **non-routable bridge** — it is not an actor and never receives a routed message ([ADR-0048](../decisions/0048-event-vs-request-message-semantics.md)).
 
 ### Connector Categories
 
@@ -22,15 +22,14 @@ Connectors bridge external systems to the unit. They provide two things: **event
 | **Infrastructure**     | AWS, GCP, Kubernetes            | Alerts, deployments, metrics   | Deploy, scale, configure             |
 
 
-### Connector Interface
+### Connector Surfaces
 
-```csharp
-interface IConnector : IMessageReceiver, IActivityObservable
-{
-    ConnectorCapabilities GetCapabilities();
-    ConnectionStatus GetStatus();
-}
-```
+A connector exposes two surfaces and no more:
+
+1. **Inbound event translation** — it receives external events (webhooks, polled feeds) and translates them into one-way domain messages addressed at the bound unit.
+2. **Outbound skills** — it optionally registers an `ISkillRegistry` whose tools the unit's agents invoke to act on the external system.
+
+A connector is **not** an actor and exposes no message-receiving interface — nothing routes a domain message to a connector ([ADR-0048](../decisions/0048-event-vs-request-message-semantics.md)).
 
 ### Implementation Tiers
 
@@ -46,8 +45,8 @@ spec:
   type: bindings.http
 ```
 
-**Rich connectors** — Custom `ConnectorActor` (code):
-For GitHub, Slack, Figma — bidirectional, stateful, domain-aware. Translates events, manages connections, provides skills.
+**Rich connectors** — custom code (not actors):
+For GitHub, Slack, Figma — bidirectional, stateful, domain-aware. Custom webhook handlers and event translators, connection management, and an `ISkillRegistry`. A rich connector is code, not an actor — nothing routes a message to it.
 
 ### Connector tool surfaces
 
