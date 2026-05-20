@@ -1,8 +1,0 @@
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "list_children.input",
-  "description": "Input for the list_children orchestration tool — enumerates a unit's direct children. Takes no arguments.",
-  "type": "object",
-  "properties": {},
-  "additionalProperties": false
-}

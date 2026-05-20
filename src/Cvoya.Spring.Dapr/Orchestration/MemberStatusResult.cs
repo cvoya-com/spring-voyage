@@ -5,13 +5,13 @@ namespace Cvoya.Spring.Dapr.Orchestration;
 
 /// <summary>
 /// Strongly-typed result for
-/// <see cref="OrchestrationToolHandlers.HandleQueryChildStatusAsync"/>,
-/// matching the <c>query_child_status.output.schema.json</c> shape from
+/// <see cref="OrchestrationToolHandlers.HandleQueryStatusAsync"/>,
+/// matching the <c>query_status.output.schema.json</c> shape from
 /// ADR-0039 §3.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="Status"/> is required and reports the child's lifecycle
+/// <see cref="Status"/> is required and reports the target's lifecycle
 /// state mapped onto the closed schema enum
 /// (<c>ready | busy | stopped | error | unknown</c>). The other two
 /// fields are optional per the schema and are omitted from the wire
@@ -32,9 +32,9 @@ namespace Cvoya.Spring.Dapr.Orchestration;
 /// </para>
 /// </remarks>
 /// <param name="Status">Lifecycle status (ready / busy / stopped / error / unknown).</param>
-/// <param name="LastActivityAt">ISO-8601 timestamp of the child's most recent activity; <c>null</c> when not known.</param>
-/// <param name="BusyOnThread">Thread id the child is currently busy on; <c>null</c> when idle or not known.</param>
-public sealed record ChildStatusResult(
+/// <param name="LastActivityAt">ISO-8601 timestamp of the target's most recent activity; <c>null</c> when not known.</param>
+/// <param name="BusyOnThread">Thread id the target is currently busy on; <c>null</c> when idle or not known.</param>
+public sealed record MemberStatusResult(
     string Status,
     DateTimeOffset? LastActivityAt = null,
     string? BusyOnThread = null);

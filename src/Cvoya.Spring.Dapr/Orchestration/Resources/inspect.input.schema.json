@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "inspect.input",
+  "description": "Input for inspect — returns metadata (role, description, declared expertise, current status) for an addressable target.",
+  "type": "object",
+  "properties": {
+    "address": {
+      "type": "string",
+      "description": "Canonical scheme:no-dash-hex address of any addressable target in the caller's tenant."
+    }
+  },
+  "required": ["address"],
+  "additionalProperties": false
+}

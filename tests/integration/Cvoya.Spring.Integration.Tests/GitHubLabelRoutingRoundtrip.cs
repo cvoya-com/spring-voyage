@@ -83,7 +83,7 @@ public class GitHubLabelRoutingRoundtrip
         await subscriber.StartAsync(TestContext.Current.CancellationToken);
         try
         {
-            await harness.Handlers.HandleDelegateToChildAsync(
+            await harness.Handlers.HandleDelegateToAsync(
                 Unit,
                 OssTenantIds.Default,
                 Child,

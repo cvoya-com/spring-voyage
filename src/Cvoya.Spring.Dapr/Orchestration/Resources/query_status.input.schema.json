@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "query_status.input",
+  "description": "Input for query_status — cheap status check for an addressable target without a full inspect.",
+  "type": "object",
+  "properties": {
+    "address": {
+      "type": "string",
+      "description": "Canonical scheme:no-dash-hex address of any addressable target in the caller's tenant."
+    }
+  },
+  "required": ["address"],
+  "additionalProperties": false
+}

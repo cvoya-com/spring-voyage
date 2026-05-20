@@ -24,17 +24,17 @@ public static class OrchestrationCallbackEndpoints
     {
         var group = endpoints.MapGroup(RoutePrefix);
 
-        group.MapPost("/list-children", ListChildrenAsync);
-        group.MapPost("/inspect-child", InspectChildAsync);
-        group.MapPost("/delegate-to-child", DelegateToChildAsync);
-        group.MapPost("/fanout-to-children", FanoutToChildrenAsync);
-        group.MapPost("/query-child-status", QueryChildStatusAsync);
+        group.MapPost("/list-members", ListMembersAsync);
+        group.MapPost("/inspect", InspectAsync);
+        group.MapPost("/delegate-to", DelegateToAsync);
+        group.MapPost("/fanout-to", FanoutToAsync);
+        group.MapPost("/query-status", QueryStatusAsync);
 
         return endpoints;
     }
 
-    internal static async Task<IResult> ListChildrenAsync(
-        [FromBody] ListChildrenRequest request,
+    internal static async Task<IResult> ListMembersAsync(
+        [FromBody] ListMembersRequest request,
         CallbackTokenValidator tokenValidator,
         OrchestrationToolHandlers handlers,
         HttpContext httpContext,
@@ -48,18 +48,18 @@ public static class OrchestrationCallbackEndpoints
 
         try
         {
-            var children = await handlers.HandleListChildrenAsync(
+            var members = await handlers.HandleListMembersAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 claims.ThreadId,
                 cancellationToken);
 
-            return Results.Ok(new ListChildrenResponse(
-                children.Select(child => new OrchestrationChildDescriptorPayload(
-                    child.Address.ToString(),
-                    child.DisplayName,
-                    child.Kind,
-                    child.ExecutionConfig)).ToArray()));
+            return Results.Ok(new ListMembersResponse(
+                members.Select(member => new OrchestrationMemberDescriptorPayload(
+                    member.Address.ToString(),
+                    member.DisplayName,
+                    member.Kind,
+                    member.ExecutionConfig)).ToArray()));
         }
         catch (OrchestrationException ex)
         {
@@ -67,8 +67,8 @@ public static class OrchestrationCallbackEndpoints
         }
     }
 
-    internal static async Task<IResult> InspectChildAsync(
-        [FromBody] InspectChildRequest request,
+    internal static async Task<IResult> InspectAsync(
+        [FromBody] InspectRequest request,
         CallbackTokenValidator tokenValidator,
         OrchestrationToolHandlers handlers,
         HttpContext httpContext,
@@ -83,14 +83,14 @@ public static class OrchestrationCallbackEndpoints
 
         try
         {
-            var metadata = await handlers.HandleInspectChildAsync(
+            var metadata = await handlers.HandleInspectAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 target,
                 claims.ThreadId,
                 cancellationToken);
 
-            return Results.Ok(new InspectChildResponse(metadata));
+            return Results.Ok(new InspectResponse(metadata));
         }
         catch (OrchestrationException ex)
         {
@@ -98,8 +98,8 @@ public static class OrchestrationCallbackEndpoints
         }
     }
 
-    internal static async Task<IResult> DelegateToChildAsync(
-        [FromBody] DelegateToChildRequest request,
+    internal static async Task<IResult> DelegateToAsync(
+        [FromBody] DelegateToRequest request,
         CallbackTokenValidator tokenValidator,
         OrchestrationToolHandlers handlers,
         HttpContext httpContext,
@@ -116,7 +116,7 @@ public static class OrchestrationCallbackEndpoints
 
         try
         {
-            var response = await handlers.HandleDelegateToChildAsync(
+            var response = await handlers.HandleDelegateToAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 target,
@@ -125,7 +125,7 @@ public static class OrchestrationCallbackEndpoints
                 claims.ThreadId,
                 cancellationToken);
 
-            return Results.Ok(new DelegateToChildResponse(ToCallbackMessage(response)));
+            return Results.Ok(new DelegateToResponse(ToCallbackMessage(response)));
         }
         catch (OrchestrationException ex)
         {
@@ -133,8 +133,8 @@ public static class OrchestrationCallbackEndpoints
         }
     }
 
-    internal static async Task<IResult> FanoutToChildrenAsync(
-        [FromBody] FanoutToChildrenRequest request,
+    internal static async Task<IResult> FanoutToAsync(
+        [FromBody] FanoutToRequest request,
         CallbackTokenValidator tokenValidator,
         OrchestrationToolHandlers handlers,
         HttpContext httpContext,
@@ -169,7 +169,7 @@ public static class OrchestrationCallbackEndpoints
 
         try
         {
-            var results = await handlers.HandleFanoutToChildrenAsync(
+            var results = await handlers.HandleFanoutToAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 targets,
@@ -178,7 +178,7 @@ public static class OrchestrationCallbackEndpoints
                 claims.ThreadId,
                 cancellationToken);
 
-            return Results.Ok(new FanoutToChildrenResponse(
+            return Results.Ok(new FanoutToResponse(
                 results.Select(result => new FanoutTargetResult(
                     result.Target.ToString(),
                     result.Error is null,
@@ -191,8 +191,8 @@ public static class OrchestrationCallbackEndpoints
         }
     }
 
-    internal static async Task<IResult> QueryChildStatusAsync(
-        [FromBody] QueryChildStatusRequest request,
+    internal static async Task<IResult> QueryStatusAsync(
+        [FromBody] QueryStatusRequest request,
         CallbackTokenValidator tokenValidator,
         OrchestrationToolHandlers handlers,
         HttpContext httpContext,
@@ -207,14 +207,14 @@ public static class OrchestrationCallbackEndpoints
 
         try
         {
-            var status = await handlers.HandleQueryChildStatusAsync(
+            var status = await handlers.HandleQueryStatusAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 target,
                 claims.ThreadId,
                 cancellationToken);
 
-            return Results.Ok(new QueryChildStatusResponse(
+            return Results.Ok(new QueryStatusResponse(
                 status.Status,
                 status.LastActivityAt,
                 status.BusyOnThread));
@@ -414,8 +414,6 @@ public static class OrchestrationCallbackEndpoints
     {
         var statusCode = ex.RejectCode switch
         {
-            OrchestrationException.RejectCodes.OrchestrationTargetNotChild =>
-                StatusCodes.Status404NotFound,
             OrchestrationException.RejectCodes.OrchestrationSelfDelegation =>
                 StatusCodes.Status400BadRequest,
             OrchestrationException.RejectCodes.OrchestrationDepthExceeded =>

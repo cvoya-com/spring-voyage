@@ -37,10 +37,10 @@ After install, the membership graph is editable through the API surface:
 
 Agent and unit membership rows carry the same multi-valued `roles` /
 `expertise` jsonb columns ([ADR-0046 §8](../decisions/0046-unified-members-grammar.md));
-the fields are runtime metadata surfaced through `list_children` / `sv.list_members`,
+the fields are runtime metadata surfaced through `list_members` / `sv.list_members`,
 not platform-decision inputs.
 
-The full child list is exposed to the runtime through `list_children`.
+The full member list is exposed to the runtime through `list_members`.
 
 ## Permissions
 

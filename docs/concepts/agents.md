@@ -71,15 +71,15 @@ The tool surface is closed for v0.1:
 
 | Tool | Description |
 | --- | --- |
-| `list_children` | Returns the unit's current direct children with addresses, display names, kinds, and resolved execution metadata. It has no routing side effect. |
-| `inspect_child` | Returns one child's role, description, declared expertise, and current status. Use it when the runtime needs more context than the child list provides. |
-| `delegate_to_child` | Routes the current message thread to exactly one direct child and waits for that child's response within the turn budget. |
-| `fanout_to_children` | Routes the current work to multiple direct children in parallel and collects one result per target. |
-| `query_child_status` | Returns the last-known execution status for a direct child's thread without a full inspection payload. |
+| `list_members` | Returns the caller's own direct members with addresses, display names, kinds, and resolved execution metadata. Empty for leaf agents. No routing side effect. |
+| `inspect` | Returns metadata (role, description, declared expertise, status) for any addressable target in the caller's tenant. |
+| `delegate_to` | Routes the current message thread to a single addressable target and waits for the response within the turn budget. |
+| `fanout_to` | Routes the current work to multiple addressable targets in parallel and collects one result per target. |
+| `query_status` | Returns the last-known execution status for an addressable target without a full inspection payload. |
 
-The launcher attaches these tools automatically when children exist. Unit
-operators and runtime authors do not configure a separate routing layer for
-them.
+The launcher attaches these tools unconditionally for every `agent://` and
+`unit://` runtime; membership is not a gate. Unit operators and runtime
+authors do not configure a separate routing layer for them.
 
 ## Orchestration decisions
 
@@ -95,12 +95,12 @@ When a runtime calls a delegation tool, the platform publishes an
 | `ResultMessageIds` | `Guid[]` | IDs of the child responses. |
 | `Reason` | `string?` | Runtime-supplied explanation (failure reason or routing rationale). |
 
-Delegation events use `Kind = Delegate` for `delegate_to_child` and
-`Kind = Fanout` for `fanout_to_children`. `Status` is `Routed` when the
-platform routed the child message and `Failed` when the tool call could not
+Delegation events use `Kind = Delegate` for `delegate_to` and
+`Kind = Fanout` for `fanout_to`. `Status` is `Routed` when the
+platform routed the target message and `Failed` when the tool call could not
 complete. The domain enum also reserves `Inspect`, `NoOp`, and `Accepted` for
 explicit decision sequences and accepted-but-not-yet-routed work. `Targets`
-contains the child addresses, `ResultMessageIds` contains any child response
+contains the target addresses, `ResultMessageIds` contains any response
 message ids, and `Reason` is optional runtime-supplied text.
 
 See [ADR-0039 § 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence)

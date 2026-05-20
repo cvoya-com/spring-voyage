@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "inspect_child.output",
-  "description": "Output of inspect_child — single child descriptor.",
+  "title": "inspect.output",
+  "description": "Output of inspect — single target descriptor.",
   "type": "object",
   "properties": {
     "address": {
@@ -25,7 +25,7 @@
     },
     "status": {
       "type": "string",
-      "description": "Current lifecycle / readiness status (runtime-defined; see query_child_status for the canonical state-only shape)."
+      "description": "Current lifecycle / readiness status (runtime-defined; see query_status for the canonical state-only shape)."
     }
   },
   "required": ["address", "displayName", "kind"],

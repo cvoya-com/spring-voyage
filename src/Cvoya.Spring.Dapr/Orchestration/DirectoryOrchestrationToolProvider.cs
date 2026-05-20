@@ -8,110 +8,52 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
-using Cvoya.Spring.Core.Units;
-
-using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default <see cref="IOrchestrationToolProvider"/> backing the v0.1
 /// orchestration-tool surface defined in ADR-0039 §3. Returns the closed
-/// five-tool set when the addressed entity has at least one child in the
-/// member graph; returns an empty array otherwise. Address scheme is not a
-/// gate.
+/// five-tool set unconditionally for every <c>agent://</c> or <c>unit://</c>
+/// address; other schemes return an empty array.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The provider reads the entity's member list via the EF-backed
-/// <see cref="IUnitMemberGraphStore"/>. Empty list ⇒ no tools attached;
-/// non-empty ⇒ return the cached descriptor set. Whether the address is
-/// <c>agent://</c> or <c>unit://</c> is not consulted: an agent that the
-/// directory records as having members gets the toolset, and a unit that
-/// the directory records as empty does not. Schemes the membership store
-/// has no rows for (e.g. <c>human://</c>, <c>connector://</c>) naturally
-/// return an empty result.
+/// Per the 2026-05-19 ADR-0039 amendment (#2536) the membership gate is
+/// removed: orchestration is not a separate message-sending mechanism with
+/// its own attachment policy, so the launcher unconditionally attaches the
+/// closed toolset for callers whose scheme is addressable. Leaf agents and
+/// units with no members both get the same toolset; <c>list_members</c>
+/// returns an empty array for them, and any delegation attempt fails on the
+/// downstream surfaces (no resolvable target, self-delegation, etc.) without
+/// the provider needing to gate on membership.
 /// </para>
 /// <para>
 /// The five descriptors are static — built once from embedded JSON schema
-/// resources at startup — so per-call work is bounded by the membership
-/// read. The schemas live next to this file under
+/// resources at startup — so per-call work is O(1). The schemas live next
+/// to this file under
 /// <c>Orchestration/Resources/&lt;tool-name&gt;.&lt;input|output&gt;.schema.json</c>
 /// and are wired in as <c>&lt;EmbeddedResource&gt;</c> entries in
 /// <c>Cvoya.Spring.Dapr.csproj</c>.
 /// </para>
-/// <para>
-/// The <see cref="IOrchestrationToolProvider.GetOrchestrationTools"/>
-/// signature is intentionally synchronous (the launcher consults it on a
-/// path that has already resolved every async dependency by the time
-/// orchestration tools are computed). The membership read goes through
-/// <see cref="IUnitMemberGraphStore"/> — the same EF-backed seam
-/// <see cref="Cvoya.Spring.Dapr.Actors.UnitActor"/> uses internally — so this
-/// provider does <b>not</b> round-trip through a Dapr actor proxy. Issue
-/// #2081: using the actor proxy here caused a re-entrancy deadlock when
-/// the provider was invoked from inside a <c>UnitActor</c> turn (Dapr
-/// actors are turn-based; a self-call blocks until <c>HttpClient.Timeout</c>
-/// fires). The sync-over-async bridge stays as
-/// <c>Task.Run(...).GetAwaiter().GetResult()</c> — same pattern used
-/// elsewhere in this assembly — but the work it awaits is now a plain EF
-/// read that cannot re-enter the actor.
-/// </para>
 /// </remarks>
 public class DirectoryOrchestrationToolProvider : IOrchestrationToolProvider
 {
-    private readonly IUnitMemberGraphStore _memberGraphStore;
-    private readonly ILogger<DirectoryOrchestrationToolProvider> _logger;
-    private readonly OrchestrationToolDescriptor[] _toolset;
-
-    public DirectoryOrchestrationToolProvider(
-        IUnitMemberGraphStore memberGraphStore,
-        ILogger<DirectoryOrchestrationToolProvider> logger)
-    {
-        _memberGraphStore = memberGraphStore;
-        _logger = logger;
-        _toolset = LoadStaticToolset();
-    }
+    private readonly OrchestrationToolDescriptor[] _toolset = LoadStaticToolset();
 
     /// <inheritdoc />
     public OrchestrationToolDescriptor[] GetOrchestrationTools(Address agent, Guid threadId)
     {
         ArgumentNullException.ThrowIfNull(agent);
 
-        return HasChildren(agent)
-            ? _toolset
-            : Array.Empty<OrchestrationToolDescriptor>();
-    }
-
-    /// <summary>
-    /// Reads the entity's persisted member list directly from the EF-backed
-    /// <see cref="IUnitMemberGraphStore"/> and reports whether at least
-    /// one member is present. Failures (transient EF glitch) degrade to
-    /// "no children": attaching tools to an entity whose membership we
-    /// could not confirm would surface broken delegation calls to the
-    /// runtime, so the conservative answer is to suppress the toolset
-    /// until the next launch retry.
-    /// </summary>
-    private bool HasChildren(Address address)
-    {
-        try
+        // Schemes outside agent:// and unit:// (e.g. human://, connector://)
+        // are not orchestration callers — return empty rather than the
+        // closed five-tool set.
+        if (!string.Equals(agent.Scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(agent.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
         {
-            // ADR-0039's IOrchestrationToolProvider contract is sync; the
-            // store is async. Mirror the Task.Run(...).GetResult() pattern
-            // used elsewhere in this assembly to bridge the two without
-            // risking a captured-context deadlock. The EF read goes
-            // straight to Postgres — no Dapr actor proxy, no re-entrancy
-            // risk (#2081).
-            var members = Task.Run(() =>
-                _memberGraphStore.GetMembersAsync(address.Id)).GetAwaiter().GetResult();
+            return Array.Empty<OrchestrationToolDescriptor>();
+        }
 
-            return members is { Count: > 0 };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(
-                ex,
-                "Failed to read members for {Address} while resolving orchestration tools; suppressing toolset for this launch.",
-                address);
-            return false;
-        }
+        return _toolset;
     }
 
     /// <summary>
@@ -126,11 +68,11 @@ public class DirectoryOrchestrationToolProvider : IOrchestrationToolProvider
 
         return new[]
         {
-            BuildDescriptor(assembly, OrchestrationToolName.ListChildren, "list_children"),
-            BuildDescriptor(assembly, OrchestrationToolName.InspectChild, "inspect_child"),
-            BuildDescriptor(assembly, OrchestrationToolName.DelegateToChild, "delegate_to_child"),
-            BuildDescriptor(assembly, OrchestrationToolName.FanoutToChildren, "fanout_to_children"),
-            BuildDescriptor(assembly, OrchestrationToolName.QueryChildStatus, "query_child_status"),
+            BuildDescriptor(assembly, OrchestrationToolName.ListMembers, "list_members"),
+            BuildDescriptor(assembly, OrchestrationToolName.Inspect, "inspect"),
+            BuildDescriptor(assembly, OrchestrationToolName.DelegateTo, "delegate_to"),
+            BuildDescriptor(assembly, OrchestrationToolName.FanoutTo, "fanout_to"),
+            BuildDescriptor(assembly, OrchestrationToolName.QueryStatus, "query_status"),
         };
     }
 

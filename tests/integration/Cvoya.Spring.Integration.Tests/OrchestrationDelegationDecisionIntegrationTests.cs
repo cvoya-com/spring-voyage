@@ -49,7 +49,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         new(Address.AgentScheme, new Guid("aaaaaaaa-0000-0000-0000-000000001830"));
 
     [Fact]
-    public async Task HandleDelegateToChild_DirectChild_EmitsRoutedDecisionEvent()
+    public async Task HandleDelegateTo_TargetIsMember_EmitsRoutedDecisionEvent()
     {
         // Arrange
         var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo);
@@ -63,7 +63,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
             .Returns(response);
 
         // Act
-        var result = await harness.Handlers.HandleDelegateToChildAsync(
+        var result = await harness.Handlers.HandleDelegateToAsync(
             ParentUnit,
             TenantId,
             ChildOne,
@@ -86,7 +86,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_ChildErrors_EmitsFailedDecisionEventWithTenant()
+    public async Task HandleDelegateTo_TargetErrors_EmitsFailedDecisionEventWithTenant()
     {
         // Arrange
         var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo);
@@ -101,7 +101,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
 
         // Act
         await Should.ThrowAsync<InvalidOperationException>(() =>
-            harness.Handlers.HandleDelegateToChildAsync(
+            harness.Handlers.HandleDelegateToAsync(
                 ParentUnit,
                 TenantId,
                 ChildOne,
@@ -124,7 +124,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
     }
 
     [Fact]
-    public async Task HandleFanoutToChildren_AllChildrenSucceed_EmitsRoutedDecisionEvent()
+    public async Task HandleFanoutTo_AllTargetsSucceed_EmitsRoutedDecisionEvent()
     {
         // Arrange
         var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo, ChildThree);
@@ -148,7 +148,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
             .Returns(responseThree);
 
         // Act
-        var results = await harness.Handlers.HandleFanoutToChildrenAsync(
+        var results = await harness.Handlers.HandleFanoutToAsync(
             ParentUnit,
             TenantId,
             [ChildOne, ChildTwo, ChildThree],
@@ -173,7 +173,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
     }
 
     [Fact]
-    public async Task HandleFanoutToChildren_OneChildErrors_EmitsFailedDecisionEvent()
+    public async Task HandleFanoutTo_OneTargetErrors_EmitsFailedDecisionEvent()
     {
         // Arrange
         var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo, ChildThree);
@@ -197,7 +197,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
             .Returns(responseThree);
 
         // Act
-        var results = await harness.Handlers.HandleFanoutToChildrenAsync(
+        var results = await harness.Handlers.HandleFanoutToAsync(
             ParentUnit,
             TenantId,
             [ChildOne, ChildTwo, ChildThree],

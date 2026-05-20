@@ -6,33 +6,33 @@ namespace Cvoya.Spring.Dispatcher;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-public sealed record ListChildrenRequest(
+public sealed record ListMembersRequest(
     [property: JsonPropertyName("callerAddress")] string CallerAddress,
     [property: JsonPropertyName("threadId")] Guid ThreadId);
 
 /// <summary>
-/// Wire envelope returned by <c>list_children</c>. Matches the descriptor
-/// shape advertised by <c>list_children.output.schema.json</c> per
+/// Wire envelope returned by <c>list_members</c>. Matches the descriptor
+/// shape advertised by <c>list_members.output.schema.json</c> per
 /// ADR-0039 §3.
 /// </summary>
-public sealed record ListChildrenResponse(
-    [property: JsonPropertyName("children")] OrchestrationChildDescriptorPayload[] Children);
+public sealed record ListMembersResponse(
+    [property: JsonPropertyName("members")] OrchestrationMemberDescriptorPayload[] Members);
 
-public sealed record OrchestrationChildDescriptorPayload(
+public sealed record OrchestrationMemberDescriptorPayload(
     [property: JsonPropertyName("address")] string Address,
     [property: JsonPropertyName("displayName")] string DisplayName,
     [property: JsonPropertyName("kind")] string Kind,
     [property: JsonPropertyName("executionConfig")] JsonElement? ExecutionConfig);
 
-public sealed record InspectChildRequest(
+public sealed record InspectRequest(
     [property: JsonPropertyName("callerAddress")] string CallerAddress,
     [property: JsonPropertyName("targetAddress")] string TargetAddress,
     [property: JsonPropertyName("threadId")] Guid ThreadId);
 
-public sealed record InspectChildResponse(
+public sealed record InspectResponse(
     [property: JsonPropertyName("metadata")] IReadOnlyDictionary<string, object?> Metadata);
 
-public sealed record DelegateToChildRequest(
+public sealed record DelegateToRequest(
     [property: JsonPropertyName("callerAddress")] string CallerAddress,
     [property: JsonPropertyName("targetAddress")] string TargetAddress,
     [property: JsonPropertyName("threadId")] Guid ThreadId,
@@ -40,10 +40,10 @@ public sealed record DelegateToChildRequest(
     [property: JsonPropertyName("messageContent")] string MessageContent,
     [property: JsonPropertyName("reason")] string? Reason);
 
-public sealed record DelegateToChildResponse(
+public sealed record DelegateToResponse(
     [property: JsonPropertyName("message")] OrchestrationCallbackMessage? Message);
 
-public sealed record FanoutToChildrenRequest(
+public sealed record FanoutToRequest(
     [property: JsonPropertyName("callerAddress")] string CallerAddress,
     [property: JsonPropertyName("targetAddresses")] string[] TargetAddresses,
     [property: JsonPropertyName("threadId")] Guid ThreadId,
@@ -51,7 +51,7 @@ public sealed record FanoutToChildrenRequest(
     [property: JsonPropertyName("messageContent")] string MessageContent,
     [property: JsonPropertyName("reason")] string? Reason);
 
-public sealed record FanoutToChildrenResponse(
+public sealed record FanoutToResponse(
     [property: JsonPropertyName("results")] FanoutTargetResult[] Results);
 
 public sealed record FanoutTargetResult(
@@ -60,18 +60,18 @@ public sealed record FanoutTargetResult(
     [property: JsonPropertyName("errorMessage")] string? ErrorMessage,
     [property: JsonPropertyName("message")] OrchestrationCallbackMessage? Message);
 
-public sealed record QueryChildStatusRequest(
+public sealed record QueryStatusRequest(
     [property: JsonPropertyName("callerAddress")] string CallerAddress,
     [property: JsonPropertyName("targetAddress")] string TargetAddress,
     [property: JsonPropertyName("threadId")] Guid ThreadId);
 
 /// <summary>
-/// Wire envelope returned by <c>query_child_status</c>. Matches
-/// <c>query_child_status.output.schema.json</c> per ADR-0039 §3:
+/// Wire envelope returned by <c>query_status</c>. Matches
+/// <c>query_status.output.schema.json</c> per ADR-0039 §3:
 /// <c>status</c> is required, <c>lastActivityAt</c> and <c>busyOnThread</c>
 /// are optional and are emitted only when known.
 /// </summary>
-public sealed record QueryChildStatusResponse(
+public sealed record QueryStatusResponse(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("lastActivityAt"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? LastActivityAt = null,
     [property: JsonPropertyName("busyOnThread"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? BusyOnThread = null);

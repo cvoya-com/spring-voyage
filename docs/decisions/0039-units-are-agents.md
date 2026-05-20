@@ -1,6 +1,13 @@
 # 0039 — Units are agents (orchestration is runtime behaviour, not platform configuration)
 
-> **Amendment (2026-05-19) — entity-type gating removed:** §3's structural assumption that "leaf agents have no children" is no longer a platform gate. The platform makes no entity-type assumption about who can orchestrate; the gate is purely membership-based (does the directory record a child?). §3.3 gate 2 ("Caller is a unit (`unit://` scheme)") is **removed** — agents may call orchestration tools, and the membership / self-delegation / depth / tenant gates handle the actual safety properties. The §3.3 Rejection "live 'does this address have children right now?' check instead of scheme" moves from Rejected → **Adopted**. Per-tool `IOrchestrationToolProvider` resolution now consults `IUnitMemberGraphStore` for every address regardless of scheme; the SDK / dispatcher no longer mints or maps an `OrchestrationCallerIsNotUnit` reject code. Tracked under [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536). The body below preserves the original §3.3 gate 2 prose with strike-through for history.
+> **Amendment (2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)) — orchestration is messaging, no separate gates:** the platform-side orchestration surface is not a separate message-sending mechanism with its own attachment or authorisation policy on top of ordinary messaging. The following changes apply to §3:
+>
+> 1. **§3.3 gate 2 ("Caller is a unit (`unit://` scheme)") is removed.** Agents may call orchestration tools; the membership / self-delegation / depth / tenant gates handle the actual safety properties. The SDK / dispatcher no longer mints or maps an `OrchestrationCallerIsNotUnit` reject code.
+> 2. **The membership-based toolset attachment gate is removed.** The §3 "Tools attached only when children exist" rule is superseded: the launcher unconditionally attaches the closed five-tool set for every `agent://` and `unit://` address. `DirectoryOrchestrationToolProvider` no longer reads the membership graph; `IUnitMemberGraphStore` is no longer a dependency of that provider.
+> 3. **§3.3 gate 3 ("Target is a direct child") is removed.** A caller may target any addressable entity in the same tenant — peer, sibling, parent, or member. The `OrchestrationTargetNotChild` reject code (and the dispatcher's 404 / SDK `TargetNotChild` exception mapping) is dropped. The §3.3 "live 'does this address have children right now?' check instead of scheme" alternative is therefore moot for attachment purposes and stays Rejected.
+> 4. **Tool wire names drop the "child" / "children" framing.** New names per [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536): `list_members`, `inspect`, `delegate_to`, `fanout_to`, `query_status`. The C# enum members are `ListMembers`, `Inspect`, `DelegateTo`, `FanoutTo`, `QueryStatus`. `list_members` returns the caller's own direct members (empty for leaf agents); the other four tools accept any addressable target. C# types `OrchestrationChildDescriptor` / `ChildStatusResult` rename to `OrchestrationMemberDescriptor` / `MemberStatusResult`; embedded JSON schemas rename to match.
+>
+> The body below preserves the original §3 / §3.3 gate-2 / gate-3 / membership-attachment prose with strike-through for history.
 
 - **Status:** Proposed — 2026-05-07 — A unit is an agent: it shares the agent's mailbox, execution configuration, and runtime; the only structural difference is that a unit has children. The platform stops modelling orchestration policy as a unit-level configuration concept; `IOrchestrationStrategy`, `AiOrchestrationStrategy`, `LabelRoutedOrchestrationStrategy`, `WorkflowOrchestrationStrategy`, `LabelRoutingPolicy`, the orchestration-strategy store, and the orchestration HTTP endpoints are removed. Where a unit has children, the runtime launcher attaches a fixed set of **orchestration tools** to the container (list children, inspect child, delegate to child, fan out, ask child status); the agent's instructions decide whether and how to use them. Orchestration **decisions** become first-class evidence — a structured `OrchestrationDecision` event recorded every time a unit's runtime invokes a delegation tool. Inheritance semantics generalise: top-level agents are tenant-parented like top-level units; multi-parent agents must define their own execution configuration unless every selected parent resolves identical config; reparenting revalidates the same rule. Container runtime selection (podman vs docker) is removed from operator-facing surfaces; it is platform configuration. Clean-deploy hard rename — no shim, no transitional flag.
 - **Date:** 2026-05-07
@@ -83,19 +90,19 @@ Rejected: replace the strategy taxonomy with a single `IUnitDispatcher` slot who
 
 When a unit's runtime is launched for a turn, the launcher attaches a fixed set of orchestration tools to the container in addition to whatever skills the unit's instructions configure. The tool surface is uniform across all runtimes that support tool calling (`spring-voyage`, `claude-code`, `codex`, `gemini`); a custom runtime that does not support tool calls can still respond directly but cannot delegate.
 
-The v0.1 orchestration-tool surface:
+The v0.1 orchestration-tool surface (wire names per the 2026-05-19 amendment, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)):
 
 | Tool name | Purpose | Returns | Side effect |
 |---|---|---|---|
-| `list_children` | Enumerate this unit's direct children with their addresses, display names, kinds (`agent` / `unit`), and (resolved) execution config. | Array of child descriptors. | None — emits an `OrchestrationDecision` with `kind: inspect` only when explicitly invoked by the runtime as part of a decision sequence; a bare list does not record. |
-| `inspect_child <address>` | Return the child's metadata: role, description, declared expertise, current status. | Single descriptor. | None. |
-| `delegate_to_child <address> <message>` | Forward the inbound message to the named child and await the child's response (synchronous within the turn budget). | The child's response message. | Records an `OrchestrationDecision` with `kind: delegate`. |
-| `fanout_to_children <addresses[]> <message>` | Forward to multiple children in parallel; collect responses with a per-target timeout. | Array of `(address, response, status)` triples. | Records an `OrchestrationDecision` with `kind: fanout`. |
-| `query_child_status <address>` | Cheap status check for a child without a full inspect. | `{ status, lastActivityAt, busyOnThread? }`. | None. |
+| `list_members` | Enumerate the caller's own direct members with their addresses, display names, kinds (`agent` / `unit`), and (resolved) execution config. Returns an empty array for leaf agents. | Array of member descriptors. | None — emits an `OrchestrationDecision` with `kind: inspect` only when explicitly invoked by the runtime as part of a decision sequence; a bare list does not record. |
+| `inspect <address>` | Return metadata for any addressable target in the caller's tenant: role, description, declared expertise, current status. | Single descriptor. | None. |
+| `delegate_to <address> <message>` | Forward the inbound message to the named target and await the target's response (synchronous within the turn budget). | The target's response message. | Records an `OrchestrationDecision` with `kind: delegate`. |
+| `fanout_to <addresses[]> <message>` | Forward to multiple targets in parallel; collect responses with a per-target timeout. | Array of `(address, response, status)` triples. | Records an `OrchestrationDecision` with `kind: fanout`. |
+| `query_status <address>` | Cheap status check for a target without a full inspect. | `{ status, lastActivityAt, busyOnThread? }`. | None. |
 
 The tool surface is **closed for v0.1**. New tools require an ADR. The reasoning: the tool surface is a contract every runtime image in the catalogue implements; widening it implicitly forces every image to keep up. The closed list also bounds the platform-side behaviour the platform *records* (via decision 4) — if a runtime calls a tool the platform does not enumerate, the platform has nowhere to put the evidence.
 
-Tools are attached to the runtime *only* when the addressed entity has at least one child in the member graph (`Members.Count >= 1` in today's terminology). Per the 2026-05-19 amendment at the top of this ADR, the gate is purely membership-based; entity type (agent vs unit) is not consulted. An entity with zero children — whether `agent://` or `unit://` — is launched with no orchestration tools, and the absence of the tools makes "no children to delegate to" visible to the runtime's instructions without an ambient flag.
+~~Tools are attached to the runtime *only* when the addressed entity has at least one child in the member graph (`Members.Count >= 1` in today's terminology). Per the 2026-05-19 amendment at the top of this ADR, the gate is purely membership-based; entity type (agent vs unit) is not consulted. An entity with zero children — whether `agent://` or `unit://` — is launched with no orchestration tools, and the absence of the tools makes "no children to delegate to" visible to the runtime's instructions without an ambient flag.~~ *Superseded by the 2026-05-19 amendment ([#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)): the membership-based attachment gate is removed. The launcher unconditionally attaches the closed five-tool set for every `agent://` and `unit://` address; `list_members` returns the empty array for leaf agents.*
 
 The mechanism by which tools are presented to the runtime is runtime-specific (MCP server, in-process tool registry, env-var-keyed tool list, or whatever the runtime image expects). The launcher contract from ADR-0025 already covers tool injection; this ADR adds **orchestration tools** as a category alongside skills.
 
@@ -114,7 +121,7 @@ public interface IOrchestrationToolProvider
 }
 
 public sealed record OrchestrationToolDescriptor(
-    string Name,                 // Closed enum: list_children, inspect_child, delegate_to_child, fanout_to_children, query_child_status
+    string Name,                 // Closed enum: list_members, inspect, delegate_to, fanout_to, query_status
     JsonElement InputSchema,     // JSON Schema for the runtime's tool-call surface
     JsonElement OutputSchema);
 ```
@@ -125,7 +132,7 @@ Rejected: a fully open tool registry where any platform component can register o
 
 Rejected: model children as resource records the runtime fetches from a generic platform API. The runtime image would need to bake in platform-specific HTTP-client logic; tools as a contract are simpler and runtime-agnostic.
 
-Rejected: scope orchestration tools per child kind (different tools for `agent` children vs `unit` children). Children are agent-shaped on the mailbox dimension (decision 1); a uniform tool surface lets the unit's runtime treat them uniformly. If a future tool genuinely needs the kind, the descriptor returns it via `inspect_child`.
+Rejected: scope orchestration tools per child kind (different tools for `agent` children vs `unit` children). Children are agent-shaped on the mailbox dimension (decision 1); a uniform tool surface lets the unit's runtime treat them uniformly. If a future tool genuinely needs the kind, the descriptor returns it via `inspect`.
 
 #### Two surfaces, one set of handlers
 
@@ -172,14 +179,14 @@ The dispatcher applies these gates in order:
 
 1. **Token validation.** The signature, expiry, and `(tenantId, agentAddress, threadId, messageId)` claim shape are validated as the first gate. Invalid → **401**.
 2. ~~**Caller is a unit.** The caller's `agentAddress` claim must use the `unit://` scheme. An `agent://` claim is rejected with **403 `OrchestrationCallerIsNotUnit`** without a directory call — the address scheme is the structural property, no live lookup needed. A unit with zero children remains a unit and can call `list_children` to get an empty array; that case is allowed and returns 200 with `[]`.~~ *Superseded by the 2026-05-19 amendment at the top of this ADR: gate 2 is removed; agents may call orchestration tools and the membership gate (gate 3) handles the actual safety property.*
-3. **Target is a direct child.** For `delegate_to_child`, `fanout_to_children`, `inspect_child`, and `query_child_status`, the dispatcher resolves each target address against the caller's *current* direct children at call time. A non-child target → **404 `OrchestrationTargetNotChild`**. Direct children only — the caller cannot delegate across levels (cross-level access deferred to v0.2 if a real use case demands; tracked separately as a v0.2 issue under #1786). This rule also handles the membership-changed-mid-invocation race: the token was minted at one membership state, but the directory at call time is authoritative.
+3. ~~**Target is a direct child.** For `delegate_to_child`, `fanout_to_children`, `inspect_child`, and `query_child_status`, the dispatcher resolves each target address against the caller's *current* direct children at call time. A non-child target → **404 `OrchestrationTargetNotChild`**. Direct children only — the caller cannot delegate across levels (cross-level access deferred to v0.2 if a real use case demands; tracked separately as a v0.2 issue under #1786). This rule also handles the membership-changed-mid-invocation race: the token was minted at one membership state, but the directory at call time is authoritative.~~ *Superseded by the 2026-05-19 amendment ([#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)): orchestration is messaging — a caller may target any addressable entity in the same tenant. The `OrchestrationTargetNotChild` reject code is removed and the dispatcher no longer reads the membership graph to authorise targets.*
 4. **Self-delegation is rejected.** A target address that equals the caller → **400 `OrchestrationSelfDelegation`**. Without this gate, a unit calling itself would either stack-overflow the platform (synchronous case) or deadlock (asynchronous case). Trivial check; high value.
-5. **Per-thread orchestration depth.** Each delegation (`delegate_to_child` or `fanout_to_children`) increments a thread-scoped counter; the platform rejects with **429 `OrchestrationDepthExceeded`** when the counter hits the v0.1 ceiling (default 8 nested delegations per thread per top-level inbound message; configurable per host). The counter is platform-managed thread state, scoped to the inbound message's transitive call chain. The depth budget is a coarse loop-prevention mechanism; precise cycle detection (e.g., reject when the current caller appears upstream in the chain) is deferred to v0.2.
+5. **Per-thread orchestration depth.** Each delegation (`delegate_to` or `fanout_to`) increments a thread-scoped counter; the platform rejects with **429 `OrchestrationDepthExceeded`** when the counter hits the v0.1 ceiling (default 8 nested delegations per thread per top-level inbound message; configurable per host). The counter is platform-managed thread state, scoped to the inbound message's transitive call chain. The depth budget is a coarse loop-prevention mechanism; precise cycle detection (e.g., reject when the current caller appears upstream in the chain) is deferred to v0.2.
 6. **Cross-tenant containment.** The token's `tenantId` claim must match the caller's tenant on every call; mismatch is **403**. ADR-0029's tenant boundary stays uncrossable through this surface.
 
 ~~This model means the SDK is **structurally unit-callable only**. A leaf-agent image can invoke `IOrchestrationClient` method calls; every method returns `OrchestrationAuthException(Reason = CallerIsNotUnit)`. The SDK's per-method documentation calls this out so image authors do not write code that quietly fails for leaf-agent images.~~ *Superseded by the 2026-05-19 amendment: the platform does not gate orchestration by entity type. Calls succeed whenever the caller's direct-child membership permits — agents with children may orchestrate, units with no children may not.*
 
-**Delegation creates the child's own thread context, not membership in the caller's thread.** When `unit_a` is invoked for thread `{human, unit_a}` and calls `delegate_to_child(agent_b, message)`, the child does **not** need prior membership in the inbound thread. Per ADR-0030's participant-set keying, the delegation creates (or resumes) the child's own thread `{unit_a, agent_b}`; the child sees its own threadId and its own conversation state with the caller. The original `{human, unit_a}` thread continues unchanged. This is fundamental to v0.1 — without it, delegation does not work.
+**Delegation creates the target's own thread context, not membership in the caller's thread.** When `unit_a` is invoked for thread `{human, unit_a}` and calls `delegate_to(agent_b, message)`, the target does **not** need prior membership in the inbound thread. Per ADR-0030's participant-set keying, the delegation creates (or resumes) the target's own thread `{unit_a, agent_b}`; the target sees its own threadId and its own conversation state with the caller. The original `{human, unit_a}` thread continues unchanged. This is fundamental to v0.1 — without it, delegation does not work.
 
 **What is *not* in scope for v0.1.** A unit's runtime, *while invoked for thread T1*, calling SDK methods that act on a different thread T2 (e.g., posting messages into a thread the runtime was not invoked for). The token's `threadId` claim scopes every call to one thread; the SDK does not expose multi-thread interaction. No legitimate use case has surfaced; v0.2 may revisit if one does.
 
@@ -189,10 +196,9 @@ The dispatcher applies these gates in order:
 |---|---|
 | Send a message to a peer (A2A) | yes (existing A2A protocol, permission-gated) |
 | Reply to the inbound message | yes (existing runtime-output channel) |
-| Call orchestration SDK (`list_children`, `delegate_to_child`, …) | yes — entity type is not gated |
-| `delegate_to_child` to a direct child | yes (when the caller has the target as a direct child in the membership graph) |
-| `delegate_to_child` to a non-direct descendant | **no — 404 `OrchestrationTargetNotChild`** (deferred to v0.2) |
-| `delegate_to_child` to self | **no — 400 `OrchestrationSelfDelegation`** |
+| Call orchestration SDK (`list_members`, `delegate_to`, …) | yes — entity type is not gated, membership is not gated |
+| `delegate_to` any addressable target in the same tenant | yes |
+| `delegate_to` self | **no — 400 `OrchestrationSelfDelegation`** |
 | Exceed per-thread orchestration depth | **no — 429 `OrchestrationDepthExceeded`** |
 | Cross-tenant calls | **no — 403** |
 
@@ -200,7 +206,7 @@ The dispatcher applies these gates in order:
 
 Rejected: skip the env-var injection on leaf-agent runtimes. The launcher would have to know the SDK surface's eligibility at launch time; over time, as more SDK surfaces are added (A2A from runtime, structured logging, configuration access), the eligibility check becomes a brittle list that the launcher has to keep in sync. Cleaner: inject uniformly, gate at the endpoint.
 
-Rejected at first writing, **adopted by the 2026-05-19 amendment**: live "does this address have children right now?" check instead of scheme. The original rationale ("a unit with zero children should still be able to call `list_children` and get `[]`") survives — `list_children` on an empty-membership address still returns 200 with `[]` because the call itself is allowed; only the *toolset attachment* path uses the live check to decide whether to surface the tools at launch time. Address scheme is no longer treated as a structural authorisation property.
+Rejected at first writing and ~~adopted~~ then re-rejected by the 2026-05-19 amendment ([#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)): the live "does this address have children right now?" check was briefly the gate; the amendment removes it together with gate 3. Toolset attachment is now unconditional for `agent://` and `unit://` addresses; address scheme decides only "do we attach the orchestration MCP at all?" The original rationale ("a unit with zero members can call `list_members` and get `[]`") still holds — the call itself is allowed and returns the empty array.
 
 ~~Rejected: return 401 for non-unit calls (the token is "valid"). The token *is* valid; the caller is just not authorized for this surface. 403 with a precise error code is the conventional shape and lets the SDK throw a typed exception (`OrchestrationAuthException` with `Reason = CallerIsNotUnit`) that image authors can catch.~~ *Superseded by the 2026-05-19 amendment: there is no non-unit-caller gate, so the 401-vs-403 question no longer applies.*
 
@@ -216,7 +222,7 @@ Rejected: invent a separate `Cvoya.Spring.OrchestrationSdk` parallel to a future
 
 ### 4. Orchestration decisions are first-class evidence
 
-When a unit's runtime invokes a delegation tool (`delegate_to_child`, `fanout_to_children`), the platform records an `OrchestrationDecision` event in the activity stream. The shape:
+When a unit's runtime invokes a delegation tool (`delegate_to`, `fanout_to`), the platform records an `OrchestrationDecision` event in the activity stream. The shape:
 
 ```csharp
 public sealed record OrchestrationDecision(

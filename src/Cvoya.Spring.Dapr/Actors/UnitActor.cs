@@ -360,19 +360,19 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
-    public async Task<OrchestrationChildDescriptor[]> GetChildDescriptorsAsync(CancellationToken ct = default)
+    public async Task<OrchestrationMemberDescriptor[]> GetMemberDescriptorsAsync(CancellationToken ct = default)
     {
         var members = await GetMembersListAsync(ct);
         if (members.Count == 0)
         {
-            return Array.Empty<OrchestrationChildDescriptor>();
+            return Array.Empty<OrchestrationMemberDescriptor>();
         }
 
-        var descriptors = new OrchestrationChildDescriptor[members.Count];
+        var descriptors = new OrchestrationMemberDescriptor[members.Count];
         for (var i = 0; i < members.Count; i++)
         {
             var member = members[i];
-            descriptors[i] = new OrchestrationChildDescriptor(
+            descriptors[i] = new OrchestrationMemberDescriptor(
                 Address: member,
                 DisplayName: await ResolveChildDisplayNameAsync(member, ct),
                 Kind: ResolveChildKind(member),
@@ -417,7 +417,7 @@ public class UnitActor : Actor, IUnitActor
         // ExecutionConfig is "opaque to callers" per the schema and the
         // orchestration-tools doc; we return the persisted on-disk
         // execution block as a JSON object. Callers that want the
-        // typed, post-inheritance view call inspect_child instead.
+        // typed, post-inheritance view call inspect instead.
         try
         {
             var memberId = GuidFormatter.Format(member.Id);

@@ -19,22 +19,21 @@ Persistent containers are launched once and receive multiple A2A turns. Their la
 
 ## Authorization Model
 
-The platform does not gate orchestration by entity type; calls succeed whenever the caller's direct-child membership permits. Agents and units both reach the dispatcher under their own address scheme. The dispatcher rejects callers whose scheme is neither `unit://` nor `agent://` (e.g. `human://`, `connector://`) with `UnsupportedCallerScheme`.
+The platform does not gate orchestration by entity type and does not gate on membership. Agents and units both reach the dispatcher under their own address scheme. The dispatcher rejects callers whose scheme is neither `unit://` nor `agent://` (e.g. `human://`, `connector://`) with `UnsupportedCallerScheme`.
 
 A2A messaging remains available to every addressable entity through the existing A2A protocol, separately from this SDK.
 
-Dispatcher authorization gates:
+Dispatcher authorization gates (per ADR-0039 § 3 as amended 2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)):
 
 | Gate | Rejection reason |
 | --- | --- |
 | Invalid or expired callback token | `InvalidToken` |
 | Caller scheme is not `unit://` or `agent://` | `UnsupportedCallerScheme` |
-| Target is not a direct child | `TargetNotChild` |
 | Target equals the caller | `SelfDelegation` |
 | Delegation depth budget is exhausted | `DepthExceeded` |
 | Target crosses the tenant boundary | `CrossTenant` |
 
-Targets must be direct children of the caller. Cross-level delegation is not supported in v0.1. The token is scoped to the current tenant, caller, thread, and inbound message. For persistent containers, use the per-message `message.metadata.callbackToken` from the inbound A2A metadata for the current turn and discard it when the turn completes.
+A caller may target any addressable entity in the same tenant — peer, sibling, parent, or member. Membership is not a gate. The token is scoped to the current tenant, caller, thread, and inbound message. For persistent containers, use the per-message `message.metadata.callbackToken` from the inbound A2A metadata for the current turn and discard it when the turn completes.
 
 ## Typed Client Surface
 
@@ -56,32 +55,32 @@ Post a final result to the dispatcher thread:
 await client.PostResultAsync(threadId, result);
 ```
 
-Delegate to a direct child:
+Delegate to any addressable target in the same tenant:
 
 ```csharp
 DelegateResponse response = await client.DelegateAsync(
     threadId,
-    targetChildAddress,
+    targetAddress,
     prompt);
 ```
 
-Fan out to multiple direct children:
+Fan out to multiple targets in parallel:
 
 ```csharp
 FanoutResponse response = await client.FanoutAsync(
     threadId,
-    new[] { childAddress1, childAddress2 },
+    new[] { address1, address2 },
     prompt);
 ```
 
-Child targets are Spring Voyage address strings such as `agent:aaaaaaaa000000000000000000000001` or `unit:bbbbbbbb000000000000000000000001`. For unit children, a bare Guid is also accepted and normalized to a `unit:` address.
+Targets are Spring Voyage address strings such as `agent:aaaaaaaa000000000000000000000001` or `unit:bbbbbbbb000000000000000000000001`. A bare Guid is also accepted and normalized to a `unit:` address.
 
 ## Error Model
 
 | Exception | When thrown |
 | --- | --- |
 | `MissingCallbackEnvironmentException` | `SPRING_CALLBACK_URL` or `SPRING_CALLBACK_TOKEN` is absent when calling `SpringAgent.FromEnvironment()`. |
-| `OrchestrationAuthException` | The dispatcher rejects authentication or orchestration authorization. `Reason` carries values such as `InvalidToken`, `UnsupportedCallerScheme`, `TargetNotChild`, `SelfDelegation`, `DepthExceeded`, or `CrossTenant`. |
+| `OrchestrationAuthException` | The dispatcher rejects authentication or orchestration authorization. `Reason` carries values such as `InvalidToken`, `UnsupportedCallerScheme`, `SelfDelegation`, `DepthExceeded`, or `CrossTenant`. |
 | `OrchestrationTransportException` | HTTP transport failures, timeouts, invalid dispatcher JSON, or non-success responses outside the authorization model. |
 
 ## Workflow-State Guidance

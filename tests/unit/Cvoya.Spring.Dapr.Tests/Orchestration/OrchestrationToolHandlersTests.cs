@@ -10,7 +10,6 @@ using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Tenancy;
-using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
@@ -45,7 +44,7 @@ public class OrchestrationToolHandlersTests
         Substitute.For<ILogger<OrchestrationToolHandlers>>();
 
     private readonly Dictionary<string, Address[]> _members = new();
-    private readonly Dictionary<string, OrchestrationChildDescriptor[]> _descriptors = new();
+    private readonly Dictionary<string, OrchestrationMemberDescriptor[]> _descriptors = new();
     private readonly Dictionary<string, IAgent> _agents = new();
     private readonly List<ActivityEvent> _publishedEvents = [];
 
@@ -60,13 +59,13 @@ public class OrchestrationToolHandlersTests
                 var members = _members.TryGetValue(actorId, out var m) ? m : Array.Empty<Address>();
                 var descriptors = _descriptors.TryGetValue(actorId, out var d)
                     ? d
-                    : members.Select(member => new OrchestrationChildDescriptor(
+                    : members.Select(member => new OrchestrationMemberDescriptor(
                         member,
                         DisplayName: string.Empty,
                         Kind: string.Equals(member.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase) ? "unit" : "agent",
                         ExecutionConfig: null)).ToArray();
                 actor.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(members);
-                actor.GetChildDescriptorsAsync(Arg.Any<CancellationToken>()).Returns(descriptors);
+                actor.GetMemberDescriptorsAsync(Arg.Any<CancellationToken>()).Returns(descriptors);
                 return actor;
             });
 
@@ -90,36 +89,33 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleListChildren_AgentCallerWithChildren_ReturnsDescriptors()
+    public async Task HandleListMembers_AgentCaller_ReturnsEmpty()
     {
-        // Per the 2026-05-19 amendment to ADR-0039 §3, entity type is not a
-        // gate. An `agent://` caller whose membership graph records a child
-        // gets the same descriptor surface as a unit caller would.
+        // Per the 2026-05-19 amendment to ADR-0039 §3 (#2536) the handler
+        // does not gate on entity type. v0.1 semantics: list_members returns
+        // the caller's own direct members, which is empty for leaf agents.
         var handlers = CreateHandlers();
         var caller = Agent(NonChildAgentId);
-        var child = Agent(ChildAgentId);
-        RegisterMembers(caller, child);
 
-        var result = await handlers.HandleListChildrenAsync(
+        var result = await handlers.HandleListMembersAsync(
             caller,
             TenantId,
             Guid.NewGuid(),
             TestContext.Current.CancellationToken);
 
-        result.Length.ShouldBe(1);
-        result[0].Address.ShouldBe(child);
+        result.ShouldBeEmpty();
         await AssertNoDecisionPublishedAsync();
     }
 
     [Fact]
-    public async Task HandleListChildren_DoesNotEmitEvent()
+    public async Task HandleListMembers_UnitCallerWithMembers_ReturnsDescriptors()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var child = Agent(ChildAgentId);
         RegisterMembers(caller, child);
 
-        var result = await handlers.HandleListChildrenAsync(
+        var result = await handlers.HandleListMembersAsync(
             caller,
             TenantId,
             Guid.NewGuid(),
@@ -131,7 +127,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleListChildren_ReturnsRichDescriptors_WithKindAndExecutionConfig()
+    public async Task HandleListMembers_ReturnsRichDescriptors_WithKindAndExecutionConfig()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -141,10 +137,10 @@ public class OrchestrationToolHandlersTests
 
         RegisterMembers(caller, agentChild, unitChild);
         RegisterDescriptors(caller,
-            new OrchestrationChildDescriptor(agentChild, "Backend Engineer", "agent", execConfig),
-            new OrchestrationChildDescriptor(unitChild, "Engineering Sub-Team", "unit", null));
+            new OrchestrationMemberDescriptor(agentChild, "Backend Engineer", "agent", execConfig),
+            new OrchestrationMemberDescriptor(unitChild, "Engineering Sub-Team", "unit", null));
 
-        var result = await handlers.HandleListChildrenAsync(
+        var result = await handlers.HandleListMembersAsync(
             caller,
             TenantId,
             Guid.NewGuid(),
@@ -165,7 +161,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleListChildren_CallerTenantMismatch_ThrowsCrossTenant()
+    public async Task HandleListMembers_CallerTenantMismatch_ThrowsCrossTenant()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -175,47 +171,28 @@ public class OrchestrationToolHandlersTests
             .Returns(OtherTenantId);
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleListChildrenAsync(caller, TenantId, Guid.NewGuid(), TestContext.Current.CancellationToken));
+            handlers.HandleListMembersAsync(caller, TenantId, Guid.NewGuid(), TestContext.Current.CancellationToken));
 
         ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationCrossTenant);
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_AgentCallerWithoutChildren_ThrowsTargetNotChild()
+    public async Task HandleDelegateTo_AnyAddressableTarget_RoutesSuccessfully()
     {
-        // ADR-0039 §3 (2026-05-19 amendment): the platform does not gate by
-        // entity type. An agent caller with no recorded children fails the
-        // membership gate (gate 3) — not a type gate.
-        var handlers = CreateHandlers();
-
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleDelegateToChildAsync(
-                Agent(NonChildAgentId),
-                TenantId,
-                Agent(ChildAgentId),
-                CreateMessage(),
-                null,
-                Guid.NewGuid(),
-                TestContext.Current.CancellationToken));
-
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
-    }
-
-    [Fact]
-    public async Task HandleDelegateToChild_AgentCallerWithChild_RoutesSuccessfully()
-    {
+        // ADR-0039 §3 (2026-05-19 amendment): the platform does not gate on
+        // membership. Delegating to any addressable target in the same tenant
+        // succeeds when the target resolves to an agent proxy.
         var handlers = CreateHandlers();
         var caller = Agent(NonChildAgentId);
         var target = Agent(ChildAgentId);
         var response = CreateResponse(target, caller);
         var agent = Substitute.For<IAgent>();
 
-        RegisterMembers(caller, target);
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(response);
 
-        var result = await handlers.HandleDelegateToChildAsync(
+        var result = await handlers.HandleDelegateToAsync(
             caller,
             TenantId,
             target,
@@ -228,32 +205,12 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_TargetNotChild_ThrowsTargetNotChild()
+    public async Task HandleDelegateTo_SelfTarget_ThrowsSelfDelegation()
     {
         var handlers = CreateHandlers();
-        RegisterMembers(Unit(), Agent(ChildAgentId));
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleDelegateToChildAsync(
-                Unit(),
-                TenantId,
-                Agent(NonChildAgentId),
-                CreateMessage(),
-                null,
-                Guid.NewGuid(),
-                TestContext.Current.CancellationToken));
-
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
-    }
-
-    [Fact]
-    public async Task HandleDelegateToChild_SelfTarget_ThrowsSelfDelegation()
-    {
-        var handlers = CreateHandlers();
-        RegisterMembers(Unit(), Agent(ChildAgentId));
-
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleDelegateToChildAsync(
+            handlers.HandleDelegateToAsync(
                 Unit(),
                 TenantId,
                 Unit(),
@@ -266,12 +223,11 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_TargetTenantMismatch_ThrowsCrossTenant()
+    public async Task HandleDelegateTo_TargetTenantMismatch_ThrowsCrossTenant()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
-        RegisterMembers(caller, target);
 
         // Caller resolves to TenantId; target resolves to OtherTenantId.
         _tenantResolver.GetTenantForAddressAsync(caller, Arg.Any<CancellationToken>())
@@ -280,7 +236,7 @@ public class OrchestrationToolHandlersTests
             .Returns(OtherTenantId);
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleDelegateToChildAsync(
+            handlers.HandleDelegateToAsync(
                 caller,
                 TenantId,
                 target,
@@ -293,7 +249,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_DepthBudgetExhausted_ThrowsDepthExceeded()
+    public async Task HandleDelegateTo_DepthBudgetExhausted_ThrowsDepthExceeded()
     {
         var depthCounter = new OrchestrationDepthCounter(maxDepth: 1);
         var handlers = CreateHandlers(depthCounter);
@@ -304,7 +260,6 @@ public class OrchestrationToolHandlersTests
         var release = new TaskCompletionSource<Message?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var agent = Substitute.For<IAgent>();
 
-        RegisterMembers(caller, target);
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
@@ -313,7 +268,7 @@ public class OrchestrationToolHandlersTests
                 return release.Task;
             });
 
-        var firstCall = handlers.HandleDelegateToChildAsync(
+        var firstCall = handlers.HandleDelegateToAsync(
             caller,
             TenantId,
             target,
@@ -324,7 +279,7 @@ public class OrchestrationToolHandlersTests
         await started.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleDelegateToChildAsync(
+            handlers.HandleDelegateToAsync(
                 caller,
                 TenantId,
                 target,
@@ -340,7 +295,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_HappyPath_EmitsRouted()
+    public async Task HandleDelegateTo_HappyPath_EmitsRouted()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -351,12 +306,11 @@ public class OrchestrationToolHandlersTests
         Message? delivered = null;
         var agent = Substitute.For<IAgent>();
 
-        RegisterMembers(caller, target);
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Do<Message>(m => delivered = m), Arg.Any<CancellationToken>())
             .Returns(response);
 
-        var result = await handlers.HandleDelegateToChildAsync(
+        var result = await handlers.HandleDelegateToAsync(
             caller,
             TenantId,
             target,
@@ -393,19 +347,18 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_GitHubIssuePayload_EmitsIssueNumberMetadata()
+    public async Task HandleDelegateTo_GitHubIssuePayload_EmitsIssueNumberMetadata()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
         var agent = Substitute.For<IAgent>();
 
-        RegisterMembers(caller, target);
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(CreateResponse(target, caller));
 
-        await handlers.HandleDelegateToChildAsync(
+        await handlers.HandleDelegateToAsync(
             caller,
             TenantId,
             target,
@@ -425,19 +378,18 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_NonGitHubIssuePayload_DoesNotEmitIssueMetadata()
+    public async Task HandleDelegateTo_NonGitHubIssuePayload_DoesNotEmitIssueMetadata()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
         var agent = Substitute.For<IAgent>();
 
-        RegisterMembers(caller, target);
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(CreateResponse(target, caller));
 
-        await handlers.HandleDelegateToChildAsync(
+        await handlers.HandleDelegateToAsync(
             caller,
             TenantId,
             target,
@@ -451,7 +403,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_Exception_EmitsFailed()
+    public async Task HandleDelegateTo_Exception_EmitsFailed()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -460,12 +412,11 @@ public class OrchestrationToolHandlersTests
         var threadId = Guid.NewGuid();
         const string reason = "target owns the work";
 
-        RegisterMembers(caller, target);
         _agentProxyResolver.Resolve(target.Scheme, target.Id.ToString("N"))
             .Throws(new InvalidOperationException("resolver failed"));
 
         await Should.ThrowAsync<InvalidOperationException>(() =>
-            handlers.HandleDelegateToChildAsync(
+            handlers.HandleDelegateToAsync(
                 caller,
                 TenantId,
                 target,
@@ -494,20 +445,19 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_HappyPath_WithReason_RoundTrips()
+    public async Task HandleDelegateTo_HappyPath_WithReason_RoundTrips()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
-        const string reason = "specialized child owns this work";
+        const string reason = "specialized target owns this work";
         var agent = Substitute.For<IAgent>();
 
-        RegisterMembers(caller, target);
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(CreateResponse(target, caller));
 
-        await handlers.HandleDelegateToChildAsync(
+        await handlers.HandleDelegateToAsync(
             caller,
             TenantId,
             target,
@@ -525,60 +475,40 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleFanoutToChildren_AgentCallerWithoutChildren_ThrowsTargetNotChild()
+    public async Task HandleFanoutTo_SelfTarget_ThrowsSelfDelegation()
     {
-        // ADR-0039 §3 (2026-05-19 amendment): an agent caller with no
-        // recorded children fails the membership gate, not a type gate.
-        var handlers = CreateHandlers();
-
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleFanoutToChildrenAsync(
-                Agent(NonChildAgentId),
-                TenantId,
-                [Agent(ChildAgentId)],
-                CreateMessage(),
-                null,
-                Guid.NewGuid(),
-                TestContext.Current.CancellationToken));
-
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
-    }
-
-    [Fact]
-    public async Task HandleFanoutToChildren_TargetNotChild_ThrowsTargetNotChild()
-    {
+        // The self-delegation gate applies to fanout too — a caller cannot
+        // include itself in the target list.
         var handlers = CreateHandlers();
         var caller = Unit();
-        RegisterMembers(caller, Agent(ChildAgentId));
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleFanoutToChildrenAsync(
+            handlers.HandleFanoutToAsync(
                 caller,
                 TenantId,
-                [Agent(NonChildAgentId)],
+                [caller],
                 CreateMessage(),
                 null,
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationSelfDelegation);
     }
 
     [Fact]
-    public async Task HandleFanoutToChildren_TargetTenantMismatch_ThrowsCrossTenant()
+    public async Task HandleFanoutTo_TargetTenantMismatch_ThrowsCrossTenant()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var t1 = Agent(ChildAgentId);
         var t2 = Agent(OtherChildAgentId);
 
-        RegisterMembers(caller, t1, t2);
         _tenantResolver.GetTenantForAddressAsync(caller, Arg.Any<CancellationToken>()).Returns(TenantId);
         _tenantResolver.GetTenantForAddressAsync(t1, Arg.Any<CancellationToken>()).Returns(TenantId);
         _tenantResolver.GetTenantForAddressAsync(t2, Arg.Any<CancellationToken>()).Returns(OtherTenantId);
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleFanoutToChildrenAsync(
+            handlers.HandleFanoutToAsync(
                 caller,
                 TenantId,
                 [t1, t2],
@@ -591,7 +521,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleFanoutToChildren_HappyPath_EmitsRouted()
+    public async Task HandleFanoutTo_HappyPath_EmitsRouted()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -601,11 +531,10 @@ public class OrchestrationToolHandlersTests
         var responseTwo = CreateResponse(targetTwo, caller);
         var message = CreateMessage();
         var threadId = Guid.NewGuid();
-        const string reason = "ask both children";
+        const string reason = "ask both targets";
         var agentOne = Substitute.For<IAgent>();
         var agentTwo = Substitute.For<IAgent>();
 
-        RegisterMembers(caller, targetOne, targetTwo);
         RegisterAgent(targetOne, agentOne);
         RegisterAgent(targetTwo, agentTwo);
         agentOne.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
@@ -613,7 +542,7 @@ public class OrchestrationToolHandlersTests
         agentTwo.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(responseTwo);
 
-        var results = await handlers.HandleFanoutToChildrenAsync(
+        var results = await handlers.HandleFanoutToAsync(
             caller,
             TenantId,
             [targetOne, targetTwo],
@@ -649,7 +578,7 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleFanoutToChildren_PartialFailure_EmitsFailed()
+    public async Task HandleFanoutTo_PartialFailure_EmitsFailed()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -661,15 +590,14 @@ public class OrchestrationToolHandlersTests
         var successfulAgent = Substitute.For<IAgent>();
         var failingAgent = Substitute.For<IAgent>();
 
-        RegisterMembers(caller, targetOne, targetTwo);
         RegisterAgent(targetOne, successfulAgent);
         RegisterAgent(targetTwo, failingAgent);
         successfulAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(response);
         failingAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Throws(new InvalidOperationException("child failed"));
+            .Throws(new InvalidOperationException("target failed"));
 
-        var results = await handlers.HandleFanoutToChildrenAsync(
+        var results = await handlers.HandleFanoutToAsync(
             caller,
             TenantId,
             [targetOne, targetTwo],
@@ -704,53 +632,33 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleInspectChild_AgentCallerWithoutChildren_ThrowsTargetNotChild()
+    public async Task HandleInspect_SelfTarget_ThrowsSelfDelegation()
     {
-        // ADR-0039 §3 (2026-05-19 amendment): an agent caller with no
-        // recorded children fails the membership gate, not a type gate.
         var handlers = CreateHandlers();
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleInspectChildAsync(
-                Agent(NonChildAgentId),
-                TenantId,
-                Agent(ChildAgentId),
-                Guid.NewGuid(),
-                TestContext.Current.CancellationToken));
-
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
-    }
-
-    [Fact]
-    public async Task HandleInspectChild_TargetNotChild_ThrowsTargetNotChild()
-    {
-        var handlers = CreateHandlers();
-        RegisterMembers(Unit(), Agent(ChildAgentId));
-
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleInspectChildAsync(
+            handlers.HandleInspectAsync(
                 Unit(),
                 TenantId,
-                Agent(NonChildAgentId),
+                Unit(),
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationSelfDelegation);
     }
 
     [Fact]
-    public async Task HandleInspectChild_TargetTenantMismatch_ThrowsCrossTenant()
+    public async Task HandleInspect_TargetTenantMismatch_ThrowsCrossTenant()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
-        RegisterMembers(caller, target);
 
         _tenantResolver.GetTenantForAddressAsync(caller, Arg.Any<CancellationToken>()).Returns(TenantId);
         _tenantResolver.GetTenantForAddressAsync(target, Arg.Any<CancellationToken>()).Returns(OtherTenantId);
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleInspectChildAsync(
+            handlers.HandleInspectAsync(
                 caller,
                 TenantId,
                 target,
@@ -761,14 +669,14 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleInspectChild_ReturnsRichDescriptor()
+    public async Task HandleInspect_UnitCallerWithMember_ReturnsRichDescriptor()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
         RegisterMembers(caller, target);
         RegisterDescriptors(caller,
-            new OrchestrationChildDescriptor(target, "Backend Engineer", "agent", null));
+            new OrchestrationMemberDescriptor(target, "Backend Engineer", "agent", null));
 
         // Probe response: idle agent.
         var agent = Substitute.For<IAgent>();
@@ -776,7 +684,7 @@ public class OrchestrationToolHandlersTests
         agent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
             .Returns(CreateStatusResponse(target, status: "Idle", activeThreadId: null));
 
-        var meta = await handlers.HandleInspectChildAsync(
+        var meta = await handlers.HandleInspectAsync(
             caller,
             TenantId,
             target,
@@ -791,53 +699,61 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleQueryChildStatus_AgentCallerWithoutChildren_ThrowsTargetNotChild()
+    public async Task HandleInspect_AgentCallerOnArbitraryTarget_ReturnsBasicDescriptor()
     {
-        // ADR-0039 §3 (2026-05-19 amendment): an agent caller with no
-        // recorded children fails the membership gate, not a type gate.
+        // Inspect now accepts any addressable target; the descriptor falls
+        // back to (empty display name, scheme-derived kind) when the caller
+        // is not a unit and therefore has no member descriptor list.
         var handlers = CreateHandlers();
+        var caller = Agent(NonChildAgentId);
+        var target = Agent(ChildAgentId);
 
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleQueryChildStatusAsync(
-                Agent(NonChildAgentId),
-                TenantId,
-                Agent(ChildAgentId),
-                Guid.NewGuid(),
-                TestContext.Current.CancellationToken));
+        var agent = Substitute.For<IAgent>();
+        RegisterAgent(target, agent);
+        agent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
+            .Returns(CreateStatusResponse(target, status: "Idle", activeThreadId: null));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
+        var meta = await handlers.HandleInspectAsync(
+            caller,
+            TenantId,
+            target,
+            Guid.NewGuid(),
+            TestContext.Current.CancellationToken);
+
+        meta["address"].ShouldBe(target.ToString());
+        meta["displayName"].ShouldBe(string.Empty);
+        meta["kind"].ShouldBe("agent");
+        meta["status"].ShouldBe("ready");
     }
 
     [Fact]
-    public async Task HandleQueryChildStatus_TargetNotChild_ThrowsTargetNotChild()
+    public async Task HandleQueryStatus_SelfTarget_ThrowsSelfDelegation()
     {
         var handlers = CreateHandlers();
-        RegisterMembers(Unit(), Agent(ChildAgentId));
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleQueryChildStatusAsync(
+            handlers.HandleQueryStatusAsync(
                 Unit(),
                 TenantId,
-                Agent(NonChildAgentId),
+                Unit(),
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationSelfDelegation);
     }
 
     [Fact]
-    public async Task HandleQueryChildStatus_TargetTenantMismatch_ThrowsCrossTenant()
+    public async Task HandleQueryStatus_TargetTenantMismatch_ThrowsCrossTenant()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
-        RegisterMembers(caller, target);
 
         _tenantResolver.GetTenantForAddressAsync(caller, Arg.Any<CancellationToken>()).Returns(TenantId);
         _tenantResolver.GetTenantForAddressAsync(target, Arg.Any<CancellationToken>()).Returns(OtherTenantId);
 
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleQueryChildStatusAsync(
+            handlers.HandleQueryStatusAsync(
                 caller,
                 TenantId,
                 target,
@@ -848,19 +764,18 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleQueryChildStatus_IdleAgent_ReturnsReady()
+    public async Task HandleQueryStatus_IdleAgent_ReturnsReady()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
-        RegisterMembers(caller, target);
 
         var agent = Substitute.For<IAgent>();
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
             .Returns(CreateStatusResponse(target, status: "Idle", activeThreadId: null));
 
-        var status = await handlers.HandleQueryChildStatusAsync(
+        var status = await handlers.HandleQueryStatusAsync(
             caller,
             TenantId,
             target,
@@ -873,20 +788,19 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleQueryChildStatus_ActiveAgent_ReturnsBusyWithThread()
+    public async Task HandleQueryStatus_ActiveAgent_ReturnsBusyWithThread()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
         var threadId = "thread-deadbeef";
-        RegisterMembers(caller, target);
 
         var agent = Substitute.For<IAgent>();
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
             .Returns(CreateStatusResponse(target, status: "Active", activeThreadId: threadId));
 
-        var status = await handlers.HandleQueryChildStatusAsync(
+        var status = await handlers.HandleQueryStatusAsync(
             caller,
             TenantId,
             target,
@@ -898,19 +812,18 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleQueryChildStatus_ProbeFails_ReturnsUnknown()
+    public async Task HandleQueryStatus_ProbeFails_ReturnsUnknown()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
-        RegisterMembers(caller, target);
 
         var agent = Substitute.For<IAgent>();
         RegisterAgent(target, agent);
         agent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("probe failed"));
 
-        var status = await handlers.HandleQueryChildStatusAsync(
+        var status = await handlers.HandleQueryStatusAsync(
             caller,
             TenantId,
             target,
@@ -923,19 +836,18 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleQueryChildStatus_StoppedUnitChild_ReturnsStopped()
+    public async Task HandleQueryStatus_StoppedUnitTarget_ReturnsStopped()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var subUnit = new Address(Address.UnitScheme, ChildSubUnitId);
-        RegisterMembers(caller, subUnit);
 
         var unitAgent = Substitute.For<IAgent>();
         RegisterAgent(subUnit, unitAgent);
         unitAgent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
             .Returns(CreateStatusResponse(subUnit, status: nameof(LifecycleStatus.Stopped), activeThreadId: null));
 
-        var status = await handlers.HandleQueryChildStatusAsync(
+        var status = await handlers.HandleQueryStatusAsync(
             caller,
             TenantId,
             subUnit,
@@ -999,7 +911,7 @@ public class OrchestrationToolHandlersTests
     private void RegisterMembers(Address unit, params Address[] members) =>
         _members[unit.Id.ToString("N")] = members;
 
-    private void RegisterDescriptors(Address unit, params OrchestrationChildDescriptor[] descriptors) =>
+    private void RegisterDescriptors(Address unit, params OrchestrationMemberDescriptor[] descriptors) =>
         _descriptors[unit.Id.ToString("N")] = descriptors;
 
     private void RegisterAgent(Address address, IAgent agent) =>

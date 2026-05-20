@@ -15,8 +15,8 @@ using System.Text.Json.Serialization;
 public sealed class OrchestrationClient : IOrchestrationClient
 {
     private const string ResultEndpoint = "result";
-    private const string DelegateEndpoint = "delegate-to-child";
-    private const string FanoutEndpoint = "fanout-to-children";
+    private const string DelegateEndpoint = "delegate-to";
+    private const string FanoutEndpoint = "fanout-to";
     private const string AgentAddressClaim = "sv_addr";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -64,9 +64,9 @@ public sealed class OrchestrationClient : IOrchestrationClient
         ArgumentException.ThrowIfNullOrWhiteSpace(targetUnitId);
         ArgumentNullException.ThrowIfNull(prompt);
 
-        var response = await SendAsync<DelegateToChildRequest, DelegateToChildResponse>(
+        var response = await SendAsync<DelegateToRequest, DelegateToResponse>(
             DelegateEndpoint,
-            new DelegateToChildRequest(
+            new DelegateToRequest(
                 _callerAddress,
                 BuildTargetAddress(targetUnitId),
                 ParseThreadId(threadId, nameof(threadId)),
@@ -91,9 +91,9 @@ public sealed class OrchestrationClient : IOrchestrationClient
         ArgumentNullException.ThrowIfNull(targetUnitIds);
         ArgumentNullException.ThrowIfNull(prompt);
 
-        var response = await SendAsync<FanoutToChildrenRequest, FanoutToChildrenResponse>(
+        var response = await SendAsync<FanoutToRequest, FanoutToResponse>(
             FanoutEndpoint,
-            new FanoutToChildrenRequest(
+            new FanoutToRequest(
                 _callerAddress,
                 targetUnitIds.Select(BuildTargetAddress).ToArray(),
                 ParseThreadId(threadId, nameof(threadId)),
@@ -248,7 +248,6 @@ public sealed class OrchestrationClient : IOrchestrationClient
         {
             null or "" => null,
             "InvalidToken" => "InvalidToken",
-            "OrchestrationTargetNotChild" => "TargetNotChild",
             "OrchestrationSelfDelegation" => "SelfDelegation",
             "OrchestrationDepthExceeded" => "DepthExceeded",
             "OrchestrationCrossTenant" => "CrossTenant",
@@ -312,7 +311,7 @@ public sealed class OrchestrationClient : IOrchestrationClient
         [property: JsonPropertyName("threadId")] string ThreadId,
         [property: JsonPropertyName("result")] string Result);
 
-    private sealed record DelegateToChildRequest(
+    private sealed record DelegateToRequest(
         [property: JsonPropertyName("callerAddress")] string CallerAddress,
         [property: JsonPropertyName("targetAddress")] string TargetAddress,
         [property: JsonPropertyName("threadId")] Guid ThreadId,
@@ -320,10 +319,10 @@ public sealed class OrchestrationClient : IOrchestrationClient
         [property: JsonPropertyName("messageContent")] string MessageContent,
         [property: JsonPropertyName("reason")] string? Reason);
 
-    private sealed record DelegateToChildResponse(
+    private sealed record DelegateToResponse(
         [property: JsonPropertyName("message")] OrchestrationCallbackMessage? Message);
 
-    private sealed record FanoutToChildrenRequest(
+    private sealed record FanoutToRequest(
         [property: JsonPropertyName("callerAddress")] string CallerAddress,
         [property: JsonPropertyName("targetAddresses")] string[] TargetAddresses,
         [property: JsonPropertyName("threadId")] Guid ThreadId,
@@ -331,7 +330,7 @@ public sealed class OrchestrationClient : IOrchestrationClient
         [property: JsonPropertyName("messageContent")] string MessageContent,
         [property: JsonPropertyName("reason")] string? Reason);
 
-    private sealed record FanoutToChildrenResponse(
+    private sealed record FanoutToResponse(
         [property: JsonPropertyName("results")] FanoutTargetResult[] Results);
 
     private sealed record FanoutTargetResult(

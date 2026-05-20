@@ -22,13 +22,15 @@ ADR-0039 § 3 closes the orchestration surface to **five tools**. The names are 
 
 | Tool name | Purpose | Returns | Side effect |
 |---|---|---|---|
-| `list_children` | Enumerate this unit's direct children with their addresses, display names, kinds (`agent` / `unit`), and resolved execution config. | Array of child descriptors. | None. |
-| `inspect_child` | Return the child's metadata: role, description, declared expertise, current status. | Single descriptor. | None. |
-| `delegate_to_child` | Forward the inbound message to the named child and await the child's response (synchronous within the turn budget). | The child's response message. | Records an `OrchestrationDecision` with `Kind=Delegate`. |
-| `fanout_to_children` | Forward to multiple children in parallel; collect responses with a per-target timeout. | Array of `(address, response, status)` triples. | Records an `OrchestrationDecision` with `Kind=Fanout`. |
-| `query_child_status` | Cheap status check for a child without a full inspect. | `{ status, lastActivityAt, busyOnThread? }`. | None. |
+| `list_members` | Enumerate the caller's own direct members with their addresses, display names, kinds (`agent` / `unit`), and resolved execution config. Returns an empty array for leaf agents. | Array of member descriptors. | None. |
+| `inspect` | Return metadata for any addressable target in the caller's tenant: role, description, declared expertise, current status. | Single descriptor. | None. |
+| `delegate_to` | Forward the inbound message to the named target and await the target's response (synchronous within the turn budget). | The target's response message. | Records an `OrchestrationDecision` with `Kind=Delegate`. |
+| `fanout_to` | Forward to multiple targets in parallel; collect responses with a per-target timeout. | Array of `(address, response, status)` triples. | Records an `OrchestrationDecision` with `Kind=Fanout`. |
+| `query_status` | Cheap status check for a target without a full inspect. | `{ status, lastActivityAt, busyOnThread? }`. | None. |
 
 **Closed enum.** The C# enum [`OrchestrationToolName`](../../src/Cvoya.Spring.Core/Orchestration/OrchestrationToolName.cs) maps each member to its wire name via `[JsonStringEnumMemberName(...)]`. Runtime-side dispatch must use exactly these spellings; the platform will not route an unknown tool.
+
+**Rename rationale.** The earlier names (`list_children` / `inspect_child` / `delegate_to_child` / `fanout_to_children` / `query_child_status`) baked in the structural assumption that a caller targets only its own direct children. The 2026-05-19 ADR-0039 amendment ([#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)) removes that assumption: a caller may target any addressable entity in the same tenant — peer, sibling, parent, or member. `list_members` is the only tool whose scope is still "own direct members" (the directory does not provide a tenant-wide enumeration); the other four accept any address and do not consult the membership graph.
 
 **Why the surface is closed.** Every runtime image in the catalogue implements the same tool set; widening it implicitly forces every image to keep up. The closed list also bounds the platform-side audit space — if a runtime calls a tool the platform does not enumerate, the platform has nowhere to put the evidence. A future ADR can extend the surface; runtime-image authors do not.
 
@@ -47,7 +49,7 @@ public sealed record OrchestrationToolDescriptor(
 
 The schemas are JSON Schema draft 2020-12. They live as embedded resources under [`Cvoya.Spring.Dapr/Orchestration/Resources/`](../../src/Cvoya.Spring.Dapr/Orchestration/Resources/) and are loaded once at startup by [`DirectoryOrchestrationToolProvider`](../../src/Cvoya.Spring.Dapr/Orchestration/DirectoryOrchestrationToolProvider.cs).
 
-### `list_children`
+### `list_members`
 
 Input: `{}` (no arguments; `additionalProperties: false`).
 
@@ -55,20 +57,20 @@ Output:
 
 ```json
 {
-  "children": [
+  "members": [
     {
       "address": "agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7",
       "displayName": "string",
       "kind": "agent | unit",
-      "executionConfig": { /* opaque; read inspect_child for typed access */ }
+      "executionConfig": { /* opaque; read inspect for typed access */ }
     }
   ]
 }
 ```
 
-`address`, `displayName`, and `kind` are required.
+`address`, `displayName`, and `kind` are required. Semantics: returns the caller's own direct members; an `agent://` caller (leaf) returns an empty array. The tool does not enumerate "every addressable entity" — that is the directory's job, exposed through other surfaces.
 
-### `inspect_child`
+### `inspect`
 
 Input:
 
@@ -91,7 +93,7 @@ Output:
 
 `address`, `displayName`, and `kind` are required; the rest are optional.
 
-### `delegate_to_child`
+### `delegate_to`
 
 Input:
 
@@ -117,7 +119,7 @@ Output:
 
 `status` maps directly to `OrchestrationDecisionStatus`.
 
-### `fanout_to_children`
+### `fanout_to`
 
 Input:
 
@@ -141,7 +143,7 @@ Output:
 }
 ```
 
-### `query_child_status`
+### `query_status`
 
 Input: `{ "address": "..." }`.
 
@@ -161,7 +163,7 @@ Only `status` is required. The platform-side handler probes the child via the ex
 
 ## 3. Per-runtime attachment mechanism
 
-The launcher consults [`IOrchestrationToolProvider.GetOrchestrationTools(agent, threadId)`](../../src/Cvoya.Spring.Core/Orchestration/IOrchestrationToolProvider.cs) at launch time. The default platform implementation is [`DirectoryOrchestrationToolProvider`](../../src/Cvoya.Spring.Dapr/Orchestration/DirectoryOrchestrationToolProvider.cs) — it returns the closed five-tool descriptor array when the addressed entity has at least one direct member in the membership graph, and an empty array otherwise (see § 4). The check is purely membership-based; entity type (agent vs unit) is not a gate.
+The launcher consults [`IOrchestrationToolProvider.GetOrchestrationTools(agent, threadId)`](../../src/Cvoya.Spring.Core/Orchestration/IOrchestrationToolProvider.cs) at launch time. The default platform implementation is [`DirectoryOrchestrationToolProvider`](../../src/Cvoya.Spring.Dapr/Orchestration/DirectoryOrchestrationToolProvider.cs) — it returns the closed five-tool descriptor array for every `agent://` and `unit://` address (other schemes get an empty array). Per the 2026-05-19 ADR-0039 amendment ([#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)) attachment is unconditional: entity type is not a gate, membership is not a gate. Orchestration tools are exposed for any caller whose scheme is an orchestration caller — the runtime's instructions decide whether to use them.
 
 The descriptor array is carried into the launcher on `AgentLaunchContext.OrchestrationTools` ([`IAgentRuntimeLauncher.cs`](../../src/Cvoya.Spring.Core/Execution/IAgentRuntimeLauncher.cs)). Each launcher then attaches the descriptors using its runtime's native mechanism.
 
@@ -212,7 +214,7 @@ Gemini CLI reads MCP server config from `.gemini/settings.json`. The launcher wr
     "spring-orchestration": {
       "httpUrl": "<SPRING_CALLBACK_URL>/v1/runtime/orchestration",
       "headers": { "Authorization": "Bearer <SPRING_CALLBACK_TOKEN>" },
-      "includeTools": ["list_children", "inspect_child", "delegate_to_child", "fanout_to_children", "query_child_status"]
+      "includeTools": ["list_members", "inspect", "delegate_to", "fanout_to", "query_status"]
     }
   }
 }
@@ -247,16 +249,11 @@ The runtime image reads `SPRING_ORCHESTRATION_TOOLS` at startup, deserializes th
 
 ---
 
-## 4. Tools attached only when children exist
+## 4. Tools attach unconditionally
 
-An entity's runtime is launched with **no orchestration tools** when the membership graph records no children for that entity. The provider's contract is uniform across address schemes (per the 2026-05-19 amendment to ADR-0039 § 3):
+Per the 2026-05-19 ADR-0039 amendment ([#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)) the launcher attaches the closed five-tool set for every `agent://` and `unit://` address — there is no membership-based attachment gate, no entity-type attachment gate, and no live "does this address have children right now?" check. Orchestration is not a separate message-sending mechanism with its own attachment policy; it is the same messaging surface every caller has.
 
-- Any address with zero direct members in the membership graph → empty array.
-- Any address with at least one direct member → the closed five-descriptor array.
-
-Entity type (agent vs unit) is **not** consulted. The absence of the tools is the signal — runtime instructions do not need an ambient flag. An entity with zero children can later gain children and the next launch will attach them automatically.
-
-The launcher consults the provider on every launch, so membership changes propagate at the next invocation without operator action.
+The runtime's instructions decide whether to invoke any of the tools. A leaf agent (no members) calling `list_members` gets an empty array; calling `delegate_to` succeeds for any addressable target in the same tenant. The absence of dispatchable members is not signalled via tool absence — the runtime sees the empty array and proceeds accordingly.
 
 ---
 
@@ -264,18 +261,17 @@ The launcher consults the provider on every launch, so membership changes propag
 
 Runtime authors **do not enforce these gates** — the platform-side handler [`OrchestrationToolHandlers`](../../src/Cvoya.Spring.Dapr/Orchestration/OrchestrationToolHandlers.cs) applies them on every call regardless of which transport (MCP, env-var registry, or SDK callback) reached it. Runtime authors must **surface failures cleanly** so an agent's instructions can react.
 
-The dispatcher applies these gates in order (per ADR-0039 § 3, as amended 2026-05-19):
+The dispatcher applies these gates in order (per ADR-0039 § 3, as amended 2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)):
 
 | # | Gate | HTTP status | Dispatcher reject code |
 |---|---|---|---|
 | 1 | Token validation (signature, expiry, claim shape) | 401 | `InvalidToken` |
 | 2 | Caller scheme is `unit://` or `agent://` (rejects `human://`, `connector://`, etc.) | 403 | `UnsupportedCallerScheme` |
-| 3 | Target is a direct child of the caller | 404 | `OrchestrationTargetNotChild` |
-| 4 | Self-delegation rejected | 400 | `OrchestrationSelfDelegation` |
-| 5 | Per-thread orchestration depth budget (default 8) | 429 | `OrchestrationDepthExceeded` |
-| 6 | Cross-tenant containment | 403 | `OrchestrationCrossTenant` |
+| 3 | Self-delegation rejected (target equals caller) | 400 | `OrchestrationSelfDelegation` |
+| 4 | Per-thread orchestration depth budget (default 8) | 429 | `OrchestrationDepthExceeded` |
+| 5 | Cross-tenant containment | 403 | `OrchestrationCrossTenant` |
 
-Entity type (agent vs unit) is **not** a gate; the platform makes no assumption about who can orchestrate. An agent without children naturally fails gate 3 (`OrchestrationTargetNotChild`) on any delegation attempt.
+Entity type (agent vs unit) is **not** a gate; the platform makes no assumption about who can orchestrate. Membership is **not** a gate; a caller may target any addressable entity in the same tenant. The previous "target is a direct child" gate (and its `OrchestrationTargetNotChild` reject code) was removed in [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536) — orchestration is messaging, and messaging is not gated on the membership graph.
 
 Cross-link: the same model applies to the SDK transport — see [`agent-sdk.md` § Authorization Model](agent-sdk.md#authorization-model). The single source of truth is [ADR-0039 § 3](../decisions/0039-units-are-agents.md#authorization-rules) (see the amendment at the top of the ADR for the entity-type-gating removal).
 
@@ -287,14 +283,14 @@ Cross-link: the same model applies to the SDK transport — see [`agent-sdk.md` 
 
 Three of the five tools are read-only probes and do **not** emit decisions:
 
-- `list_children` — no event.
-- `inspect_child` — no event.
-- `query_child_status` — no event.
+- `list_members` — no event.
+- `inspect` — no event.
+- `query_status` — no event.
 
 Two tools emit `OrchestrationDecision`:
 
-- `delegate_to_child` — `Kind=Delegate`, `Targets` contains the single child address. Status is `Routed` on success, `Failed` on dispatch error.
-- `fanout_to_children` — `Kind=Fanout`, `Targets` contains every requested child. Status is `Routed` if every child responded, `Failed` if any failed.
+- `delegate_to` — `Kind=Delegate`, `Targets` contains the single target address. Status is `Routed` on success, `Failed` on dispatch error.
+- `fanout_to` — `Kind=Fanout`, `Targets` contains every requested target. Status is `Routed` if every target responded, `Failed` if any failed.
 
 Both events carry `Reason` (the runtime-supplied tool-call argument, verbatim) and `ResultMessageIds` (the ids of the response messages, in target order). Decisions land on the activity stream as `Activity_OrchestrationDecision` rows. See [`agent-runtime.md` § 4d](agent-runtime.md#4d-orchestrationdecision-event-shape) for the normalized event JSON shape and [ADR-0039 § 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence) for the design rationale.
 
@@ -328,7 +324,7 @@ The launcher materialises a workspace at `/workspace/` containing `CLAUDE.md` (s
 }
 ```
 
-The runtime calls `tools/list` on the `spring-orchestration` server and receives five entries (`list_children`, `inspect_child`, `delegate_to_child`, `fanout_to_children`, `query_child_status`) with the JSON Schemas from § 2. A `tools/call` on `delegate_to_child` is routed to `POST /v1/runtime/orchestration/delegate_to_child` with the bearer token; the server handles auth, dispatches the message to the target child, and returns the response.
+The runtime calls `tools/list` on the `spring-orchestration` server and receives five entries (`list_members`, `inspect`, `delegate_to`, `fanout_to`, `query_status`) with the JSON Schemas from § 2. A `tools/call` on `delegate_to` is routed to `POST /v1/runtime/orchestration/delegate-to` with the bearer token; the server handles auth, dispatches the message to the target, and returns the response.
 
 ### Env-var registry example — `spring-voyage-agent`
 
@@ -337,7 +333,7 @@ The launcher injects:
 ```text
 SPRING_CALLBACK_URL=http://host.docker.internal:5050
 SPRING_CALLBACK_TOKEN=<per-invocation JWT>
-SPRING_ORCHESTRATION_TOOLS=[{"Name":"list_children","InputSchema":{...},"OutputSchema":{...}},...]
+SPRING_ORCHESTRATION_TOOLS=[{"Name":"list_members","InputSchema":{...},"OutputSchema":{...}},...]
 ```
 
 The runtime image reads the env at startup and registers each descriptor with its tool surface. Sketch (illustrative shape; see launcher for canonical wiring):
@@ -351,7 +347,7 @@ callback_url = os.environ["SPRING_CALLBACK_URL"]
 callback_token = os.environ["SPRING_CALLBACK_TOKEN"]
 
 for descriptor in descriptors:
-    tool_name = descriptor["Name"]               # "list_children", "delegate_to_child", ...
+    tool_name = descriptor["Name"]               # "list_members", "delegate_to", ...
     register_tool(
         name=tool_name,
         input_schema=descriptor["InputSchema"],

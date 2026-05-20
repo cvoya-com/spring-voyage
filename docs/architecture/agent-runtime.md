@@ -257,25 +257,23 @@ SDK clients.
 
 ## 4b. Orchestration-tool surface
 
-ADR-0039 closes the orchestration surface to five platform-provided tools. The
-runtime path resolves these tools when the invoked agent has children and passes
-the descriptors to the selected launcher through
-`AgentLaunchContext.OrchestrationTools`. A leaf agent receives an empty tool
-set. Unit operators and runtime authors do not enable a separate orchestration
-mode.
+ADR-0039 (as amended 2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)) closes the orchestration surface to five platform-provided tools. The
+runtime path attaches these tools unconditionally for every `agent://` and
+`unit://` runtime; membership is not a gate. The descriptors are passed to the
+selected launcher through `AgentLaunchContext.OrchestrationTools`. Unit operators
+and runtime authors do not enable a separate orchestration mode.
 
 | Tool | Description |
 | --- | --- |
-| `list_children` | Returns the address array of the unit's current direct members. No `OrchestrationDecision` event. |
-| `inspect_child` | Returns metadata (`scheme`, `id`) for a specific child. No `OrchestrationDecision` event. |
-| `delegate_to_child` | Dispatches the inbound message to a single child and returns the child's reply. Emits `OrchestrationDecision` with `Kind=Delegate`. |
-| `fanout_to_children` | Dispatches to all children, or to a filtered set of children, and returns all replies. Emits `OrchestrationDecision` with `Kind=Fanout`. |
-| `query_child_status` | Queries in-flight status of a prior dispatch. No `OrchestrationDecision` event. |
+| `list_members` | Returns the caller's own direct members with their addresses, display names, kinds, and resolved execution metadata. Empty for leaf agents. No `OrchestrationDecision` event. |
+| `inspect` | Returns metadata for an addressable target in the caller's tenant. No `OrchestrationDecision` event. |
+| `delegate_to` | Dispatches the inbound message to one addressable target and returns its reply. Emits `OrchestrationDecision` with `Kind=Delegate`. |
+| `fanout_to` | Dispatches to multiple addressable targets in parallel and returns all replies. Emits `OrchestrationDecision` with `Kind=Fanout`. |
+| `query_status` | Queries in-flight status of an addressable target. No `OrchestrationDecision` event. |
 
-The runtime decides whether to answer directly, inspect children, delegate to
-one child, or fan out to several children. The platform supplies the tools,
-checks the call, routes the resulting child messages, and records delegation
-evidence.
+The runtime decides whether to answer directly, inspect a target, delegate to
+one, or fan out to several. The platform supplies the tools, checks the call,
+routes the resulting messages, and records delegation evidence.
 
 The same five tools are exposed through two runtime-facing surfaces:
 
@@ -366,8 +364,8 @@ When the runtime calls a delegation tool, the platform publishes a
 }
 ```
 
-`delegate_to_child` emits `Kind=Delegate`. `fanout_to_children` emits
-`Kind=Fanout`. `list_children`, `inspect_child`, and `query_child_status` are
+`delegate_to` emits `Kind=Delegate`. `fanout_to` emits
+`Kind=Fanout`. `list_members`, `inspect`, and `query_status` are
 read-only probes and do not emit `OrchestrationDecision` events. `Kind=Inspect`
 and `Kind=NoOp` remain part of the domain enum for explicit decision evidence,
 but none of the five current handlers emit them. `Reason` is plain text supplied

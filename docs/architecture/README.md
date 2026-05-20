@@ -44,7 +44,7 @@ Autonomous AI agents — organized into composable groups called **units** — c
 
 Agents connect to external systems through pluggable **connectors**, communicate via typed **messages**, take **initiative** to act autonomously, and can be observed by humans and other agents in real-time.
 
-**Orchestration is a mechanism, not the goal.** A unit is an agent that has children. When a unit's runtime is invoked, the platform attaches a closed set of [orchestration tools](units.md) (`list_children`, `inspect_child`, `delegate_to_child`, `fanout_to_children`, `query_child_status`); the runtime's instructions decide whether and how to delegate. Each delegation records an `OrchestrationDecision` event. Orchestration is runtime behaviour, not a platform-configured strategy ([ADR-0039](../decisions/0039-units-are-agents.md)). External orchestrators still participate as peers over A2A, but the platform does not classify or store an orchestration policy per unit.
+**Orchestration is a mechanism, not the goal.** A unit is an agent that has children. The platform attaches a closed set of [orchestration tools](units.md) (`list_members`, `inspect`, `delegate_to`, `fanout_to`, `query_status`) to every `agent://` and `unit://` runtime; the runtime's instructions decide whether and how to delegate. Each delegation records an `OrchestrationDecision` event. Orchestration is runtime behaviour, not a platform-configured strategy ([ADR-0039](../decisions/0039-units-are-agents.md)). External orchestrators still participate as peers over A2A, but the platform does not classify or store an orchestration policy per unit.
 
 ### Design Goals
 

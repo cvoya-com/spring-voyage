@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "list_children.output",
-  "description": "Output of list_children — array of direct-child descriptors per ADR-0039 §3.",
+  "title": "list_members.output",
+  "description": "Output of list_members — array of the caller's direct member descriptors per ADR-0039 §3.",
   "type": "object",
   "properties": {
-    "children": {
+    "members": {
       "type": "array",
       "items": {
         "type": "object",
@@ -22,7 +22,7 @@
           },
           "executionConfig": {
             "type": ["object", "null"],
-            "description": "Resolved (runtime, model, image, hosting) per ADR-0038. Shape opaque to callers — read via inspect_child for typed access."
+            "description": "Resolved (runtime, model, image, hosting) per ADR-0038. Shape opaque to callers — read via inspect for typed access."
           }
         },
         "required": ["address", "displayName", "kind"],
@@ -30,6 +30,6 @@
       }
     }
   },
-  "required": ["children"],
+  "required": ["members"],
   "additionalProperties": false
 }

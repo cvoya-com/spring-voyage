@@ -256,7 +256,7 @@ public class CodexLauncherTests
     private static OrchestrationToolDescriptor[] CreateOrchestrationTools() =>
     [
         new(
-            OrchestrationToolName.ListChildren,
+            OrchestrationToolName.ListMembers,
             CreateObjectSchema(),
             CreateObjectSchema())
     ];

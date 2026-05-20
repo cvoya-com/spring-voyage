@@ -40,65 +40,82 @@ public class OrchestrationCallbackEndpointsTests
     private static readonly Address OtherChildAddress =
         new(Address.AgentScheme, Guid.Parse("aaaaaaaa-0000-0000-0000-000000000002"));
 
-    private static readonly Address NonChildAddress =
-        new(Address.AgentScheme, Guid.Parse("aaaaaaaa-0000-0000-0000-000000000099"));
-
     [Fact]
-    public async Task ListChildren_ValidToken_UnitCallerNoChildren_Returns200EmptyArray()
+    public async Task ListMembers_ValidToken_UnitCallerNoMembers_Returns200EmptyArray()
     {
         using var factory = new OrchestrationDispatcherFactory();
         factory.RegisterMembers(UnitAddress);
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/list-children",
+            "/v1/runtime/orchestration/list-members",
             Request(UnitAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var json = await ReadJsonAsync(response);
-        json.GetProperty("children").GetArrayLength().ShouldBe(0);
+        json.GetProperty("members").GetArrayLength().ShouldBe(0);
     }
 
     [Fact]
-    public async Task DelegateToChild_AgentCallerWithoutChildren_Returns404TargetNotChild()
+    public async Task ListMembers_AgentCaller_Returns200EmptyArray()
     {
-        // ADR-0039 §3 (2026-05-19 amendment): the platform does not gate by
-        // entity type. An `agent://` caller with no recorded children fails
-        // the membership gate, surfacing as 404 OrchestrationTargetNotChild
-        // rather than the legacy 403 OrchestrationCallerIsNotUnit.
+        // ADR-0039 §3 (2026-05-19 amendment, #2536): list_members for a
+        // leaf agent caller returns an empty array directly — no membership
+        // gate, no entity-type gate.
         using var factory = new OrchestrationDispatcherFactory();
-        var caller = new Address(Address.AgentScheme, Guid.Parse("dddddddd-0000-0000-0000-000000000001"));
+        var caller = new Address(Address.AgentScheme, Guid.Parse("dddddddd-0000-0000-0000-000000000010"));
         var client = factory.CreateCallbackClient(caller);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to-child",
-            DelegateRequest(caller, ChildAddress, factory.ThreadId),
+            "/v1/runtime/orchestration/list-members",
+            Request(caller, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var json = await ReadJsonAsync(response);
-        json.GetProperty("error").GetString()
-            .ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
+        json.GetProperty("members").GetArrayLength().ShouldBe(0);
     }
 
     [Fact]
-    public async Task DelegateToChild_AgentCallerWithChild_Returns200()
+    public async Task DelegateTo_AgentCallerWithAnyTarget_Returns200()
     {
-        // ADR-0039 §3 (2026-05-19 amendment): agent callers with the
-        // membership relationship complete successfully.
+        // ADR-0039 §3 (2026-05-19 amendment, #2536): an agent caller can
+        // delegate to any addressable target in the same tenant — no
+        // membership gate.
+        using var factory = new OrchestrationDispatcherFactory();
+        var caller = new Address(Address.AgentScheme, Guid.Parse("dddddddd-0000-0000-0000-000000000001"));
+        var agent = Substitute.For<IAgent>();
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(CreateResponse(ChildAddress, caller));
+
+        factory.RegisterAgent(ChildAddress, agent);
+        var client = factory.CreateCallbackClient(caller);
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/runtime/orchestration/delegate-to",
+            DelegateRequest(caller, ChildAddress, factory.ThreadId),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task DelegateTo_UnitCaller_AnyTarget_Returns200()
+    {
+        // ADR-0039 §3 (2026-05-19 amendment, #2536): unit callers can target
+        // any addressable entity, not just direct members.
         using var factory = new OrchestrationDispatcherFactory();
         var caller = new Address(Address.AgentScheme, Guid.Parse("dddddddd-0000-0000-0000-000000000002"));
         var agent = Substitute.For<IAgent>();
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(CreateResponse(ChildAddress, caller));
 
-        factory.RegisterMembers(caller, ChildAddress);
         factory.RegisterAgent(ChildAddress, agent);
         var client = factory.CreateCallbackClient(caller);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to-child",
+            "/v1/runtime/orchestration/delegate-to",
             DelegateRequest(caller, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
@@ -106,14 +123,14 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task DelegateToChild_UnsupportedCallerScheme_Returns403()
+    public async Task DelegateTo_UnsupportedCallerScheme_Returns403()
     {
         using var factory = new OrchestrationDispatcherFactory();
         var caller = new Address(Address.HumanScheme, Guid.Parse("cccccccc-0000-0000-0000-000000000001"));
         var client = factory.CreateCallbackClient(caller);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to-child",
+            "/v1/runtime/orchestration/delegate-to",
             DelegateRequest(caller, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
@@ -123,32 +140,13 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task DelegateToChild_TargetNotChild_Returns404()
+    public async Task DelegateTo_SelfTarget_Returns400()
     {
         using var factory = new OrchestrationDispatcherFactory();
-        factory.RegisterMembers(UnitAddress, ChildAddress);
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to-child",
-            DelegateRequest(UnitAddress, NonChildAddress, factory.ThreadId),
-            TestContext.Current.CancellationToken);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        var json = await ReadJsonAsync(response);
-        json.GetProperty("error").GetString()
-            .ShouldBe(OrchestrationException.RejectCodes.OrchestrationTargetNotChild);
-    }
-
-    [Fact]
-    public async Task DelegateToChild_SelfTarget_Returns400()
-    {
-        using var factory = new OrchestrationDispatcherFactory();
-        factory.RegisterMembers(UnitAddress, ChildAddress);
-        var client = factory.CreateCallbackClient(UnitAddress);
-
-        var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to-child",
+            "/v1/runtime/orchestration/delegate-to",
             DelegateRequest(UnitAddress, UnitAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
@@ -159,7 +157,7 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task DelegateToChild_DepthBudgetExhausted_Returns429()
+    public async Task DelegateTo_DepthBudgetExhausted_Returns429()
     {
         using var factory = new OrchestrationDispatcherFactory(maxDepth: 1);
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -172,18 +170,17 @@ public class OrchestrationCallbackEndpointsTests
                 return release.Task;
             });
 
-        factory.RegisterMembers(UnitAddress, ChildAddress);
         factory.RegisterAgent(ChildAddress, agent);
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var firstRequest = client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to-child",
+            "/v1/runtime/orchestration/delegate-to",
             DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
         await started.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to-child",
+            "/v1/runtime/orchestration/delegate-to",
             DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
@@ -198,19 +195,18 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task DelegateToChild_HappyPath_Returns200()
+    public async Task DelegateTo_HappyPath_Returns200()
     {
         using var factory = new OrchestrationDispatcherFactory();
         var agent = Substitute.For<IAgent>();
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(CreateResponse(ChildAddress, UnitAddress));
 
-        factory.RegisterMembers(UnitAddress, ChildAddress);
         factory.RegisterAgent(ChildAddress, agent);
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to-child",
+            "/v1/runtime/orchestration/delegate-to",
             DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
@@ -220,7 +216,7 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task InspectChild_HappyPath_Returns200()
+    public async Task Inspect_HappyPath_Returns200()
     {
         using var factory = new OrchestrationDispatcherFactory();
         factory.RegisterMembers(UnitAddress, ChildAddress);
@@ -231,7 +227,7 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/inspect-child",
+            "/v1/runtime/orchestration/inspect",
             new
             {
                 callerAddress = UnitAddress.ToString(),
@@ -249,7 +245,7 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task FanoutToChildren_HappyPath_Returns200()
+    public async Task FanoutTo_HappyPath_Returns200()
     {
         using var factory = new OrchestrationDispatcherFactory();
         var firstAgent = Substitute.For<IAgent>();
@@ -259,13 +255,12 @@ public class OrchestrationCallbackEndpointsTests
         secondAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(CreateResponse(OtherChildAddress, UnitAddress, "also done"));
 
-        factory.RegisterMembers(UnitAddress, ChildAddress, OtherChildAddress);
         factory.RegisterAgent(ChildAddress, firstAgent);
         factory.RegisterAgent(OtherChildAddress, secondAgent);
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/fanout-to-children",
+            "/v1/runtime/orchestration/fanout-to",
             new
             {
                 callerAddress = UnitAddress.ToString(),
@@ -286,10 +281,9 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task QueryChildStatus_IdleAgent_ReturnsReady()
+    public async Task QueryStatus_IdleAgent_ReturnsReady()
     {
         using var factory = new OrchestrationDispatcherFactory();
-        factory.RegisterMembers(UnitAddress, ChildAddress);
         var statusAgent = Substitute.For<IAgent>();
         statusAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(CreateStatusResponse(ChildAddress, status: "Idle"));
@@ -297,7 +291,7 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/query-child-status",
+            "/v1/runtime/orchestration/query-status",
             new
             {
                 callerAddress = UnitAddress.ToString(),
@@ -314,10 +308,9 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task QueryChildStatus_ActiveAgent_ReturnsBusyWithThread()
+    public async Task QueryStatus_ActiveAgent_ReturnsBusyWithThread()
     {
         using var factory = new OrchestrationDispatcherFactory();
-        factory.RegisterMembers(UnitAddress, ChildAddress);
         var statusAgent = Substitute.For<IAgent>();
         statusAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(CreateStatusResponse(ChildAddress, status: "Active", activeThreadId: "thread-cafe"));
@@ -325,7 +318,7 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/query-child-status",
+            "/v1/runtime/orchestration/query-status",
             new
             {
                 callerAddress = UnitAddress.ToString(),
@@ -347,7 +340,7 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/list-children",
+            "/v1/runtime/orchestration/list-members",
             Request(ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
@@ -363,7 +356,7 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/list-children",
+            "/v1/runtime/orchestration/list-members",
             Request(UnitAddress, Guid.Parse("eeeeeeee-0000-0000-0000-000000000099")),
             TestContext.Current.CancellationToken);
 
@@ -380,7 +373,7 @@ public class OrchestrationCallbackEndpointsTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "not-a-jwt");
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/list-children",
+            "/v1/runtime/orchestration/list-members",
             Request(UnitAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
@@ -396,7 +389,7 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateClient();
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/list-children",
+            "/v1/runtime/orchestration/list-members",
             Request(UnitAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
@@ -536,12 +529,12 @@ public class OrchestrationCallbackEndpointsTests
                         ? registeredMembers
                         : Array.Empty<Address>();
                     actor.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(members);
-                    var descriptors = members.Select(member => new OrchestrationChildDescriptor(
+                    var descriptors = members.Select(member => new OrchestrationMemberDescriptor(
                         member,
                         DisplayName: string.Empty,
                         Kind: string.Equals(member.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase) ? "unit" : "agent",
                         ExecutionConfig: null)).ToArray();
-                    actor.GetChildDescriptorsAsync(Arg.Any<CancellationToken>()).Returns(descriptors);
+                    actor.GetMemberDescriptorsAsync(Arg.Any<CancellationToken>()).Returns(descriptors);
                     return actor;
                 });
 

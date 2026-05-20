@@ -15,10 +15,10 @@ using Cvoya.Spring.Dapr.Orchestration;
 /// mailbox / message-dispatch contract defined by <see cref="IAgent"/> —
 /// with additional structure: members, human permissions, lifecycle status,
 /// and a connector binding. Domain messages are dispatched through the unit's
-/// runtime launcher via the same path used by <see cref="IAgentActor"/>. When
-/// the unit has children, the launcher attaches orchestration tools
-/// (<c>list_children</c> / <c>inspect_child</c> / <c>delegate_to_child</c> /
-/// <c>fanout_to_children</c> / <c>query_child_status</c>) so the runtime can
+/// runtime launcher via the same path used by <see cref="IAgentActor"/>. The
+/// launcher attaches orchestration tools
+/// (<c>list_members</c> / <c>inspect</c> / <c>delegate_to</c> /
+/// <c>fanout_to</c> / <c>query_status</c>) so the runtime can
 /// choose to delegate; the platform records each delegation as an
 /// <c>OrchestrationDecision</c> event (ADR-0039 §3, §4). Control messages
 /// (cancel, status, health, policy) are handled directly and follow the same
@@ -55,11 +55,11 @@ public interface IUnitActor : IAgent
     Task<Address[]> GetMembersAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Returns rich descriptors for this unit's direct children — address,
+    /// Returns rich descriptors for this unit's direct members — address,
     /// directory-resolved display name, structural kind, and the persisted
-    /// execution block. Backs the <c>list_children</c> orchestration tool
+    /// execution block. Backs the <c>list_members</c> orchestration tool
     /// per ADR-0039 §3 and matches the
-    /// <c>list_children.output.schema.json</c> wire shape advertised to
+    /// <c>list_members.output.schema.json</c> wire shape advertised to
     /// runtime images.
     /// </summary>
     /// <remarks>
@@ -73,8 +73,8 @@ public interface IUnitActor : IAgent
     /// orchestration probe.
     /// </remarks>
     /// <param name="ct">A token to cancel the operation.</param>
-    /// <returns>An array of child descriptors in member-list order.</returns>
-    Task<OrchestrationChildDescriptor[]> GetChildDescriptorsAsync(CancellationToken ct = default);
+    /// <returns>An array of member descriptors in member-list order.</returns>
+    Task<OrchestrationMemberDescriptor[]> GetMemberDescriptorsAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Sets the permission level for a human within this unit.
