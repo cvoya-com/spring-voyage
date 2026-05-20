@@ -17,9 +17,6 @@
 
 import type { CreateAgentRequest } from "@/lib/api/types";
 
-/** URL-safe id pattern. Used by the wizard's legacy local-id field. */
-export const AGENT_NAME_PATTERN = /^[a-z0-9-]+$/;
-
 /**
  * Free-form input shape both the standalone page and the inline dialog
  * collect from the user. Empty strings are treated as "not supplied"

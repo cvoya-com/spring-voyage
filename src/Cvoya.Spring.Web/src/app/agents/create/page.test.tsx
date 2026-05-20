@@ -196,13 +196,12 @@ afterEach(() => {
 describe("CreateAgentPage", () => {
   // ── Render ────────────────────────────────────────────────────────────
 
-  it("renders the form with id, displayName, role, execution and unit picker", async () => {
+  it("renders the form with displayName, role, execution and unit picker", async () => {
     renderPage();
 
     expect(
       screen.getByRole("heading", { name: /create a new agent/i }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText(/agent id/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^role$/i)).toBeInTheDocument();
     // ADR-0038: the wizard exposes Agent Runtime + Model fields. The
@@ -223,7 +222,6 @@ describe("CreateAgentPage", () => {
       JSON.stringify({
         schemaVersion: AGENT_WIZARD_STATE_SCHEMA_VERSION,
         source: "scratch",
-        name: "ada",
         displayName: "Ada Lovelace",
         description: "Reviews backend changes",
         role: "reviewer",
@@ -237,7 +235,6 @@ describe("CreateAgentPage", () => {
 
     renderPage();
 
-    expect(screen.getByLabelText(/agent id/i)).toHaveValue("ada");
     expect(screen.getByLabelText(/display name/i)).toHaveValue("Ada Lovelace");
     expect(screen.getByLabelText(/^role$/i)).toHaveValue("reviewer");
     expect(screen.getByLabelText(/description/i)).toHaveValue(
@@ -270,9 +267,6 @@ describe("CreateAgentPage", () => {
       expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText(/agent id/i), {
-      target: { value: "ada" },
-    });
     fireEvent.change(screen.getByLabelText(/display name/i), {
       target: { value: "Ada" },
     });
@@ -294,29 +288,6 @@ describe("CreateAgentPage", () => {
     });
   });
 
-  it("rejects ids that violate the URL-safe pattern before posting", async () => {
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByLabelText(/assign to alpha/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), {
-      target: { value: "Ada Lovelace" },
-    });
-    fireEvent.change(screen.getByLabelText(/display name/i), {
-      target: { value: "Ada" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("agent-create-error")).toHaveTextContent(
-        /url-safe/i,
-      );
-    });
-    expect(createAgent).not.toHaveBeenCalled();
-  });
-
   it("blocks submit when required displayName is missing", async () => {
     renderPage();
     await waitFor(() => {
@@ -324,9 +295,6 @@ describe("CreateAgentPage", () => {
     });
 
     fireEvent.click(screen.getByLabelText(/assign to alpha/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), {
-      target: { value: "ada" },
-    });
     // leave displayName empty
 
     fireEvent.click(screen.getByRole("button", { name: /create agent/i }));
@@ -348,9 +316,6 @@ describe("CreateAgentPage", () => {
     });
 
     fireEvent.click(screen.getByLabelText(/assign to alpha/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), {
-      target: { value: "ada" },
-    });
     fireEvent.change(screen.getByLabelText(/display name/i), {
       target: { value: "Ada Lovelace" },
     });
@@ -388,7 +353,6 @@ describe("CreateAgentPage", () => {
     });
 
     fireEvent.click(screen.getByLabelText(/assign to alpha/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), { target: { value: "bob" } });
     fireEvent.change(screen.getByLabelText(/display name/i), {
       target: { value: "Bob Builder" },
     });
@@ -422,7 +386,6 @@ describe("CreateAgentPage", () => {
 
     fireEvent.click(screen.getByLabelText(/assign to alpha/i));
     fireEvent.click(screen.getByLabelText(/assign to beta/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), { target: { value: "ada" } });
     fireEvent.change(screen.getByLabelText(/display name/i), {
       target: { value: "Ada" },
     });
@@ -463,9 +426,6 @@ describe("CreateAgentPage", () => {
     });
 
     fireEvent.click(screen.getByLabelText(/assign to alpha/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), {
-      target: { value: "ada" },
-    });
     fireEvent.change(screen.getByLabelText(/display name/i), {
       target: { value: "Ada" },
     });

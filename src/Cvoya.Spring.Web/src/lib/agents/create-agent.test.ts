@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  AGENT_NAME_PATTERN,
   buildAgentDefinitionJson,
   buildCreateAgentRequest,
   describeAgentCreateError,
@@ -32,18 +31,6 @@ describe("create-agent helper (#1040)", () => {
           unitIds: ["engineering"],
         }),
       ).toBeNull();
-    });
-  });
-
-  describe("AGENT_NAME_PATTERN", () => {
-    it("accepts lowercase alphanumeric and hyphens", () => {
-      expect(AGENT_NAME_PATTERN.test("ada-the-2nd")).toBe(true);
-    });
-
-    it("rejects uppercase / underscores / spaces", () => {
-      expect(AGENT_NAME_PATTERN.test("Ada")).toBe(false);
-      expect(AGENT_NAME_PATTERN.test("ada_2nd")).toBe(false);
-      expect(AGENT_NAME_PATTERN.test("ada the 2nd")).toBe(false);
     });
   });
 

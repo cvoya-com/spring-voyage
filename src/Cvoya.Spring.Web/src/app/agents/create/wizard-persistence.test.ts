@@ -15,7 +15,6 @@ function makeSnapshot(
   return {
     schemaVersion: AGENT_WIZARD_STATE_SCHEMA_VERSION,
     source: "scratch",
-    name: "ada",
     displayName: "Ada Lovelace",
     description: "Reviews backend changes",
     role: "reviewer",

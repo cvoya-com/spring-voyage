@@ -273,7 +273,6 @@ describe("AgentCreateForm — source step (K1)", () => {
     expect(
       screen.queryByRole("heading", { name: /choose a source/i }),
     ).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/agent id/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
   });
 
@@ -284,7 +283,7 @@ describe("AgentCreateForm — source step (K1)", () => {
       screen.queryByRole("heading", { name: /choose a source/i }),
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId("agent-source-card-scratch")).toBeNull();
-    expect(screen.getByLabelText(/agent id/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
   });
 });
 
@@ -555,7 +554,6 @@ describe("AgentCreateForm — smoke", () => {
   it("renders identity, execution, and unit-assignment sections without crashing", async () => {
     renderForm();
 
-    expect(screen.getByLabelText(/agent id/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^role$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/agent runtime/i)).toBeInTheDocument();
@@ -595,9 +593,6 @@ describe("AgentCreateForm — direct create submit (K6)", () => {
     const onSuccess = vi.fn();
     renderForm({ onSuccess });
 
-    fireEvent.change(screen.getByLabelText(/agent id/i), {
-      target: { value: "ada" },
-    });
     fireEvent.change(screen.getByLabelText(/display name/i), {
       target: { value: "Ada" },
     });
@@ -623,9 +618,6 @@ describe("AgentCreateForm — direct create submit (K6)", () => {
     renderForm();
 
     fireEvent.click(await screen.findByLabelText(/assign to alpha/i));
-    fireEvent.change(screen.getByLabelText(/agent id/i), {
-      target: { value: "ada" },
-    });
     fireEvent.change(screen.getByLabelText(/display name/i), {
       target: { value: "Ada Lovelace" },
     });
@@ -956,9 +948,6 @@ async function submitForm({ selectAlpha = true }: { selectAlpha?: boolean } = {}
   if (selectAlpha) {
     fireEvent.click(await screen.findByLabelText(/assign to alpha/i));
   }
-  fireEvent.change(screen.getByLabelText(/agent id/i), {
-    target: { value: "ada" },
-  });
   fireEvent.change(screen.getByLabelText(/display name/i), {
     target: { value: "Ada" },
   });

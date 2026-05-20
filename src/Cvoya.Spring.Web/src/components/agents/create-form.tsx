@@ -36,7 +36,6 @@ import {
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import {
-  AGENT_NAME_PATTERN,
   buildCreateAgentRequest,
 } from "@/lib/agents/create-agent";
 import {
@@ -84,7 +83,6 @@ import { SourcePackagePicker } from "./source-package-picker";
  * + help-copy with `data-testid="inherit-indicator"`.
  */
 interface FormState {
-  id: string;
   displayName: string;
   role: string;
   description: string;
@@ -163,7 +161,6 @@ export interface AgentCreateSuccess {
 
 export interface AgentCreateFormSnapshot {
   source: AgentSource;
-  name: string;
   displayName: string;
   description: string;
   role: string;
@@ -279,7 +276,6 @@ export function AgentCreateForm({
 
   const initialForm = useMemo<FormState>(
     () => ({
-      id: initialSnapshot?.name ?? "",
       displayName: initialSnapshot?.displayName ?? "",
       role: initialSnapshot?.role ?? "",
       description: initialSnapshot?.description ?? "",
@@ -355,7 +351,6 @@ export function AgentCreateForm({
     if (!onSnapshotChange || context !== "page") return;
     onSnapshotChange({
       source,
-      name: form.id,
       displayName: form.displayName,
       description: form.description,
       role: form.role,
@@ -656,11 +651,10 @@ export function AgentCreateForm({
   }, [connectorBindingSelections, selectedPackageManifest]);
 
   const runCreate = useCallback(async () => {
-    const localAgentId = form.id.trim();
     const { apiUnitIds, navigationUnitIds } = resolveSelectedUnits();
 
     setCreate({
-      agentId: localAgentId,
+      agentId: null,
       installId: null,
       phase: "creating",
       error: null,
@@ -746,7 +740,7 @@ export function AgentCreateForm({
       const createdAgentId =
         response.id !== undefined && response.id !== null
           ? String(response.id)
-          : localAgentId;
+          : "";
 
       // #2246: when the operator left "Deploy automatically" checked and
       // picked persistent hosting, deploy the just-created agent so it
@@ -832,17 +826,6 @@ export function AgentCreateForm({
       return;
     }
 
-    const agentId = form.id.trim();
-    if (!agentId) {
-      setValidationMessage("Agent id is required.");
-      return;
-    }
-    if (!AGENT_NAME_PATTERN.test(agentId)) {
-      setValidationMessage(
-        "Agent id must be URL-safe (lowercase letters, digits, and hyphens).",
-      );
-      return;
-    }
     if (!form.displayName.trim()) {
       setValidationMessage("Display name is required.");
       return;
@@ -1063,27 +1046,6 @@ export function AgentCreateForm({
           <CardTitle>Identity</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <label className="block space-y-1">
-            <span className="text-sm text-muted-foreground">
-              Agent id <span className="text-destructive">*</span>
-            </span>
-            <Input
-              value={form.id}
-              onChange={(e) => update("id", e.target.value)}
-              placeholder="ada"
-              pattern={AGENT_NAME_PATTERN.source}
-              aria-label="Agent id"
-              aria-required="true"
-              autoComplete="off"
-              spellCheck={false}
-              disabled={submitting}
-              required
-            />
-            <span className="block text-xs text-muted-foreground">
-              URL-safe — lowercase letters, digits, and hyphens only.
-            </span>
-          </label>
-
           <label className="block space-y-1">
             <span className="text-sm text-muted-foreground">
               Display name <span className="text-destructive">*</span>

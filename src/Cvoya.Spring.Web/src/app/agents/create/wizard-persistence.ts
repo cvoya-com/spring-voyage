@@ -14,7 +14,6 @@ export type AgentWizardSource = "scratch" | "from-package" | "browse";
 export interface AgentWizardSnapshot {
   schemaVersion: typeof AGENT_WIZARD_STATE_SCHEMA_VERSION;
   source?: AgentWizardSource;
-  name?: string;
   displayName?: string;
   description?: string;
   role?: string;
@@ -26,7 +25,6 @@ export interface AgentWizardSnapshot {
 }
 
 const OPTIONAL_STRING_FIELDS = [
-  "name",
   "displayName",
   "description",
   "role",
