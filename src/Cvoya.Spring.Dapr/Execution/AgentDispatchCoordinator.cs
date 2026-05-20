@@ -98,13 +98,13 @@ public class AgentDispatchCoordinator(
                 // upstream agent / human sees the error response. We do this
                 // BEFORE signalling the exit so the response is ordered
                 // correctly in the thread event log.
-                await TryRouteResponseAsync(agentId, response, message.ThreadId, cancellationToken);
+                await TryRouteResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
 
                 await onDispatchExit($"dispatch exit code {failure.ExitCode}");
                 return;
             }
 
-            await TryRouteResponseAsync(agentId, response, message.ThreadId, cancellationToken);
+            await TryRouteResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
 
             // Per-thread dispatch is complete: the dispatcher returned a
             // response and we routed it back to the original sender. The
@@ -156,6 +156,7 @@ public class AgentDispatchCoordinator(
         string agentId,
         Message response,
         string? threadId,
+        Func<ActivityEvent, CancellationToken, Task> emitActivity,
         CancellationToken cancellationToken)
     {
         try
@@ -166,6 +167,15 @@ public class AgentDispatchCoordinator(
                 logger.LogWarning(
                     "Failed to route dispatcher response for thread {ThreadId}: {Error}",
                     threadId, routingResult.Error);
+
+                await emitActivity(
+                    BuildEvent(
+                        agentId,
+                        threadId,
+                        ActivityEventType.ErrorOccurred,
+                        ActivitySeverity.Error,
+                        $"Routing failed: {routingResult.Error}"),
+                    CancellationToken.None);
             }
         }
         catch (Exception routeEx)
@@ -173,6 +183,15 @@ public class AgentDispatchCoordinator(
             logger.LogWarning(routeEx,
                 "Routing dispatcher response failed for thread {ThreadId}.",
                 threadId);
+
+            await emitActivity(
+                BuildEvent(
+                    agentId,
+                    threadId,
+                    ActivityEventType.ErrorOccurred,
+                    ActivitySeverity.Error,
+                    $"Routing failed: {routeEx.Message}"),
+                CancellationToken.None);
         }
     }
 
