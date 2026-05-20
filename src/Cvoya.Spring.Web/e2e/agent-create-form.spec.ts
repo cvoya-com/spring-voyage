@@ -135,7 +135,7 @@ async function openScratchAgentCreate(page: Page) {
   await page.goto("/agents/create");
   await page.getByTestId("agent-source-card-scratch").click();
   await page.getByRole("button", { name: /^next$/i }).click();
-  await expect(page.getByLabel("Agent id")).toBeVisible();
+  await expect(page.getByLabel("Display name")).toBeVisible();
 }
 
 test.describe("agent create form", () => {
@@ -166,7 +166,6 @@ test.describe("agent create form", () => {
     const api = await mockAgentCreateApis(page, { rejectFirstCreate: true });
     await openScratchAgentCreate(page);
 
-    await page.getByLabel("Agent id").fill("ada");
     await page.getByLabel("Display name").fill("Ada");
     await page
       .getByRole("checkbox", { name: /assign to engineering team/i })
