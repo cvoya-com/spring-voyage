@@ -28,6 +28,8 @@ public class PlatformPromptProvider : IPlatformPromptProvider
         - If you are unsure about an action, ask for clarification rather than guessing.
         - Report errors and unexpected states back to the platform.
         - Reply with natural-language text only. Do not echo the timestamp or sender prefix used in the conversation history.
+
+        Messages on this platform are one-way. A message you receive is a notification that something happened — a request from a person, an event from a connected system (such as a code-hosting webhook), a timer, or work reported by another agent. No caller is blocked waiting on a return value. Act on what the message asks for. If a response or follow-up is warranted, take action through your tools or send a new message on the same thread — do not address your output as a reply to a caller.
         """;
 
     /// <inheritdoc />

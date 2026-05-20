@@ -45,4 +45,21 @@ public class PlatformPromptProviderTests
         result.ShouldContain("Reply with natural-language text only.");
         result.ShouldContain("Do not echo the timestamp or sender prefix");
     }
+
+    /// <summary>
+    /// Pins the one-way messaging guidance added by ADR-0048: domain
+    /// messaging is one-way, so the agent must act on an inbound message
+    /// rather than composing a reply to a caller that is not waiting on a
+    /// return value.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_IncludesOneWayMessagingModel()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("Messages on this platform are one-way.");
+        result.ShouldContain("do not address your output as a reply to a caller");
+    }
 }
