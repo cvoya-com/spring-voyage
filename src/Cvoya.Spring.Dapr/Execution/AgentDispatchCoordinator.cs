@@ -16,16 +16,26 @@ using Microsoft.Extensions.Logging;
 /// Default singleton implementation of <see cref="IAgentDispatchCoordinator"/>.
 /// Owns the execution-dispatch concern extracted from <c>AgentActor</c>:
 /// invoking the <see cref="IExecutionDispatcher"/>, inspecting the response
-/// for a non-zero container exit code, routing the response via
-/// <see cref="MessageRouter"/>, and signalling the per-thread dispatch exit
-/// so the actor's mailbox can drain remaining queued messages on the same
-/// thread or mark the channel idle.
+/// for a non-zero container exit code, recording the response on its
+/// originating thread, and signalling the per-thread dispatch exit so the
+/// actor's mailbox can drain remaining queued messages on the same thread
+/// or mark the channel idle.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Domain messaging is one-way
+/// (<see href="../../../docs/decisions/0048-event-vs-request-message-semantics.md">ADR-0048</see>):
+/// the dispatch response is <b>recorded</b> on the originating thread via
+/// <see cref="MessageRouter.PersistAsync"/> and is never routed back to
+/// <see cref="Message.From"/>. A unit/agent that wants to respond acts
+/// through its tools or sends a new one-way message.
+/// </para>
+/// <para>
 /// The coordinator is stateless with respect to any individual agent — it
 /// operates entirely through the per-call delegates and the injected singleton
 /// seams. This makes it safe to register as a singleton and share across all
 /// <c>AgentActor</c> instances.
+/// </para>
 /// </remarks>
 public class AgentDispatchCoordinator(
     IExecutionDispatcher executionDispatcher,
@@ -58,9 +68,9 @@ public class AgentDispatchCoordinator(
             if (response is null)
             {
                 logger.LogInformation(
-                    "Dispatcher returned no response for thread {ThreadId}; nothing to route.",
+                    "Dispatcher returned no response for thread {ThreadId}; nothing to record.",
                     message.ThreadId);
-                // Even when the dispatcher returns nothing to route, the
+                // Even when the dispatcher returns nothing to record, the
                 // dispatch is over from the actor's perspective. Signal the
                 // per-thread exit so the mailbox can drain any messages
                 // appended during the dispatch (per-thread FIFO) or mark
@@ -94,24 +104,26 @@ public class AgentDispatchCoordinator(
                         details: details),
                     CancellationToken.None);
 
-                // Best-effort: still surface the failure to the caller so an
-                // upstream agent / human sees the error response. We do this
-                // BEFORE signalling the exit so the response is ordered
-                // correctly in the thread event log.
-                await TryRouteResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
+                // Record the error response on the thread BEFORE signalling
+                // the exit so it is ordered correctly in the thread timeline.
+                // The error is also surfaced as the ErrorOccurred activity
+                // above; recording the response keeps the agent's stderr/exit
+                // payload on the durable thread record.
+                await RecordResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
 
                 await onDispatchExit($"dispatch exit code {failure.ExitCode}");
                 return;
             }
 
-            await TryRouteResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
+            await RecordResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
 
             // Per-thread dispatch is complete: the dispatcher returned a
-            // response and we routed it back to the original sender. The
-            // actor's mailbox drains any messages appended during the
-            // dispatch (per-thread FIFO) or marks the channel idle. Other
-            // threads on the same agent are unaffected — concurrent
-            // threads run independently per ADR-0030 §44.
+            // response and we recorded it on the originating thread (domain
+            // messaging is one-way — ADR-0048; the response is not routed
+            // back to a recipient). The actor's mailbox drains any messages
+            // appended during the dispatch (per-thread FIFO) or marks the
+            // channel idle. Other threads on the same agent are unaffected —
+            // concurrent threads run independently per ADR-0030 §44.
             await onDispatchExit("dispatch completed");
         }
         catch (OperationCanceledException)
@@ -152,7 +164,19 @@ public class AgentDispatchCoordinator(
         }
     }
 
-    private async Task TryRouteResponseAsync(
+    /// <summary>
+    /// Records the dispatch <paramref name="response"/> on its originating
+    /// thread. Domain messaging is one-way (ADR-0048): the response is
+    /// persisted to the thread timeline via
+    /// <see cref="MessageRouter.PersistAsync"/> and is never routed back to a
+    /// recipient. On success a neutral
+    /// <see cref="ActivityEventType.WorkflowStepCompleted"/> activity is
+    /// emitted so the dispatch terminal is visible in the activity feed; a
+    /// persistence failure is surfaced as
+    /// <see cref="ActivityEventType.ErrorOccurred"/> so the agent's output is
+    /// not silently lost.
+    /// </summary>
+    private async Task RecordResponseAsync(
         string agentId,
         Message response,
         string? threadId,
@@ -161,55 +185,45 @@ public class AgentDispatchCoordinator(
     {
         try
         {
-            var routingResult = await messageRouter.RouteAsync(response, cancellationToken);
-            if (!routingResult.IsSuccess)
-            {
-                var error = routingResult.Error;
-                logger.LogWarning(
-                    "Failed to route dispatcher response for thread {ThreadId}: {Error}",
-                    threadId, error);
+            await messageRouter.PersistAsync(response, cancellationToken);
 
-                // A dropped agent response would otherwise be invisible in
-                // the activity feed — surface it as an error activity so it
-                // is traceable in the portal, not just buried in container
-                // logs. Emit with CancellationToken.None so the activity
-                // lands even if the dispatch token is cancelled.
-                await emitActivity(
-                    BuildEvent(
+            // Neutral terminal activity: the dispatch produced a response and
+            // it is recorded on the thread. Emitted with CancellationToken.None
+            // so it lands even if the dispatch token is cancelled.
+            await emitActivity(
+                BuildEvent(
+                    agentId,
+                    threadId,
+                    ActivityEventType.WorkflowStepCompleted,
+                    ActivitySeverity.Info,
+                    "Dispatch response recorded on thread.",
+                    details: JsonSerializer.SerializeToElement(new
+                    {
                         agentId,
                         threadId,
-                        ActivityEventType.ErrorOccurred,
-                        ActivitySeverity.Error,
-                        $"Failed to route dispatcher response: {error?.Code}",
-                        details: JsonSerializer.SerializeToElement(new
-                        {
-                            errorCode = error?.Code,
-                            errorMessage = error?.Message,
-                            errorDetail = error?.Detail,
-                            agentId,
-                            threadId,
-                        })),
-                    CancellationToken.None);
-            }
+                        messageId = response.Id,
+                    })),
+                CancellationToken.None);
         }
-        catch (Exception routeEx)
+        catch (Exception recordEx)
         {
-            logger.LogWarning(routeEx,
-                "Routing dispatcher response failed for thread {ThreadId}.",
+            logger.LogWarning(recordEx,
+                "Failed to record dispatcher response for thread {ThreadId}.",
                 threadId);
 
-            // Same rationale as the failure-result path above: an unhandled
-            // routing exception must not silently drop the agent response.
+            // A response that could not be persisted would otherwise be
+            // invisible — surface it as an error activity so it is traceable
+            // in the portal, not just buried in container logs.
             await emitActivity(
                 BuildEvent(
                     agentId,
                     threadId,
                     ActivityEventType.ErrorOccurred,
                     ActivitySeverity.Error,
-                    $"Routing dispatcher response failed: {routeEx.Message}",
+                    $"Failed to record dispatcher response: {recordEx.Message}",
                     details: JsonSerializer.SerializeToElement(new
                     {
-                        error = routeEx.Message,
+                        error = recordEx.Message,
                         agentId,
                         threadId,
                     })),

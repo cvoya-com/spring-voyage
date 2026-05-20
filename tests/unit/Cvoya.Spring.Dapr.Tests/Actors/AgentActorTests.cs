@@ -650,7 +650,7 @@ public class AgentActorTests
     // --- Dispatch lifecycle ---
 
     [Fact]
-    public async Task RunDispatchAsync_NonZeroExitCode_EmitsErrorAndRoutesResponse()
+    public async Task RunDispatchAsync_NonZeroExitCode_EmitsErrorAndRecordsResponse()
     {
         var threadId = "conv-exit-125";
         var inbound = CreateMessage(threadId: threadId);
@@ -671,8 +671,6 @@ public class AgentActorTests
 
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(failureResponse);
-        _router.RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(Cvoya.Spring.Core.Result<Message?, RoutingError>.Success(null));
 
         // First read returns no channel so the actor takes the create-and-dispatch
         // path. Subsequent reads (during OnDispatchExitAsync) return the
@@ -700,8 +698,9 @@ public class AgentActorTests
                 e.Details.Value.GetProperty("exitCode").GetInt32() == 125),
             Arg.Any<CancellationToken>());
 
-        // Original sender still gets the failure response routed back.
-        await _router.Received(1).RouteAsync(
+        // The failure response is recorded on the originating thread
+        // (domain messaging is one-way — ADR-0048).
+        await _router.Received(1).PersistAsync(
             Arg.Is<Message>(m => m.Id == failureResponse.Id),
             Arg.Any<CancellationToken>());
     }
@@ -723,8 +722,6 @@ public class AgentActorTests
 
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(successResponse);
-        _router.RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(Cvoya.Spring.Core.Result<Message?, RoutingError>.Success(null));
 
         var channel = new ThreadChannel
         {
@@ -746,8 +743,9 @@ public class AgentActorTests
         await _stateManager.Received().TryRemoveStateAsync(
             StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>());
 
-        // Original sender still gets the reply routed back.
-        await _router.Received(1).RouteAsync(
+        // The reply is recorded on the originating thread
+        // (domain messaging is one-way — ADR-0048).
+        await _router.Received(1).PersistAsync(
             Arg.Is<Message>(m => m.Id == successResponse.Id),
             Arg.Any<CancellationToken>());
     }
