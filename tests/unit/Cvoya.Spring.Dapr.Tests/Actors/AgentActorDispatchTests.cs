@@ -37,8 +37,10 @@ using Xunit;
 
 /// <summary>
 /// Tests that verify <see cref="AgentActor.HandleDomainMessageAsync"/> invokes
-/// <see cref="IExecutionDispatcher"/> and routes its response via
-/// <see cref="MessageRouter"/> for the end-to-end dispatch path introduced by issue #133.
+/// <see cref="IExecutionDispatcher"/> and records its response on the
+/// originating thread via <see cref="MessageRouter.PersistAsync"/> for the
+/// end-to-end dispatch path (issue #133; domain messaging is one-way per
+/// ADR-0048 — the response is recorded, never routed back to a recipient).
 /// </summary>
 public class AgentActorDispatchTests
 {
@@ -138,7 +140,7 @@ public class AgentActorDispatchTests
     }
 
     [Fact]
-    public async Task DispatchResponse_IsRoutedViaMessageRouter()
+    public async Task DispatchResponse_IsRecordedViaMessageRouter()
     {
         var message = CreateDomainMessage();
         var response = new Message(
@@ -152,19 +154,21 @@ public class AgentActorDispatchTests
 
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(response);
-        _router.RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(Result<Message?, RoutingError>.Success(null));
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
-        await _router.Received(1).RouteAsync(
+        // Domain messaging is one-way (ADR-0048): the response is recorded
+        // on the originating thread, never routed back to a recipient.
+        await _router.Received(1).PersistAsync(
             Arg.Is<Message>(m => m.Id == response.Id),
             Arg.Any<CancellationToken>());
+        await _router.DidNotReceive().RouteAsync(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task RoutingFailure_EmitsErrorActivity()
+    public async Task RecordingFailure_EmitsErrorActivity()
     {
         var message = CreateDomainMessage();
         var response = new Message(
@@ -179,12 +183,12 @@ public class AgentActorDispatchTests
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(response);
 
-        // Routing fails: the dispatcher response is dropped. The coordinator
-        // must surface this as an ErrorOccurred activity so the dropped
-        // response is traceable in the portal activity feed (#2547).
-        _router.RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(Result<Message?, RoutingError>.Failure(
-                RoutingError.AddressNotFound(message.From)));
+        // Persisting the response fails: the agent's output would otherwise
+        // be lost. The coordinator must surface this as an ErrorOccurred
+        // activity so the dropped response is traceable in the portal (#2549).
+        _router.PersistAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(
+                new InvalidOperationException("messages table unavailable")));
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
@@ -193,12 +197,12 @@ public class AgentActorDispatchTests
             Arg.Is<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ErrorOccurred &&
                 e.Severity == ActivitySeverity.Error &&
-                e.Summary.Contains("ADDRESS_NOT_FOUND")),
+                e.Summary.Contains("Failed to record dispatcher response")),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task DispatcherReturnsNull_NoRoutingPerformed()
+    public async Task DispatcherReturnsNull_NothingRecorded()
     {
         var message = CreateDomainMessage();
 
@@ -208,7 +212,7 @@ public class AgentActorDispatchTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
-        await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
+        await _router.DidNotReceive().PersistAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
