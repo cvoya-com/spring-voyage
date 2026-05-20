@@ -72,8 +72,20 @@ const KB = 1024;
 //   Total uncompressed: ~3070 KB → cap 3150 KB
 //   Total gzipped:      ~ 871 KB → cap  900 KB
 //   Largest chunk (uncompressed): 356 KB → cap 450 KB (unchanged)
+//
+// Updated 2026-05-19 (#2544) when the unit Explorer pane's "Create
+// sub-unit" button became a "Create member" dropdown — new dropdown
+// markup, a `CreateMemberItem` row component, the agent/human create
+// wiring, and a few lucide icons. The heavy agent-create form is
+// already eagerly bundled via the unit Members tab, so the increase is
+// the dropdown code itself and lazy-loading the dialogs would not move
+// this on-disk total. Only the uncompressed figure moved; gzipped and
+// largest-chunk are unchanged.
+//   Total uncompressed: ~3156 KB → cap 3180 KB
+//   Total gzipped:      ~ 898 KB → cap  900 KB (unchanged; still within)
+//   Largest chunk (uncompressed): 356 KB → cap 450 KB (unchanged)
 const BUDGETS = {
-  totalUncompressedKb: 3150,
+  totalUncompressedKb: 3180,
   totalGzippedKb: 900,
   maxChunkUncompressedKb: 450,
 };

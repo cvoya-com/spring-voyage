@@ -25,12 +25,21 @@
 // existing #1137 dialog) and a "Dismiss" button. The threshold is
 // intentionally generous (90 s) so normal cold-start container pulls do
 // not trip the banner. The timer re-arms whenever the status changes.
+//
+// #2544: the lone "Create sub-unit" button is now a "Create member"
+// dropdown — a unit composes three member kinds (agent, human, sub-unit),
+// and the portal previously offered no path to create an agent or human
+// member from the Explorer pane. Each entry opens the kind's existing
+// create surface and lands the user on the new member's page.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  Bot,
+  Building2,
+  ChevronDown,
   MessagesSquare,
   Play,
   Plus,
@@ -38,6 +47,7 @@ import {
   Square,
   Trash2,
   CheckCircle2,
+  UserPlus,
   X,
 } from "lucide-react";
 
@@ -47,8 +57,15 @@ import { useToast } from "@/components/ui/toast";
 import { api, ApiError } from "@/lib/api/client";
 import { formatTranslatedError } from "@/lib/api/translate-error";
 import { queryKeys } from "@/lib/api/query-keys";
-import { useUnit } from "@/lib/api/queries";
+import { useCurrentUser, useUnit } from "@/lib/api/queries";
 import type { LifecycleStatus } from "@/lib/api/types";
+import { toExplorerPathSegment } from "@/lib/explorer-url";
+import { AgentCreateDialog } from "@/components/agents/create-dialog";
+import type { AgentCreateSuccess } from "@/components/agents/create-form";
+import {
+  HumanMemberDialog,
+  type HumanMemberFormValues,
+} from "@/components/units/human-member-dialog";
 
 // #1137: shape of the API's 409 conflict body for DELETE /units/{id}.
 // Only `forceHint` is consumed by the recovery flow — its presence is the
@@ -92,6 +109,20 @@ export function UnitPaneActions({ node }: UnitPaneActionsProps) {
   // gate matches what `spring unit start|stop|…` would accept.
   const unitQuery = useUnit(node.id);
   const status: LifecycleStatus | null = unitQuery.data?.status ?? null;
+
+  // #2544: the operator's own Human id seeds the add-human-member flow.
+  // OSS exposes exactly one human (yourself); a null id (still loading,
+  // or anonymous) disables the Human entry rather than opening a dialog
+  // the backend would reject.
+  const meQuery = useCurrentUser();
+  const operatorHumanId = meQuery.data?.id ?? null;
+
+  // #2544: "Create member" dropdown + the two create surfaces it opens.
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const createMenuRef = useRef<HTMLDivElement>(null);
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false);
+  const [humanDialogOpen, setHumanDialogOpen] = useState(false);
+  const [humanSubmitting, setHumanSubmitting] = useState(false);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   // #1137: when the lifecycle-status gate refuses the delete with 409 +
@@ -148,6 +179,23 @@ export function UnitPaneActions({ node }: UnitPaneActionsProps) {
 
   const showStuckAdvisory =
     isStuck(status) && stuckSoftTimedOut && !advisoryDismissed;
+
+  // #2544: close the "Create member" dropdown on an outside click —
+  // mirrors the dismiss-on-blur pattern used by the engagement filter
+  // dropdown (`engagement-list.tsx`).
+  useEffect(() => {
+    if (!createMenuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (
+        createMenuRef.current &&
+        !createMenuRef.current.contains(e.target as Node)
+      ) {
+        setCreateMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [createMenuOpen]);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.units.detail(node.id) });
@@ -266,17 +314,60 @@ export function UnitPaneActions({ node }: UnitPaneActionsProps) {
           ? "Wait for validation to complete before deleting."
           : undefined;
 
-  // #1150: "Create sub-unit" launches the existing /units/create wizard
+  // #1150 / #2544: "Sub-unit" launches the existing /units/create wizard
   // with this unit pre-selected as the parent. The wizard reads the
-  // `parent` query param at mount and threads `parentUnitIds` /
-  // `isTopLevel: false` through the create-unit API call (see
-  // `src/app/units/create/page.tsx`). The button is unconditional —
-  // every unit can be a parent, regardless of its lifecycle status —
-  // so we do not gate it on `status` like the lifecycle verbs above.
-  // The action sits ahead of the Day-2 verbs in the cluster because
-  // it's a creation flow, not a verb on the current unit.
+  // `parent` query param at mount, threads `parentUnitIds` /
+  // `isTopLevel: false` through the create-unit API call, and lands the
+  // operator on the new unit's page (see `src/app/units/create/page.tsx`).
   const onCreateSubunit = () => {
     router.push(`/units/create?parent=${encodeURIComponent(node.id)}`);
+  };
+
+  // #2544: after a successful agent create the dialog forwards the
+  // result here. Refresh the tenant tree so the new agent node appears
+  // in the left rail, then open the agent's page so the operator can
+  // configure the optional settings the create dialog left at inherit.
+  const onAgentCreated = (result: AgentCreateSuccess) => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+    if (result.agentId) {
+      router.push(
+        `/explorer/agents/${encodeURIComponent(
+          toExplorerPathSegment(result.agentId),
+        )}`,
+      );
+    }
+  };
+
+  // #2544: add the operator as a human team-role member of this unit,
+  // then open the human's page. Mirrors the add-mode submit wiring in
+  // `members-tab.tsx` — the unit Members tab and this dropdown are two
+  // entry points to the same `POST .../members/humans` endpoint.
+  const onHumanSubmit = async (values: HumanMemberFormValues) => {
+    setHumanSubmitting(true);
+    try {
+      const saved = await api.addUnitHumanMember(node.id, {
+        humanId: values.humanId,
+        roles: values.roles,
+        expertise: values.expertise,
+        notifications: values.notifications,
+      });
+      toast({ title: "Human member added", description: node.name });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+      setHumanDialogOpen(false);
+      router.push(
+        `/explorer/humans/${encodeURIComponent(
+          toExplorerPathSegment(saved.humanId),
+        )}`,
+      );
+    } catch (err) {
+      toast({
+        title: "Add failed",
+        description: formatTranslatedError(err),
+        variant: "destructive",
+      });
+    } finally {
+      setHumanSubmitting(false);
+    }
   };
 
   return (
@@ -334,15 +425,70 @@ export function UnitPaneActions({ node }: UnitPaneActionsProps) {
           </div>
         </div>
       )}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onCreateSubunit}
-        data-testid="unit-action-create-subunit"
-      >
-        <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
-        Create sub-unit
-      </Button>
+      {/*
+        #2544: "Create member" dropdown. A unit composes three member
+        kinds — agent, human, sub-unit — so the lone "Create sub-unit"
+        button is now a menu covering all three. Unconditional: every
+        unit can gain members regardless of its lifecycle status, so the
+        trigger is not gated on `status` like the Day-2 verbs below. It
+        sits ahead of those verbs because it is a creation flow, not a
+        verb on the current unit.
+      */}
+      <div ref={createMenuRef} className="relative">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCreateMenuOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={createMenuOpen}
+          data-testid="unit-action-create-member"
+        >
+          <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+          Create member
+          <ChevronDown className="ml-1 h-4 w-4" aria-hidden="true" />
+        </Button>
+        {createMenuOpen && (
+          <div
+            role="menu"
+            aria-label="Create member"
+            className="absolute left-0 top-full z-20 mt-1 min-w-[13rem] rounded-md border border-border bg-popover py-1 shadow-md"
+            data-testid="unit-create-member-menu"
+          >
+            <p className="px-3 pb-1 pt-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Create member
+            </p>
+            <CreateMemberItem
+              icon={Bot}
+              label="Agent"
+              testId="unit-create-member-agent"
+              onClick={() => {
+                setCreateMenuOpen(false);
+                setAgentDialogOpen(true);
+              }}
+            />
+            <CreateMemberItem
+              icon={UserPlus}
+              label="Human"
+              testId="unit-create-member-human"
+              disabled={!operatorHumanId}
+              disabledReason="Your human identity is still loading — try again in a moment."
+              onClick={() => {
+                setCreateMenuOpen(false);
+                setHumanDialogOpen(true);
+              }}
+            />
+            <CreateMemberItem
+              icon={Building2}
+              label="Sub-unit"
+              testId="unit-create-member-subunit"
+              onClick={() => {
+                setCreateMenuOpen(false);
+                onCreateSubunit();
+              }}
+            />
+          </div>
+        )}
+      </div>
       {/* #1463 / #1464: open the engagement view for this unit. The
           {human, unit} 1:1 engagement is treated as already existing
           conceptually — the button "Engagement" navigates into it,
@@ -451,6 +597,71 @@ export function UnitPaneActions({ node }: UnitPaneActionsProps) {
         onConfirm={() => forceDeleteMutation.mutate()}
         onCancel={() => setForceConfirmOpen(false)}
       />
+      {/*
+        #2544: the create surfaces opened by the dropdown. Mounted only
+        while open so their internal queries (the agent form's model /
+        provider catalogue, the human dialog's `useHuman` lookup) stay
+        idle until the operator actually picks a member kind.
+      */}
+      {agentDialogOpen && (
+        <AgentCreateDialog
+          unitId={node.id}
+          unitDisplayName={node.name}
+          open
+          onOpenChange={setAgentDialogOpen}
+          onCreated={onAgentCreated}
+        />
+      )}
+      {humanDialogOpen && (
+        <HumanMemberDialog
+          open
+          mode="add"
+          initial={null}
+          operatorHumanId={operatorHumanId}
+          pending={humanSubmitting}
+          onCancel={() => setHumanDialogOpen(false)}
+          onSubmit={onHumanSubmit}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * One row in the "Create member" dropdown (#2544). A thin wrapper over
+ * a `role="menuitem"` button so the three entries share icon placement,
+ * hover styling, and disabled treatment.
+ */
+function CreateMemberItem({
+  icon: Icon,
+  label,
+  testId,
+  onClick,
+  disabled,
+  disabledReason,
+}: {
+  icon: typeof Bot;
+  label: string;
+  testId: string;
+  onClick: () => void;
+  disabled?: boolean;
+  disabledReason?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      disabled={disabled}
+      title={disabled ? disabledReason : undefined}
+      data-testid={testId}
+      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <Icon
+        className="h-4 w-4 shrink-0 text-muted-foreground"
+        aria-hidden="true"
+      />
+      {label}
+    </button>
   );
 }

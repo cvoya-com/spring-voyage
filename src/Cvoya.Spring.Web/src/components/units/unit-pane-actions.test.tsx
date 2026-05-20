@@ -40,6 +40,7 @@ const startUnitMock = vi.fn();
 const stopUnitMock = vi.fn();
 const revalidateUnitMock = vi.fn();
 const deleteUnitMock = vi.fn();
+const addUnitHumanMemberMock = vi.fn();
 
 // Re-export the real ApiError so the production code's `instanceof
 // ApiError` check inside the unit-pane-actions component matches the
@@ -57,6 +58,8 @@ vi.mock("@/lib/api/client", async () => {
       revalidateUnit: (id: string) => revalidateUnitMock(id),
       deleteUnit: (id: string, options?: { force?: boolean }) =>
         deleteUnitMock(id, options),
+      addUnitHumanMember: (unitId: string, body: unknown) =>
+        addUnitHumanMemberMock(unitId, body),
     },
   };
 });
@@ -64,13 +67,73 @@ vi.mock("@/lib/api/client", async () => {
 import { ApiError } from "@/lib/api/client";
 
 const useUnitMock = vi.fn();
+const useCurrentUserMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
   useUnit: (id: string) => useUnitMock(id),
+  useCurrentUser: () => useCurrentUserMock(),
 }));
 
 const toastMock = vi.fn();
 vi.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: toastMock }),
+}));
+
+// #2544: the agent / human create surfaces are exercised in their own
+// test files (`create-dialog.test.tsx`, `members-tab.test.tsx`). Here we
+// stub them down to a button that fires the success callback, so this
+// suite can verify the dropdown wiring — open the surface, then route to
+// the new member's page — without the heavy model/provider query setup
+// the real `<AgentCreateForm>` needs.
+interface AgentDialogStubProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated?: (result: { agentId?: string }) => void;
+}
+vi.mock("@/components/agents/create-dialog", () => ({
+  AgentCreateDialog: (props: AgentDialogStubProps) =>
+    props.open ? (
+      <div data-testid="agent-create-dialog-stub">
+        <button
+          type="button"
+          data-testid="agent-create-dialog-stub-create"
+          onClick={() => props.onCreated?.({ agentId: "agent-123" })}
+        >
+          create
+        </button>
+      </div>
+    ) : null,
+}));
+
+interface HumanDialogStubProps {
+  open: boolean;
+  operatorHumanId: string | null;
+  onSubmit: (values: {
+    humanId: string;
+    roles: string[];
+    expertise: string[];
+    notifications: string[];
+  }) => void;
+}
+vi.mock("@/components/units/human-member-dialog", () => ({
+  HumanMemberDialog: (props: HumanDialogStubProps) =>
+    props.open ? (
+      <div data-testid="human-member-dialog-stub">
+        <button
+          type="button"
+          data-testid="human-member-dialog-stub-submit"
+          onClick={() =>
+            props.onSubmit({
+              humanId: props.operatorHumanId ?? "",
+              roles: ["reviewer"],
+              expertise: [],
+              notifications: [],
+            })
+          }
+        >
+          submit
+        </button>
+      </div>
+    ) : null,
 }));
 
 import { UnitPaneActions } from "./unit-pane-actions";
@@ -116,8 +179,13 @@ beforeEach(() => {
   stopUnitMock.mockReset();
   revalidateUnitMock.mockReset();
   deleteUnitMock.mockReset();
+  addUnitHumanMemberMock.mockReset();
   useUnitMock.mockReset();
   useUnitMock.mockReturnValue({ data: undefined });
+  useCurrentUserMock.mockReset();
+  // Default: the operator's Human identity is resolved, so the "Human"
+  // dropdown entry is enabled. Individual tests override this.
+  useCurrentUserMock.mockReturnValue({ data: { id: "human-self" } });
   toastMock.mockReset();
 });
 
@@ -185,21 +253,15 @@ describe("UnitPaneActions — Unit status gating", () => {
       for (const id of c.hidden) {
         expect(screen.queryByTestId(id)).toBeNull();
       }
-      // #1150: Create sub-unit is always available — every unit can be
-      // a parent regardless of lifecycle status.
+      // #2544: the "Create member" dropdown is always available — every
+      // unit can gain members regardless of lifecycle status.
       expect(
-        screen.getByTestId("unit-action-create-subunit"),
+        screen.getByTestId("unit-action-create-member"),
       ).toBeInTheDocument();
     });
   }
 });
 
-// #1150: the "Create sub-unit" affordance routes to the create-unit
-// wizard with the current unit pre-selected as the parent. The
-// wizard reads the `parent` query param and threads `parentUnitIds`
-// onto the create-unit API call. The button is unconditional — see
-// the status-gating loop above for the cross-status assertion that
-// every LifecycleStatus surfaces it.
 describe("UnitPaneActions — Engagement (#1463 / #1464)", () => {
   it("navigates to /engagement/mine pre-selecting the unit", async () => {
     useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
@@ -221,16 +283,37 @@ describe("UnitPaneActions — Engagement (#1463 / #1464)", () => {
   });
 });
 
-describe("UnitPaneActions — Create sub-unit (#1150)", () => {
-  it("navigates to /units/create with the parent query param", async () => {
+// #2544: the lone "Create sub-unit" button is now a "Create member"
+// dropdown covering all three member kinds (agent, human, sub-unit).
+// Each entry opens the kind's create surface and routes the operator to
+// the new member's page. The trigger is unconditional — see the
+// status-gating loop above for the cross-status assertion.
+describe("UnitPaneActions — Create member dropdown (#2544)", () => {
+  it("opens a menu with agent, human, and sub-unit entries", async () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Running") });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    expect(screen.queryByTestId("unit-create-member-menu")).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("unit-action-create-member"));
+    });
+    expect(screen.getByTestId("unit-create-member-menu")).toBeInTheDocument();
+    expect(screen.getByTestId("unit-create-member-agent")).toBeInTheDocument();
+    expect(screen.getByTestId("unit-create-member-human")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("unit-create-member-subunit"),
+    ).toBeInTheDocument();
+  });
+
+  it("routes the Sub-unit entry to /units/create with the parent query param", async () => {
     useUnitMock.mockReturnValue({ data: makeUnit("Running") });
     render(wrap(<UnitPaneActions node={unitNode} />));
     await act(async () => {
-      fireEvent.click(screen.getByTestId("unit-action-create-subunit"));
+      fireEvent.click(screen.getByTestId("unit-action-create-member"));
     });
-    expect(routerPushMock).toHaveBeenCalledWith(
-      "/units/create?parent=alpha",
-    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("unit-create-member-subunit"));
+    });
+    expect(routerPushMock).toHaveBeenCalledWith("/units/create?parent=alpha");
   });
 
   it("URL-encodes parent ids so address-shaped names survive the round-trip", async () => {
@@ -243,11 +326,76 @@ describe("UnitPaneActions — Create sub-unit (#1150)", () => {
     };
     render(wrap(<UnitPaneActions node={nestedNode} />));
     await act(async () => {
-      fireEvent.click(screen.getByTestId("unit-action-create-subunit"));
+      fireEvent.click(screen.getByTestId("unit-action-create-member"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("unit-create-member-subunit"));
     });
     expect(routerPushMock).toHaveBeenCalledWith(
       "/units/create?parent=engineering%2Fteam%20alpha",
     );
+  });
+
+  it("opens the agent dialog and routes to the new agent's page on create", async () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Running") });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("unit-action-create-member"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("unit-create-member-agent"));
+    });
+    expect(
+      screen.getByTestId("agent-create-dialog-stub"),
+    ).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("agent-create-dialog-stub-create"));
+    });
+    expect(routerPushMock).toHaveBeenCalledWith("/explorer/agents/agent-123");
+  });
+
+  it("adds the operator as a human member and routes to the human's page", async () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Running") });
+    addUnitHumanMemberMock.mockResolvedValue({ humanId: "human-self" });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("unit-action-create-member"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("unit-create-member-human"));
+    });
+    expect(
+      screen.getByTestId("human-member-dialog-stub"),
+    ).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("human-member-dialog-stub-submit"));
+    });
+    await waitFor(() => {
+      expect(addUnitHumanMemberMock).toHaveBeenCalledWith("alpha", {
+        humanId: "human-self",
+        roles: ["reviewer"],
+        expertise: [],
+        notifications: [],
+      });
+    });
+    await waitFor(() => {
+      expect(routerPushMock).toHaveBeenCalledWith(
+        "/explorer/humans/human-self",
+      );
+    });
+  });
+
+  it("disables the Human entry while the operator identity is unresolved", async () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Running") });
+    useCurrentUserMock.mockReturnValue({ data: null });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("unit-action-create-member"));
+    });
+    const humanEntry = screen.getByTestId(
+      "unit-create-member-human",
+    ) as HTMLButtonElement;
+    expect(humanEntry.disabled).toBe(true);
   });
 });
 
