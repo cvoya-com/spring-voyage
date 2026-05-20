@@ -48,6 +48,7 @@ public class AgentActorDispatchTests
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly ISkillRegistry _skillRegistry = Substitute.For<ISkillRegistry>();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
+    private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly AgentActor _actor;
 
     public AgentActorDispatchTests()
@@ -83,7 +84,7 @@ public class AgentActorDispatchTests
 
         _actor = new AgentActor(
             host,
-            Substitute.For<IActivityEventBus>(),
+            _activityEventBus,
             Substitute.For<IAgentObservationCoordinator>(),
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
             new AgentDispatchCoordinator(_dispatcher, _router, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
@@ -159,6 +160,40 @@ public class AgentActorDispatchTests
 
         await _router.Received(1).RouteAsync(
             Arg.Is<Message>(m => m.Id == response.Id),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RoutingFailure_EmitsErrorActivity()
+    {
+        var message = CreateDomainMessage();
+        var response = new Message(
+            Guid.NewGuid(),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
+            message.From,
+            MessageType.Domain,
+            message.ThreadId,
+            JsonSerializer.SerializeToElement(new { Output = "ok", ExitCode = 0 }),
+            DateTimeOffset.UtcNow);
+
+        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(response);
+
+        // Routing fails: the dispatcher response is dropped. The coordinator
+        // must surface this as an ErrorOccurred activity so the dropped
+        // response is traceable in the portal activity feed (#2547).
+        _router.RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Message?, RoutingError>.Failure(
+                RoutingError.AddressNotFound(message.From)));
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
+
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ErrorOccurred &&
+                e.Severity == ActivitySeverity.Error &&
+                e.Summary.Contains("ADDRESS_NOT_FOUND")),
             Arg.Any<CancellationToken>());
     }
 

@@ -98,13 +98,13 @@ public class AgentDispatchCoordinator(
                 // upstream agent / human sees the error response. We do this
                 // BEFORE signalling the exit so the response is ordered
                 // correctly in the thread event log.
-                await TryRouteResponseAsync(agentId, response, message.ThreadId, cancellationToken);
+                await TryRouteResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
 
                 await onDispatchExit($"dispatch exit code {failure.ExitCode}");
                 return;
             }
 
-            await TryRouteResponseAsync(agentId, response, message.ThreadId, cancellationToken);
+            await TryRouteResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
 
             // Per-thread dispatch is complete: the dispatcher returned a
             // response and we routed it back to the original sender. The
@@ -156,6 +156,7 @@ public class AgentDispatchCoordinator(
         string agentId,
         Message response,
         string? threadId,
+        Func<ActivityEvent, CancellationToken, Task> emitActivity,
         CancellationToken cancellationToken)
     {
         try
@@ -163,9 +164,32 @@ public class AgentDispatchCoordinator(
             var routingResult = await messageRouter.RouteAsync(response, cancellationToken);
             if (!routingResult.IsSuccess)
             {
+                var error = routingResult.Error;
                 logger.LogWarning(
                     "Failed to route dispatcher response for thread {ThreadId}: {Error}",
-                    threadId, routingResult.Error);
+                    threadId, error);
+
+                // A dropped agent response would otherwise be invisible in
+                // the activity feed — surface it as an error activity so it
+                // is traceable in the portal, not just buried in container
+                // logs. Emit with CancellationToken.None so the activity
+                // lands even if the dispatch token is cancelled.
+                await emitActivity(
+                    BuildEvent(
+                        agentId,
+                        threadId,
+                        ActivityEventType.ErrorOccurred,
+                        ActivitySeverity.Error,
+                        $"Failed to route dispatcher response: {error?.Code}",
+                        details: JsonSerializer.SerializeToElement(new
+                        {
+                            errorCode = error?.Code,
+                            errorMessage = error?.Message,
+                            errorDetail = error?.Detail,
+                            agentId,
+                            threadId,
+                        })),
+                    CancellationToken.None);
             }
         }
         catch (Exception routeEx)
@@ -173,6 +197,23 @@ public class AgentDispatchCoordinator(
             logger.LogWarning(routeEx,
                 "Routing dispatcher response failed for thread {ThreadId}.",
                 threadId);
+
+            // Same rationale as the failure-result path above: an unhandled
+            // routing exception must not silently drop the agent response.
+            await emitActivity(
+                BuildEvent(
+                    agentId,
+                    threadId,
+                    ActivityEventType.ErrorOccurred,
+                    ActivitySeverity.Error,
+                    $"Routing dispatcher response failed: {routeEx.Message}",
+                    details: JsonSerializer.SerializeToElement(new
+                    {
+                        error = routeEx.Message,
+                        agentId,
+                        threadId,
+                    })),
+                CancellationToken.None);
         }
     }
 
