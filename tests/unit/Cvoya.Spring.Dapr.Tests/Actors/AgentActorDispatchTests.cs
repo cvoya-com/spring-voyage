@@ -202,6 +202,96 @@ public class AgentActorDispatchTests
     }
 
     [Fact]
+    public async Task RecordingFailure_ErrorActivity_CarriesStructuredDetailsPayload()
+    {
+        var message = CreateDomainMessage();
+        var response = new Message(
+            Guid.NewGuid(),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
+            message.From,
+            MessageType.Domain,
+            message.ThreadId,
+            JsonSerializer.SerializeToElement(new { Output = "ok", ExitCode = 0 }),
+            DateTimeOffset.UtcNow);
+
+        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(response);
+
+        _router.PersistAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(
+                new InvalidOperationException("messages table unavailable")));
+
+        ActivityEvent? captured = null;
+        await _activityEventBus.PublishAsync(
+            Arg.Do<ActivityEvent>(e =>
+            {
+                if (e.EventType == ActivityEventType.ErrorOccurred)
+                {
+                    captured = e;
+                }
+            }),
+            Arg.Any<CancellationToken>());
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
+
+        // The dropped response is only traceable in the portal if the
+        // ErrorOccurred activity carries a structured Details payload — a
+        // bare summary string cannot be queried or correlated. The
+        // recording-failure path in AgentDispatchCoordinator serializes
+        // { error, agentId, threadId }.
+        captured.ShouldNotBeNull();
+        captured!.Details.ShouldNotBeNull();
+
+        var details = captured.Details!.Value;
+        details.ValueKind.ShouldBe(JsonValueKind.Object);
+
+        details.TryGetProperty("agentId", out var agentIdProp).ShouldBeTrue();
+        agentIdProp.GetString().ShouldBe(TestSlugIds.HexFor("test-agent"));
+
+        details.TryGetProperty("threadId", out var threadIdProp).ShouldBeTrue();
+        threadIdProp.GetString().ShouldBe(message.ThreadId);
+
+        // The persistence failure is surfaced through the `error` field —
+        // the structured error code/message for the dropped response.
+        details.TryGetProperty("error", out var errorProp).ShouldBeTrue();
+        errorProp.GetString().ShouldBe("messages table unavailable");
+    }
+
+    [Fact]
+    public async Task RecordingFailure_ErrorActivity_IsPublishedWithUncancellableToken()
+    {
+        var message = CreateDomainMessage();
+        var response = new Message(
+            Guid.NewGuid(),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
+            message.From,
+            MessageType.Domain,
+            message.ThreadId,
+            JsonSerializer.SerializeToElement(new { Output = "ok", ExitCode = 0 }),
+            DateTimeOffset.UtcNow);
+
+        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(response);
+
+        _router.PersistAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(
+                new InvalidOperationException("messages table unavailable")));
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
+
+        // The error activity must land even when the dispatch token is
+        // cancelled — otherwise a dropped response would itself be dropped.
+        // AgentDispatchCoordinator emits the recording-failure activity with
+        // CancellationToken.None, which AgentActor forwards verbatim to the
+        // activity event bus.
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ErrorOccurred),
+            CancellationToken.None);
+    }
+
+    [Fact]
     public async Task DispatcherReturnsNull_NothingRecorded()
     {
         var message = CreateDomainMessage();
