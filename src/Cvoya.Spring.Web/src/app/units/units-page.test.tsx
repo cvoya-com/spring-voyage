@@ -334,16 +334,17 @@ describe("ExplorerSurface — Explorer canvas (EXP-route)", () => {
     expect(link).toHaveTextContent(/new unit/i);
   });
 
-  it("#2517: selecting a human node writes /explorer/humans/<guid> via replaceState (no router.replace)", async () => {
+  it("#2517: selecting a human node writes /explorer/humans/<no-dash-guid> via replaceState (no router.replace)", async () => {
     // Extend sampleTree with a human member so the tree renders a
-    // clickable human row. Human node ids use the `human://<guid>` scheme.
-    const humanGuid = "11111111-1111-1111-1111-111111111111";
+    // clickable human row. Human node ids use the `human://<no-dash-guid>`
+    // scheme — the server emits no-dash form via GuidFormatter.Format.
+    const humanGuidNodash = "11111111111111111111111111111111";
     const treeWithHuman = {
       ...sampleTree,
       children: [
         ...(sampleTree.children ?? []),
         {
-          id: `human://${humanGuid}`,
+          id: `human://${humanGuidNodash}`,
           name: "Alice Human",
           kind: "Human" as const,
           status: "running" as const,
@@ -359,27 +360,31 @@ describe("ExplorerSurface — Explorer canvas (EXP-route)", () => {
     await screen.findByTestId("unit-explorer");
 
     historyReplaceStateMock.mockClear();
-    fireEvent.click(screen.getByTestId(`tree-row-human://${humanGuid}`));
+    fireEvent.click(screen.getByTestId(`tree-row-human://${humanGuidNodash}`));
     await waitFor(() => expect(historyReplaceStateMock).toHaveBeenCalled());
     const urlAfterSelect =
       historyReplaceStateMock.mock.calls.at(-1)?.[2]?.toString() ?? "";
-    // Human navigation writes to /explorer/humans/<guid>, not /humans/<guid>.
+    // Human navigation writes to /explorer/humans/<no-dash-guid> — the
+    // URL path segment follows the CONVENTIONS no-dash wire format (#2531).
     expect(urlAfterSelect).toBe(
-      `/explorer/humans/${encodeURIComponent(humanGuid)}`,
+      `/explorer/humans/${encodeURIComponent(humanGuidNodash)}`,
     );
     // The Explorer does NOT bounce to a separate route via router.replace.
     expect(routerReplaceMock).not.toHaveBeenCalled();
   });
 
-  it("#2517: /explorer/humans/<id> URL seeds the selected human into the Explorer", async () => {
-    const humanGuid = "22222222-2222-2222-2222-222222222222";
-    seedUrl(`/explorer/humans/${humanGuid}`);
+  it("#2517: /explorer/humans/<no-dash-id> URL seeds the selected human into the Explorer", async () => {
+    // Server emits human node ids as `human://<no-dash-guid>` via
+    // GuidFormatter.Format. The canonical URL form uses the same no-dash
+    // segment so selectedIdFromPathname → byId lookup matches exactly.
+    const humanGuidNodash = "22222222222222222222222222222222";
+    seedUrl(`/explorer/humans/${humanGuidNodash}`);
     const treeWithHuman = {
       ...sampleTree,
       children: [
         ...(sampleTree.children ?? []),
         {
-          id: `human://${humanGuid}`,
+          id: `human://${humanGuidNodash}`,
           name: "Bob Human",
           kind: "Human" as const,
           status: "running" as const,
@@ -395,7 +400,45 @@ describe("ExplorerSurface — Explorer canvas (EXP-route)", () => {
     await screen.findByTestId("unit-explorer");
     // The breadcrumb for the human node should be active.
     expect(
-      screen.getByTestId(`detail-crumb-human://${humanGuid}`),
+      screen.getByTestId(`detail-crumb-human://${humanGuidNodash}`),
     ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("#2531: /explorer/humans/<dashed-guid> URL still selects the correct human node (no-dash normalisation)", async () => {
+    // Regression guard for #2531: a URL with a dashed UUID (e.g. a manually
+    // typed link or a link generated before the no-dash fix) must still
+    // resolve to the correct human node rather than falling back to the
+    // tenant root. selectedIdFromPathname normalises the dashed UUID to
+    // no-dash before building the `human://<id>` key for the byId lookup.
+    const humanGuidDashed = "33333333-3333-3333-3333-333333333333";
+    const humanGuidNodash = "33333333333333333333333333333333";
+    seedUrl(`/explorer/humans/${humanGuidDashed}`);
+    const treeWithHuman = {
+      ...sampleTree,
+      children: [
+        ...(sampleTree.children ?? []),
+        {
+          // Server emits no-dash form — this is the byId key.
+          id: `human://${humanGuidNodash}`,
+          name: "Carol Human",
+          kind: "Human" as const,
+          status: "running" as const,
+        },
+      ],
+    };
+    useTenantTreeMock.mockReturnValue({
+      data: treeWithHuman,
+      isLoading: false,
+      isError: false,
+    });
+    render(wrap(<ExplorerSurface />));
+    await screen.findByTestId("unit-explorer");
+    // Carol's breadcrumb must be active — not the tenant-root fallback.
+    expect(
+      screen.getByTestId(`detail-crumb-human://${humanGuidNodash}`),
+    ).toHaveAttribute("aria-current", "page");
+    // Confirm the tab catalog is Human (Overview + Messages visible = 2 visible
+    // + 1 overflow = 3 tabs) not Tenant (4 visible + 1 overflow = 5 tabs).
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
   });
 });
