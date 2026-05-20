@@ -257,27 +257,29 @@ SDK clients.
 
 ## 4b. Orchestration-tool surface
 
-ADR-0039 closes the orchestration surface to five platform-provided tools. The
-runtime path resolves these tools when the invoked agent has children and passes
-the descriptors to the selected launcher through
-`AgentLaunchContext.OrchestrationTools`. A leaf agent receives an empty tool
-set. Unit operators and runtime authors do not enable a separate orchestration
-mode.
+ADR-0039 (as amended 2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536) / [#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)) closes the orchestration surface to **two platform-provided action verbs**. The
+runtime path attaches these tools unconditionally for every `agent://` and
+`unit://` runtime; membership is not a gate. The descriptors are passed to the
+selected launcher through `AgentLaunchContext.OrchestrationTools`. Unit operators
+and runtime authors do not enable a separate orchestration mode.
 
 | Tool | Description |
 | --- | --- |
-| `list_children` | Returns the address array of the unit's current direct members. No `OrchestrationDecision` event. |
-| `inspect_child` | Returns metadata (`scheme`, `id`) for a specific child. No `OrchestrationDecision` event. |
-| `delegate_to_child` | Dispatches the inbound message to a single child and returns the child's reply. Emits `OrchestrationDecision` with `Kind=Delegate`. |
-| `fanout_to_children` | Dispatches to all children, or to a filtered set of children, and returns all replies. Emits `OrchestrationDecision` with `Kind=Fanout`. |
-| `query_child_status` | Queries in-flight status of a prior dispatch. No `OrchestrationDecision` event. |
+| `delegate_to` | Dispatches the inbound message to one addressable target and returns its reply. Emits `OrchestrationDecision` with `Kind=Delegate`. |
+| `fanout_to` | Dispatches to multiple addressable targets in parallel and returns all replies. Emits `OrchestrationDecision` with `Kind=Fanout`. |
 
-The runtime decides whether to answer directly, inspect children, delegate to
-one child, or fan out to several children. The platform supplies the tools,
-checks the call, routes the resulting child messages, and records delegation
-evidence.
+Discovery, inspection, and runtime-status queries live on the `sv.*` directory
+tool surface exposed through the standard `spring-voyage` MCP server
+(`sv.list_members`, `sv.get_member`, `sv.get_status`, `sv.get_siblings`,
+`sv.get_parents`, `sv.get_self`). The orchestration surface is purely the
+action path; see [Orchestration Tools § 1a](orchestration-tools.md#1a-relation-to-sv-directory-tools)
+for the cross-reference table.
 
-The same five tools are exposed through two runtime-facing surfaces:
+The runtime decides whether to answer directly, delegate to one target,
+or fan out to several. The platform supplies the action tools, checks the
+call, routes the resulting messages, and records delegation evidence.
+
+The same two tools are exposed through two runtime-facing surfaces:
 
 | Surface | Runtime style | Runtimes | Attachment |
 | --- | --- | --- | --- |
@@ -351,7 +353,7 @@ When the runtime calls a delegation tool, the platform publishes a
   },
   "threadId": "<uuid>",
   "inputMessageId": "<uuid>",
-  "kind": "Delegate | Fanout | Inspect | NoOp",
+  "kind": "Delegate | Fanout",
   "targets": [
     {
       "scheme": "<scheme>",
@@ -366,12 +368,13 @@ When the runtime calls a delegation tool, the platform publishes a
 }
 ```
 
-`delegate_to_child` emits `Kind=Delegate`. `fanout_to_children` emits
-`Kind=Fanout`. `list_children`, `inspect_child`, and `query_child_status` are
-read-only probes and do not emit `OrchestrationDecision` events. `Kind=Inspect`
-and `Kind=NoOp` remain part of the domain enum for explicit decision evidence,
-but none of the five current handlers emit them. `Reason` is plain text supplied
-by the runtime's tool call; it is never hidden model reasoning.
+`delegate_to` emits `Kind=Delegate`. `fanout_to` emits `Kind=Fanout`. These
+are the only two values in the enum after the 2026-05-19 surface shrink
+([#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)); the
+`sv.*` directory tools (`sv.list_members`, `sv.get_member`, `sv.get_status`,
+…) are read-only and emit no `OrchestrationDecision` events. `Reason` is
+plain text supplied by the runtime's tool call; it is never hidden model
+reasoning.
 
 Subscribers consume this stream as delegation evidence. For example, the
 GitHub connector's label-roundtrip subscriber listens for routed

@@ -402,10 +402,7 @@ public class ClaudeCodeLauncherTests
 
     private static OrchestrationToolDescriptor[] CreateOrchestrationTools() =>
     [
-        new(OrchestrationToolName.ListChildren, default, default),
-        new(OrchestrationToolName.InspectChild, default, default),
-        new(OrchestrationToolName.DelegateToChild, default, default),
-        new(OrchestrationToolName.FanoutToChildren, default, default),
-        new(OrchestrationToolName.QueryChildStatus, default, default),
+        new(OrchestrationToolName.DelegateTo, default, default),
+        new(OrchestrationToolName.FanoutTo, default, default),
     ];
 }

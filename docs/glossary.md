@@ -124,10 +124,10 @@ The deterministic v5 UUID owning the single OSS-operator `TenantUser` row: `5c4c
 An agent that subscribes to another agent's activity stream (with permission).
 
 **Orchestration decision**
-An `ActivityEvent` with `EventType=DecisionMade` published by the platform as orchestration decision evidence. Shape: `Kind` (`Delegate`, `Fanout`, `Inspect`, or `NoOp`), `Status` (`Accepted`, `Routed`, or `Failed`), `Targets` (array of child addresses), `ResultMessageIds` (array of result message Guids), and `Reason` (optional runtime-supplied string).
+An `ActivityEvent` with `EventType=DecisionMade` published by the platform as orchestration decision evidence. Shape: `Kind` (`Delegate` or `Fanout`), `Status` (`Accepted`, `Routed`, or `Failed`), `Targets` (array of child addresses), `ResultMessageIds` (array of result message Guids), and `Reason` (optional runtime-supplied string).
 
 **Orchestration tools**
-The five platform-injected tools (`list_children`, `inspect_child`, `delegate_to_child`, `fanout_to_children`, `query_child_status`) available to a unit's runtime when that unit has children. LLM-driven runtimes use an MCP/env-var-keyed surface; workflow-driven runtimes use the `Cvoya.Spring.AgentSdk` `IOrchestrationClient` callback surface.
+The two platform-injected action verbs (`delegate_to`, `fanout_to`) attached to every `agent://` and `unit://` runtime. Discovery, inspection, and runtime-status queries live on the `sv.*` directory tool surface (`sv.list_members`, `sv.get_member`, `sv.get_status`, `sv.get_siblings`, `sv.get_parents`, `sv.get_self`). LLM-driven runtimes use an MCP/env-var-keyed surface; workflow-driven runtimes use the `Cvoya.Spring.AgentSdk` `IOrchestrationClient` callback surface.
 
 **Package**
 An installable bundle of domain-specific content: agent templates, unit templates, skills, workflows, connectors, and execution environments. How the platform remains domain-agnostic while supporting specific domains.

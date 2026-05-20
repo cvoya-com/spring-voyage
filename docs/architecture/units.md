@@ -96,15 +96,14 @@ unit:
 
 A unit's `ai` block (`runtime`, `model`, `image`) describes the runtime that runs when the unit's mailbox receives a message — exactly the same shape as a leaf agent's per [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md). The launcher reads it, spawns the runtime container, and delivers the inbound message. The runtime answers, delegates to a child, or fans out — its instructions decide.
 
-**Orchestration tools.** When the unit has at least one child, the launcher attaches a fixed set of orchestration tools to the runtime ([ADR-0039 § 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime)):
+**Orchestration tools.** The launcher attaches a fixed set of orchestration action verbs to every `agent://` and `unit://` runtime ([ADR-0039 § 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime), as amended 2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536) / [#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)):
 
 | Tool | Purpose |
 |---|---|
-| `list_children` | Enumerate direct children with addresses, kinds, and resolved execution config. |
-| `inspect_child <address>` | Return a single child's metadata (role, declared expertise, status). |
-| `delegate_to_child <address> <message>` | Forward the inbound message to one child and await its response. Records an `OrchestrationDecision` with `kind: delegate`. |
-| `fanout_to_children <addresses[]> <message>` | Forward to multiple children in parallel. Records an `OrchestrationDecision` with `kind: fanout`. |
-| `query_child_status <address>` | Cheap status check for a child without a full inspect. |
+| `delegate_to <address> <message>` | Forward the inbound message to one target and await its response. Records an `OrchestrationDecision` with `kind: delegate`. |
+| `fanout_to <addresses[]> <message>` | Forward to multiple targets in parallel. Records an `OrchestrationDecision` with `kind: fanout`. |
+
+Discovery, inspection, and runtime-status queries live on the `sv.*` directory tool surface (`sv.list_members`, `sv.get_member`, `sv.get_status`, plus `sv.get_siblings` / `sv.get_parents` / `sv.get_self`), not on the orchestration surface — see [Orchestration Tools § 1a](orchestration-tools.md#1a-relation-to-sv-directory-tools).
 
 The set is closed for v0.1 — adding a tool requires a new ADR. Tools are reachable through two parallel surfaces that share the same handlers and emit the same `OrchestrationDecision` events:
 
@@ -126,9 +125,9 @@ unit:
   execution:
     image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
   instructions: |
-    You coordinate a research team. Use `list_children` to see who's
-    available, `inspect_child` to read declared expertise, and
-    `delegate_to_child` to route a paper to the best fit. Provide a
+    You coordinate a research team. Use `sv.list_members` to see who's
+    available, `sv.get_member` to read declared expertise, and
+    `delegate_to` to route a paper to the best fit. Provide a
     one-line `reason` on every delegation — it is recorded as
     OrchestrationDecision evidence.
   members:
@@ -136,13 +135,13 @@ unit:
     - agent: researcher-systems
 ```
 
-A unit with zero children still receives messages and runs its runtime; the orchestration tools are simply absent from the launch.
+A unit with zero members still receives messages and runs its runtime; the orchestration action verbs are still attached, and `sv.list_members` returns the empty array.
 
 ---
 
 ## Nested Units (Units as Members of Units)
 
-Members of a unit may be either agents (scheme `agent`) or sub-units (scheme `unit`). Nesting lets you compose larger organizations from smaller ones — a platform team contains a database team, which contains individual agents — without teaching the routing layer anything special about depth. A parent unit's runtime treats both agents and sub-units uniformly through the orchestration tools: `list_children` enumerates either kind, `delegate_to_child` forwards to either, and `IAgentProxyResolver` maps the address scheme to the right actor type at delivery time.
+Members of a unit may be either agents (scheme `agent`) or sub-units (scheme `unit`). Nesting lets you compose larger organizations from smaller ones — a platform team contains a database team, which contains individual agents — without teaching the routing layer anything special about depth. A parent unit's runtime treats both agents and sub-units uniformly: `sv.list_members` enumerates either kind, `delegate_to` forwards to either, and `IAgentProxyResolver` maps the address scheme to the right actor type at delivery time.
 
 Membership has two invariants:
 

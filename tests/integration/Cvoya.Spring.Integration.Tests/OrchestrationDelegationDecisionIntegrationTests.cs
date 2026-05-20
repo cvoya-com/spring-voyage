@@ -14,10 +14,6 @@ using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
 
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
-using global::Dapr.Actors.Runtime;
-
 using Microsoft.Extensions.Logging;
 
 using NSubstitute;
@@ -49,7 +45,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         new(Address.AgentScheme, new Guid("aaaaaaaa-0000-0000-0000-000000001830"));
 
     [Fact]
-    public async Task HandleDelegateToChild_DirectChild_EmitsRoutedDecisionEvent()
+    public async Task HandleDelegateTo_TargetIsMember_EmitsRoutedDecisionEvent()
     {
         // Arrange
         var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo);
@@ -63,7 +59,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
             .Returns(response);
 
         // Act
-        var result = await harness.Handlers.HandleDelegateToChildAsync(
+        var result = await harness.Handlers.HandleDelegateToAsync(
             ParentUnit,
             TenantId,
             ChildOne,
@@ -86,7 +82,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
     }
 
     [Fact]
-    public async Task HandleDelegateToChild_ChildErrors_EmitsFailedDecisionEventWithTenant()
+    public async Task HandleDelegateTo_TargetErrors_EmitsFailedDecisionEventWithTenant()
     {
         // Arrange
         var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo);
@@ -101,7 +97,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
 
         // Act
         await Should.ThrowAsync<InvalidOperationException>(() =>
-            harness.Handlers.HandleDelegateToChildAsync(
+            harness.Handlers.HandleDelegateToAsync(
                 ParentUnit,
                 TenantId,
                 ChildOne,
@@ -124,7 +120,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
     }
 
     [Fact]
-    public async Task HandleFanoutToChildren_AllChildrenSucceed_EmitsRoutedDecisionEvent()
+    public async Task HandleFanoutTo_AllTargetsSucceed_EmitsRoutedDecisionEvent()
     {
         // Arrange
         var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo, ChildThree);
@@ -148,7 +144,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
             .Returns(responseThree);
 
         // Act
-        var results = await harness.Handlers.HandleFanoutToChildrenAsync(
+        var results = await harness.Handlers.HandleFanoutToAsync(
             ParentUnit,
             TenantId,
             [ChildOne, ChildTwo, ChildThree],
@@ -173,7 +169,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
     }
 
     [Fact]
-    public async Task HandleFanoutToChildren_OneChildErrors_EmitsFailedDecisionEvent()
+    public async Task HandleFanoutTo_OneTargetErrors_EmitsFailedDecisionEvent()
     {
         // Arrange
         var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo, ChildThree);
@@ -197,7 +193,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
             .Returns(responseThree);
 
         // Act
-        var results = await harness.Handlers.HandleFanoutToChildrenAsync(
+        var results = await harness.Handlers.HandleFanoutToAsync(
             ParentUnit,
             TenantId,
             [ChildOne, ChildTwo, ChildThree],
@@ -227,21 +223,10 @@ public class OrchestrationDelegationDecisionIntegrationTests
 
     private static HandlerHarness CreateHarness(Address parent, params Address[] children)
     {
-        var (unitActor, _, _, graph) =
-            ActorTestHost.CreateUnitActor(actorId: GuidFormatter.Format(parent.Id));
-
-        graph.SeedMembers(parent.Id, children);
-
         var agents = new Dictionary<string, IAgent>(StringComparer.OrdinalIgnoreCase);
-        var actorProxyFactory = Substitute.For<IActorProxyFactory>();
         var agentProxyResolver = Substitute.For<IAgentProxyResolver>();
         var activityEventBus = Substitute.For<IActivityEventBus>();
         var publishedEvents = new List<ActivityEvent>();
-
-        actorProxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(actorId => actorId.GetId() == GuidFormatter.Format(parent.Id)),
-                nameof(UnitActor))
-            .Returns(unitActor);
 
         agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>())
             .Returns(call =>
@@ -260,7 +245,6 @@ public class OrchestrationDelegationDecisionIntegrationTests
             .Returns(Task.CompletedTask);
 
         var handlers = new OrchestrationToolHandlers(
-            actorProxyFactory,
             agentProxyResolver,
             new OrchestrationDepthCounter(),
             Substitute.For<ILogger<OrchestrationToolHandlers>>(),

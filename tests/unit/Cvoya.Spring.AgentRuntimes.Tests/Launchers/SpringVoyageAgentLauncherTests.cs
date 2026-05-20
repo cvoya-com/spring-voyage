@@ -466,19 +466,7 @@ public class SpringVoyageAgentLauncherTests
     private static OrchestrationToolDescriptor[] CreateOrchestrationTools() =>
     [
         new(
-            OrchestrationToolName.ListChildren,
-            JsonSerializer.SerializeToElement(new
-            {
-                type = "object",
-                additionalProperties = false,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                type = "array",
-                items = new { type = "object" },
-            })),
-        new(
-            OrchestrationToolName.DelegateToChild,
+            OrchestrationToolName.DelegateTo,
             JsonSerializer.SerializeToElement(new
             {
                 type = "object",
@@ -488,6 +476,18 @@ public class SpringVoyageAgentLauncherTests
             {
                 type = "object",
                 required = new[] { "message" },
+            })),
+        new(
+            OrchestrationToolName.FanoutTo,
+            JsonSerializer.SerializeToElement(new
+            {
+                type = "object",
+                required = new[] { "addresses", "message" },
+            }),
+            JsonSerializer.SerializeToElement(new
+            {
+                type = "object",
+                required = new[] { "results" },
             })),
     ];
 }

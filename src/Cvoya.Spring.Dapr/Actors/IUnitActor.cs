@@ -8,21 +8,21 @@ using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
-using Cvoya.Spring.Dapr.Orchestration;
 
 /// <summary>
 /// Dapr actor interface for unit actors. A unit is an agent — it shares the
 /// mailbox / message-dispatch contract defined by <see cref="IAgent"/> —
 /// with additional structure: members, human permissions, lifecycle status,
 /// and a connector binding. Domain messages are dispatched through the unit's
-/// runtime launcher via the same path used by <see cref="IAgentActor"/>. When
-/// the unit has children, the launcher attaches orchestration tools
-/// (<c>list_children</c> / <c>inspect_child</c> / <c>delegate_to_child</c> /
-/// <c>fanout_to_children</c> / <c>query_child_status</c>) so the runtime can
-/// choose to delegate; the platform records each delegation as an
-/// <c>OrchestrationDecision</c> event (ADR-0039 §3, §4). Control messages
-/// (cancel, status, health, policy) are handled directly and follow the same
-/// shape as on <see cref="IAgentActor"/>.
+/// runtime launcher via the same path used by <see cref="IAgentActor"/>. The
+/// launcher attaches orchestration tools (<c>delegate_to</c>, <c>fanout_to</c>)
+/// so the runtime can choose to delegate; the platform records each delegation
+/// as an <c>OrchestrationDecision</c> event (ADR-0039 §3, §4). Discovery,
+/// inspection, and status queries live on the <c>sv.*</c> directory tool
+/// surface (<c>sv.list_members</c>, <c>sv.get_member</c>, <c>sv.get_status</c>),
+/// not on the orchestration surface. Control messages (cancel, status, health,
+/// policy) are handled directly and follow the same shape as on
+/// <see cref="IAgentActor"/>.
 /// </summary>
 public interface IUnitActor : IAgent
 {
@@ -53,28 +53,6 @@ public interface IUnitActor : IAgent
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>An array of member addresses.</returns>
     Task<Address[]> GetMembersAsync(CancellationToken ct = default);
-
-    /// <summary>
-    /// Returns rich descriptors for this unit's direct children — address,
-    /// directory-resolved display name, structural kind, and the persisted
-    /// execution block. Backs the <c>list_children</c> orchestration tool
-    /// per ADR-0039 §3 and matches the
-    /// <c>list_children.output.schema.json</c> wire shape advertised to
-    /// runtime images.
-    /// </summary>
-    /// <remarks>
-    /// Returned as a concrete array for the same reason as
-    /// <see cref="GetMembersAsync"/> (#319 — actor-remoting
-    /// <c>DataContractSerializer</c> requires natively-marshallable types).
-    /// Display name and execution config resolve through the
-    /// directory and the per-kind execution stores; missing or unresolvable
-    /// values surface as empty string and <c>null</c> respectively rather
-    /// than throwing, so a transient directory glitch does not break the
-    /// orchestration probe.
-    /// </remarks>
-    /// <param name="ct">A token to cancel the operation.</param>
-    /// <returns>An array of child descriptors in member-list order.</returns>
-    Task<OrchestrationChildDescriptor[]> GetChildDescriptorsAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Sets the permission level for a human within this unit.

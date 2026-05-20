@@ -150,11 +150,8 @@ public class GeminiLauncherTests
 
         server.GetProperty("includeTools").EnumerateArray().Select(tool => tool.GetString()).ShouldBe(new[]
         {
-            "list_children",
-            "inspect_child",
-            "delegate_to_child",
-            "fanout_to_children",
-            "query_child_status",
+            "delegate_to",
+            "fanout_to",
         });
     }
 
@@ -344,11 +341,8 @@ public class GeminiLauncherTests
         var outputSchema = CreateSchema();
         return new[]
         {
-            new OrchestrationToolDescriptor(OrchestrationToolName.ListChildren, inputSchema, outputSchema),
-            new OrchestrationToolDescriptor(OrchestrationToolName.InspectChild, inputSchema, outputSchema),
-            new OrchestrationToolDescriptor(OrchestrationToolName.DelegateToChild, inputSchema, outputSchema),
-            new OrchestrationToolDescriptor(OrchestrationToolName.FanoutToChildren, inputSchema, outputSchema),
-            new OrchestrationToolDescriptor(OrchestrationToolName.QueryChildStatus, inputSchema, outputSchema),
+            new OrchestrationToolDescriptor(OrchestrationToolName.DelegateTo, inputSchema, outputSchema),
+            new OrchestrationToolDescriptor(OrchestrationToolName.FanoutTo, inputSchema, outputSchema),
         };
     }
 

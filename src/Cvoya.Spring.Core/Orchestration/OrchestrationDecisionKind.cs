@@ -11,26 +11,14 @@ namespace Cvoya.Spring.Core.Orchestration;
 public enum OrchestrationDecisionKind
 {
     /// <summary>
-    /// The runtime forwarded the inbound message to a single child via
-    /// <c>delegate_to_child</c>.
+    /// The runtime forwarded the inbound message to a single target via
+    /// <c>delegate_to</c>.
     /// </summary>
     Delegate,
 
     /// <summary>
-    /// The runtime forwarded the inbound message to multiple children
-    /// in parallel via <c>fanout_to_children</c>.
+    /// The runtime forwarded the inbound message to multiple targets
+    /// in parallel via <c>fanout_to</c>.
     /// </summary>
-    Fanout,
-
-    /// <summary>
-    /// The runtime invoked an inspection tool (e.g. <c>list_children</c>
-    /// or <c>inspect_child</c>) as part of an explicit decision sequence.
-    /// </summary>
-    Inspect,
-
-    /// <summary>
-    /// The runtime considered delegating but elected not to. Recorded so
-    /// operators can audit non-delegations as well as delegations.
-    /// </summary>
-    NoOp
+    Fanout
 }

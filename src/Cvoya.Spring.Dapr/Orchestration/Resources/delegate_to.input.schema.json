@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "delegate_to.input",
+  "description": "Input for delegate_to — forward the inbound message to one addressable target and await its response within the turn budget. Records an OrchestrationDecision with kind=delegate (ADR-0039 §4).",
+  "type": "object",
+  "properties": {
+    "address": {
+      "type": "string",
+      "description": "Canonical scheme:no-dash-hex address of any addressable target in the caller's tenant."
+    },
+    "message": {
+      "description": "The message payload to deliver to the target. Opaque to the platform; the runtime decides the shape."
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "description": "Optional rationale recorded verbatim on the OrchestrationDecision. Never the model's hidden chain-of-thought."
+    }
+  },
+  "required": ["address", "message"],
+  "additionalProperties": false
+}

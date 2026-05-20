@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "fanout_to_children.input",
-  "description": "Input for fanout_to_children — forward the inbound message to multiple direct children in parallel and collect their responses with a per-target timeout. Records an OrchestrationDecision with kind=fanout (ADR-0039 §4).",
+  "title": "fanout_to.input",
+  "description": "Input for fanout_to — forward the inbound message to multiple addressable targets in parallel and collect their responses with a per-target timeout. Records an OrchestrationDecision with kind=fanout (ADR-0039 §4).",
   "type": "object",
   "properties": {
     "addresses": {
@@ -9,7 +9,7 @@
       "minItems": 1,
       "items": {
         "type": "string",
-        "description": "Canonical scheme:no-dash-hex address of a direct child."
+        "description": "Canonical scheme:no-dash-hex address of any addressable target in the caller's tenant."
       }
     },
     "message": {

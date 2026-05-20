@@ -83,11 +83,13 @@ public class ServiceCollectionExtensionsTests
     }
 
     /// <summary>
-    /// ADR-0039 D2: <c>AddCvoyaSpringDapr</c> must register a default
-    /// <see cref="IOrchestrationToolProvider"/> so callers can resolve it
-    /// unconditionally. The OSS platform default is the directory-backed
-    /// provider, which returns the closed orchestration-tool set for units
-    /// with children and an empty tool array for leaf agents.
+    /// ADR-0039 D2 (as amended 2026-05-19, #2536 / #2537): <c>AddCvoyaSpringDapr</c>
+    /// must register a default <see cref="IOrchestrationToolProvider"/> so
+    /// callers can resolve it unconditionally. The OSS platform default is
+    /// the directory-backed provider, which returns the closed two-tool
+    /// set (<c>delegate_to</c>, <c>fanout_to</c>) for every agent:// or
+    /// unit:// address (no membership gate, no entity-type gate). Discovery /
+    /// inspection / status tools live on the <c>sv.*</c> directory surface.
     /// </summary>
     [Fact]
     public void AddCvoyaSpringDapr_RegistersDirectoryOrchestrationToolProviderAsDefault()
@@ -104,7 +106,7 @@ public class ServiceCollectionExtensionsTests
                 Cvoya.Spring.Core.Messaging.Address.AgentScheme,
                 Guid.NewGuid()),
             Guid.NewGuid());
-        tools.ShouldBeEmpty();
+        tools.Length.ShouldBe(2);
     }
 
     /// <summary>

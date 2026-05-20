@@ -5,12 +5,7 @@ namespace Cvoya.Spring.Dapr.Tests.Orchestration;
 
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
-using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Orchestration;
-
-using Microsoft.Extensions.Logging;
-
-using NSubstitute;
 
 using Shouldly;
 
@@ -18,76 +13,50 @@ using Xunit;
 
 /// <summary>
 /// Tests for <see cref="DirectoryOrchestrationToolProvider"/>. Pins the
-/// "leaf agents get no tools, units with at least one child get the closed
-/// five-tool set" contract from ADR-0039 §3.
+/// "any agent:// or unit:// address gets the closed two-tool set;
+/// other schemes get an empty array" contract from ADR-0039 §3
+/// (as amended 2026-05-19, #2536 / #2537). Membership is not a gate;
+/// discovery / inspection / status tools live on the <c>sv.*</c> directory
+/// surface, not the orchestration surface.
 /// </summary>
-/// <remarks>
-/// #2081: the provider now reads members directly from
-/// <see cref="IUnitMemberGraphStore"/> rather than calling
-/// <c>IUnitActor.GetMembersAsync</c> through a Dapr actor proxy — the
-/// pre-fix path deadlocked when the provider was invoked from inside a
-/// <c>UnitActor</c> turn. The tests substitute the store directly.
-/// </remarks>
 public class DirectoryOrchestrationToolProviderTests
 {
-    private static readonly Guid LeafAgentId = new("aaaaaaaa-0000-0000-0000-000000000001");
-    private static readonly Guid OneChildUnitId = new("bbbbbbbb-0000-0000-0000-000000000001");
-    private static readonly Guid ThreeChildrenUnitId = new("bbbbbbbb-0000-0000-0000-000000000002");
+    private static readonly Guid SomeId = new("aaaaaaaa-0000-0000-0000-000000000001");
 
-    private readonly IUnitMemberGraphStore _memberGraphStore = Substitute.For<IUnitMemberGraphStore>();
-    private readonly ILogger<DirectoryOrchestrationToolProvider> _logger =
-        Substitute.For<ILogger<DirectoryOrchestrationToolProvider>>();
+    private DirectoryOrchestrationToolProvider CreateProvider() => new();
 
-    private readonly Dictionary<Guid, IReadOnlyList<Address>> _members = new();
-
-    public DirectoryOrchestrationToolProviderTests()
-    {
-        _memberGraphStore
-            .GetMembersAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns(ci =>
-            {
-                var unitId = ci.ArgAt<Guid>(0);
-                return _members.TryGetValue(unitId, out var m)
-                    ? m
-                    : (IReadOnlyList<Address>)Array.Empty<Address>();
-            });
-    }
-
-    private DirectoryOrchestrationToolProvider CreateProvider() =>
-        new(_memberGraphStore, _logger);
+    private static readonly OrchestrationToolName[] ExpectedToolset =
+    [
+        OrchestrationToolName.DelegateTo,
+        OrchestrationToolName.FanoutTo,
+    ];
 
     [Fact]
-    public void GetOrchestrationTools_LeafAgent_ReturnsEmpty()
+    public void GetOrchestrationTools_AgentAddress_ReturnsTwoDescriptors()
     {
+        // Per the 2026-05-19 amendment to ADR-0039 §3 (#2536 / #2537), entity
+        // type is not a gate and membership is not a gate. Any agent://
+        // address gets the toolset unconditionally; the surface is the two
+        // action verbs only.
         var provider = CreateProvider();
-        var leaf = new Address(Address.AgentScheme, LeafAgentId);
+        var address = new Address(Address.AgentScheme, SomeId);
 
-        var tools = provider.GetOrchestrationTools(leaf, Guid.NewGuid());
+        var tools = provider.GetOrchestrationTools(address, Guid.NewGuid());
 
-        tools.ShouldBeEmpty();
+        tools.Length.ShouldBe(2);
+        tools.Select(t => t.Name).ShouldBe(ExpectedToolset);
     }
 
     [Fact]
-    public void GetOrchestrationTools_UnitWithOneChild_ReturnsFiveDescriptors()
+    public void GetOrchestrationTools_UnitAddress_ReturnsTwoDescriptors()
     {
-        _members[OneChildUnitId] = new[]
-        {
-            new Address(Address.AgentScheme, Guid.NewGuid()),
-        };
         var provider = CreateProvider();
-        var unit = new Address(Address.UnitScheme, OneChildUnitId);
+        var address = new Address(Address.UnitScheme, SomeId);
 
-        var tools = provider.GetOrchestrationTools(unit, Guid.NewGuid());
+        var tools = provider.GetOrchestrationTools(address, Guid.NewGuid());
 
-        tools.Length.ShouldBe(5);
-        tools.Select(t => t.Name).ShouldBe(new[]
-        {
-            OrchestrationToolName.ListChildren,
-            OrchestrationToolName.InspectChild,
-            OrchestrationToolName.DelegateToChild,
-            OrchestrationToolName.FanoutToChildren,
-            OrchestrationToolName.QueryChildStatus,
-        });
+        tools.Length.ShouldBe(2);
+        tools.Select(t => t.Name).ShouldBe(ExpectedToolset);
 
         // Each descriptor must carry both schemas as concrete JSON objects;
         // ADR-0039 §3 advertises them through the launcher's tool surface.
@@ -99,30 +68,16 @@ public class DirectoryOrchestrationToolProviderTests
     }
 
     [Fact]
-    public void GetOrchestrationTools_UnitWithThreeChildren_ReturnsSameFiveDescriptors()
+    public void GetOrchestrationTools_HumanScheme_ReturnsEmpty()
     {
-        _members[ThreeChildrenUnitId] = new[]
-        {
-            new Address(Address.AgentScheme, Guid.NewGuid()),
-            new Address(Address.AgentScheme, Guid.NewGuid()),
-            new Address(Address.UnitScheme, Guid.NewGuid()),
-        };
+        // Non-addressable schemes (human, connector) are not orchestration
+        // callers; the provider returns empty so launchers do not attach
+        // the toolset for them.
         var provider = CreateProvider();
-        var unit = new Address(Address.UnitScheme, ThreeChildrenUnitId);
+        var address = new Address(Address.HumanScheme, SomeId);
 
-        var tools = provider.GetOrchestrationTools(unit, Guid.NewGuid());
+        var tools = provider.GetOrchestrationTools(address, Guid.NewGuid());
 
-        // The descriptor set is static — it does not scale with the child
-        // count. The five canonical tools are always present when the unit
-        // has at least one child.
-        tools.Length.ShouldBe(5);
-        tools.Select(t => t.Name).ShouldBe(new[]
-        {
-            OrchestrationToolName.ListChildren,
-            OrchestrationToolName.InspectChild,
-            OrchestrationToolName.DelegateToChild,
-            OrchestrationToolName.FanoutToChildren,
-            OrchestrationToolName.QueryChildStatus,
-        });
+        tools.ShouldBeEmpty();
     }
 }

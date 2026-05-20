@@ -1,15 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "delegate_to_child.output",
-  "description": "Output of delegate_to_child — the child's synchronous response.",
+  "title": "delegate_to.output",
+  "description": "Output of delegate_to — the target's synchronous response.",
   "type": "object",
   "properties": {
     "address": {
       "type": "string",
-      "description": "Address of the child that produced the response."
+      "description": "Address of the target that produced the response."
     },
     "response": {
-      "description": "The child's response payload. Shape is runtime-defined."
+      "description": "The target's response payload. Shape is runtime-defined."
     },
     "status": {
       "type": "string",

@@ -1,5 +1,18 @@
 # Units are agents — execution plan
 
+> **Amendment (2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)) — orchestration is messaging, no separate gates.** Several Phase D rules are superseded:
+>
+> 1. The "caller is a unit (`unit://` scheme)" gate (D8 / D13) is **removed**. The platform makes no entity-type assumption about who can orchestrate.
+> 2. The "tools attached only when children exist" gate (D2 / launcher attachment) is **removed**. `DirectoryOrchestrationToolProvider` now always returns the orchestration tool set for `agent://` and `unit://` addresses; the `IUnitMemberGraphStore` dependency on that provider is dropped.
+> 3. The "target is a direct child" gate (D8 / D13) is **removed**. A caller may target any addressable entity in the same tenant. The `OrchestrationTargetNotChild` reject code is dropped.
+> 4. Tool wire names rename: `list_members`, `inspect`, `delegate_to`, `fanout_to`, `query_status` (C# enum: `ListMembers`, `Inspect`, `DelegateTo`, `FanoutTo`, `QueryStatus`). C# types rename: `OrchestrationChildDescriptor` → `OrchestrationMemberDescriptor`, `ChildStatusResult` → `MemberStatusResult`.
+>
+> **Amendment (2026-05-19, [#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)) — orchestration surface shrunk to action verbs.** The closed orchestration tool set is now **2 tools** (`delegate_to`, `fanout_to`), not 5. The `list_members`, `inspect`, and `query_status` tools are removed from the orchestration surface — their semantics are already covered by the `sv.*` directory tools exposed via `SvDirectorySkillRegistry` (`sv.list_members`, `sv.get_member`, `sv.get_status`, plus `sv.get_siblings` / `sv.get_parents` / `sv.get_self`). Consequences: `OrchestrationToolName` keeps only `DelegateTo` / `FanoutTo`; `OrchestrationDecisionKind` keeps only `Delegate` / `Fanout`; `OrchestrationMemberDescriptor` / `MemberStatusResult` / `IUnitActor.GetMemberDescriptorsAsync` are deleted; dispatcher routes `/list-members`, `/inspect`, `/query-status` are removed. The historical D6 / D8 / D10 / D11 / D13 prose for the removed tools is superseded.
+>
+> The dispatcher's only scheme check is now "scheme is `unit://` or `agent://`" with reject code `UnsupportedCallerScheme`. The handler-side surviving gates are token validity (auth), cross-tenant, self-delegation, and per-thread depth.
+>
+> The historical Phase D prose below preserves the original gate / name wording; treat it as superseded by these amendments when reading.
+
 **Initiative.** Implementation of [ADR-0039 — Units are agents (orchestration is runtime behaviour, not platform configuration)](../../decisions/0039-units-are-agents.md). Tracked under [#1786](https://github.com/cvoya-com/spring-voyage/issues/1786). Subsumes the agent-create UX redesign tracked under [#1763](https://github.com/cvoya-com/spring-voyage/issues/1763); the design contract for the UX-side tasks lives at [`docs/design/v0.1/agent-create-redesign.md`](../../design/v0.1/agent-create-redesign.md).
 
 This plan is structured for execution by **less-capable code-generation agents** that do not need to understand the architecture. Every task is concrete, narrow, and testable; system-design thinking is done up front and lives in the ADR + design doc. A task picker reads the task, follows the file paths and signatures it specifies, executes the deliverable, and verifies the acceptance criteria. Cross-task coordination is expressed as **GitHub `blockedBy` edges set structurally** on each task issue (not in prose) so a downstream agent never starts a task whose prerequisites have not landed.

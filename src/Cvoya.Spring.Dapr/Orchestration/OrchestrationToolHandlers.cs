@@ -7,76 +7,20 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
-using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
-using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Routing;
-
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
 
 using Microsoft.Extensions.Logging;
 
 public class OrchestrationToolHandlers(
-    IActorProxyFactory actorProxyFactory,
     IAgentProxyResolver agentProxyResolver,
     OrchestrationDepthCounter depthCounter,
     ILogger<OrchestrationToolHandlers> logger,
     IActivityEventBus activityEventBus,
     IOrchestrationTenantResolver tenantResolver)
 {
-    public async Task<OrchestrationChildDescriptor[]> HandleListChildrenAsync(
-        Address caller,
-        Guid tenantId,
-        Guid threadId,
-        CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(caller);
-
-        EnsureUnitCaller(caller);
-        await EnsureCallerTenantAsync(caller, tenantId, ct);
-
-        // no OrchestrationDecision event per ADR-0039 §4.
-        return await ReadChildDescriptorsAsync(caller, ct);
-    }
-
-    public async Task<IReadOnlyDictionary<string, object?>> HandleInspectChildAsync(
-        Address caller,
-        Guid tenantId,
-        Address target,
-        Guid threadId,
-        CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(caller);
-        ArgumentNullException.ThrowIfNull(target);
-
-        EnsureUnitCaller(caller);
-        await EnsureCallerTenantAsync(caller, tenantId, ct);
-        await EnsureDirectChildrenAsync(caller, [target], ct);
-        await EnsureTargetTenantAsync(target, tenantId, ct);
-
-        // no OrchestrationDecision event per ADR-0039 §4.
-        // The schema requires { address, displayName, kind } and optionally
-        // { description, expertise, status }. v0.1 emits the required three
-        // fields plus a best-effort status probe; the optional description /
-        // expertise slots stay empty because the dispatcher process does
-        // not have the directory metadata wired and a Dapr round-trip per
-        // probe would dwarf the cost of the real inspect call (callers
-        // that need richer detail can issue a separate read).
-        var descriptor = await ReadSingleChildDescriptorAsync(caller, target, ct);
-        var status = await TryProbeChildStatusAsync(target, ct);
-
-        return new Dictionary<string, object?>
-        {
-            ["address"] = target.ToString(),
-            ["displayName"] = descriptor?.DisplayName ?? string.Empty,
-            ["kind"] = descriptor?.Kind ?? ResolveKind(target),
-            ["status"] = status.Status,
-        };
-    }
-
-    public async Task<Message?> HandleDelegateToChildAsync(
+    public async Task<Message?> HandleDelegateToAsync(
         Address caller,
         Guid tenantId,
         Address target,
@@ -89,9 +33,8 @@ public class OrchestrationToolHandlers(
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(message);
 
-        EnsureUnitCaller(caller);
         await EnsureCallerTenantAsync(caller, tenantId, ct);
-        await EnsureDirectChildrenAsync(caller, [target], ct);
+        EnsureNotSelfTarget(caller, target);
         await EnsureTargetTenantAsync(target, tenantId, ct);
 
         using var depthScope = depthCounter.Increment(threadId);
@@ -147,7 +90,7 @@ public class OrchestrationToolHandlers(
         return response;
     }
 
-    public async Task<(Address Target, Message? Response, Exception? Error)[]> HandleFanoutToChildrenAsync(
+    public async Task<(Address Target, Message? Response, Exception? Error)[]> HandleFanoutToAsync(
         Address caller,
         Guid tenantId,
         IReadOnlyList<Address> targets,
@@ -160,11 +103,10 @@ public class OrchestrationToolHandlers(
         ArgumentNullException.ThrowIfNull(targets);
         ArgumentNullException.ThrowIfNull(message);
 
-        EnsureUnitCaller(caller);
         await EnsureCallerTenantAsync(caller, tenantId, ct);
-        await EnsureDirectChildrenAsync(caller, targets, ct);
         foreach (var target in targets)
         {
+            EnsureNotSelfTarget(caller, target);
             await EnsureTargetTenantAsync(target, tenantId, ct);
         }
 
@@ -173,7 +115,7 @@ public class OrchestrationToolHandlers(
         if (!string.IsNullOrWhiteSpace(reason))
         {
             logger.LogInformation(
-                "Fanning out orchestration message {MessageId} from {Caller} to {TargetCount} children on thread {ThreadId}. Reason: {Reason}",
+                "Fanning out orchestration message {MessageId} from {Caller} to {TargetCount} targets on thread {ThreadId}. Reason: {Reason}",
                 message.Id,
                 caller,
                 targets.Count,
@@ -205,25 +147,6 @@ public class OrchestrationToolHandlers(
             ct);
 
         return results;
-    }
-
-    public async Task<ChildStatusResult> HandleQueryChildStatusAsync(
-        Address caller,
-        Guid tenantId,
-        Address target,
-        Guid threadId,
-        CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(caller);
-        ArgumentNullException.ThrowIfNull(target);
-
-        EnsureUnitCaller(caller);
-        await EnsureCallerTenantAsync(caller, tenantId, ct);
-        await EnsureDirectChildrenAsync(caller, [target], ct);
-        await EnsureTargetTenantAsync(target, tenantId, ct);
-
-        // no OrchestrationDecision event per ADR-0039 §4.
-        return await TryProbeChildStatusAsync(target, ct);
     }
 
     private async Task PublishDecisionAsync(
@@ -271,7 +194,7 @@ public class OrchestrationToolHandlers(
         {
             logger.LogWarning(
                 ex,
-                "Failed to emit orchestration decision {DecisionId} for unit {UnitAddress}.",
+                "Failed to emit orchestration decision {DecisionId} for caller {CallerAddress}.",
                 decision.DecisionId,
                 caller);
         }
@@ -331,16 +254,6 @@ public class OrchestrationToolHandlers(
         return true;
     }
 
-    private static void EnsureUnitCaller(Address caller)
-    {
-        if (!string.Equals(caller.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new OrchestrationException(
-                OrchestrationException.RejectCodes.OrchestrationCallerIsNotUnit,
-                $"Orchestration tools can only be invoked by unit callers. Caller was '{caller}'.");
-        }
-    }
-
     private async Task EnsureCallerTenantAsync(
         Address caller,
         Guid expectedTenantId,
@@ -371,10 +284,8 @@ public class OrchestrationToolHandlers(
         CancellationToken ct)
     {
         // ADR-0039 §3 gate 6 — cross-tenant containment, target side.
-        // Direct-child membership (gate 3) already implies same-tenant
-        // containment under normal operation, but evaluating gate 6 on
-        // the target independently prevents a directory-level bug that
-        // crosses a tenant boundary from leaking through the
+        // Evaluating the gate on the target prevents a directory-level
+        // bug that crosses a tenant boundary from leaking through the
         // orchestration surface.
         var resolved = await tenantResolver.GetTenantForAddressAsync(target, ct);
         if (resolved != expectedTenantId)
@@ -386,56 +297,14 @@ public class OrchestrationToolHandlers(
         }
     }
 
-    private async Task EnsureDirectChildrenAsync(
-        Address caller,
-        IReadOnlyList<Address> targets,
-        CancellationToken ct)
+    private static void EnsureNotSelfTarget(Address caller, Address target)
     {
-        var members = await ReadMembersAsync(caller, ct);
-
-        foreach (var target in targets)
+        if (AddressEquals(caller, target))
         {
-            if (AddressEquals(caller, target))
-            {
-                throw new OrchestrationException(
-                    OrchestrationException.RejectCodes.OrchestrationSelfDelegation,
-                    $"Unit '{caller}' cannot delegate orchestration work to itself.");
-            }
-
-            if (!members.Any(member => AddressEquals(member, target)))
-            {
-                throw new OrchestrationException(
-                    OrchestrationException.RejectCodes.OrchestrationTargetNotChild,
-                    $"Target '{target}' is not a direct child of '{caller}'.");
-            }
+            throw new OrchestrationException(
+                OrchestrationException.RejectCodes.OrchestrationSelfDelegation,
+                $"Caller '{caller}' cannot orchestrate against itself.");
         }
-    }
-
-    private async Task<Address[]> ReadMembersAsync(Address caller, CancellationToken ct)
-    {
-        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(GuidFormatter.Format(caller.Id)),
-            nameof(UnitActor));
-
-        return await proxy.GetMembersAsync(ct);
-    }
-
-    private async Task<OrchestrationChildDescriptor[]> ReadChildDescriptorsAsync(Address caller, CancellationToken ct)
-    {
-        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(GuidFormatter.Format(caller.Id)),
-            nameof(UnitActor));
-
-        return await proxy.GetChildDescriptorsAsync(ct);
-    }
-
-    private async Task<OrchestrationChildDescriptor?> ReadSingleChildDescriptorAsync(
-        Address caller,
-        Address target,
-        CancellationToken ct)
-    {
-        var descriptors = await ReadChildDescriptorsAsync(caller, ct);
-        return descriptors.FirstOrDefault(d => AddressEquals(d.Address, target));
     }
 
     private async Task<Message?> SendToTargetAsync(
@@ -472,120 +341,6 @@ public class OrchestrationToolHandlers(
             return (target, null, ex);
         }
     }
-
-    /// <summary>
-    /// Probes the target child's lifecycle status by sending a
-    /// <see cref="MessageType.StatusQuery"/> control message through the
-    /// existing actor mailbox. The response payload's <c>Status</c>
-    /// (<see cref="AgentStatus"/> for agents, <see cref="Core.Units.LifecycleStatus"/>
-    /// for units) is mapped onto the closed schema enum
-    /// (<c>ready | busy | stopped | error | unknown</c>).
-    /// </summary>
-    private async Task<ChildStatusResult> TryProbeChildStatusAsync(Address target, CancellationToken ct)
-    {
-        try
-        {
-            var proxy = agentProxyResolver.Resolve(target.Scheme, GuidFormatter.Format(target.Id));
-            if (proxy is null)
-            {
-                return new ChildStatusResult("unknown");
-            }
-
-            var probe = new Message(
-                Guid.NewGuid(),
-                target,
-                target,
-                MessageType.StatusQuery,
-                ThreadId: null,
-                Payload: JsonSerializer.SerializeToElement(new { }),
-                Timestamp: DateTimeOffset.UtcNow);
-
-            var response = await proxy.ReceiveAsync(probe, ct);
-            if (response is null || response.Payload.ValueKind != JsonValueKind.Object)
-            {
-                return new ChildStatusResult("unknown");
-            }
-
-            return MapStatusPayload(target, response.Payload);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(
-                ex,
-                "Failed to probe status for child {Target}; reporting 'unknown'.",
-                target);
-            return new ChildStatusResult("unknown");
-        }
-    }
-
-    private static ChildStatusResult MapStatusPayload(Address target, JsonElement payload)
-    {
-        if (!payload.TryGetProperty("Status", out var statusElement) ||
-            statusElement.ValueKind != JsonValueKind.String)
-        {
-            return new ChildStatusResult("unknown");
-        }
-
-        var raw = statusElement.GetString();
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return new ChildStatusResult("unknown");
-        }
-
-        var isUnit = string.Equals(target.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase);
-        var status = isUnit ? MapLifecycleStatus(raw) : MapAgentStatus(raw);
-
-        string? busyOnThread = null;
-        if (status == "busy")
-        {
-            // #2076 / ADR-0030 §3 §44: AgentActor's StatusQuery payload
-            // carries a per-thread ThreadDepths map under concurrent
-            // threads (one entry per active thread, value = queue depth).
-            // The orchestration probe surfaces a single representative
-            // thread id for "busy on what?"; we pick the first entry,
-            // which is sufficient for the closed schema's BusyOnThread
-            // field. UnitActor does not advertise per-thread depth on
-            // its status payload, so the field stays null there.
-            if (payload.TryGetProperty("ThreadDepths", out var depthsElement) &&
-                depthsElement.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var entry in depthsElement.EnumerateObject())
-                {
-                    if (!string.IsNullOrWhiteSpace(entry.Name))
-                    {
-                        busyOnThread = entry.Name;
-                        break;
-                    }
-                }
-            }
-        }
-
-        return new ChildStatusResult(status, LastActivityAt: null, BusyOnThread: busyOnThread);
-    }
-
-    private static string MapAgentStatus(string raw) => raw switch
-    {
-        "Idle" => "ready",
-        "Active" => "busy",
-        _ => "unknown",
-    };
-
-    private static string MapLifecycleStatus(string raw) => raw switch
-    {
-        "Stopped" => "stopped",
-        "Running" => "ready",
-        "Starting" => "busy",
-        "Stopping" => "busy",
-        "Validating" => "busy",
-        "Error" => "error",
-        "Draft" => "stopped",
-        _ => "unknown",
-    };
-
-    private static string ResolveKind(Address address) =>
-        string.Equals(address.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
-            ? "unit"
-            : "agent";
 
     private static bool AddressEquals(Address left, Address right) =>
         left.Id == right.Id &&

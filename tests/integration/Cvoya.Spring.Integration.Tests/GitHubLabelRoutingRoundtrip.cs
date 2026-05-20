@@ -17,10 +17,6 @@ using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
 
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
-using global::Dapr.Actors.Runtime;
-
 using Microsoft.Extensions.Logging;
 
 using NSubstitute;
@@ -83,7 +79,7 @@ public class GitHubLabelRoutingRoundtrip
         await subscriber.StartAsync(TestContext.Current.CancellationToken);
         try
         {
-            await harness.Handlers.HandleDelegateToChildAsync(
+            await harness.Handlers.HandleDelegateToAsync(
                 Unit,
                 OssTenantIds.Default,
                 Child,
@@ -120,19 +116,8 @@ public class GitHubLabelRoutingRoundtrip
 
     private static HandlerHarness CreateHandlerHarness(RecordingActivityEventBus bus)
     {
-        var (unitActor, _, _, graph) =
-            ActorTestHost.CreateUnitActor(actorId: GuidFormatter.Format(Unit.Id));
-
-        graph.SeedMembers(Unit.Id, Child);
-
         var agents = new Dictionary<string, IAgent>(StringComparer.OrdinalIgnoreCase);
-        var actorProxyFactory = Substitute.For<IActorProxyFactory>();
         var agentProxyResolver = Substitute.For<IAgentProxyResolver>();
-
-        actorProxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(actorId => actorId.GetId() == GuidFormatter.Format(Unit.Id)),
-                nameof(UnitActor))
-            .Returns(unitActor);
 
         agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>())
             .Returns(call =>
@@ -145,7 +130,6 @@ public class GitHubLabelRoutingRoundtrip
             });
 
         var handlers = new OrchestrationToolHandlers(
-            actorProxyFactory,
             agentProxyResolver,
             new OrchestrationDepthCounter(),
             Substitute.For<ILogger<OrchestrationToolHandlers>>(),
