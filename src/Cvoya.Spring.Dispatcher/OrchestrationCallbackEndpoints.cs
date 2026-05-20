@@ -24,78 +24,10 @@ public static class OrchestrationCallbackEndpoints
     {
         var group = endpoints.MapGroup(RoutePrefix);
 
-        group.MapPost("/list-members", ListMembersAsync);
-        group.MapPost("/inspect", InspectAsync);
         group.MapPost("/delegate-to", DelegateToAsync);
         group.MapPost("/fanout-to", FanoutToAsync);
-        group.MapPost("/query-status", QueryStatusAsync);
 
         return endpoints;
-    }
-
-    internal static async Task<IResult> ListMembersAsync(
-        [FromBody] ListMembersRequest request,
-        CallbackTokenValidator tokenValidator,
-        OrchestrationToolHandlers handlers,
-        HttpContext httpContext,
-        CancellationToken cancellationToken)
-    {
-        if (!TryValidateCallback(httpContext, tokenValidator, out var claims, out var error) ||
-            !TryValidateRequestScope(request.CallerAddress, request.ThreadId, claims, out error))
-        {
-            return error;
-        }
-
-        try
-        {
-            var members = await handlers.HandleListMembersAsync(
-                claims.AgentAddress,
-                claims.TenantId,
-                claims.ThreadId,
-                cancellationToken);
-
-            return Results.Ok(new ListMembersResponse(
-                members.Select(member => new OrchestrationMemberDescriptorPayload(
-                    member.Address.ToString(),
-                    member.DisplayName,
-                    member.Kind,
-                    member.ExecutionConfig)).ToArray()));
-        }
-        catch (OrchestrationException ex)
-        {
-            return MapOrchestrationException(ex);
-        }
-    }
-
-    internal static async Task<IResult> InspectAsync(
-        [FromBody] InspectRequest request,
-        CallbackTokenValidator tokenValidator,
-        OrchestrationToolHandlers handlers,
-        HttpContext httpContext,
-        CancellationToken cancellationToken)
-    {
-        if (!TryValidateCallback(httpContext, tokenValidator, out var claims, out var error) ||
-            !TryValidateRequestScope(request.CallerAddress, request.ThreadId, claims, out error) ||
-            !TryParseAddress(request.TargetAddress, "TargetAddress", out var target, out error))
-        {
-            return error;
-        }
-
-        try
-        {
-            var metadata = await handlers.HandleInspectAsync(
-                claims.AgentAddress,
-                claims.TenantId,
-                target,
-                claims.ThreadId,
-                cancellationToken);
-
-            return Results.Ok(new InspectResponse(metadata));
-        }
-        catch (OrchestrationException ex)
-        {
-            return MapOrchestrationException(ex);
-        }
     }
 
     internal static async Task<IResult> DelegateToAsync(
@@ -184,40 +116,6 @@ public static class OrchestrationCallbackEndpoints
                     result.Error is null,
                     result.Error?.Message,
                     ToCallbackMessage(result.Response))).ToArray()));
-        }
-        catch (OrchestrationException ex)
-        {
-            return MapOrchestrationException(ex);
-        }
-    }
-
-    internal static async Task<IResult> QueryStatusAsync(
-        [FromBody] QueryStatusRequest request,
-        CallbackTokenValidator tokenValidator,
-        OrchestrationToolHandlers handlers,
-        HttpContext httpContext,
-        CancellationToken cancellationToken)
-    {
-        if (!TryValidateCallback(httpContext, tokenValidator, out var claims, out var error) ||
-            !TryValidateRequestScope(request.CallerAddress, request.ThreadId, claims, out error) ||
-            !TryParseAddress(request.TargetAddress, "TargetAddress", out var target, out error))
-        {
-            return error;
-        }
-
-        try
-        {
-            var status = await handlers.HandleQueryStatusAsync(
-                claims.AgentAddress,
-                claims.TenantId,
-                target,
-                claims.ThreadId,
-                cancellationToken);
-
-            return Results.Ok(new QueryStatusResponse(
-                status.Status,
-                status.LastActivityAt,
-                status.BusyOnThread));
         }
         catch (OrchestrationException ex)
         {

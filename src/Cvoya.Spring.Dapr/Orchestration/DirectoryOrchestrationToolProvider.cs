@@ -12,22 +12,22 @@ using Cvoya.Spring.Core.Orchestration;
 /// <summary>
 /// Default <see cref="IOrchestrationToolProvider"/> backing the v0.1
 /// orchestration-tool surface defined in ADR-0039 §3. Returns the closed
-/// five-tool set unconditionally for every <c>agent://</c> or <c>unit://</c>
+/// two-tool set unconditionally for every <c>agent://</c> or <c>unit://</c>
 /// address; other schemes return an empty array.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Per the 2026-05-19 ADR-0039 amendment (#2536) the membership gate is
-/// removed: orchestration is not a separate message-sending mechanism with
-/// its own attachment policy, so the launcher unconditionally attaches the
-/// closed toolset for callers whose scheme is addressable. Leaf agents and
-/// units with no members both get the same toolset; <c>list_members</c>
-/// returns an empty array for them, and any delegation attempt fails on the
-/// downstream surfaces (no resolvable target, self-delegation, etc.) without
-/// the provider needing to gate on membership.
+/// The orchestration surface is the two action verbs (<c>delegate_to</c>,
+/// <c>fanout_to</c>) only — discovery, inspection, and status queries live
+/// on the <c>sv.*</c> directory tool surface exposed by
+/// <c>SvDirectorySkillRegistry</c>. The 2026-05-19 ADR-0039 amendment
+/// (#2536) removed the membership-attachment gate; the subsequent shrink
+/// (#2537) dropped <c>list_members</c> / <c>inspect</c> / <c>query_status</c>
+/// because <c>sv.list_members</c> / <c>sv.get_member</c> / <c>sv.get_status</c>
+/// already covered them.
 /// </para>
 /// <para>
-/// The five descriptors are static — built once from embedded JSON schema
+/// The descriptors are static — built once from embedded JSON schema
 /// resources at startup — so per-call work is O(1). The schemas live next
 /// to this file under
 /// <c>Orchestration/Resources/&lt;tool-name&gt;.&lt;input|output&gt;.schema.json</c>
@@ -46,7 +46,7 @@ public class DirectoryOrchestrationToolProvider : IOrchestrationToolProvider
 
         // Schemes outside agent:// and unit:// (e.g. human://, connector://)
         // are not orchestration callers — return empty rather than the
-        // closed five-tool set.
+        // closed two-tool set.
         if (!string.Equals(agent.Scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(agent.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
         {
@@ -57,7 +57,7 @@ public class DirectoryOrchestrationToolProvider : IOrchestrationToolProvider
     }
 
     /// <summary>
-    /// Loads the five orchestration-tool descriptors once from embedded
+    /// Loads the two orchestration-tool descriptors once from embedded
     /// JSON schema resources. The order matches the
     /// <see cref="OrchestrationToolName"/> declaration so the toolset reads
     /// deterministically in logs and tool-call catalogues.
@@ -68,11 +68,8 @@ public class DirectoryOrchestrationToolProvider : IOrchestrationToolProvider
 
         return new[]
         {
-            BuildDescriptor(assembly, OrchestrationToolName.ListMembers, "list_members"),
-            BuildDescriptor(assembly, OrchestrationToolName.Inspect, "inspect"),
             BuildDescriptor(assembly, OrchestrationToolName.DelegateTo, "delegate_to"),
             BuildDescriptor(assembly, OrchestrationToolName.FanoutTo, "fanout_to"),
-            BuildDescriptor(assembly, OrchestrationToolName.QueryStatus, "query_status"),
         };
     }
 

@@ -78,7 +78,7 @@ public class SoftwareDevCycleWorkflow : Workflow<DevCycleInput, DevCycleOutput>
 }
 ```
 
-The unit's `ai` block points at the workflow container image and selects the workflow-driven launcher; activities inside the workflow call `IOrchestrationClient` to delegate to children, fan out, and inspect status. See [Units & Agents](units.md) for the unit-definition example and [Agent SDK](agent-sdk.md) for the SDK contract.
+The unit's `ai` block points at the workflow container image and selects the workflow-driven launcher; activities inside the workflow call `IOrchestrationClient.DelegateAsync` / `FanoutAsync` for the action verbs, and the `sv.*` directory tool surface for discovery / inspection / status queries. See [Units & Agents](units.md) for the unit-definition example and [Agent SDK](agent-sdk.md) for the SDK contract.
 
 ### Platform-Internal Workflows (Dapr Workflows in Host)
 

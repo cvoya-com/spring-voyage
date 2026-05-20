@@ -65,20 +65,22 @@ orchestration tools to the runtime context. The runtime may call those tools to
 delegate or fan out work, and the platform records each delegation as an
 `OrchestrationDecision` activity event.
 
-## The five orchestration tools
+## The orchestration tools
 
-The tool surface is closed for v0.1:
+The orchestration tool surface is closed for v0.1 to **two action verbs**:
 
 | Tool | Description |
 | --- | --- |
-| `list_members` | Returns the caller's own direct members with addresses, display names, kinds, and resolved execution metadata. Empty for leaf agents. No routing side effect. |
-| `inspect` | Returns metadata (role, description, declared expertise, status) for any addressable target in the caller's tenant. |
 | `delegate_to` | Routes the current message thread to a single addressable target and waits for the response within the turn budget. |
 | `fanout_to` | Routes the current work to multiple addressable targets in parallel and collects one result per target. |
-| `query_status` | Returns the last-known execution status for an addressable target without a full inspection payload. |
 
-The launcher attaches these tools unconditionally for every `agent://` and
-`unit://` runtime; membership is not a gate. Unit operators and runtime
+Discovery, inspection, and runtime-status queries live on the `sv.*` directory
+tool surface, not on the orchestration surface — `sv.list_members`,
+`sv.get_member`, `sv.get_status`, plus `sv.get_siblings` / `sv.get_parents` /
+`sv.get_self` for broader directory navigation.
+
+The launcher attaches both action verbs unconditionally for every `agent://`
+and `unit://` runtime; membership is not a gate. Unit operators and runtime
 authors do not configure a separate routing layer for them.
 
 ## Orchestration decisions
@@ -89,7 +91,7 @@ When a runtime calls a delegation tool, the platform publishes an
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `Kind` | `Delegate` \| `Fanout` \| `Inspect` \| `NoOp` | What the runtime decided to do. |
+| `Kind` | `Delegate` \| `Fanout` | What the runtime decided to do. |
 | `Status` | `Accepted` \| `Routed` \| `Failed` | Outcome of the delegation attempt. |
 | `Targets` | `Address[]` | Child unit(s) the work was routed to. |
 | `ResultMessageIds` | `Guid[]` | IDs of the child responses. |
@@ -98,10 +100,10 @@ When a runtime calls a delegation tool, the platform publishes an
 Delegation events use `Kind = Delegate` for `delegate_to` and
 `Kind = Fanout` for `fanout_to`. `Status` is `Routed` when the
 platform routed the target message and `Failed` when the tool call could not
-complete. The domain enum also reserves `Inspect`, `NoOp`, and `Accepted` for
-explicit decision sequences and accepted-but-not-yet-routed work. `Targets`
-contains the target addresses, `ResultMessageIds` contains any response
-message ids, and `Reason` is optional runtime-supplied text.
+complete. `Targets` contains the target addresses, `ResultMessageIds` contains
+any response message ids, and `Reason` is optional runtime-supplied text. The
+`sv.*` directory tools are read-only probes and do not emit
+`OrchestrationDecision` events.
 
 See [ADR-0039 § 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence)
 for the full record definition.

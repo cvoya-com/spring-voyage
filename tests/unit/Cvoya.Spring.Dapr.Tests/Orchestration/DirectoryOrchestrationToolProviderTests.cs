@@ -13,9 +13,11 @@ using Xunit;
 
 /// <summary>
 /// Tests for <see cref="DirectoryOrchestrationToolProvider"/>. Pins the
-/// "any agent:// or unit:// address gets the closed five-tool set;
+/// "any agent:// or unit:// address gets the closed two-tool set;
 /// other schemes get an empty array" contract from ADR-0039 §3
-/// (as amended 2026-05-19, #2536). Membership is not a gate.
+/// (as amended 2026-05-19, #2536 / #2537). Membership is not a gate;
+/// discovery / inspection / status tools live on the <c>sv.*</c> directory
+/// surface, not the orchestration surface.
 /// </summary>
 public class DirectoryOrchestrationToolProviderTests
 {
@@ -25,37 +27,35 @@ public class DirectoryOrchestrationToolProviderTests
 
     private static readonly OrchestrationToolName[] ExpectedToolset =
     [
-        OrchestrationToolName.ListMembers,
-        OrchestrationToolName.Inspect,
         OrchestrationToolName.DelegateTo,
         OrchestrationToolName.FanoutTo,
-        OrchestrationToolName.QueryStatus,
     ];
 
     [Fact]
-    public void GetOrchestrationTools_AgentAddress_ReturnsFiveDescriptors()
+    public void GetOrchestrationTools_AgentAddress_ReturnsTwoDescriptors()
     {
-        // Per the 2026-05-19 amendment to ADR-0039 §3 (#2536), entity type
-        // is not a gate and membership is not a gate. Any agent:// address
-        // gets the toolset unconditionally.
+        // Per the 2026-05-19 amendment to ADR-0039 §3 (#2536 / #2537), entity
+        // type is not a gate and membership is not a gate. Any agent://
+        // address gets the toolset unconditionally; the surface is the two
+        // action verbs only.
         var provider = CreateProvider();
         var address = new Address(Address.AgentScheme, SomeId);
 
         var tools = provider.GetOrchestrationTools(address, Guid.NewGuid());
 
-        tools.Length.ShouldBe(5);
+        tools.Length.ShouldBe(2);
         tools.Select(t => t.Name).ShouldBe(ExpectedToolset);
     }
 
     [Fact]
-    public void GetOrchestrationTools_UnitAddress_ReturnsFiveDescriptors()
+    public void GetOrchestrationTools_UnitAddress_ReturnsTwoDescriptors()
     {
         var provider = CreateProvider();
         var address = new Address(Address.UnitScheme, SomeId);
 
         var tools = provider.GetOrchestrationTools(address, Guid.NewGuid());
 
-        tools.Length.ShouldBe(5);
+        tools.Length.ShouldBe(2);
         tools.Select(t => t.Name).ShouldBe(ExpectedToolset);
 
         // Each descriptor must carry both schemas as concrete JSON objects;

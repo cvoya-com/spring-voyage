@@ -37,10 +37,11 @@ After install, the membership graph is editable through the API surface:
 
 Agent and unit membership rows carry the same multi-valued `roles` /
 `expertise` jsonb columns ([ADR-0046 §8](../decisions/0046-unified-members-grammar.md));
-the fields are runtime metadata surfaced through `list_members` / `sv.list_members`,
-not platform-decision inputs.
+the fields are runtime metadata surfaced through the `sv.list_members`
+directory tool, not platform-decision inputs.
 
-The full member list is exposed to the runtime through `list_members`.
+The full member list is exposed to the runtime through `sv.list_members`
+(see [`SvDirectorySkillRegistry`](../../src/Cvoya.Spring.Dapr/Skills/SvDirectorySkillRegistry.cs)).
 
 ## Permissions
 

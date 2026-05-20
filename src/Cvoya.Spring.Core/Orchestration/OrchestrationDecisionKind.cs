@@ -20,17 +20,5 @@ public enum OrchestrationDecisionKind
     /// The runtime forwarded the inbound message to multiple targets
     /// in parallel via <c>fanout_to</c>.
     /// </summary>
-    Fanout,
-
-    /// <summary>
-    /// The runtime invoked an inspection tool (e.g. <c>list_members</c>
-    /// or <c>inspect</c>) as part of an explicit decision sequence.
-    /// </summary>
-    Inspect,
-
-    /// <summary>
-    /// The runtime considered delegating but elected not to. Recorded so
-    /// operators can audit non-delegations as well as delegations.
-    /// </summary>
-    NoOp
+    Fanout
 }

@@ -6,16 +6,12 @@ namespace Cvoya.Spring.Dapr.Tests.Orchestration;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
-using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
-
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
 
 using Microsoft.Extensions.Logging;
 
@@ -33,42 +29,18 @@ public class OrchestrationToolHandlersTests
     private static readonly Guid OtherTenantId = new("ffffffff-0000-0000-0000-000000000099");
     private static readonly Guid ChildAgentId = new("aaaaaaaa-0000-0000-0000-000000000001");
     private static readonly Guid OtherChildAgentId = new("aaaaaaaa-0000-0000-0000-000000000002");
-    private static readonly Guid ChildSubUnitId = new("bbbbbbbb-0000-0000-0000-000000000002");
-    private static readonly Guid NonChildAgentId = new("aaaaaaaa-0000-0000-0000-000000000099");
 
-    private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly IAgentProxyResolver _agentProxyResolver = Substitute.For<IAgentProxyResolver>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IOrchestrationTenantResolver _tenantResolver = Substitute.For<IOrchestrationTenantResolver>();
     private readonly ILogger<OrchestrationToolHandlers> _logger =
         Substitute.For<ILogger<OrchestrationToolHandlers>>();
 
-    private readonly Dictionary<string, Address[]> _members = new();
-    private readonly Dictionary<string, OrchestrationMemberDescriptor[]> _descriptors = new();
     private readonly Dictionary<string, IAgent> _agents = new();
     private readonly List<ActivityEvent> _publishedEvents = [];
 
     public OrchestrationToolHandlersTests()
     {
-        _actorProxyFactory
-            .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), nameof(UnitActor))
-            .Returns(ci =>
-            {
-                var actorId = ci.ArgAt<ActorId>(0).GetId();
-                var actor = Substitute.For<IUnitActor>();
-                var members = _members.TryGetValue(actorId, out var m) ? m : Array.Empty<Address>();
-                var descriptors = _descriptors.TryGetValue(actorId, out var d)
-                    ? d
-                    : members.Select(member => new OrchestrationMemberDescriptor(
-                        member,
-                        DisplayName: string.Empty,
-                        Kind: string.Equals(member.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase) ? "unit" : "agent",
-                        ExecutionConfig: null)).ToArray();
-                actor.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(members);
-                actor.GetMemberDescriptorsAsync(Arg.Any<CancellationToken>()).Returns(descriptors);
-                return actor;
-            });
-
         _agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>())
             .Returns(ci =>
             {
@@ -89,101 +61,13 @@ public class OrchestrationToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleListMembers_AgentCaller_ReturnsEmpty()
-    {
-        // Per the 2026-05-19 amendment to ADR-0039 §3 (#2536) the handler
-        // does not gate on entity type. v0.1 semantics: list_members returns
-        // the caller's own direct members, which is empty for leaf agents.
-        var handlers = CreateHandlers();
-        var caller = Agent(NonChildAgentId);
-
-        var result = await handlers.HandleListMembersAsync(
-            caller,
-            TenantId,
-            Guid.NewGuid(),
-            TestContext.Current.CancellationToken);
-
-        result.ShouldBeEmpty();
-        await AssertNoDecisionPublishedAsync();
-    }
-
-    [Fact]
-    public async Task HandleListMembers_UnitCallerWithMembers_ReturnsDescriptors()
-    {
-        var handlers = CreateHandlers();
-        var caller = Unit();
-        var child = Agent(ChildAgentId);
-        RegisterMembers(caller, child);
-
-        var result = await handlers.HandleListMembersAsync(
-            caller,
-            TenantId,
-            Guid.NewGuid(),
-            TestContext.Current.CancellationToken);
-
-        result.Length.ShouldBe(1);
-        result[0].Address.ShouldBe(child);
-        await AssertNoDecisionPublishedAsync();
-    }
-
-    [Fact]
-    public async Task HandleListMembers_ReturnsRichDescriptors_WithKindAndExecutionConfig()
-    {
-        var handlers = CreateHandlers();
-        var caller = Unit();
-        var agentChild = Agent(ChildAgentId);
-        var unitChild = new Address(Address.UnitScheme, ChildSubUnitId);
-        var execConfig = JsonSerializer.SerializeToElement(new { Image = "ghcr.io/example/img:1", Agent = "claude" });
-
-        RegisterMembers(caller, agentChild, unitChild);
-        RegisterDescriptors(caller,
-            new OrchestrationMemberDescriptor(agentChild, "Backend Engineer", "agent", execConfig),
-            new OrchestrationMemberDescriptor(unitChild, "Engineering Sub-Team", "unit", null));
-
-        var result = await handlers.HandleListMembersAsync(
-            caller,
-            TenantId,
-            Guid.NewGuid(),
-            TestContext.Current.CancellationToken);
-
-        result.Length.ShouldBe(2);
-
-        result[0].Address.ShouldBe(agentChild);
-        result[0].DisplayName.ShouldBe("Backend Engineer");
-        result[0].Kind.ShouldBe("agent");
-        result[0].ExecutionConfig.ShouldNotBeNull();
-        result[0].ExecutionConfig!.Value.GetProperty("Image").GetString().ShouldBe("ghcr.io/example/img:1");
-
-        result[1].Address.ShouldBe(unitChild);
-        result[1].DisplayName.ShouldBe("Engineering Sub-Team");
-        result[1].Kind.ShouldBe("unit");
-        result[1].ExecutionConfig.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task HandleListMembers_CallerTenantMismatch_ThrowsCrossTenant()
-    {
-        var handlers = CreateHandlers();
-        var caller = Unit();
-        RegisterMembers(caller, Agent(ChildAgentId));
-        // Caller belongs to OtherTenantId, token claims TenantId.
-        _tenantResolver.GetTenantForAddressAsync(caller, Arg.Any<CancellationToken>())
-            .Returns(OtherTenantId);
-
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleListMembersAsync(caller, TenantId, Guid.NewGuid(), TestContext.Current.CancellationToken));
-
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationCrossTenant);
-    }
-
-    [Fact]
     public async Task HandleDelegateTo_AnyAddressableTarget_RoutesSuccessfully()
     {
         // ADR-0039 §3 (2026-05-19 amendment): the platform does not gate on
         // membership. Delegating to any addressable target in the same tenant
         // succeeds when the target resolves to an agent proxy.
         var handlers = CreateHandlers();
-        var caller = Agent(NonChildAgentId);
+        var caller = Agent(new Guid("dddddddd-0000-0000-0000-000000000099"));
         var target = Agent(ChildAgentId);
         var response = CreateResponse(target, caller);
         var agent = Substitute.For<IAgent>();
@@ -220,6 +104,30 @@ public class OrchestrationToolHandlersTests
                 TestContext.Current.CancellationToken));
 
         ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationSelfDelegation);
+    }
+
+    [Fact]
+    public async Task HandleDelegateTo_CallerTenantMismatch_ThrowsCrossTenant()
+    {
+        var handlers = CreateHandlers();
+        var caller = Unit();
+        var target = Agent(ChildAgentId);
+
+        // Caller belongs to OtherTenantId, token claims TenantId.
+        _tenantResolver.GetTenantForAddressAsync(caller, Arg.Any<CancellationToken>())
+            .Returns(OtherTenantId);
+
+        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
+            handlers.HandleDelegateToAsync(
+                caller,
+                TenantId,
+                target,
+                CreateMessage(),
+                null,
+                Guid.NewGuid(),
+                TestContext.Current.CancellationToken));
+
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationCrossTenant);
     }
 
     [Fact]
@@ -631,246 +539,13 @@ public class OrchestrationToolHandlersTests
         decision.ResultMessageIds.ShouldBe([response.Id]);
     }
 
-    [Fact]
-    public async Task HandleInspect_SelfTarget_ThrowsSelfDelegation()
-    {
-        var handlers = CreateHandlers();
-
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleInspectAsync(
-                Unit(),
-                TenantId,
-                Unit(),
-                Guid.NewGuid(),
-                TestContext.Current.CancellationToken));
-
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationSelfDelegation);
-    }
-
-    [Fact]
-    public async Task HandleInspect_TargetTenantMismatch_ThrowsCrossTenant()
-    {
-        var handlers = CreateHandlers();
-        var caller = Unit();
-        var target = Agent(ChildAgentId);
-
-        _tenantResolver.GetTenantForAddressAsync(caller, Arg.Any<CancellationToken>()).Returns(TenantId);
-        _tenantResolver.GetTenantForAddressAsync(target, Arg.Any<CancellationToken>()).Returns(OtherTenantId);
-
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleInspectAsync(
-                caller,
-                TenantId,
-                target,
-                Guid.NewGuid(),
-                TestContext.Current.CancellationToken));
-
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationCrossTenant);
-    }
-
-    [Fact]
-    public async Task HandleInspect_UnitCallerWithMember_ReturnsRichDescriptor()
-    {
-        var handlers = CreateHandlers();
-        var caller = Unit();
-        var target = Agent(ChildAgentId);
-        RegisterMembers(caller, target);
-        RegisterDescriptors(caller,
-            new OrchestrationMemberDescriptor(target, "Backend Engineer", "agent", null));
-
-        // Probe response: idle agent.
-        var agent = Substitute.For<IAgent>();
-        RegisterAgent(target, agent);
-        agent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
-            .Returns(CreateStatusResponse(target, status: "Idle", activeThreadId: null));
-
-        var meta = await handlers.HandleInspectAsync(
-            caller,
-            TenantId,
-            target,
-            Guid.NewGuid(),
-            TestContext.Current.CancellationToken);
-
-        meta["address"].ShouldBe(target.ToString());
-        meta["displayName"].ShouldBe("Backend Engineer");
-        meta["kind"].ShouldBe("agent");
-        meta["status"].ShouldBe("ready");
-        await AssertNoDecisionPublishedAsync();
-    }
-
-    [Fact]
-    public async Task HandleInspect_AgentCallerOnArbitraryTarget_ReturnsBasicDescriptor()
-    {
-        // Inspect now accepts any addressable target; the descriptor falls
-        // back to (empty display name, scheme-derived kind) when the caller
-        // is not a unit and therefore has no member descriptor list.
-        var handlers = CreateHandlers();
-        var caller = Agent(NonChildAgentId);
-        var target = Agent(ChildAgentId);
-
-        var agent = Substitute.For<IAgent>();
-        RegisterAgent(target, agent);
-        agent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
-            .Returns(CreateStatusResponse(target, status: "Idle", activeThreadId: null));
-
-        var meta = await handlers.HandleInspectAsync(
-            caller,
-            TenantId,
-            target,
-            Guid.NewGuid(),
-            TestContext.Current.CancellationToken);
-
-        meta["address"].ShouldBe(target.ToString());
-        meta["displayName"].ShouldBe(string.Empty);
-        meta["kind"].ShouldBe("agent");
-        meta["status"].ShouldBe("ready");
-    }
-
-    [Fact]
-    public async Task HandleQueryStatus_SelfTarget_ThrowsSelfDelegation()
-    {
-        var handlers = CreateHandlers();
-
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleQueryStatusAsync(
-                Unit(),
-                TenantId,
-                Unit(),
-                Guid.NewGuid(),
-                TestContext.Current.CancellationToken));
-
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationSelfDelegation);
-    }
-
-    [Fact]
-    public async Task HandleQueryStatus_TargetTenantMismatch_ThrowsCrossTenant()
-    {
-        var handlers = CreateHandlers();
-        var caller = Unit();
-        var target = Agent(ChildAgentId);
-
-        _tenantResolver.GetTenantForAddressAsync(caller, Arg.Any<CancellationToken>()).Returns(TenantId);
-        _tenantResolver.GetTenantForAddressAsync(target, Arg.Any<CancellationToken>()).Returns(OtherTenantId);
-
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleQueryStatusAsync(
-                caller,
-                TenantId,
-                target,
-                Guid.NewGuid(),
-                TestContext.Current.CancellationToken));
-
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationCrossTenant);
-    }
-
-    [Fact]
-    public async Task HandleQueryStatus_IdleAgent_ReturnsReady()
-    {
-        var handlers = CreateHandlers();
-        var caller = Unit();
-        var target = Agent(ChildAgentId);
-
-        var agent = Substitute.For<IAgent>();
-        RegisterAgent(target, agent);
-        agent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
-            .Returns(CreateStatusResponse(target, status: "Idle", activeThreadId: null));
-
-        var status = await handlers.HandleQueryStatusAsync(
-            caller,
-            TenantId,
-            target,
-            Guid.NewGuid(),
-            TestContext.Current.CancellationToken);
-
-        status.Status.ShouldBe("ready");
-        status.BusyOnThread.ShouldBeNull();
-        await AssertNoDecisionPublishedAsync();
-    }
-
-    [Fact]
-    public async Task HandleQueryStatus_ActiveAgent_ReturnsBusyWithThread()
-    {
-        var handlers = CreateHandlers();
-        var caller = Unit();
-        var target = Agent(ChildAgentId);
-        var threadId = "thread-deadbeef";
-
-        var agent = Substitute.For<IAgent>();
-        RegisterAgent(target, agent);
-        agent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
-            .Returns(CreateStatusResponse(target, status: "Active", activeThreadId: threadId));
-
-        var status = await handlers.HandleQueryStatusAsync(
-            caller,
-            TenantId,
-            target,
-            Guid.NewGuid(),
-            TestContext.Current.CancellationToken);
-
-        status.Status.ShouldBe("busy");
-        status.BusyOnThread.ShouldBe(threadId);
-    }
-
-    [Fact]
-    public async Task HandleQueryStatus_ProbeFails_ReturnsUnknown()
-    {
-        var handlers = CreateHandlers();
-        var caller = Unit();
-        var target = Agent(ChildAgentId);
-
-        var agent = Substitute.For<IAgent>();
-        RegisterAgent(target, agent);
-        agent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
-            .Throws(new InvalidOperationException("probe failed"));
-
-        var status = await handlers.HandleQueryStatusAsync(
-            caller,
-            TenantId,
-            target,
-            Guid.NewGuid(),
-            TestContext.Current.CancellationToken);
-
-        status.Status.ShouldBe("unknown");
-        status.LastActivityAt.ShouldBeNull();
-        status.BusyOnThread.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task HandleQueryStatus_StoppedUnitTarget_ReturnsStopped()
-    {
-        var handlers = CreateHandlers();
-        var caller = Unit();
-        var subUnit = new Address(Address.UnitScheme, ChildSubUnitId);
-
-        var unitAgent = Substitute.For<IAgent>();
-        RegisterAgent(subUnit, unitAgent);
-        unitAgent.ReceiveAsync(Arg.Is<Message>(m => m.Type == MessageType.StatusQuery), Arg.Any<CancellationToken>())
-            .Returns(CreateStatusResponse(subUnit, status: nameof(LifecycleStatus.Stopped), activeThreadId: null));
-
-        var status = await handlers.HandleQueryStatusAsync(
-            caller,
-            TenantId,
-            subUnit,
-            Guid.NewGuid(),
-            TestContext.Current.CancellationToken);
-
-        status.Status.ShouldBe("stopped");
-    }
-
     private OrchestrationToolHandlers CreateHandlers(OrchestrationDepthCounter? depthCounter = null) =>
         new(
-            _actorProxyFactory,
             _agentProxyResolver,
             depthCounter ?? new OrchestrationDepthCounter(),
             _logger,
             _activityEventBus,
             _tenantResolver);
-
-    private async Task AssertNoDecisionPublishedAsync()
-    {
-        _publishedEvents.ShouldBeEmpty();
-        await _activityEventBus.DidNotReceiveWithAnyArgs().PublishAsync(default!, default);
-    }
 
     private OrchestrationDecision ReadSingleDecision(Address caller)
     {
@@ -907,12 +582,6 @@ public class OrchestrationToolHandlersTests
             decision.Kind == kind &&
             decision.Status == status;
     }
-
-    private void RegisterMembers(Address unit, params Address[] members) =>
-        _members[unit.Id.ToString("N")] = members;
-
-    private void RegisterDescriptors(Address unit, params OrchestrationMemberDescriptor[] descriptors) =>
-        _descriptors[unit.Id.ToString("N")] = descriptors;
 
     private void RegisterAgent(Address address, IAgent agent) =>
         _agents[$"{address.Scheme}:{address.Id:N}"] = agent;
@@ -977,33 +646,4 @@ public class OrchestrationToolHandlersTests
             Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Content = "done" }),
             DateTimeOffset.UtcNow);
-
-    private static Message CreateStatusResponse(Address from, string status, string? activeThreadId)
-    {
-        // #2076 / ADR-0030 §3 §44: AgentActor's StatusQuery payload now
-        // exposes a per-thread ThreadDepths map instead of the binary
-        // ActiveThreadId / PendingConversationCount shape. The
-        // orchestration probe surfaces a representative thread id from
-        // the depth map.
-        var payload = activeThreadId is null
-            ? JsonSerializer.SerializeToElement(new
-            {
-                Status = status,
-                ThreadDepths = new Dictionary<string, int>(),
-            })
-            : JsonSerializer.SerializeToElement(new
-            {
-                Status = status,
-                ThreadDepths = new Dictionary<string, int> { [activeThreadId] = 1 },
-            });
-
-        return new Message(
-            Guid.NewGuid(),
-            from,
-            from,
-            MessageType.StatusQuery,
-            null,
-            payload,
-            DateTimeOffset.UtcNow);
-    }
 }

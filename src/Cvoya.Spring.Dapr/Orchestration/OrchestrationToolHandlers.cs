@@ -7,82 +7,19 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
-using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
-using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Routing;
-
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
 
 using Microsoft.Extensions.Logging;
 
 public class OrchestrationToolHandlers(
-    IActorProxyFactory actorProxyFactory,
     IAgentProxyResolver agentProxyResolver,
     OrchestrationDepthCounter depthCounter,
     ILogger<OrchestrationToolHandlers> logger,
     IActivityEventBus activityEventBus,
     IOrchestrationTenantResolver tenantResolver)
 {
-    public async Task<OrchestrationMemberDescriptor[]> HandleListMembersAsync(
-        Address caller,
-        Guid tenantId,
-        Guid threadId,
-        CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(caller);
-
-        await EnsureCallerTenantAsync(caller, tenantId, ct);
-
-        // Leaf agent callers have no members. Only unit:// callers project
-        // through IUnitActor.GetMemberDescriptorsAsync — non-unit schemes
-        // return an empty array directly per the v0.1 semantics documented
-        // in orchestration-tools.md § 2.
-        if (!string.Equals(caller.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
-        {
-            return Array.Empty<OrchestrationMemberDescriptor>();
-        }
-
-        // no OrchestrationDecision event per ADR-0039 §4.
-        return await ReadMemberDescriptorsAsync(caller, ct);
-    }
-
-    public async Task<IReadOnlyDictionary<string, object?>> HandleInspectAsync(
-        Address caller,
-        Guid tenantId,
-        Address target,
-        Guid threadId,
-        CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(caller);
-        ArgumentNullException.ThrowIfNull(target);
-
-        await EnsureCallerTenantAsync(caller, tenantId, ct);
-        EnsureNotSelfTarget(caller, target);
-        await EnsureTargetTenantAsync(target, tenantId, ct);
-
-        // no OrchestrationDecision event per ADR-0039 §4.
-        // The schema requires { address, displayName, kind } and optionally
-        // { description, expertise, status }. v0.1 emits the required three
-        // fields plus a best-effort status probe; the optional description /
-        // expertise slots stay empty because the dispatcher process does
-        // not have the directory metadata wired and a Dapr round-trip per
-        // probe would dwarf the cost of the real inspect call (callers
-        // that need richer detail can issue a separate read).
-        var descriptor = await TryReadDescriptorForTargetAsync(caller, target, ct);
-        var status = await TryProbeTargetStatusAsync(target, ct);
-
-        return new Dictionary<string, object?>
-        {
-            ["address"] = target.ToString(),
-            ["displayName"] = descriptor?.DisplayName ?? string.Empty,
-            ["kind"] = descriptor?.Kind ?? ResolveKind(target),
-            ["status"] = status.Status,
-        };
-    }
-
     public async Task<Message?> HandleDelegateToAsync(
         Address caller,
         Guid tenantId,
@@ -210,24 +147,6 @@ public class OrchestrationToolHandlers(
             ct);
 
         return results;
-    }
-
-    public async Task<MemberStatusResult> HandleQueryStatusAsync(
-        Address caller,
-        Guid tenantId,
-        Address target,
-        Guid threadId,
-        CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(caller);
-        ArgumentNullException.ThrowIfNull(target);
-
-        await EnsureCallerTenantAsync(caller, tenantId, ct);
-        EnsureNotSelfTarget(caller, target);
-        await EnsureTargetTenantAsync(target, tenantId, ct);
-
-        // no OrchestrationDecision event per ADR-0039 §4.
-        return await TryProbeTargetStatusAsync(target, ct);
     }
 
     private async Task PublishDecisionAsync(
@@ -388,32 +307,6 @@ public class OrchestrationToolHandlers(
         }
     }
 
-    private async Task<OrchestrationMemberDescriptor[]> ReadMemberDescriptorsAsync(Address caller, CancellationToken ct)
-    {
-        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(GuidFormatter.Format(caller.Id)),
-            nameof(UnitActor));
-
-        return await proxy.GetMemberDescriptorsAsync(ct);
-    }
-
-    private async Task<OrchestrationMemberDescriptor?> TryReadDescriptorForTargetAsync(
-        Address caller,
-        Address target,
-        CancellationToken ct)
-    {
-        // Only unit:// callers expose a member descriptor list; for any
-        // other scheme the inspect tool synthesises the descriptor from the
-        // target's own address (kind via scheme, empty display name).
-        if (!string.Equals(caller.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        var descriptors = await ReadMemberDescriptorsAsync(caller, ct);
-        return descriptors.FirstOrDefault(d => AddressEquals(d.Address, target));
-    }
-
     private async Task<Message?> SendToTargetAsync(
         Address caller,
         Address target,
@@ -448,120 +341,6 @@ public class OrchestrationToolHandlers(
             return (target, null, ex);
         }
     }
-
-    /// <summary>
-    /// Probes the target's lifecycle status by sending a
-    /// <see cref="MessageType.StatusQuery"/> control message through the
-    /// existing actor mailbox. The response payload's <c>Status</c>
-    /// (<see cref="AgentStatus"/> for agents, <see cref="Core.Units.LifecycleStatus"/>
-    /// for units) is mapped onto the closed schema enum
-    /// (<c>ready | busy | stopped | error | unknown</c>).
-    /// </summary>
-    private async Task<MemberStatusResult> TryProbeTargetStatusAsync(Address target, CancellationToken ct)
-    {
-        try
-        {
-            var proxy = agentProxyResolver.Resolve(target.Scheme, GuidFormatter.Format(target.Id));
-            if (proxy is null)
-            {
-                return new MemberStatusResult("unknown");
-            }
-
-            var probe = new Message(
-                Guid.NewGuid(),
-                target,
-                target,
-                MessageType.StatusQuery,
-                ThreadId: null,
-                Payload: JsonSerializer.SerializeToElement(new { }),
-                Timestamp: DateTimeOffset.UtcNow);
-
-            var response = await proxy.ReceiveAsync(probe, ct);
-            if (response is null || response.Payload.ValueKind != JsonValueKind.Object)
-            {
-                return new MemberStatusResult("unknown");
-            }
-
-            return MapStatusPayload(target, response.Payload);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(
-                ex,
-                "Failed to probe status for target {Target}; reporting 'unknown'.",
-                target);
-            return new MemberStatusResult("unknown");
-        }
-    }
-
-    private static MemberStatusResult MapStatusPayload(Address target, JsonElement payload)
-    {
-        if (!payload.TryGetProperty("Status", out var statusElement) ||
-            statusElement.ValueKind != JsonValueKind.String)
-        {
-            return new MemberStatusResult("unknown");
-        }
-
-        var raw = statusElement.GetString();
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return new MemberStatusResult("unknown");
-        }
-
-        var isUnit = string.Equals(target.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase);
-        var status = isUnit ? MapLifecycleStatus(raw) : MapAgentStatus(raw);
-
-        string? busyOnThread = null;
-        if (status == "busy")
-        {
-            // #2076 / ADR-0030 §3 §44: AgentActor's StatusQuery payload
-            // carries a per-thread ThreadDepths map under concurrent
-            // threads (one entry per active thread, value = queue depth).
-            // The orchestration probe surfaces a single representative
-            // thread id for "busy on what?"; we pick the first entry,
-            // which is sufficient for the closed schema's BusyOnThread
-            // field. UnitActor does not advertise per-thread depth on
-            // its status payload, so the field stays null there.
-            if (payload.TryGetProperty("ThreadDepths", out var depthsElement) &&
-                depthsElement.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var entry in depthsElement.EnumerateObject())
-                {
-                    if (!string.IsNullOrWhiteSpace(entry.Name))
-                    {
-                        busyOnThread = entry.Name;
-                        break;
-                    }
-                }
-            }
-        }
-
-        return new MemberStatusResult(status, LastActivityAt: null, BusyOnThread: busyOnThread);
-    }
-
-    private static string MapAgentStatus(string raw) => raw switch
-    {
-        "Idle" => "ready",
-        "Active" => "busy",
-        _ => "unknown",
-    };
-
-    private static string MapLifecycleStatus(string raw) => raw switch
-    {
-        "Stopped" => "stopped",
-        "Running" => "ready",
-        "Starting" => "busy",
-        "Stopping" => "busy",
-        "Validating" => "busy",
-        "Error" => "error",
-        "Draft" => "stopped",
-        _ => "unknown",
-    };
-
-    private static string ResolveKind(Address address) =>
-        string.Equals(address.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
-            ? "unit"
-            : "agent";
 
     private static bool AddressEquals(Address left, Address right) =>
         left.Id == right.Id &&

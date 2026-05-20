@@ -16,7 +16,6 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Lifecycle;
-using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors;
@@ -43,8 +42,6 @@ public class UnitActor : Actor, IUnitActor
     private readonly IUnitMembershipCoordinator _membershipCoordinator;
     private readonly IUnitStateCoordinator _stateCoordinator;
     private readonly IUnitMemberGraphStore _memberGraphStore;
-    private readonly IAgentExecutionStore? _agentExecutionStore;
-    private readonly IUnitExecutionStore? _unitExecutionStore;
     private readonly IUnitHumanPermissionStore? _humanPermissionStore;
     private readonly IUnitConnectorStartDispatcher? _connectorStartDispatcher;
     // #2160: producer-side seam for the operational-issues surface.
@@ -149,8 +146,6 @@ public class UnitActor : Actor, IUnitActor
         IArtefactValidationTracker? validationTracker = null,
         IArtefactValidationCoordinator? validationCoordinator = null,
         IUnitMembershipCoordinator? membershipCoordinator = null,
-        IAgentExecutionStore? agentExecutionStore = null,
-        IUnitExecutionStore? unitExecutionStore = null,
         IUnitHumanPermissionStore? humanPermissionStore = null,
         IUnitConnectorStartDispatcher? connectorStartDispatcher = null,
         Cvoya.Spring.Core.Issues.IIssueWriter? issueWriter = null)
@@ -175,8 +170,6 @@ public class UnitActor : Actor, IUnitActor
             ?? new UnitMembershipCoordinator(
                 memberGraphStore,
                 loggerFactory.CreateLogger<UnitMembershipCoordinator>());
-        _agentExecutionStore = agentExecutionStore;
-        _unitExecutionStore = unitExecutionStore;
         _humanPermissionStore = humanPermissionStore;
         _connectorStartDispatcher = connectorStartDispatcher;
         _issueWriter = issueWriter;
@@ -357,98 +350,6 @@ public class UnitActor : Actor, IUnitActor
     {
         var members = await GetMembersListAsync(ct);
         return [.. members];
-    }
-
-    /// <inheritdoc />
-    public async Task<OrchestrationMemberDescriptor[]> GetMemberDescriptorsAsync(CancellationToken ct = default)
-    {
-        var members = await GetMembersListAsync(ct);
-        if (members.Count == 0)
-        {
-            return Array.Empty<OrchestrationMemberDescriptor>();
-        }
-
-        var descriptors = new OrchestrationMemberDescriptor[members.Count];
-        for (var i = 0; i < members.Count; i++)
-        {
-            var member = members[i];
-            descriptors[i] = new OrchestrationMemberDescriptor(
-                Address: member,
-                DisplayName: await ResolveChildDisplayNameAsync(member, ct),
-                Kind: ResolveChildKind(member),
-                ExecutionConfig: await ResolveChildExecutionConfigAsync(member, ct));
-        }
-
-        return descriptors;
-    }
-
-    private async Task<string> ResolveChildDisplayNameAsync(Address member, CancellationToken ct)
-    {
-        try
-        {
-            var entry = await _directoryService.ResolveAsync(member, ct);
-            return entry?.DisplayName ?? string.Empty;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(
-                ex,
-                "Failed to resolve display name for child {Member} of unit {ActorId}; returning empty.",
-                member,
-                Id.GetId());
-            return string.Empty;
-        }
-    }
-
-    private static string ResolveChildKind(Address member)
-    {
-        // ADR-0039 §1: address scheme is the structural property —
-        // unit:// has children, agent:// is a leaf. The schema's
-        // closed enum is exactly these two values; any other scheme
-        // would be a directory bug, but we degrade to "agent" rather
-        // than throwing inside the orchestration probe.
-        return string.Equals(member.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
-            ? "unit"
-            : "agent";
-    }
-
-    private async Task<JsonElement?> ResolveChildExecutionConfigAsync(Address member, CancellationToken ct)
-    {
-        // ExecutionConfig is "opaque to callers" per the schema and the
-        // orchestration-tools doc; we return the persisted on-disk
-        // execution block as a JSON object. Callers that want the
-        // typed, post-inheritance view call inspect instead.
-        try
-        {
-            var memberId = GuidFormatter.Format(member.Id);
-            if (string.Equals(member.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
-            {
-                if (_unitExecutionStore is null)
-                {
-                    return null;
-                }
-
-                var defaults = await _unitExecutionStore.GetAsync(memberId, ct);
-                return defaults is null ? null : JsonSerializer.SerializeToElement(defaults);
-            }
-
-            if (_agentExecutionStore is null)
-            {
-                return null;
-            }
-
-            var shape = await _agentExecutionStore.GetAsync(memberId, ct);
-            return shape is null ? null : JsonSerializer.SerializeToElement(shape);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(
-                ex,
-                "Failed to resolve execution config for child {Member} of unit {ActorId}; returning null.",
-                member,
-                Id.GetId());
-            return null;
-        }
     }
 
     /// <inheritdoc />

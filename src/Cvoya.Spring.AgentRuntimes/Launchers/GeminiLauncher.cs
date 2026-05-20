@@ -332,11 +332,8 @@ public class GeminiLauncher(
     private static string ToWireName(OrchestrationToolName name) =>
         name switch
         {
-            OrchestrationToolName.ListMembers => "list_members",
-            OrchestrationToolName.Inspect => "inspect",
             OrchestrationToolName.DelegateTo => "delegate_to",
             OrchestrationToolName.FanoutTo => "fanout_to",
-            OrchestrationToolName.QueryStatus => "query_status",
             _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unknown orchestration tool name.")
         };
 

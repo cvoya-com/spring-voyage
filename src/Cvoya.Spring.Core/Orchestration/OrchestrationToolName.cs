@@ -12,30 +12,23 @@ using System.Text.Json.Serialization;
 /// and runtime-side tool catalogues use the names declared in ADR-0039 §3.
 /// </summary>
 /// <remarks>
-/// The names dropped the "child" / "children" framing in the 2026-05-19
-/// ADR-0039 amendment: a caller may target any addressable entity in the
-/// same tenant — peer, sibling, parent, or member — so "child" was a
-/// structural assumption that is no longer enforced.
+/// The orchestration surface is the two action verbs only — discovery,
+/// inspection, and status queries live on the <c>sv.*</c> directory tool
+/// surface exposed by <c>SvDirectorySkillRegistry</c>. The 2026-05-19
+/// ADR-0039 amendment (#2536) removed the "child" / "children" framing
+/// (a caller may target any addressable entity in the same tenant), and
+/// the subsequent shrink (#2537) dropped <c>list_members</c>,
+/// <c>inspect</c>, and <c>query_status</c> from this surface because the
+/// <c>sv.list_members</c> / <c>sv.get_member</c> / <c>sv.get_status</c>
+/// tools already cover them.
 /// </remarks>
 public enum OrchestrationToolName
 {
-    /// <summary>List the caller's own direct members (empty for leaf agents).</summary>
-    [JsonStringEnumMemberName("list_members")]
-    ListMembers,
-
-    /// <summary>Inspect a single addressable target's metadata and current status.</summary>
-    [JsonStringEnumMemberName("inspect")]
-    Inspect,
-
     /// <summary>Delegate the in-flight work to a single addressable target.</summary>
     [JsonStringEnumMemberName("delegate_to")]
     DelegateTo,
 
     /// <summary>Fan the in-flight work out to multiple addressable targets in parallel.</summary>
     [JsonStringEnumMemberName("fanout_to")]
-    FanoutTo,
-
-    /// <summary>Query the current execution status of an addressable target.</summary>
-    [JsonStringEnumMemberName("query_status")]
-    QueryStatus
+    FanoutTo
 }

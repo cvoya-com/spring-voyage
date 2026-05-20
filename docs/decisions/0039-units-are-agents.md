@@ -3,9 +3,17 @@
 > **Amendment (2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)) — orchestration is messaging, no separate gates:** the platform-side orchestration surface is not a separate message-sending mechanism with its own attachment or authorisation policy on top of ordinary messaging. The following changes apply to §3:
 >
 > 1. **§3.3 gate 2 ("Caller is a unit (`unit://` scheme)") is removed.** Agents may call orchestration tools; the membership / self-delegation / depth / tenant gates handle the actual safety properties. The SDK / dispatcher no longer mints or maps an `OrchestrationCallerIsNotUnit` reject code.
-> 2. **The membership-based toolset attachment gate is removed.** The §3 "Tools attached only when children exist" rule is superseded: the launcher unconditionally attaches the closed five-tool set for every `agent://` and `unit://` address. `DirectoryOrchestrationToolProvider` no longer reads the membership graph; `IUnitMemberGraphStore` is no longer a dependency of that provider.
+> 2. **The membership-based toolset attachment gate is removed.** The §3 "Tools attached only when children exist" rule is superseded: the launcher unconditionally attaches the closed orchestration tool set for every `agent://` and `unit://` address. `DirectoryOrchestrationToolProvider` no longer reads the membership graph; `IUnitMemberGraphStore` is no longer a dependency of that provider.
 > 3. **§3.3 gate 3 ("Target is a direct child") is removed.** A caller may target any addressable entity in the same tenant — peer, sibling, parent, or member. The `OrchestrationTargetNotChild` reject code (and the dispatcher's 404 / SDK `TargetNotChild` exception mapping) is dropped. The §3.3 "live 'does this address have children right now?' check instead of scheme" alternative is therefore moot for attachment purposes and stays Rejected.
 > 4. **Tool wire names drop the "child" / "children" framing.** New names per [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536): `list_members`, `inspect`, `delegate_to`, `fanout_to`, `query_status`. The C# enum members are `ListMembers`, `Inspect`, `DelegateTo`, `FanoutTo`, `QueryStatus`. `list_members` returns the caller's own direct members (empty for leaf agents); the other four tools accept any addressable target. C# types `OrchestrationChildDescriptor` / `ChildStatusResult` rename to `OrchestrationMemberDescriptor` / `MemberStatusResult`; embedded JSON schemas rename to match.
+>
+> **Amendment (2026-05-19, [#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)) — orchestration tool surface shrunk to the action verbs.** The closed orchestration tool set is now **2 tools**, not 5. `list_members`, `inspect`, and `query_status` are removed from the orchestration surface — their semantics are already covered by the `sv.*` directory tools exposed via `SvDirectorySkillRegistry` (`sv.list_members`, `sv.get_member`, `sv.get_status`, plus `sv.get_siblings` / `sv.get_parents` / `sv.get_self` for broader directory navigation). Orchestration is purely the imperative action path; discovery, inspection, and status queries live on the `sv.*` surface. Consequences:
+>
+> - `OrchestrationToolName` enum keeps only `DelegateTo` and `FanoutTo`.
+> - `OrchestrationDecisionKind` keeps only `Delegate` and `Fanout` (the reserved `Inspect` and `NoOp` values are removed; no handler emitted them).
+> - `OrchestrationMemberDescriptor`, `MemberStatusResult`, and `IUnitActor.GetMemberDescriptorsAsync` are deleted (no remaining consumers).
+> - Dispatcher routes `/list-members`, `/inspect`, `/query-status` and their request/response DTOs are removed; only `/delegate-to` and `/fanout-to` remain.
+> - The §3 "five-tool set" prose and table rows for `list_members` / `inspect` / `query_status` below are superseded; treat them as historical.
 >
 > The body below preserves the original §3 / §3.3 gate-2 / gate-3 / membership-attachment prose with strike-through for history.
 
@@ -90,15 +98,15 @@ Rejected: replace the strategy taxonomy with a single `IUnitDispatcher` slot who
 
 When a unit's runtime is launched for a turn, the launcher attaches a fixed set of orchestration tools to the container in addition to whatever skills the unit's instructions configure. The tool surface is uniform across all runtimes that support tool calling (`spring-voyage`, `claude-code`, `codex`, `gemini`); a custom runtime that does not support tool calls can still respond directly but cannot delegate.
 
-The v0.1 orchestration-tool surface (wire names per the 2026-05-19 amendment, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)):
+The v0.1 orchestration-tool surface (wire names per the 2026-05-19 amendments, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536) / [#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)):
 
 | Tool name | Purpose | Returns | Side effect |
 |---|---|---|---|
-| `list_members` | Enumerate the caller's own direct members with their addresses, display names, kinds (`agent` / `unit`), and (resolved) execution config. Returns an empty array for leaf agents. | Array of member descriptors. | None — emits an `OrchestrationDecision` with `kind: inspect` only when explicitly invoked by the runtime as part of a decision sequence; a bare list does not record. |
-| `inspect <address>` | Return metadata for any addressable target in the caller's tenant: role, description, declared expertise, current status. | Single descriptor. | None. |
+| ~~`list_members`~~ | ~~Enumerate the caller's own direct members …~~ **Superseded ([#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)) — use `sv.list_members` on the directory tool surface.** | | |
+| ~~`inspect <address>`~~ | ~~Return metadata for any addressable target …~~ **Superseded ([#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)) — use `sv.get_member`.** | | |
 | `delegate_to <address> <message>` | Forward the inbound message to the named target and await the target's response (synchronous within the turn budget). | The target's response message. | Records an `OrchestrationDecision` with `kind: delegate`. |
 | `fanout_to <addresses[]> <message>` | Forward to multiple targets in parallel; collect responses with a per-target timeout. | Array of `(address, response, status)` triples. | Records an `OrchestrationDecision` with `kind: fanout`. |
-| `query_status <address>` | Cheap status check for a target without a full inspect. | `{ status, lastActivityAt, busyOnThread? }`. | None. |
+| ~~`query_status <address>`~~ | ~~Cheap status check for a target …~~ **Superseded ([#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)) — use `sv.get_status`.** | | |
 
 The tool surface is **closed for v0.1**. New tools require an ADR. The reasoning: the tool surface is a contract every runtime image in the catalogue implements; widening it implicitly forces every image to keep up. The closed list also bounds the platform-side behaviour the platform *records* (via decision 4) — if a runtime calls a tool the platform does not enumerate, the platform has nowhere to put the evidence.
 

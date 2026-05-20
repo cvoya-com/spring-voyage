@@ -14,10 +14,6 @@ using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
 
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
-using global::Dapr.Actors.Runtime;
-
 using Microsoft.Extensions.Logging;
 
 using NSubstitute;
@@ -227,21 +223,10 @@ public class OrchestrationDelegationDecisionIntegrationTests
 
     private static HandlerHarness CreateHarness(Address parent, params Address[] children)
     {
-        var (unitActor, _, _, graph) =
-            ActorTestHost.CreateUnitActor(actorId: GuidFormatter.Format(parent.Id));
-
-        graph.SeedMembers(parent.Id, children);
-
         var agents = new Dictionary<string, IAgent>(StringComparer.OrdinalIgnoreCase);
-        var actorProxyFactory = Substitute.For<IActorProxyFactory>();
         var agentProxyResolver = Substitute.For<IAgentProxyResolver>();
         var activityEventBus = Substitute.For<IActivityEventBus>();
         var publishedEvents = new List<ActivityEvent>();
-
-        actorProxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(actorId => actorId.GetId() == GuidFormatter.Format(parent.Id)),
-                nameof(UnitActor))
-            .Returns(unitActor);
 
         agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>())
             .Returns(call =>
@@ -260,7 +245,6 @@ public class OrchestrationDelegationDecisionIntegrationTests
             .Returns(Task.CompletedTask);
 
         var handlers = new OrchestrationToolHandlers(
-            actorProxyFactory,
             agentProxyResolver,
             new OrchestrationDepthCounter(),
             Substitute.For<ILogger<OrchestrationToolHandlers>>(),
