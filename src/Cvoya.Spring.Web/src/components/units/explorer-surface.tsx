@@ -75,12 +75,14 @@ function selectedIdFromPathname(pathname: string): string | undefined {
     if (!raw) return undefined;
     // Re-hydrate the `human://<guid>` address so the tree index can resolve
     // it against the canonical node id emitted by the server (#2517).
-    // Normalise to no-dash so the key matches the `byId` entry regardless
-    // of whether the URL carries the dashed or no-dash UUID form (#2531).
+    // Normalise to lowercase no-dash so the key matches the `byId` entry
+    // regardless of whether the URL carries the dashed / no-dash or
+    // upper- / lower-case UUID form — the server emits lowercase no-dash
+    // hex via `GuidFormatter.Format` (#2531).
     const decoded = decodeURIComponent(raw);
     const nodash = decoded.replace(/-/g, "");
     const normalized =
-      /^[0-9a-f]{32}$/i.test(nodash) ? nodash : decoded;
+      /^[0-9a-f]{32}$/i.test(nodash) ? nodash.toLowerCase() : decoded;
     return `human://${normalized}`;
   }
   return undefined;

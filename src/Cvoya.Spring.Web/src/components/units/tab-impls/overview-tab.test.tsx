@@ -504,6 +504,24 @@ describe("OverviewTab (Human subject — #2267)", () => {
     ).toBeInTheDocument();
   });
 
+  it("#2531: queries the human-detail API with the bare guid when the node id carries the `human://` scheme", () => {
+    // Explorer-tree human nodes carry the scheme-prefixed address
+    // (`human://<no-dash-guid>`) the server emits. The human-detail
+    // endpoint is keyed by a bare guid, so the scheme must be stripped
+    // before the read — otherwise every human reached through the
+    // Explorer 404s and renders "Human not found".
+    const noDashGuid = "6860861c747347518757881972da962a";
+    const schemeNode: HumanNode = {
+      kind: "Human",
+      id: `human://${noDashGuid}`,
+      name: "Operator",
+      status: "running",
+    };
+    useHumanMock.mockReturnValue({ data: null, isLoading: false });
+    render(<OverviewTab kind="Human" node={schemeNode} />);
+    expect(useHumanMock).toHaveBeenCalledWith(noDashGuid, undefined);
+  });
+
   it("renders the profile card with display name, username, email, platformRole, and createdAt", () => {
     useHumanMock.mockReturnValue({
       data: {
