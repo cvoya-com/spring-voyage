@@ -44,6 +44,18 @@ public record Address(
     public const string HumanScheme = "human";
 
     /// <summary>
+    /// Canonical scheme for connector-shaped addresses. Per ADR-0048 a
+    /// connector is a non-routable bridge: the scheme survives only as
+    /// message provenance — the synthetic <c>connector://…</c>
+    /// <see cref="Message.From"/> stamped on a translated inbound webhook
+    /// event. Nothing routes <em>to</em> a connector address. The platform
+    /// host keys connector-origin handling (e.g. the routing-decision
+    /// activity emitted after a connector event is processed, issue #2560)
+    /// off this scheme.
+    /// </summary>
+    public const string ConnectorScheme = "connector";
+
+    /// <summary>
     /// Canonical scheme for tenant-user-shaped addresses (ADR-0047 §1) —
     /// the authenticated principal of Spring Voyage scoped to one tenant.
     /// Pinned here as part of the actor-kind audit ADR-0047 § "Costs"
