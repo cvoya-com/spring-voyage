@@ -179,9 +179,9 @@ fi
 RETRY_DELAY=5
 
 # Delete any stale forwarding webhook left by a previous run.
-# gh webhook forward creates a hook whose delivery URL is a smee.io relay;
-# if the script is killed before gh can clean up, that hook stays on GitHub
-# and causes 422 "Hook already exists" on the next run.
+# gh webhook forward registers a hook at webhook-forwarder.github.com (name="cli").
+# If the script is killed before gh can clean up, that hook stays on GitHub and
+# causes 422 "Hook already exists" on the next run.
 cleanup_stale_forward_hooks() {
     local hooks
     hooks="$(gh api "repos/${REPO}/hooks" 2>/dev/null)" || {
@@ -200,7 +200,8 @@ cleanup_stale_forward_hooks() {
 import json, sys
 for h in json.load(sys.stdin):
     url = h.get('config', {}).get('url', '')
-    if 'smee.io' in url:
+    name = h.get('name', '')
+    if 'webhook-forwarder.github.com' in url or name == 'cli':
         print(str(h['id']) + '\t' + url)
 ")
 }
