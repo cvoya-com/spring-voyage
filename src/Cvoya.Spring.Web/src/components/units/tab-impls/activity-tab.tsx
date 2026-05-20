@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   DollarSign,
+  Info,
   RefreshCw,
   TrendingDown,
   X,
@@ -24,8 +25,11 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   useActivityQuery,
+  useAgent,
   useAgentCostBreakdown,
   useAgentCostTimeseries,
+  useAgentExecution,
+  useUnitExecution,
 } from "@/lib/api/queries";
 import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import type {
@@ -99,6 +103,19 @@ const KNOWN_EVENT_KINDS = [
   "WorkflowStepCompleted",
   "CostIncurred",
 ] as const;
+
+// #2564: the three runtime event kinds that arrive *only* via the OTLP
+// ingest path (`/otlp/v1/*`, #2492). They are emitted exclusively by
+// runtimes whose launcher calls `LauncherOtelEnvironment.Add()`.
+const OTLP_ONLY_EVENT_KINDS = ["RuntimeLog", "LlmTurn", "RuntimeSpan"] as const;
+
+// #2564: OTLP-emitting runtime allowlist. In v0.1 only the
+// `spring-voyage` launcher (`SpringVoyageAgentLauncher`) injects the
+// `OTEL_EXPORTER_OTLP_*` env vars; `claude-code` / `codex` / `gemini`
+// ship no OTLP telemetry, so `OTLP_ONLY_EVENT_KINDS` stay permanently
+// empty for those subjects. A runtime not on this list — including an
+// unrecognised or absent one — gets the empty-chip hint.
+const OTLP_EMITTING_RUNTIMES = new Set<string>(["spring-voyage"]);
 
 // #2502: quick-preset durations for the time-range chip.
 const TIME_RANGE_PRESETS = [
@@ -374,6 +391,69 @@ function writeFiltersToUrl(
 }
 
 /**
+ * #2564: resolve the *effective* runtime of the Activity-tab subject so
+ * the tab can warn when the OTLP-only event kinds will stay empty.
+ *
+ * - For a unit the runtime is read straight from `GET /units/{id}/execution`.
+ * - For an agent the agent's own declared runtime wins; when it is left
+ *   blank (inherited) the owning unit's declared runtime is used —
+ *   mirroring the dispatch-time merge the Execution panel renders.
+ *
+ * Returns `undefined` while the queries are still resolving so the
+ * caller can stay silent rather than flash a hint that might not apply.
+ */
+function useSubjectRuntime(
+  kind: ActivitySubjectKind,
+  id: string,
+): string | null | undefined {
+  const unitExecution = useUnitExecution(id, { enabled: kind === "Unit" });
+  const agentExecution = useAgentExecution(id, { enabled: kind === "Agent" });
+  const agent = useAgent(id, { enabled: kind === "Agent" });
+
+  const parentUnitId = agent.data?.agent.parentUnitId ?? null;
+  const parentUnitExecution = useUnitExecution(parentUnitId ?? "", {
+    enabled: kind === "Agent" && Boolean(parentUnitId),
+  });
+
+  if (kind === "Unit") {
+    if (unitExecution.isLoading) return undefined;
+    return unitExecution.data?.runtime ?? null;
+  }
+
+  // Agent path: own runtime first, then the owning unit's default.
+  if (agentExecution.isLoading || agent.isLoading) return undefined;
+  const ownRuntime = agentExecution.data?.runtime ?? null;
+  if (ownRuntime) return ownRuntime;
+  if (parentUnitId && parentUnitExecution.isLoading) return undefined;
+  return parentUnitExecution.data?.runtime ?? null;
+}
+
+/**
+ * #2564: inline advisory rendered above the filter row when the
+ * subject's runtime emits no OTLP telemetry. Without it, an operator
+ * adds the `RuntimeLog` / `LlmTurn` / `RuntimeSpan` chips, sees
+ * "No events match the current filters", and wrongly concludes the
+ * subject is never invoked. Uses the Info/context banner palette from
+ * DESIGN.md § 12.4 — no new styling primitive.
+ */
+function NoOtlpHint() {
+  return (
+    <div
+      role="status"
+      data-testid="activity-no-otlp-hint"
+      className="flex items-start gap-2 rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm text-foreground"
+    >
+      <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+      <span>
+        This runtime does not emit OTLP telemetry —{" "}
+        {OTLP_ONLY_EVENT_KINDS.join(" / ")} will stay empty. Filter by{" "}
+        MessageReceived and RuntimeProgress instead.
+      </span>
+    </div>
+  );
+}
+
+/**
  * Subject-agnostic activity tab. Renders the canonical event feed
  * (REST baseline + SSE stream-driven invalidation) with expandable
  * structured-payload rows for both units and agents. When `kind`
@@ -539,6 +619,17 @@ export function ActivityTab({ kind, id }: ActivityTabProps) {
       to: "",
     });
 
+  // #2564: warn when the subject's runtime emits no OTLP telemetry so
+  // the operator does not add the OTLP-only chips and misread the
+  // resulting empty feed. Only fires for a *concrete* runtime not on the
+  // allowlist — `undefined` (still resolving) and `null` (runtime not
+  // declared; the effective value is decided at dispatch) stay silent
+  // rather than flash a hint that might not apply.
+  const subjectRuntime = useSubjectRuntime(kind, id);
+  const showNoOtlpHint =
+    typeof subjectRuntime === "string"
+    && !OTLP_EMITTING_RUNTIMES.has(subjectRuntime);
+
   const emptyMessage =
     kind === "Agent"
       ? "No activity for this agent yet."
@@ -550,6 +641,12 @@ export function ActivityTab({ kind, id }: ActivityTabProps) {
   return (
     <div className="space-y-4" data-testid={`tab-${scheme}-activity`}>
       {kind === "Agent" ? <AgentCostCards agentId={id} /> : null}
+
+      {/* #2564: runtime-aware advisory — the subject's runtime emits no
+          OTLP telemetry, so the OTLP-only filter chips would stay
+          empty. Rendered above the filter row so the operator reads it
+          before reaching for those chips. */}
+      {showNoOtlpHint ? <NoOtlpHint /> : null}
 
       {/* #2502: filter chip row. Visual density matches the tenant-wide
           /activity page — same rounded pill, same primary/10 tint on
