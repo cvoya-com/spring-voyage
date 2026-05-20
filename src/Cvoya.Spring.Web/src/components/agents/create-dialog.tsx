@@ -3,7 +3,10 @@
 import { useState } from "react";
 
 import { Dialog } from "@/components/ui/dialog";
-import { AgentCreateForm } from "@/components/agents/create-form";
+import {
+  AgentCreateForm,
+  type AgentCreateSuccess,
+} from "@/components/agents/create-form";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -32,6 +35,13 @@ export interface AgentCreateDialogProps {
    * `<Dialog>` open/close contract.
    */
   onOpenChange: (open: boolean) => void;
+  /**
+   * Optional — fires with the create result just before the dialog
+   * closes on a successful create. Callers that need to act on the new
+   * agent (e.g. navigate to its page) wire this; the unit Members tab
+   * leaves it unset and simply refreshes its list on close.
+   */
+  onCreated?: (result: AgentCreateSuccess) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +75,7 @@ export function AgentCreateDialog({
   unitDisplayName,
   open,
   onOpenChange,
+  onCreated,
 }: AgentCreateDialogProps) {
   const [dialogBranch, setDialogBranch] = useState<"scratch" | "from-package">(
     "scratch",
@@ -122,7 +133,10 @@ export function AgentCreateDialog({
           dialogBranch === "from-package" ? "from-package" : undefined
         }
         initialUnitIds={[unitId]}
-        onSuccess={close}
+        onSuccess={(result) => {
+          onCreated?.(result);
+          close();
+        }}
         onCancel={close}
         onSourceBack={() => setDialogBranch("scratch")}
       />
