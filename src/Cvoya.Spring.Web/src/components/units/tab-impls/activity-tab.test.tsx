@@ -8,6 +8,12 @@ import { ActivityTab } from "./activity-tab";
 const mockQueryActivity = vi.fn();
 const mockGetAgentCostTimeseries = vi.fn();
 const mockGetAgentCostBreakdown = vi.fn();
+// #2564: the runtime-aware OTLP hint reads the subject's effective
+// runtime via the execution endpoints (and the agent record for the
+// owning-unit fallback).
+const mockGetUnitExecution = vi.fn();
+const mockGetAgentExecution = vi.fn();
+const mockGetAgent = vi.fn();
 const mockRouterReplace = vi.fn();
 
 vi.mock("@/lib/api/client", () => ({
@@ -17,6 +23,9 @@ vi.mock("@/lib/api/client", () => ({
       mockGetAgentCostTimeseries(...args),
     getAgentCostBreakdown: (...args: unknown[]) =>
       mockGetAgentCostBreakdown(...args),
+    getUnitExecution: (...args: unknown[]) => mockGetUnitExecution(...args),
+    getAgentExecution: (...args: unknown[]) => mockGetAgentExecution(...args),
+    getAgent: (...args: unknown[]) => mockGetAgent(...args),
   },
 }));
 
@@ -62,12 +71,28 @@ function Wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
+// #2564: a `spring-voyage` execution block — the only OTLP-emitting
+// runtime in v0.1, so the no-OTLP hint must stay hidden for it.
+const otlpRuntimeExecution = { runtime: "spring-voyage" };
+// A `claude-code` execution block — no OTLP, so the hint must render.
+const noOtlpRuntimeExecution = { runtime: "claude-code" };
+
+// #2564: minimal `AgentDetailResponse`-shaped record — the runtime hook
+// reads `agent.parentUnitId` for the owning-unit fallback.
+function agentDetail(parentUnitId: string | null) {
+  return { agent: { id: "ada", parentUnitId }, status: null };
+}
+
 describe("ActivityTab (Unit subject)", () => {
   beforeEach(() => {
     mockQueryActivity.mockReset();
     mockQueryActivity.mockResolvedValue(mockResult);
     mockGetAgentCostTimeseries.mockReset();
     mockGetAgentCostBreakdown.mockReset();
+    mockGetUnitExecution.mockReset();
+    mockGetUnitExecution.mockResolvedValue(otlpRuntimeExecution);
+    mockGetAgentExecution.mockReset();
+    mockGetAgent.mockReset();
   });
 
   it("calls API with unit source filter", async () => {
@@ -239,6 +264,12 @@ describe("ActivityTab (Agent subject)", () => {
     mockGetAgentCostTimeseries.mockResolvedValue(null);
     mockGetAgentCostBreakdown.mockReset();
     mockGetAgentCostBreakdown.mockResolvedValue(null);
+    mockGetUnitExecution.mockReset();
+    mockGetUnitExecution.mockResolvedValue(otlpRuntimeExecution);
+    mockGetAgentExecution.mockReset();
+    mockGetAgentExecution.mockResolvedValue(otlpRuntimeExecution);
+    mockGetAgent.mockReset();
+    mockGetAgent.mockResolvedValue(agentDetail(null));
   });
 
   it("calls API with agent source filter", async () => {
@@ -440,6 +471,10 @@ describe("ActivityTab filter chips (#2502)", () => {
     });
     mockGetAgentCostTimeseries.mockReset();
     mockGetAgentCostBreakdown.mockReset();
+    mockGetUnitExecution.mockReset();
+    mockGetUnitExecution.mockResolvedValue(otlpRuntimeExecution);
+    mockGetAgentExecution.mockReset();
+    mockGetAgent.mockReset();
   });
 
   it("renders the four filter chips", async () => {
@@ -515,5 +550,127 @@ describe("ActivityTab filter chips (#2502)", () => {
     expect(mockRouterReplace).toHaveBeenCalled();
     const url = mockRouterReplace.mock.calls[0][0] as string;
     expect(url).toContain("kinds=LlmTurn");
+  });
+});
+
+// #2564: the OTLP-only event kinds (`RuntimeLog` / `LlmTurn` /
+// `RuntimeSpan`) arrive only via the OTLP ingest path and stay
+// permanently empty for runtimes whose launcher emits no OTLP
+// telemetry (`claude-code`). The Activity tab surfaces an inline hint
+// so the operator does not add those dead chips and misread the feed.
+describe("ActivityTab runtime-aware OTLP hint (#2564)", () => {
+  beforeEach(() => {
+    mockQueryActivity.mockReset();
+    mockQueryActivity.mockResolvedValue({
+      items: [],
+      totalCount: 0,
+      page: 1,
+      pageSize: 20,
+    });
+    mockGetAgentCostTimeseries.mockReset();
+    mockGetAgentCostTimeseries.mockResolvedValue(null);
+    mockGetAgentCostBreakdown.mockReset();
+    mockGetAgentCostBreakdown.mockResolvedValue(null);
+    mockGetUnitExecution.mockReset();
+    mockGetAgentExecution.mockReset();
+    mockGetAgent.mockReset();
+    mockGetAgent.mockResolvedValue(agentDetail(null));
+  });
+
+  it("shows the hint for a claude-code unit subject", async () => {
+    mockGetUnitExecution.mockResolvedValue(noOtlpRuntimeExecution);
+    render(
+      <Wrapper>
+        <ActivityTab kind="Unit" id="eng-team" />
+      </Wrapper>,
+    );
+    const hint = await screen.findByTestId("activity-no-otlp-hint");
+    expect(hint).toHaveTextContent(
+      "This runtime does not emit OTLP telemetry",
+    );
+    expect(hint).toHaveTextContent("RuntimeLog / LlmTurn / RuntimeSpan");
+  });
+
+  it("hides the hint for a spring-voyage (OTLP-emitting) unit subject", async () => {
+    mockGetUnitExecution.mockResolvedValue(otlpRuntimeExecution);
+    render(
+      <Wrapper>
+        <ActivityTab kind="Unit" id="eng-team" />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("tab-unit-activity-filters"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("activity-no-otlp-hint"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the hint for a claude-code agent subject (own runtime)", async () => {
+    mockGetAgentExecution.mockResolvedValue(noOtlpRuntimeExecution);
+    render(
+      <Wrapper>
+        <ActivityTab kind="Agent" id="ada" />
+      </Wrapper>,
+    );
+    expect(
+      await screen.findByTestId("activity-no-otlp-hint"),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to the owning unit's runtime when the agent inherits", async () => {
+    // Agent declares no runtime — the effective value comes from the
+    // owning unit's execution block.
+    mockGetAgentExecution.mockResolvedValue({ runtime: null });
+    mockGetAgent.mockResolvedValue(agentDetail("eng-team"));
+    mockGetUnitExecution.mockResolvedValue(noOtlpRuntimeExecution);
+    render(
+      <Wrapper>
+        <ActivityTab kind="Agent" id="ada" />
+      </Wrapper>,
+    );
+    expect(
+      await screen.findByTestId("activity-no-otlp-hint"),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the hint for a spring-voyage agent subject", async () => {
+    mockGetAgentExecution.mockResolvedValue(otlpRuntimeExecution);
+    render(
+      <Wrapper>
+        <ActivityTab kind="Agent" id="ada" />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("tab-agent-activity-filters"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("activity-no-otlp-hint"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("stays silent when the runtime is not declared on the subject", async () => {
+    // Neither the agent nor its owning unit declares a runtime — the
+    // effective value is decided at dispatch, so the hint must not flash.
+    mockGetAgentExecution.mockResolvedValue({ runtime: null });
+    mockGetAgent.mockResolvedValue(agentDetail("eng-team"));
+    mockGetUnitExecution.mockResolvedValue({ runtime: null });
+    render(
+      <Wrapper>
+        <ActivityTab kind="Agent" id="ada" />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("tab-agent-activity-filters"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("activity-no-otlp-hint"),
+    ).not.toBeInTheDocument();
   });
 });
