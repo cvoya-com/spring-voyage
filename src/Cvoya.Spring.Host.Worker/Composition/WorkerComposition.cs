@@ -160,7 +160,6 @@ public static class WorkerComposition
         {
             options.Actors.RegisterActor<AgentActor>();
             options.Actors.RegisterActor<UnitActor>();
-            options.Actors.RegisterActor<ConnectorActor>();
             options.Actors.RegisterActor<HumanActor>();
 
             options.ActorIdleTimeout = TimeSpan.FromHours(1);

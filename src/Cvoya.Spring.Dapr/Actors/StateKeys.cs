@@ -84,21 +84,6 @@ public static class StateKeys
     // no actor-state copy of the YAML template (parallels the
     // Agent:Definition drop in #2048).
 
-    /// <summary>
-    /// State key for the connector's connection status.
-    /// </summary>
-    public const string ConnectorStatus = "Connector:Status";
-
-    /// <summary>
-    /// State key for the connector type (e.g., "github", "slack").
-    /// </summary>
-    public const string ConnectorType = "Connector:Type";
-
-    /// <summary>
-    /// State key for the connector configuration.
-    /// </summary>
-    public const string ConnectorConfig = "Connector:Config";
-
     // ADR-0040: Human:Identity, Human:Permission, and
     // Human:NotificationPreferences moved to columns on the humans EF table.
     // The HumanActor reads them from SpringDbContext on every call; no
@@ -195,9 +180,9 @@ public static class StateKeys
     // (tenant, unit) so the binding survives actor restarts and the
     // connector lifecycle hooks can resolve from a single SQL read.
     // The connector-owned runtime metadata column (e.g. GitHub webhook
-    // ids) lives on the same row. Connector:Status, Connector:Type,
-    // and Connector:Config remain instance-local actor state on
-    // ConnectorActor per ADR-0040.
+    // ids) lives on the same row. Connectors are non-routable bridges
+    // (ADR-0048) — there is no connector actor and no connector actor
+    // state.
 
     /// <summary>
     /// State key for the agent's pending mid-flight amendments queue
