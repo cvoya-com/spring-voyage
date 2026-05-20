@@ -293,7 +293,14 @@ public class UnitActor : Actor, IUnitActor
 
             await EmitActivityEventAsync(ActivityEventType.ErrorOccurred,
                 $"Error processing message {message.Id}: {ex.Message}",
-                ct);
+                ct,
+                details: JsonSerializer.SerializeToElement(new
+                {
+                    error = ex.Message,
+                    agentId = Id.GetId(),
+                    threadId = message.ThreadId,
+                }),
+                correlationId: message.ThreadId);
 
             return CreateErrorResponse(message, ex.Message);
         }

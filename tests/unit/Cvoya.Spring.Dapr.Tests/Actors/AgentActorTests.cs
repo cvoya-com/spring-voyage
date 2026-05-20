@@ -780,4 +780,37 @@ public class AgentActorTests
             StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>());
     }
 
+    // --- ErrorOccurred structured details (#2551) ---
+
+    [Fact]
+    public async Task ReceiveAsync_UnhandledExceptionDuringMessageHandling_EmitsErrorOccurredWithStructuredDetails()
+    {
+        // Arrange: make state-manager throw a non-SpringException during domain
+        // message handling (TryGetStateAsync<ThreadChannel> is called by
+        // GetChannelAsync inside HandleDomainMessageAsync).
+        var threadId = "conv-error-details";
+        var message = CreateMessage(threadId: threadId);
+        const string errorText = "state backend unavailable";
+
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns<ConditionalValue<ThreadChannel>>(_ => throw new InvalidOperationException(errorText));
+
+        // Act
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        // Assert: ErrorOccurred must carry { error, agentId, threadId } so the
+        // portal activity feed can surface the failure without raw log access
+        // (#2551).
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ErrorOccurred &&
+                e.Severity == ActivitySeverity.Error &&
+                e.CorrelationId == threadId &&
+                e.Details.HasValue &&
+                e.Details.Value.GetProperty("error").GetString() == errorText &&
+                e.Details.Value.GetProperty("agentId").GetString() == TestSlugIds.HexFor("test-agent") &&
+                e.Details.Value.GetProperty("threadId").GetString() == threadId),
+            Arg.Any<CancellationToken>());
+    }
+
 }
