@@ -112,7 +112,7 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     // address. Pinned literal so it stays greppable in logs (the
     // trailing 12 hex chars spell "github" in ASCII).
     private static readonly Address ConnectorAddress =
-        new("connector", new Guid("00000000-0000-0000-0000-006769746875"));
+        new(Address.ConnectorScheme, new Guid("00000000-0000-0000-0000-006769746875"));
 
     private readonly ILogger _logger;
 

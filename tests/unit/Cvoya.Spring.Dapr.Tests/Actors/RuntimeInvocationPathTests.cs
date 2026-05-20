@@ -411,6 +411,75 @@ public class RuntimeInvocationPathTests
     }
 
     [Fact]
+    public async Task InvokeAsync_LeanOverload_ConnectorEvent_PublishesRoutingDecision()
+    {
+        // #2560: a connector event a unit processes through the lean path
+        // (the UnitActor path) must leave a DecisionMade routing-outcome row
+        // even when no agent is dispatched — the activity stream was
+        // previously silent on that "no action" outcome.
+        var subject = MakeUnit("triage-unit");
+        var threadId = Guid.NewGuid().ToString();
+        var connectorFrom = new Address(
+            Address.ConnectorScheme,
+            new Guid("00000000-0000-0000-0000-006769746875"));
+        var inbound = new Message(
+            Guid.NewGuid(),
+            connectorFrom,
+            subject,
+            MessageType.Domain,
+            threadId,
+            JsonSerializer.SerializeToElement(new
+            {
+                source = "github",
+                intent = "label_change",
+                action = "unlabeled",
+                issue = new { number = 2535 },
+            }),
+            DateTimeOffset.UtcNow);
+
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(new Message(
+                Guid.NewGuid(),
+                subject,
+                connectorFrom,
+                MessageType.Domain,
+                threadId,
+                JsonSerializer.SerializeToElement(new { Output = "no action needed", ExitCode = 0 }),
+                DateTimeOffset.UtcNow));
+
+        var coordinator = new AgentDispatchCoordinator(
+            dispatcher,
+            MakeRouter(),
+            Substitute.For<ILogger<AgentDispatchCoordinator>>());
+        var path = MakePath(dispatchCoordinator: coordinator);
+        var publishedEvents = new List<ActivityEvent>();
+
+        await path.InvokeAsync(
+            subject,
+            inbound,
+            TestContext.Current.CancellationToken,
+            emitActivity: (activityEvent, _) =>
+            {
+                publishedEvents.Add(activityEvent);
+                return Task.CompletedTask;
+            });
+
+        var decision = publishedEvents
+            .Where(e => e.EventType == ActivityEventType.DecisionMade)
+            .ShouldHaveSingleItem();
+        decision.Source.ShouldBe(subject);
+        decision.CorrelationId.ShouldBe(threadId);
+        decision.Details.ShouldNotBeNull()
+            .GetProperty("connectorEventType").GetString().ShouldBe("github.unlabeled");
+
+        // Acceptance criterion 3: the whole trail shares the connector
+        // thread id as correlation id — a dispatched agent's MessageReceived
+        // (correlationId = message.ThreadId) joins the same chain.
+        publishedEvents.ShouldAllBe(e => e.CorrelationId == threadId);
+    }
+
+    [Fact]
     public async Task InvokeAsync_RichOverload_DoesNotConsultDefinitionOrToolProvider()
     {
         var subject = MakeAgent("test-agent");

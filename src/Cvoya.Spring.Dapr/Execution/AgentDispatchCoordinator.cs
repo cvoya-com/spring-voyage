@@ -70,6 +70,17 @@ public class AgentDispatchCoordinator(
                 logger.LogInformation(
                     "Dispatcher returned no response for thread {ThreadId}; nothing to record.",
                     message.ThreadId);
+
+                // A connector-origin turn that produced no recordable
+                // response is still a routing outcome (#2560): the unit
+                // processed the connector event and the turn ended with
+                // nothing to record. Emit the DecisionMade so the activity
+                // stream is not silent on a connector event the unit
+                // received. The neutral WorkflowStepCompleted "no response"
+                // row is still emitted by the dispatch-exit handler below.
+                await EmitConnectorRoutingDecisionAsync(
+                    agentId, message, RoutingDisposition.Processed, emitActivity);
+
                 // Even when the dispatcher returns nothing to record, the
                 // dispatch is over from the actor's perspective. Signal the
                 // per-thread exit so the mailbox can drain any messages
@@ -111,11 +122,33 @@ public class AgentDispatchCoordinator(
                 // payload on the durable thread record.
                 await RecordResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
 
+                // A connector-origin turn that failed is still a routing
+                // outcome the activity stream must carry (#2560) — emit the
+                // DecisionMade with the failed disposition so a thread query
+                // reconstructs the chain even when the runtime crashed.
+                await EmitConnectorRoutingDecisionAsync(
+                    agentId, message, RoutingDisposition.Failed, emitActivity);
+
                 await onDispatchExit($"dispatch exit code {failure.ExitCode}");
                 return;
             }
 
             await RecordResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
+
+            // Record the routing outcome of a connector-origin event (#2560).
+            // The platform host cannot see what the unit's runtime decided
+            // semantically (delegate / no action) without a runtime signal —
+            // that distinction is design work deferred to #2572. What the host
+            // CAN record deterministically, after the runtime invocation
+            // returns, is that the connector event was processed and the turn
+            // reached its terminal: a DecisionMade event so the activity
+            // stream is no longer silent on the outcome — including the
+            // "no agent dispatched" case. When the runtime DID delegate, the
+            // OrchestrationToolHandlers DecisionMade (carrying the target) is
+            // also on the same thread, so a single correlation query
+            // reconstructs the full chain.
+            await EmitConnectorRoutingDecisionAsync(
+                agentId, message, RoutingDisposition.Processed, emitActivity);
 
             // Per-thread dispatch is complete: the dispatcher returned a
             // response and we recorded it on the originating thread (domain
@@ -230,6 +263,106 @@ public class AgentDispatchCoordinator(
                 CancellationToken.None);
         }
     }
+
+    /// <summary>
+    /// The host-observable disposition of a connector-origin turn. The
+    /// platform host records the routing <em>outcome</em> from its
+    /// deterministic vantage point — it does not see the unit runtime's
+    /// internal decision (delegate / no action), which is design work
+    /// deferred to a follow-up (#2572).
+    /// </summary>
+    private enum RoutingDisposition
+    {
+        /// <summary>
+        /// The unit's runtime processed the connector event and the turn
+        /// reached its terminal — whether or not it dispatched a downstream
+        /// agent. The "no agent dispatched" case lands here, which is the
+        /// silent-stream gap #2560 closes.
+        /// </summary>
+        Processed,
+
+        /// <summary>
+        /// The unit's runtime container exited with a non-zero code while
+        /// processing the connector event.
+        /// </summary>
+        Failed,
+    }
+
+    /// <summary>
+    /// Emits a <see cref="ActivityEventType.DecisionMade"/> activity event
+    /// recording the routing <em>outcome</em> of a connector-origin event
+    /// (issue #2560). No-op for non-connector messages — agent-to-agent and
+    /// human-originated turns are not connector routing decisions and would
+    /// only add noise to the activity stream.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The <see cref="ActivityEvent.CorrelationId"/> is the originating
+    /// connector thread id, so this event, the unit's
+    /// <see cref="ActivityEventType.MessageReceived"/>, any
+    /// <see cref="ActivityEventType.DecisionMade"/> the orchestration
+    /// callback emitted for a <c>delegate_to</c>, and the dispatched agent's
+    /// own activity all share one correlation id — a single thread query
+    /// reconstructs the full chain (#2560 acceptance criterion 3).
+    /// </para>
+    /// <para>
+    /// <see cref="ActivityEvent.Details"/> carries the decision, the
+    /// connector event type, and the external entity reference (e.g. a
+    /// GitHub issue number) resolved from the connector payload via
+    /// <see cref="ConnectorEventReference"/>. <c>dispatched_to</c> is
+    /// intentionally absent on the host-side event: the host cannot see the
+    /// runtime's delegation target — the orchestration-callback
+    /// <c>DecisionMade</c> carries it instead, correlated by the same
+    /// thread id.
+    /// </para>
+    /// </remarks>
+    private async Task EmitConnectorRoutingDecisionAsync(
+        string agentId,
+        Message message,
+        RoutingDisposition disposition,
+        Func<ActivityEvent, CancellationToken, Task> emitActivity)
+    {
+        if (!string.Equals(message.From.Scheme, Address.ConnectorScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var reference = ConnectorEventReference.From(message);
+
+        var decision = disposition == RoutingDisposition.Failed
+            ? "processing_failed"
+            : "event_processed";
+
+        var summary = reference.EventType is { Length: > 0 } eventType
+            ? $"Connector event '{eventType}' {DescribeDisposition(disposition)}."
+            : $"Connector event {DescribeDisposition(disposition)}.";
+
+        var details = JsonSerializer.SerializeToElement(new
+        {
+            decision,
+            connectorEventType = reference.EventType,
+            entityKind = reference.EntityKind,
+            entityReference = reference.EntityReference,
+            agentId,
+            threadId = message.ThreadId,
+            inboundMessageId = message.Id,
+        });
+
+        await emitActivity(
+            BuildEvent(
+                agentId,
+                message.ThreadId,
+                ActivityEventType.DecisionMade,
+                disposition == RoutingDisposition.Failed
+                    ? ActivitySeverity.Warning
+                    : ActivitySeverity.Info,
+                summary,
+                details: details),
+            CancellationToken.None);
+    }
+
+    private static string DescribeDisposition(RoutingDisposition disposition)
+        => disposition == RoutingDisposition.Failed ? "processing failed" : "processed";
 
     private readonly record struct DispatchExit(int ExitCode, string? StdErr, string StdErrFirstLine);
 
