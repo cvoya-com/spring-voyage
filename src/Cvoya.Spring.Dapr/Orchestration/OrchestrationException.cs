@@ -26,6 +26,18 @@ public sealed class OrchestrationException : Exception
     public static class RejectCodes
     {
         public const string OrchestrationSelfDelegation = nameof(OrchestrationSelfDelegation);
+
+        // ADR-0049 §6 — terminal delivery failure. The dispatcher's
+        // synchronous bounded-retry delivery loop exhausted its R/T budget
+        // against transient infrastructure. Surfaced as a tool error telling
+        // the calling model the platform is degraded and to retry.
+        public const string OrchestrationDeliveryFailed = nameof(OrchestrationDeliveryFailed);
+
+        // ADR-0049 — retained for the message-carried hop counter follow-up
+        // (#2576). OrchestrationDepthCounter, the call-stack-scoped guard
+        // that previously raised this code, was deleted because it is
+        // ineffective under one-way delivery; the code itself is reserved
+        // for its replacement and is intentionally unraised in the interim.
         public const string OrchestrationDepthExceeded = nameof(OrchestrationDepthExceeded);
 
         // ADR-0039 §3 gate 6 — cross-tenant containment. The token's

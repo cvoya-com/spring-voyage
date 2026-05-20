@@ -15,6 +15,7 @@ using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
 
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -51,15 +52,14 @@ public class OrchestrationDelegationDecisionIntegrationTests
         var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo);
         var child = Substitute.For<IAgent>();
         var message = CreateMessage(ParentUnit);
-        var response = CreateResponse(ChildOne, ParentUnit, "child response");
         var threadId = Guid.NewGuid();
 
         harness.RegisterAgent(ChildOne, child);
         child.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(response);
+            .Returns((Message?)null);
 
         // Act
-        var result = await harness.Handlers.HandleDelegateToAsync(
+        var ack = await harness.Handlers.HandleDelegateToAsync(
             ParentUnit,
             TenantId,
             ChildOne,
@@ -68,8 +68,10 @@ public class OrchestrationDelegationDecisionIntegrationTests
             threadId,
             TestContext.Current.CancellationToken);
 
-        // Assert
-        result.ShouldBe(response);
+        // Assert — ADR-0049: delegate_to returns a delivery acknowledgement.
+        ack.Delivered.ShouldBeTrue();
+        ack.Target.ShouldBe(ChildOne);
+        ack.MessageId.ShouldBe(message.Id);
         var decision = harness.ReadSingleDecision();
         AssertDecisionTenant(decision);
         decision.UnitAddress.ShouldBe(ParentUnit);
@@ -78,25 +80,25 @@ public class OrchestrationDelegationDecisionIntegrationTests
         decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
         decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
         decision.Targets.ShouldBe([ChildOne]);
-        decision.ResultMessageIds.ShouldBe([response.Id]);
+        decision.ResultMessageIds.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task HandleDelegateTo_TargetErrors_EmitsFailedDecisionEventWithTenant()
+    public async Task HandleDelegateTo_DeliveryFails_EmitsFailedDecisionEventWithTenant()
     {
-        // Arrange
+        // Arrange — a persistent transient ReceiveAsync failure (ADR-0049 §6).
         var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo);
         var child = Substitute.For<IAgent>();
         var message = CreateMessage(ParentUnit);
         var threadId = Guid.NewGuid();
-        const string failureDescription = "child failed";
+        const string failureDescription = "child unreachable";
 
         harness.RegisterAgent(ChildOne, child);
         child.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException(failureDescription));
 
-        // Act
-        await Should.ThrowAsync<InvalidOperationException>(() =>
+        // Act — terminal delivery failure surfaces as OrchestrationException.
+        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
             harness.Handlers.HandleDelegateToAsync(
                 ParentUnit,
                 TenantId,
@@ -105,6 +107,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
                 reason: failureDescription,
                 threadId,
                 TestContext.Current.CancellationToken));
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationDeliveryFailed);
 
         // Assert
         var decision = harness.ReadSingleDecision();
@@ -128,23 +131,20 @@ public class OrchestrationDelegationDecisionIntegrationTests
         var childTwo = Substitute.For<IAgent>();
         var childThree = Substitute.For<IAgent>();
         var message = CreateMessage(ParentUnit);
-        var responseOne = CreateResponse(ChildOne, ParentUnit, "first response");
-        var responseTwo = CreateResponse(ChildTwo, ParentUnit, "second response");
-        var responseThree = CreateResponse(ChildThree, ParentUnit, "third response");
         var threadId = Guid.NewGuid();
 
         harness.RegisterAgent(ChildOne, childOne);
         harness.RegisterAgent(ChildTwo, childTwo);
         harness.RegisterAgent(ChildThree, childThree);
         childOne.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(responseOne);
+            .Returns((Message?)null);
         childTwo.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(responseTwo);
+            .Returns((Message?)null);
         childThree.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(responseThree);
+            .Returns((Message?)null);
 
         // Act
-        var results = await harness.Handlers.HandleFanoutToAsync(
+        var outcomes = await harness.Handlers.HandleFanoutToAsync(
             ParentUnit,
             TenantId,
             [ChildOne, ChildTwo, ChildThree],
@@ -153,9 +153,10 @@ public class OrchestrationDelegationDecisionIntegrationTests
             threadId,
             TestContext.Current.CancellationToken);
 
-        // Assert
-        results.Select(result => result.Response?.Id)
-            .ShouldBe([responseOne.Id, responseTwo.Id, responseThree.Id]);
+        // Assert — ADR-0049: per-target delivery outcomes, not work products.
+        outcomes.Select(outcome => outcome.Target)
+            .ShouldBe([ChildOne, ChildTwo, ChildThree]);
+        outcomes.All(outcome => outcome.Delivered).ShouldBeTrue();
 
         var decision = harness.ReadSingleDecision();
         AssertDecisionTenant(decision);
@@ -165,35 +166,33 @@ public class OrchestrationDelegationDecisionIntegrationTests
         decision.Kind.ShouldBe(OrchestrationDecisionKind.Fanout);
         decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
         decision.Targets.ShouldBe([ChildOne, ChildTwo, ChildThree]);
-        decision.ResultMessageIds.ShouldBe([responseOne.Id, responseTwo.Id, responseThree.Id]);
+        decision.ResultMessageIds.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task HandleFanoutTo_OneTargetErrors_EmitsFailedDecisionEvent()
+    public async Task HandleFanoutTo_OneTargetDeliveryFails_EmitsFailedDecisionEvent()
     {
-        // Arrange
+        // Arrange — one target's mailbox enqueue fails persistently.
         var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo, ChildThree);
         var childOne = Substitute.For<IAgent>();
         var childTwo = Substitute.For<IAgent>();
         var childThree = Substitute.For<IAgent>();
         var message = CreateMessage(ParentUnit);
-        var responseOne = CreateResponse(ChildOne, ParentUnit, "first response");
-        var responseThree = CreateResponse(ChildThree, ParentUnit, "third response");
         var threadId = Guid.NewGuid();
-        const string failureDescription = "child two failed";
+        const string failureDescription = "child two unreachable";
 
         harness.RegisterAgent(ChildOne, childOne);
         harness.RegisterAgent(ChildTwo, childTwo);
         harness.RegisterAgent(ChildThree, childThree);
         childOne.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(responseOne);
+            .Returns((Message?)null);
         childTwo.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException(failureDescription));
         childThree.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(responseThree);
+            .Returns((Message?)null);
 
         // Act
-        var results = await harness.Handlers.HandleFanoutToAsync(
+        var outcomes = await harness.Handlers.HandleFanoutToAsync(
             ParentUnit,
             TenantId,
             [ChildOne, ChildTwo, ChildThree],
@@ -203,10 +202,12 @@ public class OrchestrationDelegationDecisionIntegrationTests
             TestContext.Current.CancellationToken);
 
         // Assert
-        results.Length.ShouldBe(3);
-        results[1].Target.ShouldBe(ChildTwo);
-        results[1].Response.ShouldBeNull();
-        results[1].Error.ShouldBeOfType<InvalidOperationException>();
+        outcomes.Count.ShouldBe(3);
+        outcomes[0].Delivered.ShouldBeTrue();
+        outcomes[1].Target.ShouldBe(ChildTwo);
+        outcomes[1].Delivered.ShouldBeFalse();
+        outcomes[1].Error.ShouldNotBeNull();
+        outcomes[2].Delivered.ShouldBeTrue();
 
         var decision = harness.ReadSingleDecision();
         AssertDecisionTenant(decision);
@@ -216,7 +217,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         decision.Kind.ShouldBe(OrchestrationDecisionKind.Fanout);
         decision.Status.ShouldBe(OrchestrationDecisionStatus.Failed);
         decision.Targets.ShouldBe([ChildOne, ChildTwo, ChildThree]);
-        decision.ResultMessageIds.ShouldBe([responseOne.Id, responseThree.Id]);
+        decision.ResultMessageIds.ShouldBeEmpty();
         decision.Reason.ShouldNotBeNull();
         decision.Reason.ShouldContain(failureDescription);
     }
@@ -244,12 +245,21 @@ public class OrchestrationDelegationDecisionIntegrationTests
                 Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
+        // ADR-0049 — tighten the delivery retry budget so the
+        // terminal-failure path exhausts in milliseconds under test.
+        var deliveryOptions = Options.Create(new OrchestrationDeliveryOptions
+        {
+            MaxAttempts = 3,
+            Budget = TimeSpan.FromSeconds(2),
+            InitialBackoff = TimeSpan.FromMilliseconds(1),
+        });
+
         var handlers = new OrchestrationToolHandlers(
             agentProxyResolver,
-            new OrchestrationDepthCounter(),
             Substitute.For<ILogger<OrchestrationToolHandlers>>(),
             activityEventBus,
-            new SingleTenantOrchestrationTenantResolver());
+            new SingleTenantOrchestrationTenantResolver(),
+            deliveryOptions);
 
         return new HandlerHarness(handlers, agents, publishedEvents);
     }
@@ -272,16 +282,6 @@ public class OrchestrationDelegationDecisionIntegrationTests
             MessageType.Domain,
             Guid.NewGuid().ToString("D"),
             JsonSerializer.SerializeToElement(new { Content = "work" }),
-            DateTimeOffset.UtcNow);
-
-    private static Message CreateResponse(Address from, Address to, string content) =>
-        new(
-            Guid.NewGuid(),
-            from,
-            to,
-            MessageType.Domain,
-            Guid.NewGuid().ToString("D"),
-            JsonSerializer.SerializeToElement(new { Content = content }),
             DateTimeOffset.UtcNow);
 
     private sealed record HandlerHarness(

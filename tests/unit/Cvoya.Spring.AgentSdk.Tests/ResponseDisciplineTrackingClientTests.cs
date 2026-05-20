@@ -34,13 +34,13 @@ public class ResponseDisciplineTrackingClientTests
         public Task<DelegateResponse> DelegateAsync(string threadId, string targetUnitId, string prompt, CancellationToken cancellationToken = default)
         {
             DelegateCalls++;
-            return Task.FromResult(new DelegateResponse(string.Empty, string.Empty));
+            return Task.FromResult(new DelegateResponse(true, string.Empty, string.Empty, string.Empty));
         }
 
         public Task<FanoutResponse> FanoutAsync(string threadId, IReadOnlyList<string> targetUnitIds, string prompt, CancellationToken cancellationToken = default)
         {
             FanoutCalls++;
-            return Task.FromResult(new FanoutResponse(Array.Empty<FanoutResult>()));
+            return Task.FromResult(new FanoutResponse(string.Empty, string.Empty, Array.Empty<FanoutDelivery>()));
         }
     }
 

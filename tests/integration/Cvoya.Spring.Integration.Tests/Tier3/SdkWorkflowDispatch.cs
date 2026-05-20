@@ -51,14 +51,15 @@ public class SdkWorkflowDispatch
     {
         var threadId = Guid.Parse("eeeeeeee-0000-0000-0000-000000001835");
         var inputMessageId = Guid.Parse("dddddddd-0000-0000-0000-000000001835");
-        var child0ResponseId = Guid.Parse("cccccccc-0000-0000-0000-000000001835");
 
+        // ADR-0049 — delegate_to is a one-way delivery; the child mailbox
+        // enqueue (ReceiveAsync) returns no work product.
         var child0 = Substitute.For<IAgent>();
         child0.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(Child0Address, UnitAddress, child0ResponseId, "result from child-0"));
+            .Returns((Message?)null);
         var child1 = Substitute.For<IAgent>();
         child1.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(CreateResponse(Child1Address, UnitAddress, Guid.NewGuid(), "result from child-1"));
+            .Returns((Message?)null);
 
         await using var server = await SdkWorkflowTestServer.StartAsync(
             UnitAddress,
@@ -84,7 +85,10 @@ public class SdkWorkflowDispatch
             "please write code",
             TestContext.Current.CancellationToken);
 
-        result.ShouldBe("result from child-0");
+        // ADR-0049 — RunAsync now reports the delivery acknowledgement, not
+        // the child's work product.
+        result.ShouldContain("Delegated to");
+        result.ShouldContain(Child0Address.ToString());
 
         server.PublishedEvents.Count.ShouldBe(1);
         var activityEvent = server.PublishedEvents.Single();
@@ -104,18 +108,8 @@ public class SdkWorkflowDispatch
         decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
         decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
         decision.Targets.ShouldBe([Child0Address]);
-        decision.ResultMessageIds.ShouldBe([child0ResponseId]);
+        decision.ResultMessageIds.ShouldBeEmpty();
     }
-
-    private static Message CreateResponse(Address from, Address to, Guid id, string content) =>
-        new(
-            id,
-            from,
-            to,
-            MessageType.Domain,
-            Guid.NewGuid().ToString("N"),
-            JsonSerializer.SerializeToElement(new { content }),
-            DateTimeOffset.UtcNow);
 
     private sealed class EnvironmentScope : IDisposable
     {
@@ -190,11 +184,13 @@ public class SdkWorkflowDispatch
             builder.Services.AddSingleton<CallbackTokenValidator>();
             builder.Services.AddSingleton(CreateActorProxyFactory(unit, members));
             builder.Services.AddSingleton(CreateAgentProxyResolver(agents));
-            builder.Services.AddSingleton(new OrchestrationDepthCounter());
             builder.Services.AddSingleton<IActivityEventBus>(activityEventBus);
             // ADR-0039 §3 gate 6 — single-tenant resolver is the OSS default.
             builder.Services.AddSingleton<IOrchestrationTenantResolver, SingleTenantOrchestrationTenantResolver>();
             builder.Services.AddSingleton<OrchestrationToolHandlers>();
+            // The MCP root handler registered by MapOrchestrationCallbackEndpoints
+            // resolves IOrchestrationToolProvider for its tools/list response.
+            builder.Services.AddSingleton<IOrchestrationToolProvider, DirectoryOrchestrationToolProvider>();
 
             var app = builder.Build();
             app.MapOrchestrationCallbackEndpoints();

@@ -76,8 +76,10 @@ public sealed class OrchestrationClient : IOrchestrationClient
             cancellationToken).ConfigureAwait(false);
 
         return new DelegateResponse(
-            response.Message?.MessageId.ToString("D") ?? string.Empty,
-            response.Message?.MessageContent ?? string.Empty);
+            response.Delivered,
+            response.MessageId.ToString("D"),
+            response.Target ?? string.Empty,
+            response.ThreadId.ToString("D"));
     }
 
     /// <inheritdoc />
@@ -103,12 +105,13 @@ public sealed class OrchestrationClient : IOrchestrationClient
             cancellationToken).ConfigureAwait(false);
 
         return new FanoutResponse(
-            response.Results
-                .Select(result => new FanoutResult(
-                    result.Target,
-                    result.Message?.MessageId.ToString("D"),
-                    result.Message?.MessageContent,
-                    result.ErrorMessage))
+            response.MessageId.ToString("D"),
+            response.ThreadId.ToString("D"),
+            (response.Deliveries ?? Array.Empty<FanoutDeliveryOutcome>())
+                .Select(outcome => new FanoutDelivery(
+                    outcome.Target,
+                    outcome.Delivered,
+                    outcome.Error))
                 .ToArray());
     }
 
@@ -319,8 +322,13 @@ public sealed class OrchestrationClient : IOrchestrationClient
         [property: JsonPropertyName("messageContent")] string MessageContent,
         [property: JsonPropertyName("reason")] string? Reason);
 
+    // ADR-0049 — the dispatcher returns a delivery acknowledgement, not the
+    // recipient's response.
     private sealed record DelegateToResponse(
-        [property: JsonPropertyName("message")] OrchestrationCallbackMessage? Message);
+        [property: JsonPropertyName("delivered")] bool Delivered,
+        [property: JsonPropertyName("messageId")] Guid MessageId,
+        [property: JsonPropertyName("target")] string? Target,
+        [property: JsonPropertyName("threadId")] Guid ThreadId);
 
     private sealed record FanoutToRequest(
         [property: JsonPropertyName("callerAddress")] string CallerAddress,
@@ -331,20 +339,14 @@ public sealed class OrchestrationClient : IOrchestrationClient
         [property: JsonPropertyName("reason")] string? Reason);
 
     private sealed record FanoutToResponse(
-        [property: JsonPropertyName("results")] FanoutTargetResult[] Results);
-
-    private sealed record FanoutTargetResult(
-        [property: JsonPropertyName("target")] string Target,
-        [property: JsonPropertyName("success")] bool Success,
-        [property: JsonPropertyName("errorMessage")] string? ErrorMessage,
-        [property: JsonPropertyName("message")] OrchestrationCallbackMessage? Message);
-
-    private sealed record OrchestrationCallbackMessage(
         [property: JsonPropertyName("messageId")] Guid MessageId,
-        [property: JsonPropertyName("fromAddress")] string FromAddress,
-        [property: JsonPropertyName("toAddress")] string ToAddress,
-        [property: JsonPropertyName("threadId")] string? ThreadId,
-        [property: JsonPropertyName("messageContent")] string MessageContent);
+        [property: JsonPropertyName("threadId")] Guid ThreadId,
+        [property: JsonPropertyName("deliveries")] FanoutDeliveryOutcome[]? Deliveries);
+
+    private sealed record FanoutDeliveryOutcome(
+        [property: JsonPropertyName("target")] string Target,
+        [property: JsonPropertyName("delivered")] bool Delivered,
+        [property: JsonPropertyName("error")] string? Error);
 
     private sealed record DispatcherError(
         [property: JsonPropertyName("error")] string? Error,

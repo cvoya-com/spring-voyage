@@ -5,15 +5,25 @@ namespace Cvoya.Spring.AgentSdk;
 
 using System.Text.Json.Serialization;
 
+// ADR-0049 — message-delivery tools are RPCs whose response is a delivery
+// acknowledgement: the message was durably placed in the recipient's
+// mailbox. They never carry the recipient's work product.
+
+/// <summary>Delivery acknowledgement for a <c>delegate_to</c> call.</summary>
 public record DelegateResponse(
-    [property: JsonPropertyName("resultMessageId")] string ResultMessageId,
-    [property: JsonPropertyName("result")] string Result);
+    [property: JsonPropertyName("delivered")] bool Delivered,
+    [property: JsonPropertyName("messageId")] string MessageId,
+    [property: JsonPropertyName("target")] string Target,
+    [property: JsonPropertyName("threadId")] string ThreadId);
 
+/// <summary>Per-target delivery outcomes for a <c>fanout_to</c> call.</summary>
 public record FanoutResponse(
-    [property: JsonPropertyName("results")] IReadOnlyList<FanoutResult> Results);
+    [property: JsonPropertyName("messageId")] string MessageId,
+    [property: JsonPropertyName("threadId")] string ThreadId,
+    [property: JsonPropertyName("deliveries")] IReadOnlyList<FanoutDelivery> Deliveries);
 
-public record FanoutResult(
-    [property: JsonPropertyName("unitId")] string UnitId,
-    [property: JsonPropertyName("resultMessageId")] string? ResultMessageId,
-    [property: JsonPropertyName("result")] string? Result,
+/// <summary>Delivery outcome for a single <c>fanout_to</c> target.</summary>
+public record FanoutDelivery(
+    [property: JsonPropertyName("target")] string Target,
+    [property: JsonPropertyName("delivered")] bool Delivered,
     [property: JsonPropertyName("error")] string? Error);

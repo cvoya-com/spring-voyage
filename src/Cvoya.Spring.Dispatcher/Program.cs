@@ -8,6 +8,7 @@ using System.Reflection;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Configuration;
@@ -105,7 +106,6 @@ public partial class Program
                 JsonSerializerOptions = ActorRemotingJsonOptions.Instance,
             }));
         builder.Services.TryAddSingleton<IAgentProxyResolver, AgentProxyResolver>();
-        builder.Services.TryAddSingleton<OrchestrationDepthCounter>();
         builder.Services.TryAddSingleton<ActivityEventBus>();
         builder.Services.TryAddSingleton<IActivityEventBus>(sp => sp.GetRequiredService<ActivityEventBus>());
         // ADR-0039 §3 gate 6 — single-tenant resolver is the OSS default;
@@ -113,6 +113,13 @@ public partial class Program
         // standard TryAdd seam without touching this registration.
         builder.Services.TryAddSingleton<IOrchestrationTenantResolver, SingleTenantOrchestrationTenantResolver>();
         builder.Services.TryAddSingleton<OrchestrationToolHandlers>();
+        // The MCP orchestration handler (POST /v1/runtime/orchestration)
+        // resolves the tool descriptors for its tools/list response from
+        // IOrchestrationToolProvider. The dispatcher previously had no need
+        // for this binding — the REST sub-routes do not advertise schemas —
+        // so the default directory provider is registered here. A cloud
+        // overlay can substitute a tenant-aware provider via the TryAdd seam.
+        builder.Services.TryAddSingleton<IOrchestrationToolProvider, DirectoryOrchestrationToolProvider>();
 
         // Named HttpClient used by /v1/llm/forward and /v1/llm/forward/stream
         // to dispatch the upstream LLM call from the dispatcher process. We set
