@@ -483,6 +483,15 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 /**
+ * Strip the `human://` (or `human:`) address scheme from a human node
+ * id, yielding the bare guid the human-detail API expects. Bare-guid
+ * input passes through unchanged.
+ */
+function humanApiId(nodeId: string): string {
+  return nodeId.replace(/^human:(?:\/\/)?/, "");
+}
+
+/**
  * Human Overview body (#2267). Renders personal info — display name,
  * username, email, platform role, created-at — and a "You" hint when
  * the active human is the currently-authenticated caller (the OSS
@@ -500,7 +509,16 @@ function Row({ label, value }: { label: string; value: string }) {
  * filed for v0.2 (Human memberships drill-down).
  */
 function HumanOverviewBody({ human }: { human: HumanNode }) {
-  const humanQuery = useHuman(human.id);
+  // The Explorer tree emits human node ids in the `human://<guid>`
+  // scheme form (the address shape used for selection + the
+  // `/explorer/humans/<guid>` URL). The human-detail endpoint
+  // (`GET /api/v1/tenant/humans/{humanId:guid}`) addresses humans by a
+  // bare guid, so the scheme prefix must be stripped before the read —
+  // otherwise the request 404s and the tab renders "Human not found"
+  // for every human reached through the Explorer (#2531). Nodes coming
+  // from the standalone `/humans/<id>` route already carry a bare guid,
+  // so the strip is a no-op for them.
+  const humanQuery = useHuman(humanApiId(human.id));
   const meQuery = useCurrentUser();
 
   if (humanQuery.isLoading) {
@@ -531,7 +549,7 @@ function HumanOverviewBody({ human }: { human: HumanNode }) {
         <p className="mt-1 text-xs text-muted-foreground">
           The human with id{" "}
           <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            {human.id}
+            {humanApiId(human.id)}
           </code>{" "}
           could not be loaded. The record may have been deleted, or it
           may belong to a different tenant.

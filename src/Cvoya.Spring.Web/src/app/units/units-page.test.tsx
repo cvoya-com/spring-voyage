@@ -441,4 +441,38 @@ describe("ExplorerSurface — Explorer canvas (EXP-route)", () => {
     // + 1 overflow = 3 tabs) not Tenant (4 visible + 1 overflow = 5 tabs).
     expect(screen.getAllByRole("tab")).toHaveLength(3);
   });
+
+  it("#2531: /explorer/humans/<UPPERCASE-guid> URL still selects the correct human node", async () => {
+    // The server emits human node ids as lowercase no-dash hex
+    // (`GuidFormatter.Format`). A manually typed URL carrying an
+    // uppercase UUID must be folded to lowercase before the byId key is
+    // built — otherwise the lookup misses and the Explorer falls back
+    // to the tenant root.
+    const humanGuidUpper = "44444444-4444-4444-4444-44444444ABCD";
+    const humanGuidNodash = "4444444444444444444444444444abcd";
+    seedUrl(`/explorer/humans/${humanGuidUpper}`);
+    const treeWithHuman = {
+      ...sampleTree,
+      children: [
+        ...(sampleTree.children ?? []),
+        {
+          id: `human://${humanGuidNodash}`,
+          name: "Dave Human",
+          kind: "Human" as const,
+          status: "running" as const,
+        },
+      ],
+    };
+    useTenantTreeMock.mockReturnValue({
+      data: treeWithHuman,
+      isLoading: false,
+      isError: false,
+    });
+    render(wrap(<ExplorerSurface />));
+    await screen.findByTestId("unit-explorer");
+    expect(
+      screen.getByTestId(`detail-crumb-human://${humanGuidNodash}`),
+    ).toHaveAttribute("aria-current", "page");
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
+  });
 });
