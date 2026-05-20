@@ -13,10 +13,13 @@ using global::Dapr.Actors.Client;
 /// agent-shaped scheme to its corresponding Dapr actor interface and
 /// creates a proxy typed as <see cref="IAgent"/>. Because every
 /// scheme-specific actor interface (<see cref="IAgentActor"/>,
-/// <see cref="IUnitActor"/>, <see cref="IHumanActor"/>,
-/// <see cref="IConnectorActor"/>) now extends <see cref="IAgent"/>, the
-/// Dapr-generated proxy satisfies the shared mailbox contract and the
-/// scheme-specific surface stays out of the router.
+/// <see cref="IUnitActor"/>, <see cref="IHumanActor"/>) now extends
+/// <see cref="IAgent"/>, the Dapr-generated proxy satisfies the shared
+/// mailbox contract and the scheme-specific surface stays out of the router.
+/// <para>
+/// There is no <c>connector://</c> scheme: connectors are non-routable
+/// bridges (ADR-0048), not actors that receive messages.
+/// </para>
 /// </summary>
 public class AgentProxyResolver(IActorProxyFactory actorProxyFactory) : IAgentProxyResolver
 {
@@ -32,7 +35,6 @@ public class AgentProxyResolver(IActorProxyFactory actorProxyFactory) : IAgentPr
         {
             ["agent"] = nameof(AgentActor),
             ["unit"] = nameof(UnitActor),
-            ["connector"] = nameof(ConnectorActor),
             ["human"] = nameof(HumanActor),
         };
 
@@ -54,7 +56,6 @@ public class AgentProxyResolver(IActorProxyFactory actorProxyFactory) : IAgentPr
         {
             "agent" => actorProxyFactory.CreateActorProxy<IAgentActor>(new ActorId(actorId), actorTypeName),
             "unit" => actorProxyFactory.CreateActorProxy<IUnitActor>(new ActorId(actorId), actorTypeName),
-            "connector" => actorProxyFactory.CreateActorProxy<IConnectorActor>(new ActorId(actorId), actorTypeName),
             "human" => actorProxyFactory.CreateActorProxy<IHumanActor>(new ActorId(actorId), actorTypeName),
             _ => null,
         };

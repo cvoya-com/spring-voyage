@@ -17,11 +17,10 @@ using Cvoya.Spring.Core.Tenancy;
 /// API host without having to round-trip the unit actor.
 ///
 /// <para>
-/// Implements ADR-0040 / #2050. <c>Connector:Status</c>,
-/// <c>Connector:Type</c>, and <c>Connector:Config</c> remain
-/// instance-local runtime state on <c>ConnectorActor</c> per ADR-0040 —
-/// they are connector-instance facts, rebuilt from this row at
-/// activation time.
+/// Implements ADR-0040 / #2050. This EF row is the single source of
+/// truth for a connector binding: connectors are non-routable bridges
+/// (ADR-0048), not actors, so there is no connector-actor instance
+/// state to reconcile against.
 /// </para>
 /// </summary>
 public class UnitConnectorBindingEntity : ITenantScopedEntity

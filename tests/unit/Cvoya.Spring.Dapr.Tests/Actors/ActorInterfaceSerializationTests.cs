@@ -45,7 +45,6 @@ public class ActorInterfaceSerializationTests
         typeof(IAgent),
         typeof(IAgentActor),
         typeof(IUnitActor),
-        typeof(IConnectorActor),
         typeof(IHumanActor),
     ];
 
