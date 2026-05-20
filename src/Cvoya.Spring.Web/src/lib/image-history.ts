@@ -17,6 +17,8 @@
  *     guards prevent `ReferenceError: localStorage is not defined`.
  */
 
+import { useSyncExternalStore } from "react";
+
 const STORAGE_KEY = "spring.image-history.v1";
 export const MAX_IMAGE_HISTORY = 20;
 
@@ -94,7 +96,71 @@ export function recordImageReference(reference: string): void {
     const deduped = existing.filter((r) => r !== trimmed);
     const next = [trimmed, ...deduped].slice(0, MAX_IMAGE_HISTORY);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    // `setItem` does not fire `storage` events in the originating tab, so
+    // dispatch one manually to nudge any `useImageHistory()` subscriber
+    // to re-read. Cross-tab updates already arrive via the native event.
+    window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
   } catch {
     // Quota exceeded or SecurityError — best-effort.
   }
+}
+
+// External-store adapter around `localStorage` for the image-history
+// suggestion list. Reading `localStorage` inside a render-time
+// `useState` initializer diverges between SSR (no storage → built-in
+// seeds only) and the client's first/hydration render (stored history
+// included), which trips React's hydration-mismatch error #418.
+//
+// `useSyncExternalStore` solves this the same way `lib/theme.tsx`
+// does: the stable `serverSnapshot` is used for both the SSR render
+// and the client's hydration render, then the live snapshot is
+// adopted post-mount — so server and client agree on the first paint.
+// The `subscribe` function listens for cross-tab `storage` events so a
+// new reference recorded in another tab is picked up immediately.
+function subscribeToStorage(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+
+// Stable server snapshot: the built-in seeds only, never the persisted
+// history. Cached so `useSyncExternalStore` sees a referentially stable
+// value and does not loop.
+const SERVER_IMAGE_HISTORY: readonly string[] = [...BUILTIN_AGENT_IMAGES];
+
+function getServerImageHistory(): string[] {
+  return SERVER_IMAGE_HISTORY as string[];
+}
+
+// `useSyncExternalStore` compares snapshots with `Object.is` and re-renders
+// in a loop if the client snapshot returns a fresh array each call. Cache
+// the last result and only hand back a new array when the storage contents
+// actually changed (the `subscribe` callback fires on `storage` events).
+let cachedImageHistory: string[] = [];
+let cachedImageHistoryKey: string | null = null;
+
+function getClientImageHistory(): string[] {
+  const next = loadImageHistory();
+  const key = JSON.stringify(next);
+  if (key !== cachedImageHistoryKey) {
+    cachedImageHistory = next;
+    cachedImageHistoryKey = key;
+  }
+  return cachedImageHistory;
+}
+
+/**
+ * Hydration-safe hook for the image-reference suggestion list.
+ *
+ * Returns the built-in seeds during SSR and the client's hydration
+ * render, then the full persisted-history-plus-seeds list once mounted.
+ * Use this instead of `useState(() => loadImageHistory())` in any
+ * component that may be server-rendered.
+ */
+export function useImageHistory(): string[] {
+  return useSyncExternalStore(
+    subscribeToStorage,
+    getClientImageHistory,
+    getServerImageHistory,
+  );
 }

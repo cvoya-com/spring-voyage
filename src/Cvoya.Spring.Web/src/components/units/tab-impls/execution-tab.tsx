@@ -47,7 +47,7 @@ import {
   isRuntimeProviderFixed,
   type HostingMode,
 } from "@/lib/ai-models";
-import { loadImageHistory } from "@/lib/image-history";
+import { useImageHistory } from "@/lib/image-history";
 import {
   providerDisplayName,
   runtimeCredentialDescriptor,
@@ -193,7 +193,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     persistedToForm(null),
   );
   const [seededFor, setSeededFor] = useState<string | null>(null);
-  const [imageHistory] = useState(() => loadImageHistory());
+  const imageHistory = useImageHistory();
   const fingerprint = useMemo(
     () => JSON.stringify(persisted ?? null),
     [persisted],

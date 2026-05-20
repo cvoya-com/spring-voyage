@@ -26,7 +26,7 @@ import {
   useProviderCredentialStatus,
   useUnitExecution,
 } from "@/lib/api/queries";
-import { loadImageHistory } from "@/lib/image-history";
+import { useImageHistory } from "@/lib/image-history";
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatTranslatedError } from "@/lib/api/translate-error";
 import type {
@@ -116,7 +116,7 @@ export function AgentExecutionPanel({
     persistedToForm(null),
   );
   const [seededFor, setSeededFor] = useState<string | null>(null);
-  const [imageHistory] = useState(() => loadImageHistory());
+  const imageHistory = useImageHistory();
   const fingerprint = useMemo(
     () => JSON.stringify(persisted ?? null),
     [persisted],
