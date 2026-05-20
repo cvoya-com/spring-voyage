@@ -7,7 +7,7 @@ ai:
   runtime: claude-code
   model:
     provider: anthropic
-    id: claude-opus-4-7
+    id: claude-sonnet-4-6
 instructions: |
   You are a router. You have no source tree, no working directory, and
   no GitHub write authority of your own. Your only writes are

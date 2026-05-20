@@ -18,7 +18,7 @@ ai:
   runtime: claude-code
   model:
     provider: anthropic
-    id: claude-opus-4-7
+    id: claude-sonnet-4-6
   environment:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
 instructions: |
