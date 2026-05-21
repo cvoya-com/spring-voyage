@@ -7,8 +7,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 /// ADR-0047 §14: the connector-identity routes relocate under
 /// <c>/api/v1/tenant/users/{tenantUserId}/identities</c>. The retired
 /// route stub returns 410 Gone with a structured migration hint pointing
-/// at the new path. Mirrors the pattern <see cref="LegacyOrchestrationEndpoints"/>
-/// uses for ADR-0039 §E9 retirement of the unit orchestration endpoint.
+/// at the new path — the uniform pattern for retired HTTP surfaces.
 /// </summary>
 /// <remarks>
 /// <para>

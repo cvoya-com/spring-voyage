@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Orchestration;
+namespace Cvoya.Spring.Dapr.Messaging;
 
 /// <summary>
 /// Platform defaults for the synchronous bounded-retry delivery loop in
@@ -12,7 +12,7 @@ namespace Cvoya.Spring.Dapr.Orchestration;
 /// small — the only thing that can fail a mailbox enqueue is a transient Dapr
 /// hiccup, and a delivery is one fast actor hop (ADR-0049 §5).
 /// </summary>
-public sealed class OrchestrationDeliveryOptions
+public sealed class MessageDeliveryOptions
 {
     /// <summary>Maximum number of delivery attempts (the initial try plus retries).</summary>
     public int MaxAttempts { get; set; } = DefaultMaxAttempts;
@@ -25,10 +25,10 @@ public sealed class OrchestrationDeliveryOptions
 
     /// <summary>
     /// Maximum number of message-delivery hops permitted on a single thread
-    /// (#2576). Each <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c>
+    /// (#2576). Each <c>sv.messaging.send</c> / <c>sv.messaging.multicast</c>
     /// call increments the thread's hop counter once; when the count exceeds
     /// this limit the delivery is rejected with
-    /// <see cref="OrchestrationException.RejectCodes.OrchestrationDepthExceeded"/>.
+    /// <see cref="MessageDeliveryException.RejectCodes.DepthExceeded"/>.
     /// This replaces the call-stack depth guard removed under ADR-0049 — under
     /// one-way delivery there is no call stack, so the guard is carried on the
     /// per-thread hop actor instead.

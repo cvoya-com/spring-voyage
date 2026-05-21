@@ -54,8 +54,8 @@ internal static class ServiceCollectionExtensionsExecution
         // #2586: agent-facing orchestration callback base URL — the API
         // host's agent-reachable URL. DispatcherCallbackEnvironmentBuilder
         // stamps it onto every runtime container as SPRING_CALLBACK_URL.
-        services.AddOptions<OrchestrationCallbackOptions>()
-            .BindConfiguration(OrchestrationCallbackOptions.SectionName);
+        services.AddOptions<CallbackBaseUrlOptions>()
+            .BindConfiguration(CallbackBaseUrlOptions.SectionName);
         services.AddOptions<UnitRuntimeOptions>().BindConfiguration(UnitRuntimeOptions.SectionName);
 
         // LLM dispatch seam (ADR 0028 Decision E / #1168) — IAiProvider

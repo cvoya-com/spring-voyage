@@ -4,7 +4,7 @@
 
 `Cvoya.Spring.AgentSdk` is the thin client package that agent processes use to deliver messages through the Spring Voyage platform. It lives at `src/Cvoya.Spring.AgentSdk/`, inherits the solution target framework from `Directory.Build.props`, and has no Dapr, EF, API-host, or worker-host dependency. Runtime image authors reference it from their image project when they want the `sv.messaging.*` delivery tools as typed C# methods.
 
-Per ADR-0051, the SDK's `MessagingClient` calls `sv.messaging.send` / `sv.messaging.broadcast` over JSON-RPC `tools/call` against the single platform MCP server — the same server and credential every other `sv.*` tool uses.
+Per ADR-0051, the SDK's `MessagingClient` calls `sv.messaging.send` / `sv.messaging.multicast` over JSON-RPC `tools/call` against the single platform MCP server — the same server and credential every other `sv.*` tool uses.
 
 ## Environment-Variable Contract
 
@@ -63,7 +63,7 @@ MessageSendResponse response = await client.SendAsync(
 Deliver to multiple targets in parallel:
 
 ```csharp
-MessageBroadcastResponse response = await client.BroadcastAsync(
+MessageMulticastResponse response = await client.MulticastAsync(
     threadId,
     new[] { address1, address2 },
     prompt);

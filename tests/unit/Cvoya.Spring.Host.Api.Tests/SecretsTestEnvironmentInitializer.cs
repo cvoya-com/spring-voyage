@@ -29,8 +29,8 @@ using System.Runtime.CompilerServices;
 /// the malformed-URL branch.
 /// </para>
 /// <para>
-/// <c>OrchestrationCallback__BaseUrl</c> satisfies the now-mandatory
-/// <c>OrchestrationCallbackConfigurationRequirement</c> (#2597). The API
+/// <c>CallbackBaseUrl__BaseUrl</c> satisfies the now-mandatory
+/// <c>CallbackBaseUrlConfigurationRequirement</c> (#2597). The API
 /// host stamps this value onto every runtime container as
 /// <c>SPRING_CALLBACK_URL</c>; the validator aborts startup if it is unset
 /// or malformed. As with the dispatcher endpoint the value is never dialled
@@ -72,9 +72,9 @@ internal static class SecretsTestEnvironmentInitializer
             Environment.SetEnvironmentVariable("Dispatcher__BearerToken", "test-token");
         }
 
-        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("OrchestrationCallback__BaseUrl")))
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CallbackBaseUrl__BaseUrl")))
         {
-            Environment.SetEnvironmentVariable("OrchestrationCallback__BaseUrl", "http://spring-caddy:8443/");
+            Environment.SetEnvironmentVariable("CallbackBaseUrl__BaseUrl", "http://spring-caddy:8443/");
         }
     }
 }

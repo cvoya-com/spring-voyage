@@ -526,8 +526,7 @@ public partial class Program
             app.MapDirectoryEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapExpertiseEndpoints();
             app.MapBoundaryEndpoints();
-            app.MapLegacyOrchestrationEndpoints();
-            // ADR-0051: sv.messaging.send / sv.messaging.broadcast are served
+            // ADR-0051: sv.messaging.send / sv.messaging.multicast are served
             // by the single platform MCP server (McpServer) as an
             // ISkillRegistry, authenticated by the MCP session bearer token —
             // the same surface as every other sv.* tool. The standalone

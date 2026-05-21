@@ -16,14 +16,14 @@ public record MessageSendResponse(
     [property: JsonPropertyName("target")] string Target,
     [property: JsonPropertyName("threadId")] string ThreadId);
 
-/// <summary>Per-target delivery outcomes for a <c>sv.messaging.broadcast</c> call.</summary>
-public record MessageBroadcastResponse(
+/// <summary>Per-target delivery outcomes for a <c>sv.messaging.multicast</c> call.</summary>
+public record MessageMulticastResponse(
     [property: JsonPropertyName("messageId")] string MessageId,
     [property: JsonPropertyName("threadId")] string ThreadId,
-    [property: JsonPropertyName("deliveries")] IReadOnlyList<MessageBroadcastDelivery> Deliveries);
+    [property: JsonPropertyName("deliveries")] IReadOnlyList<MessageMulticastDelivery> Deliveries);
 
-/// <summary>Delivery outcome for a single <c>sv.messaging.broadcast</c> target.</summary>
-public record MessageBroadcastDelivery(
+/// <summary>Delivery outcome for a single <c>sv.messaging.multicast</c> target.</summary>
+public record MessageMulticastDelivery(
     [property: JsonPropertyName("target")] string Target,
     [property: JsonPropertyName("delivered")] bool Delivered,
     [property: JsonPropertyName("error")] string? Error);

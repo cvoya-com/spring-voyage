@@ -268,8 +268,8 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IConnectorPromptContextContributor, GitHubConnectorRuntimeContextContributor>());
 
-        // Label-roundtrip subscriber (#492): observes routed delegate
-        // orchestration decisions and applies the binding's AddOnAssign /
+        // Label-roundtrip subscriber (#492): observes routed delegate-kind
+        // routing decisions and applies the binding's AddOnAssign /
         // RemoveOnAssign on the originating issue. Hosted as an IHostedService
         // so the subscription is set up during host start and disposed on
         // shutdown. Registered unconditionally — when IActivityEventBus isn't

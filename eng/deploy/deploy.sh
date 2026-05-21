@@ -818,7 +818,7 @@ start_worker() {
         -e "DAPR_GRPC_ENDPOINT=http://spring-worker-dapr:50001" \
         -e "Dispatcher__BaseUrl=http://host.containers.internal:${dispatcher_port}/" \
         -e "Dispatcher__BearerToken=${SPRING_DISPATCHER_WORKER_TOKEN}" \
-        -e "OrchestrationCallback__BaseUrl=http://spring-caddy:8443/" \
+        -e "CallbackBaseUrl__BaseUrl=http://spring-caddy:8443/" \
         -e "Mcp__Port=${mcp_port}" \
         -v spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys \
         --health-cmd 'curl -fsS http://localhost:8080/health || exit 1' \
@@ -890,7 +890,7 @@ start_api() {
         -e "DAPR_GRPC_ENDPOINT=http://spring-api-dapr:50001" \
         -e "Dispatcher__BaseUrl=http://host.containers.internal:${dispatcher_port}/" \
         -e "Dispatcher__BearerToken=${SPRING_DISPATCHER_WORKER_TOKEN}" \
-        -e "OrchestrationCallback__BaseUrl=http://spring-caddy:8443/" \
+        -e "CallbackBaseUrl__BaseUrl=http://spring-caddy:8443/" \
         -v spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys \
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         dotnet /app/Cvoya.Spring.Host.Api.dll

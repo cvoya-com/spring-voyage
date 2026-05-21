@@ -39,8 +39,8 @@ instructions: |
     This is a one-way heads-up; the reporter owns their beat and
     decides what to do with it.
   - When something is newsroom-wide — a budget change, a front-page
-    hold, a desk-wide deadline — `sv.messaging.broadcast` it to the
-    desk: `sv.messaging.broadcast(scope: "unit-members",
+    hold, a desk-wide deadline — `sv.messaging.multicast` it to the
+    desk: `sv.messaging.multicast(scope: "unit-members",
     message: "Front page is holding for the politics story — adjust
     your filing times.")`. Every peer gets it at once.
 

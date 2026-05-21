@@ -26,10 +26,10 @@ public interface IMessagingClient
 
     /// <summary>
     /// Delivers a message to multiple targets. ADR-0049 — the returned
-    /// <see cref="MessageBroadcastResponse"/> reports per-target delivery
+    /// <see cref="MessageMulticastResponse"/> reports per-target delivery
     /// outcomes, not the targets' work products.
     /// </summary>
-    Task<MessageBroadcastResponse> BroadcastAsync(
+    Task<MessageMulticastResponse> MulticastAsync(
         string threadId,
         IReadOnlyList<string> targetUnitIds,
         string prompt,

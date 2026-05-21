@@ -11,7 +11,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
-using Cvoya.Spring.Dapr.Orchestration;
+using Cvoya.Spring.Dapr.Messaging;
 using Cvoya.Spring.Dapr.Routing;
 
 using global::Dapr.Actors;
@@ -30,13 +30,13 @@ using Xunit;
 
 /// <summary>
 /// Integration smoke tests for the ADR-0048 / ADR-0049 messaging tools.
-/// <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c> are one-way
+/// <c>sv.messaging.send</c> / <c>sv.messaging.multicast</c> are one-way
 /// delivery tools: they durably enqueue the message and emit a plain
 /// <see cref="ActivityEventType.MessageSent"/> activity — never a
 /// <c>DecisionMade</c> event. Child mailboxes, the hop actor, and the
 /// activity bus are mocked boundaries.
 /// </summary>
-public class OrchestrationDelegationDecisionIntegrationTests
+public class MessageDeliveryDecisionIntegrationTests
 {
     private static readonly Address ParentUnit =
         new(Address.UnitScheme, new Guid("bbbbbbbb-0000-0000-0000-000000001828"));
@@ -97,7 +97,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         child.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException(failureDescription));
 
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
             harness.Handlers.HandleSendAsync(
                 ParentUnit,
                 TenantId,
@@ -107,11 +107,11 @@ public class OrchestrationDelegationDecisionIntegrationTests
                 Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationDeliveryFailed);
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.DeliveryFailed);
     }
 
     [Fact]
-    public async Task HandleBroadcast_AllTargetsSucceed_EmitsMessageSentEvent()
+    public async Task HandleMulticast_AllTargetsSucceed_EmitsMessageSentEvent()
     {
         var harness = CreateHarness();
         var childOne = Substitute.For<IAgent>();
@@ -126,7 +126,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         childTwo.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns((Message?)null);
         childThree.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns((Message?)null);
 
-        var result = await harness.Handlers.HandleBroadcastAsync(
+        var result = await harness.Handlers.HandleMulticastAsync(
             ParentUnit,
             TenantId,
             [ChildOne, ChildTwo, ChildThree],
@@ -144,7 +144,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
     }
 
     [Fact]
-    public async Task HandleBroadcast_OneTargetDeliveryFails_ReportsPerTargetOutcome()
+    public async Task HandleMulticast_OneTargetDeliveryFails_ReportsPerTargetOutcome()
     {
         var harness = CreateHarness();
         var childOne = Substitute.For<IAgent>();
@@ -161,7 +161,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
             .Throws(new InvalidOperationException(failureDescription));
         childThree.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns((Message?)null);
 
-        var result = await harness.Handlers.HandleBroadcastAsync(
+        var result = await harness.Handlers.HandleMulticastAsync(
             ParentUnit,
             TenantId,
             [ChildOne, ChildTwo, ChildThree],
@@ -223,7 +223,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
 
         // ADR-0049 — tighten the delivery retry budget so the
         // terminal-failure path exhausts in milliseconds under test.
-        var deliveryOptions = Options.Create(new OrchestrationDeliveryOptions
+        var deliveryOptions = Options.Create(new MessageDeliveryOptions
         {
             MaxAttempts = 3,
             Budget = TimeSpan.FromSeconds(2),
@@ -235,7 +235,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         var deliveryService = new MessageDeliveryService(
             agentProxyResolver,
             actorProxyFactory,
-            new SingleTenantOrchestrationTenantResolver(),
+            new SingleTenantMessageTenantResolver(),
             scopeFactory,
             Substitute.For<ILogger<MessageDeliveryService>>(),
             deliveryOptions);
@@ -281,7 +281,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
 
     /// <summary>
     /// A scope factory whose scopes resolve an in-memory
-    /// <see cref="IThreadRegistry"/> — the explicit-address broadcast / send
+    /// <see cref="IThreadRegistry"/> — the explicit-address multicast / send
     /// paths exercised here never resolve the membership repositories, but
     /// the delivery seam re-resolves a per-hop thread (#2596).
     /// </summary>

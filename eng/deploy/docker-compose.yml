@@ -254,7 +254,7 @@ services:
       # SPRING_CALLBACK_URL; agent containers reach the delegate_to /
       # fanout_to + orchestration-MCP endpoints through the tenant-facing
       # Caddy listener (ADR 0028 Decision D), which proxies to spring-api.
-      OrchestrationCallback__BaseUrl: http://spring-caddy:8443/
+      CallbackBaseUrl__BaseUrl: http://spring-caddy:8443/
     command: ["dotnet", "/app/Cvoya.Spring.Host.Worker.dll"]
     volumes:
       - spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys
@@ -308,7 +308,7 @@ services:
       # #2586: agent-facing orchestration callback base URL — see the
       # spring-worker block. Bound on the API host too so the option graph
       # is identical on every host that calls AddCvoyaSpringDapr.
-      OrchestrationCallback__BaseUrl: http://spring-caddy:8443/
+      CallbackBaseUrl__BaseUrl: http://spring-caddy:8443/
     command: ["dotnet", "/app/Cvoya.Spring.Host.Api.dll"]
     volumes:
       - spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys

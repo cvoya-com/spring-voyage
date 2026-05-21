@@ -26,7 +26,8 @@ using Xunit;
 
 /// <summary>
 /// Regression tests for ADR-0039 C2: UnitActor domain dispatch no longer
-/// resolves or invokes the legacy orchestration strategy stack.
+/// resolves or invokes the legacy unit-strategy stack (the
+/// manifest-selected strategy retired by ADR-0010 being superseded).
 /// </summary>
 public class UnitActorStrategyResolverTests
 {
@@ -40,7 +41,7 @@ public class UnitActorStrategyResolverTests
             .ToArray();
 
         parameterTypes.Select(t => t.Name)
-            .ShouldNotContain(name => name.Contains("OrchestrationStrategy", StringComparison.Ordinal));
+            .ShouldNotContain(name => name.Contains("Strategy", StringComparison.Ordinal));
     }
 
     [Fact]

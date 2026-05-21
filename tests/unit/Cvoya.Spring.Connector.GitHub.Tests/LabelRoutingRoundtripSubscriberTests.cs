@@ -11,7 +11,6 @@ using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 
 using Microsoft.Extensions.Logging;
 
@@ -145,7 +144,7 @@ public class LabelRoutingRoundtripSubscriberTests
         _bus.Publish(BuildEvent(
             unit,
             number: 42,
-            kind: OrchestrationDecisionKind.Fanout));
+            kind: RoutingDecisionKind.Fanout));
 
         await Task.Delay(20, TestContext.Current.CancellationToken);
         _client.Issue.Labels.ReceivedCalls().ShouldBeEmpty();
@@ -278,14 +277,14 @@ public class LabelRoutingRoundtripSubscriberTests
         var fanout = BuildEvent(
             unit,
             number: 1,
-            kind: OrchestrationDecisionKind.Fanout);
+            kind: RoutingDecisionKind.Fanout);
         LabelRoutingRoundtripSubscriber.IsRoutedDelegateDecision(fanout)
             .ShouldBeFalse();
 
         var failed = BuildEvent(
             unit,
             number: 1,
-            status: OrchestrationDecisionStatus.Failed);
+            status: RoutingDecisionStatus.Failed);
         LabelRoutingRoundtripSubscriber.IsRoutedDelegateDecision(failed)
             .ShouldBeFalse();
     }
@@ -375,14 +374,14 @@ public class LabelRoutingRoundtripSubscriberTests
     private static ActivityEvent BuildEvent(
         Address unit,
         int number,
-        OrchestrationDecisionKind kind = OrchestrationDecisionKind.Delegate,
-        OrchestrationDecisionStatus status = OrchestrationDecisionStatus.Routed,
+        RoutingDecisionKind kind = RoutingDecisionKind.Delegate,
+        RoutingDecisionStatus status = RoutingDecisionStatus.Routed,
         bool includeIssueMetadata = true)
     {
         JsonElement? metadata = includeIssueMetadata
             ? JsonSerializer.SerializeToElement(new { issue = new { number } })
             : null;
-        var decision = new OrchestrationDecision(
+        var decision = new RoutingDecision(
             Guid.NewGuid(),
             Guid.Empty,
             unit,
@@ -391,7 +390,7 @@ public class LabelRoutingRoundtripSubscriberTests
             kind,
             new[] { Address.For("agent", TestSlugIds.HexFor("backend-engineer")) },
             status,
-            status == OrchestrationDecisionStatus.Routed
+            status == RoutingDecisionStatus.Routed
                 ? new[] { Guid.NewGuid() }
                 : Array.Empty<Guid>(),
             Reason: null,

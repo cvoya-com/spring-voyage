@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "sv.messaging.broadcast.output",
-  "description": "Output of sv.messaging.broadcast — per-target delivery acknowledgements (ADR-0049). The message is delivered to every target in parallel; each entry reports whether it reached that target's mailbox. It is NEVER the targets' responses.",
+  "title": "sv.messaging.multicast.output",
+  "description": "Output of sv.messaging.multicast — per-target delivery acknowledgements (ADR-0049). The message is delivered to every target in parallel; each entry reports whether it reached that target's mailbox. It is NEVER the targets' responses.",
   "type": "object",
   "properties": {
     "messageId": {

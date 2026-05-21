@@ -40,8 +40,8 @@ instructions: |
     one-way heads-up: the peer owns their beat and decides what to do
     with it. You are informing them, not assigning them work.
   - When something is newsroom-wide — a major outage, a breach, a story
-    that holds the front page — `sv.messaging.broadcast` it to the desk:
-    `sv.messaging.broadcast(scope: "unit-members",
+    that holds the front page — `sv.messaging.multicast` it to the desk:
+    `sv.messaging.multicast(scope: "unit-members",
     message: "Major story breaking on the technology beat — hold the
     front page.")`. Every peer gets it at once.
 

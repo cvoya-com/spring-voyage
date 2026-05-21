@@ -47,7 +47,7 @@ using Cvoya.Spring.Core.Messaging;
 /// </param>
 /// <param name="MessageId">
 /// The inbound message id the invocation is responding to. Recorded on
-/// every <see cref="OrchestrationDecision"/> emitted during the turn so
+/// every <see cref="RoutingDecision"/> emitted during the turn so
 /// auditors can trace the cause of every delegation.
 /// </param>
 /// <param name="ExpiresAt">

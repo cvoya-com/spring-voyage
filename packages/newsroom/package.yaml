@@ -4,7 +4,7 @@ name: newsroom
 description: >-
   Newsroom — a communication-shaped example: a desk of beat reporters who own
   their beats and keep each other informed with sv.messaging.send /
-  sv.messaging.broadcast. The exact inverse of the delegation-shaped
+  sv.messaging.multicast. The exact inverse of the delegation-shaped
   spring-voyage-oss package, whose unit's job is to route inbound work down to
   members; here nobody delegates — work is owned, not routed.
 version: 1.0.0

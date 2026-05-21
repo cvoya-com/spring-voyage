@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-// Per-turn orchestration callback-token refresh (issue #2580).
+// Per-turn messaging callback-token refresh (issue #2580).
 //
 // The launcher writes `.mcp.json` once at container launch with the
 // `spring-orchestration` MCP server's `Authorization` header set to a
@@ -10,8 +10,8 @@
 // for hours and re-execs the wrapped CLI on every `message/send`, but the
 // static `.mcp.json` token is never refreshed — after 5 minutes it is
 // expired, the dispatcher rejects it with a 401, and the CLI drops the
-// `spring-orchestration` MCP server for the rest of the session, so
-// `delegate_to` / `fanout_to` are gone.
+// `spring-orchestration` MCP server for the rest of the session, so the
+// messaging tools are gone.
 //
 // The dispatcher already mints a fresh per-message callback token
 // (`A2AExecutionDispatcher.IssuePerMessageCallbackToken`) carrying the
@@ -32,28 +32,26 @@ import * as fs from "node:fs";
 // Env var the launcher sets to the absolute path of the `.mcp.json`
 // (or equivalent MCP config) file inside the container. When unset, the
 // bridge skips the refresh entirely — an agent launched without
-// orchestration tools has no `spring-orchestration` block to refresh.
-export const ORCHESTRATION_MCP_CONFIG_ENV_VAR = "SPRING_ORCHESTRATION_MCP_CONFIG";
+// messaging tools has no `spring-orchestration` block to refresh.
+export const MESSAGING_MCP_CONFIG_ENV_VAR = "SPRING_ORCHESTRATION_MCP_CONFIG";
 
 // Name of the MCP server block inside the config whose `Authorization`
-// header carries the orchestration callback token. Matches
-// `ClaudeCodeLauncher.SpringOrchestrationMcpServerName` /
-// `CodexLauncher`'s `spring-orchestration` key.
-const ORCHESTRATION_SERVER_NAME = "spring-orchestration";
+// header carries the messaging callback token.
+const MESSAGING_SERVER_NAME = "spring-orchestration";
 
 export interface RefreshResult {
-  // True iff the config file was found, contained a spring-orchestration
+  // True iff the config file was found, contained a messaging-server
   // block, and its Authorization header was (re)written.
   refreshed: boolean;
   // Set when the refresh was attempted but could not complete. The
   // bridge logs this but does not fail the turn — a stale token still
-  // lets the CLI start; it just loses delegate_to once expired.
+  // lets the CLI start; it just loses messaging tools once expired.
   warning?: string;
 }
 
 /**
- * Rewrites the `spring-orchestration` MCP server's `Authorization`
- * header in the config file at `configPath` to `Bearer <token>`.
+ * Rewrites the messaging MCP server's `Authorization` header in the
+ * config file at `configPath` to `Bearer <token>`.
  *
  * Best-effort and synchronous: the config file is a few KB and the
  * write must complete before the CLI is spawned. Any failure is
@@ -65,10 +63,10 @@ export interface RefreshResult {
  *   - Claude Code / Codex: `mcpServers.<name>.headers.Authorization`
  *
  * No-ops (returns `refreshed: false`, no warning) when the config has
- * no `spring-orchestration` block — the agent was launched without
- * orchestration tools.
+ * no messaging-server block — the agent was launched without messaging
+ * tools.
  */
-export function refreshOrchestrationToken(
+export function refreshMessagingToken(
   configPath: string,
   token: string,
 ): RefreshResult {
@@ -109,17 +107,17 @@ export function refreshOrchestrationToken(
     return { refreshed: false };
   }
 
-  const orchestration = (servers as Record<string, unknown>)[ORCHESTRATION_SERVER_NAME];
-  if (!orchestration || typeof orchestration !== "object") {
-    // Agent launched without orchestration tools. Not an error.
+  const messaging = (servers as Record<string, unknown>)[MESSAGING_SERVER_NAME];
+  if (!messaging || typeof messaging !== "object") {
+    // Agent launched without messaging tools. Not an error.
     return { refreshed: false };
   }
 
-  const orchestrationObj = orchestration as Record<string, unknown>;
-  let headers = orchestrationObj["headers"];
+  const messagingObj = messaging as Record<string, unknown>;
+  let headers = messagingObj["headers"];
   if (!headers || typeof headers !== "object") {
     headers = {};
-    orchestrationObj["headers"] = headers;
+    messagingObj["headers"] = headers;
   }
   (headers as Record<string, unknown>)["Authorization"] = `Bearer ${token}`;
 

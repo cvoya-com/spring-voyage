@@ -406,13 +406,13 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("Dispatcher:BaseUrl", "http://spring-dispatcher.test/");
         builder.UseSetting("Dispatcher:BearerToken", "test-token");
 
-        // Satisfy OrchestrationCallbackConfigurationRequirement (#2597 —
+        // Satisfy CallbackBaseUrlConfigurationRequirement (#2597 —
         // mandatory on every production host; the agent-runtime launcher
         // stamps it onto runtime containers as SPRING_CALLBACK_URL). The
         // value is never actually dialled in these tests — it just has to
         // be a syntactically valid absolute http(s) URL so the validator
         // doesn't trip the missing/malformed-URL branches.
-        builder.UseSetting("OrchestrationCallback:BaseUrl", "http://spring-caddy.test:8443/");
+        builder.UseSetting("CallbackBaseUrl:BaseUrl", "http://spring-caddy.test:8443/");
 
         // Satisfy SecretsConfigurationRequirement (#639) — the integration
         // factory never configures a real AES key and the scoped tests

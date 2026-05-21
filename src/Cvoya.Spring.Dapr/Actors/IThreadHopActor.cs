@@ -18,10 +18,10 @@ using global::Dapr.Actors;
 /// (A delivers to B, B delivers to A, …) cannot be bounded by stack depth.
 /// The hop counter replaces it — it is carried on the message thread, so
 /// every delivery on a thread, no matter how many actors participate,
-/// increments the same counter. <see cref="Cvoya.Spring.Dapr.Orchestration.MessageDeliveryService"/>
+/// increments the same counter. <see cref="Cvoya.Spring.Dapr.Messaging.MessageDeliveryService"/>
 /// increments the counter once per <c>sv.messaging.send</c> /
-/// <c>sv.messaging.broadcast</c> call and rejects the delivery once the
-/// count exceeds <see cref="Cvoya.Spring.Dapr.Orchestration.OrchestrationDeliveryOptions.MaxHopCount"/>.
+/// <c>sv.messaging.multicast</c> call and rejects the delivery once the
+/// count exceeds <see cref="Cvoya.Spring.Dapr.Messaging.MessageDeliveryOptions.MaxHopCount"/>.
 /// </para>
 /// <para>
 /// Storage: the count lives in the actor's own Dapr state store (the same

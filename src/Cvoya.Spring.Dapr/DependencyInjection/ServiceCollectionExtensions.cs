@@ -49,7 +49,7 @@ public static class ServiceCollectionExtensions
             .AddCvoyaSpringRouting()
             .AddCvoyaSpringExecution()
             .AddCvoyaSpringInitiative()
-            .AddCvoyaSpringOrchestration()
+            .AddCvoyaSpringMessaging()
             .AddCvoyaSpringStateTenancySecrets()
             .AddCvoyaSpringObservability();
     }

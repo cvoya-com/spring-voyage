@@ -8,7 +8,6 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -183,7 +182,7 @@ public class RuntimeInvocationPath(
                 Tools: r.GetToolDefinitions()))
             .ToList();
 
-        // ADR-0051: sv.messaging.send / sv.messaging.broadcast are served by
+        // ADR-0051: sv.messaging.send / sv.messaging.multicast are served by
         // the single platform MCP server as SvMessagingSkillRegistry — they
         // surface through the ISkillRegistry enumeration above like every
         // other sv.* tool, so no separate messaging-tool resolution is needed.

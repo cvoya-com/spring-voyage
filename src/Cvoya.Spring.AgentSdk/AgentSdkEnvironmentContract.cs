@@ -6,7 +6,7 @@ namespace Cvoya.Spring.AgentSdk;
 /// <summary>
 /// Environment-variable contract the SDK reads to reach the platform MCP
 /// server (ADR-0051). The messaging tools <c>sv.messaging.send</c> /
-/// <c>sv.messaging.broadcast</c> are served by the single platform MCP
+/// <c>sv.messaging.multicast</c> are served by the single platform MCP
 /// server alongside every other <c>sv.*</c> tool, so the SDK uses the same
 /// MCP endpoint and session token the runtime already receives.
 /// </summary>

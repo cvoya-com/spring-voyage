@@ -3,15 +3,15 @@
 
 namespace Cvoya.Spring.AgentSdk;
 
-public sealed class OrchestrationAuthException : Exception
+public sealed class MessagingAuthException : Exception
 {
-    public OrchestrationAuthException(string message, string? reason = null)
+    public MessagingAuthException(string message, string? reason = null)
         : base(message)
     {
         Reason = reason;
     }
 
-    public OrchestrationAuthException(
+    public MessagingAuthException(
         string message,
         Exception innerException,
         string? reason = null)
@@ -23,14 +23,14 @@ public sealed class OrchestrationAuthException : Exception
     public string? Reason { get; }
 }
 
-public sealed class OrchestrationTransportException : Exception
+public sealed class MessagingTransportException : Exception
 {
-    public OrchestrationTransportException(string message)
+    public MessagingTransportException(string message)
         : base(message)
     {
     }
 
-    public OrchestrationTransportException(string message, Exception innerException)
+    public MessagingTransportException(string message, Exception innerException)
         : base(message, innerException)
     {
     }

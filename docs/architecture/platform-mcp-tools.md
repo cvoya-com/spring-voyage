@@ -30,7 +30,7 @@ The areas and their tools:
 |---|---|
 | `sv.directory.*` | `get_self`, `get_member`, `list_members`, `get_siblings`, `get_parents`, `get_status` |
 | `sv.memory.*` | `add`, `get`, `list`, `search`, `update`, `delete` |
-| `sv.messaging.*` | `send`, `broadcast` |
+| `sv.messaging.*` | `send`, `multicast` |
 | `sv.runtime.*` | `report_progress`, `report_decision` |
 | `sv.expertise.*` | `search`, plus the dynamic per-capability `sv.expertise.{slug}` tools |
 
@@ -42,18 +42,18 @@ The taxonomy governs **MCP tool names only**. HTTP route paths and SDK method na
 
 ## 2. The messaging delivery surface
 
-The platform's message-delivery surface is exactly two tools, `sv.messaging.send` and `sv.messaging.broadcast`. They are the sole way a runtime delivers a message to an addressable target.
+The platform's message-delivery surface is exactly two tools, `sv.messaging.send` and `sv.messaging.multicast`. They are the sole way a runtime delivers a message to an addressable target.
 
 | Tool | Purpose | Returns |
 |---|---|---|
 | `sv.messaging.send(address, message, reason?)` | One-way delivery to a single addressable target. | A delivery acknowledgement — never the recipient's reply. |
-| `sv.messaging.broadcast(scope \| addresses, message, reason?)` | One-way delivery to many targets, addressed explicitly or by a directory-relationship `scope` (`unit-members`, `siblings`). | A per-target delivery acknowledgement. |
+| `sv.messaging.multicast(scope \| addresses, message, reason?)` | One-way delivery to many targets, addressed explicitly or by a directory-relationship `scope` (`unit-members`, `siblings`). | A per-target delivery acknowledgement. |
 
 Both implement the [ADR-0049](../decisions/0049-message-delivery-tool-contract.md) delivery-acknowledgement contract: each is an RPC whose response confirms the message reached the recipient's *mailbox*, not that the recipient processed or replied to it. Delivery is synchronous with bounded retry; a failure is a synchronous tool error. The two tools differ only in target arity.
 
 `reason` is optional. It is recorded verbatim — runtimes that surface internal model reasoning **must redact it** before passing it, because the field is operator-visible audit.
 
-A successful `sv.messaging.*` call records a `MessageSent` activity and nothing more. It does **not** publish an `OrchestrationDecision`.
+A successful `sv.messaging.*` call records a `MessageSent` activity and nothing more. It does **not** publish an `RoutingDecision`.
 
 ### "Delegation" is message content, not a platform tool
 
@@ -67,7 +67,7 @@ A runtime that wants the routing decision recorded on the activity stream calls 
 
 ## 3. Recording a routing decision is optional
 
-`sv.runtime.report_decision` records a routing decision on the activity stream as a `DecisionMade` activity carrying an `OrchestrationDecision` payload. ADR-0050 **generalised** the tool: previously it recorded only decisions that did *not* execute; it now records any routing decision — executed or not.
+`sv.runtime.report_decision` records a routing decision on the activity stream as a `DecisionMade` activity carrying an `RoutingDecision` payload. ADR-0050 **generalised** the tool: previously it recorded only decisions that did *not* execute; it now records any routing decision — executed or not.
 
 Calling it is entirely optional. A runtime delivering a message via `sv.messaging.*` records a plain `MessageSent` activity; if it also wants the *decision* visible (the intended targets and the rationale), it makes a separate `sv.runtime.report_decision` call. The two are not coupled — neither implies the other.
 
@@ -75,13 +75,13 @@ This is the right shape for decisions that cannot be carried out: a runtime that
 
 `sv.runtime.report_progress` records free-text turn progress; it is the catch-all "here is what this turn did" call, distinct from the structured `report_decision`.
 
-The `OrchestrationDecision` event shape and the `DecisionMade` activity are documented in [`agent-runtime.md` § 4d](agent-runtime.md#4d-decisionmade-event-shape).
+The `RoutingDecision` event shape and the `DecisionMade` activity are documented in [`agent-runtime.md` § 4d](agent-runtime.md#4d-decisionmade-event-shape).
 
 ---
 
 ## 4. The per-thread hop counter
 
-With a single delivery seam, delegation-loop prevention is implemented once. A **per-thread hop counter** is incremented on every `sv.messaging.send` / `sv.messaging.broadcast` call. A call past the platform limit is rejected with the validation-class `OrchestrationDepthExceeded` tool error.
+With a single delivery seam, delegation-loop prevention is implemented once. A **per-thread hop counter** is incremented on every `sv.messaging.send` / `sv.messaging.multicast` call. A call past the platform limit is rejected with the validation-class `OrchestrationDepthExceeded` tool error.
 
 This terminates a cycle `A→B→A→…` carried on a single thread while leaving a normal delegation chain unaffected. The counter rides the message on the thread; it is not a per-runtime or per-container counter.
 
@@ -95,7 +95,7 @@ The platform exposes **every** `sv.*` tool through one MCP server under one auth
 |---|---|---|---|
 | Platform MCP server | `spring-voyage` | `sv.directory.*`, `sv.memory.*`, `sv.runtime.*`, `sv.expertise.*`, `sv.messaging.*` | MCP session bearer token. |
 
-The MCP session is minted per turn by the dispatcher (`IMcpServer.IssueSession`) and revoked when the turn ends. It carries the per-turn `(tenant, agentAddress, threadId, messageId)` delivery authority `sv.messaging.*` needs — the same authority the retired per-turn callback JWT used to carry. Because messaging is now a registry on this server, `sv.messaging.send` / `sv.messaging.broadcast` pass through the same effective-grant gate (#2379) and unit-policy enforcement (#162) as every other `sv.*` tool: a unit policy can deny messaging, and the grant resolver's platform tier surfaces the messaging tools to every agent / unit subject by default.
+The MCP session is minted per turn by the dispatcher (`IMcpServer.IssueSession`) and revoked when the turn ends. It carries the per-turn `(tenant, agentAddress, threadId, messageId)` delivery authority `sv.messaging.*` needs — the same authority the retired per-turn callback JWT used to carry. Because messaging is now a registry on this server, `sv.messaging.send` / `sv.messaging.multicast` pass through the same effective-grant gate (#2379) and unit-policy enforcement (#162) as every other `sv.*` tool: a unit policy can deny messaging, and the grant resolver's platform tier surfaces the messaging tools to every agent / unit subject by default.
 
 ### Per-runtime attachment
 
@@ -115,7 +115,7 @@ A launcher attaches the single MCP server using each runtime's native mechanism.
 
 `gemini` reads the same shape from `.gemini/settings.json` (using `httpUrl` instead of `url`). `tools/list` is grant-filtered server-side, so the runtime discovers exactly the `sv.*` tools — messaging included — its subject is entitled to.
 
-Workflow-driven runtimes consume the same delivery handlers through the typed `Cvoya.Spring.AgentSdk` `MessagingClient`, which calls `sv.messaging.send` / `sv.messaging.broadcast` over JSON-RPC `tools/call` against the same MCP server with the same session token — see [Agent SDK](agent-sdk.md).
+Workflow-driven runtimes consume the same delivery handlers through the typed `Cvoya.Spring.AgentSdk` `MessagingClient`, which calls `sv.messaging.send` / `sv.messaging.multicast` over JSON-RPC `tools/call` against the same MCP server with the same session token — see [Agent SDK](agent-sdk.md).
 
 ---
 

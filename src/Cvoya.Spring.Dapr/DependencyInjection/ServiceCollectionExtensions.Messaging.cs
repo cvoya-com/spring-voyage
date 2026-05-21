@@ -5,12 +5,12 @@ namespace Cvoya.Spring.Dapr.DependencyInjection;
 
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Lifecycle;
-using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Lifecycle;
-using Cvoya.Spring.Dapr.Orchestration;
+using Cvoya.Spring.Dapr.Messaging;
 using Cvoya.Spring.Dapr.Prompts;
 using Cvoya.Spring.Dapr.Units;
 using Cvoya.Spring.Dapr.Workflows;
@@ -19,12 +19,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 /// <summary>
-/// Orchestration-adjacent registrations: tool providers, unit execution,
-/// validation, and prompt context builders.
+/// Messaging-adjacent registrations: message-delivery seam, messaging tool
+/// handlers, unit execution, validation, and prompt context builders.
 /// </summary>
-internal static class ServiceCollectionExtensionsOrchestration
+internal static class ServiceCollectionExtensionsMessaging
 {
-    internal static IServiceCollection AddCvoyaSpringOrchestration(
+    internal static IServiceCollection AddCvoyaSpringMessaging(
         this IServiceCollection services)
     {
         // #601 / #603 / #409 B-wide: read/write seam for the persisted unit
@@ -100,7 +100,7 @@ internal static class ServiceCollectionExtensionsOrchestration
         // so the gate is a structural impossibility to violate. The cloud
         // overlay registers a tenant-aware resolver that consults the
         // persisted entity rows to reject foreign-tenant calls.
-        services.TryAddSingleton<IOrchestrationTenantResolver, SingleTenantOrchestrationTenantResolver>();
+        services.TryAddSingleton<IMessageTenantResolver, SingleTenantMessageTenantResolver>();
 
         // ADR-0039 C1: runtime-invocation pipeline extracted from
         // AgentActor's activate-and-dispatch closure. Singleton: stateless
