@@ -121,10 +121,10 @@ The deterministic v5 UUID owning the single OSS-operator `TenantUser` row: `5c4c
 An agent that subscribes to another agent's activity stream (with permission).
 
 **Orchestration decision**
-An `ActivityEvent` with `EventType=DecisionMade` published by the platform as orchestration decision evidence. Shape: `Kind` (`Delegate` or `Fanout`), `Status` (`Accepted`, `Routed`, or `Failed`), `Targets` (array of child addresses), `ResultMessageIds` (array of result message Guids), and `Reason` (optional runtime-supplied string).
+An `ActivityEvent` with `EventType=DecisionMade` published by the platform when a runtime calls `sv.runtime.report_decision`. Shape: `Kind` (`Delegate` or `Fanout`), `Status` (`Accepted`, `Routed`, or `Failed`), `Targets` (array of addresses), `ResultMessageIds` (array of result message Guids), and `Reason` (optional runtime-supplied string). Recording a decision is optional — a plain `sv.messaging.*` delivery publishes a `MessageSent` activity instead. See [ADR-0050](decisions/0050-platform-mcp-tool-surface.md).
 
-**Orchestration tools**
-The two platform-injected action verbs (`delegate_to`, `fanout_to`) attached to every `agent://` and `unit://` runtime. Discovery, inspection, and runtime-status queries live on the `sv.*` directory tool surface (`sv.list_members`, `sv.get_member`, `sv.get_status`, `sv.get_siblings`, `sv.get_parents`, `sv.get_self`). LLM-driven runtimes use an MCP/env-var-keyed surface; workflow-driven runtimes use the `Cvoya.Spring.AgentSdk` `IOrchestrationClient` callback surface.
+**Platform MCP tools**
+The platform-provided MCP tools an agent runtime consumes, all named `sv.<area>.<verb>` ([ADR-0050](decisions/0050-platform-mcp-tool-surface.md)). The areas are `directory`, `memory`, `messaging`, `runtime`, and `expertise`. The platform's message-delivery surface is exactly two tools — `sv.messaging.send` and `sv.messaging.broadcast` — on the [ADR-0049](decisions/0049-message-delivery-tool-contract.md) delivery-acknowledgement contract; the platform delivers messages, it does not orchestrate. There are no `delegate_to` / `fanout_to` tools — "delegation" is message content the recipient's runtime interprets. The tools are exposed through two MCP servers (`spring-voyage` for the worker tools, `spring-messaging` for delivery). LLM-driven runtimes use MCP; workflow-driven runtimes use the `Cvoya.Spring.AgentSdk` typed callback surface. See [Platform MCP Tools](architecture/platform-mcp-tools.md).
 
 **Package**
 An installable bundle of domain-specific content: agent templates, unit templates, skills, workflows, connectors, and execution environments. How the platform remains domain-agnostic while supporting specific domains.
@@ -163,7 +163,7 @@ A group of agents -- and the humans who work with them -- performing together. A
 The Dapr virtual actor implementing a unit. Manages membership, policies, the expertise directory, boundaries, connector bindings, and the unit-specific lifecycle while dispatching domain messages through the runtime-launcher path shared with agents.
 
 **Unit-as-agent**
-The framing from ADR-0039: a unit is structurally identical to an agent; the only operational difference is the presence of children. When a unit has children, the platform attaches orchestration tools; when it has none, it dispatches directly through its runtime. There is no creation-time mode toggle.
+The framing from ADR-0039: a unit is structurally identical to an agent; the only operational difference is the presence of children. The platform attaches the same platform MCP tools — including the `sv.messaging.*` delivery tools — to every `agent://` and `unit://` runtime; a unit's runtime delegates to a child by delivering a message to it. There is no creation-time mode toggle.
 
 **Workflow**
 A durable, structured execution plan. Domain workflows run in containers; platform-internal workflows run in the host process.

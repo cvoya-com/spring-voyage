@@ -16,7 +16,7 @@ using Cvoya.Spring.Core.Tenancy;
 /// The cross-tenant containment gate from ADR-0039 §3 is therefore
 /// structurally impossible to violate on an OSS install — every caller
 /// and every target evaluate to the same tenant id, so the comparison in
-/// <see cref="OrchestrationToolHandlers"/> always succeeds. The cloud
+/// <see cref="MessageDeliveryService"/> always succeeds. The cloud
 /// overlay registers a tenant-aware resolver via the standard
 /// <c>TryAddSingleton</c> seam and the handler picks it up without code
 /// changes.

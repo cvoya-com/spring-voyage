@@ -16,10 +16,10 @@ using Microsoft.Extensions.Options;
 /// agent runtime container.
 /// </summary>
 /// <remarks>
-/// The orchestration callback base URL points at the Dapr-connected API
+/// The messaging callback base URL points at the Dapr-connected API
 /// host, not the dispatcher (#2586): the dispatcher has no Dapr sidecar and
-/// cannot invoke the recipient actor for a <c>delegate_to</c> / <c>fanout_to</c>
-/// delivery. <c>SPRING_CALLBACK_URL</c> is sourced from
+/// cannot invoke the recipient actor for a <c>sv.messaging.send</c> /
+/// <c>sv.messaging.broadcast</c> delivery. <c>SPRING_CALLBACK_URL</c> is sourced from
 /// <see cref="OrchestrationCallbackOptions.BaseUrl"/>.
 /// </remarks>
 public class DispatcherCallbackEnvironmentBuilder(

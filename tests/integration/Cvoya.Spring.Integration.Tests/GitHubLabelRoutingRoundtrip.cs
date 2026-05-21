@@ -9,13 +9,9 @@ using Cvoya.Spring.Connector.GitHub;
 using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
-using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Tenancy;
-using Cvoya.Spring.Dapr.Actors;
-using Cvoya.Spring.Dapr.Orchestration;
-using Cvoya.Spring.Dapr.Routing;
 
 using Microsoft.Extensions.Logging;
 
@@ -28,10 +24,12 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// End-to-end coverage for the GitHub label roundtrip after ADR-0039:
-/// an orchestration delegate tool call emits an <see cref="OrchestrationDecision"/>
-/// activity event, and the GitHub connector subscriber applies the binding's
-/// label rules through Octokit.
+/// End-to-end coverage for the GitHub label roundtrip: a routing
+/// <see cref="OrchestrationDecision"/> activity event (post-ADR-0049 these are
+/// recorded by <c>sv.runtime.report_decision</c>, not by the messaging
+/// delivery tools) carries the originating GitHub issue number, and the
+/// GitHub connector subscriber applies the binding's label rules through
+/// Octokit.
 /// </summary>
 public class GitHubLabelRoutingRoundtrip
 {
@@ -42,7 +40,7 @@ public class GitHubLabelRoutingRoundtrip
         new(Address.AgentScheme, new Guid("aaaaaaaa-0000-0000-0000-000000001859"));
 
     [Fact]
-    public async Task DelegateDecision_WithGitHubBinding_AppliesConfiguredLabelRules()
+    public async Task RoutingDecision_WithGitHubBinding_AppliesConfiguredLabelRules()
     {
         var bus = new RecordingActivityEventBus();
         var client = Substitute.For<IGitHubClient>();
@@ -53,18 +51,10 @@ public class GitHubLabelRoutingRoundtrip
             connector,
             configStore,
             Substitute.For<ILogger<LabelRoutingRoundtripSubscriber>>());
-        var harness = CreateHandlerHarness(bus);
-        var child = Substitute.For<IAgent>();
-        var message = CreateGitHubIssueMessage(issueNumber: 314);
-        var response = CreateResponse();
-        var threadId = Guid.NewGuid();
 
         connector.CreateAuthenticatedClientForBindingAsync(
                 Arg.Any<UnitGitHubConfig>(), Arg.Any<CancellationToken>())
             .Returns(client);
-        child.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(response);
-        harness.RegisterAgent(Child, child);
         // ADR-0047 §6: every outbound call hands the binding to the
         // connector's CreateAuthenticatedClientForBindingAsync; the
         // resolver behind it dispatches App vs PAT. This integration
@@ -79,13 +69,10 @@ public class GitHubLabelRoutingRoundtrip
         await subscriber.StartAsync(TestContext.Current.CancellationToken);
         try
         {
-            await harness.Handlers.HandleDelegateToAsync(
-                Unit,
-                OssTenantIds.Default,
-                Child,
-                message,
-                reason: "route issue to implementation agent",
-                threadId,
+            // A routed delegate decision naming a GitHub issue — the shape
+            // the runtime emits via sv.runtime.report_decision.
+            await bus.PublishAsync(
+                CreateDecisionEvent(issueNumber: 314),
                 TestContext.Current.CancellationToken);
 
             await WaitForAsync(() =>
@@ -102,7 +89,6 @@ public class GitHubLabelRoutingRoundtrip
             activityEvent.Details!.Value.GetRawText());
         decision.ShouldNotBeNull();
         decision!.TenantId.ShouldBe(OssTenantIds.Default);
-        decision.TenantId.ShouldNotBe(Guid.Empty);
         decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
         decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
 
@@ -112,30 +98,6 @@ public class GitHubLabelRoutingRoundtrip
                 Arg.Is<string[]>(labels => labels.SequenceEqual(new[] { "triage" })));
         await client.Issue.Labels.Received(1)
             .RemoveFromIssue("acme", "platform", 314, "needs-assignment");
-    }
-
-    private static HandlerHarness CreateHandlerHarness(RecordingActivityEventBus bus)
-    {
-        var agents = new Dictionary<string, IAgent>(StringComparer.OrdinalIgnoreCase);
-        var agentProxyResolver = Substitute.For<IAgentProxyResolver>();
-
-        agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>())
-            .Returns(call =>
-            {
-                var scheme = call.ArgAt<string>(0);
-                var actorId = call.ArgAt<string>(1);
-                return agents.TryGetValue($"{scheme}:{actorId}", out var agent)
-                    ? agent
-                    : null;
-            });
-
-        var handlers = new OrchestrationToolHandlers(
-            agentProxyResolver,
-            Substitute.For<ILogger<OrchestrationToolHandlers>>(),
-            bus,
-            new SingleTenantOrchestrationTenantResolver());
-
-        return new HandlerHarness(handlers, agents);
     }
 
     private static void RegisterConfig(
@@ -149,29 +111,35 @@ public class GitHubLabelRoutingRoundtrip
             .Returns(new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, stored));
     }
 
-    private static Message CreateGitHubIssueMessage(int issueNumber) =>
-        new(
-            Guid.NewGuid(),
-            new Address(Address.HumanScheme, new Guid("cccccccc-0000-0000-0000-000000001859")),
-            Unit,
-            MessageType.Domain,
-            Guid.NewGuid().ToString("D"),
-            JsonSerializer.SerializeToElement(new
+    private static ActivityEvent CreateDecisionEvent(int issueNumber)
+    {
+        var decision = new OrchestrationDecision(
+            DecisionId: Guid.NewGuid(),
+            TenantId: OssTenantIds.Default,
+            UnitAddress: Unit,
+            ThreadId: Guid.NewGuid(),
+            InputMessageId: Guid.NewGuid(),
+            Kind: OrchestrationDecisionKind.Delegate,
+            Targets: [Child],
+            Status: OrchestrationDecisionStatus.Routed,
+            ResultMessageIds: [],
+            Reason: "route issue to implementation agent",
+            Metadata: JsonSerializer.SerializeToElement(new
             {
-                source = "github",
                 issue = new { number = issueNumber },
             }),
-            DateTimeOffset.UtcNow);
+            CreatedAt: DateTimeOffset.UtcNow);
 
-    private static Message CreateResponse() =>
-        new(
+        return new ActivityEvent(
             Guid.NewGuid(),
-            Child,
+            decision.CreatedAt,
             Unit,
-            MessageType.Domain,
-            Guid.NewGuid().ToString("D"),
-            JsonSerializer.SerializeToElement(new { content = "accepted" }),
-            DateTimeOffset.UtcNow);
+            ActivityEventType.DecisionMade,
+            ActivitySeverity.Info,
+            $"Routing decision to '{Child}' recorded.",
+            JsonSerializer.SerializeToElement(decision),
+            decision.ThreadId.ToString("D"));
+    }
 
     private static async Task WaitForAsync(Func<bool> condition, int timeoutMs = 2000)
     {
@@ -187,14 +155,6 @@ public class GitHubLabelRoutingRoundtrip
         }
 
         condition().ShouldBeTrue("condition was not satisfied within timeout");
-    }
-
-    private sealed record HandlerHarness(
-        OrchestrationToolHandlers Handlers,
-        Dictionary<string, IAgent> Agents)
-    {
-        public void RegisterAgent(Address address, IAgent agent) =>
-            Agents[$"{address.Scheme}:{GuidFormatter.Format(address.Id)}"] = agent;
     }
 
     private sealed class RecordingActivityEventBus : IActivityEventBus, IObservable<ActivityEvent>

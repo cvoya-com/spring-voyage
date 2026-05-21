@@ -20,8 +20,9 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// A callback-token rejection (<c>/v1/runtime/orchestration</c> → 401) is a
 /// whole failure class — expired / malformed / wrong-tenant tokens that
-/// cause a persistent agent to lose <c>delegate_to</c> / <c>fanout_to</c>
-/// (see #2580). Before this helper the rejection was effectively invisible:
+/// cause a persistent agent to lose <c>sv.messaging.send</c> /
+/// <c>sv.messaging.broadcast</c> (see #2580). Before this helper the
+/// rejection was effectively invisible:
 /// no activity, and only the ambient request log at <c>info</c>. This helper
 /// emits a single <c>warning</c> log line carrying the structured
 /// <see cref="CallbackTokenValidationReason"/>, plus one

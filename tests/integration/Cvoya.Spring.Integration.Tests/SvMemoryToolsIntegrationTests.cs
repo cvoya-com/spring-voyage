@@ -24,7 +24,7 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// End-to-end coverage for the <c>sv.memory_*</c> platform tools
+/// End-to-end coverage for the <c>sv.memory.*</c> platform tools
 /// (#2342). Wires the EF store against an in-memory SpringDbContext,
 /// registers the <see cref="SvMemorySkillRegistry"/> with the same
 /// caller-scope contract the MCP server uses at runtime, then drives a

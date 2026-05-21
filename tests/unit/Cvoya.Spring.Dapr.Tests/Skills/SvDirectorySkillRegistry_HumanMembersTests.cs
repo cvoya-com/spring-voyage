@@ -38,7 +38,7 @@ using Xunit;
 
 /// <summary>
 /// Tests for the ADR-0044 § 5 / ADR-0046 §9 extension:
-/// <c>sv.list_members</c> folds package-declared human team members into
+/// <c>sv.directory.list_members</c> folds package-declared human team members into
 /// the homogeneous response, gated by <c>kind == "human"</c>. ADR-0046 §9
 /// replaces the per-row <c>team_role: string</c> field with a multi-valued
 /// <c>roles: string[]</c> array.
@@ -224,7 +224,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
         /// <summary>
         /// Seeds an agent member of <see cref="UnitId"/> with a per-membership
         /// roles + expertise list. Adds the agent to the member graph (so it
-        /// surfaces under sv.list_members) plus a UnitMembership row that the
+        /// surfaces under sv.directory.list_members) plus a UnitMembership row that the
         /// SvDirectorySkillRegistry reads via IUnitMembershipRepository to
         /// supplement the entry.
         /// </summary>

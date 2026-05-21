@@ -9,21 +9,21 @@ using System.Text.Json.Serialization;
 // acknowledgement: the message was durably placed in the recipient's
 // mailbox. They never carry the recipient's work product.
 
-/// <summary>Delivery acknowledgement for a <c>delegate_to</c> call.</summary>
-public record DelegateResponse(
+/// <summary>Delivery acknowledgement for a <c>sv.messaging.send</c> call.</summary>
+public record MessageSendResponse(
     [property: JsonPropertyName("delivered")] bool Delivered,
     [property: JsonPropertyName("messageId")] string MessageId,
     [property: JsonPropertyName("target")] string Target,
     [property: JsonPropertyName("threadId")] string ThreadId);
 
-/// <summary>Per-target delivery outcomes for a <c>fanout_to</c> call.</summary>
-public record FanoutResponse(
+/// <summary>Per-target delivery outcomes for a <c>sv.messaging.broadcast</c> call.</summary>
+public record MessageBroadcastResponse(
     [property: JsonPropertyName("messageId")] string MessageId,
     [property: JsonPropertyName("threadId")] string ThreadId,
-    [property: JsonPropertyName("deliveries")] IReadOnlyList<FanoutDelivery> Deliveries);
+    [property: JsonPropertyName("deliveries")] IReadOnlyList<MessageBroadcastDelivery> Deliveries);
 
-/// <summary>Delivery outcome for a single <c>fanout_to</c> target.</summary>
-public record FanoutDelivery(
+/// <summary>Delivery outcome for a single <c>sv.messaging.broadcast</c> target.</summary>
+public record MessageBroadcastDelivery(
     [property: JsonPropertyName("target")] string Target,
     [property: JsonPropertyName("delivered")] bool Delivered,
     [property: JsonPropertyName("error")] string? Error);

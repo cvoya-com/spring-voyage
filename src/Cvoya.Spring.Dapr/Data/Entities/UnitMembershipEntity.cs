@@ -49,7 +49,7 @@ public class UnitMembershipEntity : ITenantScopedEntity
     /// ADR-0046 §8: free-form team-role strings the agent advertises on
     /// this unit (e.g. <c>[reviewer]</c>). Persisted as a jsonb array
     /// column. Empty list when absent. Runtime metadata only — surfaced
-    /// on <c>sv.list_members</c> so peer agents can ask "which teammates
+    /// on <c>sv.directory.list_members</c> so peer agents can ask "which teammates
     /// are owners?".
     /// </summary>
     public List<string> Roles { get; set; } = new();

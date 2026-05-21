@@ -1,6 +1,6 @@
 # Packages
 
-Spring Voyage is domain-agnostic by design. The platform provides primitives — agents, units, messaging, orchestration. **Packages** provide the actors, the humans, and the domain knowledge that drives them.
+Spring Voyage is domain-agnostic by design. The platform provides primitives — agents, units, messaging. **Packages** provide the actors, the humans, and the domain knowledge that drives them.
 
 This page is the canonical packaging-structure reference: the recursive folder layout, the conventional subdirectories, the unified `members:` grammar, the three template kinds, the strict-parsing rejections, and where the schemas live in source. Cross-references to ADRs carry the motivation; this page carries the "how to read / how to author".
 
@@ -120,7 +120,7 @@ Both discriminators accept two shapes ([ADR-0046 §6](../decisions/0046-unified-
 
 Authoring rule of thumb: **if the agent owns children (its own skills or sub-agents), give it a folder; otherwise, inline it.** Folder agents are the right shape for `agents/data-analyst/skills/literature-review/`; inline bodies are the right shape for "fan three engineers out of one template".
 
-Both shapes carry the multi-valued `roles` and `expertise` ([ADR-0046 §3](../decisions/0046-unified-members-grammar.md)) — runtime metadata on the membership edge, surfaced through `sv.list_members` so peers can ask "who are the owners on my team?".
+Both shapes carry the multi-valued `roles` and `expertise` ([ADR-0046 §3](../decisions/0046-unified-members-grammar.md)) — runtime metadata on the membership edge, surfaced through `sv.directory.list_members` so peers can ask "who are the owners on my team?".
 
 ### `- human:`
 

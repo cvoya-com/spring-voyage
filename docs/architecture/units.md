@@ -15,7 +15,7 @@ This document is the **entry point** for the units-and-agents cluster. It covers
 
 ## Unit Model
 
-**A unit is an agent that has children.** It shares the agent's mailbox, address shape, and execution configuration; the only structural difference is the children list. When a unit's mailbox receives a message, the unit's own runtime runs — the same launcher path that runs a leaf agent — and the runtime's instructions decide whether to answer directly or delegate to a child. There is no separate orchestration-strategy layer ([ADR-0039](../decisions/0039-units-are-agents.md)).
+**A unit is an agent that has children.** It shares the agent's mailbox, address shape, and execution configuration; the only structural difference is the children list. When a unit's mailbox receives a message, the unit's own runtime runs — the same launcher path that runs a leaf agent — and the runtime's instructions decide whether to answer directly or delegate to a child by delivering a message via `sv.messaging.send`. There is no separate orchestration-strategy layer ([ADR-0039](../decisions/0039-units-are-agents.md)).
 
 The unit actor is responsible for:
 
@@ -96,19 +96,21 @@ unit:
 
 A unit's `ai` block (`runtime`, `model`, `image`) describes the runtime that runs when the unit's mailbox receives a message — exactly the same shape as a leaf agent's per [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md). The launcher reads it, spawns the runtime container, and delivers the inbound message. The runtime answers, delegates to a child, or fans out — its instructions decide.
 
-**Orchestration tools.** The launcher attaches a fixed set of orchestration action verbs to every `agent://` and `unit://` runtime ([ADR-0039 § 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime), as amended 2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536) / [#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)):
+**Platform messaging tools.** The launcher attaches the platform MCP surface to every `agent://` and `unit://` runtime ([ADR-0050](../decisions/0050-platform-mcp-tool-surface.md), superseding [ADR-0039 §§ 3–4](../decisions/0039-units-are-agents.md)). The message-delivery surface is exactly two tools:
 
 | Tool | Purpose |
 |---|---|
-| `delegate_to <address> <message>` | Forward the inbound message to one target and await its response. Records an `OrchestrationDecision` with `kind: delegate`. |
-| `fanout_to <addresses[]> <message>` | Forward to multiple targets in parallel. Records an `OrchestrationDecision` with `kind: fanout`. |
+| `sv.messaging.send(address, message, reason?)` | One-way delivery of the message to a single addressable target. Returns a delivery acknowledgement (the message reached the recipient's mailbox), never the recipient's reply. |
+| `sv.messaging.broadcast(scope \| addresses, message, reason?)` | One-way delivery to many targets, addressed explicitly or by a directory-relationship `scope`. |
 
-Discovery, inspection, and runtime-status queries live on the `sv.*` directory tool surface (`sv.list_members`, `sv.get_member`, `sv.get_status`, plus `sv.get_siblings` / `sv.get_parents` / `sv.get_self`), not on the orchestration surface — see [Orchestration Tools § 1a](orchestration-tools.md#1a-relation-to-sv-directory-tools).
+The platform delivers messages; it does not orchestrate. There is no `delegate_to` / `fanout_to` tool — "delegation" is message *content* the recipient's runtime interprets, not a distinct platform tool. A runtime delegates by sending a message via `sv.messaging.send` whose content says so. Recording the routing decision is an optional, explicit `sv.runtime.report_decision` call.
 
-The set is closed for v0.1 — adding a tool requires a new ADR. Tools are reachable through two parallel surfaces that share the same handlers and emit the same `OrchestrationDecision` events:
+Discovery, inspection, and runtime-status queries live on the `sv.directory.*` tools (`sv.directory.list_members`, `sv.directory.get_member`, `sv.directory.get_status`, plus `sv.directory.get_siblings` / `sv.directory.get_parents` / `sv.directory.get_self`) — see [Platform MCP Tools](platform-mcp-tools.md).
 
-- **Tool-call surface** — for LLM-driven runtime images (`spring-voyage`, `claude-code`, `codex`, `gemini`). Per-runtime mechanism (MCP server, env-var-keyed registry).
-- **SDK surface** — `Cvoya.Spring.AgentSdk`'s typed `IOrchestrationClient` over an HTTP callback API, for workflow-driven runtime images that consume the orchestration tools as method calls. See [Agent SDK](agent-sdk.md).
+The messaging delivery handlers are reachable through two parallel surfaces:
+
+- **MCP tool calls** — for LLM-driven runtime images (`spring-voyage`, `claude-code`, `codex`, `gemini`). The launcher attaches the `spring-messaging` MCP server.
+- **SDK surface** — `Cvoya.Spring.AgentSdk`'s typed messaging-delivery methods over an HTTP callback API, for workflow-driven runtime images. See [Agent SDK](agent-sdk.md).
 
 The image author chooses which fits; the platform does not branch.
 
@@ -125,23 +127,23 @@ unit:
   execution:
     image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
   instructions: |
-    You coordinate a research team. Use `sv.list_members` to see who's
-    available, `sv.get_member` to read declared expertise, and
-    `delegate_to` to route a paper to the best fit. Provide a
-    one-line `reason` on every delegation — it is recorded as
-    OrchestrationDecision evidence.
+    You coordinate a research team. Use `sv.directory.list_members` to
+    see who's available, `sv.directory.get_member` to read declared
+    expertise, and `sv.messaging.send` to route a paper to the best
+    fit. Provide a one-line `reason` on every send. To make the routing
+    decision itself visible, call `sv.runtime.report_decision`.
   members:
     - agent: researcher-ml
     - agent: researcher-systems
 ```
 
-A unit with zero members still receives messages and runs its runtime; the orchestration action verbs are still attached, and `sv.list_members` returns the empty array.
+A unit with zero members still receives messages and runs its runtime; the platform messaging tools are still attached, and `sv.directory.list_members` returns the empty array.
 
 ---
 
 ## Nested Units (Units as Members of Units)
 
-Members of a unit may be either agents (scheme `agent`) or sub-units (scheme `unit`). Nesting lets you compose larger organizations from smaller ones — a platform team contains a database team, which contains individual agents — without teaching the routing layer anything special about depth. A parent unit's runtime treats both agents and sub-units uniformly: `sv.list_members` enumerates either kind, `delegate_to` forwards to either, and `IAgentProxyResolver` maps the address scheme to the right actor type at delivery time.
+Members of a unit may be either agents (scheme `agent`) or sub-units (scheme `unit`). Nesting lets you compose larger organizations from smaller ones — a platform team contains a database team, which contains individual agents — without teaching the routing layer anything special about depth. A parent unit's runtime treats both agents and sub-units uniformly: `sv.directory.list_members` enumerates either kind, `sv.messaging.send` delivers to either, and `IAgentProxyResolver` maps the address scheme to the right actor type at delivery time.
 
 Membership has two invariants:
 
@@ -189,7 +191,7 @@ Removing a unit-typed member is a straightforward EF row delete — no cycle che
 | **Ad-hoc Task Force** | Temporary unit for a specific problem                       | Incident response, sprint goal        |
 
 
-This list is illustrative, not exhaustive. Any organizational pattern can be modeled through unit composition, boundary configuration, and the runtime image / instructions a unit picks for itself. The primitives — recursive units, configurable boundaries, runtime-decided delegation through the orchestration tools — are the building blocks; the patterns emerge from how you compose them.
+This list is illustrative, not exhaustive. Any organizational pattern can be modeled through unit composition, boundary configuration, and the runtime image / instructions a unit picks for itself. The primitives — recursive units, configurable boundaries, runtime-decided delegation through the `sv.messaging.*` delivery tools — are the building blocks; the patterns emerge from how you compose them.
 
 ---
 
@@ -219,7 +221,7 @@ This list is illustrative, not exhaustive. Any organizational pattern can be mod
         },
         "ai": {
           "type": "object",
-          "description": "Execution config for the unit's own runtime — same shape as an agent's per ADR-0038. The runtime decides how to use the orchestration tools attached when the unit has children.",
+          "description": "Execution config for the unit's own runtime — same shape as an agent's per ADR-0038. The runtime decides how to use the platform messaging tools to deliver work to members.",
           "properties": {
             "runtime": {
               "type": "string",
@@ -243,13 +245,13 @@ This list is illustrative, not exhaustive. Any organizational pattern can be mod
                   "skill": { "type": "string" }
                 }
               },
-              "description": "Skill references attached to the unit's runtime, alongside the orchestration tools."
+              "description": "Skill references attached to the unit's runtime, alongside the platform MCP tools."
             }
           }
         },
         "instructions": {
           "type": "string",
-          "description": "Runtime-facing instructions composed into the unit's prompt. Decides whether the unit answers directly or delegates via the orchestration tools."
+          "description": "Runtime-facing instructions composed into the unit's prompt. Decides whether the unit answers directly or delegates by delivering a message via sv.messaging.send."
         },
         "members": {
           "type": "array",
@@ -384,7 +386,8 @@ or the new-unit wizard's **From catalog** mode (portal), both of which route thr
 ## See Also
 
 - [Agents](agents.md) — agent model, execution pattern, cloning, prompt assembly
-- [Agent SDK](agent-sdk.md) — `Cvoya.Spring.AgentSdk`, `IOrchestrationClient`, env-var contract for workflow-driven runtimes
+- [Platform MCP Tools](platform-mcp-tools.md) — the `sv.<area>.<verb>` tool surface, the `sv.messaging.*` delivery tools, and the two MCP servers
+- [Agent SDK](agent-sdk.md) — `Cvoya.Spring.AgentSdk`, the typed messaging-delivery surface, env-var contract for workflow-driven runtimes
 - [Policies](policies.md) — unit policy framework, root unit
 - [Expertise](expertise.md) — expertise profiles, directory, aggregation, search
 - [Unit Lifecycle](unit-lifecycle.md) — validation workflow, status DAG, creation paths

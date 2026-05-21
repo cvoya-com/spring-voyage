@@ -6,7 +6,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-public sealed record DelegateToRequest(
+public sealed record MessagingSendRequest(
     [property: JsonPropertyName("callerAddress")] string CallerAddress,
     [property: JsonPropertyName("targetAddress")] string TargetAddress,
     [property: JsonPropertyName("threadId")] Guid ThreadId,
@@ -14,16 +14,16 @@ public sealed record DelegateToRequest(
     [property: JsonPropertyName("messageContent")] string MessageContent,
     [property: JsonPropertyName("reason")] string? Reason);
 
-// ADR-0049 — `delegate_to` is an RPC whose response is a delivery
-// acknowledgement: the message was durably placed in the recipient's
-// mailbox. It never carries the recipient's response.
-public sealed record DelegateToResponse(
+// ADR-0049 — `sv.messaging.send` is a one-way delivery tool whose response
+// is a delivery acknowledgement: the message was durably placed in the
+// recipient's mailbox. It never carries the recipient's response.
+public sealed record MessagingSendResponse(
     [property: JsonPropertyName("delivered")] bool Delivered,
     [property: JsonPropertyName("messageId")] Guid MessageId,
     [property: JsonPropertyName("target")] string Target,
     [property: JsonPropertyName("threadId")] Guid ThreadId);
 
-public sealed record FanoutToRequest(
+public sealed record MessagingBroadcastRequest(
     [property: JsonPropertyName("callerAddress")] string CallerAddress,
     [property: JsonPropertyName("targetAddresses")] string[] TargetAddresses,
     [property: JsonPropertyName("threadId")] Guid ThreadId,
@@ -31,15 +31,15 @@ public sealed record FanoutToRequest(
     [property: JsonPropertyName("messageContent")] string MessageContent,
     [property: JsonPropertyName("reason")] string? Reason);
 
-// ADR-0049 — `fanout_to` delivers to all targets in parallel and reports a
-// per-target delivery outcome (delivered / failed), not the recipients'
-// work products.
-public sealed record FanoutToResponse(
+// ADR-0049 — `sv.messaging.broadcast` delivers to all targets in parallel
+// and reports a per-target delivery outcome (delivered / failed), not the
+// recipients' work products.
+public sealed record MessagingBroadcastResponse(
     [property: JsonPropertyName("messageId")] Guid MessageId,
     [property: JsonPropertyName("threadId")] Guid ThreadId,
-    [property: JsonPropertyName("deliveries")] FanoutDeliveryOutcome[] Deliveries);
+    [property: JsonPropertyName("deliveries")] MessagingDeliveryOutcome[] Deliveries);
 
-public sealed record FanoutDeliveryOutcome(
+public sealed record MessagingDeliveryOutcome(
     [property: JsonPropertyName("target")] string Target,
     [property: JsonPropertyName("delivered")] bool Delivered,
     [property: JsonPropertyName("error")] string? Error);
@@ -52,12 +52,12 @@ public sealed record OrchestrationCallbackErrorResponse(
 //
 // The MCP streamable-HTTP transport (the `type: "http"` server the launchers
 // write into the agent container's .mcp.json) speaks JSON-RPC 2.0 against the
-// orchestration route-prefix root. The McpRpc* types in
+// messaging callback route-prefix root. The McpRpc* types in
 // Cvoya.Spring.Dapr/Mcp/McpJsonRpc.cs are `internal` to Cvoya.Spring.Dapr and
-// cannot be reused across the assembly boundary, so the dispatcher carries its
-// own minimal request/response records here.
+// cannot be reused across the assembly boundary, so the callback host carries
+// its own minimal request/response records here.
 
-/// <summary>JSON-RPC 2.0 request envelope for the MCP orchestration endpoint.</summary>
+/// <summary>JSON-RPC 2.0 request envelope for the MCP messaging endpoint.</summary>
 public sealed record McpJsonRpcRequest(
     [property: JsonPropertyName("jsonrpc")] string JsonRpc,
     [property: JsonPropertyName("id")] JsonElement? Id,

@@ -20,40 +20,27 @@ using Microsoft.Extensions.Logging;
 /// reflection tools (issue #2493). It exposes:
 /// <list type="bullet">
 ///   <item>
-///     <c>sv.report_progress</c> — publishes a narrative progress event
-///     onto the platform's activity bus from inside MCP rather than via
-///     the SDK's OTLP emitter. Both paths produce a
+///     <c>sv.runtime.report_progress</c> — publishes a narrative progress
+///     event onto the platform's activity bus from inside MCP rather than
+///     via the SDK's OTLP emitter. Both paths produce a
 ///     <see cref="ActivityEventType.RuntimeProgress"/> event with the
 ///     same shape; the MCP tool is parity for runtimes that don't use
 ///     the SDK's helper.
 ///   </item>
 ///   <item>
-///     <c>sv.report_decision</c> — records a structured routing /
+///     <c>sv.runtime.report_decision</c> — records a structured routing /
 ///     delegation decision as a <see cref="ActivityEventType.DecisionMade"/>
-///     activity, <i>independent of whether the decision executed</i>
-///     (issue #2581). The orchestration tools (<c>delegate_to</c> /
-///     <c>fanout_to</c>) only emit a decision when they actually run;
-///     when a runtime decides to route but cannot execute — the tool is
-///     unavailable, the model fails to call it, or the call is rejected
-///     before delivery — this tool is the always-available channel that
-///     keeps the decision from being silently lost. It lives on the
-///     <c>sv.*</c> surface, which uses the long-lived MCP token, so it
-///     stays reachable even when the short-lived orchestration callback
+///     activity. The platform's messaging tools (<c>sv.messaging.send</c> /
+///     <c>sv.messaging.broadcast</c>) only deliver messages — they do not
+///     record a routing decision (ADR-0048 / ADR-0049). A runtime that
+///     wants its routing choice on the activity stream calls this tool;
+///     it can log ANY decision, whether or not it executed. It lives on
+///     the <c>sv.*</c> surface, which uses the long-lived MCP token, so
+///     it stays reachable even when the short-lived messaging callback
 ///     token has expired.
 ///   </item>
 /// </list>
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Reconciliation with the orchestration tools.</b> A successfully
-/// executed <c>delegate_to</c> / <c>fanout_to</c> already emits exactly
-/// one <see cref="ActivityEventType.DecisionMade"/> activity from the
-/// dispatcher's <c>OrchestrationToolHandlers</c>. The runtime prompt
-/// directs <c>sv.report_decision</c> to be called <i>only</i> for the
-/// not-executed case, so the happy path still produces one decision
-/// record, not two.
-/// </para>
-/// </remarks>
 /// <remarks>
 /// <para>
 /// The tool's <c>text</c> argument is the human-facing message; the
@@ -71,11 +58,11 @@ using Microsoft.Extensions.Logging;
 /// </remarks>
 public sealed class SvRuntimeSkillRegistry : ISkillRegistry
 {
-    /// <summary>Tool name for <c>sv.report_progress</c>.</summary>
-    public const string ReportProgressTool = "sv.report_progress";
+    /// <summary>Tool name for <c>sv.runtime.report_progress</c>.</summary>
+    public const string ReportProgressTool = "sv.runtime.report_progress";
 
-    /// <summary>Tool name for <c>sv.report_decision</c> (issue #2581).</summary>
-    public const string ReportDecisionTool = "sv.report_decision";
+    /// <summary>Tool name for <c>sv.runtime.report_decision</c> (issue #2581).</summary>
+    public const string ReportDecisionTool = "sv.runtime.report_decision";
 
     private static readonly JsonElement ReportProgressArgSchema = ParseSchema("""
         {
@@ -99,7 +86,7 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["targets", "outcome"],
+          "required": ["targets"],
           "properties": {
             "kind": {
               "type": "string",
@@ -114,16 +101,16 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             },
             "rationale": {
               "type": "string",
-              "description": "Why this routing was chosen — the same rationale you would pass as the 'reason' argument to delegate_to / fanout_to."
+              "description": "Why this routing was chosen — the same rationale you would pass as the 'reason' argument to sv.messaging.send / sv.messaging.broadcast."
             },
             "outcome": {
               "type": "string",
               "enum": ["tool_unavailable", "validation_rejected", "delivery_failed", "not_attempted"],
-              "description": "Why the decision did NOT execute. Call this tool ONLY when the decision could not be carried out: 'tool_unavailable' (delegate_to / fanout_to is not in your tool surface), 'validation_rejected' (the platform rejected the call), 'delivery_failed' (the message could not be delivered), or 'not_attempted'. A decision that DID execute is already recorded by delegate_to / fanout_to — do not also report it here."
+              "description": "Optional. Supply this ONLY when the routing decision did NOT execute, to record why: 'tool_unavailable' (the messaging tool is not in your tool surface), 'validation_rejected' (the platform rejected the call), 'delivery_failed' (the message could not be delivered), or 'not_attempted'. OMIT it when the decision DID execute (you delivered the message) — the decision is then recorded as a routed decision."
             },
             "detail": {
               "type": "string",
-              "description": "Optional free-text detail about the not-executed reason (e.g. the validation error text)."
+              "description": "Optional free-text detail about the decision (e.g. the validation error text when 'outcome' is set)."
             }
           }
         }
@@ -159,13 +146,14 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
                 ReportProgressArgSchema),
             new ToolDefinition(
                 ReportDecisionTool,
-                "Record a structured routing/delegation decision that you could NOT " +
-                "execute, so it is not silently lost. Call this when you decided to " +
-                "route work to a target but delegate_to / fanout_to was unavailable, " +
-                "rejected, or otherwise did not run. Surfaces as a DecisionMade " +
-                "activity naming the intended target(s) and the reason it did not " +
-                "execute. Do NOT call this for a delegation that succeeded — a " +
-                "successful delegate_to / fanout_to already records its own decision.",
+                "Record a structured routing/delegation decision so it is visible " +
+                "on the activity stream. Call this whenever you decide to route " +
+                "work to a target — the platform's messaging tools deliver messages " +
+                "but do not record the routing decision itself. Surfaces as a " +
+                "DecisionMade activity naming the intended target(s). Omit the " +
+                "'outcome' argument when the decision executed (you delivered the " +
+                "message); supply it when the decision could NOT be carried out so " +
+                "the reason is captured.",
                 ReportDecisionArgSchema),
         };
     }
@@ -245,17 +233,20 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             // event is a diagnostic signal; failing to record it does
             // not invalidate the work.
             _logger.LogInformation(ex,
-                "sv.report_progress: failed to publish RuntimeProgress for caller {Caller}", subject);
+                "sv.runtime.report_progress: failed to publish RuntimeProgress for caller {Caller}", subject);
         }
 
         return ParseSchema("""{ "ok": true }""");
     }
 
     /// <summary>
-    /// #2581: records a routing/delegation decision the runtime made but
-    /// could not execute as a structured <see cref="ActivityEventType.DecisionMade"/>
-    /// activity, so it is visible on the activity stream even though
-    /// <c>delegate_to</c> / <c>fanout_to</c> never ran.
+    /// #2581: records a routing/delegation decision the runtime made as a
+    /// structured <see cref="ActivityEventType.DecisionMade"/> activity, so
+    /// it is visible on the activity stream. The optional <c>outcome</c>
+    /// argument discriminates a decision that executed (omitted →
+    /// <see cref="OrchestrationDecisionStatus.Routed"/>) from one that could
+    /// not be carried out (present →
+    /// <see cref="OrchestrationDecisionStatus.NotExecuted"/>).
     /// </summary>
     private async Task<JsonElement> InvokeReportDecisionAsync(
         JsonElement arguments,
@@ -263,7 +254,7 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
         CancellationToken cancellationToken)
     {
         var targetStrings = ReadTargetStrings(arguments);
-        var outcome = RequireEnumArg(
+        var outcome = TryReadEnumArg(
             arguments,
             "outcome",
             "tool_unavailable",
@@ -293,7 +284,7 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
 
         // A decision the runtime could not execute may name its target by
         // canonical address or by a human-facing name (the runtime knows
-        // members by name via sv.get_member). Parse what is a canonical
+        // members by name via sv.directory.get_member). . Parse what is a canonical
         // address into OrchestrationDecision.Targets; the verbatim
         // strings always go onto the metadata so the intended target is
         // never lost even when it was a name.
@@ -303,6 +294,13 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             .Select(a => a!)
             .ToArray();
 
+        // An omitted `outcome` records a decision that executed (Routed); a
+        // present `outcome` records one that could not be carried out
+        // (NotExecuted) — distinct from a delivery attempted and Failed.
+        var status = outcome is null
+            ? OrchestrationDecisionStatus.Routed
+            : OrchestrationDecisionStatus.NotExecuted;
+
         var decision = new OrchestrationDecision(
             DecisionId: Guid.NewGuid(),
             TenantId: _tenantContext.CurrentTenantId,
@@ -311,17 +309,18 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             InputMessageId: Guid.Empty,
             Kind: kind,
             Targets: parsedTargets,
-            // The runtime decided but never executed — distinct from a
-            // delivery that was attempted and Failed.
-            Status: OrchestrationDecisionStatus.NotExecuted,
+            Status: status,
             ResultMessageIds: [],
             Reason: rationale,
             Metadata: BuildDecisionMetadata(outcome, detail, targetStrings),
             CreatedAt: DateTimeOffset.UtcNow);
 
-        var summary = kind == OrchestrationDecisionKind.Fanout
-            ? $"Routing decision to {targetStrings.Count} target(s) not executed ({outcome})."
-            : $"Routing decision to '{targetStrings[0]}' not executed ({outcome}).";
+        var targetLabel = kind == OrchestrationDecisionKind.Fanout
+            ? $"{targetStrings.Count} target(s)"
+            : $"'{targetStrings[0]}'";
+        var summary = outcome is null
+            ? $"Routing decision to {targetLabel} recorded."
+            : $"Routing decision to {targetLabel} not executed ({outcome}).";
 
         var activityEvent = new ActivityEvent(
             Guid.NewGuid(),
@@ -329,9 +328,9 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             subject,
             ActivityEventType.DecisionMade,
             // A decision that could not execute is an operator-actionable
-            // condition — surface it at Warning, matching the dispatcher's
-            // failed-decision severity.
-            ActivitySeverity.Warning,
+            // condition — surface it at Warning. An executed decision is
+            // routine and surfaces at Info.
+            outcome is null ? ActivitySeverity.Info : ActivitySeverity.Warning,
             summary,
             JsonSerializer.SerializeToElement(decision),
             threadId == Guid.Empty ? null : threadId.ToString("D"));
@@ -345,7 +344,7 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             // Best-effort: never raise back to the model — recording the
             // decision is diagnostic, not load-bearing for the turn.
             _logger.LogWarning(ex,
-                "sv.report_decision: failed to publish DecisionMade for caller {Caller}", subject);
+                "sv.runtime.report_decision: failed to publish DecisionMade for caller {Caller}", subject);
         }
 
         return ParseSchema("""{ "ok": true }""");
@@ -379,19 +378,29 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
         return targets;
     }
 
-    private static string RequireEnumArg(JsonElement args, string name, params string[] allowed)
+    /// <summary>
+    /// Reads an optional enum-valued argument. Returns <c>null</c> when the
+    /// argument is absent; throws when present but outside <paramref name="allowed"/>.
+    /// </summary>
+    private static string? TryReadEnumArg(JsonElement args, string name, params string[] allowed)
     {
-        var raw = RequireStringArg(args, name);
+        var raw = TryReadStringArg(args, name);
+        if (raw is null)
+        {
+            return null;
+        }
+
         if (Array.IndexOf(allowed, raw) < 0)
         {
             throw new ArgumentException(
                 $"Argument '{name}' must be one of: {string.Join(", ", allowed)}. Got '{raw}'.");
         }
+
         return raw;
     }
 
     private static JsonElement BuildDecisionMetadata(
-        string outcome,
+        string? outcome,
         string? detail,
         IReadOnlyList<string> intendedTargets)
     {
@@ -399,10 +408,12 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
         using (var writer = new Utf8JsonWriter(stream))
         {
             writer.WriteStartObject();
-            // Machine-readable not-executed reason — the platform cannot
-            // parse free prose, so the runtime emits it through this
-            // defined field.
-            writer.WriteString("executionOutcome", outcome);
+            // Machine-readable not-executed reason — present only when the
+            // runtime reported a decision it could not carry out.
+            if (!string.IsNullOrWhiteSpace(outcome))
+            {
+                writer.WriteString("executionOutcome", outcome);
+            }
             // Verbatim intended-target strings, even when a target was a
             // human name rather than a canonical address — so the intended
             // target is never lost.
@@ -416,7 +427,7 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             {
                 writer.WriteString("detail", detail);
             }
-            writer.WriteString("source", "mcp:sv.report_decision");
+            writer.WriteString("source", "mcp:sv.runtime.report_decision");
             writer.WriteEndObject();
         }
         return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
@@ -433,7 +444,7 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             {
                 writer.WriteString("kind", kind);
             }
-            writer.WriteString("source", "mcp:sv.report_progress");
+            writer.WriteString("source", "mcp:sv.runtime.report_progress");
             writer.WriteString("sv.subject.uuid", subject.Path);
             writer.WriteString("sv.subject.kind", subject.Scheme);
             writer.WriteEndObject();

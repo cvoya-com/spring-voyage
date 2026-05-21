@@ -7,8 +7,8 @@ It is the atomic unit of cognitive work in Spring Voyage: every message that
 needs reasoning is ultimately delivered to an agent-shaped runtime invocation.
 
 A **unit** is an agent that has children. A **leaf agent** is an agent with no
-children. The dispatch path is the same for both; the child list only controls
-whether orchestration tools are attached. See [Units](units.md) for the
+children. The dispatch path is the same for both, and both runtimes receive the
+same platform MCP tools — the child list does not gate the tool surface. See [Units](units.md) for the
 unit-specific layer, [Units vs agents](units-vs-agents.md) for the quick
 reference on what features apply to both vs only one,
 [ADR-0039](../decisions/0039-units-are-agents.md) for the unit-as-agent
@@ -46,67 +46,71 @@ agent values override inherited values per field.
 
 At dispatch time the platform resolves the effective execution config,
 assembles the prompt, resolves credentials, asks
-`IOrchestrationToolProvider` for the tools available to this agent in the
-current thread, and launches the selected runtime through
+`IMessagingToolProvider` for the platform MCP tools available to this agent in
+the current thread, and launches the selected runtime through
 `IAgentRuntimeLauncher`.
 
 The launcher owns runtime-specific setup: workspace files, environment
 variables, callback credentials, MCP wiring, and native tool attachment. The
-runtime then answers the message directly or, when orchestration tools are
-present, may coordinate with children.
+runtime then answers the message directly or delivers a message to another
+addressable target to coordinate work.
 
 ## Leaf agent vs. unit
 
-A leaf agent has no children. It uses the same runtime path, but the
-orchestration tool set is empty.
+A leaf agent has no children. A unit is an agent that has children. Both run
+through the same runtime path and both receive the same platform MCP tools —
+including the `sv.messaging.*` delivery tools. The child list does not gate the
+tool surface; the runtime's instructions decide whether to answer directly or
+deliver work to a member.
 
-When an agent has children, it is a unit. The launcher attaches the five
-orchestration tools to the runtime context. The runtime may call those tools to
-delegate or fan out work, and the platform records each delegation as an
-`OrchestrationDecision` activity event.
+## Platform messaging tools
 
-## The orchestration tools
-
-The orchestration tool surface is closed for v0.1 to **two action verbs**:
+The platform's message-delivery surface is two MCP tools
+([ADR-0050](../decisions/0050-platform-mcp-tool-surface.md)):
 
 | Tool | Description |
 | --- | --- |
-| `delegate_to` | Routes the current message thread to a single addressable target and waits for the response within the turn budget. |
-| `fanout_to` | Routes the current work to multiple addressable targets in parallel and collects one result per target. |
+| `sv.messaging.send` | One-way delivery of a message to a single addressable target. Returns a delivery acknowledgement — the message reached the recipient's mailbox — never the recipient's reply. |
+| `sv.messaging.broadcast` | One-way delivery to multiple targets, addressed explicitly or by a directory-relationship `scope` (`unit-members`, `siblings`). |
 
-Discovery, inspection, and runtime-status queries live on the `sv.*` directory
-tool surface, not on the orchestration surface — `sv.list_members`,
-`sv.get_member`, `sv.get_status`, plus `sv.get_siblings` / `sv.get_parents` /
-`sv.get_self` for broader directory navigation.
+The platform delivers messages; it does not orchestrate. There is no
+`delegate_to` / `fanout_to` tool — "delegation" is message *content* the
+recipient's runtime interprets, not a distinct platform tool. A runtime
+delegates by sending a message via `sv.messaging.send` whose content says so.
 
-The launcher attaches both action verbs unconditionally for every `agent://`
-and `unit://` runtime; membership is not a gate. Unit operators and runtime
-authors do not configure a separate routing layer for them.
+Discovery, inspection, and runtime-status queries live on the `sv.directory.*`
+tools — `sv.directory.list_members`, `sv.directory.get_member`,
+`sv.directory.get_status`, plus `sv.directory.get_siblings` /
+`sv.directory.get_parents` / `sv.directory.get_self` for broader directory
+navigation.
+
+The launcher attaches the platform MCP surface unconditionally for every
+`agent://` and `unit://` runtime; membership is not a gate. Unit operators and
+runtime authors do not configure a separate routing layer.
 
 ## Orchestration decisions
 
-When a runtime calls a delegation tool, the platform publishes an
-`ActivityEvent` with `EventType = DecisionMade` and an
-`OrchestrationDecision` payload:
+Recording a routing decision is *optional*. A plain `sv.messaging.*` delivery
+records a `MessageSent` activity and nothing more. When a runtime wants the
+*decision* itself on the activity stream, it calls `sv.runtime.report_decision`
+— ADR-0050 generalised that tool so it records any routing decision, executed
+or not. The platform then publishes an `ActivityEvent` with
+`EventType = DecisionMade` and an `OrchestrationDecision` payload:
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `Kind` | `Delegate` \| `Fanout` | What the runtime decided to do. |
-| `Status` | `Accepted` \| `Routed` \| `Failed` | Outcome of the delegation attempt. |
-| `Targets` | `Address[]` | Child unit(s) the work was routed to. |
-| `ResultMessageIds` | `Guid[]` | IDs of the child responses. |
+| `Status` | `Accepted` \| `Routed` \| `Failed` | Outcome of the decision. |
+| `Targets` | `Address[]` | The address(es) the work was routed to. |
+| `ResultMessageIds` | `Guid[]` | IDs of any response messages. |
 | `Reason` | `string?` | Runtime-supplied explanation (failure reason or routing rationale). |
 
-Delegation events use `Kind = Delegate` for `delegate_to` and
-`Kind = Fanout` for `fanout_to`. `Status` is `Routed` when the
-platform routed the target message and `Failed` when the tool call could not
-complete. `Targets` contains the target addresses, `ResultMessageIds` contains
-any response message ids, and `Reason` is optional runtime-supplied text. The
-`sv.*` directory tools are read-only probes and do not emit
-`OrchestrationDecision` events.
+Only `sv.runtime.report_decision` publishes a `DecisionMade` event; the
+`sv.directory.*` and `sv.messaging.*` tools do not.
 
-See [ADR-0039 § 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence)
-for the full record definition.
+See [ADR-0050 § 3](../decisions/0050-platform-mcp-tool-surface.md) for the
+generalised `report_decision` contract and [ADR-0039 § 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence)
+for the original first-class-evidence rationale.
 
 ## Inheritance
 

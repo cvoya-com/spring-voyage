@@ -5,7 +5,7 @@ namespace Cvoya.Spring.Dapr.Orchestration;
 
 /// <summary>
 /// Platform defaults for the synchronous bounded-retry delivery loop in
-/// <see cref="OrchestrationToolHandlers"/> (ADR-0049 §4). A message-delivery
+/// <see cref="MessageDeliveryService"/> (ADR-0049 §4). A message-delivery
 /// tool delivers inline; a transient infrastructure failure of the fast
 /// mailbox enqueue is retried up to <see cref="MaxAttempts"/> times within
 /// the <see cref="Budget"/> window with backoff. The defaults are deliberately
@@ -23,6 +23,18 @@ public sealed class OrchestrationDeliveryOptions
     /// <summary>Initial backoff delay; doubled after each failed attempt.</summary>
     public TimeSpan InitialBackoff { get; set; } = DefaultInitialBackoff;
 
+    /// <summary>
+    /// Maximum number of message-delivery hops permitted on a single thread
+    /// (#2576). Each <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c>
+    /// call increments the thread's hop counter once; when the count exceeds
+    /// this limit the delivery is rejected with
+    /// <see cref="OrchestrationException.RejectCodes.OrchestrationDepthExceeded"/>.
+    /// This replaces the call-stack depth guard removed under ADR-0049 — under
+    /// one-way delivery there is no call stack, so the guard is carried on the
+    /// per-thread hop actor instead.
+    /// </summary>
+    public int MaxHopCount { get; set; } = DefaultMaxHopCount;
+
     /// <summary>Default number of delivery attempts — three.</summary>
     public const int DefaultMaxAttempts = 3;
 
@@ -31,4 +43,7 @@ public sealed class OrchestrationDeliveryOptions
 
     /// <summary>Default initial backoff between delivery attempts.</summary>
     public static readonly TimeSpan DefaultInitialBackoff = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>Default per-thread message-delivery hop limit — sixteen.</summary>
+    public const int DefaultMaxHopCount = 16;
 }

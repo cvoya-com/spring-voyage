@@ -230,7 +230,7 @@ Spring Voyage operates on a single-identity model internally (§ 1), but the **o
 
 | Surface | Identifier shape | Examples |
 |---|---|---|
-| `sv.*` MCP tools (`sv.send_message`, `sv.list_members`, future `sv.github.request_review`) | Stable `Guid` | `human:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7` |
+| `sv.*` MCP tools (`sv.messaging.send`, `sv.directory.list_members`, …) | Stable `Guid` | `human:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7` |
 | Container-native CLI tools agents invoke (`gh`, `git`) — populated via the `SPRING_*` env-vars from [#2380](https://github.com/cvoya-com/spring-voyage/pull/2380) | Connector-native | `gh issue assign --add-assignee octocat` |
 | `TenantUserConnectorIdentity` table — the bridge | Triple `(tenant_id, tenant_user_id, connector_id)` | `(<tenant>, <operator-tu>, github)` with `username = octocat` |
 

@@ -690,7 +690,7 @@ export interface paths {
         };
         /**
          * List every team-role membership row attached to this unit.
-         * @description Returns the rows from `unit_memberships_humans` for the unit in stable (created_at, id) order. Mirror of `sv.list_members`'s human entries. Viewer-gated.
+         * @description Returns the rows from `unit_memberships_humans` for the unit in stable (created_at, id) order. Mirror of `sv.directory.list_members`'s human entries. Viewer-gated.
          */
         get: operations["ListUnitHumanMembers"];
         put?: never;

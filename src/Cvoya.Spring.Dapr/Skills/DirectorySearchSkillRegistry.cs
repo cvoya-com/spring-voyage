@@ -12,7 +12,7 @@ using Cvoya.Spring.Core.Skills;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Meta-skill registry that advertises <c>sv.search_expertise</c> (#542) so a
+/// Meta-skill registry that advertises <c>sv.expertise.search</c> (#542) so a
 /// planner (or any <see cref="ISkillInvoker"/> consumer) can resolve a
 /// capability description to concrete <c>sv.expertise.{slug}</c> hits BEFORE
 /// invoking any other skill. This is load-bearing for PR #541's practical
@@ -43,7 +43,7 @@ using Microsoft.Extensions.Logging;
 public class DirectorySearchSkillRegistry : ISkillRegistry
 {
     /// <summary>Catalog name for the meta-skill.</summary>
-    public const string SkillName = "sv.search_expertise";
+    public const string SkillName = "sv.expertise.search";
 
     private static readonly JsonElement InputSchema = BuildInputSchema();
     private static readonly JsonElement OutputSchema = BuildOutputSchema();

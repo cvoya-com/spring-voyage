@@ -260,7 +260,7 @@ public class SpringDbContext : DbContext
     /// (long-term or short-term); owner-scoped on
     /// <c>(tenant_id, owner_scheme, owner_id)</c> per ADR-0036, with a
     /// Postgres <c>GIN(to_tsvector('english', content))</c> index that
-    /// backs the <c>sv.memory_search</c> tool.
+    /// backs the <c>sv.memory.search</c> tool.
     /// </summary>
     public DbSet<MemoryEntity> Memories => Set<MemoryEntity>();
 

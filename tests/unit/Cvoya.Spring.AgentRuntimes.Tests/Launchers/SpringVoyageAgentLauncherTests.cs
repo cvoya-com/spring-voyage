@@ -115,29 +115,29 @@ public class SpringVoyageAgentLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_NullOrEmptyOrchestrationTools_DoesNotSetEnvironmentVariable()
+    public async Task PrepareAsync_NullOrEmptyMessagingTools_DoesNotSetEnvironmentVariable()
     {
         var nullContext = CreateContext();
-        var emptyContext = CreateContext() with { OrchestrationTools = [] };
+        var emptyContext = CreateContext() with { MessagingTools = [] };
 
         var nullPrep = await _launcher.PrepareAsync(nullContext, TestContext.Current.CancellationToken);
         var emptyPrep = await _launcher.PrepareAsync(emptyContext, TestContext.Current.CancellationToken);
 
-        nullPrep.EnvironmentVariables.ShouldNotContainKey(OrchestrationToolsContract.EnvVar);
-        emptyPrep.EnvironmentVariables.ShouldNotContainKey(OrchestrationToolsContract.EnvVar);
+        nullPrep.EnvironmentVariables.ShouldNotContainKey(MessagingToolsContract.EnvVar);
+        emptyPrep.EnvironmentVariables.ShouldNotContainKey(MessagingToolsContract.EnvVar);
     }
 
     [Fact]
-    public async Task PrepareAsync_OrchestrationTools_SetsSerializedEnvironmentVariable()
+    public async Task PrepareAsync_MessagingTools_SetsSerializedEnvironmentVariable()
     {
-        var expectedTools = CreateOrchestrationTools();
-        var context = CreateContext() with { OrchestrationTools = expectedTools };
+        var expectedTools = CreateMessagingTools();
+        var context = CreateContext() with { MessagingTools = expectedTools };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables.ShouldContainKey(OrchestrationToolsContract.EnvVar);
-        var raw = prep.EnvironmentVariables[OrchestrationToolsContract.EnvVar];
-        var actualTools = JsonSerializer.Deserialize<OrchestrationToolDescriptor[]>(raw);
+        prep.EnvironmentVariables.ShouldContainKey(MessagingToolsContract.EnvVar);
+        var raw = prep.EnvironmentVariables[MessagingToolsContract.EnvVar];
+        var actualTools = JsonSerializer.Deserialize<MessagingToolDescriptor[]>(raw);
 
         actualTools.ShouldNotBeNull();
         actualTools.Length.ShouldBe(expectedTools.Length);
@@ -463,10 +463,10 @@ public class SpringVoyageAgentLauncherTests
             prompt: "## System\nYou are a helpful assistant.",
             mcpToken: "test-token-xyz");
 
-    private static OrchestrationToolDescriptor[] CreateOrchestrationTools() =>
+    private static MessagingToolDescriptor[] CreateMessagingTools() =>
     [
         new(
-            OrchestrationToolName.DelegateTo,
+            MessagingToolName.Send,
             JsonSerializer.SerializeToElement(new
             {
                 type = "object",
@@ -478,7 +478,7 @@ public class SpringVoyageAgentLauncherTests
                 required = new[] { "message" },
             })),
         new(
-            OrchestrationToolName.FanoutTo,
+            MessagingToolName.Broadcast,
             JsonSerializer.SerializeToElement(new
             {
                 type = "object",

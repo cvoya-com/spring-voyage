@@ -20,8 +20,17 @@ using Shouldly;
 
 using Xunit;
 
+/// <summary>
+/// REST-route coverage for the messaging callback endpoints
+/// (<c>/messaging/send</c>, <c>/messaging/broadcast</c>) — ADR-0048 /
+/// ADR-0049. Both are one-way delivery tools: the response is a delivery
+/// acknowledgement, never the recipient's reply.
+/// </summary>
 public class OrchestrationCallbackEndpointsTests
 {
+    private const string SendRoute = "/v1/runtime/orchestration/messaging/send";
+    private const string BroadcastRoute = "/v1/runtime/orchestration/messaging/broadcast";
+
     private static readonly Address UnitAddress =
         new(Address.UnitScheme, Guid.Parse("bbbbbbbb-0000-0000-0000-000000000001"));
 
@@ -32,11 +41,10 @@ public class OrchestrationCallbackEndpointsTests
         new(Address.AgentScheme, Guid.Parse("aaaaaaaa-0000-0000-0000-000000000002"));
 
     [Fact]
-    public async Task DelegateTo_AgentCallerWithAnyTarget_Returns200()
+    public async Task Send_AgentCallerWithAnyTarget_Returns200()
     {
-        // ADR-0039 §3 (2026-05-19 amendment, #2536): an agent caller can
-        // delegate to any addressable target in the same tenant — no
-        // membership gate.
+        // ADR-0048 / ADR-0049: an agent caller can deliver a message to any
+        // addressable target in the same tenant — no membership gate.
         using var factory = new OrchestrationCallbackTestHost();
         var caller = new Address(Address.AgentScheme, Guid.Parse("dddddddd-0000-0000-0000-000000000001"));
         var agent = Substitute.For<IAgent>();
@@ -47,18 +55,16 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(caller);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(caller, ChildAddress, factory.ThreadId),
+            SendRoute,
+            SendRequest(caller, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Fact]
-    public async Task DelegateTo_UnitCaller_AnyTarget_Returns200()
+    public async Task Send_UnitCaller_AnyTarget_Returns200()
     {
-        // ADR-0039 §3 (2026-05-19 amendment, #2536): unit callers can target
-        // any addressable entity, not just direct members.
         using var factory = new OrchestrationCallbackTestHost();
         var caller = new Address(Address.AgentScheme, Guid.Parse("dddddddd-0000-0000-0000-000000000002"));
         var agent = Substitute.For<IAgent>();
@@ -69,23 +75,23 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(caller);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(caller, ChildAddress, factory.ThreadId),
+            SendRoute,
+            SendRequest(caller, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Fact]
-    public async Task DelegateTo_UnsupportedCallerScheme_Returns403()
+    public async Task Send_UnsupportedCallerScheme_Returns403()
     {
         using var factory = new OrchestrationCallbackTestHost();
         var caller = new Address(Address.HumanScheme, Guid.Parse("cccccccc-0000-0000-0000-000000000001"));
         var client = factory.CreateCallbackClient(caller);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(caller, ChildAddress, factory.ThreadId),
+            SendRoute,
+            SendRequest(caller, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
@@ -94,14 +100,14 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task DelegateTo_SelfTarget_Returns400()
+    public async Task Send_SelfTarget_Returns400()
     {
         using var factory = new OrchestrationCallbackTestHost();
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(UnitAddress, UnitAddress, factory.ThreadId),
+            SendRoute,
+            SendRequest(UnitAddress, UnitAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -111,10 +117,10 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task DelegateTo_HappyPath_ReturnsDeliveryAck()
+    public async Task Send_HappyPath_ReturnsDeliveryAck()
     {
-        // ADR-0049 — delegate_to returns a delivery acknowledgement, never
-        // the target's response.
+        // ADR-0049 — sv.messaging.send returns a delivery acknowledgement,
+        // never the target's response.
         using var factory = new OrchestrationCallbackTestHost();
         var agent = Substitute.For<IAgent>();
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
@@ -124,8 +130,8 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
+            SendRoute,
+            SendRequest(UnitAddress, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -136,7 +142,7 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task FanoutTo_HappyPath_ReturnsPerTargetDeliveryOutcomes()
+    public async Task Broadcast_HappyPath_ReturnsPerTargetDeliveryOutcomes()
     {
         using var factory = new OrchestrationCallbackTestHost();
         var firstAgent = Substitute.For<IAgent>();
@@ -151,7 +157,7 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/fanout-to",
+            BroadcastRoute,
             new
             {
                 callerAddress = UnitAddress.ToString(),
@@ -178,8 +184,8 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(ChildAddress, OtherChildAddress, factory.ThreadId),
+            SendRoute,
+            SendRequest(ChildAddress, OtherChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
@@ -194,8 +200,8 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(UnitAddress, ChildAddress, Guid.Parse("eeeeeeee-0000-0000-0000-000000000099")),
+            SendRoute,
+            SendRequest(UnitAddress, ChildAddress, Guid.Parse("eeeeeeee-0000-0000-0000-000000000099")),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -211,8 +217,8 @@ public class OrchestrationCallbackEndpointsTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "not-a-jwt");
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
+            SendRoute,
+            SendRequest(UnitAddress, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
@@ -227,8 +233,8 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateClient();
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
+            SendRoute,
+            SendRequest(UnitAddress, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
@@ -236,10 +242,34 @@ public class OrchestrationCallbackEndpointsTests
         json.GetProperty("error").GetString().ShouldBe("InvalidToken");
     }
 
+    [Fact]
+    public async Task Send_EmitsMessageSentActivity()
+    {
+        // ADR-0048 / ADR-0049 — a successful send emits a plain MessageSent
+        // activity, never a DecisionMade.
+        using var factory = new OrchestrationCallbackTestHost();
+        var agent = Substitute.For<IAgent>();
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        factory.RegisterAgent(ChildAddress, agent);
+        var client = factory.CreateCallbackClient(UnitAddress);
+
+        var response = await client.PostAsJsonAsync(
+            SendRoute,
+            SendRequest(UnitAddress, ChildAddress, factory.ThreadId),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        factory.CapturedActivities
+            .ShouldContain(e => e.EventType == ActivityEventType.MessageSent);
+        factory.CapturedActivities
+            .ShouldNotContain(e => e.EventType == ActivityEventType.DecisionMade);
+    }
+
     // ---- #2582: callback-token rejection diagnostics --------------------
 
     [Fact]
-    public async Task DelegateTo_ExpiredToken_EmitsErrorOccurredActivity()
+    public async Task Send_ExpiredToken_EmitsErrorOccurredActivity()
     {
         using var factory = new OrchestrationCallbackTestHost();
         var client = factory.CreateClient();
@@ -247,8 +277,8 @@ public class OrchestrationCallbackEndpointsTests
             new AuthenticationHeaderValue("Bearer", factory.IssueExpiredToken(UnitAddress));
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
+            SendRoute,
+            SendRequest(UnitAddress, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
@@ -267,7 +297,7 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task DelegateTo_MalformedToken_EmitsErrorOccurredActivity()
+    public async Task Send_MalformedToken_EmitsErrorOccurredActivity()
     {
         using var factory = new OrchestrationCallbackTestHost();
         var client = factory.CreateClient();
@@ -275,8 +305,8 @@ public class OrchestrationCallbackEndpointsTests
             new AuthenticationHeaderValue("Bearer", "not-a-jwt");
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
+            SendRoute,
+            SendRequest(UnitAddress, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
@@ -290,10 +320,8 @@ public class OrchestrationCallbackEndpointsTests
     }
 
     [Fact]
-    public async Task DelegateTo_HappyPath_EmitsNoErrorOccurredActivity()
+    public async Task Send_HappyPath_EmitsNoErrorOccurredActivity()
     {
-        // A legitimate orchestration call must not emit a rejection
-        // ErrorOccurred activity (only the DecisionMade from the handler).
         using var factory = new OrchestrationCallbackTestHost();
         var agent = Substitute.For<IAgent>();
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
@@ -302,8 +330,8 @@ public class OrchestrationCallbackEndpointsTests
         var client = factory.CreateCallbackClient(UnitAddress);
 
         var response = await client.PostAsJsonAsync(
-            "/v1/runtime/orchestration/delegate-to",
-            DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
+            SendRoute,
+            SendRequest(UnitAddress, ChildAddress, factory.ThreadId),
             TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -311,7 +339,7 @@ public class OrchestrationCallbackEndpointsTests
             .ShouldNotContain(e => e.EventType == ActivityEventType.ErrorOccurred);
     }
 
-    private static object DelegateRequest(Address caller, Address target, Guid threadId) =>
+    private static object SendRequest(Address caller, Address target, Guid threadId) =>
         new
         {
             callerAddress = caller.ToString(),

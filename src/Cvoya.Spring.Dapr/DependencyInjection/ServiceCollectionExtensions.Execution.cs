@@ -188,8 +188,8 @@ internal static class ServiceCollectionExtensionsExecution
         services.TryAddSingleton<IContainerRuntime, DispatcherClientContainerRuntime>();
         services.TryAddSingleton<ITenantSigningKeyProvider, DispatcherClientTenantSigningKeyProvider>();
         services.TryAddSingleton<ICallbackTokenIssuer, CallbackTokenIssuer>();
-        // Orchestration callback-token validation (ADR-0039 §3). The
-        // delegate_to / fanout_to callback endpoints relocated onto the
+        // Messaging callback-token validation. The sv.messaging.send /
+        // sv.messaging.broadcast callback endpoints relocated onto the
         // Dapr-connected API host (#2586) — they validate the per-invocation
         // callback JWT through this validator and surface rejections via
         // OrchestrationCallbackDiagnostics (#2582: a warning log + an

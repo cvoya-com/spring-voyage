@@ -234,9 +234,9 @@ See [Workflows](workflows.md) for the sidecar-protocol layer diagram.
 
 ---
 
-## 4a. Orchestration callback bootstrap
+## 4a. Messaging callback bootstrap
 
-Every built-in launcher stamps the dispatcher orchestration callback bootstrap
+Every built-in launcher stamps the dispatcher messaging callback bootstrap
 into the runtime container:
 
 | Env var | Source | Purpose |
@@ -247,15 +247,15 @@ into the runtime container:
 The launcher path uses the same callback-token contract the dispatcher
 validates for ADR-0039 D12/D13. Ephemeral launches receive a token for the
 inbound message being served. CLI-sidecar launchers append
-`/v1/runtime/orchestration` when configuring the orchestration MCP server;
+`/v1/runtime/orchestration` when configuring the `spring-orchestration` MCP server;
 the raw env var remains the dispatcher base URL for SDK clients.
 
 The callback JWT is short-lived (`CallbackTokenOptions.Lifetime`, 5 minutes),
-so a persistent container would otherwise lose `delegate_to` / `fanout_to`
-once the launch-time token in `.mcp.json` expired. The A2A sidecar therefore
-refreshes the `spring-orchestration` server's `Authorization` header in
-`.mcp.json` before every CLI exec, using the per-message callback token
-delivered in the `message/send` metadata
+so a persistent container would otherwise lose `sv.messaging.send` /
+`sv.messaging.broadcast` once the launch-time token in `.mcp.json` expired.
+The A2A sidecar therefore refreshes the `spring-orchestration` server's
+`Authorization` header in `.mcp.json` before every CLI exec, using the
+per-message callback token delivered in the `message/send` metadata
 ([#2580](https://github.com/cvoya-com/spring-voyage/issues/2580)). The
 launcher points the sidecar at the config file via
 `SPRING_ORCHESTRATION_MCP_CONFIG`; the CLI re-reads `.mcp.json` on each
@@ -264,93 +264,98 @@ correctly thread-scoped token.
 
 ---
 
-## 4b. Orchestration-tool surface
+## 4b. Platform MCP tool surface
 
-ADR-0039 (as amended 2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536) / [#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)) closes the orchestration surface to **two platform-provided action verbs**. The
-runtime path attaches these tools unconditionally for every `agent://` and
-`unit://` runtime; membership is not a gate. The descriptors are passed to the
-selected launcher through `AgentLaunchContext.OrchestrationTools`. Unit operators
-and runtime authors do not enable a separate orchestration mode.
+Platform MCP tools follow the `sv.<area>.<verb>` taxonomy
+([ADR-0050](../decisions/0050-platform-mcp-tool-surface.md)). The platform's
+message-delivery surface is exactly two tools — `sv.messaging.send` and
+`sv.messaging.broadcast` — on the [ADR-0049](../decisions/0049-message-delivery-tool-contract.md)
+delivery-acknowledgement contract. The runtime path attaches the platform MCP
+surface unconditionally for every `agent://` and `unit://` runtime; unit
+operators and runtime authors do not enable a separate orchestration mode.
 
 | Tool | Description |
 | --- | --- |
-| `delegate_to` | Dispatches the inbound message to one addressable target and returns its reply. Emits `OrchestrationDecision` with `Kind=Delegate`. |
-| `fanout_to` | Dispatches to multiple addressable targets in parallel and returns all replies. Emits `OrchestrationDecision` with `Kind=Fanout`. |
+| `sv.messaging.send` | One-way delivery of a message to a single addressable target. Returns a delivery acknowledgement — the message reached the recipient's mailbox — never the recipient's reply. Records a `MessageSent` activity. |
+| `sv.messaging.broadcast` | One-way delivery to many targets, addressed explicitly or by a directory-relationship `scope` (`unit-members`, `siblings`). Records a `MessageSent` activity per target. |
 
-Discovery, inspection, and runtime-status queries live on the `sv.*` directory
-tool surface exposed through the standard `spring-voyage` MCP server
-(`sv.list_members`, `sv.get_member`, `sv.get_status`, `sv.get_siblings`,
-`sv.get_parents`, `sv.get_self`). The orchestration surface is purely the
-action path; see [Orchestration Tools § 1a](orchestration-tools.md#1a-relation-to-sv-directory-tools)
-for the cross-reference table.
+The `delegate_to` / `fanout_to` orchestration tools no longer exist
+([ADR-0050 § 2](../decisions/0050-platform-mcp-tool-surface.md), superseding
+[ADR-0039 §§ 3–4](../decisions/0039-units-are-agents.md)): the platform
+delivers messages, it does not orchestrate. "Delegation" is message *content*
+the recipient's runtime interprets — a runtime delegates by sending a message
+via `sv.messaging.send` whose content says so. The platform treats a delegated
+message and a peer message identically.
 
-The runtime decides whether to answer directly, delegate to one target,
-or fan out to several. The platform supplies the action tools, checks the
-call, routes the resulting messages, and records delegation evidence.
+Recording a routing decision is an *optional*, explicit `sv.runtime.report_decision`
+call (§ 4d), not a side effect of delivery. Discovery, inspection, and
+runtime-status queries live on the `sv.directory.*` tools exposed through the
+worker `spring-voyage` MCP server (`sv.directory.list_members`,
+`sv.directory.get_member`, `sv.directory.get_status`, …). See
+[Platform MCP Tools](platform-mcp-tools.md) for the full `sv.<area>.<verb>`
+catalogue.
 
-The same two tools are exposed through two runtime-facing surfaces:
+The delivery handlers are exposed through two runtime-facing surfaces:
 
 | Surface | Runtime style | Runtimes | Attachment |
 | --- | --- | --- | --- |
-| MCP / env-var-keyed tool calls | LLM-driven | `spring-voyage`, `claude-code`, `codex`, `gemini` | The launcher injects orchestration tool definitions into the runtime's tool-call surface. `spring-voyage` receives the descriptor array through `SPRING_ORCHESTRATION_TOOLS`; the CLI runtimes receive a Spring orchestration MCP server. |
-| Typed HTTP callback SDK | Workflow-driven | Runtime images using `Cvoya.Spring.AgentSdk` | The launcher stamps `SPRING_CALLBACK_URL` and `SPRING_CALLBACK_TOKEN` into the container environment. The SDK discovers those values and exposes typed `IOrchestrationClient` methods over the dispatcher's callback API. |
+| MCP tool calls | LLM-driven | `spring-voyage`, `claude-code`, `codex`, `gemini` | The launcher attaches the `spring-orchestration` MCP server alongside the worker `spring-voyage` server. |
+| Typed HTTP callback SDK | Workflow-driven | Runtime images using `Cvoya.Spring.AgentSdk` | The launcher stamps `SPRING_CALLBACK_URL` and `SPRING_CALLBACK_TOKEN` into the container environment. The SDK discovers those values and exposes typed messaging-delivery methods over the dispatcher's callback API. |
 
 Both surfaces dispatch to the same platform-side
-[`OrchestrationToolHandlers`](../../src/Cvoya.Spring.Dapr/Orchestration/OrchestrationToolHandlers.cs)
-implementation and produce the same `OrchestrationDecision` evidence. The
-SDK surface lives in
+[`MessagingToolHandlers`](../../src/Cvoya.Spring.Dapr/Orchestration/MessagingToolHandlers.cs)
+implementation. The SDK surface lives in
 [`src/Cvoya.Spring.AgentSdk/`](../../src/Cvoya.Spring.AgentSdk/) and is
-documented in [Agent SDK](agent-sdk.md). The tool-call surface — closed
-enum, descriptor / schema shape, and per-runtime attachment mechanism — is
-documented in [Orchestration Tools](orchestration-tools.md), the
-runtime-image author contract.
+documented in [Agent SDK](agent-sdk.md). The MCP surface — the taxonomy, the
+two MCP servers, the messaging contract, and the per-thread hop counter — is
+documented in [Platform MCP Tools](platform-mcp-tools.md).
 
-See [ADR-0039 section 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime).
+With a single delivery seam, delegation-loop prevention is implemented once: a
+per-thread hop counter incremented on every `sv.messaging.send` /
+`sv.messaging.broadcast` call rejects a call past the platform limit with the
+validation-class `OrchestrationDepthExceeded` tool error.
 
 ## 4c. Launcher's tool-attachment responsibility
 
-Each per-runtime launcher is responsible for attaching the orchestration tool
+Each per-runtime launcher is responsible for attaching the platform MCP
 surface before handing off to the runtime image. The runtime path resolves the
 available tools before it calls the launcher. The source of truth is
-`IOrchestrationToolProvider.GetOrchestrationTools(...)`, which takes the
-invoked address and thread id and returns an `OrchestrationToolDescriptor[]`
-with the closed tool name plus input and output JSON Schemas.
+`IMessagingToolProvider.GetMessagingTools(...)`, which takes the invoked
+address and thread id and returns a `MessagingToolDescriptor[]` with the tool
+name plus input and output JSON Schemas.
 
-`AgentLaunchContext.OrchestrationTools` carries that descriptor array into the
+`AgentLaunchContext.MessagingTools` carries that descriptor array into the
 selected `IAgentRuntimeLauncher`. Each launcher then follows one or both
 attachment paths:
 
-- **LLM-driven runtimes.** The launcher injects the orchestration tool
-  definitions into the runtime's tool-call surface. For `spring-voyage`, this
-  is the env-var-keyed descriptor list. For `claude-code`, `codex`, and
-  `gemini`, this is an orchestration MCP server alongside the normal platform
-  MCP server.
+- **LLM-driven runtimes.** The launcher attaches the `spring-orchestration` MCP
+  server alongside the worker `spring-voyage` MCP server (for `claude-code`,
+  `codex`, and `gemini` via `.mcp.json` / `.gemini/settings.json`; for
+  `spring-voyage` via its MCP bridge).
 - **SDK-driven runtimes.** The launcher stamps `SPRING_CALLBACK_URL` and
   `SPRING_CALLBACK_TOKEN` into the container environment. `Cvoya.Spring.AgentSdk`
   reads them through `SpringAgent.FromEnvironment()` and calls the dispatcher's
   typed HTTP callback API.
 
-| Runtime | Attachment mechanism |
-| --- | --- |
-| `spring-voyage` | Serialises the descriptors into `SPRING_ORCHESTRATION_TOOLS`; the runtime can invoke the handlers through Dapr actor-backed platform calls. |
-| `claude-code` | Adds a Spring orchestration MCP server alongside the normal platform MCP server. |
-| `codex` | Adds the same Spring orchestration MCP surface using Codex's MCP configuration. |
-| `gemini` | Adds the same Spring orchestration MCP surface using Gemini CLI's tool configuration. |
-
-Custom launchers use their runtime's own extension mechanism, but the abstract
-tool names and JSON Schemas stay the same. This keeps the platform contract
+Custom launchers use their runtime's own extension mechanism, but the tool
+names and JSON Schemas stay the same. This keeps the platform contract
 uniform while allowing each runtime image to expose tools through its native
 interface.
 
 This responsibility builds on the launcher contract from
 [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md) and the
-tool surface from [ADR-0039 section 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime).
+MCP tool surface from [ADR-0050](../decisions/0050-platform-mcp-tool-surface.md).
 
-## 4d. `OrchestrationDecision` event shape
+## 4d. `DecisionMade` event shape
 
-When the runtime calls a delegation tool, the platform publishes a
+When a runtime calls `sv.runtime.report_decision`, the platform publishes a
 `DecisionMade` activity event. The durable payload is the Core
-`OrchestrationDecision` record. The normalized event shape is:
+`OrchestrationDecision` record. ADR-0050 generalised the call: it now records
+any routing decision — executed or not — and is independent of whether a
+message was delivered. A plain `sv.messaging.*` delivery publishes a
+`MessageSent` activity and nothing more; `report_decision` is the explicit,
+optional call a runtime makes when it wants the *decision* itself on the
+stream. The normalized event shape is:
 
 ```json
 {
@@ -377,20 +382,21 @@ When the runtime calls a delegation tool, the platform publishes a
 }
 ```
 
-`delegate_to` emits `Kind=Delegate`. `fanout_to` emits `Kind=Fanout`. These
-are the only two values in the enum after the 2026-05-19 surface shrink
-([#2537](https://github.com/cvoya-com/spring-voyage/issues/2537)); the
-`sv.*` directory tools (`sv.list_members`, `sv.get_member`, `sv.get_status`,
-…) are read-only and emit no `OrchestrationDecision` events. `Reason` is
-plain text supplied by the runtime's tool call; it is never hidden model
-reasoning.
+`Kind` is `Delegate` or `Fanout`. `OrchestrationDecision` /
+`OrchestrationDecisionKind` / `OrchestrationDecisionStatus` are retained as the
+`sv.runtime.report_decision` payload; only that tool publishes a
+`DecisionMade` event. A `sv.messaging.*` delivery publishes a `MessageSent`
+activity, not an `OrchestrationDecision`. `Reason` is plain text supplied by
+the runtime's tool call; it is never hidden model reasoning.
 
-Subscribers consume this stream as delegation evidence. For example, the
+Subscribers consume this stream as routing-decision evidence. For example, the
 GitHub connector's label-roundtrip subscriber listens for routed
 `Delegate` decisions and applies connector-side label rules from the unit's
 GitHub binding.
 
-See [ADR-0039 section 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence).
+See [ADR-0050 § 3](../decisions/0050-platform-mcp-tool-surface.md) for the
+generalised `sv.runtime.report_decision` contract and [ADR-0039 section 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence)
+for the original first-class-evidence rationale.
 
 ---
 

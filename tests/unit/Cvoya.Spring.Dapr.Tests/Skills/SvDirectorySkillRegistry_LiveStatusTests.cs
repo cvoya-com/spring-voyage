@@ -43,10 +43,10 @@ using Xunit;
 /// <summary>
 /// Tests for the #2491 extensions to <see cref="SvDirectorySkillRegistry"/>:
 /// <c>live_status</c> on directory entries (rich object replacing the prior
-/// string) and the new <c>sv.get_status</c> tool. Pin the four acceptance
+/// string) and the new <c>sv.directory.get_status</c> tool. Pin the four acceptance
 /// scenarios from the issue: busy agent visible via MCP, busy unit visible
 /// via MCP, human entries lack <c>live_status</c>, unknown uuid on
-/// <c>sv.get_status</c> returns the expected typed error.
+/// <c>sv.directory.get_status</c> returns the expected typed error.
 /// </summary>
 public class SvDirectorySkillRegistry_LiveStatusTests
 {
@@ -61,7 +61,7 @@ public class SvDirectorySkillRegistry_LiveStatusTests
     [Fact]
     public async Task ListMembers_BusyAgent_ExposesLiveStatusReport()
     {
-        // Acceptance (a): a busy agent surfaced via sv.list_members carries
+        // Acceptance (a): a busy agent surfaced via sv.directory.list_members carries
         // the rich live_status object — in_flight / queued / channels /
         // observed_at — populated from the actor's GetRuntimeStatusAsync.
         var agentReport = new AgentRuntimeStatusReport(
@@ -204,7 +204,7 @@ public class SvDirectorySkillRegistry_LiveStatusTests
     [Fact]
     public async Task GetStatus_BusyAgent_ReturnsSlimProjectionWithLiveStatus()
     {
-        // sv.get_status(uuid) returns the same { uuid, kind, display_name,
+        // sv.directory.get_status(uuid) returns the same { uuid, kind, display_name,
         // live_status? } shape for one subject. This is the per-subject
         // poll path the issue introduces alongside the list extension.
         var agentReport = new AgentRuntimeStatusReport(
@@ -226,10 +226,10 @@ public class SvDirectorySkillRegistry_LiveStatusTests
     [Fact]
     public async Task GetStatus_UnknownUuid_ThrowsArgumentException()
     {
-        // Acceptance (d): align the error shape on sv.get_status with what
-        // sv.get_member already does for unknown UUIDs. sv.get_member's
+        // Acceptance (d): align the error shape on sv.directory.get_status with what
+        // sv.directory.get_member already does for unknown UUIDs. sv.directory.get_member's
         // ResolveKindAsync throws ArgumentException when no agent / unit /
-        // tenant matches; sv.get_status must throw the same way so MCP
+        // tenant matches; sv.directory.get_status must throw the same way so MCP
         // surfaces a single typed error contract for both tools.
         var unknownId = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
         var fixture = new Fixture().Build();

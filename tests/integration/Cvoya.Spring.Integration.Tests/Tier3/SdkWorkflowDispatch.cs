@@ -12,6 +12,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Orchestration;
@@ -47,13 +48,13 @@ public class SdkWorkflowDispatch
         new(Address.AgentScheme, Guid.Parse("aaaaaaaa-0000-0000-0000-000000001836"));
 
     [Fact]
-    public async Task RunAsync_CodeMessage_DelegatesThroughSdkAndEmitsRoutedDecisionEvent()
+    public async Task RunAsync_CodeMessage_DeliversThroughSdkAndEmitsMessageSentEvent()
     {
         var threadId = Guid.Parse("eeeeeeee-0000-0000-0000-000000001835");
         var inputMessageId = Guid.Parse("dddddddd-0000-0000-0000-000000001835");
 
-        // ADR-0049 — delegate_to is a one-way delivery; the child mailbox
-        // enqueue (ReceiveAsync) returns no work product.
+        // ADR-0049 — sv.messaging.send is a one-way delivery; the child
+        // mailbox enqueue (ReceiveAsync) returns no work product.
         var child0 = Substitute.For<IAgent>();
         child0.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
@@ -75,7 +76,7 @@ public class SdkWorkflowDispatch
             ("SPRING_CHILD_0", Child0Address.ToString()),
             ("SPRING_CHILD_1", Child1Address.ToString()));
 
-        var client = new OrchestrationClient(
+        var client = new MessagingClient(
             server.BaseUrl,
             server.IssueToken(UnitAddress, threadId, inputMessageId));
 
@@ -85,30 +86,21 @@ public class SdkWorkflowDispatch
             "please write code",
             TestContext.Current.CancellationToken);
 
-        // ADR-0049 — RunAsync now reports the delivery acknowledgement, not
-        // the child's work product.
-        result.ShouldContain("Delegated to");
+        // ADR-0049 — RunAsync reports the delivery acknowledgement, not the
+        // child's work product.
+        result.ShouldContain("Message sent to");
         result.ShouldContain(Child0Address.ToString());
 
+        // ADR-0048 / ADR-0049 — a delivery emits a plain MessageSent
+        // activity, never a DecisionMade.
         server.PublishedEvents.Count.ShouldBe(1);
         var activityEvent = server.PublishedEvents.Single();
         activityEvent.Source.ShouldBe(UnitAddress);
-        activityEvent.EventType.ShouldBe(ActivityEventType.DecisionMade);
+        activityEvent.EventType.ShouldBe(ActivityEventType.MessageSent);
+        activityEvent.CorrelationId.ShouldBe(threadId.ToString("D"));
         activityEvent.Details.ShouldNotBeNull();
-
-        var decision = JsonSerializer.Deserialize<OrchestrationDecision>(
-            activityEvent.Details!.Value.GetRawText());
-
-        decision.ShouldNotBeNull();
-        decision!.TenantId.ShouldBe(OssTenantIds.Default);
-        decision.TenantId.ShouldNotBe(Guid.Empty);
-        decision.UnitAddress.ShouldBe(UnitAddress);
-        decision.ThreadId.ShouldBe(threadId);
-        decision.InputMessageId.ShouldBe(inputMessageId);
-        decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
-        decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
-        decision.Targets.ShouldBe([Child0Address]);
-        decision.ResultMessageIds.ShouldBeEmpty();
+        activityEvent.Details!.Value.GetProperty("targets")[0].GetString()
+            .ShouldBe(Child0Address.ToString());
     }
 
     private sealed class EnvironmentScope : IDisposable
@@ -188,10 +180,12 @@ public class SdkWorkflowDispatch
             builder.Services.AddSingleton<IActivityEventBus>(activityEventBus);
             // ADR-0039 §3 gate 6 — single-tenant resolver is the OSS default.
             builder.Services.AddSingleton<IOrchestrationTenantResolver, SingleTenantOrchestrationTenantResolver>();
-            builder.Services.AddSingleton<OrchestrationToolHandlers>();
+            builder.Services.AddSingleton(Substitute.For<IUnitMemberGraphStore>());
+            builder.Services.AddSingleton<MessageDeliveryService>();
+            builder.Services.AddSingleton<MessagingToolHandlers>();
             // The MCP root handler registered by MapOrchestrationCallbackEndpoints
-            // resolves IOrchestrationToolProvider for its tools/list response.
-            builder.Services.AddSingleton<IOrchestrationToolProvider, DirectoryOrchestrationToolProvider>();
+            // resolves IMessagingToolProvider for its tools/list response.
+            builder.Services.AddSingleton<IMessagingToolProvider, MessagingToolProvider>();
 
             var app = builder.Build();
             app.MapOrchestrationCallbackEndpoints();
@@ -237,6 +231,24 @@ public class SdkWorkflowDispatch
                         ? members
                         : [];
                     actor.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(actorMembers);
+                    return actor;
+                });
+
+            // #2576: the per-thread hop counter. A stateful in-memory counter
+            // per thread id so the bounded-hop path runs end-to-end.
+            var hopActorsById = new Dictionary<string, IThreadHopActor>();
+            proxyFactory.CreateActorProxy<IThreadHopActor>(Arg.Any<ActorId>(), nameof(ThreadHopActor))
+                .Returns(call =>
+                {
+                    var id = call.ArgAt<ActorId>(0).GetId();
+                    if (!hopActorsById.TryGetValue(id, out var actor))
+                    {
+                        var count = 0;
+                        actor = Substitute.For<IThreadHopActor>();
+                        actor.IncrementAsync().Returns(_ => Task.FromResult(++count));
+                        hopActorsById[id] = actor;
+                    }
+
                     return actor;
                 });
 

@@ -5,8 +5,8 @@
 A **unit** is an [agent](agents.md) that owns children.
 
 This page covers only the unit-specific layer. Shared concepts such as mailbox
-intake, execution config, runtime invocation, inheritance, and orchestration
-tools live in [Agents](agents.md). For the at-a-glance reference of what
+intake, execution config, runtime invocation, inheritance, and the platform
+messaging tools live in [Agents](agents.md). For the at-a-glance reference of what
 applies to both unit and leaf agent vs only one, see
 [Units vs agents](units-vs-agents.md).
 
@@ -37,10 +37,10 @@ After install, the membership graph is editable through the API surface:
 
 Agent and unit membership rows carry the same multi-valued `roles` /
 `expertise` jsonb columns ([ADR-0046 §8](../decisions/0046-unified-members-grammar.md));
-the fields are runtime metadata surfaced through the `sv.list_members`
+the fields are runtime metadata surfaced through the `sv.directory.list_members`
 directory tool, not platform-decision inputs.
 
-The full member list is exposed to the runtime through `sv.list_members`
+The full member list is exposed to the runtime through `sv.directory.list_members`
 (see [`SvDirectorySkillRegistry`](../../src/Cvoya.Spring.Dapr/Skills/SvDirectorySkillRegistry.cs)).
 
 ## Permissions

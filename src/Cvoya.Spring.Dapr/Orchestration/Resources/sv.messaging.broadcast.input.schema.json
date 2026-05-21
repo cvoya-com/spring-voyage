@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sv.messaging.broadcast.input",
+  "description": "Input for sv.messaging.broadcast — a one-way message-delivery tool (ADR-0049). It durably delivers one message to multiple targets in parallel; it does NOT wait for or return the recipients' replies. Supply exactly one of 'scope' or 'addresses'. The platform delivers messages, it does not orchestrate.",
+  "type": "object",
+  "properties": {
+    "scope": {
+      "type": "string",
+      "enum": ["unit-members", "siblings"],
+      "description": "Resolve the recipient set from the caller's position in the member graph: 'unit-members' delivers to the members of the calling unit; 'siblings' delivers to the caller's siblings. Mutually exclusive with 'addresses'."
+    },
+    "addresses": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Explicit recipient set. Mutually exclusive with 'scope'.",
+      "items": {
+        "type": "string",
+        "description": "Canonical scheme:no-dash-hex address of a target in the caller's tenant."
+      }
+    },
+    "message": {
+      "description": "The message payload to deliver to each target. Opaque to the platform; a JSON string or object."
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "description": "Optional rationale recorded verbatim on the MessageSent activity."
+    }
+  },
+  "required": ["message"],
+  "additionalProperties": false
+}

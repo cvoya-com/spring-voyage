@@ -203,6 +203,46 @@ public class SvRuntimeSkillRegistryTests
     }
 
     [Fact]
+    public async Task ReportDecision_OutcomeOmitted_RecordsRoutedDecision()
+    {
+        // #2578: report_decision is generalized — an omitted 'outcome'
+        // records a decision that executed (Routed), at Info severity, with
+        // no executionOutcome metadata field.
+        var registry = CreateRegistry();
+        var threadId = Guid.NewGuid();
+        var targetAddress = new Address(Address.AgentScheme, Guid.NewGuid());
+        var ctx = new ToolCallContext(
+            CallerId: GuidFormatter.Format(Guid.NewGuid()),
+            CallerKind: Address.UnitScheme,
+            ThreadId: threadId.ToString("N"));
+        var args = JsonDocument.Parse(
+            $$"""
+            {
+              "kind": "delegate",
+              "targets": ["{{targetAddress}}"],
+              "rationale": "child owns this work"
+            }
+            """).RootElement;
+
+        ActivityEvent? captured = null;
+        await _activityBus.PublishAsync(
+            Arg.Do<ActivityEvent>(e => captured = e), Arg.Any<CancellationToken>());
+
+        var result = await registry.InvokeAsync(
+            SvRuntimeSkillRegistry.ReportDecisionTool, args, ctx, TestContext.Current.CancellationToken);
+
+        result.GetProperty("ok").GetBoolean().ShouldBeTrue();
+        captured.ShouldNotBeNull();
+        captured!.EventType.ShouldBe(ActivityEventType.DecisionMade);
+        captured.Severity.ShouldBe(ActivitySeverity.Info);
+
+        var decision = JsonSerializer.Deserialize<OrchestrationDecision>(captured.Details!.Value);
+        decision!.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
+        decision.Reason.ShouldBe("child owns this work");
+        decision.Metadata!.Value.TryGetProperty("executionOutcome", out _).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task ReportDecision_TargetByName_PreservedInMetadata()
     {
         // The runtime may name a target by a human name rather than a

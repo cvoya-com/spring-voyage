@@ -22,9 +22,9 @@ public class WorkflowStateMachineTests
         try
         {
             using var _ = new EnvironmentScope(("SPRING_CHILD_0", "child-0"), ("SPRING_CHILD_1", "child-1"));
-            var client = Substitute.For<IOrchestrationClient>();
-            client.DelegateAsync("t1", "child-0", "write some code", Arg.Any<CancellationToken>())
-                .Returns(new DelegateResponse(true, "msg-1", "child-0", "t1"));
+            var client = Substitute.For<IMessagingClient>();
+            client.SendAsync("t1", "child-0", "write some code", Arg.Any<CancellationToken>())
+                .Returns(new MessageSendResponse(true, "msg-1", "child-0", "t1"));
 
             var result = await WorkflowStateMachine.RunAsync(
                 client,
@@ -33,7 +33,7 @@ public class WorkflowStateMachineTests
                 TestContext.Current.CancellationToken);
 
             // ADR-0049 — RunAsync reports the delivery acknowledgement.
-            result.ShouldContain("Delegated to child-0");
+            result.ShouldContain("Message sent to child-0");
         }
         finally
         {
@@ -48,9 +48,9 @@ public class WorkflowStateMachineTests
         try
         {
             using var _ = new EnvironmentScope(("SPRING_CHILD_0", "child-0"), ("SPRING_CHILD_1", "child-1"));
-            var client = Substitute.For<IOrchestrationClient>();
-            client.DelegateAsync("t1", "child-1", "draft a plan", Arg.Any<CancellationToken>())
-                .Returns(new DelegateResponse(true, "msg-2", "child-1", "t1"));
+            var client = Substitute.For<IMessagingClient>();
+            client.SendAsync("t1", "child-1", "draft a plan", Arg.Any<CancellationToken>())
+                .Returns(new MessageSendResponse(true, "msg-2", "child-1", "t1"));
 
             var result = await WorkflowStateMachine.RunAsync(
                 client,
@@ -59,7 +59,7 @@ public class WorkflowStateMachineTests
                 TestContext.Current.CancellationToken);
 
             // ADR-0049 — RunAsync reports the delivery acknowledgement.
-            result.ShouldContain("Delegated to child-1");
+            result.ShouldContain("Message sent to child-1");
         }
         finally
         {

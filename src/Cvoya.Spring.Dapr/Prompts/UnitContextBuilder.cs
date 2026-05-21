@@ -13,7 +13,7 @@ using Cvoya.Spring.Core.Skills;
 /// skill descriptions, and package-level skill bundles. The peer-directory
 /// rendering that used to live here was removed in #2231 once the
 /// runtime gained the <c>sv.*</c> directory tools — composition is now
-/// queried on demand via <c>sv.list_members</c> rather than baked into
+/// queried on demand via <c>sv.directory.list_members</c> rather than baked into
 /// every system prompt.
 /// </summary>
 public class UnitContextBuilder

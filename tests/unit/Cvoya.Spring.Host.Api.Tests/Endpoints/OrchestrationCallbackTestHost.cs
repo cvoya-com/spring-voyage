@@ -9,11 +9,15 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Host.Api.Endpoints;
+
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -26,15 +30,16 @@ using Microsoft.Extensions.Options;
 using NSubstitute;
 
 /// <summary>
-/// In-memory host for the relocated orchestration callback endpoints
-/// (<c>delegate_to</c> / <c>fanout_to</c> + the MCP JSON-RPC handler).
+/// In-memory host for the relocated messaging callback endpoints
+/// (<c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c> + the MCP
+/// JSON-RPC handler).
 /// </summary>
 /// <remarks>
 /// The endpoints moved off the dispatcher onto the Dapr-connected API host
 /// (#2586); these tests exercise <c>MapOrchestrationCallbackEndpoints</c>
 /// directly with a substituted <see cref="IAgentProxyResolver"/> rather than
 /// booting the full API host. The test host registers exactly the services
-/// the endpoint group resolves — the orchestration handler graph, the
+/// the endpoint group resolves — the messaging handler graph, the
 /// callback-token validator, and the #2582 rejection diagnostics — and runs
 /// them on an in-memory <see cref="TestServer"/>.
 /// </remarks>
@@ -71,12 +76,18 @@ public sealed class OrchestrationCallbackTestHost : IDisposable
         builder.Services.AddSingleton<OrchestrationCallbackDiagnostics>();
         builder.Services.AddSingleton(CreateCapturingActivityBus());
         builder.Services.AddSingleton(CreateAgentProxyResolver());
+        builder.Services.AddSingleton(CreateActorProxyFactory());
         // ADR-0039 §3 gate 6 — single-tenant resolver is the OSS default.
         builder.Services.AddSingleton<IOrchestrationTenantResolver, SingleTenantOrchestrationTenantResolver>();
-        builder.Services.AddSingleton<OrchestrationToolHandlers>();
-        // The MCP root handler resolves IOrchestrationToolProvider for its
+        // #2576: the broadcast scope path resolves members through this seam;
+        // the explicit-address callback tests never exercise it.
+        builder.Services.AddSingleton(Substitute.For<IUnitMemberGraphStore>());
+        // ADR-0049: the shared delivery seam + the messaging tool handlers.
+        builder.Services.AddSingleton<MessageDeliveryService>();
+        builder.Services.AddSingleton<MessagingToolHandlers>();
+        // The MCP root handler resolves IMessagingToolProvider for its
         // tools/list response.
-        builder.Services.AddSingleton<IOrchestrationToolProvider, DirectoryOrchestrationToolProvider>();
+        builder.Services.AddSingleton<IMessagingToolProvider, MessagingToolProvider>();
         // Tighten the ADR-0049 delivery retry budget so the terminal-failure
         // path exhausts in milliseconds under test.
         builder.Services.Configure<OrchestrationDeliveryOptions>(options =>
@@ -180,6 +191,39 @@ public sealed class OrchestrationCallbackTestHost : IDisposable
             });
 
         return resolver;
+    }
+
+    /// <summary>
+    /// A proxy factory whose <see cref="IThreadHopActor"/> proxies are
+    /// stateful in-memory counters keyed by actor id, so the #2576
+    /// hop-counter path runs end-to-end under the in-memory host.
+    /// </summary>
+    private static IActorProxyFactory CreateActorProxyFactory()
+    {
+        var hopActorsById = new Dictionary<string, IThreadHopActor>();
+        var factory = Substitute.For<IActorProxyFactory>();
+        factory
+            .CreateActorProxy<IThreadHopActor>(Arg.Any<ActorId>(), nameof(ThreadHopActor))
+            .Returns(ci =>
+            {
+                var id = ci.ArgAt<ActorId>(0).GetId();
+                if (!hopActorsById.TryGetValue(id, out var actor))
+                {
+                    actor = CreateCountingHopActor();
+                    hopActorsById[id] = actor;
+                }
+
+                return actor;
+            });
+        return factory;
+    }
+
+    private static IThreadHopActor CreateCountingHopActor()
+    {
+        var actor = Substitute.For<IThreadHopActor>();
+        var count = 0;
+        actor.IncrementAsync().Returns(_ => Task.FromResult(++count));
+        return actor;
     }
 
     /// <summary>A <see cref="TimeProvider"/> pinned to a fixed instant.</summary>

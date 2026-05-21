@@ -148,7 +148,7 @@ public class CodexLauncher(
             }
         };
 
-        if (context.OrchestrationTools is { Length: > 0 })
+        if (context.MessagingTools is { Length: > 0 })
         {
             mcpServers[SpringOrchestrationMcpServerName] = new
             {

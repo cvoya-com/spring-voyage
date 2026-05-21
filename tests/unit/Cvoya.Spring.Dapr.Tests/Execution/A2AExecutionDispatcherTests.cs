@@ -71,7 +71,7 @@ public class A2AExecutionDispatcherTests
         });
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
-    private readonly IOrchestrationToolProvider _orchestrationToolProvider = Substitute.For<IOrchestrationToolProvider>();
+    private readonly IMessagingToolProvider _messagingToolProvider = Substitute.For<IMessagingToolProvider>();
     private readonly ICallbackTokenIssuer _callbackTokenIssuer = Substitute.For<ICallbackTokenIssuer>();
     private readonly IConnectorRuntimeContextResolver _connectorContext = Substitute.For<IConnectorRuntimeContextResolver>();
     private readonly IConnectorPromptContextResolver _connectorPromptContext = Substitute.For<IConnectorPromptContextResolver>();
@@ -176,8 +176,8 @@ public class A2AExecutionDispatcherTests
 
         // ADR-0039 D3: default to "no orchestration tools" — leaf-agent shape.
         // Tests that exercise unit-shaped dispatch can override via Returns.
-        _orchestrationToolProvider.GetOrchestrationTools(Arg.Any<Address>(), Arg.Any<Guid>())
-            .Returns(Array.Empty<OrchestrationToolDescriptor>());
+        _messagingToolProvider.GetMessagingTools(Arg.Any<Address>(), Arg.Any<Guid>())
+            .Returns(Array.Empty<MessagingToolDescriptor>());
         _callbackTokenIssuer.Issue(Arg.Any<CallbackToken>())
             .Returns(call => $"token-{call.Arg<CallbackToken>().MessageId:N}");
 
@@ -227,7 +227,7 @@ public class A2AExecutionDispatcherTests
             _runtimeCatalog,
             _agentContextBuilder,
             _tenantContext,
-            _orchestrationToolProvider,
+            _messagingToolProvider,
             _persistentRegistry,
             _ephemeralRegistry,
             clmD,

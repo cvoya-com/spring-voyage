@@ -22,7 +22,7 @@ using System.Collections.Generic;
 /// extends the same shape to this sub-unit-edge table so a sub-unit
 /// member can advertise the same per-membership team-role + expertise
 /// metadata as an agent member (parity on the Unit × Members tab and
-/// in <c>sv.list_members</c>). The fields are runtime metadata only —
+/// in <c>sv.directory.list_members</c>). The fields are runtime metadata only —
 /// no platform decision is taken on them.
 /// </para>
 /// </remarks>

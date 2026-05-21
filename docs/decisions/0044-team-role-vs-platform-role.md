@@ -23,7 +23,7 @@ Four problems compound:
 
 1. **The shape conflates two axes.** `identity: owner` names a slot the package author has no way to bind (the package doesn't know who the install caller will be), and `permission: owner` mixes domain participation (which role does this human play on the team?) with platform authority (what may this human do to the unit's configuration?). They are different decisions made by different actors at different times.
 2. **The install path has no resolution seam.** Even if `humans:` were read, the activator has no way to turn `identity: owner` into a `Guid`. In OSS there's one operator and the operator should fill the slot; in hosted there's a tenant of N members and the answer depends on a tenant-level rule (operator-fills-all, prompt-per-slot, match-by-claim, reject). Without a seam the OSS and hosted answers fork at the call site.
-3. **Humans aren't discoverable to agents.** `sv.list_members(unit_id)` enumerates agent + unit members of a unit but not humans. An agent that wants to answer "who is the security lead on my team?" cannot — the data isn't even surfaced. Package `humans:` declarations are dead metadata until both an install reader **and** a runtime discovery surface exist.
+3. **Humans aren't discoverable to agents.** `sv.directory.list_members(unit_id)` enumerates agent + unit members of a unit but not humans. An agent that wants to answer "who is the security lead on my team?" cannot — the data isn't even surfaced. Package `humans:` declarations are dead metadata until both an install reader **and** a runtime discovery surface exist.
 4. **The schema decision is open.** A human may fill more than one role on the same unit (in OSS the operator fills every role; in hosted, a senior teammate might be `security_lead` *and* `owner`). The existing `unit_human_permissions` table — which uniqueness is `(tenant_id, unit_id, human_id)` — cannot carry per-role rows without breaking the ACL invariant. The membership relation needs its own home.
 
 The converged design for #2402 settles axes (1)–(3); this ADR captures the resulting boundary so it survives contributor churn, and locks in (4) so the implementation PR knows which table to add.
@@ -127,7 +127,7 @@ The activator calls the policy once per declared `humans[]` entry; each call ret
 
 ### 5. Discoverability via the `sv.*` MCP directory surface
 
-`SvDirectorySkillRegistry.ListMembersTool` (`sv.list_members`) is extended to fold human members into the same homogeneous response shape it already returns for agents and units. Today the tool returns entries keyed by `kind in { "agent", "unit", "tenant" }`; a fourth value `"human"` is added with the team-membership fields exposed alongside the universal entry fields:
+`SvDirectorySkillRegistry.ListMembersTool` (`sv.directory.list_members`) is extended to fold human members into the same homogeneous response shape it already returns for agents and units. Today the tool returns entries keyed by `kind in { "agent", "unit", "tenant" }`; a fourth value `"human"` is added with the team-membership fields exposed alongside the universal entry fields:
 
 - `uuid` — the human's `Guid` (the `HumanEntity.Id`, not the membership row id).
 - `kind` — `"human"`.
@@ -138,7 +138,7 @@ The activator calls the policy once per declared `humans[]` entry; each call ret
 - `member_count` — `null` (humans aren't aggregates).
 - `live_status` — `"n/a"` (humans don't have a runtime container; the surface stays uniform).
 
-The team-role-specific fields (`role`, `notifications`) are surfaced as a sibling list on `sv.list_members` only — not via `sv.get_self` or `sv.get_member`, which operate on addressable actors. The choice is to extend the existing `sv.list_members` rather than add a new `sv.unit.list_members`: the existing tool already takes `uuid` (the unit's id), already returns a flat heterogeneous member list, and clients filter by `entry.kind` today; adding `"human"` keeps one tool to learn instead of two. The schema response gains an optional `team_role` field on entries with `kind == "human"`:
+The team-role-specific fields (`role`, `notifications`) are surfaced as a sibling list on `sv.directory.list_members` only — not via `sv.directory.get_self` or `sv.directory.get_member`, which operate on addressable actors. The choice is to extend the existing `sv.directory.list_members` rather than add a new `sv.unit.list_members`: the existing tool already takes `uuid` (the unit's id), already returns a flat heterogeneous member list, and clients filter by `entry.kind` today; adding `"human"` keeps one tool to learn instead of two. The schema response gains an optional `team_role` field on entries with `kind == "human"`:
 
 ```json
 {
@@ -152,7 +152,7 @@ The team-role-specific fields (`role`, `notifications`) are surfaced as a siblin
 }
 ```
 
-Agents discover their human teammates on-demand via this tool. The agent-context bundle (the per-launch prompt context) does **not** materialise the member list at launch time — agents fetch on demand. The bundle would otherwise need to grow with every membership change and would invalidate every cached prompt assembly; a single `sv.list_members` call when an agent needs to route is cheaper than baking the list into every prompt assembly.
+Agents discover their human teammates on-demand via this tool. The agent-context bundle (the per-launch prompt context) does **not** materialise the member list at launch time — agents fetch on demand. The bundle would otherwise need to grow with every membership change and would invalidate every cached prompt assembly; a single `sv.directory.list_members` call when an agent needs to route is cheaper than baking the list into every prompt assembly.
 
 ### 6. What this ADR does NOT decide
 
@@ -180,7 +180,7 @@ Agents discover their human teammates on-demand via this tool. The agent-context
 
 **Not abstracted:**
 
-- A read-time cache for the team-membership graph. v0.1 reads through the EF table on every `sv.list_members` call; if the call becomes hot the same Dapr-actor warm-cache pattern as the rest of ADR-0040 is the natural follow-up. The wire shape doesn't change.
+- A read-time cache for the team-membership graph. v0.1 reads through the EF table on every `sv.directory.list_members` call; if the call becomes hot the same Dapr-actor warm-cache pattern as the rest of ADR-0040 is the natural follow-up. The wire shape doesn't change.
 - A "team-membership upgrade on package reinstall" flow. The install path inserts the rows once (idempotently on the unique index); changing the YAML's `humans:` after a package is installed does not retroactively rewrite existing membership rows. A future re-install / upgrade story addresses this.
 - Multi-tenant policy chaining (e.g. tenant A's policy delegates to a parent tenant's policy). The seam returns a single resolution per call; composition lives in whichever overlay needs it.
 - Notification preferences keyed per team role. The `NotificationPreferences` field on `HumanEntity` is per-human-globally; the team-membership row's `notifications` list is per-team-membership-instance. The two coexist; routing precedence between them is in scope for the notifications design pass.

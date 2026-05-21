@@ -62,7 +62,7 @@ public class A2AExecutionDispatcher(
     IRuntimeCatalog runtimeCatalog,
     IAgentContextBuilder agentContextBuilder,
     ITenantContext tenantContext,
-    IOrchestrationToolProvider orchestrationToolProvider,
+    IMessagingToolProvider messagingToolProvider,
     PersistentAgentRegistry persistentAgentRegistry,
     EphemeralAgentRegistry ephemeralAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
@@ -87,13 +87,12 @@ public class A2AExecutionDispatcher(
         ?? throw new ArgumentNullException(nameof(agentContextBuilder));
     private readonly ITenantContext _tenantContext = tenantContext
         ?? throw new ArgumentNullException(nameof(tenantContext));
-    // ADR-0039 D3: orchestration tool descriptors are resolved per-invocation
-    // and threaded through AgentLaunchContext so launchers can attach them
-    // to the runtime container. The provider returns an empty array when
-    // the addressed entity has no children in the member graph; entity
-    // type is not a gate.
-    private readonly IOrchestrationToolProvider _orchestrationToolProvider = orchestrationToolProvider
-        ?? throw new ArgumentNullException(nameof(orchestrationToolProvider));
+    // ADR-0048 / ADR-0049: messaging tool descriptors are resolved
+    // per-invocation and threaded through AgentLaunchContext so launchers
+    // can attach them to the runtime container. The provider returns the
+    // two-tool messaging set for every agent / unit caller.
+    private readonly IMessagingToolProvider _messagingToolProvider = messagingToolProvider
+        ?? throw new ArgumentNullException(nameof(messagingToolProvider));
     // ADR-0038: launchers are keyed on the catalogue runtime entry's
     // launcher strategy id. The dispatcher resolves an AgentRuntime from
     // IRuntimeCatalog using the agent's persisted execution.agent slot,
@@ -250,7 +249,7 @@ public class A2AExecutionDispatcher(
         var threadGuid = Guid.TryParse(threadId, out var parsedThreadGuid)
             ? parsedThreadGuid
             : Guid.Empty;
-        var orchestrationTools = _orchestrationToolProvider.GetOrchestrationTools(message.To, threadGuid);
+        var messagingTools = _messagingToolProvider.GetMessagingTools(message.To, threadGuid);
 
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
@@ -270,7 +269,7 @@ public class A2AExecutionDispatcher(
             // D3a: populate D1-spec metadata so the context builder can mint the
             // full bootstrap bundle (env vars + /spring/context/ files) per § 2.
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
-            OrchestrationTools: orchestrationTools,
+            MessagingTools: messagingTools,
             AgentAddress: message.To,
             CallbackThreadId: threadGuid,
             MessageId: message.Id);
@@ -847,12 +846,12 @@ public class A2AExecutionDispatcher(
         var tenantId = _tenantContext.CurrentTenantId;
         var tenantConfigJson = SerialiseTenantConfigJson(tenantId);
 
-        // ADR-0039 D3: resolve orchestration tools for the dispatch target's
-        // address. Persistent dispatch uses a synthetic per-agent session id
-        // rather than a real thread Guid, so we pass Guid.Empty — the
-        // provider's per-thread hook is reserved for future use and currently
-        // only scopes on the address.
-        var orchestrationTools = _orchestrationToolProvider.GetOrchestrationTools(dispatchTarget, Guid.Empty);
+        // ADR-0048 / ADR-0049: resolve messaging tools for the dispatch
+        // target's address. Persistent dispatch uses a synthetic per-agent
+        // session id rather than a real thread Guid, so we pass Guid.Empty —
+        // the provider's per-thread hook is reserved for future use and
+        // currently only scopes on the address.
+        var messagingTools = _messagingToolProvider.GetMessagingTools(dispatchTarget, Guid.Empty);
 
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
@@ -871,7 +870,7 @@ public class A2AExecutionDispatcher(
             Model: definition.Execution.Model,
             // D3a: populate D1-spec metadata for context builder.
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
-            OrchestrationTools: orchestrationTools,
+            MessagingTools: messagingTools,
             AgentAddress: dispatchTarget,
             CallbackThreadId: Guid.TryParse(message.ThreadId, out var callbackThreadId)
                 ? callbackThreadId

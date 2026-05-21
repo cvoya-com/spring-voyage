@@ -23,9 +23,9 @@ Domain workflows are deployed as **containers** — the same deployment model us
 **How it works:**
 
 1. The unit's mailbox receives an incoming message; `UnitActor.ReceiveAsync` invokes the same runtime-launcher path that `AgentActor.ReceiveAsync` uses.
-2. The launcher attaches the closed orchestration-tool set ([ADR-0039 § 3](../decisions/0039-units-are-agents.md#3-children-are-exposed-as-orchestration-tools-to-the-runtime)) and injects `SPRING_CALLBACK_URL` plus a per-invocation `SPRING_CALLBACK_TOKEN`.
-3. The workflow container starts and bootstraps `IOrchestrationClient.FromEnvironment()` from `Cvoya.Spring.AgentSdk` (see [Agent SDK](agent-sdk.md)).
-4. The workflow drives the plan, calling `DelegateAsync`, `FanoutAsync`, etc. as method calls. Each delegation records an `OrchestrationDecision` event ([ADR-0039 § 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence)).
+2. The launcher attaches the `sv.messaging.*` delivery tools ([ADR-0050](../decisions/0050-platform-mcp-tool-surface.md)) and injects `SPRING_CALLBACK_URL` plus a per-invocation `SPRING_CALLBACK_TOKEN`.
+3. The workflow container starts and bootstraps `IMessagingClient.FromEnvironment()` from `Cvoya.Spring.AgentSdk` (see [Agent SDK](agent-sdk.md)).
+4. The workflow drives the plan, calling `SendAsync`, `BroadcastAsync`, etc. as method calls. Each delivery records a `MessageSent` activity; the workflow may optionally record a routing decision via `sv.runtime.report_decision`.
 5. On completion, the runtime returns its response to the launcher, which publishes it back through the unit's mailbox the same way an LLM-driven runtime would.
 
 Workflow durability is the image author's concern — the platform delivers messages and records decisions, it is not a workflow engine. The image picks its own state store (Postgres, SQLite, S3, Dapr workflow state) inside its own process boundary.

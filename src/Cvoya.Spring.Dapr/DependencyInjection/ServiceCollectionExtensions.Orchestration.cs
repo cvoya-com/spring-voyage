@@ -84,12 +84,19 @@ internal static class ServiceCollectionExtensionsOrchestration
         // HTTP surface.
         services.TryAddSingleton<IAgentExecutionStore, DbAgentExecutionStore>();
 
-        // ADR-0039 D2: default IOrchestrationToolProvider resolves the
-        // directory-backed orchestration-tool surface for units with children.
-        // TryAdd keeps the override hook open for hosts that need a decorated
-        // or tenant-scoped provider.
-        services.TryAddSingleton<IOrchestrationToolProvider, DirectoryOrchestrationToolProvider>();
-        services.TryAddSingleton<OrchestrationToolHandlers>();
+        // ADR-0048 / ADR-0049: default IMessagingToolProvider resolves the
+        // static two-tool messaging surface (sv.messaging.send /
+        // sv.messaging.broadcast) for every agent / unit caller. TryAdd keeps
+        // the override hook open for hosts that need a decorated or
+        // tenant-scoped provider.
+        services.TryAddSingleton<IMessagingToolProvider, MessagingToolProvider>();
+
+        // ADR-0049 / #2576: the shared message-delivery seam (validation,
+        // per-thread hop budget, bounded-retry delivery) and the messaging
+        // tool handlers built on top of it. Singletons: stateless across
+        // calls; per-call state flows through method arguments.
+        services.TryAddSingleton<MessageDeliveryService>();
+        services.TryAddSingleton<MessagingToolHandlers>();
 
         // ADR-0039 §3 gate 6 — cross-tenant containment. The OSS overlay
         // ships single-tenant; every address resolves to OssTenantIds.Default,

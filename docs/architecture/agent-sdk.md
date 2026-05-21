@@ -1,6 +1,6 @@
 # Agent SDK
 
-> **See also:** [`orchestration-tools.md`](orchestration-tools.md) — companion doc covering the tool-call surface for LLM-driven runtimes. Both surfaces dispatch to the same platform-side handlers and emit the same `OrchestrationDecision` events; the choice between them is the runtime image author's.
+> **See also:** [`platform-mcp-tools.md`](platform-mcp-tools.md) — companion doc covering the `sv.*` MCP tool surface for LLM-driven runtimes. Both surfaces dispatch to the same platform-side delivery handlers; a `sv.messaging.*` delivery records a `MessageSent` activity, and recording a routing decision is an optional, explicit `sv.runtime.report_decision` call. The choice between the SDK and the MCP surface is the runtime image author's.
 
 `Cvoya.Spring.AgentSdk` is the thin HTTP client package that agent processes use to call back into the Spring Voyage dispatcher. It lives at `src/Cvoya.Spring.AgentSdk/`, inherits the solution target framework from `Directory.Build.props`, and has no Dapr, EF, API-host, or worker-host dependency. Runtime image authors reference it from their image project when they need workflow-style orchestration callbacks.
 

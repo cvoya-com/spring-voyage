@@ -26,7 +26,7 @@ using Xunit;
 /// the unknown-tool rejection, and the caller-scoping behaviour: every
 /// store call receives the caller's address as the owner. Wire-shape
 /// regression coverage for tool argument parsing is included for the
-/// load-bearing tool (memory_add).
+/// load-bearing tool (sv.memory.add).
 /// </summary>
 public class SvMemorySkillRegistryTests
 {

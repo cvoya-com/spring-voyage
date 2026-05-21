@@ -10,13 +10,13 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 /// <summary>
-/// HTTP implementation of <see cref="IOrchestrationClient"/>.
+/// HTTP implementation of <see cref="IMessagingClient"/>.
 /// </summary>
-public sealed class OrchestrationClient : IOrchestrationClient
+public sealed class MessagingClient : IMessagingClient
 {
     private const string ResultEndpoint = "result";
-    private const string DelegateEndpoint = "delegate-to";
-    private const string FanoutEndpoint = "fanout-to";
+    private const string SendEndpoint = "messaging/send";
+    private const string BroadcastEndpoint = "messaging/broadcast";
     private const string AgentAddressClaim = "sv_addr";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -25,7 +25,7 @@ public sealed class OrchestrationClient : IOrchestrationClient
     private readonly string _callbackToken;
     private readonly string _callerAddress;
 
-    public OrchestrationClient(string baseUrl, string callbackToken)
+    public MessagingClient(string baseUrl, string callbackToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(baseUrl);
         ArgumentException.ThrowIfNullOrWhiteSpace(callbackToken);
@@ -54,7 +54,7 @@ public sealed class OrchestrationClient : IOrchestrationClient
     }
 
     /// <inheritdoc />
-    public async Task<DelegateResponse> DelegateAsync(
+    public async Task<MessageSendResponse> SendAsync(
         string threadId,
         string targetUnitId,
         string prompt,
@@ -64,9 +64,9 @@ public sealed class OrchestrationClient : IOrchestrationClient
         ArgumentException.ThrowIfNullOrWhiteSpace(targetUnitId);
         ArgumentNullException.ThrowIfNull(prompt);
 
-        var response = await SendAsync<DelegateToRequest, DelegateToResponse>(
-            DelegateEndpoint,
-            new DelegateToRequest(
+        var response = await SendAsync<MessagingSendRequest, MessagingSendResponseDto>(
+            SendEndpoint,
+            new MessagingSendRequest(
                 _callerAddress,
                 BuildTargetAddress(targetUnitId),
                 ParseThreadId(threadId, nameof(threadId)),
@@ -75,7 +75,7 @@ public sealed class OrchestrationClient : IOrchestrationClient
                 Reason: null),
             cancellationToken).ConfigureAwait(false);
 
-        return new DelegateResponse(
+        return new MessageSendResponse(
             response.Delivered,
             response.MessageId.ToString("D"),
             response.Target ?? string.Empty,
@@ -83,7 +83,7 @@ public sealed class OrchestrationClient : IOrchestrationClient
     }
 
     /// <inheritdoc />
-    public async Task<FanoutResponse> FanoutAsync(
+    public async Task<MessageBroadcastResponse> BroadcastAsync(
         string threadId,
         IReadOnlyList<string> targetUnitIds,
         string prompt,
@@ -93,9 +93,9 @@ public sealed class OrchestrationClient : IOrchestrationClient
         ArgumentNullException.ThrowIfNull(targetUnitIds);
         ArgumentNullException.ThrowIfNull(prompt);
 
-        var response = await SendAsync<FanoutToRequest, FanoutToResponse>(
-            FanoutEndpoint,
-            new FanoutToRequest(
+        var response = await SendAsync<MessagingBroadcastRequest, MessagingBroadcastResponseDto>(
+            BroadcastEndpoint,
+            new MessagingBroadcastRequest(
                 _callerAddress,
                 targetUnitIds.Select(BuildTargetAddress).ToArray(),
                 ParseThreadId(threadId, nameof(threadId)),
@@ -104,11 +104,11 @@ public sealed class OrchestrationClient : IOrchestrationClient
                 Reason: null),
             cancellationToken).ConfigureAwait(false);
 
-        return new FanoutResponse(
+        return new MessageBroadcastResponse(
             response.MessageId.ToString("D"),
             response.ThreadId.ToString("D"),
-            (response.Deliveries ?? Array.Empty<FanoutDeliveryOutcome>())
-                .Select(outcome => new FanoutDelivery(
+            (response.Deliveries ?? Array.Empty<MessagingDeliveryOutcomeDto>())
+                .Select(outcome => new MessageBroadcastDelivery(
                     outcome.Target,
                     outcome.Delivered,
                     outcome.Error))
@@ -314,7 +314,7 @@ public sealed class OrchestrationClient : IOrchestrationClient
         [property: JsonPropertyName("threadId")] string ThreadId,
         [property: JsonPropertyName("result")] string Result);
 
-    private sealed record DelegateToRequest(
+    private sealed record MessagingSendRequest(
         [property: JsonPropertyName("callerAddress")] string CallerAddress,
         [property: JsonPropertyName("targetAddress")] string TargetAddress,
         [property: JsonPropertyName("threadId")] Guid ThreadId,
@@ -322,15 +322,15 @@ public sealed class OrchestrationClient : IOrchestrationClient
         [property: JsonPropertyName("messageContent")] string MessageContent,
         [property: JsonPropertyName("reason")] string? Reason);
 
-    // ADR-0049 — the dispatcher returns a delivery acknowledgement, not the
+    // ADR-0049 — the platform returns a delivery acknowledgement, not the
     // recipient's response.
-    private sealed record DelegateToResponse(
+    private sealed record MessagingSendResponseDto(
         [property: JsonPropertyName("delivered")] bool Delivered,
         [property: JsonPropertyName("messageId")] Guid MessageId,
         [property: JsonPropertyName("target")] string? Target,
         [property: JsonPropertyName("threadId")] Guid ThreadId);
 
-    private sealed record FanoutToRequest(
+    private sealed record MessagingBroadcastRequest(
         [property: JsonPropertyName("callerAddress")] string CallerAddress,
         [property: JsonPropertyName("targetAddresses")] string[] TargetAddresses,
         [property: JsonPropertyName("threadId")] Guid ThreadId,
@@ -338,12 +338,12 @@ public sealed class OrchestrationClient : IOrchestrationClient
         [property: JsonPropertyName("messageContent")] string MessageContent,
         [property: JsonPropertyName("reason")] string? Reason);
 
-    private sealed record FanoutToResponse(
+    private sealed record MessagingBroadcastResponseDto(
         [property: JsonPropertyName("messageId")] Guid MessageId,
         [property: JsonPropertyName("threadId")] Guid ThreadId,
-        [property: JsonPropertyName("deliveries")] FanoutDeliveryOutcome[]? Deliveries);
+        [property: JsonPropertyName("deliveries")] MessagingDeliveryOutcomeDto[]? Deliveries);
 
-    private sealed record FanoutDeliveryOutcome(
+    private sealed record MessagingDeliveryOutcomeDto(
         [property: JsonPropertyName("target")] string Target,
         [property: JsonPropertyName("delivered")] bool Delivered,
         [property: JsonPropertyName("error")] string? Error);

@@ -60,8 +60,8 @@ internal static class ServiceCollectionExtensionsRouting
             sp => sp.GetRequiredService<DirectorySearchSkillRegistry>()));
 
         // Spring Voyage directory tools (#2231, extended in #2491).
-        // Exposes sv.get_self, sv.get_member, sv.list_members,
-        // sv.get_siblings, sv.get_parents, sv.get_status so the agent
+        // Exposes sv.directory.get_self, sv.directory.get_member, sv.directory.list_members,
+        // sv.directory.get_siblings, sv.directory.get_parents, sv.directory.get_status so the agent
         // runtime can navigate the unit / agent composition graph at
         // runtime without baking the directory into the system prompt.
         // Registered via TryAddEnumerable so cloud hosts can add a
@@ -85,7 +85,7 @@ internal static class ServiceCollectionExtensionsRouting
             sp => sp.GetRequiredService<SvMemorySkillRegistry>()));
 
         // Spring Voyage runtime reflection tools (#2493). Exposes
-        // sv.report_progress so runtimes that use MCP (rather than the
+        // sv.runtime.report_progress so runtimes that use MCP (rather than the
         // SDK helper) can publish RuntimeProgress events through the
         // same activity-bus path. Singleton — depends only on the
         // ingest service and tenant context, both of which are

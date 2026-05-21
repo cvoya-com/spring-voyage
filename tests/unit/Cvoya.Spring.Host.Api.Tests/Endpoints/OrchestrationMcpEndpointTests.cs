@@ -19,10 +19,10 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Covers the MCP JSON-RPC 2.0 handler at the orchestration route-prefix root
+/// Covers the MCP JSON-RPC 2.0 handler at the messaging route-prefix root
 /// (<c>POST /v1/runtime/orchestration</c>) — the streamable-HTTP transport the
-/// claude-code / codex launchers point their <c>spring-orchestration</c> MCP
-/// server at. The REST sub-routes (<c>/delegate-to</c>, <c>/fanout-to</c>) are
+/// claude-code / codex launchers point their MCP server at. The REST
+/// sub-routes (<c>/messaging/send</c>, <c>/messaging/broadcast</c>) are
 /// exercised separately by <see cref="OrchestrationCallbackEndpointsTests"/>.
 /// </summary>
 public class OrchestrationMcpEndpointTests
@@ -54,7 +54,7 @@ public class OrchestrationMcpEndpointTests
         json.GetProperty("jsonrpc").GetString().ShouldBe("2.0");
         var result = json.GetProperty("result");
         result.GetProperty("protocolVersion").GetString().ShouldBe("2024-11-05");
-        result.GetProperty("serverInfo").GetProperty("name").GetString().ShouldBe("spring-orchestration");
+        result.GetProperty("serverInfo").GetProperty("name").GetString().ShouldBe("spring-messaging");
         result.GetProperty("capabilities").TryGetProperty("tools", out _).ShouldBeTrue();
     }
 
@@ -89,8 +89,8 @@ public class OrchestrationMcpEndpointTests
         tools.GetArrayLength().ShouldBe(2);
 
         var names = tools.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToArray();
-        names.ShouldContain("delegate_to");
-        names.ShouldContain("fanout_to");
+        names.ShouldContain("sv.messaging.send");
+        names.ShouldContain("sv.messaging.broadcast");
 
         foreach (var tool in tools.EnumerateArray())
         {
@@ -100,9 +100,9 @@ public class OrchestrationMcpEndpointTests
     }
 
     [Fact]
-    public async Task ToolsCall_DelegateTo_DeliversMessageAndReturnsDeliveryAck()
+    public async Task ToolsCall_Send_DeliversMessageAndReturnsDeliveryAck()
     {
-        // ADR-0049 — tools/call delegate_to returns a delivery
+        // ADR-0049 — tools/call sv.messaging.send returns a delivery
         // acknowledgement in the MCP envelope, never the target's response.
         using var factory = new OrchestrationCallbackTestHost();
         var agent = Substitute.For<IAgent>();
@@ -116,7 +116,7 @@ public class OrchestrationMcpEndpointTests
             McpRoute,
             Rpc("tools/call", new
             {
-                name = "delegate_to",
+                name = "sv.messaging.send",
                 arguments = new
                 {
                     address = ChildAddress.ToString(),
@@ -138,7 +138,7 @@ public class OrchestrationMcpEndpointTests
     }
 
     [Fact]
-    public async Task ToolsCall_FanoutTo_ReturnsPerTargetDeliveryOutcomes()
+    public async Task ToolsCall_Broadcast_ReturnsPerTargetDeliveryOutcomes()
     {
         using var factory = new OrchestrationCallbackTestHost();
         var firstAgent = Substitute.For<IAgent>();
@@ -156,7 +156,7 @@ public class OrchestrationMcpEndpointTests
             McpRoute,
             Rpc("tools/call", new
             {
-                name = "fanout_to",
+                name = "sv.messaging.broadcast",
                 arguments = new
                 {
                     addresses = new[] { ChildAddress.ToString(), OtherChildAddress.ToString() },
@@ -180,7 +180,7 @@ public class OrchestrationMcpEndpointTests
     }
 
     [Fact]
-    public async Task ToolsCall_DelegateTo_SelfTarget_ReturnsIsErrorResult()
+    public async Task ToolsCall_Send_SelfTarget_ReturnsIsErrorResult()
     {
         // OrchestrationException (self-delegation) is surfaced to the model as
         // a tools/call result with isError: true — the JSON-RPC call itself
@@ -192,7 +192,7 @@ public class OrchestrationMcpEndpointTests
             McpRoute,
             Rpc("tools/call", new
             {
-                name = "delegate_to",
+                name = "sv.messaging.send",
                 arguments = new
                 {
                     address = UnitAddress.ToString(),
@@ -212,7 +212,7 @@ public class OrchestrationMcpEndpointTests
     }
 
     [Fact]
-    public async Task ToolsCall_DelegateTo_MalformedAddress_ReturnsIsErrorResult()
+    public async Task ToolsCall_Send_MalformedAddress_ReturnsIsErrorResult()
     {
         using var factory = new OrchestrationCallbackTestHost();
         var client = factory.CreateCallbackClient(UnitAddress);
@@ -221,7 +221,7 @@ public class OrchestrationMcpEndpointTests
             McpRoute,
             Rpc("tools/call", new
             {
-                name = "delegate_to",
+                name = "sv.messaging.send",
                 arguments = new { address = "not-an-address", message = "x" },
             }),
             TestContext.Current.CancellationToken);
@@ -232,7 +232,7 @@ public class OrchestrationMcpEndpointTests
     }
 
     [Fact]
-    public async Task ToolsCall_DelegateTo_TerminalDeliveryFailure_ReturnsIsErrorResult()
+    public async Task ToolsCall_Send_TerminalDeliveryFailure_ReturnsIsErrorResult()
     {
         // ADR-0049 §6 — a transient ReceiveAsync failure that persists past
         // the retry budget surfaces to the model as an isError tools/call
@@ -249,7 +249,7 @@ public class OrchestrationMcpEndpointTests
             McpRoute,
             Rpc("tools/call", new
             {
-                name = "delegate_to",
+                name = "sv.messaging.send",
                 arguments = new { address = ChildAddress.ToString(), message = "do the work" },
             }),
             TestContext.Current.CancellationToken);

@@ -4,21 +4,19 @@
 namespace Cvoya.Spring.Core.Orchestration;
 
 /// <summary>
-/// Identifies the kind of orchestration decision recorded when a unit's
-/// runtime invokes one of the platform-supplied orchestration tools.
-/// See ADR-0039 § 4 ("Orchestration decisions are first-class evidence").
+/// Identifies the kind of routing decision recorded when a runtime logs a
+/// decision via <c>sv.runtime.report_decision</c>. See ADR-0039 § 4
+/// ("Orchestration decisions are first-class evidence").
 /// </summary>
 public enum OrchestrationDecisionKind
 {
     /// <summary>
-    /// The runtime forwarded the inbound message to a single target via
-    /// <c>delegate_to</c>.
+    /// The runtime decided to route the work to a single target.
     /// </summary>
     Delegate,
 
     /// <summary>
-    /// The runtime forwarded the inbound message to multiple targets
-    /// in parallel via <c>fanout_to</c>.
+    /// The runtime decided to route the work to multiple targets.
     /// </summary>
     Fanout
 }
