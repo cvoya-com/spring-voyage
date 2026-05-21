@@ -17,7 +17,7 @@ using Cvoya.Spring.Core.Messaging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Builds the OTLP endpoint URL from the dispatcher orchestration
+/// Builds the OTLP endpoint URL from the dispatcher runtime
 /// callback base URL (<see cref="AgentCallbackEnvironmentContract.CallbackUrlEnvVar"/>),
 /// which the launcher's existing
 /// <see cref="LauncherCallbackEnvironment"/> already injected. The OTLP

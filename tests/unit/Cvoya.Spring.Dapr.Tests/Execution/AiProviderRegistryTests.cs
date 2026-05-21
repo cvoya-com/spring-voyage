@@ -16,7 +16,7 @@ using Xunit;
 
 /// <summary>
 /// Tests for <see cref="AiProviderRegistry"/> (#1696). Verifies the
-/// id-based dispatch the unit-orchestration layer relies on, plus the
+/// id-based dispatch the unit dispatch layer relies on, plus the
 /// fail-fast guard against duplicate or blank ids.
 /// </summary>
 public class AiProviderRegistryTests

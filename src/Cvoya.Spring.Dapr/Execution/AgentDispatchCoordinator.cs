@@ -311,7 +311,7 @@ public class AgentDispatchCoordinator(
     /// GitHub issue number) resolved from the connector payload via
     /// <see cref="ConnectorEventReference"/>. <c>dispatched_to</c> is
     /// intentionally absent on the host-side event: the host cannot see the
-    /// runtime's delegation target — the orchestration-callback
+    /// runtime's delegation target — the runtime-callback
     /// <c>DecisionMade</c> carries it instead, correlated by the same
     /// thread id.
     /// </para>

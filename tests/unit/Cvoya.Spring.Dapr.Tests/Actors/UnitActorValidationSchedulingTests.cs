@@ -25,8 +25,8 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for <see cref="UnitActor.TransitionAsync"/> orchestration
-/// wiring introduced in T-05: every transition into
+/// Unit tests for <see cref="UnitActor.TransitionAsync"/>
+/// validation-scheduling wiring introduced in T-05: every transition into
 /// <see cref="LifecycleStatus.Validating"/> must schedule the
 /// <c>ArtefactValidationWorkflow</c> and persist the returned instance id to
 /// <c>LastValidationRunId</c>. On the revalidate paths

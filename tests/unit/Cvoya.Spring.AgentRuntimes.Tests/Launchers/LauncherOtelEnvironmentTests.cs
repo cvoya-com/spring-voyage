@@ -25,7 +25,7 @@ public class LauncherOtelEnvironmentTests
     {
         var envVars = new Dictionary<string, string>
         {
-            [AgentCallbackEnvironmentContract.CallbackUrlEnvVar] = "https://platform.example.com/v1/runtime/orchestration",
+            [AgentCallbackEnvironmentContract.CallbackUrlEnvVar] = "https://platform.example.com/v1/runtime/callback",
             [AgentCallbackEnvironmentContract.CallbackTokenEnvVar] = "the-jwt-token",
         };
         var context = NewContext();
@@ -49,7 +49,7 @@ public class LauncherOtelEnvironmentTests
     {
         var envVars = new Dictionary<string, string>
         {
-            [AgentCallbackEnvironmentContract.CallbackUrlEnvVar] = "https://platform.example.com/v1/runtime/orchestration",
+            [AgentCallbackEnvironmentContract.CallbackUrlEnvVar] = "https://platform.example.com/v1/runtime/callback",
             [AgentCallbackEnvironmentContract.CallbackTokenEnvVar] = "tok",
         };
         var humanId = new Guid("22222222-0000-0000-0000-000000000001");

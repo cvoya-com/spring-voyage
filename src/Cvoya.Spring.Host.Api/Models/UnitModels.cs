@@ -111,8 +111,8 @@ public record UpdateUnitRequest(
 /// <param name="LastValidationError">Structured outcome of the most recent failed validation run, or <c>null</c> when the most recent run succeeded or the unit has never been validated.</param>
 /// <param name="LastValidationRunId">Dapr workflow instance id of the most recent validation run. Null until the first run.</param>
 /// <param name="Role">Optional role identifier used by multicast resolution (mirrors <see cref="AgentResponse.Role"/>). Added in #2341.</param>
-/// <param name="Specialty">Optional specialty label consumed by orchestration strategies (mirrors <see cref="AgentResponse.Specialty"/>). Added in #2341.</param>
-/// <param name="Enabled">Whether the unit participates in orchestration. Defaults to <c>true</c> (mirrors <see cref="AgentResponse.Enabled"/>). Added in #2341.</param>
+/// <param name="Specialty">Optional specialty label surfaced for unit selection; the platform does not route on it (mirrors <see cref="AgentResponse.Specialty"/>). Added in #2341.</param>
+/// <param name="Enabled">Whether the unit processes inbound messages. Defaults to <c>true</c> (mirrors <see cref="AgentResponse.Enabled"/>). Added in #2341.</param>
 /// <param name="ExecutionMode">How the unit participates in dispatch (mirrors <see cref="AgentResponse.ExecutionMode"/>). Added in #2341.</param>
 /// <remarks>
 /// ADR-0038: the standalone <c>Provider</c> slot is dropped — provider is

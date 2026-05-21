@@ -18,8 +18,8 @@ using System.Runtime.Serialization;
 /// <c>DataContractSerializer</c> marshal the positional record (#319).
 /// </remarks>
 /// <param name="Model">Preferred LLM model identifier for this agent, or <c>null</c> to inherit.</param>
-/// <param name="Specialty">Free-form label describing this agent's role (e.g., "reviewer", "implementer"). Used by orchestration strategies that pick agents by specialty.</param>
-/// <param name="Enabled">When <c>false</c>, orchestration strategies skip this agent. Re-enabling is cheap.</param>
+/// <param name="Specialty">Free-form label describing this agent's role (e.g., "reviewer", "implementer"). Surfaced to runtimes and operators for agent selection; the platform does not route on it.</param>
+/// <param name="Enabled">When <c>false</c>, the agent skips processing inbound messages. Re-enabling is cheap.</param>
 /// <param name="ExecutionMode">How this agent participates in message dispatch.</param>
 /// <param name="ParentUnit">
 /// The unit this agent belongs to. Maintained by the unit's assign / unassign

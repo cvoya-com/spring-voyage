@@ -13,8 +13,8 @@ using global::Dapr.Actors;
 /// <para>
 /// In the Spring Voyage model a <i>unit is an agent</i>: it has the same
 /// mailbox semantics and the same message-dispatch shape as a single agent,
-/// with orchestration policy treated as one kind of cognition. This
-/// interface captures the common "agent-shape" contract that both
+/// differing only in that a unit has children it can route messages to.
+/// This interface captures the common "agent-shape" contract that both
 /// <see cref="IAgentActor"/> and <see cref="IUnitActor"/> extend, so code
 /// that only needs to talk to an agent-like thing — e.g. the message
 /// router's delivery path — can do so without branching on address scheme.

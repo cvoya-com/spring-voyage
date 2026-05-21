@@ -37,8 +37,9 @@ public class UnitMembershipEntity : ITenantScopedEntity
 
     /// <summary>
     /// Per-membership enabled flag. Defaults to <c>true</c> on insert.
-    /// A <c>false</c> value causes the unit's orchestration strategy to
-    /// skip this agent; other units the agent belongs to are unaffected.
+    /// A <c>false</c> value causes the agent to skip processing messages
+    /// flowing through this unit; other units the agent belongs to are
+    /// unaffected.
     /// </summary>
     public bool Enabled { get; set; } = true;
 

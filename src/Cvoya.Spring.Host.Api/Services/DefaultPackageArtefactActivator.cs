@@ -672,7 +672,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             }
         }
 
-        // Push the agent's actor-owned orchestration metadata
+        // Push the agent's actor-owned configuration metadata
         // (Specialty / Enabled / ExecutionMode) when any of those fields was
         // declared in the manifest. Mirrors the PATCH /api/v1/agents/{id}
         // surface so the YAML authoring path lands the same slots as a

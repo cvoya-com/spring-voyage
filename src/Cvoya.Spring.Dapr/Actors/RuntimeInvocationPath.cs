@@ -24,7 +24,7 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// The class is registered as a singleton: it is stateless across
 /// subjects and captures no Dapr actor types. All subject-specific state
-/// (definition, skills, orchestration tools) resolves through injected
+/// (definition, skills, platform messaging and directory tools) resolves through injected
 /// seams keyed on the subject's address.
 /// </para>
 /// <para>

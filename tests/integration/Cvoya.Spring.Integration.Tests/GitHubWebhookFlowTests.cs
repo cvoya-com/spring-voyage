@@ -89,7 +89,7 @@ public class GitHubWebhookFlowTests
     {
         var (agentActor, agentStateManager) = ActorTestHost.CreateAgentActor("payload-agent");
 
-        // Create a webhook-style message directly addressed to the agent (simulating post-orchestration).
+        // Create a webhook-style message directly addressed to the agent (simulating post-routing).
         var webhookPayload = JsonSerializer.SerializeToElement(new
         {
             EventType = "pull_request",

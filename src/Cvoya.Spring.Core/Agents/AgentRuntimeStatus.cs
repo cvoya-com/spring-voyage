@@ -7,7 +7,7 @@ namespace Cvoya.Spring.Core.Agents;
 /// Runtime-status label for an agent or unit actor as projected to the
 /// portal (#2100). Distinct from <c>Cvoya.Spring.Dapr.Actors.AgentStatus</c>:
 /// that one is the binary <c>Idle/Active</c> the actor itself reports for
-/// orchestration-tool consumers; this one is the human-readable surface
+/// runtime-tool consumers; this one is the human-readable surface
 /// the portal renders next to every name (engagement timeline, member
 /// rosters, drawer panels, mention chips).
 /// </summary>

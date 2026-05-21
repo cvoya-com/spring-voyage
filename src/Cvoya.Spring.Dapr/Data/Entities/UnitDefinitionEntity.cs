@@ -10,7 +10,8 @@ using Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
 /// Represents a unit (team) definition stored in the database.
-/// A unit groups agents together under a shared orchestration strategy.
+/// A unit groups agents together under a shared parent that routes
+/// messages to its members.
 /// Identity is the entity Guid <see cref="Id"/> — there is no separate
 /// slug column; <see cref="DisplayName"/> is the only human-readable
 /// label and is not addressable.

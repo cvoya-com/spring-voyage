@@ -588,11 +588,11 @@ public static class UnitCommand
         };
         var specialtyOption = new Option<string?>("--specialty")
         {
-            Description = "Free-form specialty label consumed by orchestration strategies.",
+            Description = "Free-form specialty label surfaced for unit selection; the platform does not route on it.",
         };
         var enabledOption = new Option<bool?>("--enabled")
         {
-            Description = "Whether the unit participates in orchestration.",
+            Description = "Whether the unit processes inbound messages.",
         };
         var executionModeOption = new Option<Cvoya.Spring.Cli.Generated.Models.AgentExecutionMode?>(
             "--execution-mode")

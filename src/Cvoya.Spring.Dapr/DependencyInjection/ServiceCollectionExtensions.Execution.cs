@@ -51,7 +51,7 @@ internal static class ServiceCollectionExtensionsExecution
         services.AddOptions<DaprSidecarOptions>().BindConfiguration(DaprSidecarOptions.SectionName);
         services.AddOptions<DispatcherClientOptions>().BindConfiguration(DispatcherClientOptions.SectionName);
         services.AddOptions<CallbackTokenOptions>().BindConfiguration(CallbackTokenOptions.SectionName);
-        // #2586: agent-facing orchestration callback base URL — the API
+        // #2586: agent-facing runtime callback base URL — the API
         // host's agent-reachable URL. DispatcherCallbackEnvironmentBuilder
         // stamps it onto every runtime container as SPRING_CALLBACK_URL.
         services.AddOptions<CallbackBaseUrlOptions>()
@@ -78,7 +78,7 @@ internal static class ServiceCollectionExtensionsExecution
         // GetService<IAiProvider>() returns the *last* registration, so
         // platform-level singletons that still consume IAiProvider directly
         // (Tier1CognitionProvider, Tier2CognitionProvider, …) land on the
-        // OSS default — Anthropic. Unit-scoped orchestration resolves
+        // OSS default — Anthropic. Unit-scoped dispatch resolves
         // IAiProviderRegistry instead and selects per-unit by the
         // manifest's execution.provider slot (#1696).
         services.AddHttpClient<IAiProvider, OllamaProvider>()

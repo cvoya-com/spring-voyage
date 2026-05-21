@@ -421,8 +421,9 @@ public class AgentActor(
     /// its current queue depth (#2076 / ADR-0030 §3 §44). Under concurrent
     /// threads a single binary "Active" flag is no longer well-defined —
     /// the agent may be running on N threads simultaneously, each at its
-    /// own depth. The <c>Status</c> string is kept for orchestration-tool
-    /// child-status mapping ("Idle" or "Active"), but the real shape is
+    /// own depth. The <c>Status</c> string is kept for the
+    /// <c>sv.directory.get_status</c> tool's child-status mapping
+    /// ("Idle" or "Active"), but the real shape is
     /// the per-thread <c>ThreadDepths</c> map.
     /// </summary>
     private async Task<Message?> HandleStatusQueryAsync(Message message, CancellationToken cancellationToken)

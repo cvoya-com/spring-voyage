@@ -11,7 +11,8 @@ using Cvoya.Spring.Core.Messaging;
 /// Encapsulates the runtime-invocation pipeline for a single addressable
 /// subject (an agent, or — after ADR-0039 task C2 — a unit). The pipeline
 /// resolves the subject's configuration, the skills it exposes, the
-/// orchestration tools it can invoke against its child composition,
+/// platform messaging and directory tools it can invoke against its
+/// child composition,
 /// the credentials needed by its runtime, launches the runtime via
 /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher"/>, and
 /// publishes the response back through the platform message router.
@@ -19,12 +20,11 @@ using Cvoya.Spring.Core.Messaging;
 /// <remarks>
 /// <para>
 /// Introduced by ADR-0039 ("units are agents"): under that decision the
-/// orchestration tool surface is no longer a property of a separate
-/// <c>UnitActor</c> type — it is a per-thread capability resolved for a
-/// given addressable subject. Phase C of the execution plan extracts the
-/// runtime-invocation half of the agent dispatch path into this seam so
-/// the two actor types can share it; phase D wires the directory-driven
-/// orchestration provider on top.
+/// platform messaging and directory tool surface is no longer a property
+/// of a separate <c>UnitActor</c> type — it is a per-thread capability
+/// resolved for a given addressable subject. Phase C of the execution
+/// plan extracts the runtime-invocation half of the agent dispatch path
+/// into this seam so the two actor types can share it.
 /// </para>
 /// <para>
 /// The interface lives in <c>Cvoya.Spring.Dapr.Actors</c> because it is
@@ -54,7 +54,7 @@ public interface IRuntimeInvocationPath
     /// <param name="subject">
     /// The address of the agent or unit whose runtime is being invoked.
     /// Used to resolve subject-scoped configuration (definition, skills,
-    /// orchestration tools, credentials).
+    /// platform messaging and directory tools, credentials).
     /// </param>
     /// <param name="inbound">
     /// The message that triggered this invocation. Carries the thread id
@@ -90,8 +90,7 @@ public interface IRuntimeInvocationPath
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Once the directory-driven orchestration provider lands in ADR-0039
-    /// task D2 and per-thread state moves behind a shared seam, this
+    /// Once per-thread state moves behind a shared seam, this
     /// overload will collapse into the lean form above. Until then it
     /// remains the bridge that lets the runtime-invocation pipeline
     /// serve <c>AgentActor</c>'s mailbox-aware path without rewriting

@@ -24,7 +24,7 @@ public interface IAiProviderRegistry
 {
     /// <summary>
     /// Resolve a provider by its id. Returns <c>null</c> when no provider
-    /// matches, leaving error handling to the caller (the orchestration
+    /// matches, leaving error handling to the caller (the execution
     /// layer surfaces a <c>ProbeInternalError</c>-style result so the
     /// operator sees an actionable message instead of a 502).
     /// </summary>

@@ -8,7 +8,7 @@ using System.Runtime.CompilerServices;
 
 /// <summary>
 /// Sets <c>SPRING_SECRETS_AES_KEY</c>, the dispatcher env vars, and the
-/// orchestration callback base URL for the duration of every test in this
+/// runtime callback base URL for the duration of every test in this
 /// assembly.
 /// </summary>
 /// <remarks>
@@ -41,7 +41,7 @@ using System.Runtime.CompilerServices;
 /// We set them once at module load (before any test factory builds a host)
 /// rather than on every <c>UseSetting</c> call site, which keeps the bare
 /// <c>new WebApplicationFactory&lt;Program&gt;()</c> usages across the
-/// suite from each having to learn the dispatcher / orchestration-callback
+/// suite from each having to learn the dispatcher / runtime-callback
 /// contract. Existing values are preserved so an operator can override them
 /// at the shell.
 /// </para>

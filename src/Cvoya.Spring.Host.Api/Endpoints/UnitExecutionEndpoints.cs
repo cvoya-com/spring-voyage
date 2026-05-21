@@ -25,8 +25,8 @@ using Microsoft.AspNetCore.Mvc;
 /// <para>
 /// A unit that has never had an execution block persisted returns the
 /// canonical empty shape (all fields <c>null</c>) — callers never need
-/// to branch on 404 vs unset, matching the <c>/orchestration</c> and
-/// <c>/policy</c> conventions.
+/// to branch on 404 vs unset, matching the <c>/policy</c>
+/// convention.
 /// </para>
 /// <para>
 /// PUT semantics are <b>partial update</b>: a non-null field replaces

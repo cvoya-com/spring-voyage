@@ -12,8 +12,8 @@ namespace Cvoya.Spring.Core.Agents;
 public enum AgentExecutionMode
 {
     /// <summary>
-    /// The containing unit's orchestration strategy may route domain messages
-    /// to this agent without explicit addressing. Default for new agents.
+    /// The agent may receive domain messages routed within its containing
+    /// unit without explicit addressing. Default for new agents.
     /// </summary>
     Auto = 0,
 
