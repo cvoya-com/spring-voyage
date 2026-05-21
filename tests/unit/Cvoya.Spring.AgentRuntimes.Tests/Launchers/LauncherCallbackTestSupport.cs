@@ -6,16 +6,14 @@ namespace Cvoya.Spring.AgentRuntimes.Tests.Launchers;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Runtime;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Execution;
-using Cvoya.Spring.Dispatcher.Auth;
 
 using Microsoft.Extensions.Options;
 
 using NSubstitute;
 
 using Shouldly;
-
-using DaprCallbackTokenIssuer = Cvoya.Spring.Dapr.Auth.CallbackTokenIssuer;
 
 internal sealed class LauncherCallbackTestSupport
 {
@@ -39,11 +37,11 @@ internal sealed class LauncherCallbackTestSupport
         keyProvider.GetSigningKey(Arg.Any<Guid>()).Returns(SigningKey);
 
         var options = Options.Create(new CallbackTokenOptions());
-        var issuer = new DaprCallbackTokenIssuer(keyProvider, options);
+        var issuer = new CallbackTokenIssuer(keyProvider, options);
         Builder = new DispatcherCallbackEnvironmentBuilder(
-            Options.Create(new DispatcherClientOptions
+            Options.Create(new OrchestrationCallbackOptions
             {
-                BaseUrl = "http://dispatcher.example/root/",
+                BaseUrl = CallbackUrl,
             }),
             issuer);
         _validator = new CallbackTokenValidator(keyProvider, options);

@@ -15,11 +15,18 @@ using Microsoft.Extensions.Options;
 /// Builds the uniform callback environment every launcher stamps onto an
 /// agent runtime container.
 /// </summary>
+/// <remarks>
+/// The orchestration callback base URL points at the Dapr-connected API
+/// host, not the dispatcher (#2586): the dispatcher has no Dapr sidecar and
+/// cannot invoke the recipient actor for a <c>delegate_to</c> / <c>fanout_to</c>
+/// delivery. <c>SPRING_CALLBACK_URL</c> is sourced from
+/// <see cref="OrchestrationCallbackOptions.BaseUrl"/>.
+/// </remarks>
 public class DispatcherCallbackEnvironmentBuilder(
-    IOptions<DispatcherClientOptions> dispatcherOptions,
+    IOptions<OrchestrationCallbackOptions> callbackOptions,
     ICallbackTokenIssuer callbackTokenIssuer) : IAgentCallbackEnvironmentBuilder
 {
-    private readonly DispatcherClientOptions _dispatcherOptions = dispatcherOptions.Value;
+    private readonly OrchestrationCallbackOptions _callbackOptions = callbackOptions.Value;
     private readonly ICallbackTokenIssuer _callbackTokenIssuer = callbackTokenIssuer;
 
     /// <inheritdoc />
@@ -48,18 +55,18 @@ public class DispatcherCallbackEnvironmentBuilder(
 
     private string ResolveCallbackBaseUrl()
     {
-        if (string.IsNullOrWhiteSpace(_dispatcherOptions.BaseUrl))
+        if (string.IsNullOrWhiteSpace(_callbackOptions.BaseUrl))
         {
             throw new SpringException(
-                "Dispatcher:BaseUrl is required to inject SPRING_CALLBACK_URL for agent runtimes.");
+                "OrchestrationCallback:BaseUrl is required to inject SPRING_CALLBACK_URL for agent runtimes.");
         }
 
-        if (!Uri.TryCreate(_dispatcherOptions.BaseUrl, UriKind.Absolute, out var baseUri) ||
+        if (!Uri.TryCreate(_callbackOptions.BaseUrl, UriKind.Absolute, out var baseUri) ||
             (!string.Equals(baseUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
              !string.Equals(baseUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
         {
             throw new SpringException(
-                $"Dispatcher:BaseUrl '{_dispatcherOptions.BaseUrl}' is not a valid absolute http(s) URI.");
+                $"OrchestrationCallback:BaseUrl '{_callbackOptions.BaseUrl}' is not a valid absolute http(s) URI.");
         }
 
         var normalizedBase = baseUri.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)

@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dispatcher;
+namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using System.Text.Json;
 
@@ -10,8 +10,8 @@ using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Orchestration;
-using Cvoya.Spring.Dispatcher.Auth;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -23,7 +23,14 @@ public static class OrchestrationCallbackEndpoints
 
     public static IEndpointRouteBuilder MapOrchestrationCallbackEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup(RoutePrefix);
+        // The orchestration callback surface is an internal agent-runtime
+        // ingress, not part of the tenant REST API the OpenAPI document
+        // describes for SDK / portal consumers. It authenticates via the
+        // per-invocation callback JWT, not the API-token scheme, and is
+        // reached only from runtime containers. Exclude it from the OpenAPI
+        // description so the public contract stays scoped to the tenant API
+        // — matching how /health is excluded.
+        var group = endpoints.MapGroup(RoutePrefix).ExcludeFromDescription();
 
         group.MapPost("/delegate-to", DelegateToAsync);
         group.MapPost("/fanout-to", FanoutToAsync);
@@ -39,7 +46,7 @@ public static class OrchestrationCallbackEndpoints
         // normalises a trailing slash, so this single route matches both the
         // launcher's bare-prefix url and the `…/` form. The two REST
         // sub-routes above stay as-is — they serve OrchestrationClient.
-        endpoints.MapPost(RoutePrefix, McpRpcAsync);
+        endpoints.MapPost(RoutePrefix, McpRpcAsync).ExcludeFromDescription();
 
         return endpoints;
     }

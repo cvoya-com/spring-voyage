@@ -17,13 +17,11 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Pins <see cref="BearerTokenAuthHandler"/> auth behaviour, focused on the
-/// #2582 fix: the orchestration callback route prefix must not run through
-/// — or log a failure under — the <c>DispatcherBearer</c> static-token
-/// scheme. The orchestration endpoints own their auth via
-/// <c>CallbackTokenValidator</c>; a callback JWT is never a
-/// <c>DispatcherOptions.Tokens</c> value, so the scheme must abstain
-/// (<see cref="AuthenticateResult.None"/>) rather than fail noisily.
+/// Pins <see cref="BearerTokenAuthHandler"/> auth behaviour: an unrecognised
+/// bearer token is a genuine failure, a missing header abstains. The
+/// orchestration callback surface relocated off the dispatcher onto the
+/// Dapr-connected API host (#2586), so the dispatcher no longer carries an
+/// orchestration-path special case.
 /// </summary>
 public class BearerTokenAuthHandlerTests
 {
@@ -63,38 +61,9 @@ public class BearerTokenAuthHandlerTests
     }
 
     [Fact]
-    public async Task OrchestrationCallbackPath_WithUnknownBearer_AbstainsInsteadOfFailing()
+    public async Task UnknownBearer_Fails()
     {
-        // The orchestration callback path carries a callback JWT, never a
-        // DispatcherOptions.Tokens value. The static-token scheme must
-        // abstain — NoResult, no Failure — so it logs no spurious
-        // "DispatcherBearer was not authenticated" line.
-        var handler = await CreateInitializedHandlerAsync(
-            ContextFor("/v1/runtime/orchestration", "Bearer some-callback-jwt"));
-
-        var result = await handler.AuthenticateAsync();
-
-        result.None.ShouldBeTrue();
-        result.Failure.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task OrchestrationCallbackSubRoute_WithUnknownBearer_Abstains()
-    {
-        var handler = await CreateInitializedHandlerAsync(
-            ContextFor("/v1/runtime/orchestration/delegate-to", "Bearer some-callback-jwt"));
-
-        var result = await handler.AuthenticateAsync();
-
-        result.None.ShouldBeTrue();
-        result.Failure.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task NonOrchestrationPath_WithUnknownBearer_StillFails()
-    {
-        // Every other route keeps the original behaviour: an unrecognised
-        // bearer token is a genuine auth failure.
+        // An unrecognised bearer token is a genuine auth failure.
         var handler = await CreateInitializedHandlerAsync(
             ContextFor("/v1/containers", "Bearer not-a-known-token"));
 
@@ -105,7 +74,7 @@ public class BearerTokenAuthHandlerTests
     }
 
     [Fact]
-    public async Task NonOrchestrationPath_WithNoAuthHeader_AbstainsAsBefore()
+    public async Task NoAuthHeader_Abstains()
     {
         var handler = await CreateInitializedHandlerAsync(
             ContextFor("/v1/containers", authHeader: null));

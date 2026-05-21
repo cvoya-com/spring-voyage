@@ -1,16 +1,15 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dispatcher.Tests.Auth;
+namespace Cvoya.Spring.Host.Api.Tests.Auth;
 
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
 using Cvoya.Spring.Core.Capabilities;
-using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Runtime;
-using Cvoya.Spring.Dispatcher.Auth;
+using Cvoya.Spring.Dapr.Auth;
 
 using Microsoft.Extensions.Logging.Abstractions;
 

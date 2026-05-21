@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dispatcher.Tests.Auth;
+namespace Cvoya.Spring.Host.Api.Tests.Auth;
 
 using System;
 using System.IdentityModel.Tokens.Jwt;
@@ -10,7 +10,7 @@ using System.Security.Cryptography;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Runtime;
-using Cvoya.Spring.Dispatcher.Auth;
+using Cvoya.Spring.Dapr.Auth;
 
 using Microsoft.Extensions.Options;
 
@@ -179,8 +179,8 @@ public class CallbackTokenIssuerValidatorTests
         parts.Length.ShouldBe(3);
         var payload = System.Text.Encoding.UTF8.GetString(Base64UrlDecode(parts[1]));
         var newPayload = payload.Replace(
-            $"\"{CallbackTokenIssuer.TenantIdClaim}\":\"{GuidFormatter.Format(tenantA)}\"",
-            $"\"{CallbackTokenIssuer.TenantIdClaim}\":\"{GuidFormatter.Format(tenantB)}\"",
+            $"\"{CallbackTokenClaimNames.TenantId}\":\"{GuidFormatter.Format(tenantA)}\"",
+            $"\"{CallbackTokenClaimNames.TenantId}\":\"{GuidFormatter.Format(tenantB)}\"",
             StringComparison.Ordinal);
         newPayload.ShouldNotBe(payload, "the substitution must actually change the payload");
         parts[1] = Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(newPayload));
@@ -229,7 +229,7 @@ public class CallbackTokenIssuerValidatorTests
             {
                 // Deliberately omit sv_tid.
                 new System.Security.Claims.Claim(
-                    CallbackTokenIssuer.AgentAddressClaim,
+                    CallbackTokenClaimNames.AgentAddress,
                     new Address(Address.UnitScheme, Guid.NewGuid()).ToString()),
             }),
             notBefore: DateTime.UtcNow,

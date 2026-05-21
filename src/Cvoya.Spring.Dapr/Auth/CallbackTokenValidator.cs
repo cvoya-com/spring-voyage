@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dispatcher.Auth;
+namespace Cvoya.Spring.Dapr.Auth;
 
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -22,8 +22,8 @@ using Microsoft.IdentityModel.Tokens;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Per ADR-0039 §3, this class is the first gate on every dispatcher
-/// orchestration callback. It checks signature, expiry, issuer / audience,
+/// Per ADR-0039 §3, this class is the first gate on every orchestration
+/// callback. It checks signature, expiry, issuer / audience,
 /// and the presence-and-shape of the five required claims
 /// (<c>sv_tid</c>, <c>sv_addr</c>, <c>sv_thread</c>, <c>sv_msg</c>,
 /// <c>exp</c>). It does <b>not</b> consult the directory; the
@@ -93,13 +93,13 @@ public class CallbackTokenValidator(
         }
 
         var tenantClaim = unverified.Claims
-            .FirstOrDefault(c => c.Type == CallbackTokenIssuer.TenantIdClaim)?.Value;
+            .FirstOrDefault(c => c.Type == CallbackTokenClaimNames.TenantId)?.Value;
 
         if (string.IsNullOrEmpty(tenantClaim) || !GuidFormatter.TryParse(tenantClaim, out var tenantId))
         {
             throw new CallbackTokenValidationException(
                 CallbackTokenValidationReason.ClaimMissingOrInvalid,
-                $"Callback token is missing or has an invalid '{CallbackTokenIssuer.TenantIdClaim}' claim.");
+                $"Callback token is missing or has an invalid '{CallbackTokenClaimNames.TenantId}' claim.");
         }
 
         byte[] keyBytes;
@@ -167,30 +167,30 @@ public class CallbackTokenValidator(
                 ex);
         }
 
-        var addressClaim = principal.FindFirst(CallbackTokenIssuer.AgentAddressClaim)?.Value;
+        var addressClaim = principal.FindFirst(CallbackTokenClaimNames.AgentAddress)?.Value;
         if (string.IsNullOrEmpty(addressClaim) ||
             !Address.TryParse(addressClaim, out var address) ||
             address is null)
         {
             throw new CallbackTokenValidationException(
                 CallbackTokenValidationReason.ClaimMissingOrInvalid,
-                $"Callback token is missing or has an invalid '{CallbackTokenIssuer.AgentAddressClaim}' claim.");
+                $"Callback token is missing or has an invalid '{CallbackTokenClaimNames.AgentAddress}' claim.");
         }
 
-        var threadClaim = principal.FindFirst(CallbackTokenIssuer.ThreadIdClaim)?.Value;
+        var threadClaim = principal.FindFirst(CallbackTokenClaimNames.ThreadId)?.Value;
         if (string.IsNullOrEmpty(threadClaim) || !GuidFormatter.TryParse(threadClaim, out var threadId))
         {
             throw new CallbackTokenValidationException(
                 CallbackTokenValidationReason.ClaimMissingOrInvalid,
-                $"Callback token is missing or has an invalid '{CallbackTokenIssuer.ThreadIdClaim}' claim.");
+                $"Callback token is missing or has an invalid '{CallbackTokenClaimNames.ThreadId}' claim.");
         }
 
-        var messageClaim = principal.FindFirst(CallbackTokenIssuer.MessageIdClaim)?.Value;
+        var messageClaim = principal.FindFirst(CallbackTokenClaimNames.MessageId)?.Value;
         if (string.IsNullOrEmpty(messageClaim) || !GuidFormatter.TryParse(messageClaim, out var messageId))
         {
             throw new CallbackTokenValidationException(
                 CallbackTokenValidationReason.ClaimMissingOrInvalid,
-                $"Callback token is missing or has an invalid '{CallbackTokenIssuer.MessageIdClaim}' claim.");
+                $"Callback token is missing or has an invalid '{CallbackTokenClaimNames.MessageId}' claim.");
         }
 
         var expiresAt = new DateTimeOffset(validatedToken.ValidTo, TimeSpan.Zero);
