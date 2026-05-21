@@ -135,11 +135,14 @@ public class ServiceCollectionExtensionsTests
         // string is the only failing mandatory requirement, keeping this
         // test focused on the #261 regression (single InvalidOperationException
         // instead of an AggregateException covering DB + dispatcher).
+        // #2597 — OrchestrationCallback:BaseUrl is now mandatory too; set a
+        // valid URL for the same reason.
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Dispatcher:BaseUrl"] = "http://spring-dispatcher.test/",
                 ["Dispatcher:BearerToken"] = "test-token",
+                ["OrchestrationCallback:BaseUrl"] = "http://spring-caddy.test:8443/",
             })
             .Build();
         // IConfiguration needs to be present in DI for the requirement's
