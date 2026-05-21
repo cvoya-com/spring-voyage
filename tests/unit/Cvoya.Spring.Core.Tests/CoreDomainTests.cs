@@ -150,6 +150,19 @@ public class AddressTests
     }
 
     [Fact]
+    public void TryParse_UriAuthorityForm_Succeeds()
+    {
+        // CLI runtimes and the portal emit scheme://<id>; lenient parsing
+        // accepts the "//" marker so a routing call is not rejected on a
+        // cosmetic prefix.
+        var ok = Address.TryParse($"agent://{AdaId:N}", out var address);
+
+        ok.ShouldBeTrue();
+        address!.Scheme.ShouldBe("agent");
+        address.Id.ShouldBe(AdaId);
+    }
+
+    [Fact]
     public void TryParse_NonGuidId_ReturnsFalse()
     {
         // Slug-shaped paths are no longer addresses post #1629.

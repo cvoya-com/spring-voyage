@@ -94,7 +94,7 @@ public class CallbackTokenIssuerValidatorTests
         roundtripped.AgentAddress.ShouldBe(address);
         roundtripped.ThreadId.ShouldBe(threadId);
         roundtripped.MessageId.ShouldBe(messageId);
-        // Default lifetime is 5 minutes; assert the issuer stamped a future expiry.
+        // Assert the issuer stamped a future expiry (CallbackTokenOptions.Lifetime).
         roundtripped.ExpiresAt.ShouldBeGreaterThan(DateTimeOffset.UtcNow);
     }
 

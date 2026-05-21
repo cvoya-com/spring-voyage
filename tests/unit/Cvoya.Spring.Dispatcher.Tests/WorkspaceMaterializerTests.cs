@@ -85,13 +85,20 @@ public class WorkspaceMaterializerTests
                 AssertHasFlag(File.GetUnixFileMode(materialised.HostDirectory), UnixFileMode.OtherRead);
                 AssertHasFlag(File.GetUnixFileMode(materialised.HostDirectory), UnixFileMode.OtherExecute);
 
-                AssertHasFlag(File.GetUnixFileMode(Path.Combine(materialised.HostDirectory, "CLAUDE.md")), UnixFileMode.OtherRead);
+                var claudeMd = Path.Combine(materialised.HostDirectory, "CLAUDE.md");
+                AssertHasFlag(File.GetUnixFileMode(claudeMd), UnixFileMode.OtherRead);
+                // World-writable: the in-container agent runs as a different
+                // uid and the sidecar rewrites .mcp.json in place per turn
+                // (#2580). A non-writable file fails that refresh with EACCES.
+                AssertHasFlag(File.GetUnixFileMode(claudeMd), UnixFileMode.OtherWrite);
 
                 var nestedDir = Path.Combine(materialised.HostDirectory, "subdir");
                 AssertHasFlag(File.GetUnixFileMode(nestedDir), UnixFileMode.OtherRead);
                 AssertHasFlag(File.GetUnixFileMode(nestedDir), UnixFileMode.OtherExecute);
 
-                AssertHasFlag(File.GetUnixFileMode(Path.Combine(nestedDir, "tool.json")), UnixFileMode.OtherRead);
+                var nestedFile = Path.Combine(nestedDir, "tool.json");
+                AssertHasFlag(File.GetUnixFileMode(nestedFile), UnixFileMode.OtherRead);
+                AssertHasFlag(File.GetUnixFileMode(nestedFile), UnixFileMode.OtherWrite);
             }
             finally
             {

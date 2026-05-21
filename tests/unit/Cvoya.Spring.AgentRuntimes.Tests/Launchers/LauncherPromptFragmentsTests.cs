@@ -75,7 +75,7 @@ public class LauncherPromptFragmentsTests
 
         guard.ShouldContain("Spring Voyage runtime guard — response discipline");
         guard.ShouldContain("final reply A2A message");
-        guard.ShouldContain("sv.report_progress");
+        guard.ShouldContain("sv.runtime.report_progress");
         guard.ShouldContain("Silent success is a regression");
         guard.ShouldContain("End Spring Voyage runtime guard — response discipline");
     }

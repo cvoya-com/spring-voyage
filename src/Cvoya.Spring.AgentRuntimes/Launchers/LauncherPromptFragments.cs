@@ -43,7 +43,7 @@ internal static class LauncherPromptFragments
     /// motivation. The fragment instructs the model to:
     /// <list type="number">
     /// <item><description>send a final reply A2A message for every triggering message;</description></item>
-    /// <item><description>emit progress updates via <c>sv.report_progress</c> for work expected to take more than ~10 seconds;</description></item>
+    /// <item><description>emit progress updates via <c>sv.runtime.report_progress</c> for work expected to take more than ~10 seconds;</description></item>
     /// <item><description>send an explicit completion message — including on failure.</description></item>
     /// </list>
     /// The fragment is wrapped in stable header / footer markers so
@@ -55,7 +55,7 @@ internal static class LauncherPromptFragments
         "You are a member on Spring Voyage. Every triggering message you receive MUST result in:\n\n" +
         "1. A final reply A2A message addressed to the requester. Use your runtime's reply primitive " +
         "(e.g. `Response(text=..., final=True)` from the SV Agent SDK, or your runtime's equivalent).\n" +
-        "2. (For work expected to take more than ~10 seconds) Progress updates via `sv.report_progress` — " +
+        "2. (For work expected to take more than ~10 seconds) Progress updates via `sv.runtime.report_progress` — " +
         "emit meaningful narrative beats: starting work, tool calls underway, intermediate results, blockers encountered.\n" +
         "3. An explicit completion message. Failure replies are required just as success replies are.\n\n" +
         "Do NOT exit silently after performing work. Silent success is a regression.\n\n" +
