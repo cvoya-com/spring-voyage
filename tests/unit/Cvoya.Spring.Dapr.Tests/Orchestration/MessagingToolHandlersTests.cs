@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Tests.Orchestration;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
@@ -47,6 +48,7 @@ public class MessagingToolHandlersTests
     private readonly IUnitMemberGraphStore _memberGraphStore = Substitute.For<IUnitMemberGraphStore>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IThreadHopActor _hopActor = Substitute.For<IThreadHopActor>();
+    private readonly RecordingThreadRegistry _threadRegistry = new();
 
     private readonly Dictionary<string, IAgent> _agents = new();
     private readonly List<ActivityEvent> _publishedEvents = [];
@@ -92,6 +94,64 @@ public class MessagingToolHandlersTests
         ack.Target.ShouldBe(target);
         ack.MessageId.ShouldBe(message.Id);
         ack.ThreadId.ShouldBe(threadId);
+    }
+
+    [Fact]
+    public async Task HandleSend_DeliversMessageOnHopThread_NotUpstreamThread()
+    {
+        // #2596 — the delivered message lands on the (caller, target) hop
+        // thread, never the caller's upstream conversation thread.
+        var handlers = CreateHandlers();
+        var caller = Unit();
+        var target = Agent(ChildAgentId);
+        var agent = RegisterAgent(target);
+        Message? delivered = null;
+        agent.ReceiveAsync(Arg.Do<Message>(m => delivered = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        var message = CreateMessage();
+
+        await handlers.HandleSendAsync(
+            caller, TenantId, target, message, reason: null, Guid.NewGuid(), CancellationToken.None);
+
+        delivered.ShouldNotBeNull();
+        delivered!.ThreadId.ShouldNotBe(message.ThreadId);
+        var hopThread = await _threadRegistry.GetOrCreateAsync(
+            new[] { caller, target }, CancellationToken.None);
+        delivered.ThreadId.ShouldBe(hopThread);
+    }
+
+    [Fact]
+    public async Task HandleBroadcast_DeliversPerTargetHopThread()
+    {
+        // #2596 — a broadcast fans one message out to N targets; each
+        // delivery is its own conversation hop and must land on the thread
+        // of its own (caller, target) participant set.
+        var handlers = CreateHandlers();
+        var caller = Unit();
+        var t1 = Agent(ChildAgentId);
+        var t2 = Agent(OtherChildAgentId);
+        var a1 = RegisterAgent(t1);
+        var a2 = RegisterAgent(t2);
+        Message? delivered1 = null;
+        Message? delivered2 = null;
+        a1.ReceiveAsync(Arg.Do<Message>(m => delivered1 = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        a2.ReceiveAsync(Arg.Do<Message>(m => delivered2 = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+
+        await handlers.HandleBroadcastAsync(
+            caller, TenantId, [t1, t2], scope: null, CreateMessage(), reason: null,
+            Guid.NewGuid(), CancellationToken.None);
+
+        delivered1.ShouldNotBeNull();
+        delivered2.ShouldNotBeNull();
+        delivered1!.ThreadId.ShouldNotBeNull();
+        delivered2!.ThreadId.ShouldNotBeNull();
+        delivered1.ThreadId.ShouldNotBe(delivered2.ThreadId);
+        delivered1.ThreadId.ShouldBe(
+            await _threadRegistry.GetOrCreateAsync(new[] { caller, t1 }, CancellationToken.None));
+        delivered2.ThreadId.ShouldBe(
+            await _threadRegistry.GetOrCreateAsync(new[] { caller, t2 }, CancellationToken.None));
     }
 
     [Fact]
@@ -261,10 +321,21 @@ public class MessagingToolHandlersTests
         int maxHopCount = 16,
         IUnitMembershipRepository? membershipRepo = null)
     {
+        var services = new ServiceCollection();
+        if (membershipRepo is not null)
+        {
+            services.AddSingleton(membershipRepo);
+        }
+
+        services.AddSingleton(Substitute.For<IUnitSubunitMembershipRepository>());
+        services.AddScoped<IThreadRegistry>(_ => _threadRegistry);
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+
         var deliveryService = new MessageDeliveryService(
             _agentProxyResolver,
             _actorProxyFactory,
             _tenantResolver,
+            scopeFactory,
             Substitute.For<ILogger<MessageDeliveryService>>(),
             Options.Create(new OrchestrationDeliveryOptions
             {
@@ -273,15 +344,6 @@ public class MessagingToolHandlersTests
                 InitialBackoff = TimeSpan.FromMilliseconds(1),
                 MaxHopCount = maxHopCount,
             }));
-
-        var services = new ServiceCollection();
-        if (membershipRepo is not null)
-        {
-            services.AddSingleton(membershipRepo);
-        }
-
-        services.AddSingleton(Substitute.For<IUnitSubunitMembershipRepository>());
-        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
         return new MessagingToolHandlers(
             deliveryService,
@@ -313,4 +375,34 @@ public class MessagingToolHandlersTests
             Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Content = "work" }),
             DateTimeOffset.UtcNow);
+
+    /// <summary>
+    /// Minimal in-memory <see cref="IThreadRegistry"/>: canonicalises the
+    /// participant set and reuses the same Guid for repeated lookups so
+    /// tests can assert participant-set thread identity (#2596 / ADR-0030).
+    /// </summary>
+    private sealed class RecordingThreadRegistry : IThreadRegistry
+    {
+        private readonly Dictionary<string, string> _byKey = new(StringComparer.Ordinal);
+
+        public Task<string> GetOrCreateAsync(
+            IEnumerable<Address> participants, CancellationToken cancellationToken = default)
+        {
+            var key = string.Join('|', participants
+                .Select(a => $"{a.Scheme.ToLowerInvariant()}:{GuidFormatter.Format(a.Id)}")
+                .OrderBy(s => s, StringComparer.Ordinal)
+                .Distinct());
+            if (!_byKey.TryGetValue(key, out var id))
+            {
+                id = GuidFormatter.Format(Guid.NewGuid());
+                _byKey[key] = id;
+            }
+
+            return Task.FromResult(id);
+        }
+
+        public Task<ThreadRegistryEntry?> ResolveAsync(
+            string threadId, CancellationToken cancellationToken = default)
+            => Task.FromResult<ThreadRegistryEntry?>(null);
+    }
 }

@@ -181,6 +181,10 @@ public class SdkWorkflowDispatch
             // ADR-0039 §3 gate 6 — single-tenant resolver is the OSS default.
             builder.Services.AddSingleton<IOrchestrationTenantResolver, SingleTenantOrchestrationTenantResolver>();
             builder.Services.AddSingleton(Substitute.For<IUnitMemberGraphStore>());
+            // #2596 / ADR-0030: the delivery seam re-resolves a per-hop
+            // thread from the (caller, target) participant set. In-memory
+            // registry so the SDK dispatch test runs without an EF context.
+            builder.Services.AddScoped<IThreadRegistry, InMemoryThreadRegistry>();
             builder.Services.AddSingleton<MessageDeliveryService>();
             builder.Services.AddSingleton<MessagingToolHandlers>();
             // The MCP root handler registered by MapOrchestrationCallbackEndpoints
@@ -275,6 +279,41 @@ public class SdkWorkflowDispatch
 
             return resolver;
         }
+    }
+
+    /// <summary>
+    /// Minimal in-memory <see cref="IThreadRegistry"/>: canonicalises the
+    /// participant set and reuses the same Guid for repeated lookups so the
+    /// delivery seam resolves a stable per-hop thread (#2596 / ADR-0030).
+    /// </summary>
+    private sealed class InMemoryThreadRegistry : IThreadRegistry
+    {
+        private readonly Dictionary<string, string> _byKey = new(StringComparer.Ordinal);
+        private readonly object _lock = new();
+
+        public Task<string> GetOrCreateAsync(
+            IEnumerable<Address> participants, CancellationToken cancellationToken = default)
+        {
+            var key = string.Join('|', participants
+                .Select(a => $"{a.Scheme.ToLowerInvariant()}:{GuidFormatter.Format(a.Id)}")
+                .OrderBy(s => s, StringComparer.Ordinal)
+                .Distinct());
+
+            lock (_lock)
+            {
+                if (!_byKey.TryGetValue(key, out var id))
+                {
+                    id = GuidFormatter.Format(Guid.NewGuid());
+                    _byKey[key] = id;
+                }
+
+                return Task.FromResult(id);
+            }
+        }
+
+        public Task<ThreadRegistryEntry?> ResolveAsync(
+            string threadId, CancellationToken cancellationToken = default)
+            => Task.FromResult<ThreadRegistryEntry?>(null);
     }
 
     private sealed class CapturingActivityEventBus : IActivityEventBus

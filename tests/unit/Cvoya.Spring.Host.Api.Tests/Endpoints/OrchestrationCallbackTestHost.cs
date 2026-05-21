@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Tests.Endpoints;
 using System.Net.Http.Headers;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
@@ -82,6 +83,10 @@ public sealed class OrchestrationCallbackTestHost : IDisposable
         // #2576: the broadcast scope path resolves members through this seam;
         // the explicit-address callback tests never exercise it.
         builder.Services.AddSingleton(Substitute.For<IUnitMemberGraphStore>());
+        // #2596 / ADR-0030: the delivery seam re-resolves a per-hop thread
+        // from the (caller, target) participant set. In-memory registry so
+        // the callback endpoint tests run without an EF context.
+        builder.Services.AddScoped<IThreadRegistry, InMemoryThreadRegistry>();
         // ADR-0049: the shared delivery seam + the messaging tool handlers.
         builder.Services.AddSingleton<MessageDeliveryService>();
         builder.Services.AddSingleton<MessagingToolHandlers>();
@@ -233,5 +238,40 @@ public sealed class OrchestrationCallbackTestHost : IDisposable
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    /// <summary>
+    /// Minimal in-memory <see cref="IThreadRegistry"/>: canonicalises the
+    /// participant set and reuses the same Guid for repeated lookups so the
+    /// delivery seam resolves a stable per-hop thread (#2596 / ADR-0030).
+    /// </summary>
+    private sealed class InMemoryThreadRegistry : IThreadRegistry
+    {
+        private readonly Dictionary<string, string> _byKey = new(StringComparer.Ordinal);
+        private readonly object _lock = new();
+
+        public Task<string> GetOrCreateAsync(
+            IEnumerable<Address> participants, CancellationToken cancellationToken = default)
+        {
+            var key = string.Join('|', participants
+                .Select(a => $"{a.Scheme.ToLowerInvariant()}:{GuidFormatter.Format(a.Id)}")
+                .OrderBy(s => s, StringComparer.Ordinal)
+                .Distinct());
+
+            lock (_lock)
+            {
+                if (!_byKey.TryGetValue(key, out var id))
+                {
+                    id = GuidFormatter.Format(Guid.NewGuid());
+                    _byKey[key] = id;
+                }
+
+                return Task.FromResult(id);
+            }
+        }
+
+        public Task<ThreadRegistryEntry?> ResolveAsync(
+            string threadId, CancellationToken cancellationToken = default)
+            => Task.FromResult<ThreadRegistryEntry?>(null);
     }
 }
