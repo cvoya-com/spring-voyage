@@ -78,7 +78,7 @@ using Cvoya.Spring.Core.Skills;
 /// removed in #2231 once the runtime gained the <c>sv.*</c> directory
 /// tools — composition is now an on-demand tool query, not a prompt
 /// layer. Anything that needs the peer set should call
-/// <c>sv.list_members</c> at runtime instead of relying on a
+/// <c>sv.directory.list_members</c> at runtime instead of relying on a
 /// prompt-time render.
 /// </remarks>
 public record PromptAssemblyContext(

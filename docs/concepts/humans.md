@@ -126,9 +126,9 @@ When an agent renders `@<human-name>` in a PR comment or calls `--add-reviewer <
 
 These are operator-facing affordances; the package author's declared values land at install time and are then editable independently of the package YAML. Reinstalling the package against a refined YAML does not retroactively overwrite operator edits — same deferral as the wider "no install-time upsert" rule.
 
-## Discovery via `sv.list_members`
+## Discovery via `sv.directory.list_members`
 
-The platform-internal directory tool `sv.list_members(unit_id)` surfaces humans alongside agents and sub-units ([ADR-0046 §9](../decisions/0046-unified-members-grammar.md)). The wire shape on a human entry:
+The platform-internal directory tool `sv.directory.list_members(unit_id)` surfaces humans alongside agents and sub-units ([ADR-0046 §9](../decisions/0046-unified-members-grammar.md)). The wire shape on a human entry:
 
 ```json
 {

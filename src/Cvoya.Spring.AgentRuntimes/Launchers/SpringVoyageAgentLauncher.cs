@@ -187,13 +187,15 @@ public class SpringVoyageAgentLauncher(
         // dispatcher's orchestration callback.
         LauncherOtelEnvironment.Add(context, envVars);
 
-        // ADR-0039 D4: when the agent has children, serialize the orchestration
-        // tool descriptors into SPRING_ORCHESTRATION_TOOLS so the Spring Voyage
-        // agent runtime can present them to the LLM as tool-call surfaces.
-        if (context.OrchestrationTools is { Length: > 0 })
+        // ADR-0048 / ADR-0049: serialize the platform messaging tool
+        // descriptors into SPRING_MESSAGING_TOOLS so the Spring Voyage agent
+        // runtime can present them to the LLM as tool-call surfaces. The
+        // messaging tools are available to every agent / unit caller — the
+        // provider returns a non-empty set for any agent:// / unit:// address.
+        if (context.MessagingTools is { Length: > 0 })
         {
-            envVars[OrchestrationToolsContract.EnvVar] =
-                System.Text.Json.JsonSerializer.Serialize(context.OrchestrationTools);
+            envVars[MessagingToolsContract.EnvVar] =
+                System.Text.Json.JsonSerializer.Serialize(context.MessagingTools);
         }
 
         // #1328: OLLAMA_ENDPOINT removed. The Dapr Conversation component YAML

@@ -1,0 +1,64 @@
+apiVersion: spring.voyage/v1
+kind: Unit
+name: news-desk
+displayName: News Desk
+description: >-
+  A flat newsroom desk — a room of beat reporters and a wire editor, all peers.
+  The desk does NOT route inbound work down a hierarchy; it is the inverse of a
+  delegation-shaped router unit.
+ai:
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
+instructions: |
+  You are a news desk: a flat room of peers, not a router.
+
+  This unit is the deliberate inverse of a delegation-shaped unit like
+  `spring-voyage-oss`, whose entire job is to receive inbound work and
+  route it down to the member best suited to handle it. You do no such
+  thing. There is no hierarchy here, no triage step, no capability-match
+  dispatch. Each beat reporter owns a beat — politics, business,
+  technology — and the wire editor aggregates the desk's output. Nobody
+  on this desk hands a story to a peer and tells them to cover it.
+
+  What the desk does instead is keep its members informed:
+
+  - When a reporter turns up something that touches *another* beat, they
+    `sv.messaging.send` it directly to that peer — a one-way heads-up,
+    not an instruction. The peer decides what to do with it; they own
+    their beat.
+  - When something is newsroom-wide — a major story breaking, a
+    front-page hold — a reporter `sv.messaging.broadcast`s it to the
+    desk (`scope: unit-members`) so everyone has it at once.
+
+  If you ever find yourself wanting to assign a story, route inbound
+  work to "the right reporter", or tell a peer to go cover something —
+  stop. That is delegation, and this desk does not delegate. The right
+  move is to *inform* the peer with `sv.messaging.send` and let them
+  own the call. Reach for delegation-style routing only in a
+  delegation-shaped unit; reach for `sv.messaging.*` here.
+members:
+  - agent: politics-desk
+  - agent: business-desk
+  - agent: technology-desk
+  - agent: wire-editor
+  - human:
+      roles: [owner]
+      notifications: ["escalation", "completion"]
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+# Peer-communication policies — the inverse of the delegation-routing
+# values (`communication: through-unit`, `work_assignment: capability-match`).
+# `peer-to-peer`: members message each other directly via sv.messaging.*,
+# not through the unit. `self-select`: reporters own their beats; the unit
+# does not assign or route work to them. `expertise_sharing: advertise`:
+# every reporter's beat is visible to the others so a peer knows whom to
+# send a cross-cutting find to.
+policies:
+  communication: peer-to-peer
+  work_assignment: self-select
+  expertise_sharing: advertise
+  initiative:
+    max_level: attentive
+    max_actions_per_hour: 10

@@ -15,15 +15,15 @@ using Xunit;
 /// <see cref="SpringAgent.RunWithResponseDisciplineAsync"/> (#2493).
 /// Accessed by reflection because the type is intentionally internal —
 /// the tests assert the only contract that matters: the flag flips
-/// once on the first PostResultAsync, never on Delegate / Fanout.
+/// once on the first PostResultAsync, never on Send / Broadcast.
 /// </summary>
 public class ResponseDisciplineTrackingClientTests
 {
-    private sealed class RecordingClient : IOrchestrationClient
+    private sealed class RecordingClient : IMessagingClient
     {
         public int PostResultCalls;
-        public int DelegateCalls;
-        public int FanoutCalls;
+        public int SendCalls;
+        public int BroadcastCalls;
 
         public Task PostResultAsync(string threadId, string result, CancellationToken cancellationToken = default)
         {
@@ -31,27 +31,27 @@ public class ResponseDisciplineTrackingClientTests
             return Task.CompletedTask;
         }
 
-        public Task<DelegateResponse> DelegateAsync(string threadId, string targetUnitId, string prompt, CancellationToken cancellationToken = default)
+        public Task<MessageSendResponse> SendAsync(string threadId, string targetUnitId, string prompt, CancellationToken cancellationToken = default)
         {
-            DelegateCalls++;
-            return Task.FromResult(new DelegateResponse(true, string.Empty, string.Empty, string.Empty));
+            SendCalls++;
+            return Task.FromResult(new MessageSendResponse(true, string.Empty, string.Empty, string.Empty));
         }
 
-        public Task<FanoutResponse> FanoutAsync(string threadId, IReadOnlyList<string> targetUnitIds, string prompt, CancellationToken cancellationToken = default)
+        public Task<MessageBroadcastResponse> BroadcastAsync(string threadId, IReadOnlyList<string> targetUnitIds, string prompt, CancellationToken cancellationToken = default)
         {
-            FanoutCalls++;
-            return Task.FromResult(new FanoutResponse(string.Empty, string.Empty, Array.Empty<FanoutDelivery>()));
+            BroadcastCalls++;
+            return Task.FromResult(new MessageBroadcastResponse(string.Empty, string.Empty, Array.Empty<MessageBroadcastDelivery>()));
         }
     }
 
-    private static IOrchestrationClient NewTracker(IOrchestrationClient inner)
+    private static IMessagingClient NewTracker(IMessagingClient inner)
     {
         var type = typeof(SpringAgent).Assembly
             .GetType("Cvoya.Spring.AgentSdk.ResponseDisciplineTrackingClient", throwOnError: true)!;
-        return (IOrchestrationClient)Activator.CreateInstance(type, new object[] { inner })!;
+        return (IMessagingClient)Activator.CreateInstance(type, new object[] { inner })!;
     }
 
-    private static bool ResultPosted(IOrchestrationClient tracker)
+    private static bool ResultPosted(IMessagingClient tracker)
     {
         var prop = tracker.GetType().GetProperty("ResultPosted")!;
         return (bool)prop.GetValue(tracker)!;
@@ -72,30 +72,30 @@ public class ResponseDisciplineTrackingClientTests
     }
 
     [Fact]
-    public async Task DelegateAsync_DoesNotFlipTracker()
+    public async Task SendAsync_DoesNotFlipTracker()
     {
         var inner = new RecordingClient();
         var tracker = NewTracker(inner);
 
-        await tracker.DelegateAsync(
+        await tracker.SendAsync(
             Guid.NewGuid().ToString("D"), "unit:123", "prompt", TestContext.Current.CancellationToken);
 
-        // Delegation does not satisfy the response-discipline contract —
-        // delegation is a sub-call, not the final reply to the requester.
+        // Sending a message does not satisfy the response-discipline
+        // contract — it is a delivery, not the final reply to the requester.
         ResultPosted(tracker).ShouldBeFalse();
-        inner.DelegateCalls.ShouldBe(1);
+        inner.SendCalls.ShouldBe(1);
     }
 
     [Fact]
-    public async Task FanoutAsync_DoesNotFlipTracker()
+    public async Task BroadcastAsync_DoesNotFlipTracker()
     {
         var inner = new RecordingClient();
         var tracker = NewTracker(inner);
 
-        await tracker.FanoutAsync(
+        await tracker.BroadcastAsync(
             Guid.NewGuid().ToString("D"), new[] { "unit:123" }, "prompt", TestContext.Current.CancellationToken);
 
         ResultPosted(tracker).ShouldBeFalse();
-        inner.FanoutCalls.ShouldBe(1);
+        inner.BroadcastCalls.ShouldBe(1);
     }
 }

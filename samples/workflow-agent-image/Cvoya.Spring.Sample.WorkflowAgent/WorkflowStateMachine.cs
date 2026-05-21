@@ -8,7 +8,7 @@ using Cvoya.Spring.AgentSdk;
 public static class WorkflowStateMachine
 {
     public static async Task<string> RunAsync(
-        IOrchestrationClient client,
+        IMessagingClient client,
         string threadId,
         string inboundMessage,
         CancellationToken cancellationToken = default)
@@ -29,18 +29,18 @@ public static class WorkflowStateMachine
             ? child0
             : child1;
 
-        // ADR-0049 — delegate_to is a one-way delivery: the ack confirms the
-        // message reached the target's mailbox, it does not carry the
+        // ADR-0049 — sv.messaging.send is a one-way delivery: the ack confirms
+        // the message reached the target's mailbox, it does not carry the
         // target's work product. A response, if any, arrives later as a
         // separate one-way message on the thread.
-        var ack = await client.DelegateAsync(
+        var ack = await client.SendAsync(
             threadId,
             target,
             inboundMessage,
             cancellationToken);
 
         return ack.Delivered
-            ? $"Delegated to {ack.Target} (message {ack.MessageId})."
-            : $"Delegation to {ack.Target} was not accepted.";
+            ? $"Message sent to {ack.Target} (message {ack.MessageId})."
+            : $"Message delivery to {ack.Target} was not accepted.";
     }
 }

@@ -161,6 +161,13 @@ public static class WorkerComposition
             options.Actors.RegisterActor<AgentActor>();
             options.Actors.RegisterActor<UnitActor>();
             options.Actors.RegisterActor<HumanActor>();
+            // #2576: per-thread message-delivery hop counter. One actor
+            // instance per message thread (actor id == thread id); holds a
+            // single int of state. MessageDeliveryService increments it once
+            // per sv.messaging.send / broadcast call and rejects the delivery
+            // when the count exceeds OrchestrationDeliveryOptions.MaxHopCount,
+            // bounding fan-out cycles under one-way delivery (ADR-0049).
+            options.Actors.RegisterActor<ThreadHopActor>();
 
             options.ActorIdleTimeout = TimeSpan.FromHours(1);
             options.ActorScanInterval = TimeSpan.FromSeconds(30);

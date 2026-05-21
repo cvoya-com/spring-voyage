@@ -63,7 +63,7 @@ public class ToolGrantResolverTests : IDisposable
     {
         return new ToolGrantResolver(
             _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
-            registries ?? new[] { (ISkillRegistry)new FakeSkillRegistry("sv", new[] { "sv.get_self", "sv.list_members" }) },
+            registries ?? new[] { (ISkillRegistry)new FakeSkillRegistry("sv", new[] { "sv.directory.get_self", "sv.directory.list_members" }) },
             connectorTypes ?? Array.Empty<IConnectorType>(),
             NullLogger<ToolGrantResolver>.Instance);
     }
@@ -87,7 +87,7 @@ public class ToolGrantResolverTests : IDisposable
 
         effective.Count.ShouldBe(2);
         effective.ShouldAllBe(t => t.Provenance == ToolProvenance.Platform);
-        effective.Select(t => t.Name).ShouldBe(new[] { "sv.get_self", "sv.list_members" });
+        effective.Select(t => t.Name).ShouldBe(new[] { "sv.directory.get_self", "sv.directory.list_members" });
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public class ToolGrantResolverTests : IDisposable
         var resolver = CreateResolver(
             registries: new ISkillRegistry[]
             {
-                new FakeSkillRegistry("sv", new[] { "sv.get_self" }),
+                new FakeSkillRegistry("sv", new[] { "sv.directory.get_self" }),
                 new FakeSkillRegistry("github", new[] { "github.create_issue", "github.close_issue" }),
             },
             connectorTypes: new[] { (IConnectorType)new FakeConnectorType(GitHubTypeId, "github", "github") });
@@ -237,8 +237,8 @@ public class ToolGrantResolverTests : IDisposable
         var effective = await resolver.ResolveAsync(
             new Address(Address.AgentScheme, Agent1), ct);
 
-        effective.ShouldContain(t => t.Name == "sv.get_self" && t.Provenance == ToolProvenance.Platform);
-        effective.ShouldContain(t => t.Name == "sv.list_members" && t.Provenance == ToolProvenance.Platform);
+        effective.ShouldContain(t => t.Name == "sv.directory.get_self" && t.Provenance == ToolProvenance.Platform);
+        effective.ShouldContain(t => t.Name == "sv.directory.list_members" && t.Provenance == ToolProvenance.Platform);
     }
 
     [Fact]
@@ -274,7 +274,7 @@ public class ToolGrantResolverTests : IDisposable
 
         var resolver = new ToolGrantResolver(
             sp.GetRequiredService<IServiceScopeFactory>(),
-            new ISkillRegistry[] { new FakeSkillRegistry("sv", new[] { "sv.get_self" }) },
+            new ISkillRegistry[] { new FakeSkillRegistry("sv", new[] { "sv.directory.get_self" }) },
             Array.Empty<IConnectorType>(),
             NullLogger<ToolGrantResolver>.Instance);
 

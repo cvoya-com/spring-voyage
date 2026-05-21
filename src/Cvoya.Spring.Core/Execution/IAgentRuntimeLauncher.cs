@@ -127,15 +127,13 @@ public interface IAgentRuntimeLauncher
 /// Optional model identifier from the agent's <see cref="AgentExecutionConfig.Model"/>.
 /// <c>null</c> means "use launcher default".
 /// </param>
-/// <param name="OrchestrationTools">
-/// Per-invocation orchestration tool descriptors the launcher should attach
+/// <param name="MessagingTools">
+/// Per-invocation messaging tool descriptors the launcher should attach
 /// to the runtime container, sourced from
-/// <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationToolProvider.GetOrchestrationTools"/>
-/// at the platform-side call site (ADR-0039). Defaults to an empty array
-/// so leaf agents — and existing call sites that haven't yet been routed
-/// through the provider — retain their current behaviour. The launcher
-/// contract does not require launchers to act on this field; per-runtime
-/// attachment lands in tasks D4–D7 of ADR-0039's plan.
+/// <see cref="Cvoya.Spring.Core.Orchestration.IMessagingToolProvider.GetMessagingTools"/>
+/// at the platform-side call site (ADR-0048 / ADR-0049). Defaults to an
+/// empty array so callers that are not messaging callers retain their
+/// current behaviour.
 /// </param>
 /// <param name="AgentAddress">
 /// Full address for the invoked runtime. Defaults to <c>agent:{AgentId}</c>
@@ -165,7 +163,7 @@ public record AgentLaunchContext(
     bool ConcurrentThreads = true,
     string? Provider = null,
     string? Model = null,
-    OrchestrationToolDescriptor[]? OrchestrationTools = null,
+    MessagingToolDescriptor[]? MessagingTools = null,
     Address? AgentAddress = null,
     Guid? CallbackThreadId = null,
     Guid? MessageId = null);

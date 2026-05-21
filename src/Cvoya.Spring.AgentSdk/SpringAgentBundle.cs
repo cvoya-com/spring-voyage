@@ -10,13 +10,13 @@ namespace Cvoya.Spring.AgentSdk;
 /// the surface the Python SDK exposes via <c>RuntimeContext.current()</c>.
 /// Issue #2493.
 /// </summary>
-/// <param name="Orchestration">
-/// Callback client for posting results / delegating / fanning out.
+/// <param name="Messaging">
+/// Callback client for posting results / sending / broadcasting messages.
 /// </param>
 /// <param name="Telemetry">
 /// OTLP telemetry primitives — progress, tool-call spans, llm-turn
 /// spans. All emissions are best-effort and never block the reply path.
 /// </param>
 public sealed record SpringAgentBundle(
-    IOrchestrationClient Orchestration,
+    IMessagingClient Messaging,
     ITelemetryClient Telemetry);

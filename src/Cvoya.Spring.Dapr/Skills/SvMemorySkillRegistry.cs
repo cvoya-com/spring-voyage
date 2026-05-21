@@ -30,7 +30,7 @@ using Microsoft.Extensions.Logging;
 /// through this surface — owner-scoping is non-negotiable.
 /// </para>
 /// <para>
-/// <b>Short-term entries.</b> <c>sv.memory_add</c> with
+/// <b>Short-term entries.</b> <c>sv.memory.add</c> with
 /// <c>kind = "short_term"</c> defaults <c>thread_id</c> to the caller's
 /// active thread (sourced from <see cref="ToolCallContext.ThreadId"/>)
 /// when the tool argument is omitted. Explicit <c>thread_id</c>
@@ -46,23 +46,23 @@ using Microsoft.Extensions.Logging;
 /// </remarks>
 public sealed class SvMemorySkillRegistry : ISkillRegistry
 {
-    /// <summary>Tool name for <c>sv.memory_add</c>.</summary>
-    public const string MemoryAddTool = "sv.memory_add";
+    /// <summary>Tool name for <c>sv.memory.add</c>.</summary>
+    public const string MemoryAddTool = "sv.memory.add";
 
-    /// <summary>Tool name for <c>sv.memory_get</c>.</summary>
-    public const string MemoryGetTool = "sv.memory_get";
+    /// <summary>Tool name for <c>sv.memory.get</c>.</summary>
+    public const string MemoryGetTool = "sv.memory.get";
 
-    /// <summary>Tool name for <c>sv.memory_list</c>.</summary>
-    public const string MemoryListTool = "sv.memory_list";
+    /// <summary>Tool name for <c>sv.memory.list</c>.</summary>
+    public const string MemoryListTool = "sv.memory.list";
 
-    /// <summary>Tool name for <c>sv.memory_search</c>.</summary>
-    public const string MemorySearchTool = "sv.memory_search";
+    /// <summary>Tool name for <c>sv.memory.search</c>.</summary>
+    public const string MemorySearchTool = "sv.memory.search";
 
-    /// <summary>Tool name for <c>sv.memory_update</c>.</summary>
-    public const string MemoryUpdateTool = "sv.memory_update";
+    /// <summary>Tool name for <c>sv.memory.update</c>.</summary>
+    public const string MemoryUpdateTool = "sv.memory.update";
 
-    /// <summary>Tool name for <c>sv.memory_delete</c>.</summary>
-    public const string MemoryDeleteTool = "sv.memory_delete";
+    /// <summary>Tool name for <c>sv.memory.delete</c>.</summary>
+    public const string MemoryDeleteTool = "sv.memory.delete";
 
     /// <summary>Default page size for list tools.</summary>
     public const int DefaultLimit = 50;
@@ -231,7 +231,7 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
         var threadId = ParseThreadId(args, kind, context);
 
         var entry = await _memoryStore.AddAsync(owner, kind, content, source, threadId, ct);
-        _logger.LogDebug("sv.memory_add owner={Owner} kind={Kind} id={Id}", owner, kind, entry.Id);
+        _logger.LogDebug("sv.memory.add owner={Owner} kind={Kind} id={Id}", owner, kind, entry.Id);
         return SerializeEntry(entry);
     }
 

@@ -8,12 +8,16 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
 
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
+
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -25,9 +29,12 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Integration smoke tests for ADR-0039 orchestration delegation decisions.
-/// The parent membership source is a real UnitActor created through
-/// ActorTestHost; child mailboxes and the activity bus are mocked boundaries.
+/// Integration smoke tests for the ADR-0048 / ADR-0049 messaging tools.
+/// <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c> are one-way
+/// delivery tools: they durably enqueue the message and emit a plain
+/// <see cref="ActivityEventType.MessageSent"/> activity — never a
+/// <c>DecisionMade</c> event. Child mailboxes, the hop actor, and the
+/// activity bus are mocked boundaries.
 /// </summary>
 public class OrchestrationDelegationDecisionIntegrationTests
 {
@@ -46,10 +53,9 @@ public class OrchestrationDelegationDecisionIntegrationTests
         new(Address.AgentScheme, new Guid("aaaaaaaa-0000-0000-0000-000000001830"));
 
     [Fact]
-    public async Task HandleDelegateTo_TargetIsMember_EmitsRoutedDecisionEvent()
+    public async Task HandleSend_DeliversAndEmitsMessageSentEvent()
     {
-        // Arrange
-        var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo);
+        var harness = CreateHarness();
         var child = Substitute.For<IAgent>();
         var message = CreateMessage(ParentUnit);
         var threadId = Guid.NewGuid();
@@ -58,8 +64,7 @@ public class OrchestrationDelegationDecisionIntegrationTests
         child.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
 
-        // Act
-        var ack = await harness.Handlers.HandleDelegateToAsync(
+        var ack = await harness.Handlers.HandleSendAsync(
             ParentUnit,
             TenantId,
             ChildOne,
@@ -68,161 +73,113 @@ public class OrchestrationDelegationDecisionIntegrationTests
             threadId,
             TestContext.Current.CancellationToken);
 
-        // Assert — ADR-0049: delegate_to returns a delivery acknowledgement.
+        // ADR-0049 — send returns a delivery acknowledgement.
         ack.Delivered.ShouldBeTrue();
         ack.Target.ShouldBe(ChildOne);
         ack.MessageId.ShouldBe(message.Id);
-        var decision = harness.ReadSingleDecision();
-        AssertDecisionTenant(decision);
-        decision.UnitAddress.ShouldBe(ParentUnit);
-        decision.ThreadId.ShouldBe(threadId);
-        decision.InputMessageId.ShouldBe(message.Id);
-        decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
-        decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
-        decision.Targets.ShouldBe([ChildOne]);
-        decision.ResultMessageIds.ShouldBeEmpty();
+
+        var activity = harness.ReadSingleActivity();
+        activity.EventType.ShouldBe(ActivityEventType.MessageSent);
+        activity.Source.ShouldBe(ParentUnit);
+        activity.CorrelationId.ShouldBe(threadId.ToString("D"));
     }
 
     [Fact]
-    public async Task HandleDelegateTo_DeliveryFails_EmitsFailedDecisionEventWithTenant()
+    public async Task HandleSend_DeliveryFails_ThrowsDeliveryFailed()
     {
-        // Arrange — a persistent transient ReceiveAsync failure (ADR-0049 §6).
-        var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo);
+        // A persistent transient ReceiveAsync failure (ADR-0049 §6).
+        var harness = CreateHarness();
         var child = Substitute.For<IAgent>();
         var message = CreateMessage(ParentUnit);
-        var threadId = Guid.NewGuid();
         const string failureDescription = "child unreachable";
 
         harness.RegisterAgent(ChildOne, child);
         child.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException(failureDescription));
 
-        // Act — terminal delivery failure surfaces as OrchestrationException.
         var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            harness.Handlers.HandleDelegateToAsync(
+            harness.Handlers.HandleSendAsync(
                 ParentUnit,
                 TenantId,
                 ChildOne,
                 message,
                 reason: failureDescription,
-                threadId,
+                Guid.NewGuid(),
                 TestContext.Current.CancellationToken));
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationDeliveryFailed);
 
-        // Assert
-        var decision = harness.ReadSingleDecision();
-        AssertDecisionTenant(decision);
-        decision.UnitAddress.ShouldBe(ParentUnit);
-        decision.ThreadId.ShouldBe(threadId);
-        decision.InputMessageId.ShouldBe(message.Id);
-        decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
-        decision.Status.ShouldBe(OrchestrationDecisionStatus.Failed);
-        decision.Targets.ShouldBe([ChildOne]);
-        decision.ResultMessageIds.ShouldBeEmpty();
-        decision.Reason.ShouldBe(failureDescription);
+        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationDeliveryFailed);
     }
 
     [Fact]
-    public async Task HandleFanoutTo_AllTargetsSucceed_EmitsRoutedDecisionEvent()
+    public async Task HandleBroadcast_AllTargetsSucceed_EmitsMessageSentEvent()
     {
-        // Arrange
-        var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo, ChildThree);
+        var harness = CreateHarness();
         var childOne = Substitute.For<IAgent>();
         var childTwo = Substitute.For<IAgent>();
         var childThree = Substitute.For<IAgent>();
         var message = CreateMessage(ParentUnit);
-        var threadId = Guid.NewGuid();
 
         harness.RegisterAgent(ChildOne, childOne);
         harness.RegisterAgent(ChildTwo, childTwo);
         harness.RegisterAgent(ChildThree, childThree);
-        childOne.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
-        childTwo.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
-        childThree.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
+        childOne.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns((Message?)null);
+        childTwo.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns((Message?)null);
+        childThree.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns((Message?)null);
 
-        // Act
-        var outcomes = await harness.Handlers.HandleFanoutToAsync(
+        var result = await harness.Handlers.HandleBroadcastAsync(
             ParentUnit,
             TenantId,
             [ChildOne, ChildTwo, ChildThree],
+            scope: null,
             message,
             reason: "ask all children",
-            threadId,
+            Guid.NewGuid(),
             TestContext.Current.CancellationToken);
 
-        // Assert — ADR-0049: per-target delivery outcomes, not work products.
-        outcomes.Select(outcome => outcome.Target)
+        result.Deliveries.Select(o => o.Target)
             .ShouldBe([ChildOne, ChildTwo, ChildThree]);
-        outcomes.All(outcome => outcome.Delivered).ShouldBeTrue();
+        result.Deliveries.All(o => o.Delivered).ShouldBeTrue();
 
-        var decision = harness.ReadSingleDecision();
-        AssertDecisionTenant(decision);
-        decision.UnitAddress.ShouldBe(ParentUnit);
-        decision.ThreadId.ShouldBe(threadId);
-        decision.InputMessageId.ShouldBe(message.Id);
-        decision.Kind.ShouldBe(OrchestrationDecisionKind.Fanout);
-        decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
-        decision.Targets.ShouldBe([ChildOne, ChildTwo, ChildThree]);
-        decision.ResultMessageIds.ShouldBeEmpty();
+        harness.ReadSingleActivity().EventType.ShouldBe(ActivityEventType.MessageSent);
     }
 
     [Fact]
-    public async Task HandleFanoutTo_OneTargetDeliveryFails_EmitsFailedDecisionEvent()
+    public async Task HandleBroadcast_OneTargetDeliveryFails_ReportsPerTargetOutcome()
     {
-        // Arrange — one target's mailbox enqueue fails persistently.
-        var harness = CreateHarness(ParentUnit, ChildOne, ChildTwo, ChildThree);
+        var harness = CreateHarness();
         var childOne = Substitute.For<IAgent>();
         var childTwo = Substitute.For<IAgent>();
         var childThree = Substitute.For<IAgent>();
         var message = CreateMessage(ParentUnit);
-        var threadId = Guid.NewGuid();
         const string failureDescription = "child two unreachable";
 
         harness.RegisterAgent(ChildOne, childOne);
         harness.RegisterAgent(ChildTwo, childTwo);
         harness.RegisterAgent(ChildThree, childThree);
-        childOne.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
+        childOne.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns((Message?)null);
         childTwo.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException(failureDescription));
-        childThree.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
+        childThree.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns((Message?)null);
 
-        // Act
-        var outcomes = await harness.Handlers.HandleFanoutToAsync(
+        var result = await harness.Handlers.HandleBroadcastAsync(
             ParentUnit,
             TenantId,
             [ChildOne, ChildTwo, ChildThree],
+            scope: null,
             message,
             reason: failureDescription,
-            threadId,
+            Guid.NewGuid(),
             TestContext.Current.CancellationToken);
 
-        // Assert
-        outcomes.Count.ShouldBe(3);
-        outcomes[0].Delivered.ShouldBeTrue();
-        outcomes[1].Target.ShouldBe(ChildTwo);
-        outcomes[1].Delivered.ShouldBeFalse();
-        outcomes[1].Error.ShouldNotBeNull();
-        outcomes[2].Delivered.ShouldBeTrue();
-
-        var decision = harness.ReadSingleDecision();
-        AssertDecisionTenant(decision);
-        decision.UnitAddress.ShouldBe(ParentUnit);
-        decision.ThreadId.ShouldBe(threadId);
-        decision.InputMessageId.ShouldBe(message.Id);
-        decision.Kind.ShouldBe(OrchestrationDecisionKind.Fanout);
-        decision.Status.ShouldBe(OrchestrationDecisionStatus.Failed);
-        decision.Targets.ShouldBe([ChildOne, ChildTwo, ChildThree]);
-        decision.ResultMessageIds.ShouldBeEmpty();
-        decision.Reason.ShouldNotBeNull();
-        decision.Reason.ShouldContain(failureDescription);
+        result.Deliveries.Count.ShouldBe(3);
+        result.Deliveries[0].Delivered.ShouldBeTrue();
+        result.Deliveries[1].Target.ShouldBe(ChildTwo);
+        result.Deliveries[1].Delivered.ShouldBeFalse();
+        result.Deliveries[1].Error.ShouldNotBeNull();
+        result.Deliveries[2].Delivered.ShouldBeTrue();
     }
 
-    private static HandlerHarness CreateHarness(Address parent, params Address[] children)
+    private static HandlerHarness CreateHarness()
     {
         var agents = new Dictionary<string, IAgent>(StringComparer.OrdinalIgnoreCase);
         var agentProxyResolver = Substitute.For<IAgentProxyResolver>();
@@ -245,6 +202,25 @@ public class OrchestrationDelegationDecisionIntegrationTests
                 Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
+        // #2576 — a stateful in-memory hop actor per thread.
+        var hopActorsById = new Dictionary<string, IThreadHopActor>();
+        var actorProxyFactory = Substitute.For<IActorProxyFactory>();
+        actorProxyFactory
+            .CreateActorProxy<IThreadHopActor>(Arg.Any<ActorId>(), nameof(ThreadHopActor))
+            .Returns(call =>
+            {
+                var id = call.ArgAt<ActorId>(0).GetId();
+                if (!hopActorsById.TryGetValue(id, out var actor))
+                {
+                    var count = 0;
+                    actor = Substitute.For<IThreadHopActor>();
+                    actor.IncrementAsync().Returns(_ => Task.FromResult(++count));
+                    hopActorsById[id] = actor;
+                }
+
+                return actor;
+            });
+
         // ADR-0049 — tighten the delivery retry budget so the
         // terminal-failure path exhausts in milliseconds under test.
         var deliveryOptions = Options.Create(new OrchestrationDeliveryOptions
@@ -254,20 +230,21 @@ public class OrchestrationDelegationDecisionIntegrationTests
             InitialBackoff = TimeSpan.FromMilliseconds(1),
         });
 
-        var handlers = new OrchestrationToolHandlers(
+        var deliveryService = new MessageDeliveryService(
             agentProxyResolver,
-            Substitute.For<ILogger<OrchestrationToolHandlers>>(),
-            activityEventBus,
+            actorProxyFactory,
             new SingleTenantOrchestrationTenantResolver(),
+            Substitute.For<ILogger<MessageDeliveryService>>(),
             deliveryOptions);
 
-        return new HandlerHarness(handlers, agents, publishedEvents);
-    }
+        var handlers = new MessagingToolHandlers(
+            deliveryService,
+            Substitute.For<IUnitMemberGraphStore>(),
+            new EmptyServiceScopeFactory(),
+            activityEventBus,
+            Substitute.For<ILogger<MessagingToolHandlers>>());
 
-    private static void AssertDecisionTenant(OrchestrationDecision decision)
-    {
-        decision.TenantId.ShouldBe(TenantId);
-        decision.TenantId.ShouldNotBe(Guid.Empty);
+        return new HandlerHarness(handlers, agents, publishedEvents);
     }
 
     private static string Key(Address address) => Key(address.Scheme, GuidFormatter.Format(address.Id));
@@ -285,27 +262,35 @@ public class OrchestrationDelegationDecisionIntegrationTests
             DateTimeOffset.UtcNow);
 
     private sealed record HandlerHarness(
-        OrchestrationToolHandlers Handlers,
+        MessagingToolHandlers Handlers,
         Dictionary<string, IAgent> Agents,
         List<ActivityEvent> PublishedEvents)
     {
         public void RegisterAgent(Address address, IAgent agent) =>
             Agents[Key(address)] = agent;
 
-        public OrchestrationDecision ReadSingleDecision()
+        public ActivityEvent ReadSingleActivity()
         {
             PublishedEvents.Count.ShouldBe(1);
-            var activityEvent = PublishedEvents.Single();
+            return PublishedEvents.Single();
+        }
+    }
 
-            activityEvent.Source.ShouldBe(ParentUnit);
-            activityEvent.EventType.ShouldBe(ActivityEventType.DecisionMade);
-            activityEvent.Details.ShouldNotBeNull();
+    /// <summary>
+    /// A scope factory whose scopes resolve nothing — the explicit-address
+    /// broadcast / send paths exercised here never resolve the membership
+    /// repositories.
+    /// </summary>
+    private sealed class EmptyServiceScopeFactory : IServiceScopeFactory, IServiceScope, IServiceProvider
+    {
+        public IServiceScope CreateScope() => this;
 
-            var decision = JsonSerializer.Deserialize<OrchestrationDecision>(
-                activityEvent.Details!.Value.GetRawText());
+        public IServiceProvider ServiceProvider => this;
 
-            decision.ShouldNotBeNull();
-            return decision!;
+        public object? GetService(Type serviceType) => null;
+
+        public void Dispose()
+        {
         }
     }
 }

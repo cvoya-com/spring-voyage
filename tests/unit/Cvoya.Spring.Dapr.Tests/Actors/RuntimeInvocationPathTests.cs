@@ -29,13 +29,13 @@ using Xunit;
 /// Unit tests for <see cref="RuntimeInvocationPath"/>. The class encapsulates
 /// the runtime-invocation pipeline extracted from <c>AgentActor</c> in
 /// ADR-0039 task C1; these tests pin the lean and rich call shapes so the
-/// later phases (UnitActor wiring in C2; directory-driven orchestration
+/// later phases (UnitActor wiring in C2; directory-driven messaging
 /// tools in D2) can extend the seam without regressing the contract.
 /// </summary>
 public class RuntimeInvocationPathTests
 {
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
-    private readonly IOrchestrationToolProvider _toolProvider = Substitute.For<IOrchestrationToolProvider>();
+    private readonly IMessagingToolProvider _toolProvider = Substitute.For<IMessagingToolProvider>();
     private readonly IAgentDispatchCoordinator _dispatchCoordinator = Substitute.For<IAgentDispatchCoordinator>();
     private readonly ILogger<RuntimeInvocationPath> _logger = Substitute.For<ILogger<RuntimeInvocationPath>>();
 
@@ -58,8 +58,8 @@ public class RuntimeInvocationPathTests
         IAgentDispatchCoordinator? dispatchCoordinator = null)
     {
         _toolProvider
-            .GetOrchestrationTools(Arg.Any<Address>(), Arg.Any<Guid>())
-            .Returns(Array.Empty<OrchestrationToolDescriptor>());
+            .GetMessagingTools(Arg.Any<Address>(), Arg.Any<Guid>())
+            .Returns(Array.Empty<MessagingToolDescriptor>());
 
         return new RuntimeInvocationPath(
             _definitionProvider,
@@ -176,7 +176,7 @@ public class RuntimeInvocationPathTests
     }
 
     [Fact]
-    public async Task InvokeAsync_LeanOverload_ResolvesOrchestrationToolsForThread()
+    public async Task InvokeAsync_LeanOverload_ResolvesMessagingToolsForThread()
     {
         var subject = MakeAgent("test-agent");
         var threadId = Guid.NewGuid();
@@ -185,7 +185,7 @@ public class RuntimeInvocationPathTests
 
         await path.InvokeAsync(subject, inbound, TestContext.Current.CancellationToken);
 
-        _toolProvider.Received(1).GetOrchestrationTools(subject, threadId);
+        _toolProvider.Received(1).GetMessagingTools(subject, threadId);
     }
 
     [Fact]
@@ -197,7 +197,7 @@ public class RuntimeInvocationPathTests
 
         await path.InvokeAsync(subject, inbound, TestContext.Current.CancellationToken);
 
-        _toolProvider.Received(1).GetOrchestrationTools(subject, Guid.Empty);
+        _toolProvider.Received(1).GetMessagingTools(subject, Guid.Empty);
     }
 
     [Fact]
@@ -500,6 +500,6 @@ public class RuntimeInvocationPathTests
             TestContext.Current.CancellationToken);
 
         await _definitionProvider.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-        _toolProvider.DidNotReceive().GetOrchestrationTools(Arg.Any<Address>(), Arg.Any<Guid>());
+        _toolProvider.DidNotReceive().GetMessagingTools(Arg.Any<Address>(), Arg.Any<Guid>());
     }
 }

@@ -32,7 +32,7 @@ using Cvoya.Spring.Core.Messaging;
 /// <c>Cvoya.Spring.Core</c> abstractions
 /// (<see cref="Cvoya.Spring.Core.Execution.IAgentDispatchCoordinator"/>,
 /// <see cref="Cvoya.Spring.Core.Execution.IExecutionDispatcher"/>,
-/// <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationToolProvider"/>);
+/// <see cref="Cvoya.Spring.Core.Orchestration.IMessagingToolProvider"/>);
 /// it is therefore Dapr-side glue rather than a pure domain abstraction.
 /// </para>
 /// <para>

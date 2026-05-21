@@ -38,7 +38,7 @@ public enum OrchestrationDecisionStatus
     /// invocation was rejected before any delivery attempt (issue
     /// #2581). Distinct from <see cref="Failed"/>, which is a delivery
     /// that was attempted and failed. Self-reported by the runtime via
-    /// the <c>sv.report_decision</c> tool; the
+    /// the <c>sv.runtime.report_decision</c> tool; the
     /// <see cref="OrchestrationDecision.Metadata"/> carries the
     /// machine-readable not-executed reason.
     /// </summary>

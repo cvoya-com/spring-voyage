@@ -166,7 +166,13 @@ public class GeminiLauncher(
     ];
 
     private const string SpringVoyageMcpServerName = "spring-voyage";
-    private const string SpringOrchestrationMcpServerName = "spring-orchestration";
+    // The .mcp.json server key the agent CLI reads; the A2A sidecar's
+    // orchestration-mcp bridge keys on this exact name to refresh the
+    // per-message callback token (#2580). Kept as `spring-orchestration`
+    // to stay in lockstep with the sidecar's config contract — the MCP
+    // `serverInfo.name` the platform returns is the separate, renamed
+    // `spring-messaging` (see OrchestrationCallbackEndpoints).
+    private const string SpringMessagingMcpServerName = "spring-orchestration";
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -309,9 +315,9 @@ public class GeminiLauncher(
             }
         };
 
-        if (context.OrchestrationTools is { Length: > 0 } orchestrationTools)
+        if (context.MessagingTools is { Length: > 0 } messagingTools)
         {
-            mcpServers[SpringOrchestrationMcpServerName] = new
+            mcpServers[SpringMessagingMcpServerName] = new
             {
                 httpUrl = LauncherCallbackEnvironment.BuildOrchestrationMcpUrl(envVars),
                 headers = new Dictionary<string, string>
@@ -319,7 +325,7 @@ public class GeminiLauncher(
                     ["Authorization"] =
                         $"Bearer {envVars[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}"
                 },
-                includeTools = orchestrationTools.Select(tool => ToWireName(tool.Name)).ToArray()
+                includeTools = messagingTools.Select(tool => ToWireName(tool.Name)).ToArray()
             };
         }
 
@@ -329,12 +335,12 @@ public class GeminiLauncher(
         };
     }
 
-    private static string ToWireName(OrchestrationToolName name) =>
+    private static string ToWireName(MessagingToolName name) =>
         name switch
         {
-            OrchestrationToolName.DelegateTo => "delegate_to",
-            OrchestrationToolName.FanoutTo => "fanout_to",
-            _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unknown orchestration tool name.")
+            MessagingToolName.Send => "sv.messaging.send",
+            MessagingToolName.Broadcast => "sv.messaging.broadcast",
+            _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unknown messaging tool name.")
         };
 
     private async Task ResolveRuntimeCredentialAsync(

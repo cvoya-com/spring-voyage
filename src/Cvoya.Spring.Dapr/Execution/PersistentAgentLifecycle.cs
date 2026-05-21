@@ -40,7 +40,7 @@ public class PersistentAgentLifecycle(
     IMcpServer mcpServer,
     IEnumerable<IAgentRuntimeLauncher> launchers,
     IRuntimeCatalog runtimeCatalog,
-    IOrchestrationToolProvider orchestrationToolProvider,
+    IMessagingToolProvider messagingToolProvider,
     IAgentContextBuilder agentContextBuilder,
     PersistentAgentRegistry persistentAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
@@ -65,11 +65,11 @@ public class PersistentAgentLifecycle(
         launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
     private readonly IRuntimeCatalog _runtimeCatalog = runtimeCatalog
         ?? throw new ArgumentNullException(nameof(runtimeCatalog));
-    // ADR-0039 D3: orchestration tools resolved per-deploy and threaded
-    // into the launch context. Returns empty when the target has no children
-    // in the member graph; entity type is not a gate.
-    private readonly IOrchestrationToolProvider _orchestrationToolProvider = orchestrationToolProvider
-        ?? throw new ArgumentNullException(nameof(orchestrationToolProvider));
+    // ADR-0048 / ADR-0049: messaging tools resolved per-deploy and threaded
+    // into the launch context. Returns the two-tool messaging set for every
+    // agent / unit target.
+    private readonly IMessagingToolProvider _messagingToolProvider = messagingToolProvider
+        ?? throw new ArgumentNullException(nameof(messagingToolProvider));
 
     /// <summary>
     /// Stands up a persistent agent. Idempotent: when the agent is already
@@ -162,7 +162,7 @@ public class PersistentAgentLifecycle(
         var session = mcpServer.IssueSession(agentId, sessionId, scheme);
 
         var deployTarget = Address.For(scheme, agentId);
-        var orchestrationTools = _orchestrationToolProvider.GetOrchestrationTools(deployTarget, Guid.Empty);
+        var messagingTools = _messagingToolProvider.GetMessagingTools(deployTarget, Guid.Empty);
 
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
@@ -178,7 +178,7 @@ public class PersistentAgentLifecycle(
             Provider: definition.Execution.Provider,
             Model: definition.Execution.Model,
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
-            OrchestrationTools: orchestrationTools,
+            MessagingTools: messagingTools,
             AgentAddress: deployTarget,
             CallbackThreadId: Guid.NewGuid(),
             MessageId: Guid.NewGuid());

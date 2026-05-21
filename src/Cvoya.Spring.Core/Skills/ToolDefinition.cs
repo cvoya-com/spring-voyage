@@ -27,7 +27,7 @@ public record ToolDefinition
                 $"Tool name '{Name}' does not match the canonical pattern " +
                 $"'{ToolNaming.Pattern}'. Tool ids must be lowercase, " +
                 "dotted-snake, with a leading namespace segment " +
-                "(e.g. 'github.create_issue', 'sv.get_self').",
+                "(e.g. 'github.create_issue', 'sv.directory.get_self').",
                 nameof(Name));
         }
         this.Name = Name;

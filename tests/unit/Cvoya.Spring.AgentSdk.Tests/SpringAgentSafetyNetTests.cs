@@ -12,12 +12,12 @@ using Xunit;
 /// <summary>
 /// Coverage for <see cref="SpringAgent.RunWithResponseDisciplineAsync"/>
 /// (#2493). Tests use the internal overload so we can inject a fake
-/// <see cref="IOrchestrationClient"/> and inspect the safety-net
+/// <see cref="IMessagingClient"/> and inspect the safety-net
 /// behaviour without env vars or HTTP.
 /// </summary>
 public class SpringAgentSafetyNetTests
 {
-    private sealed class RecordingOrchestrationClient : IOrchestrationClient
+    private sealed class RecordingMessagingClient : IMessagingClient
     {
         public List<(string ThreadId, string Result)> Posts { get; } = new();
 
@@ -27,11 +27,11 @@ public class SpringAgentSafetyNetTests
             return Task.CompletedTask;
         }
 
-        public Task<DelegateResponse> DelegateAsync(string threadId, string targetUnitId, string prompt, CancellationToken cancellationToken = default)
-            => Task.FromResult(new DelegateResponse(true, string.Empty, string.Empty, string.Empty));
+        public Task<MessageSendResponse> SendAsync(string threadId, string targetUnitId, string prompt, CancellationToken cancellationToken = default)
+            => Task.FromResult(new MessageSendResponse(true, string.Empty, string.Empty, string.Empty));
 
-        public Task<FanoutResponse> FanoutAsync(string threadId, IReadOnlyList<string> targetUnitIds, string prompt, CancellationToken cancellationToken = default)
-            => Task.FromResult(new FanoutResponse(string.Empty, string.Empty, Array.Empty<FanoutDelivery>()));
+        public Task<MessageBroadcastResponse> BroadcastAsync(string threadId, IReadOnlyList<string> targetUnitIds, string prompt, CancellationToken cancellationToken = default)
+            => Task.FromResult(new MessageBroadcastResponse(string.Empty, string.Empty, Array.Empty<MessageBroadcastDelivery>()));
     }
 
     private static TelemetryClient NewDisabledTelemetryClient()
@@ -44,55 +44,55 @@ public class SpringAgentSafetyNetTests
     public async Task HandlerThatPostsResult_SkipsSafetyNet()
     {
         var threadId = Guid.NewGuid().ToString("D");
-        var orchestration = new RecordingOrchestrationClient();
+        var messaging = new RecordingMessagingClient();
         using var telemetry = NewDisabledTelemetryClient();
 
         await SpringAgent.RunWithResponseDisciplineAsync(
             threadId,
-            orchestration,
+            messaging,
             telemetry,
             async (bundle, ct) =>
             {
-                await bundle.Orchestration.PostResultAsync(threadId, "hello", ct);
+                await bundle.Messaging.PostResultAsync(threadId, "hello", ct);
             },
             disposeTelemetry: false,
             cancellationToken: CancellationToken.None);
 
-        orchestration.Posts.Count.ShouldBe(1);
-        orchestration.Posts[0].Result.ShouldBe("hello");
+        messaging.Posts.Count.ShouldBe(1);
+        messaging.Posts[0].Result.ShouldBe("hello");
     }
 
     [Fact]
     public async Task HandlerThatReturnsWithoutPosting_TriggersSafetyNet()
     {
         var threadId = Guid.NewGuid().ToString("D");
-        var orchestration = new RecordingOrchestrationClient();
+        var messaging = new RecordingMessagingClient();
         using var telemetry = NewDisabledTelemetryClient();
 
         await SpringAgent.RunWithResponseDisciplineAsync(
             threadId,
-            orchestration,
+            messaging,
             telemetry,
             handler: (bundle, ct) => Task.CompletedTask,
             disposeTelemetry: false,
             cancellationToken: CancellationToken.None);
 
         // The safety net posts the stock reply on the user's behalf.
-        orchestration.Posts.Count.ShouldBe(1);
-        orchestration.Posts[0].Result.ShouldBe(SpringAgent.SafetyNetReply);
+        messaging.Posts.Count.ShouldBe(1);
+        messaging.Posts[0].Result.ShouldBe(SpringAgent.SafetyNetReply);
     }
 
     [Fact]
     public async Task HandlerThatThrows_StillPostsSafetyNetReplyAndRethrows()
     {
         var threadId = Guid.NewGuid().ToString("D");
-        var orchestration = new RecordingOrchestrationClient();
+        var messaging = new RecordingMessagingClient();
         using var telemetry = NewDisabledTelemetryClient();
 
         var ex = await Should.ThrowAsync<SpringAgentHandlerException>(
             () => SpringAgent.RunWithResponseDisciplineAsync(
                 threadId,
-                orchestration,
+                messaging,
                 telemetry,
                 handler: (bundle, ct) => throw new InvalidOperationException("boom"),
                 disposeTelemetry: false,
@@ -101,39 +101,39 @@ public class SpringAgentSafetyNetTests
         ex.InnerException.ShouldBeOfType<InvalidOperationException>();
 
         // The safety-net reply still ships even though the handler threw.
-        orchestration.Posts.Count.ShouldBe(1);
-        orchestration.Posts[0].Result.ShouldBe(SpringAgent.SafetyNetReply);
+        messaging.Posts.Count.ShouldBe(1);
+        messaging.Posts[0].Result.ShouldBe(SpringAgent.SafetyNetReply);
     }
 
     [Fact]
-    public async Task HandlerDelegatingDoesNotSatisfyDiscipline()
+    public async Task HandlerSendingMessageDoesNotSatisfyDiscipline()
     {
-        // Delegation alone is not a final reply to the requester —
+        // Sending a message alone is not a final reply to the requester —
         // the safety net must still fire.
         var threadId = Guid.NewGuid().ToString("D");
-        var orchestration = new RecordingOrchestrationClient();
+        var messaging = new RecordingMessagingClient();
         using var telemetry = NewDisabledTelemetryClient();
 
         await SpringAgent.RunWithResponseDisciplineAsync(
             threadId,
-            orchestration,
+            messaging,
             telemetry,
             async (bundle, ct) =>
             {
-                await bundle.Orchestration.DelegateAsync(threadId, "unit:abc", "do something", ct);
+                await bundle.Messaging.SendAsync(threadId, "unit:abc", "do something", ct);
             },
             disposeTelemetry: false,
             cancellationToken: CancellationToken.None);
 
-        orchestration.Posts.Count.ShouldBe(1);
-        orchestration.Posts[0].Result.ShouldBe(SpringAgent.SafetyNetReply);
+        messaging.Posts.Count.ShouldBe(1);
+        messaging.Posts[0].Result.ShouldBe(SpringAgent.SafetyNetReply);
     }
 
     [Fact]
     public async Task CancellationPropagates()
     {
         var threadId = Guid.NewGuid().ToString("D");
-        var orchestration = new RecordingOrchestrationClient();
+        var messaging = new RecordingMessagingClient();
         using var telemetry = NewDisabledTelemetryClient();
         using var cts = new CancellationTokenSource();
         cts.Cancel();
@@ -141,7 +141,7 @@ public class SpringAgentSafetyNetTests
         await Should.ThrowAsync<OperationCanceledException>(
             () => SpringAgent.RunWithResponseDisciplineAsync(
                 threadId,
-                orchestration,
+                messaging,
                 telemetry,
                 handler: async (bundle, ct) =>
                 {

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "delegate_to.output",
-  "description": "Output of delegate_to — a delivery acknowledgement (ADR-0049). Confirms the message was durably placed in the target's mailbox. It never carries the target's response; a response, if any, arrives later as a separate one-way message on the thread.",
+  "title": "sv.messaging.send.output",
+  "description": "Output of sv.messaging.send — a delivery acknowledgement (ADR-0049). It confirms the message was durably placed in the target's mailbox. It is NEVER the target's response; a response, if any, arrives later as a separate one-way message on the thread.",
   "type": "object",
   "properties": {
     "delivered": {

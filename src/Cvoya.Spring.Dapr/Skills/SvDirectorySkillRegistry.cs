@@ -67,7 +67,7 @@ using Microsoft.Extensions.Logging;
 /// crosses the tool boundary as a uuid; <c>kind</c> on the response disc-
 /// riminates so callers can construct addresses locally if they ever need
 /// to. The agent runtime knows its own uuid via <c>SPRING_AGENT_ID</c> and
-/// can also read it via <c>sv.get_self()</c>.
+/// can also read it via <c>sv.directory.get_self()</c>.
 /// </para>
 /// <para>
 /// <b>Authz.</b> Every tool gates the read through
@@ -92,23 +92,23 @@ using Microsoft.Extensions.Logging;
 /// </remarks>
 public sealed class SvDirectorySkillRegistry : ISkillRegistry
 {
-    /// <summary>Tool name for <c>sv.get_self</c>.</summary>
-    public const string GetSelfTool = "sv.get_self";
+    /// <summary>Tool name for <c>sv.directory.get_self</c>.</summary>
+    public const string GetSelfTool = "sv.directory.get_self";
 
-    /// <summary>Tool name for <c>sv.get_member</c>.</summary>
-    public const string GetMemberTool = "sv.get_member";
+    /// <summary>Tool name for <c>sv.directory.get_member</c>.</summary>
+    public const string GetMemberTool = "sv.directory.get_member";
 
-    /// <summary>Tool name for <c>sv.list_members</c>.</summary>
-    public const string ListMembersTool = "sv.list_members";
+    /// <summary>Tool name for <c>sv.directory.list_members</c>.</summary>
+    public const string ListMembersTool = "sv.directory.list_members";
 
-    /// <summary>Tool name for <c>sv.get_siblings</c>.</summary>
-    public const string GetSiblingsTool = "sv.get_siblings";
+    /// <summary>Tool name for <c>sv.directory.get_siblings</c>.</summary>
+    public const string GetSiblingsTool = "sv.directory.get_siblings";
 
-    /// <summary>Tool name for <c>sv.get_parents</c>.</summary>
-    public const string GetParentsTool = "sv.get_parents";
+    /// <summary>Tool name for <c>sv.directory.get_parents</c>.</summary>
+    public const string GetParentsTool = "sv.directory.get_parents";
 
-    /// <summary>Tool name for <c>sv.get_status</c> (#2491).</summary>
-    public const string GetStatusTool = "sv.get_status";
+    /// <summary>Tool name for <c>sv.directory.get_status</c> (#2491).</summary>
+    public const string GetStatusTool = "sv.directory.get_status";
 
     /// <summary>Default page size for list tools, mirroring DirectorySearchResponse.</summary>
     public const int DefaultLimit = 50;
@@ -122,7 +122,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
     /// <summary>
     /// Wire-format <c>kind</c> value for human team members surfaced via
-    /// <c>sv.list_members</c> (ADR-0044 § 5, reshaped by ADR-0046 §9). One
+    /// <c>sv.directory.list_members</c> (ADR-0044 § 5, reshaped by ADR-0046 §9). One
     /// entry per <c>unit_memberships_humans</c> row; entries carry a
     /// multi-valued <c>roles</c> array (replaces the per-row
     /// <c>team_role: string</c> field from ADR-0044).
@@ -213,14 +213,14 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "executing this tool call). Output is a single entry: " +
                 "{ uuid, kind, display_name, parent_uuids, description, expertise, member_count, live_status? }. " +
                 "Use this as the bootstrap when navigating the unit hierarchy — the entry's " +
-                "parent_uuids are the starting point for sv.get_parents / sv.list_members. " +
-                "live_status is an advisory snapshot of in-flight work — see sv.get_status for " +
+                "parent_uuids are the starting point for sv.directory.get_parents / sv.directory.list_members. " +
+                "live_status is an advisory snapshot of in-flight work — see sv.directory.get_status for " +
                 "details; the field is omitted on entries whose kind doesn't carry runtime state.",
                 EmptyObjectSchema),
             new ToolDefinition(
                 GetMemberTool,
                 "Returns metadata for a single agent or unit identified by uuid. Output shape " +
-                "matches sv.get_self. " + TenantSentinelWarning,
+                "matches sv.directory.get_self. " + TenantSentinelWarning,
                 UuidArgSchema),
             new ToolDefinition(
                 ListMembersTool,
@@ -231,10 +231,10 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "expertise list. Human entries also surface their notifications subscription " +
                 "list when present. One row per (unit, human) pair — a human filling multiple " +
                 "team roles surfaces as a single entry whose roles array carries every role. " +
-                "Sub-unit members are NOT recursively expanded — call sv.list_members again on " +
+                "Sub-unit members are NOT recursively expanded — call sv.directory.list_members again on " +
                 "a sub-unit's uuid to walk further. Pagination via limit (default 50, max 200) " +
                 "and offset; total_count carries the unfiltered total. Agent and unit entries " +
-                "additionally carry an advisory live_status object — see sv.get_status; the " +
+                "additionally carry an advisory live_status object — see sv.directory.get_status; the " +
                 "field is omitted entirely on human entries.",
                 UuidPagedArgSchema),
             new ToolDefinition(
@@ -326,9 +326,9 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     }
 
     /// <summary>
-    /// Implements <c>sv.get_status</c> (#2491). Returns a slim projection
+    /// Implements <c>sv.directory.get_status</c> (#2491). Returns a slim projection
     /// — <c>{ uuid, kind, display_name, live_status? }</c> — for one
-    /// subject identified by uuid. Same error shape as <c>sv.get_member</c>:
+    /// subject identified by uuid. Same error shape as <c>sv.directory.get_member</c>:
     /// an unknown / unparseable uuid throws <see cref="ArgumentException"/>,
     /// which the MCP server surfaces as a typed tool error.
     /// </summary>
@@ -343,7 +343,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
         // Resolve the display name through the same path BuildEntryAsync
         // uses so the slim projection's display_name field matches what a
-        // sibling sv.get_member call would have returned. The tenant
+        // sibling sv.directory.get_member call would have returned. The tenant
         // sentinel and human kinds skip the live-status probe entirely.
         string displayName;
         if (string.Equals(kind, KindTenant, StringComparison.Ordinal))
@@ -964,7 +964,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     }
 
     /// <summary>
-    /// Serializes the slim <c>sv.get_status</c> projection (#2491):
+    /// Serializes the slim <c>sv.directory.get_status</c> projection (#2491):
     /// <c>{ uuid, kind, display_name, live_status? }</c>. Mirrors the
     /// omit-on-null contract of the directory entry's <c>live_status</c>
     /// field — humans and unreachable actors produce a response without
@@ -1105,7 +1105,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     /// <summary>
     /// Writes one <see cref="AgentRuntimeStatusReport"/> as the
     /// <c>live_status</c> object (#2491). Field names mirror what the
-    /// <c>sv.get_status</c> tool description advertises: <c>in_flight</c>,
+    /// <c>sv.directory.get_status</c> tool description advertises: <c>in_flight</c>,
     /// <c>queued</c>, <c>channels</c>, <c>observed_at</c>.
     /// </summary>
     private static void WriteLiveStatus(Utf8JsonWriter writer, AgentRuntimeStatusReport report)

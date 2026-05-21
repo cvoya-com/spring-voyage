@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sv.messaging.send.input",
+  "description": "Input for sv.messaging.send — a one-way message-delivery tool (ADR-0049). It durably places one message in the target's mailbox; it does NOT wait for or return the recipient's reply. A reply, if any, arrives later as a separate message on the thread. The platform delivers messages, it does not orchestrate.",
+  "type": "object",
+  "properties": {
+    "address": {
+      "type": "string",
+      "description": "Canonical scheme:no-dash-hex address of the target — an agent://, unit://, or human:// address in the caller's tenant."
+    },
+    "message": {
+      "description": "The message payload to deliver to the target. Opaque to the platform; a JSON string or object."
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "description": "Optional rationale recorded verbatim on the MessageSent activity. Never the model's hidden chain-of-thought."
+    }
+  },
+  "required": ["address", "message"],
+  "additionalProperties": false
+}

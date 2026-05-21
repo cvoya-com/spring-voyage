@@ -588,7 +588,7 @@ public class PackageInstallServiceIntegrationTests : IDisposable
     [Fact]
     public async Task InstallBundleWithSvNamespaceRequiredTool_Succeeds()
     {
-        using var pkg = BuildPackageWithSkillBundle("sv.get_self");
+        using var pkg = BuildPackageWithSkillBundle("sv.directory.get_self");
         using var fx = BuildFixtureForRoot(pkg.Root);
         await SeedSkillBundleBindingAsync(fx, pkg.PackageName);
 

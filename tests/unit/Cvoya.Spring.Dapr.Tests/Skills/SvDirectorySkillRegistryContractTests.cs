@@ -65,7 +65,7 @@ public class SvDirectorySkillRegistryContractTests
         var registry = CreateRegistry();
         var tools = registry.GetToolDefinitions();
 
-        // #2491: sv.get_status joins the surface alongside the original
+        // #2491: sv.directory.get_status joins the surface alongside the original
         // five tools. Order is stable so callers caching tool slots see
         // the new tool appended after the navigation set.
         tools.Select(t => t.Name).ShouldBe(new[]

@@ -10,10 +10,10 @@ This document series describes the core concepts and abstractions that make up t
 
 *Orchestration* is one mechanism a unit can use to route work across its members. Spring Voyage's bet is that **collaboration** is the bigger category -- the part that's still genuinely under-explored -- and orchestration is one piece of how the platform supports it.
 
-Concretely, when an agent has children, the runtime launcher attaches
-orchestration tools and the runtime decides whether to answer directly,
-delegate to one child, or fan out to several children -- see
-[Agents -- Orchestration tools](agents.md#the-five-orchestration-tools).
+Concretely, the runtime launcher attaches the platform messaging tools
+and the runtime decides whether to answer directly, send work to one
+member, or broadcast to several -- see
+[Agents -- Platform messaging tools](agents.md#platform-messaging-tools).
 External orchestrators (ADK, LangGraph, Temporal, ...) participate over A2A.
 But routing is only one slice of what happens inside a unit:
 

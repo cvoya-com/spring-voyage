@@ -4,8 +4,9 @@
 namespace Cvoya.Spring.Dapr.Execution;
 
 /// <summary>
-/// Configuration for the agent-facing orchestration callback surface
-/// (<c>delegate_to</c> / <c>fanout_to</c> + the orchestration MCP server).
+/// Configuration for the agent-facing messaging callback surface
+/// (<c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c> + the
+/// messaging MCP server).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -34,7 +35,7 @@ public class OrchestrationCallbackOptions
     /// orchestration callback endpoints. When unset, the callback-environment
     /// builder throws on the first launch — surfacing the misconfiguration
     /// at launch time rather than letting an agent come up with a
-    /// <c>delegate_to</c> tool that points nowhere.
+    /// <c>sv.messaging.send</c> tool that points nowhere.
     /// </summary>
     public string? BaseUrl { get; set; }
 }

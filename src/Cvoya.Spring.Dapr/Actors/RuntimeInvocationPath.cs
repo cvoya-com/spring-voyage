@@ -40,7 +40,7 @@ using Microsoft.Extensions.Logging;
 ///     <see cref="IRuntimeInvocationPath"/>. Builds a minimal
 ///     <see cref="PromptAssemblyContext"/> from the
 ///     <see cref="IAgentDefinitionProvider"/>, <see cref="ISkillRegistry"/>
-///     enumeration, and <see cref="IOrchestrationToolProvider"/> alone.
+///     enumeration, and <see cref="IMessagingToolProvider"/> alone.
 ///     This is the surface task C2 wires <c>UnitActor</c> through —
 ///     units have no per-mailbox prior-message buffer, so the lean shape
 ///     is sufficient for them.
@@ -67,7 +67,7 @@ using Microsoft.Extensions.Logging;
 public class RuntimeInvocationPath(
     IAgentDefinitionProvider agentDefinitionProvider,
     IEnumerable<ISkillRegistry> skillRegistries,
-    IOrchestrationToolProvider orchestrationToolProvider,
+    IMessagingToolProvider messagingToolProvider,
     IAgentDispatchCoordinator dispatchCoordinator,
     ILogger<RuntimeInvocationPath> logger) : IRuntimeInvocationPath
 {
@@ -167,8 +167,8 @@ public class RuntimeInvocationPath(
     /// <see cref="InvokeAsync(Address, Message, CancellationToken)"/>
     /// path: agent instructions from <see cref="IAgentDefinitionProvider"/>,
     /// skills from the registered <see cref="ISkillRegistry"/> set, and
-    /// orchestration tools from
-    /// <see cref="IOrchestrationToolProvider"/>. Per-mailbox prior
+    /// messaging tools from
+    /// <see cref="IMessagingToolProvider"/>. Per-mailbox prior
     /// messages, pending amendments, and effective per-membership
     /// metadata are intentionally absent — those are caller-side
     /// concerns the rich overload is designed to carry.
@@ -185,35 +185,33 @@ public class RuntimeInvocationPath(
                 Tools: r.GetToolDefinitions()))
             .ToList();
 
-        // Resolve the orchestration tools the subject may invoke against
-        // its child composition. Empty for leaf agents; populated by the
-        // directory-driven provider for units with children.
-        // The provider takes a Guid threadId — the inbound thread id is
-        // a string envelope, but every domain message that reaches here
-        // carries a parseable id. Non-parseable values fall back to
-        // Guid.Empty so the provider can still return a "no tools"
+        // Resolve the messaging tools the subject may invoke to deliver
+        // messages. Populated for every agent / unit caller (ADR-0048 /
+        // ADR-0049). The provider takes a Guid threadId — the inbound
+        // thread id is a string envelope, but every domain message that
+        // reaches here carries a parseable id. Non-parseable values fall
+        // back to Guid.Empty so the provider can still return a "no tools"
         // verdict deterministically.
         Guid threadId = Guid.Empty;
         if (!string.IsNullOrWhiteSpace(inbound.ThreadId)
             && !Guid.TryParse(inbound.ThreadId, out threadId))
         {
             logger.LogDebug(
-                "Inbound thread id {ThreadId} for subject {Subject} is not a Guid; orchestration-tool resolution uses Guid.Empty.",
+                "Inbound thread id {ThreadId} for subject {Subject} is not a Guid; messaging-tool resolution uses Guid.Empty.",
                 inbound.ThreadId, subject);
         }
 
-        var orchestrationTools = orchestrationToolProvider.GetOrchestrationTools(subject, threadId);
-        if (orchestrationTools.Length > 0)
+        var messagingTools = messagingToolProvider.GetMessagingTools(subject, threadId);
+        if (messagingTools.Length > 0)
         {
             logger.LogDebug(
-                "Resolved {Count} orchestration tool(s) for subject {Subject} on thread {ThreadId}.",
-                orchestrationTools.Length, subject, threadId);
+                "Resolved {Count} messaging tool(s) for subject {Subject} on thread {ThreadId}.",
+                messagingTools.Length, subject, threadId);
         }
 
-        // OrchestrationToolDescriptor is not yet folded into
-        // PromptAssemblyContext.Skills (#1786 / D2 wires that). For C1
-        // the tools are resolved-but-not-yet-attached; surfacing them in
-        // the context is the next phase's deliverable.
+        // MessagingToolDescriptor is not yet folded into
+        // PromptAssemblyContext.Skills. The tools are resolved-but-not-yet-
+        // attached; surfacing them in the context is a later deliverable.
 
         return new PromptAssemblyContext(
             Policies: null,

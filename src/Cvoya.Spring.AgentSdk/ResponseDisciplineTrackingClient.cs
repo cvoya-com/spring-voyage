@@ -4,7 +4,7 @@
 namespace Cvoya.Spring.AgentSdk;
 
 /// <summary>
-/// Wraps an <see cref="IOrchestrationClient"/> and remembers whether the
+/// Wraps an <see cref="IMessagingClient"/> and remembers whether the
 /// user's delegate has called <see cref="PostResultAsync"/>. Used by
 /// <see cref="SpringAgent.RunWithResponseDisciplineAsync"/> to drive the
 /// response-discipline safety net (issue #2493).
@@ -13,17 +13,17 @@ namespace Cvoya.Spring.AgentSdk;
 /// <para>
 /// Idempotent on the tracking side — multiple posts only set the flag
 /// once. The wrapped client's behaviour is preserved verbatim;
-/// <c>DelegateAsync</c> / <c>FanoutAsync</c> are pass-through and do not
-/// satisfy the response-discipline contract (they delegate work, they
+/// <c>SendAsync</c> / <c>BroadcastAsync</c> are pass-through and do not
+/// satisfy the response-discipline contract (they deliver a message, they
 /// don't return a final reply to the requester).
 /// </para>
 /// </remarks>
-internal sealed class ResponseDisciplineTrackingClient : IOrchestrationClient
+internal sealed class ResponseDisciplineTrackingClient : IMessagingClient
 {
-    private readonly IOrchestrationClient _inner;
+    private readonly IMessagingClient _inner;
     private int _postedFlag;
 
-    public ResponseDisciplineTrackingClient(IOrchestrationClient inner)
+    public ResponseDisciplineTrackingClient(IMessagingClient inner)
     {
         ArgumentNullException.ThrowIfNull(inner);
         _inner = inner;
@@ -41,17 +41,17 @@ internal sealed class ResponseDisciplineTrackingClient : IOrchestrationClient
     internal Task InnerPostResultAsync(string threadId, string result, CancellationToken cancellationToken)
         => _inner.PostResultAsync(threadId, result, cancellationToken);
 
-    public Task<DelegateResponse> DelegateAsync(
+    public Task<MessageSendResponse> SendAsync(
         string threadId,
         string targetUnitId,
         string prompt,
         CancellationToken cancellationToken = default)
-        => _inner.DelegateAsync(threadId, targetUnitId, prompt, cancellationToken);
+        => _inner.SendAsync(threadId, targetUnitId, prompt, cancellationToken);
 
-    public Task<FanoutResponse> FanoutAsync(
+    public Task<MessageBroadcastResponse> BroadcastAsync(
         string threadId,
         IReadOnlyList<string> targetUnitIds,
         string prompt,
         CancellationToken cancellationToken = default)
-        => _inner.FanoutAsync(threadId, targetUnitIds, prompt, cancellationToken);
+        => _inner.BroadcastAsync(threadId, targetUnitIds, prompt, cancellationToken);
 }

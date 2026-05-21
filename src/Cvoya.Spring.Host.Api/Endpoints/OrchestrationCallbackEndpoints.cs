@@ -23,7 +23,7 @@ public static class OrchestrationCallbackEndpoints
 
     public static IEndpointRouteBuilder MapOrchestrationCallbackEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        // The orchestration callback surface is an internal agent-runtime
+        // The messaging callback surface is an internal agent-runtime
         // ingress, not part of the tenant REST API the OpenAPI document
         // describes for SDK / portal consumers. It authenticates via the
         // per-invocation callback JWT, not the API-token scheme, and is
@@ -32,20 +32,20 @@ public static class OrchestrationCallbackEndpoints
         // — matching how /health is excluded.
         var group = endpoints.MapGroup(RoutePrefix).ExcludeFromDescription();
 
-        group.MapPost("/delegate-to", DelegateToAsync);
-        group.MapPost("/fanout-to", FanoutToAsync);
+        group.MapPost("/messaging/send", SendAsync);
+        group.MapPost("/messaging/broadcast", BroadcastAsync);
 
         // MCP streamable-HTTP transport. The claude-code / codex launchers
-        // write a `spring-orchestration` server (type: "http") into the agent
-        // container's .mcp.json, pointed at the orchestration route-prefix
-        // ROOT. The CLI POSTs JSON-RPC 2.0 (`initialize`, `tools/list`,
+        // write an MCP server (type: "http") into the agent container's
+        // .mcp.json, pointed at the messaging callback route-prefix ROOT.
+        // The CLI POSTs JSON-RPC 2.0 (`initialize`, `tools/list`,
         // `tools/call`) there — without this handler the MCP handshake 404s
         // and the CLI silently drops the server. An in-group MapPost("")
         // pattern does not match the bare prefix, so the root handler is
         // mapped directly on `endpoints`. ASP.NET Core route matching
         // normalises a trailing slash, so this single route matches both the
         // launcher's bare-prefix url and the `…/` form. The two REST
-        // sub-routes above stay as-is — they serve OrchestrationClient.
+        // sub-routes above stay as-is — they serve MessagingClient.
         endpoints.MapPost(RoutePrefix, McpRpcAsync).ExcludeFromDescription();
 
         return endpoints;
@@ -54,8 +54,8 @@ public static class OrchestrationCallbackEndpoints
     internal static async Task<IResult> McpRpcAsync(
         [FromBody] McpJsonRpcRequest? request,
         CallbackTokenValidator tokenValidator,
-        OrchestrationToolHandlers handlers,
-        IOrchestrationToolProvider toolProvider,
+        MessagingToolHandlers handlers,
+        IMessagingToolProvider toolProvider,
         OrchestrationCallbackDiagnostics diagnostics,
         HttpContext httpContext,
         CancellationToken cancellationToken)
@@ -100,15 +100,15 @@ public static class OrchestrationCallbackEndpoints
     private static object BuildInitializeResult() => new
     {
         protocolVersion = "2024-11-05",
-        serverInfo = new { name = "spring-orchestration", version = "1.0.0" },
+        serverInfo = new { name = "spring-messaging", version = "1.0.0" },
         capabilities = new { tools = new { } },
     };
 
     private static object BuildToolListResult(
-        IOrchestrationToolProvider toolProvider,
+        IMessagingToolProvider toolProvider,
         CallbackToken claims)
     {
-        var descriptors = toolProvider.GetOrchestrationTools(claims.AgentAddress, claims.ThreadId);
+        var descriptors = toolProvider.GetMessagingTools(claims.AgentAddress, claims.ThreadId);
 
         var tools = descriptors
             .Select(descriptor => new
@@ -126,7 +126,7 @@ public static class OrchestrationCallbackEndpoints
         McpJsonRpcRequest request,
         JsonElement? requestId,
         CallbackToken claims,
-        OrchestrationToolHandlers handlers,
+        MessagingToolHandlers handlers,
         CancellationToken cancellationToken)
     {
         if (request.Params is not { ValueKind: JsonValueKind.Object } paramsElement)
@@ -152,29 +152,29 @@ public static class OrchestrationCallbackEndpoints
 
         switch (toolName)
         {
-            case "delegate_to":
-                return await HandleMcpDelegateToAsync(requestId, arguments, claims, handlers, cancellationToken);
+            case "sv.messaging.send":
+                return await HandleMcpSendAsync(requestId, arguments, claims, handlers, cancellationToken);
 
-            case "fanout_to":
-                return await HandleMcpFanoutToAsync(requestId, arguments, claims, handlers, cancellationToken);
+            case "sv.messaging.broadcast":
+                return await HandleMcpBroadcastAsync(requestId, arguments, claims, handlers, cancellationToken);
 
             default:
                 return McpError(
                     StatusCodes.Status200OK, requestId, McpErrorCodes.MethodNotFound,
-                    $"Tool '{toolName}' is not an orchestration tool.");
+                    $"Tool '{toolName}' is not a messaging tool.");
         }
     }
 
-    private static async Task<IResult> HandleMcpDelegateToAsync(
+    private static async Task<IResult> HandleMcpSendAsync(
         JsonElement? requestId,
         JsonElement arguments,
         CallbackToken claims,
-        OrchestrationToolHandlers handlers,
+        MessagingToolHandlers handlers,
         CancellationToken cancellationToken)
     {
         if (!TryGetStringArgument(arguments, "address", out var addressValue))
         {
-            return McpToolError(requestId, "delegate_to requires an 'address' string argument.");
+            return McpToolError(requestId, "sv.messaging.send requires an 'address' string argument.");
         }
 
         if (!Address.TryParse(addressValue, out var target) || target is null)
@@ -187,7 +187,7 @@ public static class OrchestrationCallbackEndpoints
 
         try
         {
-            var ack = await handlers.HandleDelegateToAsync(
+            var ack = await handlers.HandleSendAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 target,
@@ -196,7 +196,7 @@ public static class OrchestrationCallbackEndpoints
                 claims.ThreadId,
                 cancellationToken);
 
-            return McpToolResult(requestId, ToDelegateAck(ack), isError: false);
+            return McpToolResult(requestId, ToSendAck(ack), isError: false);
         }
         catch (OrchestrationException ex)
         {
@@ -204,56 +204,75 @@ public static class OrchestrationCallbackEndpoints
         }
     }
 
-    private static async Task<IResult> HandleMcpFanoutToAsync(
+    private static async Task<IResult> HandleMcpBroadcastAsync(
         JsonElement? requestId,
         JsonElement arguments,
         CallbackToken claims,
-        OrchestrationToolHandlers handlers,
+        MessagingToolHandlers handlers,
         CancellationToken cancellationToken)
     {
-        if (arguments.ValueKind != JsonValueKind.Object ||
-            !arguments.TryGetProperty("addresses", out var addressesProp) ||
-            addressesProp.ValueKind != JsonValueKind.Array)
+        var hasAddresses = arguments.ValueKind == JsonValueKind.Object &&
+            arguments.TryGetProperty("addresses", out var addressesProp) &&
+            addressesProp.ValueKind == JsonValueKind.Array;
+        var hasScope = TryGetStringArgument(arguments, "scope", out var scopeValue);
+
+        if (hasAddresses == hasScope)
         {
-            return McpToolError(requestId, "fanout_to requires an 'addresses' array argument.");
+            return McpToolError(
+                requestId,
+                "sv.messaging.broadcast requires exactly one of an 'addresses' array or a 'scope' string.");
         }
 
-        var targets = new List<Address>();
-        foreach (var element in addressesProp.EnumerateArray())
-        {
-            var addressValue = element.ValueKind == JsonValueKind.String ? element.GetString() : null;
-            if (!Address.TryParse(addressValue, out var target) || target is null)
-            {
-                return McpToolError(requestId, $"'{addressValue}' is not a valid Spring Voyage address.");
-            }
+        List<Address>? targets = null;
+        BroadcastScope? scope = null;
 
-            targets.Add(target);
+        if (hasAddresses)
+        {
+            targets = new List<Address>();
+            arguments.TryGetProperty("addresses", out var addressesArray);
+            foreach (var element in addressesArray.EnumerateArray())
+            {
+                var addressValue = element.ValueKind == JsonValueKind.String ? element.GetString() : null;
+                if (!Address.TryParse(addressValue, out var target) || target is null)
+                {
+                    return McpToolError(requestId, $"'{addressValue}' is not a valid Spring Voyage address.");
+                }
+
+                targets.Add(target);
+            }
+        }
+        else if (!TryParseBroadcastScope(scopeValue, out scope))
+        {
+            return McpToolError(
+                requestId,
+                $"'{scopeValue}' is not a valid broadcast scope. Use 'unit-members' or 'siblings'.");
         }
 
         var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
         var message = BuildMcpMessage(
             claims,
-            targets.Count > 0 ? targets[0] : claims.AgentAddress,
+            targets is { Count: > 0 } ? targets[0] : claims.AgentAddress,
             ExtractMessagePayload(arguments));
 
         try
         {
-            var outcomes = await handlers.HandleFanoutToAsync(
+            var result = await handlers.HandleBroadcastAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 targets,
+                scope,
                 message,
                 reason,
                 claims.ThreadId,
                 cancellationToken);
 
-            // ADR-0049 §6 — a fanout where every delivery failed is itself a
-            // terminal failure; surface it to the model with isError: true.
-            var anyDelivered = outcomes.Any(outcome => outcome.Delivered);
+            // ADR-0049 §6 — a broadcast where every delivery failed is itself
+            // a terminal failure; surface it to the model with isError: true.
+            var anyDelivered = result.Deliveries.Any(outcome => outcome.Delivered);
             return McpToolResult(
                 requestId,
-                ToFanoutAck(message.Id, claims.ThreadId, outcomes),
-                isError: outcomes.Count > 0 && !anyDelivered);
+                ToBroadcastAck(result),
+                isError: result.Deliveries.Count > 0 && !anyDelivered);
         }
         catch (OrchestrationException ex)
         {
@@ -262,7 +281,7 @@ public static class OrchestrationCallbackEndpoints
     }
 
     /// <summary>
-    /// Outcome of an orchestration callback-token validation attempt.
+    /// Outcome of a messaging callback-token validation attempt.
     /// </summary>
     private readonly record struct CallbackAuthResult(
         bool Succeeded,
@@ -299,19 +318,19 @@ public static class OrchestrationCallbackEndpoints
             return new CallbackAuthResult(
                 false,
                 default!,
-                $"Orchestration callbacks support unit:// and agent:// callers; got '{claims.AgentAddress}'.");
+                $"Messaging callbacks support unit:// and agent:// callers; got '{claims.AgentAddress}'.");
         }
 
         return new CallbackAuthResult(true, claims, string.Empty);
     }
 
     /// <summary>
-    /// Builds an orchestration <see cref="Message"/> from a model-supplied
-    /// tool-call argument. The <c>message</c> argument is opaque per the
-    /// embedded input schema (<c>description</c>-only, no <c>type</c>): a JSON
-    /// string is wrapped as <c>{ content: &lt;string&gt; }</c> (mirroring the
-    /// REST <see cref="BuildMessage"/>); a JSON object is passed through; any
-    /// other shape (or a missing argument) yields an empty object payload.
+    /// Builds a <see cref="Message"/> from a model-supplied tool-call
+    /// argument. The <c>message</c> argument is opaque per the embedded input
+    /// schema (<c>description</c>-only, no <c>type</c>): a JSON string is
+    /// wrapped as <c>{ content: &lt;string&gt; }</c> (mirroring the REST
+    /// <see cref="BuildMessage"/>); a JSON object is passed through; any other
+    /// shape (or a missing argument) yields an empty object payload.
     /// </summary>
     private static Message BuildMcpMessage(CallbackToken claims, Address target, JsonElement payload)
     {
@@ -356,6 +375,18 @@ public static class OrchestrationCallbackEndpoints
         return false;
     }
 
+    private static bool TryParseBroadcastScope(string? value, out BroadcastScope? scope)
+    {
+        scope = value switch
+        {
+            "unit-members" => BroadcastScope.UnitMembers,
+            "siblings" => BroadcastScope.Siblings,
+            _ => null,
+        };
+
+        return scope is not null;
+    }
+
     private static string ExtractSchemaDescription(JsonElement inputSchema)
     {
         if (inputSchema.ValueKind == JsonValueKind.Object &&
@@ -368,10 +399,10 @@ public static class OrchestrationCallbackEndpoints
         return string.Empty;
     }
 
-    private static string ToWireName(OrchestrationToolName name) => name switch
+    private static string ToWireName(MessagingToolName name) => name switch
     {
-        OrchestrationToolName.DelegateTo => "delegate_to",
-        OrchestrationToolName.FanoutTo => "fanout_to",
+        MessagingToolName.Send => "sv.messaging.send",
+        MessagingToolName.Broadcast => "sv.messaging.broadcast",
         _ => name.ToString(),
     };
 
@@ -387,8 +418,9 @@ public static class OrchestrationCallbackEndpoints
     /// Wraps an MCP <c>tools/call</c> outcome in the standard result envelope
     /// (<c>{ content: [{ type: "text", text: &lt;json&gt; }], isError }</c>).
     /// The text block carries the JSON the model sees — the same delivery
-    /// acknowledgement the REST sub-routes return (<see cref="DelegateToResponse"/>
-    /// for delegate, <see cref="FanoutToResponse"/> for fanout — ADR-0049).
+    /// acknowledgement the REST sub-routes return
+    /// (<see cref="MessagingSendResponse"/> for send,
+    /// <see cref="MessagingBroadcastResponse"/> for broadcast — ADR-0049).
     /// </summary>
     private static IResult McpToolResult(JsonElement? id, object? payload, bool isError)
     {
@@ -418,10 +450,10 @@ public static class OrchestrationCallbackEndpoints
         public const int Unauthorized = -32001;
     }
 
-    internal static async Task<IResult> DelegateToAsync(
-        [FromBody] DelegateToRequest request,
+    internal static async Task<IResult> SendAsync(
+        [FromBody] MessagingSendRequest request,
         CallbackTokenValidator tokenValidator,
-        OrchestrationToolHandlers handlers,
+        MessagingToolHandlers handlers,
         OrchestrationCallbackDiagnostics diagnostics,
         HttpContext httpContext,
         CancellationToken cancellationToken)
@@ -439,7 +471,7 @@ public static class OrchestrationCallbackEndpoints
 
         try
         {
-            var ack = await handlers.HandleDelegateToAsync(
+            var ack = await handlers.HandleSendAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 target,
@@ -448,7 +480,7 @@ public static class OrchestrationCallbackEndpoints
                 claims.ThreadId,
                 cancellationToken);
 
-            return Results.Ok(ToDelegateAck(ack));
+            return Results.Ok(ToSendAck(ack));
         }
         catch (OrchestrationException ex)
         {
@@ -456,10 +488,10 @@ public static class OrchestrationCallbackEndpoints
         }
     }
 
-    internal static async Task<IResult> FanoutToAsync(
-        [FromBody] FanoutToRequest request,
+    internal static async Task<IResult> BroadcastAsync(
+        [FromBody] MessagingBroadcastRequest request,
         CallbackTokenValidator tokenValidator,
-        OrchestrationToolHandlers handlers,
+        MessagingToolHandlers handlers,
         OrchestrationCallbackDiagnostics diagnostics,
         HttpContext httpContext,
         CancellationToken cancellationToken)
@@ -491,20 +523,25 @@ public static class OrchestrationCallbackEndpoints
             targets.Add(target);
         }
 
-        var message = BuildMessage(claims, targets.Count > 0 ? targets[0] : claims.AgentAddress, request.MessageId, request.MessageContent);
+        var message = BuildMessage(
+            claims,
+            targets.Count > 0 ? targets[0] : claims.AgentAddress,
+            request.MessageId,
+            request.MessageContent);
 
         try
         {
-            var outcomes = await handlers.HandleFanoutToAsync(
+            var result = await handlers.HandleBroadcastAsync(
                 claims.AgentAddress,
                 claims.TenantId,
                 targets,
+                scope: null,
                 message,
                 request.Reason,
                 claims.ThreadId,
                 cancellationToken);
 
-            return Results.Ok(ToFanoutAck(message.Id, claims.ThreadId, outcomes));
+            return Results.Ok(ToBroadcastAck(result));
         }
         catch (OrchestrationException ex)
         {
@@ -515,18 +552,15 @@ public static class OrchestrationCallbackEndpoints
     // ADR-0049 — REST + MCP both serialise the handler's delivery
     // acknowledgements through these mappers, so the SDK and the MCP
     // transport see one wire contract.
-    private static DelegateToResponse ToDelegateAck(DelegateDeliveryAck ack) =>
+    private static MessagingSendResponse ToSendAck(MessageDeliveryAck ack) =>
         new(ack.Delivered, ack.MessageId, ack.Target.ToString(), ack.ThreadId);
 
-    private static FanoutToResponse ToFanoutAck(
-        Guid messageId,
-        Guid threadId,
-        IReadOnlyList<FanoutDeliveryAck> outcomes) =>
+    private static MessagingBroadcastResponse ToBroadcastAck(BroadcastResult result) =>
         new(
-            messageId,
-            threadId,
-            outcomes
-                .Select(outcome => new FanoutDeliveryOutcome(
+            result.MessageId,
+            result.ThreadId,
+            result.Deliveries
+                .Select(outcome => new MessagingDeliveryOutcome(
                     outcome.Target.ToString(),
                     outcome.Delivered,
                     outcome.Error))
@@ -573,15 +607,16 @@ public static class OrchestrationCallbackEndpoints
                 Error(
                     StatusCodes.Status403Forbidden,
                     "UnsupportedCallerScheme",
-                    $"Orchestration callbacks support unit:// and agent:// callers; got '{claims.AgentAddress}'."));
+                    $"Messaging callbacks support unit:// and agent:// callers; got '{claims.AgentAddress}'."));
         }
 
         // Cross-tenant containment (ADR-0039 §3 gate 6) is enforced inside
-        // each handler via IOrchestrationTenantResolver — the per-tenant
-        // signing key from D12 makes a forged token for another tenant
-        // structurally implausible, but the handler-side gate is explicit so
-        // any future authentication shape (mTLS, OIDC) inherits the same
-        // containment without re-deriving it from the signing-key story.
+        // MessageDeliveryService via IOrchestrationTenantResolver — the
+        // per-tenant signing key from D12 makes a forged token for another
+        // tenant structurally implausible, but the platform-side gate is
+        // explicit so any future authentication shape (mTLS, OIDC) inherits
+        // the same containment without re-deriving it from the signing-key
+        // story.
         return (true, claims, Results.Empty);
     }
 
@@ -694,7 +729,7 @@ public static class OrchestrationCallbackEndpoints
                 StatusCodes.Status503ServiceUnavailable,
             // ADR-0039 §3 gate 6 — cross-tenant containment maps to 403,
             // matching every other "you are not authorised on this surface"
-            // gate the dispatcher applies. The SDK already maps this code
+            // gate the platform applies. The SDK already maps this code
             // onto OrchestrationAuthException(Reason="CrossTenant").
             OrchestrationException.RejectCodes.OrchestrationCrossTenant =>
                 StatusCodes.Status403Forbidden,

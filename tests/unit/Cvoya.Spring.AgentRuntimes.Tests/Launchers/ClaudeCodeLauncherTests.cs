@@ -108,11 +108,11 @@ public class ClaudeCodeLauncherTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task PrepareAsync_OrchestrationToolsNullOrEmpty_WritesOnlySpringVoyageMcpServer(
+    public async Task PrepareAsync_MessagingToolsNullOrEmpty_WritesOnlySpringVoyageMcpServer(
         bool useEmptyTools)
     {
         var context = CreateContext(
-            useEmptyTools ? Array.Empty<OrchestrationToolDescriptor>() : null);
+            useEmptyTools ? Array.Empty<MessagingToolDescriptor>() : null);
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
@@ -122,9 +122,9 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_OrchestrationToolsPresent_WritesSpringOrchestrationMcpServer()
+    public async Task PrepareAsync_MessagingToolsPresent_WritesSpringOrchestrationMcpServer()
     {
-        var context = CreateContext(CreateOrchestrationTools());
+        var context = CreateContext(CreateMessagingTools());
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
@@ -142,12 +142,12 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_OrchestrationToolsPresent_SetsMcpConfigPathEnvVarForSidecar()
+    public async Task PrepareAsync_MessagingToolsPresent_SetsMcpConfigPathEnvVarForSidecar()
     {
         // #2580: the sidecar refreshes the spring-orchestration callback
         // token in .mcp.json per turn; the launcher must point it at the
         // on-disk config file via SPRING_ORCHESTRATION_MCP_CONFIG.
-        var context = CreateContext(CreateOrchestrationTools());
+        var context = CreateContext(CreateMessagingTools());
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
@@ -159,13 +159,13 @@ public class ClaudeCodeLauncherTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task PrepareAsync_OrchestrationToolsAbsent_DoesNotSetMcpConfigPathEnvVar(
+    public async Task PrepareAsync_MessagingToolsAbsent_DoesNotSetMcpConfigPathEnvVar(
         bool useEmptyTools)
     {
         // Without orchestration tools there is no spring-orchestration
         // block to refresh — the sidecar env var stays unset.
         var context = CreateContext(
-            useEmptyTools ? Array.Empty<OrchestrationToolDescriptor>() : null);
+            useEmptyTools ? Array.Empty<MessagingToolDescriptor>() : null);
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
@@ -422,8 +422,8 @@ public class ClaudeCodeLauncherTests
     }
 
     private static AgentLaunchContext CreateContext(
-        OrchestrationToolDescriptor[]? orchestrationTools = null) =>
-        LauncherCallbackTestSupport.CreateContext() with { OrchestrationTools = orchestrationTools };
+        MessagingToolDescriptor[]? messagingTools = null) =>
+        LauncherCallbackTestSupport.CreateContext() with { MessagingTools = messagingTools };
 
     private static JsonElement GetMcpServers(AgentLaunchSpec prep)
     {
@@ -431,9 +431,9 @@ public class ClaudeCodeLauncherTests
         return parsed.RootElement.GetProperty("mcpServers").Clone();
     }
 
-    private static OrchestrationToolDescriptor[] CreateOrchestrationTools() =>
+    private static MessagingToolDescriptor[] CreateMessagingTools() =>
     [
-        new(OrchestrationToolName.DelegateTo, default, default),
-        new(OrchestrationToolName.FanoutTo, default, default),
+        new(MessagingToolName.Send, default, default),
+        new(MessagingToolName.Broadcast, default, default),
     ];
 }

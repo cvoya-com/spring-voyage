@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 /// in ADR-0044 and reshaped by ADR-0046 §7. Surfaces the unit's team-role
 /// membership rows (one per <c>(unit, human)</c> pair; <c>roles</c> is now a
 /// jsonb list on the row) for callers that need the domain participation
-/// view — primarily the <c>sv.list_members</c> MCP tool, the operator-facing
+/// view — primarily the <c>sv.directory.list_members</c> MCP tool, the operator-facing
 /// CLI / REST add-member surface (#2409), and any future "who is the
 /// security lead on my team?" routing surface.
 /// </summary>

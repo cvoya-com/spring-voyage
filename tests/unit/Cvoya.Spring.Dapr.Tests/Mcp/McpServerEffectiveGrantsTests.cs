@@ -34,7 +34,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly FakeToolGrantResolver _resolver = new();
     private readonly FakeRegistry _registry = new(
-        ("sv.get_self", "sv"),
+        ("sv.directory.get_self", "sv"),
         ("acme.create_issue", "acme"),
         ("arxiv.search", "arxiv"));
     private readonly FakeEnforcer _enforcer = new();
@@ -86,7 +86,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         var agentId = Guid.NewGuid();
         _resolver.SetGrants(
             new Address(Address.AgentScheme, agentId),
-            new EffectiveTool("sv.get_self", "sv", "Get self.", ToolProvenance.Platform, null));
+            new EffectiveTool("sv.directory.get_self", "sv", "Get self.", ToolProvenance.Platform, null));
 
         var session = _server!.IssueSession(agentId.ToString("N"), "conv-1", Address.AgentScheme);
         var json = await PostJsonAsync(session.Token, new
@@ -99,7 +99,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         var tools = json.GetProperty("result").GetProperty("tools").EnumerateArray()
             .Select(t => t.GetProperty("name").GetString())
             .ToList();
-        tools.ShouldBe(new[] { "sv.get_self" });
+        tools.ShouldBe(new[] { "sv.directory.get_self" });
         tools.ShouldNotContain("acme.create_issue");
         tools.ShouldNotContain("arxiv.search");
     }
@@ -113,7 +113,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         var agentId = Guid.NewGuid();
         _resolver.SetGrants(
             new Address(Address.AgentScheme, agentId),
-            new EffectiveTool("sv.get_self", "sv", "Get self.", ToolProvenance.Platform, null));
+            new EffectiveTool("sv.directory.get_self", "sv", "Get self.", ToolProvenance.Platform, null));
 
         var session = _server!.IssueSession(agentId.ToString("N"), "conv-1", Address.AgentScheme);
         var json = await PostJsonAsync(session.Token, new
@@ -144,7 +144,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         var agentId = Guid.NewGuid();
         _resolver.SetGrants(
             new Address(Address.AgentScheme, agentId),
-            new EffectiveTool("sv.get_self", "sv", "Get self.", ToolProvenance.Platform, null),
+            new EffectiveTool("sv.directory.get_self", "sv", "Get self.", ToolProvenance.Platform, null),
             new EffectiveTool(
                 "acme.create_issue",
                 "acme",
@@ -164,7 +164,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
             .Select(t => t.GetProperty("name").GetString())
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToList();
-        tools.ShouldBe(new[] { "acme.create_issue", "sv.get_self" });
+        tools.ShouldBe(new[] { "acme.create_issue", "sv.directory.get_self" });
     }
 
     [Fact]
@@ -178,7 +178,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         var agentId = Guid.NewGuid();
         _resolver.SetGrants(
             new Address(Address.AgentScheme, agentId),
-            new EffectiveTool("sv.get_self", "sv", "Get self.", ToolProvenance.Platform, null));
+            new EffectiveTool("sv.directory.get_self", "sv", "Get self.", ToolProvenance.Platform, null));
 
         var session = _server!.IssueSession(agentId.ToString("N"), "conv-1", Address.AgentScheme);
         var json = await PostJsonAsync(session.Token, new
@@ -191,7 +191,7 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         var tools = json.GetProperty("result").GetProperty("tools").EnumerateArray()
             .Select(t => t.GetProperty("name").GetString())
             .ToList();
-        tools.ShouldContain("sv.get_self");
+        tools.ShouldContain("sv.directory.get_self");
     }
 
     [Fact]

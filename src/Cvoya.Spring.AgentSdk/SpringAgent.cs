@@ -15,7 +15,7 @@ public static class SpringAgent
     /// <summary>
     /// Stock reply text the response-discipline safety net synthesizes
     /// when the user's delegate exits without calling
-    /// <see cref="IOrchestrationClient.PostResultAsync"/>. Issue #2493.
+    /// <see cref="IMessagingClient.PostResultAsync"/>. Issue #2493.
     /// Kept terse and neutral so it's not mistaken for the agent's real
     /// voice; the activity log carries the structural detail.
     /// </summary>
@@ -24,30 +24,30 @@ public static class SpringAgent
         "See the activity log for details.";
 
     /// <summary>
-    /// Creates an OrchestrationClient configured from the standard environment variables.
+    /// Creates a MessagingClient configured from the standard environment variables.
     /// Throws MissingCallbackEnvironmentException if SPRING_CALLBACK_URL or
     /// SPRING_CALLBACK_TOKEN are absent.
     /// </summary>
-    public static IOrchestrationClient FromEnvironment() => FromEnvironment(inboundMessageBody: null);
+    public static IMessagingClient FromEnvironment() => FromEnvironment(inboundMessageBody: null);
 
     /// <summary>
     /// Creates a <see cref="SpringAgentBundle"/> exposing both the
-    /// orchestration client and the telemetry primitives. Use this when
+    /// messaging client and the telemetry primitives. Use this when
     /// the agent needs to emit progress / tool-call / llm-turn telemetry
     /// alongside posting results back to the dispatcher.
     /// </summary>
     public static SpringAgentBundle FromEnvironmentWithTelemetry(string? inboundMessageBody = null)
     {
-        var orchestration = FromEnvironment(inboundMessageBody);
+        var messaging = FromEnvironment(inboundMessageBody);
         var threadId = Environment.GetEnvironmentVariable("SPRING_THREAD_ID");
         var telemetry = TelemetryClient.FromEnvironment(threadId);
-        return new SpringAgentBundle(orchestration, telemetry);
+        return new SpringAgentBundle(messaging, telemetry);
     }
 
     /// <summary>
     /// Runs the user's agent delegate with response-discipline
     /// enforcement (issue #2493). If the delegate completes without
-    /// calling <see cref="IOrchestrationClient.PostResultAsync"/>, this
+    /// calling <see cref="IMessagingClient.PostResultAsync"/>, this
     /// helper:
     /// <list type="number">
     /// <item><description>posts the stock <see cref="SafetyNetReply"/> for the dispatcher thread,</description></item>
@@ -63,7 +63,7 @@ public static class SpringAgent
     /// entry point.
     /// </param>
     /// <param name="handler">
-    /// User delegate. Receives the bundle (orchestration + telemetry).
+    /// User delegate. Receives the bundle (messaging + telemetry).
     /// Returning normally without calling <c>PostResultAsync</c> trips
     /// the safety net. Throwing also trips it — the exception is
     /// captured into the violation event but not the synthesized reply.
@@ -83,11 +83,11 @@ public static class SpringAgent
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentNullException.ThrowIfNull(handler);
 
-        var orchestration = FromEnvironment(inboundMessageBody);
+        var messaging = FromEnvironment(inboundMessageBody);
         var telemetry = TelemetryClient.FromEnvironment(threadId);
         return RunWithResponseDisciplineAsync(
             threadId,
-            orchestration,
+            messaging,
             telemetry,
             handler,
             disposeTelemetry: true,
@@ -97,20 +97,20 @@ public static class SpringAgent
     /// <summary>
     /// Test-seam overload: same response-discipline contract as the
     /// public overload, but accepts explicit dependencies so tests can
-    /// substitute a fake <see cref="IOrchestrationClient"/> and inspect
+    /// substitute a fake <see cref="IMessagingClient"/> and inspect
     /// the safety-net behaviour without env vars or HTTP. The public
     /// surface is the env-driven overload; this overload is internal so
     /// the test assembly can reach it via <c>InternalsVisibleTo</c>.
     /// </summary>
     internal static async Task RunWithResponseDisciplineAsync(
         string threadId,
-        IOrchestrationClient orchestration,
+        IMessagingClient messaging,
         TelemetryClient telemetry,
         Func<SpringAgentBundle, CancellationToken, Task> handler,
         bool disposeTelemetry,
         CancellationToken cancellationToken)
     {
-        var tracker = new ResponseDisciplineTrackingClient(orchestration);
+        var tracker = new ResponseDisciplineTrackingClient(messaging);
         var bundle = new SpringAgentBundle(tracker, telemetry);
 
         Exception? handlerException = null;
@@ -167,31 +167,31 @@ public static class SpringAgent
     }
 
     /// <summary>
-    /// Creates an OrchestrationClient configured from the standard environment variables,
+    /// Creates a MessagingClient configured from the standard environment variables,
     /// preferring a per-message <c>message.metadata.callbackToken</c> from the inbound message body when present.
     /// </summary>
-    public static IOrchestrationClient FromEnvironment(string? inboundMessageBody)
+    public static IMessagingClient FromEnvironment(string? inboundMessageBody)
     {
         var callbackUrl = ReadRequiredEnvironmentVariable(
             AgentSdkEnvironmentContract.CallbackUrlEnvVar);
         var callbackToken = TryReadCallbackToken(inboundMessageBody) ?? ReadRequiredEnvironmentVariable(
             AgentSdkEnvironmentContract.CallbackTokenEnvVar);
 
-        return new OrchestrationClient(callbackUrl, callbackToken);
+        return new MessagingClient(callbackUrl, callbackToken);
     }
 
     /// <summary>
-    /// Creates an OrchestrationClient configured from the standard environment variables,
+    /// Creates a MessagingClient configured from the standard environment variables,
     /// preferring a per-message <c>message.metadata.callbackToken</c> from the inbound message body when present.
     /// </summary>
-    public static IOrchestrationClient FromEnvironment(JsonElement inboundMessageBody)
+    public static IMessagingClient FromEnvironment(JsonElement inboundMessageBody)
     {
         var callbackUrl = ReadRequiredEnvironmentVariable(
             AgentSdkEnvironmentContract.CallbackUrlEnvVar);
         var callbackToken = TryReadCallbackToken(inboundMessageBody) ?? ReadRequiredEnvironmentVariable(
             AgentSdkEnvironmentContract.CallbackTokenEnvVar);
 
-        return new OrchestrationClient(callbackUrl, callbackToken);
+        return new MessagingClient(callbackUrl, callbackToken);
     }
 
     private static string ReadRequiredEnvironmentVariable(string variableName)

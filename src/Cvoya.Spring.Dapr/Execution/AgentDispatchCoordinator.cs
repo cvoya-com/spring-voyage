@@ -143,10 +143,10 @@ public class AgentDispatchCoordinator(
             // returns, is that the connector event was processed and the turn
             // reached its terminal: a DecisionMade event so the activity
             // stream is no longer silent on the outcome — including the
-            // "no agent dispatched" case. When the runtime DID delegate, the
-            // OrchestrationToolHandlers DecisionMade (carrying the target) is
-            // also on the same thread, so a single correlation query
-            // reconstructs the full chain.
+            // "no agent dispatched" case. When the runtime recorded a routing
+            // decision via sv.runtime.report_decision, that DecisionMade
+            // (carrying the target) is also on the same thread, so a single
+            // correlation query reconstructs the full chain.
             await EmitConnectorRoutingDecisionAsync(
                 agentId, message, RoutingDisposition.Processed, emitActivity);
 
@@ -300,8 +300,8 @@ public class AgentDispatchCoordinator(
     /// The <see cref="ActivityEvent.CorrelationId"/> is the originating
     /// connector thread id, so this event, the unit's
     /// <see cref="ActivityEventType.MessageReceived"/>, any
-    /// <see cref="ActivityEventType.DecisionMade"/> the orchestration
-    /// callback emitted for a <c>delegate_to</c>, and the dispatched agent's
+    /// <see cref="ActivityEventType.DecisionMade"/> the runtime recorded via
+    /// <c>sv.runtime.report_decision</c>, and the dispatched agent's
     /// own activity all share one correlation id — a single thread query
     /// reconstructs the full chain (#2560 acceptance criterion 3).
     /// </para>

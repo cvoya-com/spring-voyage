@@ -107,7 +107,7 @@ public class GeminiLauncherTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task PrepareAsync_OrchestrationToolsNullOrEmpty_DoesNotWriteOrchestrationMcpServer(
+    public async Task PrepareAsync_MessagingToolsNullOrEmpty_DoesNotWriteOrchestrationMcpServer(
         bool useEmptyArray)
     {
         var context = LauncherCallbackTestSupport.CreateContext(
@@ -115,7 +115,7 @@ public class GeminiLauncherTests
             mcpToken: "gemini-secret-token")
             with
         {
-            OrchestrationTools = useEmptyArray ? Array.Empty<OrchestrationToolDescriptor>() : null
+            MessagingTools = useEmptyArray ? Array.Empty<MessagingToolDescriptor>() : null
         };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
@@ -126,14 +126,14 @@ public class GeminiLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_OrchestrationToolsPresent_WritesOrchestrationMcpServer()
+    public async Task PrepareAsync_MessagingToolsPresent_WritesOrchestrationMcpServer()
     {
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nAnalyze thoroughly.",
             mcpToken: "gemini-secret-token")
             with
         {
-            OrchestrationTools = CreateOrchestrationTools()
+            MessagingTools = CreateMessagingTools()
         };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
@@ -150,8 +150,8 @@ public class GeminiLauncherTests
 
         server.GetProperty("includeTools").EnumerateArray().Select(tool => tool.GetString()).ShouldBe(new[]
         {
-            "delegate_to",
-            "fanout_to",
+            "sv.messaging.send",
+            "sv.messaging.broadcast",
         });
     }
 
@@ -335,14 +335,14 @@ public class GeminiLauncherTests
     private static JsonDocument ParseGeminiSettings(AgentLaunchSpec prep) =>
         JsonDocument.Parse(prep.WorkspaceFiles[".gemini/settings.json"]);
 
-    private static OrchestrationToolDescriptor[] CreateOrchestrationTools()
+    private static MessagingToolDescriptor[] CreateMessagingTools()
     {
         var inputSchema = CreateSchema();
         var outputSchema = CreateSchema();
         return new[]
         {
-            new OrchestrationToolDescriptor(OrchestrationToolName.DelegateTo, inputSchema, outputSchema),
-            new OrchestrationToolDescriptor(OrchestrationToolName.FanoutTo, inputSchema, outputSchema),
+            new MessagingToolDescriptor(MessagingToolName.Send, inputSchema, outputSchema),
+            new MessagingToolDescriptor(MessagingToolName.Broadcast, inputSchema, outputSchema),
         };
     }
 

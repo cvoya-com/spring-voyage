@@ -119,12 +119,12 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_OrchestrationToolsNullOrEmpty_DoesNotAddSpringOrchestrationMcpServer()
+    public async Task PrepareAsync_MessagingToolsNullOrEmpty_DoesNotAddSpringOrchestrationMcpServer()
     {
         var nullToolsContext = LauncherCallbackTestSupport.CreateContext();
         var emptyToolsContext = nullToolsContext with
         {
-            OrchestrationTools = Array.Empty<OrchestrationToolDescriptor>()
+            MessagingTools = Array.Empty<MessagingToolDescriptor>()
         };
 
         var nullToolsPrep = await _launcher.PrepareAsync(
@@ -137,11 +137,11 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_OrchestrationToolsPresent_AddsSpringOrchestrationMcpServer()
+    public async Task PrepareAsync_MessagingToolsPresent_AddsSpringOrchestrationMcpServer()
     {
         var context = LauncherCallbackTestSupport.CreateContext() with
         {
-            OrchestrationTools = CreateOrchestrationTools()
+            MessagingTools = CreateMessagingTools()
         };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
@@ -157,14 +157,14 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_OrchestrationToolsPresent_SetsMcpConfigPathEnvVarForSidecar()
+    public async Task PrepareAsync_MessagingToolsPresent_SetsMcpConfigPathEnvVarForSidecar()
     {
         // #2580: the sidecar refreshes the spring-orchestration callback
         // token in .mcp.json per turn; the launcher must point it at the
         // on-disk config file via SPRING_ORCHESTRATION_MCP_CONFIG.
         var context = LauncherCallbackTestSupport.CreateContext() with
         {
-            OrchestrationTools = CreateOrchestrationTools()
+            MessagingTools = CreateMessagingTools()
         };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
@@ -175,7 +175,7 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_OrchestrationToolsAbsent_DoesNotSetMcpConfigPathEnvVar()
+    public async Task PrepareAsync_MessagingToolsAbsent_DoesNotSetMcpConfigPathEnvVar()
     {
         var context = LauncherCallbackTestSupport.CreateContext();
 
@@ -281,10 +281,10 @@ public class CodexLauncherTests
         return parsed.RootElement.GetProperty("mcpServers").Clone();
     }
 
-    private static OrchestrationToolDescriptor[] CreateOrchestrationTools() =>
+    private static MessagingToolDescriptor[] CreateMessagingTools() =>
     [
         new(
-            OrchestrationToolName.DelegateTo,
+            MessagingToolName.Send,
             CreateObjectSchema(),
             CreateObjectSchema())
     ];
