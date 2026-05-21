@@ -13,10 +13,10 @@ using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
-using Cvoya.Spring.Dispatcher;
-using Cvoya.Spring.Dispatcher.Auth;
+using Cvoya.Spring.Host.Api.Endpoints;
 using Cvoya.Spring.Sample.WorkflowAgent;
 
 using global::Dapr.Actors;

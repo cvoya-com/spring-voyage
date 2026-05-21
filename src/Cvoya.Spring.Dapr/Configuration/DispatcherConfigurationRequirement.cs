@@ -16,9 +16,8 @@ using Microsoft.Extensions.Options;
 /// <summary>
 /// Tier-1 requirement: the <c>spring-dispatcher</c> HTTP endpoint
 /// (<c>Dispatcher:BaseUrl</c> / <c>Dispatcher:BearerToken</c>) used by
-/// <see cref="DispatcherClientContainerRuntime"/> and
-/// <see cref="DispatcherCallbackEnvironmentBuilder"/> to launch, manage, and
-/// inject callback environment into delegated-execution containers.
+/// <see cref="DispatcherClientContainerRuntime"/> to launch and manage
+/// delegated-execution containers.
 /// </summary>
 /// <remarks>
 /// <para>

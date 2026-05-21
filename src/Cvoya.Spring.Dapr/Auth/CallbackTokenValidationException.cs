@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dispatcher.Auth;
+namespace Cvoya.Spring.Dapr.Auth;
 
 using Cvoya.Spring.Core;
 

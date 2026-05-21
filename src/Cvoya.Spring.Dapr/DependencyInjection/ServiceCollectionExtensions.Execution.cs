@@ -51,6 +51,11 @@ internal static class ServiceCollectionExtensionsExecution
         services.AddOptions<DaprSidecarOptions>().BindConfiguration(DaprSidecarOptions.SectionName);
         services.AddOptions<DispatcherClientOptions>().BindConfiguration(DispatcherClientOptions.SectionName);
         services.AddOptions<CallbackTokenOptions>().BindConfiguration(CallbackTokenOptions.SectionName);
+        // #2586: agent-facing orchestration callback base URL — the API
+        // host's agent-reachable URL. DispatcherCallbackEnvironmentBuilder
+        // stamps it onto every runtime container as SPRING_CALLBACK_URL.
+        services.AddOptions<OrchestrationCallbackOptions>()
+            .BindConfiguration(OrchestrationCallbackOptions.SectionName);
         services.AddOptions<UnitRuntimeOptions>().BindConfiguration(UnitRuntimeOptions.SectionName);
 
         // LLM dispatch seam (ADR 0028 Decision E / #1168) — IAiProvider
@@ -183,6 +188,16 @@ internal static class ServiceCollectionExtensionsExecution
         services.TryAddSingleton<IContainerRuntime, DispatcherClientContainerRuntime>();
         services.TryAddSingleton<ITenantSigningKeyProvider, DispatcherClientTenantSigningKeyProvider>();
         services.TryAddSingleton<ICallbackTokenIssuer, CallbackTokenIssuer>();
+        // Orchestration callback-token validation (ADR-0039 §3). The
+        // delegate_to / fanout_to callback endpoints relocated onto the
+        // Dapr-connected API host (#2586) — they validate the per-invocation
+        // callback JWT through this validator and surface rejections via
+        // OrchestrationCallbackDiagnostics (#2582: a warning log + an
+        // ErrorOccurred activity). Registered here so any host that calls
+        // AddCvoyaSpringDapr and maps the orchestration callback endpoints
+        // resolves both. TryAdd keeps the cloud-overlay seam open.
+        services.TryAddSingleton<CallbackTokenValidator>();
+        services.TryAddSingleton<OrchestrationCallbackDiagnostics>();
         services.TryAddSingleton<IAgentCallbackEnvironmentBuilder, DispatcherCallbackEnvironmentBuilder>();
         services.AddSingleton<IDaprSidecarManager, DaprSidecarManager>();
         services.AddSingleton<ContainerLifecycleManager>();

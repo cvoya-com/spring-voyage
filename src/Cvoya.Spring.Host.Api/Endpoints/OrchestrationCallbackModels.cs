@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dispatcher;
+namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using System.Text.Json;
 using System.Text.Json.Serialization;

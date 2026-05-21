@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dispatcher.Auth;
+namespace Cvoya.Spring.Dapr.Auth;
 
 using System.IdentityModel.Tokens.Jwt;
 using System.Text.Json;
@@ -13,7 +13,7 @@ using Cvoya.Spring.Core.Runtime;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Surfaces dispatcher orchestration callback-token rejections as
+/// Surfaces orchestration callback-token rejections as
 /// operator-visible signals (issue #2582).
 /// </summary>
 /// <remarks>

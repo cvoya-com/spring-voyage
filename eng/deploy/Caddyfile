@@ -91,6 +91,16 @@
         reverse_proxy spring-api:8080
     }
 
+    # Orchestration callback surface (#2586): the agent-facing delegate_to /
+    # fanout_to endpoints + the `spring-orchestration` MCP server. Relocated
+    # from the dispatcher onto the Dapr-connected API host — the launcher
+    # stamps SPRING_CALLBACK_URL=http://spring-caddy:8443/ onto every runtime
+    # container, so the agent reaches these routes through this listener.
+    # Auth is the per-invocation callback JWT validated inside the API host.
+    handle /v1/runtime/orchestration* {
+        reverse_proxy spring-api:8080
+    }
+
     handle /health {
         reverse_proxy spring-api:8080
     }

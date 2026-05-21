@@ -527,6 +527,15 @@ public partial class Program
             app.MapExpertiseEndpoints();
             app.MapBoundaryEndpoints();
             app.MapLegacyOrchestrationEndpoints();
+            // ADR-0039 / #2586: the agent-facing orchestration callback
+            // surface (delegate_to / fanout_to + the MCP streamable-HTTP
+            // handler). Relocated from the dispatcher — which has no Dapr
+            // sidecar and cannot invoke actors — onto this Dapr-connected
+            // host. The endpoints own their auth via CallbackTokenValidator
+            // (the per-invocation callback JWT the launcher injects), so no
+            // .RequireAuthorization() chain — the API-token / OTLP schemes
+            // do not apply here.
+            app.MapOrchestrationCallbackEndpoints();
             app.MapUnitExecutionEndpoints();
             app.MapCloneEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapCloningPolicyEndpoints();
