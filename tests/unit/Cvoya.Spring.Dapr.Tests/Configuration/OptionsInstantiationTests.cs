@@ -58,6 +58,11 @@ public class OptionsInstantiationTests
         // constructed explicitly inside AddCvoyaSpringDapr, not bound from
         // IConfiguration through OptionsFactory<T>.
         "Cvoya.Spring.Dapr.Configuration.DispatcherConfigurationRequirementOptions",
+        // #2597: registration-time options consumed directly as a singleton
+        // by OrchestrationCallbackConfigurationRequirement (not via
+        // IOptions<T>). Same rationale as the dispatcher requirement above —
+        // the value is constructed explicitly inside AddCvoyaSpringDapr.
+        "Cvoya.Spring.Dapr.Configuration.OrchestrationCallbackConfigurationRequirementOptions",
     };
 
     [Fact]
