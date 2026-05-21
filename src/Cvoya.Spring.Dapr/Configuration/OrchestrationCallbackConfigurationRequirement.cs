@@ -14,19 +14,22 @@ using Cvoya.Spring.Dapr.Execution;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// Tier-1 requirement: the agent-facing orchestration callback base URL
+/// Tier-1 requirement: the agent-reachable API-host base URL
 /// (<c>OrchestrationCallback:BaseUrl</c>) that
 /// <see cref="DispatcherCallbackEnvironmentBuilder"/> stamps onto every
 /// runtime container as <c>SPRING_CALLBACK_URL</c>.
 /// </summary>
 /// <remarks>
 /// <para>
+/// ADR-0051 retired the messaging callback surface; the value now backs the
+/// OTLP-ingest plane — <c>LauncherOtelEnvironment</c> derives the
+/// <c>/otlp</c> ingest endpoint from <c>SPRING_CALLBACK_URL</c>.
 /// Without this requirement the value is validated lazily —
 /// <see cref="DispatcherCallbackEnvironmentBuilder.AddCallbackEnvironment"/>
 /// throws a <c>SpringException</c> only when it builds an agent's callback
-/// environment, i.e. at the first <c>delegate_to</c> / <c>fanout_to</c>
-/// dispatch, minutes after host start. Surfacing the misconfiguration at
-/// boot beats failing the first orchestration callback (issue #2597).
+/// environment, i.e. at the first runtime launch, minutes after host start.
+/// Surfacing the misconfiguration at boot beats failing the first launch
+/// (issue #2597).
 /// </para>
 /// <para>
 /// The <c>IsMandatory</c> flag is set at registration time via
@@ -76,10 +79,10 @@ public sealed class OrchestrationCallbackConfigurationRequirement(
 
     /// <inheritdoc />
     public string Description =>
-        "Agent-reachable base URL of the API host that serves the orchestration callback endpoints "
-        + "(delegate_to / fanout_to + the spring-orchestration MCP server). The agent-runtime launcher "
-        + "stamps it onto every runtime container as SPRING_CALLBACK_URL — a missing or malformed value "
-        + "fails the first orchestration callback rather than host startup unless validated here (issue #2597).";
+        "Agent-reachable base URL of the API host. The agent-runtime launcher "
+        + "stamps it onto every runtime container as SPRING_CALLBACK_URL, from which the OTLP-ingest "
+        + "endpoint is derived — a missing or malformed value "
+        + "fails the first runtime launch rather than host startup unless validated here (issue #2597).";
 
     /// <inheritdoc />
     public Uri? DocumentationUrl { get; } =
@@ -101,8 +104,8 @@ public sealed class OrchestrationCallbackConfigurationRequirement(
             {
                 const string Reason =
                     "OrchestrationCallback:BaseUrl is not set. The agent-runtime launcher stamps it onto "
-                    + "every runtime container as SPRING_CALLBACK_URL and the first delegate_to / fanout_to "
-                    + "dispatch would fail without it.";
+                    + "every runtime container as SPRING_CALLBACK_URL and the first runtime launch "
+                    + "would fail without it.";
                 return Task.FromResult(ConfigurationRequirementStatus.Invalid(
                     reason: Reason,
                     suggestion: Suggestion,
@@ -111,7 +114,7 @@ public sealed class OrchestrationCallbackConfigurationRequirement(
 
             return Task.FromResult(ConfigurationRequirementStatus.Disabled(
                 reason: "OrchestrationCallback:BaseUrl is not set — agent runtimes launched on this host "
-                    + "cannot reach the orchestration callback surface.",
+                    + "cannot reach the API host's OTLP-ingest endpoint.",
                 suggestion: Suggestion));
         }
 

@@ -62,14 +62,12 @@ public class A2AExecutionDispatcher(
     IRuntimeCatalog runtimeCatalog,
     IAgentContextBuilder agentContextBuilder,
     ITenantContext tenantContext,
-    IMessagingToolProvider messagingToolProvider,
     PersistentAgentRegistry persistentAgentRegistry,
     EphemeralAgentRegistry ephemeralAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
     AgentVolumeManager volumeManager,
     IOptions<DaprSidecarOptions> daprSidecarOptions,
     IA2ATransportFactory transportFactory,
-    ICallbackTokenIssuer callbackTokenIssuer,
     IConnectorRuntimeContextResolver connectorRuntimeContextResolver,
     IConnectorPromptContextResolver connectorPromptContextResolver,
     ILoggerFactory loggerFactory) : IExecutionDispatcher
@@ -87,12 +85,6 @@ public class A2AExecutionDispatcher(
         ?? throw new ArgumentNullException(nameof(agentContextBuilder));
     private readonly ITenantContext _tenantContext = tenantContext
         ?? throw new ArgumentNullException(nameof(tenantContext));
-    // ADR-0048 / ADR-0049: messaging tool descriptors are resolved
-    // per-invocation and threaded through AgentLaunchContext so launchers
-    // can attach them to the runtime container. The provider returns the
-    // two-tool messaging set for every agent / unit caller.
-    private readonly IMessagingToolProvider _messagingToolProvider = messagingToolProvider
-        ?? throw new ArgumentNullException(nameof(messagingToolProvider));
     // ADR-0038: launchers are keyed on the catalogue runtime entry's
     // launcher strategy id. The dispatcher resolves an AgentRuntime from
     // IRuntimeCatalog using the agent's persisted execution.agent slot,
@@ -102,8 +94,6 @@ public class A2AExecutionDispatcher(
         launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
     private readonly IRuntimeCatalog _runtimeCatalog = runtimeCatalog
         ?? throw new ArgumentNullException(nameof(runtimeCatalog));
-    private readonly ICallbackTokenIssuer _callbackTokenIssuer = callbackTokenIssuer
-        ?? throw new ArgumentNullException(nameof(callbackTokenIssuer));
     // #2380: per-launch connector runtime-context contribution seam. The
     // resolver walks the subject's direct + inherited bindings and merges
     // each connector's IConnectorRuntimeContextContributor output. Plain-
@@ -117,8 +107,6 @@ public class A2AExecutionDispatcher(
     // platform-layer "Connector context" subsection.
     private readonly IConnectorPromptContextResolver _connectorPromptContextResolver = connectorPromptContextResolver
         ?? throw new ArgumentNullException(nameof(connectorPromptContextResolver));
-
-    internal const string CallbackTokenPayloadField = "callbackToken";
 
     /// <summary>
     /// Default port the in-container A2A endpoint listens on. Mirrors the
@@ -227,7 +215,10 @@ public class A2AExecutionDispatcher(
         // Carry the receiver's scheme into the MCP session so platform
         // tools (#2231) can answer get_self()-style queries without a DB
         // lookup. message.To.Scheme is the authoritative caller-kind here.
-        var session = mcpServer.IssueSession(agentId, threadId, message.To.Scheme);
+        // ADR-0051: the inbound message id rides on the session so the
+        // sv.messaging.* tools carry the per-turn delivery authority the
+        // retired callback JWT used to provide.
+        var session = mcpServer.IssueSession(agentId, threadId, message.To.Scheme, message.Id);
 
         // #1321: serialise AgentDefinition → YAML for the /spring/context/
         // agent-definition.yaml file (D1 spec § 2.2.2). Tenant config is
@@ -237,19 +228,14 @@ public class A2AExecutionDispatcher(
         var tenantId = _tenantContext.CurrentTenantId;
         var tenantConfigJson = SerialiseTenantConfigJson(tenantId);
 
-        // ADR-0039 D3: resolve the orchestration tools available to this
-        // address on this thread. Threads them into the launch context so
-        // launchers (D4–D7) can attach them to the runtime's tool surface.
-        // The provider returns an empty array when the addressed entity has
-        // no children; entity type is not a gate. The provider's contract
-        // takes a Guid thread id; today's wire form is a free-form string —
-        // when it is not Guid-shaped (e.g. legacy callers, synthetic test
-        // threads) we pass Guid.Empty so the provider's per-thread hook
-        // sees a deterministic value rather than a parse failure.
+        // ADR-0051: sv.messaging.* tools are served by the single platform
+        // MCP server alongside every other sv.* tool — the launcher no longer
+        // needs a per-invocation messaging tool list. CallbackThreadId is kept
+        // Guid-shaped for the OTLP-ingest callback token; a non-Guid wire form
+        // (legacy callers, synthetic test threads) falls back to Guid.Empty.
         var threadGuid = Guid.TryParse(threadId, out var parsedThreadGuid)
             ? parsedThreadGuid
             : Guid.Empty;
-        var messagingTools = _messagingToolProvider.GetMessagingTools(message.To, threadGuid);
 
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
@@ -269,7 +255,6 @@ public class A2AExecutionDispatcher(
             // D3a: populate D1-spec metadata so the context builder can mint the
             // full bootstrap bundle (env vars + /spring/context/ files) per § 2.
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
-            MessagingTools: messagingTools,
             AgentAddress: message.To,
             CallbackThreadId: threadGuid,
             MessageId: message.Id);
@@ -382,7 +367,6 @@ public class A2AExecutionDispatcher(
                 containerId,
                 message,
                 prompt,
-                callbackToken: null,
                 cancellationToken);
         }
         finally
@@ -663,20 +647,18 @@ public class A2AExecutionDispatcher(
         Uri endpoint;
         string? containerId;
 
-        // Eager validation: the persistent dispatch path mints a per-message
-        // callback token scoped to the message's thread id. A malformed
-        // thread id (no parse, no Guid shape) cannot be issued as a token,
-        // and there is no point taking any expensive action (container
-        // probes, restarts, registry mutations) before failing on it.
-        // Mirrors the same check IssuePerMessageCallbackToken does — kept
-        // explicit at the top so the pre-flight probe (#2092) does not get
-        // a chance to flip a healthy entry to Unhealthy on a caller error.
+        // Eager validation: the persistent dispatch path stamps the message's
+        // thread id into the launcher env contract. A malformed thread id (no
+        // parse, no Guid shape) is a caller error — fail before taking any
+        // expensive action (container probes, restarts, registry mutations) so
+        // the pre-flight probe (#2092) does not flip a healthy entry to
+        // Unhealthy on a caller error.
         if (string.IsNullOrWhiteSpace(message.ThreadId) ||
             !GuidFormatter.TryParse(message.ThreadId, out _))
         {
             throw new SpringException(
                 $"Message '{message.Id:N}' has malformed thread id '{message.ThreadId ?? "(null)"}'; " +
-                "persistent A2A dispatch cannot issue a scoped SPRING_CALLBACK_TOKEN.");
+                "persistent A2A dispatch requires a Guid-shaped thread id.");
         }
 
         // Check if the agent service is already running and healthy.
@@ -757,7 +739,6 @@ public class A2AExecutionDispatcher(
         var contextWithConnectorPrompts = WithConnectorPromptFragments(context, connectorPromptFragments);
 
         var prompt = await promptAssembler.AssembleAsync(message, contextWithConnectorPrompts, cancellationToken);
-        var callbackToken = IssuePerMessageCallbackToken(message);
 
         // #2159: register this dispatch as in flight so the background health
         // timer doesn't probe (and possibly restart) the container while the
@@ -775,7 +756,6 @@ public class A2AExecutionDispatcher(
                 containerId,
                 message,
                 prompt,
-                callbackToken,
                 cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -838,20 +818,15 @@ public class A2AExecutionDispatcher(
         var prompt = definition.Instructions ?? string.Empty;
         // Receiver's scheme threaded into the session so platform tools
         // (#2231) can resolve the caller's kind without an extra lookup.
-        var session = mcpServer.IssueSession(agentId, sessionId, message.To.Scheme);
+        // ADR-0051: the inbound message id rides on the session so
+        // sv.messaging.* tools carry the per-turn delivery authority.
+        var session = mcpServer.IssueSession(agentId, sessionId, message.To.Scheme, message.Id);
 
         // #1321: populate agent definition YAML + tenant config JSON for the
         // /spring/context/ mount (D1 spec § 2.2.2).
         var agentDefinitionYaml = SerialiseAgentDefinitionYaml(definition);
         var tenantId = _tenantContext.CurrentTenantId;
         var tenantConfigJson = SerialiseTenantConfigJson(tenantId);
-
-        // ADR-0048 / ADR-0049: resolve messaging tools for the dispatch
-        // target's address. Persistent dispatch uses a synthetic per-agent
-        // session id rather than a real thread Guid, so we pass Guid.Empty —
-        // the provider's per-thread hook is reserved for future use and
-        // currently only scopes on the address.
-        var messagingTools = _messagingToolProvider.GetMessagingTools(dispatchTarget, Guid.Empty);
 
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
@@ -870,7 +845,6 @@ public class A2AExecutionDispatcher(
             Model: definition.Execution.Model,
             // D3a: populate D1-spec metadata for context builder.
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
-            MessagingTools: messagingTools,
             AgentAddress: dispatchTarget,
             CallbackThreadId: Guid.TryParse(message.ThreadId, out var callbackThreadId)
                 ? callbackThreadId
@@ -999,7 +973,6 @@ public class A2AExecutionDispatcher(
         string? containerId,
         SvMessage originalMessage,
         string prompt,
-        string? callbackToken,
         CancellationToken cancellationToken)
     {
         using var transport = _transportFactory.CreateTransport(containerId);
@@ -1041,7 +1014,6 @@ public class A2AExecutionDispatcher(
                 Parts = [new TextPart { Text = userMessage }],
                 MessageId = originalMessage.Id.ToString(),
                 ContextId = contextIdWire,
-                Metadata = BuildA2AMessageMetadata(callbackToken),
             },
             Configuration = new MessageSendConfiguration
             {
@@ -1071,38 +1043,6 @@ public class A2AExecutionDispatcher(
         }
 
         return MapA2AResponseToMessage(originalMessage, response);
-    }
-
-    private string IssuePerMessageCallbackToken(SvMessage message)
-    {
-        if (string.IsNullOrWhiteSpace(message.ThreadId) ||
-            !GuidFormatter.TryParse(message.ThreadId, out var threadId))
-        {
-            throw new SpringException(
-                $"Message '{message.Id:N}' has malformed thread id '{message.ThreadId ?? "(null)"}'; " +
-                "persistent A2A dispatch cannot issue a scoped SPRING_CALLBACK_TOKEN.");
-        }
-
-        return _callbackTokenIssuer.Issue(new CallbackToken(
-            _tenantContext.CurrentTenantId,
-            message.To,
-            threadId,
-            message.Id,
-            // The issuer treats default ExpiresAt as "use the configured callback-token lifetime".
-            ExpiresAt: default));
-    }
-
-    private static Dictionary<string, JsonElement>? BuildA2AMessageMetadata(string? callbackToken)
-    {
-        if (string.IsNullOrWhiteSpace(callbackToken))
-        {
-            return null;
-        }
-
-        return new Dictionary<string, JsonElement>(StringComparer.Ordinal)
-        {
-            [CallbackTokenPayloadField] = JsonSerializer.SerializeToElement(callbackToken),
-        };
     }
 
     /// <summary>

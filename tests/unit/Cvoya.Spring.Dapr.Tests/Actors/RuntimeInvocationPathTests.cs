@@ -35,9 +35,7 @@ using Xunit;
 public class RuntimeInvocationPathTests
 {
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
-    private readonly IMessagingToolProvider _toolProvider = Substitute.For<IMessagingToolProvider>();
     private readonly IAgentDispatchCoordinator _dispatchCoordinator = Substitute.For<IAgentDispatchCoordinator>();
-    private readonly ILogger<RuntimeInvocationPath> _logger = Substitute.For<ILogger<RuntimeInvocationPath>>();
 
     private static Address MakeAgent(string slug) => Address.For(Address.AgentScheme, TestSlugIds.HexFor(slug));
 
@@ -57,16 +55,10 @@ public class RuntimeInvocationPathTests
         IEnumerable<ISkillRegistry>? skillRegistries = null,
         IAgentDispatchCoordinator? dispatchCoordinator = null)
     {
-        _toolProvider
-            .GetMessagingTools(Arg.Any<Address>(), Arg.Any<Guid>())
-            .Returns(Array.Empty<MessagingToolDescriptor>());
-
         return new RuntimeInvocationPath(
             _definitionProvider,
             skillRegistries ?? Array.Empty<ISkillRegistry>(),
-            _toolProvider,
-            dispatchCoordinator ?? _dispatchCoordinator,
-            _logger);
+            dispatchCoordinator ?? _dispatchCoordinator);
     }
 
     private static MessageRouter MakeRouter()
@@ -173,31 +165,6 @@ public class RuntimeInvocationPathTests
         captured.Skills!.Count.ShouldBe(1);
         captured.Skills[0].Name.ShouldBe("github");
         captured.Skills[0].Tools.Count.ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task InvokeAsync_LeanOverload_ResolvesMessagingToolsForThread()
-    {
-        var subject = MakeAgent("test-agent");
-        var threadId = Guid.NewGuid();
-        var inbound = MakeMessage(MakeAgent("test-sender"), subject, threadId.ToString());
-        var path = MakePath();
-
-        await path.InvokeAsync(subject, inbound, TestContext.Current.CancellationToken);
-
-        _toolProvider.Received(1).GetMessagingTools(subject, threadId);
-    }
-
-    [Fact]
-    public async Task InvokeAsync_LeanOverload_NonGuidThreadIdFallsBackToEmpty()
-    {
-        var subject = MakeAgent("test-agent");
-        var inbound = MakeMessage(MakeAgent("test-sender"), subject, "not-a-guid");
-        var path = MakePath();
-
-        await path.InvokeAsync(subject, inbound, TestContext.Current.CancellationToken);
-
-        _toolProvider.Received(1).GetMessagingTools(subject, Guid.Empty);
     }
 
     [Fact]
@@ -500,6 +467,5 @@ public class RuntimeInvocationPathTests
             TestContext.Current.CancellationToken);
 
         await _definitionProvider.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-        _toolProvider.DidNotReceive().GetMessagingTools(Arg.Any<Address>(), Arg.Any<Guid>());
     }
 }

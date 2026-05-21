@@ -186,18 +186,15 @@ internal static class ServiceCollectionExtensionsExecution
         // alternative topologies) can pre-register their own IContainerRuntime.
         services.AddDispatcherHttpClient();
         services.TryAddSingleton<IContainerRuntime, DispatcherClientContainerRuntime>();
+        // ADR-0051: the per-turn callback JWT is no longer the messaging
+        // credential — sv.messaging.* is served by the platform MCP server
+        // under the MCP session token, gated like every other sv.* tool. The
+        // issuer and the per-tenant signing key are retained because the
+        // OTLP-ingest auth plane (OtlpCallbackAuthHandler) still mints and
+        // validates this token shape as its credential; migrating OTLP off it
+        // is a tracked follow-up.
         services.TryAddSingleton<ITenantSigningKeyProvider, DispatcherClientTenantSigningKeyProvider>();
         services.TryAddSingleton<ICallbackTokenIssuer, CallbackTokenIssuer>();
-        // Messaging callback-token validation. The sv.messaging.send /
-        // sv.messaging.broadcast callback endpoints relocated onto the
-        // Dapr-connected API host (#2586) — they validate the per-invocation
-        // callback JWT through this validator and surface rejections via
-        // OrchestrationCallbackDiagnostics (#2582: a warning log + an
-        // ErrorOccurred activity). Registered here so any host that calls
-        // AddCvoyaSpringDapr and maps the orchestration callback endpoints
-        // resolves both. TryAdd keeps the cloud-overlay seam open.
-        services.TryAddSingleton<CallbackTokenValidator>();
-        services.TryAddSingleton<OrchestrationCallbackDiagnostics>();
         services.TryAddSingleton<IAgentCallbackEnvironmentBuilder, DispatcherCallbackEnvironmentBuilder>();
         services.AddSingleton<IDaprSidecarManager, DaprSidecarManager>();
         services.AddSingleton<ContainerLifecycleManager>();

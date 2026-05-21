@@ -527,15 +527,12 @@ public partial class Program
             app.MapExpertiseEndpoints();
             app.MapBoundaryEndpoints();
             app.MapLegacyOrchestrationEndpoints();
-            // ADR-0048 / ADR-0049 / #2586: the agent-facing messaging
-            // callback surface (sv.messaging.send / sv.messaging.broadcast +
-            // the MCP streamable-HTTP handler). Relocated from the dispatcher
-            // — which has no Dapr sidecar and cannot invoke actors — onto this
-            // Dapr-connected host. The endpoints own their auth via CallbackTokenValidator
-            // (the per-invocation callback JWT the launcher injects), so no
-            // .RequireAuthorization() chain — the API-token / OTLP schemes
-            // do not apply here.
-            app.MapOrchestrationCallbackEndpoints();
+            // ADR-0051: sv.messaging.send / sv.messaging.broadcast are served
+            // by the single platform MCP server (McpServer) as an
+            // ISkillRegistry, authenticated by the MCP session bearer token —
+            // the same surface as every other sv.* tool. The standalone
+            // messaging callback endpoints (JSON-RPC + REST) and the
+            // per-turn callback JWT they validated are deleted.
             app.MapUnitExecutionEndpoints();
             app.MapCloneEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapCloningPolicyEndpoints();

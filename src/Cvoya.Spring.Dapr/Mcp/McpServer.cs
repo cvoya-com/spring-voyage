@@ -108,11 +108,15 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     public string? Endpoint { get; private set; }
 
     /// <inheritdoc />
-    public McpSession IssueSession(string agentId, string threadId, string callerKind = "agent")
+    public McpSession IssueSession(
+        string agentId,
+        string threadId,
+        string callerKind = "agent",
+        Guid messageId = default)
     {
         var subject = MaterialiseSubject(agentId, callerKind);
         var token = GenerateToken();
-        var session = new McpSession(token, agentId, threadId, callerKind, subject);
+        var session = new McpSession(token, agentId, threadId, callerKind, subject, messageId);
         _sessions[token] = session;
         return session;
     }
@@ -542,7 +546,8 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
             var callContext = new ToolCallContext(
                 CallerId: session.AgentId,
                 CallerKind: session.CallerKind,
-                ThreadId: session.ThreadId);
+                ThreadId: session.ThreadId,
+                MessageId: session.MessageId);
             var result = await registry.InvokeAsync(toolName, arguments, callContext, ct);
             await WriteResultAsync(response, request.Id, new
             {

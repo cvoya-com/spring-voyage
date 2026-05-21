@@ -78,13 +78,6 @@ public class PersistentAgentLifecycleTests
         var catalog = Substitute.For<IRuntimeCatalog>();
         catalog.GetAgentRuntime("claude").Returns(claudeRuntime);
 
-        // ADR-0039 D3: lifecycle now resolves orchestration tools per-deploy.
-        // Default to "no orchestration tools" so the validation-path tests
-        // here remain agnostic to the orchestration surface.
-        var messagingToolProvider = Substitute.For<IMessagingToolProvider>();
-        messagingToolProvider.GetMessagingTools(Arg.Any<Address>(), Arg.Any<Guid>())
-            .Returns(Array.Empty<MessagingToolDescriptor>());
-
         var daprOptions = new DaprSidecarOptions();
         var services = new ServiceCollection();
         services.AddSingleton(_containerRuntime);
@@ -99,7 +92,6 @@ public class PersistentAgentLifecycleTests
         services.AddSingleton(_launcher);
         services.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(_ => new[] { _launcher });
         services.AddSingleton(catalog);
-        services.AddSingleton(messagingToolProvider);
         var agentContextBuilder = Substitute.For<IAgentContextBuilder>();
         agentContextBuilder
             .BuildAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())

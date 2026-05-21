@@ -71,8 +71,6 @@ public class A2AExecutionDispatcherTests
         });
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
-    private readonly IMessagingToolProvider _messagingToolProvider = Substitute.For<IMessagingToolProvider>();
-    private readonly ICallbackTokenIssuer _callbackTokenIssuer = Substitute.For<ICallbackTokenIssuer>();
     private readonly IConnectorRuntimeContextResolver _connectorContext = Substitute.For<IConnectorRuntimeContextResolver>();
     private readonly IConnectorPromptContextResolver _connectorPromptContext = Substitute.For<IConnectorPromptContextResolver>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
@@ -161,25 +159,21 @@ public class A2AExecutionDispatcherTests
                 ContextFiles: new Dictionary<string, string>()));
 
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
-        // The dispatcher calls IssueSession(agentId, threadId, scheme); the
-        // production server materialises a Subject Address from those args
-        // (#2379). Mirror that here so the returned McpSession satisfies the
-        // non-nullable Subject contract.
-        _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+        // The dispatcher calls IssueSession(agentId, threadId, scheme,
+        // messageId); the production server materialises a Subject Address
+        // from those args (#2379) and carries the inbound message id
+        // (ADR-0051). Mirror that here so the returned McpSession satisfies
+        // the non-nullable Subject contract.
+        _mcpServer.IssueSession(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>())
             .Returns(ci => new McpSession(
                 "test-token",
                 ci.ArgAt<string>(0),
                 ci.ArgAt<string>(1),
                 ci.ArgAt<string>(2),
-                Address.For(ci.ArgAt<string>(2), ci.ArgAt<string>(0))));
+                Address.For(ci.ArgAt<string>(2), ci.ArgAt<string>(0)),
+                ci.ArgAt<Guid>(3)));
         _tenantContext.CurrentTenantId.Returns(TenantGuid);
-
-        // ADR-0039 D3: default to "no orchestration tools" — leaf-agent shape.
-        // Tests that exercise unit-shaped dispatch can override via Returns.
-        _messagingToolProvider.GetMessagingTools(Arg.Any<Address>(), Arg.Any<Guid>())
-            .Returns(Array.Empty<MessagingToolDescriptor>());
-        _callbackTokenIssuer.Issue(Arg.Any<CallbackToken>())
-            .Returns(call => $"token-{call.Arg<CallbackToken>().MessageId:N}");
 
         // #2380: by default no connector contributions (the dispatch path
         // tests do not exercise the connector seam).
@@ -227,14 +221,12 @@ public class A2AExecutionDispatcherTests
             _runtimeCatalog,
             _agentContextBuilder,
             _tenantContext,
-            _messagingToolProvider,
             _persistentRegistry,
             _ephemeralRegistry,
             clmD,
             volumeManagerForDispatcher,
             Options.Create(daprOptions),
             transportFactory,
-            _callbackTokenIssuer,
             _connectorContext,
             _connectorPromptContext,
             _loggerFactory);
@@ -280,24 +272,6 @@ public class A2AExecutionDispatcherTests
                 call.ArgAt<byte[]>(2),
                 call.ArgAt<CancellationToken>(3)));
         return recorder;
-    }
-
-    private static string? ReadCallbackTokenFromA2ARequest(byte[] body)
-    {
-        using var document = JsonDocument.Parse(body);
-        if (!document.RootElement.TryGetProperty("params", out var parameters) ||
-            parameters.ValueKind != JsonValueKind.Object ||
-            !parameters.TryGetProperty("message", out var message) ||
-            message.ValueKind != JsonValueKind.Object ||
-            !message.TryGetProperty("metadata", out var metadata) ||
-            metadata.ValueKind != JsonValueKind.Object ||
-            !metadata.TryGetProperty(A2AExecutionDispatcher.CallbackTokenPayloadField, out var metadataToken) ||
-            metadataToken.ValueKind != JsonValueKind.String)
-        {
-            return null;
-        }
-
-        return metadataToken.GetString();
     }
 
     private static string? ReadFirstUserTextPartFromA2ARequest(byte[] body)
@@ -445,9 +419,10 @@ public class A2AExecutionDispatcherTests
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
         // The dispatcher threads message.To.Scheme into IssueSession so the
-        // server can materialise the session subject (#2379); pin the third
-        // arg here so the assertion still matches after the contract tighten.
-        _mcpServer.Received(1).IssueSession(AgentId, message.ThreadId!, message.To.Scheme);
+        // server can materialise the session subject (#2379) and the inbound
+        // message id so messaging tools carry per-turn authority (ADR-0051).
+        _mcpServer.Received(1).IssueSession(
+            AgentId, message.ThreadId!, message.To.Scheme, message.Id);
         await _launcher.Received(1).PrepareAsync(
             Arg.Is<AgentLaunchContext>(ctx =>
                 ctx.AgentId == AgentId &&
@@ -580,8 +555,11 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_EphemeralAgent_DoesNotAttachPerMessageCallbackToken()
+    public async Task DispatchAsync_DoesNotAttachAnyCallbackMetadataToTheA2AMessage()
     {
+        // ADR-0051: the per-turn callback JWT is retired. The A2A message
+        // metadata no longer carries a callbackToken — messaging tools
+        // authenticate through the MCP session token, minted per turn.
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("the prompt");
@@ -590,53 +568,12 @@ public class A2AExecutionDispatcherTests
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
         recorder.Calls.Count.ShouldBe(1);
-        ReadCallbackTokenFromA2ARequest(recorder.Calls[0].Body).ShouldBeNull();
-        _callbackTokenIssuer.DidNotReceive().Issue(Arg.Any<CallbackToken>());
-    }
-
-    [Fact]
-    public async Task DispatchAsync_PersistentAgent_SecondMessage_AttachesFreshCallbackToken()
-    {
-        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
-            .Returns(new AgentDefinition(
-                AgentId,
-                "My Agent",
-                "instructions",
-                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
-        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns("prompt");
-
-        await _persistentRegistry.RegisterAsync(
-            AgentId,
-            new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/"),
-            "existing-container",
-            cancellationToken: TestContext.Current.CancellationToken);
-
-        var firstThreadId = Guid.Parse("eeeeeeee-0000-0000-0000-000000001943");
-        var secondThreadId = Guid.Parse("eeeeeeee-0000-0000-0000-000000001944");
-        var firstMessage = CreateMessage(threadId: firstThreadId.ToString("D"));
-        var secondMessage = CreateMessage(threadId: secondThreadId.ToString("D"));
-        var recorder = InstallA2AStub();
-
-        await _dispatcher.DispatchAsync(firstMessage, context: null, TestContext.Current.CancellationToken);
-        await _dispatcher.DispatchAsync(secondMessage, context: null, TestContext.Current.CancellationToken);
-
-        recorder.Calls.Count.ShouldBe(2);
-        ReadCallbackTokenFromA2ARequest(recorder.Calls[0].Body)
-            .ShouldBe($"token-{firstMessage.Id:N}");
-        ReadCallbackTokenFromA2ARequest(recorder.Calls[1].Body)
-            .ShouldBe($"token-{secondMessage.Id:N}");
-
-        _callbackTokenIssuer.Received(1).Issue(Arg.Is<CallbackToken>(claims =>
-            claims.TenantId == TenantGuid &&
-            claims.AgentAddress == firstMessage.To &&
-            claims.ThreadId == firstThreadId &&
-            claims.MessageId == firstMessage.Id));
-        _callbackTokenIssuer.Received(1).Issue(Arg.Is<CallbackToken>(claims =>
-            claims.TenantId == TenantGuid &&
-            claims.AgentAddress == secondMessage.To &&
-            claims.ThreadId == secondThreadId &&
-            claims.MessageId == secondMessage.Id));
+        using var document = JsonDocument.Parse(recorder.Calls[0].Body);
+        document.RootElement
+            .GetProperty("params")
+            .GetProperty("message")
+            .TryGetProperty("metadata", out _)
+            .ShouldBeFalse();
     }
 
     [Fact]
@@ -745,7 +682,7 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_PersistentAgent_MalformedThreadId_ThrowsBeforeIssuingCallbackToken()
+    public async Task DispatchAsync_PersistentAgent_MalformedThreadId_ThrowsBeforeAnyDispatchWork()
     {
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
@@ -768,7 +705,6 @@ public class A2AExecutionDispatcherTests
         var ex = await Should.ThrowAsync<SpringException>(act);
 
         ex.Message.ShouldContain("malformed thread id");
-        _callbackTokenIssuer.DidNotReceive().Issue(Arg.Any<CallbackToken>());
         await _containerRuntime.DidNotReceive().SendHttpJsonAsync(
             Arg.Any<string>(),
             Arg.Any<string>(),
@@ -812,9 +748,7 @@ public class A2AExecutionDispatcherTests
         ex.Message.ShouldContain(AgentId);
         ex.Message.ShouldContain("no execution configuration");
 
-        // No container side-effects and no callback token issued — the throw
-        // must precede any dispatch work.
-        _callbackTokenIssuer.DidNotReceive().Issue(Arg.Any<CallbackToken>());
+        // No container side-effects — the throw must precede any dispatch work.
         await _containerRuntime.DidNotReceive().StartAsync(
             Arg.Any<ContainerConfig>(),
             Arg.Any<CancellationToken>());

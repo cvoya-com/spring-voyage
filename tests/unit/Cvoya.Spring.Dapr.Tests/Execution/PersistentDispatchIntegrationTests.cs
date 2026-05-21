@@ -47,8 +47,6 @@ public class PersistentDispatchIntegrationTests
     private readonly IRuntimeCatalog _runtimeCatalog = Substitute.For<IRuntimeCatalog>();
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
-    private readonly IMessagingToolProvider _messagingToolProvider = Substitute.For<IMessagingToolProvider>();
-    private readonly ICallbackTokenIssuer _callbackTokenIssuer = Substitute.For<ICallbackTokenIssuer>();
     private readonly IConnectorRuntimeContextResolver _connectorContext = Substitute.For<IConnectorRuntimeContextResolver>();
     private readonly IConnectorPromptContextResolver _connectorPromptContext = Substitute.For<IConnectorPromptContextResolver>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
@@ -99,23 +97,20 @@ public class PersistentDispatchIntegrationTests
                 ContextFiles: new Dictionary<string, string>()));
 
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
-        // Production dispatch threads message.To.Scheme into IssueSession so
-        // the McpSession carries a materialised Subject Address (#2379). The
-        // mock mirrors that to satisfy the non-nullable contract.
-        _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+        // Production dispatch threads message.To.Scheme and the inbound
+        // message id into IssueSession so the McpSession carries a
+        // materialised Subject Address (#2379) and per-turn delivery
+        // authority (ADR-0051). The mock mirrors that.
+        _mcpServer.IssueSession(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>())
             .Returns(ci => new McpSession(
                 "test-token",
                 ci.ArgAt<string>(0),
                 ci.ArgAt<string>(1),
                 ci.ArgAt<string>(2),
-                Address.For(ci.ArgAt<string>(2), ci.ArgAt<string>(0))));
+                Address.For(ci.ArgAt<string>(2), ci.ArgAt<string>(0)),
+                ci.ArgAt<Guid>(3)));
         _tenantContext.CurrentTenantId.Returns(Cvoya.Spring.Core.Tenancy.OssTenantIds.Default);
-
-        // ADR-0039 D3: default to "no orchestration tools" — leaf-agent shape.
-        _messagingToolProvider.GetMessagingTools(Arg.Any<Address>(), Arg.Any<Guid>())
-            .Returns(Array.Empty<MessagingToolDescriptor>());
-        _callbackTokenIssuer.Issue(Arg.Any<CallbackToken>())
-            .Returns(call => $"token-{call.Arg<CallbackToken>().MessageId:N}");
 
         // #2380: default to "no connector contribution" — these tests do not
         // exercise the connector seam.
@@ -179,14 +174,12 @@ public class PersistentDispatchIntegrationTests
             _runtimeCatalog,
             _agentContextBuilder,
             _tenantContext,
-            _messagingToolProvider,
             _persistentRegistry,
             new EphemeralAgentRegistry(_containerRuntime, clmEph, volumeManager, _loggerFactory),
             clmD,
             volumeManager,
             Options.Create(daprOptions),
             transportFactory,
-            _callbackTokenIssuer,
             _connectorContext,
             _connectorPromptContext,
             _loggerFactory);

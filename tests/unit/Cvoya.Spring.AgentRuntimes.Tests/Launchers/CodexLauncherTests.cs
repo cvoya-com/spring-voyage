@@ -119,68 +119,18 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_MessagingToolsNullOrEmpty_DoesNotAddSpringOrchestrationMcpServer()
+    public async Task PrepareAsync_WritesOnlyTheSinglePlatformMcpServer()
     {
-        var nullToolsContext = LauncherCallbackTestSupport.CreateContext();
-        var emptyToolsContext = nullToolsContext with
-        {
-            MessagingTools = Array.Empty<MessagingToolDescriptor>()
-        };
-
-        var nullToolsPrep = await _launcher.PrepareAsync(
-            nullToolsContext, TestContext.Current.CancellationToken);
-        var emptyToolsPrep = await _launcher.PrepareAsync(
-            emptyToolsContext, TestContext.Current.CancellationToken);
-
-        ShouldNotContainSpringOrchestrationServer(nullToolsPrep);
-        ShouldNotContainSpringOrchestrationServer(emptyToolsPrep);
-    }
-
-    [Fact]
-    public async Task PrepareAsync_MessagingToolsPresent_AddsSpringOrchestrationMcpServer()
-    {
-        var context = LauncherCallbackTestSupport.CreateContext() with
-        {
-            MessagingTools = CreateMessagingTools()
-        };
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        var mcpServers = GetMcpServers(prep);
-        mcpServers.TryGetProperty("spring-orchestration", out var server).ShouldBeTrue();
-        server.GetProperty("type").GetString().ShouldBe("http");
-        server.GetProperty("url").GetString()
-            .ShouldBe(LauncherCallbackTestSupport.OrchestrationMcpUrl);
-        server.GetProperty("headers").GetProperty("Authorization").GetString()
-            .ShouldBe(
-                $"Bearer {prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}");
-    }
-
-    [Fact]
-    public async Task PrepareAsync_MessagingToolsPresent_SetsMcpConfigPathEnvVarForSidecar()
-    {
-        // #2580: the sidecar refreshes the spring-orchestration callback
-        // token in .mcp.json per turn; the launcher must point it at the
-        // on-disk config file via SPRING_ORCHESTRATION_MCP_CONFIG.
-        var context = LauncherCallbackTestSupport.CreateContext() with
-        {
-            MessagingTools = CreateMessagingTools()
-        };
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        prep.EnvironmentVariables.ShouldContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
-        prep.EnvironmentVariables["SPRING_ORCHESTRATION_MCP_CONFIG"]
-            .ShouldBe("/workspace/.mcp.json");
-    }
-
-    [Fact]
-    public async Task PrepareAsync_MessagingToolsAbsent_DoesNotSetMcpConfigPathEnvVar()
-    {
+        // ADR-0051: one MCP server serves every sv.* tool — sv.messaging.*
+        // included. The launcher no longer writes a second spring-orchestration
+        // server, and there is no per-turn callback-token refresh env var.
         var context = LauncherCallbackTestSupport.CreateContext();
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
+        var mcpServers = GetMcpServers(prep);
+        mcpServers.EnumerateObject().Select(property => property.Name)
+            .ShouldBe(new[] { "spring-voyage" });
         prep.EnvironmentVariables.ShouldNotContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
     }
 
@@ -267,32 +217,10 @@ public class CodexLauncherTests
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldNotContain("concurrent_threads is on");
     }
 
-    private static void ShouldNotContainSpringOrchestrationServer(AgentLaunchSpec prep)
-    {
-        var mcpServers = GetMcpServers(prep);
-
-        mcpServers.TryGetProperty("spring-orchestration", out _).ShouldBeFalse();
-    }
-
     private static JsonElement GetMcpServers(AgentLaunchSpec prep)
     {
         using var parsed = JsonDocument.Parse(prep.WorkspaceFiles[".mcp.json"]);
 
         return parsed.RootElement.GetProperty("mcpServers").Clone();
-    }
-
-    private static MessagingToolDescriptor[] CreateMessagingTools() =>
-    [
-        new(
-            MessagingToolName.Send,
-            CreateObjectSchema(),
-            CreateObjectSchema())
-    ];
-
-    private static JsonElement CreateObjectSchema()
-    {
-        using var document = JsonDocument.Parse("""{"type":"object"}""");
-
-        return document.RootElement.Clone();
     }
 }

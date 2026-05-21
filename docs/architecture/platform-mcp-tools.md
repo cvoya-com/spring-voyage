@@ -4,13 +4,13 @@
 >
 > **Last reviewed:** 2026-05-21
 >
-> The catalogue of platform-provided MCP tools an agent runtime consumes, the naming taxonomy that governs them, the two MCP servers that expose them, and the messaging-delivery contract that replaced the old orchestration tools.
+> The catalogue of platform-provided MCP tools an agent runtime consumes, the naming taxonomy that governs them, the single MCP server that exposes them, and the messaging-delivery contract that replaced the old orchestration tools.
 
 ---
 
 ## Audience
 
-This doc is for runtime-image authors building or extending an LLM-driven runtime image (`claude-code`, `codex`, `gemini`, `spring-voyage`, or a new image), and for anyone who needs to know what platform tools an agent sees. Workflow-driven runtimes that consume the typed HTTP callback surface read [`agent-sdk.md`](agent-sdk.md) instead — the SDK exposes the same delivery handlers as typed C# methods over HTTP.
+This doc is for runtime-image authors building or extending an LLM-driven runtime image (`claude-code`, `codex`, `gemini`, `spring-voyage`, or a new image), and for anyone who needs to know what platform tools an agent sees. Workflow-driven runtimes consume the same `sv.messaging.*` delivery tools through the typed `Cvoya.Spring.AgentSdk` `MessagingClient`, which speaks JSON-RPC against the same MCP server — see [`agent-sdk.md`](agent-sdk.md).
 
 Operators deploying agents do not need to read this doc. The MCP surface is wired by the platform's launchers; nothing here is operator-configurable.
 
@@ -87,20 +87,19 @@ This terminates a cycle `A→B→A→…` carried on a single thread while leavi
 
 ---
 
-## 5. The two MCP servers
+## 5. The single platform MCP server
 
-The platform exposes its MCP tools through two MCP servers. The taxonomy is consistent across both.
+The platform exposes **every** `sv.*` tool through one MCP server under one auth model (ADR-0051).
 
 | MCP server | `serverInfo.name` | Tools | Auth |
 |---|---|---|---|
-| Worker MCP server | `spring-voyage` | `sv.directory.*`, `sv.memory.*`, `sv.runtime.*`, `sv.expertise.*` | Long-lived MCP session token. |
-| Callback MCP server | `spring-messaging` (`serverInfo.name`) | `sv.messaging.*` | Per-turn callback token (it needs the per-turn delivery authority). |
+| Platform MCP server | `spring-voyage` | `sv.directory.*`, `sv.memory.*`, `sv.runtime.*`, `sv.expertise.*`, `sv.messaging.*` | MCP session bearer token. |
 
-`sv.messaging.*` stays on the callback server because delivery requires the per-turn callback token's authority; the remaining `sv.*` tools stay on the worker server with its long-lived session token. Consolidating the two servers under one auth model is tracked separately as [#2589](https://github.com/cvoya-com/spring-voyage/issues/2589); the taxonomy does not depend on the consolidation.
+The MCP session is minted per turn by the dispatcher (`IMcpServer.IssueSession`) and revoked when the turn ends. It carries the per-turn `(tenant, agentAddress, threadId, messageId)` delivery authority `sv.messaging.*` needs — the same authority the retired per-turn callback JWT used to carry. Because messaging is now a registry on this server, `sv.messaging.send` / `sv.messaging.broadcast` pass through the same effective-grant gate (#2379) and unit-policy enforcement (#162) as every other `sv.*` tool: a unit policy can deny messaging, and the grant resolver's platform tier surfaces the messaging tools to every agent / unit subject by default.
 
 ### Per-runtime attachment
 
-A launcher attaches the MCP servers using each runtime's native mechanism. For the CLI runtimes (`claude-code`, `codex`) the launcher writes a two-server `.mcp.json`:
+A launcher attaches the single MCP server using each runtime's native mechanism. For the CLI runtimes (`claude-code`, `codex`) the launcher writes a one-server `.mcp.json`:
 
 ```jsonc
 {
@@ -109,28 +108,24 @@ A launcher attaches the MCP servers using each runtime's native mechanism. For t
       "type": "http",
       "url": "<MCP endpoint>",
       "headers": { "Authorization": "Bearer <MCP session token>" }
-    },
-    "spring-orchestration": {
-      "type": "http",
-      "url": "<SPRING_CALLBACK_URL>/v1/runtime/orchestration",
-      "headers": { "Authorization": "Bearer <SPRING_CALLBACK_TOKEN>" }
     }
   }
 }
 ```
 
-`gemini` reads the same shape from `.gemini/settings.json` (using `httpUrl` instead of `url`). The callback token is short-lived, so the A2A sidecar refreshes the `spring-orchestration` server's `Authorization` header before every CLI exec from the per-message callback token — see [`agent-runtime.md` § 4a](agent-runtime.md#4a-messaging-callback-bootstrap). The `.mcp.json` connection key and the `/v1/runtime/orchestration` callback route keep the `orchestration` name — a wire identifier shared with the A2A sidecar; the server itself reports `serverInfo.name: spring-messaging`. Renaming the connection surface is tracked in [#2589](https://github.com/cvoya-com/spring-voyage/issues/2589).
+`gemini` reads the same shape from `.gemini/settings.json` (using `httpUrl` instead of `url`). `tools/list` is grant-filtered server-side, so the runtime discovers exactly the `sv.*` tools — messaging included — its subject is entitled to.
 
-Workflow-driven runtimes consume the same delivery handlers through the typed `Cvoya.Spring.AgentSdk` callback surface instead of MCP — see [Agent SDK](agent-sdk.md).
+Workflow-driven runtimes consume the same delivery handlers through the typed `Cvoya.Spring.AgentSdk` `MessagingClient`, which calls `sv.messaging.send` / `sv.messaging.broadcast` over JSON-RPC `tools/call` against the same MCP server with the same session token — see [Agent SDK](agent-sdk.md).
 
 ---
 
 ## See also
 
+- [ADR-0051](../decisions/0051-unified-platform-mcp-auth-model.md) — one platform MCP server, one auth model; `sv.messaging.*` folds onto it.
 - [ADR-0050](../decisions/0050-platform-mcp-tool-surface.md) — the `sv.<area>.<verb>` taxonomy; messaging-only delivery; the canonical decision.
 - [ADR-0049](../decisions/0049-message-delivery-tool-contract.md) — the delivery-acknowledgement contract `sv.messaging.*` implements.
 - [ADR-0048](../decisions/0048-event-vs-request-message-semantics.md) — domain messaging is one-way.
 - [ADR-0039](../decisions/0039-units-are-agents.md) — units-are-agents; §§ 3–4 superseded by ADR-0050.
-- [Agent SDK](agent-sdk.md) — the typed HTTP callback surface for workflow-driven runtimes; same delivery handlers, different transport.
-- [Agent Runtime](agent-runtime.md) — the launcher tier that attaches these tools and the messaging callback bootstrap.
+- [Agent SDK](agent-sdk.md) — the typed `MessagingClient` for workflow-driven runtimes; same delivery tools over the MCP transport.
+- [Agent Runtime](agent-runtime.md) — the launcher tier that attaches the platform MCP server.
 - [Units & Agents](units.md) — unit entity model and how a runtime delivers to members.

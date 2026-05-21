@@ -107,10 +107,10 @@ The platform delivers messages; it does not orchestrate. There is no `delegate_t
 
 Discovery, inspection, and runtime-status queries live on the `sv.directory.*` tools (`sv.directory.list_members`, `sv.directory.get_member`, `sv.directory.get_status`, plus `sv.directory.get_siblings` / `sv.directory.get_parents` / `sv.directory.get_self`) — see [Platform MCP Tools](platform-mcp-tools.md).
 
-The messaging delivery handlers are reachable through two parallel surfaces:
+The messaging delivery handlers are reachable through two parallel surfaces, both calling the single platform MCP server (ADR-0051):
 
-- **MCP tool calls** — for LLM-driven runtime images (`spring-voyage`, `claude-code`, `codex`, `gemini`). The launcher attaches the `spring-messaging` MCP server.
-- **SDK surface** — `Cvoya.Spring.AgentSdk`'s typed messaging-delivery methods over an HTTP callback API, for workflow-driven runtime images. See [Agent SDK](agent-sdk.md).
+- **MCP tool calls** — for LLM-driven runtime images (`spring-voyage`, `claude-code`, `codex`, `gemini`). The launcher attaches the single `spring-voyage` MCP server, which serves `sv.messaging.*` alongside every other `sv.*` tool.
+- **SDK surface** — `Cvoya.Spring.AgentSdk`'s typed `MessagingClient`, which calls `sv.messaging.*` over JSON-RPC against the same MCP server, for workflow-driven runtime images. See [Agent SDK](agent-sdk.md).
 
 The image author chooses which fits; the platform does not branch.
 
@@ -386,7 +386,7 @@ or the new-unit wizard's **From catalog** mode (portal), both of which route thr
 ## See Also
 
 - [Agents](agents.md) — agent model, execution pattern, cloning, prompt assembly
-- [Platform MCP Tools](platform-mcp-tools.md) — the `sv.<area>.<verb>` tool surface, the `sv.messaging.*` delivery tools, and the two MCP servers
+- [Platform MCP Tools](platform-mcp-tools.md) — the `sv.<area>.<verb>` tool surface, the `sv.messaging.*` delivery tools, and the single platform MCP server
 - [Agent SDK](agent-sdk.md) — `Cvoya.Spring.AgentSdk`, the typed messaging-delivery surface, env-var contract for workflow-driven runtimes
 - [Policies](policies.md) — unit policy framework, root unit
 - [Expertise](expertise.md) — expertise profiles, directory, aggregation, search

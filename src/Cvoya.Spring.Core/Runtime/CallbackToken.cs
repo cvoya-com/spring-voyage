@@ -6,28 +6,25 @@ namespace Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Messaging;
 
 /// <summary>
-/// Per-invocation callback token claim shape, exchanged between the runtime
-/// launcher (issuer) and the dispatcher's orchestration callback API
-/// (validator). Scopes a single inbound invocation to one tenant, one agent
-/// address, one thread, and one message; expires when the invocation ends.
+/// Per-invocation callback token claim shape. Scopes a single inbound
+/// invocation to one tenant, one agent address, one thread, and one message;
+/// expires when the invocation ends.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Every callback into the dispatcher carries a token that the validator
-/// integrity-checks before any handler runs. The validator does not consult
-/// the directory; the target-is-direct-child gate, self-delegation gate,
-/// depth gate, and tenant-containment gate live in the endpoint handler.
-/// The platform does not gate orchestration by entity type — see ADR-0039
-/// §3 (as amended).
+/// ADR-0051 retired the messaging callback surface and folded its per-turn
+/// delivery authority into the MCP session token. This record survives as
+/// the OTLP-ingest credential (issue #2492): the runtime-launcher pipeline
+/// mints it via <c>ICallbackTokenIssuer</c> and stamps it as
+/// <c>SPRING_CALLBACK_TOKEN</c>; <c>OtlpCallbackAuthHandler</c> in the API
+/// host validates it on the <c>/otlp</c> ingest plane. Migrating OTLP ingest
+/// off this token is a tracked follow-up.
 /// </para>
 /// <para>
 /// This record is the wire-shape, free of JWT concerns. The issuer
-/// (<c>ICallbackTokenIssuer</c>) signs the claim shape into a compact JWT; the validator
-/// (<c>Cvoya.Spring.Dispatcher.Auth.CallbackTokenValidator</c>) returns the
-/// same shape after verifying the signature, the expiry, and the claim
-/// presence. Keeping the record in <c>Cvoya.Spring.Core</c> lets both halves
-/// of the round-trip — and any future SDK shape that needs to inspect the
-/// token without depending on the dispatcher project — share one type.
+/// (<c>ICallbackTokenIssuer</c>) signs the claim shape into a compact JWT,
+/// validated by the API host's OTLP auth handler. Keeping the record in
+/// <c>Cvoya.Spring.Core</c> lets both halves of the round-trip share one type.
 /// </para>
 /// </remarks>
 /// <param name="TenantId">

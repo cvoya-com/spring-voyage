@@ -31,8 +31,7 @@ using Cvoya.Spring.Core.Messaging;
 /// the actor-side composition seam that calls into
 /// <c>Cvoya.Spring.Core</c> abstractions
 /// (<see cref="Cvoya.Spring.Core.Execution.IAgentDispatchCoordinator"/>,
-/// <see cref="Cvoya.Spring.Core.Execution.IExecutionDispatcher"/>,
-/// <see cref="Cvoya.Spring.Core.Orchestration.IMessagingToolProvider"/>);
+/// <see cref="Cvoya.Spring.Core.Execution.IExecutionDispatcher"/>);
 /// it is therefore Dapr-side glue rather than a pure domain abstraction.
 /// </para>
 /// <para>
