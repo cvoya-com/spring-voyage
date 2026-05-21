@@ -182,6 +182,7 @@ public class SdkWorkflowDispatch
             builder.Services.AddSingleton(keyProvider);
             builder.Services.AddSingleton(Options.Create(new CallbackTokenOptions()));
             builder.Services.AddSingleton<CallbackTokenValidator>();
+            builder.Services.AddSingleton<OrchestrationCallbackDiagnostics>();
             builder.Services.AddSingleton(CreateActorProxyFactory(unit, members));
             builder.Services.AddSingleton(CreateAgentProxyResolver(agents));
             builder.Services.AddSingleton<IActivityEventBus>(activityEventBus);

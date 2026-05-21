@@ -9,6 +9,7 @@ using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 
@@ -16,14 +17,43 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Platform-level <see cref="ISkillRegistry"/> for the SV runtime
-/// reflection tools (issue #2493). Today it exposes a single tool —
-/// <c>sv.report_progress</c> — that lets a runtime publish a narrative
-/// progress event onto the platform's activity bus from inside MCP
-/// rather than via the SDK's OTLP emitter. Both paths produce a
-/// <see cref="ActivityEventType.RuntimeProgress"/> event with the same
-/// shape; the MCP tool is parity for runtimes that don't use the SDK's
-/// helper.
+/// reflection tools (issue #2493). It exposes:
+/// <list type="bullet">
+///   <item>
+///     <c>sv.report_progress</c> — publishes a narrative progress event
+///     onto the platform's activity bus from inside MCP rather than via
+///     the SDK's OTLP emitter. Both paths produce a
+///     <see cref="ActivityEventType.RuntimeProgress"/> event with the
+///     same shape; the MCP tool is parity for runtimes that don't use
+///     the SDK's helper.
+///   </item>
+///   <item>
+///     <c>sv.report_decision</c> — records a structured routing /
+///     delegation decision as a <see cref="ActivityEventType.DecisionMade"/>
+///     activity, <i>independent of whether the decision executed</i>
+///     (issue #2581). The orchestration tools (<c>delegate_to</c> /
+///     <c>fanout_to</c>) only emit a decision when they actually run;
+///     when a runtime decides to route but cannot execute — the tool is
+///     unavailable, the model fails to call it, or the call is rejected
+///     before delivery — this tool is the always-available channel that
+///     keeps the decision from being silently lost. It lives on the
+///     <c>sv.*</c> surface, which uses the long-lived MCP token, so it
+///     stays reachable even when the short-lived orchestration callback
+///     token has expired.
+///   </item>
+/// </list>
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Reconciliation with the orchestration tools.</b> A successfully
+/// executed <c>delegate_to</c> / <c>fanout_to</c> already emits exactly
+/// one <see cref="ActivityEventType.DecisionMade"/> activity from the
+/// dispatcher's <c>OrchestrationToolHandlers</c>. The runtime prompt
+/// directs <c>sv.report_decision</c> to be called <i>only</i> for the
+/// not-executed case, so the happy path still produces one decision
+/// record, not two.
+/// </para>
+/// </remarks>
 /// <remarks>
 /// <para>
 /// The tool's <c>text</c> argument is the human-facing message; the
@@ -44,6 +74,9 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
     /// <summary>Tool name for <c>sv.report_progress</c>.</summary>
     public const string ReportProgressTool = "sv.report_progress";
 
+    /// <summary>Tool name for <c>sv.report_decision</c> (issue #2581).</summary>
+    public const string ReportDecisionTool = "sv.report_decision";
+
     private static readonly JsonElement ReportProgressArgSchema = ParseSchema("""
         {
           "type": "object",
@@ -62,8 +95,43 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
         }
         """);
 
+    private static readonly JsonElement ReportDecisionArgSchema = ParseSchema("""
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["targets", "outcome"],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["delegate", "fanout"],
+              "description": "The kind of routing decision: 'delegate' for a single target, 'fanout' for several. Defaults to 'delegate'."
+            },
+            "targets": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" },
+              "description": "The intended target(s) — a canonical Spring Voyage address or, if that is all you have, the target's name. One entry for a delegate, several for a fanout."
+            },
+            "rationale": {
+              "type": "string",
+              "description": "Why this routing was chosen — the same rationale you would pass as the 'reason' argument to delegate_to / fanout_to."
+            },
+            "outcome": {
+              "type": "string",
+              "enum": ["tool_unavailable", "validation_rejected", "delivery_failed", "not_attempted"],
+              "description": "Why the decision did NOT execute. Call this tool ONLY when the decision could not be carried out: 'tool_unavailable' (delegate_to / fanout_to is not in your tool surface), 'validation_rejected' (the platform rejected the call), 'delivery_failed' (the message could not be delivered), or 'not_attempted'. A decision that DID execute is already recorded by delegate_to / fanout_to — do not also report it here."
+            },
+            "detail": {
+              "type": "string",
+              "description": "Optional free-text detail about the not-executed reason (e.g. the validation error text)."
+            }
+          }
+        }
+        """);
+
     private readonly IOtlpIngestService _ingestService;
     private readonly ITenantContext _tenantContext;
+    private readonly IActivityEventBus _activityEventBus;
     private readonly ILogger _logger;
 
     private readonly IReadOnlyList<ToolDefinition> _tools;
@@ -71,10 +139,12 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
     public SvRuntimeSkillRegistry(
         IOtlpIngestService ingestService,
         ITenantContext tenantContext,
+        IActivityEventBus activityEventBus,
         ILoggerFactory loggerFactory)
     {
         _ingestService = ingestService;
         _tenantContext = tenantContext;
+        _activityEventBus = activityEventBus;
         _logger = loggerFactory.CreateLogger<SvRuntimeSkillRegistry>();
 
         _tools = new[]
@@ -87,6 +157,16 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
                 "kicking off a tool call, hitting a blocker, finishing. The platform " +
                 "rate-limits per-(caller, kind) pair; excess events are dropped silently.",
                 ReportProgressArgSchema),
+            new ToolDefinition(
+                ReportDecisionTool,
+                "Record a structured routing/delegation decision that you could NOT " +
+                "execute, so it is not silently lost. Call this when you decided to " +
+                "route work to a target but delegate_to / fanout_to was unavailable, " +
+                "rejected, or otherwise did not run. Surfaces as a DecisionMade " +
+                "activity naming the intended target(s) and the reason it did not " +
+                "execute. Do NOT call this for a delegation that succeeded — a " +
+                "successful delegate_to / fanout_to already records its own decision.",
+                ReportDecisionArgSchema),
         };
     }
 
@@ -104,17 +184,25 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             "(invoked by the MCP server with the active session's identity).");
 
     /// <inheritdoc />
-    public async Task<JsonElement> InvokeAsync(
+    public Task<JsonElement> InvokeAsync(
         string toolName,
         JsonElement arguments,
         ToolCallContext context,
         CancellationToken cancellationToken = default)
     {
-        if (!string.Equals(toolName, ReportProgressTool, StringComparison.Ordinal))
+        return toolName switch
         {
-            throw new SkillNotFoundException(toolName);
-        }
+            ReportProgressTool => InvokeReportProgressAsync(arguments, context, cancellationToken),
+            ReportDecisionTool => InvokeReportDecisionAsync(arguments, context, cancellationToken),
+            _ => throw new SkillNotFoundException(toolName),
+        };
+    }
 
+    private async Task<JsonElement> InvokeReportProgressAsync(
+        JsonElement arguments,
+        ToolCallContext context,
+        CancellationToken cancellationToken)
+    {
         var text = RequireStringArg(arguments, "text");
         var kind = TryReadStringArg(arguments, "kind");
 
@@ -122,7 +210,7 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             || !GuidFormatter.TryParse(context.CallerId, out var callerGuid))
         {
             throw new SpringException(
-                $"Tool '{toolName}' requires a caller id; the active MCP session did not supply one.");
+                $"Tool '{ReportProgressTool}' requires a caller id; the active MCP session did not supply one.");
         }
         var callerKind = string.IsNullOrWhiteSpace(context.CallerKind)
             ? Address.AgentScheme
@@ -161,6 +249,177 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
         }
 
         return ParseSchema("""{ "ok": true }""");
+    }
+
+    /// <summary>
+    /// #2581: records a routing/delegation decision the runtime made but
+    /// could not execute as a structured <see cref="ActivityEventType.DecisionMade"/>
+    /// activity, so it is visible on the activity stream even though
+    /// <c>delegate_to</c> / <c>fanout_to</c> never ran.
+    /// </summary>
+    private async Task<JsonElement> InvokeReportDecisionAsync(
+        JsonElement arguments,
+        ToolCallContext context,
+        CancellationToken cancellationToken)
+    {
+        var targetStrings = ReadTargetStrings(arguments);
+        var outcome = RequireEnumArg(
+            arguments,
+            "outcome",
+            "tool_unavailable",
+            "validation_rejected",
+            "delivery_failed",
+            "not_attempted");
+        var kind = string.Equals(TryReadStringArg(arguments, "kind"), "fanout", StringComparison.Ordinal)
+            ? OrchestrationDecisionKind.Fanout
+            : OrchestrationDecisionKind.Delegate;
+        var rationale = TryReadStringArg(arguments, "rationale");
+        var detail = TryReadStringArg(arguments, "detail");
+
+        if (string.IsNullOrWhiteSpace(context.CallerId)
+            || !GuidFormatter.TryParse(context.CallerId, out var callerGuid))
+        {
+            throw new SpringException(
+                $"Tool '{ReportDecisionTool}' requires a caller id; the active MCP session did not supply one.");
+        }
+        var callerKind = string.IsNullOrWhiteSpace(context.CallerKind)
+            ? Address.AgentScheme
+            : context.CallerKind;
+        var subject = new Address(callerKind, callerGuid);
+
+        var threadId = GuidFormatter.TryParse(context.ThreadId, out var parsedThreadId)
+            ? parsedThreadId
+            : Guid.Empty;
+
+        // A decision the runtime could not execute may name its target by
+        // canonical address or by a human-facing name (the runtime knows
+        // members by name via sv.get_member). Parse what is a canonical
+        // address into OrchestrationDecision.Targets; the verbatim
+        // strings always go onto the metadata so the intended target is
+        // never lost even when it was a name.
+        var parsedTargets = targetStrings
+            .Select(raw => Address.TryParse(raw, out var a) && a is not null ? a : null)
+            .Where(a => a is not null)
+            .Select(a => a!)
+            .ToArray();
+
+        var decision = new OrchestrationDecision(
+            DecisionId: Guid.NewGuid(),
+            TenantId: _tenantContext.CurrentTenantId,
+            UnitAddress: subject,
+            ThreadId: threadId,
+            InputMessageId: Guid.Empty,
+            Kind: kind,
+            Targets: parsedTargets,
+            // The runtime decided but never executed — distinct from a
+            // delivery that was attempted and Failed.
+            Status: OrchestrationDecisionStatus.NotExecuted,
+            ResultMessageIds: [],
+            Reason: rationale,
+            Metadata: BuildDecisionMetadata(outcome, detail, targetStrings),
+            CreatedAt: DateTimeOffset.UtcNow);
+
+        var summary = kind == OrchestrationDecisionKind.Fanout
+            ? $"Routing decision to {targetStrings.Count} target(s) not executed ({outcome})."
+            : $"Routing decision to '{targetStrings[0]}' not executed ({outcome}).";
+
+        var activityEvent = new ActivityEvent(
+            Guid.NewGuid(),
+            decision.CreatedAt,
+            subject,
+            ActivityEventType.DecisionMade,
+            // A decision that could not execute is an operator-actionable
+            // condition — surface it at Warning, matching the dispatcher's
+            // failed-decision severity.
+            ActivitySeverity.Warning,
+            summary,
+            JsonSerializer.SerializeToElement(decision),
+            threadId == Guid.Empty ? null : threadId.ToString("D"));
+
+        try
+        {
+            await _activityEventBus.PublishAsync(activityEvent, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Best-effort: never raise back to the model — recording the
+            // decision is diagnostic, not load-bearing for the turn.
+            _logger.LogWarning(ex,
+                "sv.report_decision: failed to publish DecisionMade for caller {Caller}", subject);
+        }
+
+        return ParseSchema("""{ "ok": true }""");
+    }
+
+    private static IReadOnlyList<string> ReadTargetStrings(JsonElement arguments)
+    {
+        if (arguments.ValueKind != JsonValueKind.Object
+            || !arguments.TryGetProperty("targets", out var targetsProp)
+            || targetsProp.ValueKind != JsonValueKind.Array)
+        {
+            throw new ArgumentException("Missing required argument 'targets' (array of target strings).");
+        }
+
+        var targets = new List<string>();
+        foreach (var element in targetsProp.EnumerateArray())
+        {
+            var raw = element.ValueKind == JsonValueKind.String ? element.GetString() : null;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                throw new ArgumentException("Argument 'targets' entries must be non-empty strings.");
+            }
+            targets.Add(raw);
+        }
+
+        if (targets.Count == 0)
+        {
+            throw new ArgumentException("Argument 'targets' must contain at least one target.");
+        }
+
+        return targets;
+    }
+
+    private static string RequireEnumArg(JsonElement args, string name, params string[] allowed)
+    {
+        var raw = RequireStringArg(args, name);
+        if (Array.IndexOf(allowed, raw) < 0)
+        {
+            throw new ArgumentException(
+                $"Argument '{name}' must be one of: {string.Join(", ", allowed)}. Got '{raw}'.");
+        }
+        return raw;
+    }
+
+    private static JsonElement BuildDecisionMetadata(
+        string outcome,
+        string? detail,
+        IReadOnlyList<string> intendedTargets)
+    {
+        using var stream = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            // Machine-readable not-executed reason — the platform cannot
+            // parse free prose, so the runtime emits it through this
+            // defined field.
+            writer.WriteString("executionOutcome", outcome);
+            // Verbatim intended-target strings, even when a target was a
+            // human name rather than a canonical address — so the intended
+            // target is never lost.
+            writer.WriteStartArray("intendedTargets");
+            foreach (var target in intendedTargets)
+            {
+                writer.WriteStringValue(target);
+            }
+            writer.WriteEndArray();
+            if (!string.IsNullOrWhiteSpace(detail))
+            {
+                writer.WriteString("detail", detail);
+            }
+            writer.WriteString("source", "mcp:sv.report_decision");
+            writer.WriteEndObject();
+        }
+        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
     }
 
     private static JsonElement BuildProgressDetails(string text, string? kind, Address subject)

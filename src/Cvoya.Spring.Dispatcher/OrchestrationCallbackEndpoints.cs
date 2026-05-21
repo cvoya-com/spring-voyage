@@ -49,15 +49,21 @@ public static class OrchestrationCallbackEndpoints
         CallbackTokenValidator tokenValidator,
         OrchestrationToolHandlers handlers,
         IOrchestrationToolProvider toolProvider,
+        OrchestrationCallbackDiagnostics diagnostics,
         HttpContext httpContext,
         CancellationToken cancellationToken)
     {
         var requestId = request?.Id;
 
-        if (!TryValidateMcpCallback(httpContext, tokenValidator, out var claims, out var authError))
+        var mcpAuth = await TryValidateMcpCallbackAsync(
+            httpContext, tokenValidator, diagnostics, cancellationToken);
+        if (!mcpAuth.Succeeded)
         {
-            return McpError(StatusCodes.Status401Unauthorized, requestId, McpErrorCodes.Unauthorized, authError);
+            return McpError(
+                StatusCodes.Status401Unauthorized, requestId, McpErrorCodes.Unauthorized, mcpAuth.Error);
         }
+
+        var claims = mcpAuth.Claims;
 
         if (request is null || string.IsNullOrEmpty(request.Method))
         {
@@ -248,39 +254,48 @@ public static class OrchestrationCallbackEndpoints
         }
     }
 
-    private static bool TryValidateMcpCallback(
+    /// <summary>
+    /// Outcome of an orchestration callback-token validation attempt.
+    /// </summary>
+    private readonly record struct CallbackAuthResult(
+        bool Succeeded,
+        CallbackToken Claims,
+        string Error);
+
+    private static async Task<CallbackAuthResult> TryValidateMcpCallbackAsync(
         HttpContext httpContext,
         CallbackTokenValidator tokenValidator,
-        out CallbackToken claims,
-        out string error)
+        OrchestrationCallbackDiagnostics diagnostics,
+        CancellationToken cancellationToken)
     {
-        claims = default!;
-        error = string.Empty;
-
         if (!TryExtractBearerToken(httpContext, out var token))
         {
-            error = "Authorization header must contain a bearer callback token.";
-            return false;
+            return new CallbackAuthResult(
+                false, default!, "Authorization header must contain a bearer callback token.");
         }
 
+        CallbackToken claims;
         try
         {
             claims = tokenValidator.Validate(token);
         }
         catch (CallbackTokenValidationException ex)
         {
-            error = ex.Message;
-            return false;
+            // #2582: surface the rejection as a warning + ErrorOccurred
+            // activity instead of letting a 401 pass silently.
+            await diagnostics.RecordRejectionAsync(ex, token, cancellationToken);
+            return new CallbackAuthResult(false, default!, ex.Message);
         }
 
         if (!IsSupportedCallerScheme(claims.AgentAddress))
         {
-            error =
-                $"Orchestration callbacks support unit:// and agent:// callers; got '{claims.AgentAddress}'.";
-            return false;
+            return new CallbackAuthResult(
+                false,
+                default!,
+                $"Orchestration callbacks support unit:// and agent:// callers; got '{claims.AgentAddress}'.");
         }
 
-        return true;
+        return new CallbackAuthResult(true, claims, string.Empty);
     }
 
     /// <summary>
@@ -400,10 +415,13 @@ public static class OrchestrationCallbackEndpoints
         [FromBody] DelegateToRequest request,
         CallbackTokenValidator tokenValidator,
         OrchestrationToolHandlers handlers,
+        OrchestrationCallbackDiagnostics diagnostics,
         HttpContext httpContext,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateCallback(httpContext, tokenValidator, out var claims, out var error) ||
+        var (ok, claims, error) = await TryValidateCallbackAsync(
+            httpContext, tokenValidator, diagnostics, cancellationToken);
+        if (!ok ||
             !TryValidateRequestScope(request.CallerAddress, request.ThreadId, claims, out error) ||
             !TryParseAddress(request.TargetAddress, "TargetAddress", out var target, out error))
         {
@@ -435,10 +453,13 @@ public static class OrchestrationCallbackEndpoints
         [FromBody] FanoutToRequest request,
         CallbackTokenValidator tokenValidator,
         OrchestrationToolHandlers handlers,
+        OrchestrationCallbackDiagnostics diagnostics,
         HttpContext httpContext,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateCallback(httpContext, tokenValidator, out var claims, out var error) ||
+        var (ok, claims, error) = await TryValidateCallbackAsync(
+            httpContext, tokenValidator, diagnostics, cancellationToken);
+        if (!ok ||
             !TryValidateRequestScope(request.CallerAddress, request.ThreadId, claims, out error))
         {
             return error;
@@ -504,44 +525,48 @@ public static class OrchestrationCallbackEndpoints
                     outcome.Error))
                 .ToArray());
 
-    private static bool TryValidateCallback(
+    private static async Task<(bool Ok, CallbackToken Claims, IResult Error)> TryValidateCallbackAsync(
         HttpContext httpContext,
         CallbackTokenValidator tokenValidator,
-        out CallbackToken claims,
-        out IResult error)
+        OrchestrationCallbackDiagnostics diagnostics,
+        CancellationToken cancellationToken)
     {
-        claims = default!;
-        error = Results.Empty;
-
         if (!TryExtractBearerToken(httpContext, out var token))
         {
-            error = Error(
-                StatusCodes.Status401Unauthorized,
-                "InvalidToken",
-                "Authorization header must contain a bearer callback token.");
-            return false;
+            return (
+                false,
+                default!,
+                Error(
+                    StatusCodes.Status401Unauthorized,
+                    "InvalidToken",
+                    "Authorization header must contain a bearer callback token."));
         }
 
+        CallbackToken claims;
         try
         {
             claims = tokenValidator.Validate(token);
         }
         catch (CallbackTokenValidationException ex)
         {
-            error = Error(
-                StatusCodes.Status401Unauthorized,
-                "InvalidToken",
-                ex.Message);
-            return false;
+            // #2582: surface the rejection as a warning + ErrorOccurred
+            // activity instead of letting a 401 pass silently.
+            await diagnostics.RecordRejectionAsync(ex, token, cancellationToken);
+            return (
+                false,
+                default!,
+                Error(StatusCodes.Status401Unauthorized, "InvalidToken", ex.Message));
         }
 
         if (!IsSupportedCallerScheme(claims.AgentAddress))
         {
-            error = Error(
-                StatusCodes.Status403Forbidden,
-                "UnsupportedCallerScheme",
-                $"Orchestration callbacks support unit:// and agent:// callers; got '{claims.AgentAddress}'.");
-            return false;
+            return (
+                false,
+                default!,
+                Error(
+                    StatusCodes.Status403Forbidden,
+                    "UnsupportedCallerScheme",
+                    $"Orchestration callbacks support unit:// and agent:// callers; got '{claims.AgentAddress}'."));
         }
 
         // Cross-tenant containment (ADR-0039 §3 gate 6) is enforced inside
@@ -550,7 +575,7 @@ public static class OrchestrationCallbackEndpoints
         // structurally implausible, but the handler-side gate is explicit so
         // any future authentication shape (mTLS, OIDC) inherits the same
         // containment without re-deriving it from the signing-key story.
-        return true;
+        return (true, claims, Results.Empty);
     }
 
     private static bool TryValidateRequestScope(

@@ -246,12 +246,21 @@ into the runtime container:
 
 The launcher path uses the same callback-token contract the dispatcher
 validates for ADR-0039 D12/D13. Ephemeral launches receive a token for the
-inbound message being served. Persistent containers receive launch-time
-bootstrap credentials; per-message refresh for already-running persistent
-containers is tracked separately in [#1943](https://github.com/cvoya-com/spring-voyage/issues/1943).
-CLI-sidecar launchers append `/v1/runtime/orchestration` when configuring the
-orchestration MCP server; the raw env var remains the dispatcher base URL for
-SDK clients.
+inbound message being served. CLI-sidecar launchers append
+`/v1/runtime/orchestration` when configuring the orchestration MCP server;
+the raw env var remains the dispatcher base URL for SDK clients.
+
+The callback JWT is short-lived (`CallbackTokenOptions.Lifetime`, 5 minutes),
+so a persistent container would otherwise lose `delegate_to` / `fanout_to`
+once the launch-time token in `.mcp.json` expired. The A2A sidecar therefore
+refreshes the `spring-orchestration` server's `Authorization` header in
+`.mcp.json` before every CLI exec, using the per-message callback token
+delivered in the `message/send` metadata
+([#2580](https://github.com/cvoya-com/spring-voyage/issues/2580)). The
+launcher points the sidecar at the config file via
+`SPRING_ORCHESTRATION_MCP_CONFIG`; the CLI re-reads `.mcp.json` on each
+process start, so every turn dials the dispatcher with a fresh,
+correctly thread-scoped token.
 
 ---
 

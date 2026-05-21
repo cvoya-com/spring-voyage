@@ -8,6 +8,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Dapr.Actors;
@@ -242,6 +243,81 @@ public class OrchestrationCallbackEndpointsTests
         json.GetProperty("error").GetString().ShouldBe("InvalidToken");
     }
 
+    // ---- #2582: callback-token rejection diagnostics --------------------
+
+    [Fact]
+    public async Task DelegateTo_ExpiredToken_EmitsErrorOccurredActivity()
+    {
+        using var factory = new OrchestrationDispatcherFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", factory.IssueExpiredToken(UnitAddress));
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/runtime/orchestration/delegate-to",
+            DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+
+        // Exactly one ErrorOccurred activity, naming the subject and the
+        // structured rejection reason (Expired).
+        var emitted = factory.CapturedActivities
+            .Where(e => e.EventType == ActivityEventType.ErrorOccurred)
+            .ToList();
+        emitted.Count.ShouldBe(1);
+        var activity = emitted[0];
+        activity.Severity.ShouldBe(ActivitySeverity.Warning);
+        activity.Source.ShouldBe(UnitAddress);
+        activity.Details!.Value.GetProperty("reason").GetString()
+            .ShouldBe(CallbackTokenValidationReason.Expired.ToString());
+    }
+
+    [Fact]
+    public async Task DelegateTo_MalformedToken_EmitsErrorOccurredActivity()
+    {
+        using var factory = new OrchestrationDispatcherFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "not-a-jwt");
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/runtime/orchestration/delegate-to",
+            DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+
+        var emitted = factory.CapturedActivities
+            .Where(e => e.EventType == ActivityEventType.ErrorOccurred)
+            .ToList();
+        emitted.Count.ShouldBe(1);
+        emitted[0].Details!.Value.GetProperty("reason").GetString()
+            .ShouldBe(CallbackTokenValidationReason.Malformed.ToString());
+    }
+
+    [Fact]
+    public async Task DelegateTo_HappyPath_EmitsNoErrorOccurredActivity()
+    {
+        // A legitimate orchestration call must not emit a rejection
+        // ErrorOccurred activity (only the DecisionMade from the handler).
+        using var factory = new OrchestrationDispatcherFactory();
+        var agent = Substitute.For<IAgent>();
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        factory.RegisterAgent(ChildAddress, agent);
+        var client = factory.CreateCallbackClient(UnitAddress);
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/runtime/orchestration/delegate-to",
+            DelegateRequest(UnitAddress, ChildAddress, factory.ThreadId),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        factory.CapturedActivities
+            .ShouldNotContain(e => e.EventType == ActivityEventType.ErrorOccurred);
+    }
+
     private static object DelegateRequest(Address caller, Address target, Guid threadId) =>
         new
         {
@@ -256,6 +332,12 @@ public class OrchestrationCallbackEndpointsTests
     private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response) =>
         await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
 
+    /// <summary>A <see cref="TimeProvider"/> pinned to a fixed instant.</summary>
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
     private sealed class OrchestrationDispatcherFactory : DispatcherWebApplicationFactory
     {
         private static readonly byte[] SigningKey =
@@ -268,6 +350,8 @@ public class OrchestrationCallbackEndpointsTests
 
         private readonly Dictionary<string, IAgent> _agents = new();
         private readonly ITenantSigningKeyProvider _keyProvider;
+        private readonly List<ActivityEvent> _capturedActivities = new();
+        private readonly object _capturedLock = new();
 
         public OrchestrationDispatcherFactory()
         {
@@ -279,8 +363,40 @@ public class OrchestrationCallbackEndpointsTests
 
         public Guid ThreadId { get; } = Guid.Parse("eeeeeeee-0000-0000-0000-000000000001");
 
+        /// <summary>Snapshot of every activity published during the test.</summary>
+        public IReadOnlyList<ActivityEvent> CapturedActivities
+        {
+            get
+            {
+                lock (_capturedLock)
+                {
+                    return _capturedActivities.ToList();
+                }
+            }
+        }
+
         public void RegisterAgent(Address address, IAgent agent) =>
             _agents[$"{address.Scheme}:{address.Id:N}"] = agent;
+
+        /// <summary>
+        /// Issues a callback token minted an hour in the past, so its
+        /// 5-minute lifetime has long elapsed and the validator rejects it
+        /// with <see cref="CallbackTokenValidationReason.Expired"/>.
+        /// </summary>
+        public string IssueExpiredToken(Address caller)
+        {
+            var issuer = new CallbackTokenIssuer(
+                _keyProvider,
+                Options.Create(new CallbackTokenOptions()),
+                new FixedTimeProvider(DateTimeOffset.UtcNow.AddHours(-1)));
+
+            return issuer.Issue(new CallbackToken(
+                TenantId,
+                caller,
+                ThreadId,
+                Guid.NewGuid(),
+                ExpiresAt: default));
+        }
 
         public HttpClient CreateCallbackClient(Address caller)
         {
@@ -298,10 +414,27 @@ public class OrchestrationCallbackEndpointsTests
             {
                 services.RemoveAll<IAgentProxyResolver>();
                 services.RemoveAll<ITenantSigningKeyProvider>();
+                services.RemoveAll<IActivityEventBus>();
 
                 services.AddSingleton(CreateAgentProxyResolver());
                 services.AddSingleton(_keyProvider);
+                services.AddSingleton(CreateCapturingActivityBus());
             });
+        }
+
+        private IActivityEventBus CreateCapturingActivityBus()
+        {
+            var bus = Substitute.For<IActivityEventBus>();
+            bus.PublishAsync(Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>())
+                .Returns(ci =>
+                {
+                    lock (_capturedLock)
+                    {
+                        _capturedActivities.Add(ci.ArgAt<ActivityEvent>(0));
+                    }
+                    return Task.CompletedTask;
+                });
+            return bus;
         }
 
         private string IssueToken(Address caller)

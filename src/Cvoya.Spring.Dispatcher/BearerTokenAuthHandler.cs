@@ -6,6 +6,8 @@ namespace Cvoya.Spring.Dispatcher;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 
+using Cvoya.Spring.Core.Execution;
+
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -43,6 +45,20 @@ public class BearerTokenAuthHandler(
     /// <inheritdoc />
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        // #2582: the orchestration callback endpoints own their auth via
+        // CallbackTokenValidator — a callback JWT is never a
+        // DispatcherOptions.Tokens value, so this static-token scheme would
+        // always "fail" on legitimate orchestration traffic and emit a
+        // misleading "DispatcherBearer was not authenticated" line on every
+        // healthy delegate_to / fanout_to. Return NoResult for that route so
+        // the scheme abstains instead of logging a spurious failure. The
+        // orchestration endpoints do not RequireAuthorization, so abstaining
+        // does not block them.
+        if (IsOrchestrationCallbackPath(Request.Path))
+        {
+            return Task.FromResult(AuthenticateResult.NoResult());
+        }
+
         if (!Request.Headers.TryGetValue("Authorization", out var authHeader))
         {
             return Task.FromResult(AuthenticateResult.NoResult());
@@ -81,6 +97,17 @@ public class BearerTokenAuthHandler(
         var ticket = new AuthenticationTicket(principal, SchemeName);
         return Task.FromResult(AuthenticateResult.Success(ticket));
     }
+
+    /// <summary>
+    /// True when the request targets the orchestration callback route
+    /// prefix (<c>/v1/runtime/orchestration</c> and its sub-routes), which
+    /// authenticates via <c>CallbackTokenValidator</c> rather than this
+    /// static-token scheme.
+    /// </summary>
+    private static bool IsOrchestrationCallbackPath(PathString path) =>
+        path.StartsWithSegments(
+            AgentCallbackEnvironmentContract.OrchestrationRoutePrefix,
+            StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>

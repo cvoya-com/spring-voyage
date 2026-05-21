@@ -99,6 +99,9 @@ public partial class Program
 
         builder.Services.TryAddSingleton<ITenantSigningKeyProvider, DispatcherTenantSigningKeyProvider>();
         builder.Services.TryAddSingleton<CallbackTokenValidator>();
+        // #2582: surfaces callback-token rejections as warning logs +
+        // ErrorOccurred activities on the orchestration callback path.
+        builder.Services.TryAddSingleton<OrchestrationCallbackDiagnostics>();
         builder.Services.TryAddSingleton<IActorProxyFactory>(_ => new ActorProxyFactory(
             new ActorProxyOptions
             {
