@@ -7,8 +7,9 @@ using System;
 using System.Runtime.CompilerServices;
 
 /// <summary>
-/// Sets <c>SPRING_SECRETS_AES_KEY</c> and the dispatcher env vars for the
-/// duration of every test in this assembly.
+/// Sets <c>SPRING_SECRETS_AES_KEY</c>, the dispatcher env vars, and the
+/// orchestration callback base URL for the duration of every test in this
+/// assembly.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -28,11 +29,21 @@ using System.Runtime.CompilerServices;
 /// the malformed-URL branch.
 /// </para>
 /// <para>
+/// <c>OrchestrationCallback__BaseUrl</c> satisfies the now-mandatory
+/// <c>OrchestrationCallbackConfigurationRequirement</c> (#2597). The API
+/// host stamps this value onto every runtime container as
+/// <c>SPRING_CALLBACK_URL</c>; the validator aborts startup if it is unset
+/// or malformed. As with the dispatcher endpoint the value is never dialled
+/// from the test process — it just has to be a syntactically valid absolute
+/// http(s) URI.
+/// </para>
+/// <para>
 /// We set them once at module load (before any test factory builds a host)
 /// rather than on every <c>UseSetting</c> call site, which keeps the bare
 /// <c>new WebApplicationFactory&lt;Program&gt;()</c> usages across the
-/// suite from each having to learn the dispatcher contract. Existing
-/// values are preserved so an operator can override them at the shell.
+/// suite from each having to learn the dispatcher / orchestration-callback
+/// contract. Existing values are preserved so an operator can override them
+/// at the shell.
 /// </para>
 /// </remarks>
 internal static class SecretsTestEnvironmentInitializer
@@ -59,6 +70,11 @@ internal static class SecretsTestEnvironmentInitializer
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Dispatcher__BearerToken")))
         {
             Environment.SetEnvironmentVariable("Dispatcher__BearerToken", "test-token");
+        }
+
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("OrchestrationCallback__BaseUrl")))
+        {
+            Environment.SetEnvironmentVariable("OrchestrationCallback__BaseUrl", "http://spring-caddy:8443/");
         }
     }
 }
