@@ -29,5 +29,18 @@ public enum OrchestrationDecisionStatus
     /// carries the runtime's rationale; failure detail is captured in
     /// the activity stream.
     /// </summary>
-    Failed
+    Failed,
+
+    /// <summary>
+    /// The runtime <i>decided</i> to route work but the decision was
+    /// never executed — the orchestration tool was unavailable in the
+    /// runtime's tool surface, the model failed to invoke it, or the
+    /// invocation was rejected before any delivery attempt (issue
+    /// #2581). Distinct from <see cref="Failed"/>, which is a delivery
+    /// that was attempted and failed. Self-reported by the runtime via
+    /// the <c>sv.report_decision</c> tool; the
+    /// <see cref="OrchestrationDecision.Metadata"/> carries the
+    /// machine-readable not-executed reason.
+    /// </summary>
+    NotExecuted
 }

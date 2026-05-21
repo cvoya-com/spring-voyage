@@ -59,6 +59,20 @@ public class ClaudeCodeLauncher(
     internal const string SpringOrchestrationMcpServerName = "spring-orchestration";
 
     /// <summary>
+    /// Workspace-relative file name of the MCP config the Claude Code CLI
+    /// reads its <c>spring-orchestration</c> server definition from.
+    /// </summary>
+    internal const string McpConfigFileName = ".mcp.json";
+
+    /// <summary>
+    /// Env var the A2A sidecar reads to locate the MCP config file whose
+    /// <c>spring-orchestration</c> <c>Authorization</c> header it refreshes
+    /// with the per-message callback token before each exec (#2580). Read
+    /// by <c>src/Cvoya.Spring.AgentSidecar/src/orchestration-mcp.ts</c>.
+    /// </summary>
+    internal const string OrchestrationMcpConfigEnvVar = "SPRING_ORCHESTRATION_MCP_CONFIG";
+
+    /// <summary>
     /// Bridge env var name carrying the CLI flag that *creates* a session
     /// with a supplied id (ADR-0041 / #2094). Read by
     /// `src/Cvoya.Spring.AgentSidecar/src/config.ts:parseThreadBinding`.
@@ -266,10 +280,22 @@ public class ClaudeCodeLauncher(
                 url = LauncherCallbackEnvironment.BuildOrchestrationMcpUrl(envVars),
                 headers = new Dictionary<string, string>
                 {
+                    // Launch-time placeholder only. The launcher-minted callback
+                    // token has a 5-minute lifetime (CallbackTokenOptions.Lifetime);
+                    // a persistent container outlives it. The A2A sidecar rewrites
+                    // this header with the per-message callback token before every
+                    // exec — see OrchestrationMcpConfigEnvVar / #2580.
                     ["Authorization"] = $"Bearer {envVars[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}"
                 }
             };
-            workspaceFiles[".mcp.json"] = SerializeMcpConfig(mcpConfig);
+            workspaceFiles[McpConfigFileName] = SerializeMcpConfig(mcpConfig);
+
+            // #2580: point the sidecar at the on-disk MCP config so it can
+            // refresh the spring-orchestration token per turn. The container
+            // bind-mounts the workspace at WorkspaceMountPath; the launcher
+            // writes .mcp.json into that workspace root.
+            envVars[OrchestrationMcpConfigEnvVar] =
+                $"{WorkspaceMountPath}/{McpConfigFileName}";
         }
 
         // #1714 step 2: inject the Claude OAuth token into

@@ -157,6 +157,34 @@ public class CodexLauncherTests
     }
 
     [Fact]
+    public async Task PrepareAsync_OrchestrationToolsPresent_SetsMcpConfigPathEnvVarForSidecar()
+    {
+        // #2580: the sidecar refreshes the spring-orchestration callback
+        // token in .mcp.json per turn; the launcher must point it at the
+        // on-disk config file via SPRING_ORCHESTRATION_MCP_CONFIG.
+        var context = LauncherCallbackTestSupport.CreateContext() with
+        {
+            OrchestrationTools = CreateOrchestrationTools()
+        };
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
+        prep.EnvironmentVariables["SPRING_ORCHESTRATION_MCP_CONFIG"]
+            .ShouldBe("/workspace/.mcp.json");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OrchestrationToolsAbsent_DoesNotSetMcpConfigPathEnvVar()
+    {
+        var context = LauncherCallbackTestSupport.CreateContext();
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldNotContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
+    }
+
+    [Fact]
     public async Task PrepareAsync_InjectsOpenAiApiKey_FromCredentialResolver()
     {
         // #1714 step 2: Codex resolves the OpenAI API key through the

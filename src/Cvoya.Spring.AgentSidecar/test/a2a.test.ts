@@ -159,6 +159,94 @@ describe("A2AHandler.handle", () => {
     assert.equal(artifacts[0]?.parts[0]?.text, "launch-token");
   });
 
+  // #2580: the bridge refreshes the spring-orchestration callback token in
+  // .mcp.json before each exec, so a persistent container never dials the
+  // dispatcher with the expired launch-time token.
+  it("refreshes the spring-orchestration token in .mcp.json before each exec", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sv-a2a-mcp-"));
+    try {
+      const configPath = path.join(dir, ".mcp.json");
+      fs.writeFileSync(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            "spring-orchestration": {
+              type: "http",
+              url: "http://callback",
+              headers: { Authorization: "Bearer launch-time-stale-token" },
+            },
+          },
+        }),
+      );
+
+      const handler = makeHandler(
+        [PROCESS_NODE, "-e", "process.stdout.write('ok')"],
+        {
+          PATH: process.env.PATH,
+          SPRING_ORCHESTRATION_MCP_CONFIG: configPath,
+        },
+      );
+
+      await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: {
+          message: {
+            metadata: { callbackToken: "fresh-per-message-token" },
+            parts: [{ text: "ping" }],
+          },
+        },
+        id: "mcp-refresh",
+      });
+
+      const refreshed = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      assert.equal(
+        refreshed.mcpServers["spring-orchestration"].headers.Authorization,
+        "Bearer fresh-per-message-token",
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves .mcp.json untouched when a message carries no callback token", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sv-a2a-mcp-"));
+    try {
+      const configPath = path.join(dir, ".mcp.json");
+      const original = JSON.stringify({
+        mcpServers: {
+          "spring-orchestration": {
+            type: "http",
+            url: "http://callback",
+            headers: { Authorization: "Bearer launch-token" },
+          },
+        },
+      });
+      fs.writeFileSync(configPath, original);
+
+      const handler = makeHandler(
+        [PROCESS_NODE, "-e", "process.stdout.write('ok')"],
+        { PATH: process.env.PATH, SPRING_ORCHESTRATION_MCP_CONFIG: configPath },
+      );
+
+      await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { parts: [{ text: "ping" }] } },
+        id: "mcp-no-token",
+      });
+
+      // No per-message token → the launch-time token is left as-is.
+      assert.equal(
+        JSON.parse(fs.readFileSync(configPath, "utf8")).mcpServers["spring-orchestration"]
+          .headers.Authorization,
+        "Bearer launch-token",
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("reports failed state with stderr text on non-zero CLI exit (A2A v0.3 wire shape)", async () => {
     // Wire shape (issue #1198): flat AgentTask with kind: "task", state
     // "failed" (kebab-case-lower), and status.message carrying kind: "message",

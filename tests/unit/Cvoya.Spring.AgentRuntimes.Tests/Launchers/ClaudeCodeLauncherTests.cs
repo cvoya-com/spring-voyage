@@ -142,6 +142,37 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
+    public async Task PrepareAsync_OrchestrationToolsPresent_SetsMcpConfigPathEnvVarForSidecar()
+    {
+        // #2580: the sidecar refreshes the spring-orchestration callback
+        // token in .mcp.json per turn; the launcher must point it at the
+        // on-disk config file via SPRING_ORCHESTRATION_MCP_CONFIG.
+        var context = CreateContext(CreateOrchestrationTools());
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
+        prep.EnvironmentVariables["SPRING_ORCHESTRATION_MCP_CONFIG"]
+            .ShouldBe("/workspace/.mcp.json");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PrepareAsync_OrchestrationToolsAbsent_DoesNotSetMcpConfigPathEnvVar(
+        bool useEmptyTools)
+    {
+        // Without orchestration tools there is no spring-orchestration
+        // block to refresh — the sidecar env var stays unset.
+        var context = CreateContext(
+            useEmptyTools ? Array.Empty<OrchestrationToolDescriptor>() : null);
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldNotContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
+    }
+
+    [Fact]
     public async Task PrepareAsync_LeavesArgvEmpty_SoAgentBaseBridgeOwnsTheEntrypoint()
     {
         // BYOI conformance path 1: an empty Argv tells the dispatcher to
