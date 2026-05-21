@@ -6,7 +6,6 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Execution;
-using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Runtime;
@@ -331,6 +330,15 @@ public static class OrchestrationCallbackEndpoints
     /// wrapped as <c>{ content: &lt;string&gt; }</c> (mirroring the REST
     /// <see cref="BuildMessage"/>); a JSON object is passed through; any other
     /// shape (or a missing argument) yields an empty object payload.
+    /// <para>
+    /// <c>ThreadId</c> is intentionally left <c>null</c> (#2596 / ADR-0030):
+    /// the delivery hop owns thread identity. <c>MessageDeliveryService</c>
+    /// resolves the thread from the <c>(caller, target)</c> participant set
+    /// for each delivery, so stamping the caller's upstream
+    /// <c>claims.ThreadId</c> here would just be overwritten — and, if it
+    /// ever leaked through, would collapse distinct conversation hops onto
+    /// one thread.
+    /// </para>
     /// </summary>
     private static Message BuildMcpMessage(CallbackToken claims, Address target, JsonElement payload)
     {
@@ -339,7 +347,7 @@ public static class OrchestrationCallbackEndpoints
             claims.AgentAddress,
             target,
             MessageType.Domain,
-            GuidFormatter.Format(claims.ThreadId),
+            ThreadId: null,
             payload,
             DateTimeOffset.UtcNow);
     }
@@ -695,6 +703,13 @@ public static class OrchestrationCallbackEndpoints
         return true;
     }
 
+    /// <summary>
+    /// Builds the <see cref="Message"/> envelope for a REST <c>sv.messaging.*</c>
+    /// call. <c>ThreadId</c> is left <c>null</c> (#2596 / ADR-0030):
+    /// <c>MessageDeliveryService</c> resolves the thread from the
+    /// <c>(caller, target)</c> participant set per delivery hop, so the
+    /// envelope built here must not carry the caller's upstream thread.
+    /// </summary>
     private static Message BuildMessage(
         CallbackToken claims,
         Address target,
@@ -709,7 +724,7 @@ public static class OrchestrationCallbackEndpoints
             claims.AgentAddress,
             target,
             MessageType.Domain,
-            GuidFormatter.Format(claims.ThreadId),
+            ThreadId: null,
             payload,
             DateTimeOffset.UtcNow);
     }

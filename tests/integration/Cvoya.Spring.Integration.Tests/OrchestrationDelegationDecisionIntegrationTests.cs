@@ -230,17 +230,20 @@ public class OrchestrationDelegationDecisionIntegrationTests
             InitialBackoff = TimeSpan.FromMilliseconds(1),
         });
 
+        var scopeFactory = new ThreadRegistryServiceScopeFactory();
+
         var deliveryService = new MessageDeliveryService(
             agentProxyResolver,
             actorProxyFactory,
             new SingleTenantOrchestrationTenantResolver(),
+            scopeFactory,
             Substitute.For<ILogger<MessageDeliveryService>>(),
             deliveryOptions);
 
         var handlers = new MessagingToolHandlers(
             deliveryService,
             Substitute.For<IUnitMemberGraphStore>(),
-            new EmptyServiceScopeFactory(),
+            scopeFactory,
             activityEventBus,
             Substitute.For<ILogger<MessagingToolHandlers>>());
 
@@ -277,20 +280,55 @@ public class OrchestrationDelegationDecisionIntegrationTests
     }
 
     /// <summary>
-    /// A scope factory whose scopes resolve nothing — the explicit-address
-    /// broadcast / send paths exercised here never resolve the membership
-    /// repositories.
+    /// A scope factory whose scopes resolve an in-memory
+    /// <see cref="IThreadRegistry"/> — the explicit-address broadcast / send
+    /// paths exercised here never resolve the membership repositories, but
+    /// the delivery seam re-resolves a per-hop thread (#2596).
     /// </summary>
-    private sealed class EmptyServiceScopeFactory : IServiceScopeFactory, IServiceScope, IServiceProvider
+    private sealed class ThreadRegistryServiceScopeFactory
+        : IServiceScopeFactory, IServiceScope, IServiceProvider
     {
+        private readonly RecordingThreadRegistry _threadRegistry = new();
+
         public IServiceScope CreateScope() => this;
 
         public IServiceProvider ServiceProvider => this;
 
-        public object? GetService(Type serviceType) => null;
+        public object? GetService(Type serviceType) =>
+            serviceType == typeof(IThreadRegistry) ? _threadRegistry : null;
 
         public void Dispose()
         {
         }
+    }
+
+    /// <summary>
+    /// Minimal in-memory <see cref="IThreadRegistry"/>: canonicalises the
+    /// participant set and reuses the same Guid for repeated lookups so the
+    /// delivery seam resolves a stable per-hop thread (#2596 / ADR-0030).
+    /// </summary>
+    private sealed class RecordingThreadRegistry : IThreadRegistry
+    {
+        private readonly Dictionary<string, string> _byKey = new(StringComparer.Ordinal);
+
+        public Task<string> GetOrCreateAsync(
+            IEnumerable<Address> participants, CancellationToken cancellationToken = default)
+        {
+            var key = string.Join('|', participants
+                .Select(a => $"{a.Scheme.ToLowerInvariant()}:{GuidFormatter.Format(a.Id)}")
+                .OrderBy(s => s, StringComparer.Ordinal)
+                .Distinct());
+            if (!_byKey.TryGetValue(key, out var id))
+            {
+                id = GuidFormatter.Format(Guid.NewGuid());
+                _byKey[key] = id;
+            }
+
+            return Task.FromResult(id);
+        }
+
+        public Task<ThreadRegistryEntry?> ResolveAsync(
+            string threadId, CancellationToken cancellationToken = default)
+            => Task.FromResult<ThreadRegistryEntry?>(null);
     }
 }

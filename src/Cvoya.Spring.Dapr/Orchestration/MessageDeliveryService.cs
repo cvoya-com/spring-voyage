@@ -11,6 +11,7 @@ using Cvoya.Spring.Dapr.Routing;
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -42,11 +43,22 @@ public sealed record BroadcastTargetAck(
 /// <see cref="MessagingToolHandlers"/> uses this service to validate the
 /// caller / target, bound the per-thread hop count, and synchronously
 /// deliver a message to one or many mailboxes with bounded retry.
+/// <para>
+/// Each delivery resolves its own thread from the <c>(caller, target)</c>
+/// participant set via <see cref="IThreadRegistry"/> (#2596 / ADR-0030).
+/// A message delivered by <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c>
+/// carries the thread of <i>that</i> hop's participant set — it never
+/// inherits the caller's upstream <see cref="Message.ThreadId"/>. The actor
+/// mailbox keys its per-thread FIFO channel and dispatch-cancellation scope
+/// on this id, so a distinct participant set must resolve to a distinct
+/// thread or unrelated conversations collide.
+/// </para>
 /// </summary>
 public class MessageDeliveryService(
     IAgentProxyResolver agentProxyResolver,
     IActorProxyFactory actorProxyFactory,
     IOrchestrationTenantResolver tenantResolver,
+    IServiceScopeFactory scopeFactory,
     ILogger<MessageDeliveryService> logger,
     IOptions<OrchestrationDeliveryOptions>? deliveryOptions = null)
 {
@@ -183,10 +195,20 @@ public class MessageDeliveryService(
                 OrchestrationException.RejectCodes.OrchestrationDeliveryFailed,
                 $"Could not resolve message-delivery target '{target}'.");
 
+        // #2596 / ADR-0030 — this delivery is its own conversation hop:
+        // resolve the thread from the (caller, target) participant set so the
+        // outbound message lands on a thread distinct from the caller's
+        // upstream conversation. Inheriting message.ThreadId would collapse
+        // every unit→agent and agent→agent exchange triggered by one inbound
+        // event onto a single thread, colliding their mailbox FIFO channels
+        // and dispatch-cancellation scopes.
+        var threadId = await ResolveHopThreadAsync(caller, target, ct);
+
         var outbound = message with
         {
             From = caller,
             To = target,
+            ThreadId = threadId,
         };
 
         var deadline = DateTimeOffset.UtcNow + _deliveryOptions.Budget;
@@ -246,6 +268,26 @@ public class MessageDeliveryService(
             $"Delivery of message '{message.Id}' to '{target}' failed after " +
             $"{_deliveryOptions.MaxAttempts} attempt(s) within the delivery budget.",
             lastTransient ?? new InvalidOperationException("Delivery failed."));
+    }
+
+    /// <summary>
+    /// Resolves the thread id for one delivery hop from its
+    /// <c>(caller, target)</c> participant set (#2596 / ADR-0030). The same
+    /// pair always resolves to the same thread; a different pair — a
+    /// different target, a different caller — produces a different set, hence
+    /// a different thread. <see cref="IThreadRegistry"/> is scoped (EF-backed)
+    /// while this service is a singleton, so a DI scope is opened per
+    /// delivery, matching the pattern <see cref="MessagingToolHandlers"/>
+    /// uses for its own scoped collaborators.
+    /// </summary>
+    private async Task<string> ResolveHopThreadAsync(
+        Address caller,
+        Address target,
+        CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var threadRegistry = scope.ServiceProvider.GetRequiredService<IThreadRegistry>();
+        return await threadRegistry.GetOrCreateAsync(new[] { caller, target }, ct);
     }
 
     private static bool AddressEquals(Address left, Address right) =>
