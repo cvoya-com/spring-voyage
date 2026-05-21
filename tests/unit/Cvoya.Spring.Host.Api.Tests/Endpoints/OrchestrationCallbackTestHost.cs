@@ -140,9 +140,12 @@ public sealed class OrchestrationCallbackTestHost : IDisposable
     /// </summary>
     public string IssueExpiredToken(Address caller)
     {
+        // Pin a short lifetime so the token issued an hour in the past is
+        // unambiguously expired regardless of the production
+        // CallbackTokenOptions.Lifetime default (which #2592 raised to 60m).
         var issuer = new CallbackTokenIssuer(
             _keyProvider,
-            Options.Create(new CallbackTokenOptions()),
+            Options.Create(new CallbackTokenOptions { Lifetime = TimeSpan.FromMinutes(1) }),
             new FixedTimeProvider(DateTimeOffset.UtcNow.AddHours(-1)));
 
         return issuer.Issue(new CallbackToken(

@@ -281,7 +281,7 @@ public class ClaudeCodeLauncher(
                 headers = new Dictionary<string, string>
                 {
                     // Launch-time placeholder only. The launcher-minted callback
-                    // token has a 5-minute lifetime (CallbackTokenOptions.Lifetime);
+                    // token is short-lived (CallbackTokenOptions.Lifetime);
                     // a persistent container outlives it. The A2A sidecar rewrites
                     // this header with the per-message callback token before every
                     // exec — see OrchestrationMcpConfigEnvVar / #2580.

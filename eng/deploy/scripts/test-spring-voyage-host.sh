@@ -179,18 +179,21 @@ ok "second start no-op (pid unchanged)"
 
 step "case 4 — status reports pid, url, version"
 STATUS_OUT="$("${HOST_SCRIPT}" status 2>&1)"
-echo "${STATUS_OUT}" | grep -q "pid=${PID_AFTER_FIRST_START}" \
+# grep from a here-string, not `echo … | grep -q`: under `set -o pipefail`
+# `grep -q` closes the pipe on its first match and the still-writing `echo`
+# dies with EPIPE, failing the pipeline even though the match succeeded.
+grep -q "pid=${PID_AFTER_FIRST_START}" <<<"${STATUS_OUT}" \
     || fail "status missing 'pid=${PID_AFTER_FIRST_START}': ${STATUS_OUT}"
-echo "${STATUS_OUT}" | grep -q "http://${TEST_HOST}:${TEST_PORT}" \
+grep -q "http://${TEST_HOST}:${TEST_PORT}" <<<"${STATUS_OUT}" \
     || fail "status missing url 'http://${TEST_HOST}:${TEST_PORT}': ${STATUS_OUT}"
-echo "${STATUS_OUT}" | grep -q "version:" \
+grep -q "version:" <<<"${STATUS_OUT}" \
     || fail "status missing 'version:' line: ${STATUS_OUT}"
 ok "status output includes pid, url, version"
 
 step "case 5 — restart --rebuild republishes, yields a new PID, /health still 200, persisted token preserved"
 TOKEN_BEFORE_RESTART="${TOKEN_VALUE}"
 RESTART_OUT="$("${HOST_SCRIPT}" restart --rebuild 2>&1)"
-echo "${RESTART_OUT}" | grep -q "publishing dispatcher to ${PUBLISH_DIR}" \
+grep -q "publishing dispatcher to ${PUBLISH_DIR}" <<<"${RESTART_OUT}" \
     || fail "restart --rebuild did not publish dispatcher: ${RESTART_OUT}"
 PID_AFTER_RESTART="$(read_pid)"
 [[ -n "${PID_AFTER_RESTART}" ]] || fail "restart left no PID file"

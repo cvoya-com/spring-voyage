@@ -76,6 +76,12 @@ public sealed class WorkspaceMaterializer(
     IOptions<DispatcherOptions> options,
     ILoggerFactory loggerFactory) : IWorkspaceMaterializer
 {
+    // The static Encoding.UTF8 emits a UTF-8 BOM. A BOM at the start of a
+    // workspace file breaks strict JSON consumers — the sidecar's per-turn
+    // `.mcp.json` callback-token refresh does `JSON.parse` and throws on the
+    // leading U+FEFF. Workspace files MUST be written as UTF-8 with no BOM.
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+
     private readonly ILogger _logger = loggerFactory.CreateLogger<WorkspaceMaterializer>();
     private readonly DispatcherOptions _options = options.Value;
     private readonly ConcurrentDictionary<string, MaterializedWorkspace> _byContainer =
@@ -139,8 +145,8 @@ public sealed class WorkspaceMaterializer(
                     ApplyWorldReadable(parent);
                 }
 
-                await File.WriteAllTextAsync(safePath, content ?? string.Empty, Encoding.UTF8, cancellationToken);
-                ApplyWorldReadableFile(safePath);
+                await File.WriteAllTextAsync(safePath, content ?? string.Empty, Utf8NoBom, cancellationToken);
+                ApplyWorldWritableFile(safePath);
             }
         }
         catch
@@ -179,9 +185,21 @@ public sealed class WorkspaceMaterializer(
     }
 
     /// <summary>
-    /// Sets a file's mode to 0644 on Unix-like systems. No-op on Windows.
+    /// Sets a file's mode to 0666 on Unix-like systems. No-op on Windows.
     /// </summary>
-    private static void ApplyWorldReadableFile(string path)
+    /// <remarks>
+    /// World-<i>writable</i>, not just world-readable: the in-container
+    /// agent runs as a different uid than the dispatcher (see
+    /// <see cref="ApplyWorldReadable"/>), and the sidecar rewrites
+    /// <c>.mcp.json</c> in place on every turn to refresh the orchestration
+    /// callback token (#2580). A 0644 file owned by the dispatcher uid is
+    /// not writable by the agent uid — the refresh fails with
+    /// <c>EACCES</c>, the token is never rotated, and it expires mid-turn.
+    /// The workspace is a per-invocation, single-container, ephemeral bind
+    /// mount, so world-writable here grants nothing across a trust
+    /// boundary.
+    /// </remarks>
+    private static void ApplyWorldWritableFile(string path)
     {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
         {
@@ -190,8 +208,8 @@ public sealed class WorkspaceMaterializer(
 
         const UnixFileMode fileMode =
             UnixFileMode.UserRead | UnixFileMode.UserWrite |
-            UnixFileMode.GroupRead |
-            UnixFileMode.OtherRead;
+            UnixFileMode.GroupRead | UnixFileMode.GroupWrite |
+            UnixFileMode.OtherRead | UnixFileMode.OtherWrite;
         File.SetUnixFileMode(path, fileMode);
     }
 

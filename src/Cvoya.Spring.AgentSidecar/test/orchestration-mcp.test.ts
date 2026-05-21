@@ -109,6 +109,33 @@ describe("refreshOrchestrationToken", () => {
     assert.match(result.warning ?? "", /not valid JSON/);
   });
 
+  it("refreshes a config written with a leading UTF-8 BOM", () => {
+    // .NET's static Encoding.UTF8 emits a BOM; the launcher's
+    // WorkspaceMaterializer used to write `.mcp.json` that way. JSON.parse
+    // rejects the BOM, so the refresh must strip it first.
+    const configPath = path.join(workdir, ".mcp.json");
+    const body = JSON.stringify(
+      {
+        mcpServers: {
+          "spring-orchestration": {
+            type: "http",
+            url: "http://callback",
+            headers: { Authorization: "Bearer launch-token" },
+          },
+        },
+      },
+      null,
+      2,
+    );
+    fs.writeFileSync(configPath, `﻿${body}`);
+
+    const result = refreshOrchestrationToken(configPath, "fresh-token");
+
+    assert.equal(result.refreshed, true);
+    assert.equal(result.warning, undefined);
+    assert.equal(readAuth(configPath, "spring-orchestration"), "Bearer fresh-token");
+  });
+
   it("is idempotent across repeated refreshes (simulating per-turn execs)", () => {
     const configPath = writeConfig({
       mcpServers: {

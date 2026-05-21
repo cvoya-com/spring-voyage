@@ -26,12 +26,20 @@ public class CallbackTokenOptions
     public const string Audience = "spring-voyage-runtime";
 
     /// <summary>
-    /// Token lifetime. Defaults to five minutes — long enough to absorb
-    /// runtime-launch latency on a cold container start, short enough that
-    /// a leaked token rotates out before it can be replayed across
-    /// invocations.
+    /// Token lifetime. Minted once at the start of a runtime turn and not
+    /// renewed within that turn, so it must outlast the whole turn.
+    /// <para>
+    /// INTERIM (#2592): raised to 60 minutes. The original 5-minute default
+    /// was shorter than a realistic engineer-agent turn (clone, implement,
+    /// build, test, open PR) — the token expired mid-turn and every
+    /// subsequent <c>sv.messaging.*</c> call failed with "token rejected:
+    /// Expired". 60 minutes covers a typical turn while still rotating out
+    /// of a leaked-token window. The proper fix is in-turn renewal so the
+    /// token survives an arbitrarily long turn without a wide static
+    /// window; this default reverts to a short lifetime when #2593 lands.
+    /// </para>
     /// </summary>
-    public TimeSpan Lifetime { get; set; } = TimeSpan.FromMinutes(5);
+    public TimeSpan Lifetime { get; set; } = TimeSpan.FromMinutes(60);
 
     /// <summary>
     /// Clock-skew tolerance applied during validation. Defaults to thirty

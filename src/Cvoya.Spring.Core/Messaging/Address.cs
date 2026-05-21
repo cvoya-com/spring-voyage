@@ -110,9 +110,10 @@ public record Address(
 
     /// <summary>
     /// Attempts to parse a string into an <see cref="Address"/>. Accepts
-    /// the canonical no-dash form (<c>scheme:8c5fab…</c>) and the dashed
+    /// the canonical no-dash form (<c>scheme:8c5fab…</c>), the dashed
     /// form (<c>scheme:8c5fab2a-8e7e-…</c>) — <see cref="Guid.TryParse"/>
-    /// is lenient.
+    /// is lenient — and a URI-style authority marker
+    /// (<c>scheme://8c5fab…</c>) which the portal and CLI runtimes emit.
     /// </summary>
     /// <param name="value">The string to parse.</param>
     /// <param name="address">When <c>true</c>, contains the parsed address.</param>
@@ -134,6 +135,16 @@ public record Address(
 
         var scheme = value[..sepIdx];
         var idPart = value[(sepIdx + 1)..];
+
+        // Lenient: tolerate a URI-style "//" authority marker after the
+        // scheme colon. The canonical wire form is scheme:<id>, but the
+        // platform's own portal and CLI runtimes routinely emit
+        // scheme://<id>; accept both so a routing call is not rejected on
+        // a cosmetic prefix.
+        if (idPart.StartsWith("//", StringComparison.Ordinal))
+        {
+            idPart = idPart[2..];
+        }
 
         if (!GuidFormatter.TryParse(idPart, out var id))
         {

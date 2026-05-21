@@ -82,6 +82,13 @@ export function refreshOrchestrationToken(
     };
   }
 
+  // Strip a leading UTF-8 BOM. `JSON.parse` rejects a BOM (`Unexpected
+  // token ﻿`), and a writer that emits one (e.g. .NET's static
+  // `Encoding.UTF8`) would otherwise silently disable the refresh.
+  if (raw.charCodeAt(0) === 0xfeff) {
+    raw = raw.slice(1);
+  }
+
   let config: unknown;
   try {
     config = JSON.parse(raw);
