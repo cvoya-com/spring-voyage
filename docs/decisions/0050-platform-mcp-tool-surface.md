@@ -54,6 +54,8 @@ With one delivery seam, delegation-loop prevention (#2576) is implemented once: 
 
 ### 5. Two MCP servers remain — for now
 
+> **Superseded (2026-05-21) by [ADR-0051](0051-unified-platform-mcp-auth-model.md).** ADR-0051 is the [#2589](https://github.com/cvoya-com/spring-voyage/issues/2589) decision this section deferred: the per-turn callback token folds into the MCP session token, and the two MCP servers consolidate into one under a single auth model. The rest of this ADR (the taxonomy, the messaging-only delivery surface) is unchanged.
+
 `sv.messaging.*` stays on the callback `spring-messaging` MCP server (it needs the per-turn callback token's delivery authority); the other `sv.*` tools stay on the worker `spring-voyage` server (long-lived MCP session token). The taxonomy is consistent across both. Consolidating the two servers under one auth model is a separate decision — tracked as [#2589](https://github.com/cvoya-com/spring-voyage/issues/2589).
 
 ## Consequences
