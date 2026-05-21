@@ -18,9 +18,11 @@ using Octokit;
 public class GitHubInstallationsClient(
     GitHubAppAuth auth,
     IInstallationTokenCache tokenCache,
-    ILoggerFactory loggerFactory) : IGitHubInstallationsClient
+    ILoggerFactory loggerFactory,
+    TimeProvider? timeProvider = null) : IGitHubInstallationsClient
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<GitHubInstallationsClient>();
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     /// <inheritdoc />
     public virtual async Task<IReadOnlyList<GitHubInstallation>> ListInstallationsAsync(
@@ -28,11 +30,25 @@ public class GitHubInstallationsClient(
     {
         var client = CreateAppJwtClient();
 
-        // Octokit's GetAllForCurrent authenticates against GET /app/installations,
-        // which requires the App JWT (NOT an installation token). Returning the
-        // raw Octokit list lets the default impl stay thin; the private cloud
-        // repo is free to filter / reshape.
-        var installations = await client.GitHubApps.GetAllInstallationsForCurrent();
+        IReadOnlyList<Installation> installations;
+        try
+        {
+            // Octokit's GetAllForCurrent authenticates against GET /app/installations,
+            // which requires the App JWT (NOT an installation token). Returning the
+            // raw Octokit list lets the default impl stay thin; the private cloud
+            // repo is free to filter / reshape.
+            installations = await client.GitHubApps.GetAllInstallationsForCurrent();
+        }
+        catch (ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            // GitHub rejected the App JWT with a 401 ("Bad credentials"). Before
+            // surfacing that misleading message, check whether the real cause is
+            // a skewed container clock: GitHub stamps even a 401 with a trusted
+            // `Date` header, so comparing it against the local clock tells us
+            // whether the JWT's `exp` was computed from a stale clock (#2595).
+            ThrowIfClockSkew(ex);
+            throw;
+        }
 
         _logger.LogInformation(
             "GitHub App sees {Count} installation(s)",
@@ -41,6 +57,28 @@ public class GitHubInstallationsClient(
         return installations
             .Select(MapInstallation)
             .ToList();
+    }
+
+    // Inspects a 401 from the App-JWT path for gross clock skew and, when
+    // found, rethrows as a GitHubClockSkewException whose message is actionable
+    // on its own. GitHubConnectorType's endpoint catch-alls surface ex.Message
+    // verbatim, so the developer-facing wizard error becomes the skew guidance
+    // instead of GitHub's raw "Bad credentials" string (#2595).
+    private void ThrowIfClockSkew(ApiException ex)
+    {
+        var skew = GitHubClockSkewDetector.TryDetect(ex, _timeProvider.GetUtcNow());
+        if (skew is null)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            ex,
+            "GitHub rejected the App JWT with 401; detected gross clock skew. " +
+            "Surfacing the clock-skew guidance instead of GitHub's " +
+            "'Bad credentials' message.");
+
+        throw skew;
     }
 
     /// <inheritdoc />

@@ -208,6 +208,33 @@ public class GitHubConnectorTypeCredentialValidationTests
     }
 
     [Fact]
+    public async Task ValidateCredentialAsync_ClockSkewException_ReturnsNetworkErrorWithGuidance()
+    {
+        // #2595: GitHub rejected the App JWT with "Bad credentials" because the
+        // container clock is skewed. The detector rethrows as
+        // GitHubClockSkewException; validation must report NetworkError (the
+        // retriable, not-a-credential-problem bucket) with the actionable
+        // message — never Invalid, which would send the operator chasing
+        // credentials that are actually fine.
+        var sut = CreateSut(options: ConfiguredOptions(installationId: null));
+
+        const string skewMessage =
+            "The container clock appears to be 6 hours 46 minutes behind real time; " +
+            "resync the container/host clock and retry.";
+        _installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new GitHubClockSkewException(skewMessage));
+
+        var result = await sut.ValidateCredentialAsync(
+            credential: string.Empty,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        result.ShouldNotBeNull();
+        result!.Status.ShouldBe(CredentialValidationStatus.NetworkError);
+        result.Valid.ShouldBeFalse();
+        result.ErrorMessage.ShouldBe(skewMessage);
+    }
+
+    [Fact]
     public async Task ValidateCredentialAsync_ServerError_ReturnsNetworkError()
     {
         // 5xx is "the backing service couldn't tell us". Treat as

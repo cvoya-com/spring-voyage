@@ -98,6 +98,11 @@ RUNTIME_CONTAINER_NAME_PATTERN='^spring-(persistent|ephemeral|exec|dapr)-'
 # directly when they want to bounce the dispatcher in isolation.
 HOST_SCRIPT="${SCRIPT_DIR}/spring-voyage-host.sh"
 BUILD_SCRIPT="${SCRIPT_DIR}/build.sh"
+# Resyncs the podman-machine VM clock onto NTP time. On macOS/Windows the VM
+# clock freezes during host sleep and falls behind real time; a skewed clock
+# makes the GitHub connector sign already-expired App JWTs (#2595). `up` runs
+# this best-effort so a post-sleep deploy starts with an honest clock.
+CLOCK_SCRIPT="${SCRIPT_DIR}/resync-container-clock.sh"
 
 # Path to the file the host script writes after `spring-voyage-host.sh
 # start` resolves the bearer token, port, and tenant. Sourced before
@@ -1071,12 +1076,35 @@ wait_sidecar_ready() {
     return 0
 }
 
+# Best-effort podman-machine clock resync. The libkrun/QEMU VM clock freezes
+# during host sleep (macOS/Windows) and falls behind real time; containers
+# inherit the skew, so the GitHub connector signs App JWTs that GitHub rejects
+# as "Bad credentials" (#2595). Running this on `up` means a deploy started
+# after the host has slept begins with an honest clock. NEVER aborts the
+# deploy — a missing script, no podman machine (native Linux), or a resync
+# failure is logged and skipped.
+resync_podman_machine_clock() {
+    if [[ ! -x "${CLOCK_SCRIPT}" ]]; then
+        log "clock-resync script not found at ${CLOCK_SCRIPT}; skipping clock check"
+        return 0
+    fi
+    log "checking podman-machine clock skew (#2595)"
+    if ! "${CLOCK_SCRIPT}"; then
+        log "warning: podman-machine clock resync did not complete; if the GitHub"
+        log "  connector later reports 'Bad credentials', run ${CLOCK_SCRIPT##"${REPO_ROOT}"/} manually"
+    fi
+    return 0
+}
+
 # ---------- commands ----------
 
 cmd_up() {
     parse_up_options "$@"
     require podman
     load_env
+    # Resync the container clock before starting the stack so the GitHub
+    # connector never signs App JWTs with a post-sleep-skewed clock (#2595).
+    resync_podman_machine_clock
     configure_local_ollama
     ensure_network "${NETWORK_NAME}"
     # Tenant network must exist before start_ollama tries to dual-attach.
