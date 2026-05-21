@@ -80,11 +80,6 @@ public class UnitRuntimeDispatchVisibilityTests
             .GetByIdAsync(subject.Path, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(subject.Path, "Misconfigured unit", "Coordinate the work.", null));
 
-        var toolProvider = Substitute.For<IMessagingToolProvider>();
-        toolProvider
-            .GetMessagingTools(Arg.Any<Address>(), Arg.Any<Guid>())
-            .Returns(Array.Empty<MessagingToolDescriptor>());
-
         var dispatcher = Substitute.For<IExecutionDispatcher>();
         dispatcher
             .DispatchAsync(
@@ -110,8 +105,6 @@ public class UnitRuntimeDispatchVisibilityTests
         return new RuntimeInvocationPath(
             definitionProvider,
             Array.Empty<ISkillRegistry>(),
-            toolProvider,
-            coordinator,
-            Substitute.For<ILogger<RuntimeInvocationPath>>());
+            coordinator);
     }
 }

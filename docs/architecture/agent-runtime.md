@@ -218,49 +218,44 @@ is assertable in scenarios.
 
 ---
 
-## 4. MCP callback channel
+## 4. MCP channel
 
-`IMcpServer` issues a short-lived per-invocation token and exposes
-`McpEndpoint` — the URL the container can reach the platform on (typically
+`IMcpServer` issues a per-turn session token and exposes `McpEndpoint` — the
+URL the container can reach the platform on (typically
 `http://host.docker.internal:<port>/mcp`). The launcher stamps both into the
-container env (`SPRING_MCP_URL`, `SPRING_MCP_TOKEN`), and the agent
-inside the container calls `tools/list` to discover callable skills and
-`tools/call` to invoke them.
+container env (`SPRING_MCP_URL`, `SPRING_MCP_TOKEN`), and the agent inside the
+container calls `tools/list` to discover callable skills and `tools/call` to
+invoke them.
 
-The session is revoked in the dispatcher's `finally` block for the ephemeral
+Per ADR-0051 this is the **single** platform MCP server: it serves every
+`sv.*` tool — `sv.directory.*`, `sv.memory.*`, `sv.runtime.*`,
+`sv.expertise.*`, **and** `sv.messaging.*` — under one auth model, the MCP
+session bearer token. The session is minted per turn and carries the inbound
+message id, so `sv.messaging.*` inherits the per-turn `(tenant, agentAddress,
+threadId, messageId)` delivery authority the retired callback JWT used to
+carry. It is revoked in the dispatcher's `finally` block for the ephemeral
 path; persistent agents reuse a stable session id derived from the agent id.
 
 See [Workflows](workflows.md) for the sidecar-protocol layer diagram.
 
 ---
 
-## 4a. Messaging callback bootstrap
+## 4a. OTLP-ingest bootstrap
 
-Every built-in launcher stamps the dispatcher messaging callback bootstrap
-into the runtime container:
+Every built-in launcher stamps the OTLP-ingest bootstrap into the runtime
+container so the in-container agent and SDK can ship spans and logs:
 
 | Env var | Source | Purpose |
 | --- | --- | --- |
-| `SPRING_CALLBACK_URL` | Worker `Dispatcher:BaseUrl` | Dispatcher base URL the Agent SDK uses to reach callback APIs. |
-| `SPRING_CALLBACK_TOKEN` | Per-invocation callback JWT | Authenticates callbacks and scopes them to `(tenantId, agentAddress, threadId, messageId)`. |
+| `SPRING_CALLBACK_URL` | Worker `Dispatcher:BaseUrl` | API-host base URL the launcher derives the `/otlp` ingest endpoint from. |
+| `SPRING_CALLBACK_TOKEN` | Per-invocation JWT | Authenticates OTLP ingest; scoped to `(tenantId, agentAddress, threadId, messageId)`. |
 
-The launcher path uses the same callback-token contract the dispatcher
-validates for ADR-0039 D12/D13. Ephemeral launches receive a token for the
-inbound message being served. CLI-sidecar launchers append
-`/v1/runtime/orchestration` when configuring the `spring-orchestration` MCP server;
-the raw env var remains the dispatcher base URL for SDK clients.
-
-The callback JWT is short-lived (`CallbackTokenOptions.Lifetime`, 5 minutes),
-so a persistent container would otherwise lose `sv.messaging.send` /
-`sv.messaging.broadcast` once the launch-time token in `.mcp.json` expired.
-The A2A sidecar therefore refreshes the `spring-orchestration` server's
-`Authorization` header in `.mcp.json` before every CLI exec, using the
-per-message callback token delivered in the `message/send` metadata
-([#2580](https://github.com/cvoya-com/spring-voyage/issues/2580)). The
-launcher points the sidecar at the config file via
-`SPRING_ORCHESTRATION_MCP_CONFIG`; the CLI re-reads `.mcp.json` on each
-process start, so every turn dials the dispatcher with a fresh,
-correctly thread-scoped token.
+These two env vars are the **OTLP-ingest credential only** — ADR-0051 retired
+the per-turn callback JWT as the messaging credential, but the OTLP-ingest
+plane (`OtlpCallbackAuthHandler`) still validates this token shape. Messaging
+no longer needs a separate MCP server or a per-turn token refresh: `.mcp.json`
+carries one server (`spring-voyage`) with the long-lived MCP session token,
+which already lives exactly as long as the turn.
 
 ---
 
@@ -295,20 +290,22 @@ worker `spring-voyage` MCP server (`sv.directory.list_members`,
 [Platform MCP Tools](platform-mcp-tools.md) for the full `sv.<area>.<verb>`
 catalogue.
 
-The delivery handlers are exposed through two runtime-facing surfaces:
+The delivery handlers are exposed through two runtime-facing surfaces, both
+calling the **same single platform MCP server** (ADR-0051):
 
 | Surface | Runtime style | Runtimes | Attachment |
 | --- | --- | --- | --- |
-| MCP tool calls | LLM-driven | `spring-voyage`, `claude-code`, `codex`, `gemini` | The launcher attaches the `spring-orchestration` MCP server alongside the worker `spring-voyage` server. |
-| Typed HTTP callback SDK | Workflow-driven | Runtime images using `Cvoya.Spring.AgentSdk` | The launcher stamps `SPRING_CALLBACK_URL` and `SPRING_CALLBACK_TOKEN` into the container environment. The SDK discovers those values and exposes typed messaging-delivery methods over the dispatcher's callback API. |
+| MCP tool calls | LLM-driven | `spring-voyage`, `claude-code`, `codex`, `gemini` | The launcher attaches the single `spring-voyage` MCP server, which serves `sv.messaging.*` alongside every other `sv.*` tool. |
+| Typed `MessagingClient` | Workflow-driven | Runtime images using `Cvoya.Spring.AgentSdk` | The launcher stamps `SPRING_MCP_URL` and `SPRING_MCP_TOKEN` into the container environment. `MessagingClient` calls `sv.messaging.*` over JSON-RPC `tools/call` against that same MCP server. |
 
 Both surfaces dispatch to the same platform-side
 [`MessagingToolHandlers`](../../src/Cvoya.Spring.Dapr/Orchestration/MessagingToolHandlers.cs)
-implementation. The SDK surface lives in
+implementation, re-fronted as the `SvMessagingSkillRegistry` on the platform
+MCP server. The SDK surface lives in
 [`src/Cvoya.Spring.AgentSdk/`](../../src/Cvoya.Spring.AgentSdk/) and is
 documented in [Agent SDK](agent-sdk.md). The MCP surface — the taxonomy, the
-two MCP servers, the messaging contract, and the per-thread hop counter — is
-documented in [Platform MCP Tools](platform-mcp-tools.md).
+single MCP server, the messaging contract, and the per-thread hop counter —
+is documented in [Platform MCP Tools](platform-mcp-tools.md).
 
 With a single delivery seam, delegation-loop prevention is implemented once: a
 per-thread hop counter incremented on every `sv.messaging.send` /
@@ -317,25 +314,21 @@ validation-class `OrchestrationDepthExceeded` tool error.
 
 ## 4c. Launcher's tool-attachment responsibility
 
-Each per-runtime launcher is responsible for attaching the platform MCP
-surface before handing off to the runtime image. The runtime path resolves the
-available tools before it calls the launcher. The source of truth is
-`IMessagingToolProvider.GetMessagingTools(...)`, which takes the invoked
-address and thread id and returns a `MessagingToolDescriptor[]` with the tool
-name plus input and output JSON Schemas.
+Each per-runtime launcher attaches the single platform MCP server before
+handing off to the runtime image (ADR-0051). There is no per-invocation
+messaging tool list to thread through `AgentLaunchContext`: `sv.messaging.*`
+is registered on the platform MCP server as the `SvMessagingSkillRegistry`,
+and `tools/list` is grant-filtered server-side, so the runtime discovers
+exactly the `sv.*` tools its subject is entitled to.
 
-`AgentLaunchContext.MessagingTools` carries that descriptor array into the
-selected `IAgentRuntimeLauncher`. Each launcher then follows one or both
-attachment paths:
-
-- **LLM-driven runtimes.** The launcher attaches the `spring-orchestration` MCP
-  server alongside the worker `spring-voyage` MCP server (for `claude-code`,
-  `codex`, and `gemini` via `.mcp.json` / `.gemini/settings.json`; for
-  `spring-voyage` via its MCP bridge).
-- **SDK-driven runtimes.** The launcher stamps `SPRING_CALLBACK_URL` and
-  `SPRING_CALLBACK_TOKEN` into the container environment. `Cvoya.Spring.AgentSdk`
-  reads them through `SpringAgent.FromEnvironment()` and calls the dispatcher's
-  typed HTTP callback API.
+- **LLM-driven runtimes.** The launcher writes one MCP server (`spring-voyage`)
+  into `.mcp.json` / `.gemini/settings.json` (for `claude-code`, `codex`,
+  `gemini`; `spring-voyage` uses its MCP bridge), pointed at `SPRING_MCP_URL`
+  with the `SPRING_MCP_TOKEN` session token.
+- **SDK-driven runtimes.** The launcher stamps `SPRING_MCP_URL` and
+  `SPRING_MCP_TOKEN` into the container environment. `Cvoya.Spring.AgentSdk`'s
+  `MessagingClient` reads them through `SpringAgent.FromEnvironment()` and calls
+  `sv.messaging.*` over JSON-RPC `tools/call` against the same MCP server.
 
 Custom launchers use their runtime's own extension mechanism, but the tool
 names and JSON Schemas stay the same. This keeps the platform contract

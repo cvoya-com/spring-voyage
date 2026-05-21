@@ -40,7 +40,6 @@ public class PersistentAgentLifecycle(
     IMcpServer mcpServer,
     IEnumerable<IAgentRuntimeLauncher> launchers,
     IRuntimeCatalog runtimeCatalog,
-    IMessagingToolProvider messagingToolProvider,
     IAgentContextBuilder agentContextBuilder,
     PersistentAgentRegistry persistentAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
@@ -65,11 +64,6 @@ public class PersistentAgentLifecycle(
         launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
     private readonly IRuntimeCatalog _runtimeCatalog = runtimeCatalog
         ?? throw new ArgumentNullException(nameof(runtimeCatalog));
-    // ADR-0048 / ADR-0049: messaging tools resolved per-deploy and threaded
-    // into the launch context. Returns the two-tool messaging set for every
-    // agent / unit target.
-    private readonly IMessagingToolProvider _messagingToolProvider = messagingToolProvider
-        ?? throw new ArgumentNullException(nameof(messagingToolProvider));
 
     /// <summary>
     /// Stands up a persistent agent. Idempotent: when the agent is already
@@ -159,10 +153,12 @@ public class PersistentAgentLifecycle(
         var scheme = string.Equals(definition.UnitId, definition.AgentId, StringComparison.Ordinal)
             ? Address.UnitScheme
             : Address.AgentScheme;
+        // ADR-0051: this is a deploy-time launch with no inbound message, so
+        // the session carries no per-turn message id; sv.messaging.* tools are
+        // served by the single platform MCP server like every other sv.* tool.
         var session = mcpServer.IssueSession(agentId, sessionId, scheme);
 
         var deployTarget = Address.For(scheme, agentId);
-        var messagingTools = _messagingToolProvider.GetMessagingTools(deployTarget, Guid.Empty);
 
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
@@ -178,7 +174,6 @@ public class PersistentAgentLifecycle(
             Provider: definition.Execution.Provider,
             Model: definition.Execution.Model,
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
-            MessagingTools: messagingTools,
             AgentAddress: deployTarget,
             CallbackThreadId: Guid.NewGuid(),
             MessageId: Guid.NewGuid());

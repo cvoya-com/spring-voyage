@@ -187,16 +187,10 @@ public class SpringVoyageAgentLauncher(
         // dispatcher's orchestration callback.
         LauncherOtelEnvironment.Add(context, envVars);
 
-        // ADR-0048 / ADR-0049: serialize the platform messaging tool
-        // descriptors into SPRING_MESSAGING_TOOLS so the Spring Voyage agent
-        // runtime can present them to the LLM as tool-call surfaces. The
-        // messaging tools are available to every agent / unit caller — the
-        // provider returns a non-empty set for any agent:// / unit:// address.
-        if (context.MessagingTools is { Length: > 0 })
-        {
-            envVars[MessagingToolsContract.EnvVar] =
-                System.Text.Json.JsonSerializer.Serialize(context.MessagingTools);
-        }
+        // ADR-0051: sv.messaging.send / sv.messaging.broadcast are served by
+        // the single platform MCP server (SPRING_MCP_URL / SPRING_MCP_TOKEN)
+        // alongside every other sv.* tool. The runtime discovers them via the
+        // MCP server's tools/list — there is no separate messaging env var.
 
         // #1328: OLLAMA_ENDPOINT removed. The Dapr Conversation component YAML
         // (llm-ollama.yaml) now reads SPRING_LLM_PROVIDER_URL, which is

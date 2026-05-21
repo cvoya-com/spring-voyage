@@ -10,8 +10,6 @@ using System.Text.Json;
 /// </summary>
 public static class SpringAgent
 {
-    private const string CallbackTokenPayloadField = "callbackToken";
-
     /// <summary>
     /// Stock reply text the response-discipline safety net synthesizes
     /// when the user's delegate exits without calling
@@ -167,31 +165,43 @@ public static class SpringAgent
     }
 
     /// <summary>
-    /// Creates a MessagingClient configured from the standard environment variables,
-    /// preferring a per-message <c>message.metadata.callbackToken</c> from the inbound message body when present.
+    /// Creates a <see cref="MessagingClient"/> from the platform MCP
+    /// environment contract (<c>SPRING_MCP_URL</c> / <c>SPRING_MCP_TOKEN</c>).
     /// </summary>
+    /// <param name="inboundMessageBody">
+    /// Retained for source compatibility. ADR-0051 retired the per-message
+    /// <c>message.metadata.callbackToken</c> override — the MCP session token
+    /// is minted per turn and revoked on turn-end, so there is nothing to
+    /// override. The parameter is ignored.
+    /// </param>
     public static IMessagingClient FromEnvironment(string? inboundMessageBody)
     {
-        var callbackUrl = ReadRequiredEnvironmentVariable(
-            AgentSdkEnvironmentContract.CallbackUrlEnvVar);
-        var callbackToken = TryReadCallbackToken(inboundMessageBody) ?? ReadRequiredEnvironmentVariable(
-            AgentSdkEnvironmentContract.CallbackTokenEnvVar);
-
-        return new MessagingClient(callbackUrl, callbackToken);
+        _ = inboundMessageBody;
+        return FromMcpEnvironment();
     }
 
     /// <summary>
-    /// Creates a MessagingClient configured from the standard environment variables,
-    /// preferring a per-message <c>message.metadata.callbackToken</c> from the inbound message body when present.
+    /// Creates a <see cref="MessagingClient"/> from the platform MCP
+    /// environment contract (<c>SPRING_MCP_URL</c> / <c>SPRING_MCP_TOKEN</c>).
     /// </summary>
+    /// <param name="inboundMessageBody">
+    /// Retained for source compatibility. ADR-0051 retired the per-message
+    /// callback-token override; the parameter is ignored.
+    /// </param>
     public static IMessagingClient FromEnvironment(JsonElement inboundMessageBody)
     {
-        var callbackUrl = ReadRequiredEnvironmentVariable(
-            AgentSdkEnvironmentContract.CallbackUrlEnvVar);
-        var callbackToken = TryReadCallbackToken(inboundMessageBody) ?? ReadRequiredEnvironmentVariable(
-            AgentSdkEnvironmentContract.CallbackTokenEnvVar);
+        _ = inboundMessageBody;
+        return FromMcpEnvironment();
+    }
 
-        return new MessagingClient(callbackUrl, callbackToken);
+    private static IMessagingClient FromMcpEnvironment()
+    {
+        var mcpUrl = ReadRequiredEnvironmentVariable(
+            AgentSdkEnvironmentContract.McpUrlEnvVar);
+        var mcpToken = ReadRequiredEnvironmentVariable(
+            AgentSdkEnvironmentContract.McpTokenEnvVar);
+
+        return new MessagingClient(mcpUrl, mcpToken);
     }
 
     private static string ReadRequiredEnvironmentVariable(string variableName)
@@ -203,50 +213,5 @@ public static class SpringAgent
         }
 
         return value;
-    }
-
-    private static string? TryReadCallbackToken(string? inboundMessageBody)
-    {
-        if (string.IsNullOrWhiteSpace(inboundMessageBody))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(inboundMessageBody);
-            return TryReadCallbackToken(document.RootElement);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static string? TryReadCallbackToken(JsonElement inboundMessageBody)
-    {
-        if (inboundMessageBody.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        var payload = inboundMessageBody;
-        if (inboundMessageBody.TryGetProperty("params", out var parameters))
-        {
-            payload = parameters;
-        }
-
-        if (!payload.TryGetProperty("message", out var message) ||
-            message.ValueKind != JsonValueKind.Object ||
-            !message.TryGetProperty("metadata", out var metadata) ||
-            metadata.ValueKind != JsonValueKind.Object ||
-            !metadata.TryGetProperty(CallbackTokenPayloadField, out var metadataToken) ||
-            metadataToken.ValueKind != JsonValueKind.String)
-        {
-            return null;
-        }
-
-        var token = metadataToken.GetString();
-        return string.IsNullOrWhiteSpace(token) ? null : token;
     }
 }

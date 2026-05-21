@@ -15,11 +15,16 @@ using NSubstitute;
 
 using Shouldly;
 
+/// <summary>
+/// Shared launcher-test support for the OTLP-ingest callback environment.
+/// ADR-0051 retired the messaging callback JWT and its validator; the
+/// <c>SPRING_CALLBACK_*</c> env contract survives only as the OTLP-ingest
+/// credential, so these assertions check the env vars are stamped without
+/// re-validating the JWT claim shape.
+/// </summary>
 internal sealed class LauncherCallbackTestSupport
 {
     private const string CallbackUrl = "http://dispatcher.example/root/";
-
-    public const string OrchestrationMcpUrl = "http://dispatcher.example/root/v1/runtime/orchestration";
 
     private static readonly byte[] SigningKey =
     [
@@ -28,8 +33,6 @@ internal sealed class LauncherCallbackTestSupport
         0x44, 0x8e, 0x26, 0x74, 0x95, 0xe2, 0xab, 0x19,
         0xda, 0xc4, 0x31, 0x82, 0x07, 0xbd, 0x58, 0x6f,
     ];
-
-    private readonly CallbackTokenValidator _validator;
 
     public LauncherCallbackTestSupport()
     {
@@ -44,7 +47,6 @@ internal sealed class LauncherCallbackTestSupport
                 BaseUrl = CallbackUrl,
             }),
             issuer);
-        _validator = new CallbackTokenValidator(keyProvider, options);
     }
 
     public IAgentCallbackEnvironmentBuilder Builder { get; }
@@ -97,17 +99,16 @@ internal sealed class LauncherCallbackTestSupport
 
     public void AssertCallbackEnvironment(AgentLaunchSpec spec, AgentLaunchContext context)
     {
+        _ = context;
         spec.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackUrlEnvVar]
             .ShouldBe(CallbackUrl);
-        spec.EnvironmentVariables.ShouldContainKey(AgentCallbackEnvironmentContract.CallbackTokenEnvVar);
 
-        var token = _validator.Validate(
-            spec.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]);
-
-        token.TenantId.ShouldBe(context.TenantId);
-        token.AgentAddress.ShouldBe(context.AgentAddress);
-        token.ThreadId.ShouldBe(context.CallbackThreadId!.Value);
-        token.MessageId.ShouldBe(context.MessageId!.Value);
-        token.ExpiresAt.ShouldBeGreaterThan(DateTimeOffset.UtcNow);
+        // ADR-0051: the SPRING_CALLBACK_TOKEN is the OTLP-ingest credential.
+        // It is still a launcher-minted compact JWT (header.payload.signature);
+        // its claim shape is exercised by the OTLP auth-handler tests, so here
+        // we only assert the env var is stamped with a JWT-shaped value.
+        var token = spec.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar];
+        token.ShouldNotBeNullOrWhiteSpace();
+        token.Split('.').Length.ShouldBe(3);
     }
 }

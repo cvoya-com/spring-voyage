@@ -104,55 +104,22 @@ public class GeminiLauncherTests
         prep.WorkingDirectory.ShouldBeNull();
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task PrepareAsync_MessagingToolsNullOrEmpty_DoesNotWriteOrchestrationMcpServer(
-        bool useEmptyArray)
+    [Fact]
+    public async Task PrepareAsync_WritesOnlyTheSinglePlatformMcpServer()
     {
+        // ADR-0051: one MCP server serves every sv.* tool — sv.messaging.*
+        // included. The launcher no longer writes a second spring-orchestration
+        // server with an includeTools messaging allowlist.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nAnalyze thoroughly.",
-            mcpToken: "gemini-secret-token")
-            with
-        {
-            MessagingTools = useEmptyArray ? Array.Empty<MessagingToolDescriptor>() : null
-        };
+            mcpToken: "gemini-secret-token");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         using var settings = ParseGeminiSettings(prep);
         var servers = settings.RootElement.GetProperty("mcpServers");
-        servers.TryGetProperty("spring-orchestration", out _).ShouldBeFalse();
-    }
-
-    [Fact]
-    public async Task PrepareAsync_MessagingToolsPresent_WritesOrchestrationMcpServer()
-    {
-        var context = LauncherCallbackTestSupport.CreateContext(
-            prompt: "## Platform Instructions\nAnalyze thoroughly.",
-            mcpToken: "gemini-secret-token")
-            with
-        {
-            MessagingTools = CreateMessagingTools()
-        };
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        using var settings = ParseGeminiSettings(prep);
-        var server = settings.RootElement
-            .GetProperty("mcpServers")
-            .GetProperty("spring-orchestration");
-
-        server.GetProperty("httpUrl").GetString()
-            .ShouldBe(LauncherCallbackTestSupport.OrchestrationMcpUrl);
-        server.GetProperty("headers").GetProperty("Authorization").GetString()
-            .ShouldBe($"Bearer {prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}");
-
-        server.GetProperty("includeTools").EnumerateArray().Select(tool => tool.GetString()).ShouldBe(new[]
-        {
-            "sv.messaging.send",
-            "sv.messaging.broadcast",
-        });
+        servers.EnumerateObject().Select(property => property.Name)
+            .ShouldBe(new[] { "spring-voyage" });
     }
 
     [Fact]
@@ -334,21 +301,4 @@ public class GeminiLauncherTests
 
     private static JsonDocument ParseGeminiSettings(AgentLaunchSpec prep) =>
         JsonDocument.Parse(prep.WorkspaceFiles[".gemini/settings.json"]);
-
-    private static MessagingToolDescriptor[] CreateMessagingTools()
-    {
-        var inputSchema = CreateSchema();
-        var outputSchema = CreateSchema();
-        return new[]
-        {
-            new MessagingToolDescriptor(MessagingToolName.Send, inputSchema, outputSchema),
-            new MessagingToolDescriptor(MessagingToolName.Broadcast, inputSchema, outputSchema),
-        };
-    }
-
-    private static JsonElement CreateSchema()
-    {
-        using var document = JsonDocument.Parse("""{"type":"object"}""");
-        return document.RootElement.Clone();
-    }
 }

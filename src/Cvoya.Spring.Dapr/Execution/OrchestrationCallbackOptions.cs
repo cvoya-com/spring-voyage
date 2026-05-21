@@ -4,20 +4,18 @@
 namespace Cvoya.Spring.Dapr.Execution;
 
 /// <summary>
-/// Configuration for the agent-facing messaging callback surface
-/// (<c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c> + the
-/// messaging MCP server).
+/// Configuration for the API host's agent-reachable base URL.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The orchestration callback endpoints relocated from the dispatcher onto
-/// the Dapr-connected API host (#2586): the dispatcher runs as a bare host
-/// process with no Dapr sidecar and cannot invoke the recipient actor.
-/// The launcher stamps <see cref="Core.Execution.AgentCallbackEnvironmentContract.CallbackUrlEnvVar"/>
-/// (<c>SPRING_CALLBACK_URL</c>) onto every runtime container from
-/// <see cref="BaseUrl"/>; <c>LauncherCallbackEnvironment</c> builds the
-/// <c>spring-orchestration</c> MCP URL off it, and <c>LauncherOtelEnvironment</c>
-/// derives the sibling <c>/otlp</c> ingest endpoint from the same base.
+/// ADR-0051 retired the messaging callback surface and its per-turn JWT —
+/// <c>sv.messaging.*</c> is served by the single platform MCP server under
+/// the MCP session token. <see cref="BaseUrl"/> survives because the
+/// OTLP-ingest plane still needs it: <c>DispatcherCallbackEnvironmentBuilder</c>
+/// stamps <see cref="Core.Execution.AgentCallbackEnvironmentContract.CallbackUrlEnvVar"/>
+/// (<c>SPRING_CALLBACK_URL</c>) onto every runtime container from this value,
+/// and <c>LauncherOtelEnvironment</c> derives the <c>/otlp</c> ingest endpoint
+/// from it.
 /// </para>
 /// <para>
 /// The value must be the API host's agent-reachable base URL — in the OSS
@@ -31,11 +29,9 @@ public class OrchestrationCallbackOptions
     public const string SectionName = "OrchestrationCallback";
 
     /// <summary>
-    /// Agent-reachable base URL of the API host that serves the
-    /// orchestration callback endpoints. When unset, the callback-environment
-    /// builder throws on the first launch — surfacing the misconfiguration
-    /// at launch time rather than letting an agent come up with a
-    /// <c>sv.messaging.send</c> tool that points nowhere.
+    /// Agent-reachable base URL of the API host. The OTLP-ingest endpoint is
+    /// derived from it. When unset, the callback-environment builder throws on
+    /// the first launch — surfacing the misconfiguration at launch time.
     /// </summary>
     public string? BaseUrl { get; set; }
 }

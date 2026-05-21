@@ -115,39 +115,14 @@ public class SpringVoyageAgentLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_NullOrEmptyMessagingTools_DoesNotSetEnvironmentVariable()
+    public async Task PrepareAsync_DoesNotEmitAStandaloneMessagingToolsEnvironmentVariable()
     {
-        var nullContext = CreateContext();
-        var emptyContext = CreateContext() with { MessagingTools = [] };
+        // ADR-0051: sv.messaging.* tools are served by the single platform
+        // MCP server (SPRING_MCP_URL / SPRING_MCP_TOKEN) and discovered via
+        // tools/list — there is no separate SPRING_MESSAGING_TOOLS env var.
+        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
 
-        var nullPrep = await _launcher.PrepareAsync(nullContext, TestContext.Current.CancellationToken);
-        var emptyPrep = await _launcher.PrepareAsync(emptyContext, TestContext.Current.CancellationToken);
-
-        nullPrep.EnvironmentVariables.ShouldNotContainKey(MessagingToolsContract.EnvVar);
-        emptyPrep.EnvironmentVariables.ShouldNotContainKey(MessagingToolsContract.EnvVar);
-    }
-
-    [Fact]
-    public async Task PrepareAsync_MessagingTools_SetsSerializedEnvironmentVariable()
-    {
-        var expectedTools = CreateMessagingTools();
-        var context = CreateContext() with { MessagingTools = expectedTools };
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        prep.EnvironmentVariables.ShouldContainKey(MessagingToolsContract.EnvVar);
-        var raw = prep.EnvironmentVariables[MessagingToolsContract.EnvVar];
-        var actualTools = JsonSerializer.Deserialize<MessagingToolDescriptor[]>(raw);
-
-        actualTools.ShouldNotBeNull();
-        actualTools.Length.ShouldBe(expectedTools.Length);
-
-        for (var i = 0; i < expectedTools.Length; i++)
-        {
-            actualTools[i].Name.ShouldBe(expectedTools[i].Name);
-            actualTools[i].InputSchema.GetRawText().ShouldBe(expectedTools[i].InputSchema.GetRawText());
-            actualTools[i].OutputSchema.GetRawText().ShouldBe(expectedTools[i].OutputSchema.GetRawText());
-        }
+        prep.EnvironmentVariables.ShouldNotContainKey("SPRING_MESSAGING_TOOLS");
     }
 
     [Fact]
@@ -462,32 +437,4 @@ public class SpringVoyageAgentLauncherTests
         LauncherCallbackTestSupport.CreateContext(
             prompt: "## System\nYou are a helpful assistant.",
             mcpToken: "test-token-xyz");
-
-    private static MessagingToolDescriptor[] CreateMessagingTools() =>
-    [
-        new(
-            MessagingToolName.Send,
-            JsonSerializer.SerializeToElement(new
-            {
-                type = "object",
-                required = new[] { "address", "message" },
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                type = "object",
-                required = new[] { "message" },
-            })),
-        new(
-            MessagingToolName.Broadcast,
-            JsonSerializer.SerializeToElement(new
-            {
-                type = "object",
-                required = new[] { "addresses", "message" },
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                type = "object",
-                required = new[] { "results" },
-            })),
-    ];
 }

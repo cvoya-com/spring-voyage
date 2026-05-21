@@ -12,15 +12,17 @@ using Cvoya.Spring.Core.Runtime;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// Builds the uniform callback environment every launcher stamps onto an
+/// Builds the OTLP-ingest callback environment every launcher stamps onto an
 /// agent runtime container.
 /// </summary>
 /// <remarks>
-/// The messaging callback base URL points at the Dapr-connected API
-/// host, not the dispatcher (#2586): the dispatcher has no Dapr sidecar and
-/// cannot invoke the recipient actor for a <c>sv.messaging.send</c> /
-/// <c>sv.messaging.broadcast</c> delivery. <c>SPRING_CALLBACK_URL</c> is sourced from
-/// <see cref="OrchestrationCallbackOptions.BaseUrl"/>.
+/// ADR-0051 retired the messaging callback surface and its per-turn JWT —
+/// <c>sv.messaging.*</c> is served by the single platform MCP server. This
+/// builder survives as the OTLP-ingest credential path: it stamps
+/// <c>SPRING_CALLBACK_URL</c> (from <see cref="OrchestrationCallbackOptions.BaseUrl"/>)
+/// and <c>SPRING_CALLBACK_TOKEN</c> (a JWT minted via <see cref="Core.Runtime.ICallbackTokenIssuer"/>),
+/// which <c>LauncherOtelEnvironment</c> consumes to wire the <c>/otlp</c>
+/// ingest endpoint and its bearer token.
 /// </remarks>
 public class DispatcherCallbackEnvironmentBuilder(
     IOptions<OrchestrationCallbackOptions> callbackOptions,

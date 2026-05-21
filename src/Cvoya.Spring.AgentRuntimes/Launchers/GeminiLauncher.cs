@@ -165,14 +165,10 @@ public class GeminiLauncher(
         "--skip-trust",
     ];
 
+    // ADR-0051: a single platform MCP server serves every sv.* tool —
+    // sv.directory.*, sv.memory.*, sv.runtime.*, and sv.messaging.* — under
+    // the MCP session token. There is no separate messaging MCP server.
     private const string SpringVoyageMcpServerName = "spring-voyage";
-    // The .mcp.json server key the agent CLI reads; the A2A sidecar's
-    // orchestration-mcp bridge keys on this exact name to refresh the
-    // per-message callback token (#2580). Kept as `spring-orchestration`
-    // to stay in lockstep with the sidecar's config contract — the MCP
-    // `serverInfo.name` the platform returns is the separate, renamed
-    // `spring-messaging` (see OrchestrationCallbackEndpoints).
-    private const string SpringMessagingMcpServerName = "spring-orchestration";
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -281,7 +277,7 @@ public class GeminiLauncher(
         var workspaceFiles = new Dictionary<string, string>
         {
             ["GEMINI.md"] = prompt,
-            [GeminiSettingsPath] = JsonSerializer.Serialize(BuildGeminiSettings(context, envVars), JsonOptions)
+            [GeminiSettingsPath] = JsonSerializer.Serialize(BuildGeminiSettings(context), JsonOptions)
         };
 
         _logger.LogInformation(
@@ -299,10 +295,11 @@ public class GeminiLauncher(
             WorkspaceMountPath: WorkspaceMountPath);
     }
 
-    private static object BuildGeminiSettings(
-        AgentLaunchContext context,
-        IReadOnlyDictionary<string, string> envVars)
+    private static object BuildGeminiSettings(AgentLaunchContext context)
     {
+        // ADR-0051: one MCP server exposes every sv.* tool — sv.messaging.*
+        // included — under the MCP session token. tools/list is grant-filtered
+        // server-side, so the launcher no longer enumerates messaging tools.
         var mcpServers = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [SpringVoyageMcpServerName] = new
@@ -315,33 +312,11 @@ public class GeminiLauncher(
             }
         };
 
-        if (context.MessagingTools is { Length: > 0 } messagingTools)
-        {
-            mcpServers[SpringMessagingMcpServerName] = new
-            {
-                httpUrl = LauncherCallbackEnvironment.BuildOrchestrationMcpUrl(envVars),
-                headers = new Dictionary<string, string>
-                {
-                    ["Authorization"] =
-                        $"Bearer {envVars[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}"
-                },
-                includeTools = messagingTools.Select(tool => ToWireName(tool.Name)).ToArray()
-            };
-        }
-
         return new
         {
             mcpServers
         };
     }
-
-    private static string ToWireName(MessagingToolName name) =>
-        name switch
-        {
-            MessagingToolName.Send => "sv.messaging.send",
-            MessagingToolName.Broadcast => "sv.messaging.broadcast",
-            _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unknown messaging tool name.")
-        };
 
     private async Task ResolveRuntimeCredentialAsync(
         AgentLaunchContext context,

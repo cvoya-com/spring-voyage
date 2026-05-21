@@ -7,39 +7,63 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 /// <summary>
-/// HTTP implementation of <see cref="IMessagingClient"/>.
+/// <see cref="IMessagingClient"/> implementation that delivers messages
+/// through the single platform MCP server (ADR-0051). It calls
+/// <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c> over JSON-RPC 2.0
+/// <c>tools/call</c>, authenticated by the MCP session bearer token — the
+/// same server and credential the runtime already uses for every other
+/// <c>sv.*</c> tool.
 /// </summary>
+/// <remarks>
+/// The per-turn callback JWT and the standalone messaging REST surface are
+/// retired (ADR-0051). The public <see cref="SendAsync"/> /
+/// <see cref="BroadcastAsync"/> contract is unchanged — only the transport
+/// and the credential moved. The MCP session token carries the caller's
+/// identity, thread, and inbound message id, so the SDK no longer threads a
+/// caller address or message id on the wire.
+/// </remarks>
 public sealed class MessagingClient : IMessagingClient
 {
-    private const string ResultEndpoint = "result";
-    private const string SendEndpoint = "messaging/send";
-    private const string BroadcastEndpoint = "messaging/broadcast";
-    private const string AgentAddressClaim = "sv_addr";
+    private const string SendTool = "sv.messaging.send";
+    private const string BroadcastTool = "sv.messaging.broadcast";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _httpClient;
-    private readonly string _callbackToken;
-    private readonly string _callerAddress;
+    private readonly string _mcpToken;
+    private int _requestId;
 
-    public MessagingClient(string baseUrl, string callbackToken)
+    /// <summary>
+    /// Builds the client against the platform MCP endpoint.
+    /// </summary>
+    /// <param name="mcpUrl">
+    /// The MCP server URL (<c>SPRING_MCP_URL</c>) — the same endpoint the
+    /// runtime receives for every other <c>sv.*</c> tool.
+    /// </param>
+    /// <param name="mcpToken">
+    /// The MCP session bearer token (<c>SPRING_MCP_TOKEN</c>).
+    /// </param>
+    public MessagingClient(string mcpUrl, string mcpToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(baseUrl);
-        ArgumentException.ThrowIfNullOrWhiteSpace(callbackToken);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mcpUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mcpToken);
 
         _httpClient = new HttpClient
         {
-            BaseAddress = BuildOrchestrationBaseUri(baseUrl),
+            BaseAddress = BuildMcpBaseUri(mcpUrl),
         };
-        _callbackToken = callbackToken;
-        _callerAddress = CallbackTokenReader.TryReadStringClaim(callbackToken, AgentAddressClaim) ?? string.Empty;
+        _mcpToken = mcpToken;
     }
 
     /// <inheritdoc />
-    public async Task PostResultAsync(
+    /// <remarks>
+    /// ADR-0051 retired the messaging REST surface that backed the result
+    /// post; the runtime's final reply now flows through its A2A response.
+    /// This method is retained on the contract for source compatibility.
+    /// </remarks>
+    public Task PostResultAsync(
         string threadId,
         string result,
         CancellationToken cancellationToken = default)
@@ -47,10 +71,10 @@ public sealed class MessagingClient : IMessagingClient
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentNullException.ThrowIfNull(result);
 
-        await SendAsync(
-            ResultEndpoint,
-            new PostResultRequest(threadId, result),
-            cancellationToken).ConfigureAwait(false);
+        throw new NotSupportedException(
+            "PostResultAsync is not available over the MCP messaging transport (ADR-0051). " +
+            "A runtime's final reply is carried by its A2A response; use sv.messaging.send " +
+            "to deliver an explicit message to another participant.");
     }
 
     /// <inheritdoc />
@@ -64,22 +88,21 @@ public sealed class MessagingClient : IMessagingClient
         ArgumentException.ThrowIfNullOrWhiteSpace(targetUnitId);
         ArgumentNullException.ThrowIfNull(prompt);
 
-        var response = await SendAsync<MessagingSendRequest, MessagingSendResponseDto>(
-            SendEndpoint,
-            new MessagingSendRequest(
-                _callerAddress,
-                BuildTargetAddress(targetUnitId),
-                ParseThreadId(threadId, nameof(threadId)),
-                MessageId: Guid.Empty,
-                prompt,
-                Reason: null),
-            cancellationToken).ConfigureAwait(false);
+        var arguments = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["address"] = BuildTargetAddress(targetUnitId),
+            ["message"] = prompt,
+        };
 
+        var toolResult = await CallToolAsync(SendTool, arguments, cancellationToken)
+            .ConfigureAwait(false);
+
+        var ack = Deserialize<MessagingSendResponseDto>(toolResult);
         return new MessageSendResponse(
-            response.Delivered,
-            response.MessageId.ToString("D"),
-            response.Target ?? string.Empty,
-            response.ThreadId.ToString("D"));
+            ack.Delivered,
+            ack.MessageId ?? string.Empty,
+            ack.Target ?? string.Empty,
+            ack.ThreadId ?? string.Empty);
     }
 
     /// <inheritdoc />
@@ -93,57 +116,39 @@ public sealed class MessagingClient : IMessagingClient
         ArgumentNullException.ThrowIfNull(targetUnitIds);
         ArgumentNullException.ThrowIfNull(prompt);
 
-        var response = await SendAsync<MessagingBroadcastRequest, MessagingBroadcastResponseDto>(
-            BroadcastEndpoint,
-            new MessagingBroadcastRequest(
-                _callerAddress,
-                targetUnitIds.Select(BuildTargetAddress).ToArray(),
-                ParseThreadId(threadId, nameof(threadId)),
-                MessageId: Guid.Empty,
-                prompt,
-                Reason: null),
-            cancellationToken).ConfigureAwait(false);
+        var arguments = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["addresses"] = targetUnitIds.Select(BuildTargetAddress).ToArray(),
+            ["message"] = prompt,
+        };
 
+        var toolResult = await CallToolAsync(BroadcastTool, arguments, cancellationToken)
+            .ConfigureAwait(false);
+
+        var result = Deserialize<MessagingBroadcastResponseDto>(toolResult);
         return new MessageBroadcastResponse(
-            response.MessageId.ToString("D"),
-            response.ThreadId.ToString("D"),
-            (response.Deliveries ?? Array.Empty<MessagingDeliveryOutcomeDto>())
+            result.MessageId ?? string.Empty,
+            result.ThreadId ?? string.Empty,
+            (result.Deliveries ?? Array.Empty<MessagingDeliveryOutcomeDto>())
                 .Select(outcome => new MessageBroadcastDelivery(
-                    outcome.Target,
+                    outcome.Target ?? string.Empty,
                     outcome.Delivered,
                     outcome.Error))
                 .ToArray());
     }
 
-    private static Uri BuildOrchestrationBaseUri(string baseUrl)
+    private static Uri BuildMcpBaseUri(string mcpUrl)
     {
-        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri) ||
+        if (!Uri.TryCreate(mcpUrl, UriKind.Absolute, out var baseUri) ||
             (!string.Equals(baseUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
              !string.Equals(baseUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
         {
             throw new ArgumentException(
-                "Callback base URL must be an absolute http(s) URL.",
-                nameof(baseUrl));
+                "MCP URL must be an absolute http(s) URL.",
+                nameof(mcpUrl));
         }
 
-        var normalizedBase = baseUri.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
-            ? baseUri
-            : new Uri(baseUri.AbsoluteUri + "/");
-        var relativePrefix = AgentSdkEnvironmentContract.OrchestrationRoutePrefix.TrimStart('/');
-
-        return new Uri(normalizedBase, relativePrefix + "/");
-    }
-
-    private static Guid ParseThreadId(string threadId, string parameterName)
-    {
-        if (!Guid.TryParse(threadId, out var parsed))
-        {
-            throw new ArgumentException(
-                "Thread id must be a valid Guid string.",
-                parameterName);
-        }
-
-        return parsed;
+        return baseUri;
     }
 
     private static string BuildTargetAddress(string targetUnitId)
@@ -158,242 +163,191 @@ public sealed class MessagingClient : IMessagingClient
             : targetUnitId;
     }
 
-    private async Task SendAsync<TRequest>(
-        string endpoint,
-        TRequest request,
+    /// <summary>
+    /// Issues an MCP <c>tools/call</c> JSON-RPC request and returns the
+    /// parsed text content. Surfaces an MCP <c>isError</c> tool result or a
+    /// JSON-RPC error as an <see cref="OrchestrationException"/>-shaped
+    /// failure so callers see a uniform contract.
+    /// </summary>
+    private async Task<JsonElement> CallToolAsync(
+        string toolName,
+        IReadOnlyDictionary<string, object?> arguments,
         CancellationToken cancellationToken)
     {
-        using var response = await SendRequestAsync(endpoint, request, cancellationToken)
-            .ConfigureAwait(false);
+        var id = Interlocked.Increment(ref _requestId);
+        var rpcRequest = new
+        {
+            jsonrpc = "2.0",
+            id,
+            method = "tools/call",
+            @params = new
+            {
+                name = toolName,
+                arguments,
+            },
+        };
 
-        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task<TResponse> SendAsync<TRequest, TResponse>(
-        string endpoint,
-        TRequest request,
-        CancellationToken cancellationToken)
-    {
-        using var response = await SendRequestAsync(endpoint, request, cancellationToken)
-            .ConfigureAwait(false);
-
-        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
-
-        return await DeserializeResponseAsync<TResponse>(response, cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    private async Task<HttpResponseMessage> SendRequestAsync<TRequest>(
-        string endpoint,
-        TRequest request,
-        CancellationToken cancellationToken)
-    {
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, string.Empty)
         {
             Content = new StringContent(
-                JsonSerializer.Serialize(request, JsonOptions),
+                JsonSerializer.Serialize(rpcRequest, JsonOptions),
                 Encoding.UTF8,
                 "application/json"),
         };
-        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _callbackToken);
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _mcpToken);
 
+        HttpResponseMessage response;
         try
         {
-            return await _httpClient.SendAsync(httpRequest, cancellationToken)
+            response = await _httpClient.SendAsync(httpRequest, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (HttpRequestException ex)
         {
             throw new OrchestrationTransportException(
-                "Failed to call the Spring Voyage orchestration dispatcher.",
+                "Failed to call the Spring Voyage platform MCP server.",
                 ex);
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
             throw new OrchestrationTransportException(
-                "Timed out calling the Spring Voyage orchestration dispatcher.",
+                "Timed out calling the Spring Voyage platform MCP server.",
                 ex);
         }
-    }
 
-    private static async Task EnsureSuccessAsync(
-        HttpResponseMessage response,
-        CancellationToken cancellationToken)
-    {
-        if (response.IsSuccessStatusCode)
-        {
-            return;
-        }
-
-        var error = await ReadErrorBodyAsync(response, cancellationToken).ConfigureAwait(false);
-        var reason = MapDispatcherErrorReason(error?.Error);
-        var message = string.IsNullOrWhiteSpace(error?.Message)
-            ? $"Spring Voyage orchestration dispatcher returned HTTP {(int)response.StatusCode}."
-            : error.Message;
-
-        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden ||
-            IsAuthorizationRejection(response.StatusCode, reason))
-        {
-            throw new OrchestrationAuthException(message, reason);
-        }
-
-        throw new OrchestrationTransportException(
-            $"Spring Voyage orchestration dispatcher returned HTTP {(int)response.StatusCode}: {message}");
-    }
-
-    private static bool IsAuthorizationRejection(HttpStatusCode statusCode, string? reason) =>
-        reason is not null &&
-        (statusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound ||
-         (int)statusCode == StatusCodes.TooManyRequests);
-
-    private static string? MapDispatcherErrorReason(string? errorCode) =>
-        errorCode switch
-        {
-            null or "" => null,
-            "InvalidToken" => "InvalidToken",
-            "OrchestrationSelfDelegation" => "SelfDelegation",
-            "OrchestrationDepthExceeded" => "DepthExceeded",
-            "OrchestrationCrossTenant" => "CrossTenant",
-            _ => errorCode,
-        };
-
-    private static async Task<DispatcherError?> ReadErrorBodyAsync(
-        HttpResponseMessage response,
-        CancellationToken cancellationToken)
-    {
-        try
+        using (response)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken)
                 .ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(body))
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
-                return null;
+                throw new OrchestrationAuthException(
+                    $"Spring Voyage MCP server rejected the session token (HTTP {(int)response.StatusCode}).",
+                    "InvalidToken");
             }
 
-            try
+            if (!response.IsSuccessStatusCode)
             {
-                return JsonSerializer.Deserialize<DispatcherError>(body, JsonOptions);
+                throw new OrchestrationTransportException(
+                    $"Spring Voyage MCP server returned HTTP {(int)response.StatusCode}.");
             }
-            catch (JsonException)
-            {
-                return new DispatcherError(null, body);
-            }
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new OrchestrationTransportException(
-                "Failed to read the Spring Voyage orchestration dispatcher error response.",
-                ex);
+
+            return ParseToolResult(toolName, body);
         }
     }
 
-    private static async Task<TResponse> DeserializeResponseAsync<TResponse>(
-        HttpResponseMessage response,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Parses an MCP JSON-RPC response, unwrapping the <c>tools/call</c>
+    /// result envelope (<c>{ content: [{ type, text }], isError }</c>). A
+    /// transport-level JSON-RPC <c>error</c>, an <c>isError: true</c> tool
+    /// result, or an unauthenticated rejection raises the matching
+    /// orchestration exception.
+    /// </summary>
+    private static JsonElement ParseToolResult(string toolName, string body)
     {
+        JsonDocument document;
         try
         {
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken)
-                .ConfigureAwait(false);
-            var value = await JsonSerializer.DeserializeAsync<TResponse>(stream, JsonOptions, cancellationToken)
-                .ConfigureAwait(false);
-
-            return value
-                ?? throw new OrchestrationTransportException(
-                    "Spring Voyage orchestration dispatcher returned an empty response body.");
+            document = JsonDocument.Parse(body);
         }
         catch (JsonException ex)
         {
             throw new OrchestrationTransportException(
-                "Spring Voyage orchestration dispatcher returned an invalid JSON response body.",
+                "Spring Voyage MCP server returned an invalid JSON-RPC response body.",
                 ex);
         }
-    }
 
-    private sealed record PostResultRequest(
-        [property: JsonPropertyName("threadId")] string ThreadId,
-        [property: JsonPropertyName("result")] string Result);
-
-    private sealed record MessagingSendRequest(
-        [property: JsonPropertyName("callerAddress")] string CallerAddress,
-        [property: JsonPropertyName("targetAddress")] string TargetAddress,
-        [property: JsonPropertyName("threadId")] Guid ThreadId,
-        [property: JsonPropertyName("messageId")] Guid MessageId,
-        [property: JsonPropertyName("messageContent")] string MessageContent,
-        [property: JsonPropertyName("reason")] string? Reason);
-
-    // ADR-0049 — the platform returns a delivery acknowledgement, not the
-    // recipient's response.
-    private sealed record MessagingSendResponseDto(
-        [property: JsonPropertyName("delivered")] bool Delivered,
-        [property: JsonPropertyName("messageId")] Guid MessageId,
-        [property: JsonPropertyName("target")] string? Target,
-        [property: JsonPropertyName("threadId")] Guid ThreadId);
-
-    private sealed record MessagingBroadcastRequest(
-        [property: JsonPropertyName("callerAddress")] string CallerAddress,
-        [property: JsonPropertyName("targetAddresses")] string[] TargetAddresses,
-        [property: JsonPropertyName("threadId")] Guid ThreadId,
-        [property: JsonPropertyName("messageId")] Guid MessageId,
-        [property: JsonPropertyName("messageContent")] string MessageContent,
-        [property: JsonPropertyName("reason")] string? Reason);
-
-    private sealed record MessagingBroadcastResponseDto(
-        [property: JsonPropertyName("messageId")] Guid MessageId,
-        [property: JsonPropertyName("threadId")] Guid ThreadId,
-        [property: JsonPropertyName("deliveries")] MessagingDeliveryOutcomeDto[]? Deliveries);
-
-    private sealed record MessagingDeliveryOutcomeDto(
-        [property: JsonPropertyName("target")] string Target,
-        [property: JsonPropertyName("delivered")] bool Delivered,
-        [property: JsonPropertyName("error")] string? Error);
-
-    private sealed record DispatcherError(
-        [property: JsonPropertyName("error")] string? Error,
-        [property: JsonPropertyName("message")] string? Message);
-
-    private static class StatusCodes
-    {
-        public const int TooManyRequests = 429;
-    }
-
-    private static class CallbackTokenReader
-    {
-        public static string? TryReadStringClaim(string token, string claimName)
+        using (document)
         {
-            var parts = token.Split('.');
-            if (parts.Length < 2)
+            var root = document.RootElement;
+
+            if (root.TryGetProperty("error", out var error) &&
+                error.ValueKind == JsonValueKind.Object)
             {
-                return null;
+                var message = error.TryGetProperty("message", out var msg) &&
+                    msg.ValueKind == JsonValueKind.String
+                        ? msg.GetString()
+                        : null;
+                throw new OrchestrationTransportException(
+                    $"Spring Voyage MCP server rejected '{toolName}': {message ?? "JSON-RPC error."}");
+            }
+
+            if (!root.TryGetProperty("result", out var result) ||
+                result.ValueKind != JsonValueKind.Object)
+            {
+                throw new OrchestrationTransportException(
+                    $"Spring Voyage MCP server returned no result for '{toolName}'.");
+            }
+
+            var isError = result.TryGetProperty("isError", out var isErrorProp) &&
+                isErrorProp.ValueKind == JsonValueKind.True;
+
+            var text = ExtractContentText(result);
+
+            if (isError)
+            {
+                throw new OrchestrationTransportException(
+                    $"Spring Voyage messaging tool '{toolName}' failed: {text}");
             }
 
             try
             {
-                var payload = DecodeBase64Url(parts[1]);
-                using var document = JsonDocument.Parse(payload);
-                return document.RootElement.TryGetProperty(claimName, out var claim) &&
-                    claim.ValueKind == JsonValueKind.String
-                        ? claim.GetString()
-                        : null;
+                using var inner = JsonDocument.Parse(text);
+                return inner.RootElement.Clone();
             }
-            catch (Exception ex) when (ex is FormatException or JsonException)
+            catch (JsonException ex)
             {
-                return null;
+                throw new OrchestrationTransportException(
+                    $"Spring Voyage messaging tool '{toolName}' returned a non-JSON result body.",
+                    ex);
             }
-        }
-
-        private static byte[] DecodeBase64Url(string value)
-        {
-            var padded = value.Replace('-', '+').Replace('_', '/');
-            padded = (padded.Length % 4) switch
-            {
-                0 => padded,
-                2 => padded + "==",
-                3 => padded + "=",
-                _ => throw new FormatException("Invalid base64url payload length."),
-            };
-
-            return Convert.FromBase64String(padded);
         }
     }
+
+    private static string ExtractContentText(JsonElement result)
+    {
+        if (result.TryGetProperty("content", out var content) &&
+            content.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var block in content.EnumerateArray())
+            {
+                if (block.ValueKind == JsonValueKind.Object &&
+                    block.TryGetProperty("text", out var textProp) &&
+                    textProp.ValueKind == JsonValueKind.String)
+                {
+                    return textProp.GetString() ?? string.Empty;
+                }
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static T Deserialize<T>(JsonElement element)
+    {
+        var value = element.Deserialize<T>(JsonOptions);
+        return value
+            ?? throw new OrchestrationTransportException(
+                "Spring Voyage messaging tool returned an empty result body.");
+    }
+
+    // ADR-0049 — the platform returns a delivery acknowledgement, not the
+    // recipient's response. The wire shape mirrors SvMessagingSkillRegistry's
+    // tool output (string ids, ADR-0051).
+    private sealed record MessagingSendResponseDto(
+        bool Delivered,
+        string? MessageId,
+        string? Target,
+        string? ThreadId);
+
+    private sealed record MessagingBroadcastResponseDto(
+        string? MessageId,
+        string? ThreadId,
+        MessagingDeliveryOutcomeDto[]? Deliveries);
+
+    private sealed record MessagingDeliveryOutcomeDto(
+        string? Target,
+        bool Delivered,
+        string? Error);
 }

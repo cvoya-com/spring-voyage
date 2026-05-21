@@ -54,23 +54,15 @@ public class ClaudeCodeLauncher(
 
     internal const string WorkspaceMountPath = "/workspace";
 
+    // ADR-0051: a single platform MCP server serves every sv.* tool —
+    // sv.messaging.* included — under the MCP session token.
     internal const string SpringVoyageMcpServerName = "spring-voyage";
-
-    internal const string SpringOrchestrationMcpServerName = "spring-orchestration";
 
     /// <summary>
     /// Workspace-relative file name of the MCP config the Claude Code CLI
-    /// reads its <c>spring-orchestration</c> server definition from.
+    /// reads its <c>spring-voyage</c> server definition from.
     /// </summary>
     internal const string McpConfigFileName = ".mcp.json";
-
-    /// <summary>
-    /// Env var the A2A sidecar reads to locate the MCP config file whose
-    /// <c>spring-orchestration</c> <c>Authorization</c> header it refreshes
-    /// with the per-message callback token before each exec (#2580). Read
-    /// by <c>src/Cvoya.Spring.AgentSidecar/src/orchestration-mcp.ts</c>.
-    /// </summary>
-    internal const string OrchestrationMcpConfigEnvVar = "SPRING_ORCHESTRATION_MCP_CONFIG";
 
     /// <summary>
     /// Bridge env var name carrying the CLI flag that *creates* a session
@@ -270,33 +262,11 @@ public class ClaudeCodeLauncher(
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
         };
 
+        // ADR-0051: the OTLP-ingest env contract (SPRING_CALLBACK_URL /
+        // SPRING_CALLBACK_TOKEN) is still stamped here. sv.messaging.* tools
+        // are served by the single platform MCP server above — there is no
+        // separate messaging MCP server to register.
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
-
-        if (context.MessagingTools is { Length: > 0 })
-        {
-            mcpServers[SpringOrchestrationMcpServerName] = new
-            {
-                type = "http",
-                url = LauncherCallbackEnvironment.BuildOrchestrationMcpUrl(envVars),
-                headers = new Dictionary<string, string>
-                {
-                    // Launch-time placeholder only. The launcher-minted callback
-                    // token is short-lived (CallbackTokenOptions.Lifetime);
-                    // a persistent container outlives it. The A2A sidecar rewrites
-                    // this header with the per-message callback token before every
-                    // exec — see OrchestrationMcpConfigEnvVar / #2580.
-                    ["Authorization"] = $"Bearer {envVars[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}"
-                }
-            };
-            workspaceFiles[McpConfigFileName] = SerializeMcpConfig(mcpConfig);
-
-            // #2580: point the sidecar at the on-disk MCP config so it can
-            // refresh the spring-orchestration token per turn. The container
-            // bind-mounts the workspace at WorkspaceMountPath; the launcher
-            // writes .mcp.json into that workspace root.
-            envVars[OrchestrationMcpConfigEnvVar] =
-                $"{WorkspaceMountPath}/{McpConfigFileName}";
-        }
 
         // #1714 step 2: inject the Claude OAuth token into
         // CLAUDE_CODE_OAUTH_TOKEN. The Claude agent runtime is OAuth-only

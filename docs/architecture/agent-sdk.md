@@ -2,20 +2,22 @@
 
 > **See also:** [`platform-mcp-tools.md`](platform-mcp-tools.md) — companion doc covering the `sv.*` MCP tool surface for LLM-driven runtimes. Both surfaces dispatch to the same platform-side delivery handlers; a `sv.messaging.*` delivery records a `MessageSent` activity, and recording a routing decision is an optional, explicit `sv.runtime.report_decision` call. The choice between the SDK and the MCP surface is the runtime image author's.
 
-`Cvoya.Spring.AgentSdk` is the thin HTTP client package that agent processes use to call back into the Spring Voyage dispatcher. It lives at `src/Cvoya.Spring.AgentSdk/`, inherits the solution target framework from `Directory.Build.props`, and has no Dapr, EF, API-host, or worker-host dependency. Runtime image authors reference it from their image project when they need workflow-style orchestration callbacks.
+`Cvoya.Spring.AgentSdk` is the thin client package that agent processes use to deliver messages through the Spring Voyage platform. It lives at `src/Cvoya.Spring.AgentSdk/`, inherits the solution target framework from `Directory.Build.props`, and has no Dapr, EF, API-host, or worker-host dependency. Runtime image authors reference it from their image project when they want the `sv.messaging.*` delivery tools as typed C# methods.
+
+Per ADR-0051, the SDK's `MessagingClient` calls `sv.messaging.send` / `sv.messaging.broadcast` over JSON-RPC `tools/call` against the single platform MCP server — the same server and credential every other `sv.*` tool uses.
 
 ## Environment-Variable Contract
 
-The dispatcher injects these variables into launched agent processes:
+The launcher injects these variables into launched agent processes:
 
 | Variable | Description |
 | --- | --- |
-| `SPRING_CALLBACK_URL` | Dispatcher base URL. The SDK constructs endpoint paths relative to this. |
-| `SPRING_CALLBACK_TOKEN` | Per-invocation bearer token. The SDK sends it as `Authorization: Bearer <token>`. |
+| `SPRING_MCP_URL` | Platform MCP server URL. The SDK posts JSON-RPC `tools/call` requests here. |
+| `SPRING_MCP_TOKEN` | MCP session bearer token. The SDK sends it as `Authorization: Bearer <token>`. |
 
 `SpringAgent.FromEnvironment()` reads those two variables and throws `MissingCallbackEnvironmentException` when either is absent. The launcher also injects `SPRING_THREAD_ID` for message-bound invocations; callers pass that thread id into SDK methods.
 
-Persistent containers are launched once and receive multiple A2A turns. Their launch-time `SPRING_CALLBACK_TOKEN` is valid only for the first turn, so the dispatcher also includes a fresh per-turn token in the inbound A2A message metadata at `message.metadata.callbackToken`. Runtime images that receive the raw A2A `message/send` params can call `SpringAgent.FromEnvironment(inboundMessageBody)` or `SpringAgent.FromEnvironment(JsonElement)`; the SDK reads only `message.metadata.callbackToken`, preferring it when present and falling back to the launch-time env var only when no per-message token is present.
+The MCP session token is minted per turn by the dispatcher and revoked when the turn ends — it carries the per-turn `(tenant, agentAddress, threadId, messageId)` delivery authority. There is no separate per-message token to prefer: `SpringAgent.FromEnvironment(inboundMessageBody)` / `FromEnvironment(JsonElement)` still exist for source compatibility but ignore the inbound body and read the MCP env contract.
 
 ## Authorization Model
 
@@ -23,65 +25,59 @@ The platform does not gate orchestration by entity type and does not gate on mem
 
 A2A messaging remains available to every addressable entity through the existing A2A protocol, separately from this SDK.
 
-Dispatcher authorization gates (per ADR-0039 § 3 as amended 2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)):
+Platform authorization gates (per ADR-0039 § 3 as amended 2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)):
 
 | Gate | Rejection reason |
 | --- | --- |
-| Invalid or expired callback token | `InvalidToken` |
+| Invalid or revoked MCP session token | `InvalidToken` |
 | Caller scheme is not `unit://` or `agent://` | `UnsupportedCallerScheme` |
 | Target equals the caller | `SelfDelegation` |
 | Delegation depth budget is exhausted | `DepthExceeded` |
 | Target crosses the tenant boundary | `CrossTenant` |
 
-A caller may target any addressable entity in the same tenant — peer, sibling, parent, or member. Membership is not a gate. The token is scoped to the current tenant, caller, thread, and inbound message. For persistent containers, use the per-message `message.metadata.callbackToken` from the inbound A2A metadata for the current turn and discard it when the turn completes.
+A caller may target any addressable entity in the same tenant — peer, sibling, parent, or member. Membership is not a gate. The MCP session token is scoped to the current tenant, caller, thread, and inbound message; it is minted per turn and revoked on turn-end, so there is nothing to cache or rotate.
 
 ## Typed Client Surface
 
 Create the client from the injected environment:
 
 ```csharp
-IOrchestrationClient client = SpringAgent.FromEnvironment();
+IMessagingClient client = SpringAgent.FromEnvironment();
 ```
 
-Or construct it directly:
+Or construct it directly against the MCP server:
 
 ```csharp
-IOrchestrationClient client = new OrchestrationClient(baseUrl, callbackToken);
+IMessagingClient client = new MessagingClient(mcpUrl, mcpToken);
 ```
 
-Post a final result to the dispatcher thread:
+Deliver a message to a single target in the same tenant (ADR-0049 — the response is a delivery acknowledgement, never the recipient's reply):
 
 ```csharp
-await client.PostResultAsync(threadId, result);
-```
-
-Delegate to any addressable target in the same tenant:
-
-```csharp
-DelegateResponse response = await client.DelegateAsync(
+MessageSendResponse response = await client.SendAsync(
     threadId,
     targetAddress,
     prompt);
 ```
 
-Fan out to multiple targets in parallel:
+Deliver to multiple targets in parallel:
 
 ```csharp
-FanoutResponse response = await client.FanoutAsync(
+MessageBroadcastResponse response = await client.BroadcastAsync(
     threadId,
     new[] { address1, address2 },
     prompt);
 ```
 
-Targets are Spring Voyage address strings such as `agent:aaaaaaaa000000000000000000000001` or `unit:bbbbbbbb000000000000000000000001`. A bare Guid is also accepted and normalized to a `unit:` address.
+Targets are Spring Voyage address strings such as `agent:aaaaaaaa000000000000000000000001` or `unit:bbbbbbbb000000000000000000000001`. A bare Guid is also accepted and normalized to a `unit:` address. Both calls route through the platform's effective-grant gate and unit-policy enforcement — a unit policy can deny `sv.messaging.*`.
 
 ## Error Model
 
 | Exception | When thrown |
 | --- | --- |
-| `MissingCallbackEnvironmentException` | `SPRING_CALLBACK_URL` or `SPRING_CALLBACK_TOKEN` is absent when calling `SpringAgent.FromEnvironment()`. |
-| `OrchestrationAuthException` | The dispatcher rejects authentication or orchestration authorization. `Reason` carries values such as `InvalidToken`, `UnsupportedCallerScheme`, `SelfDelegation`, `DepthExceeded`, or `CrossTenant`. |
-| `OrchestrationTransportException` | HTTP transport failures, timeouts, invalid dispatcher JSON, or non-success responses outside the authorization model. |
+| `MissingCallbackEnvironmentException` | `SPRING_MCP_URL` or `SPRING_MCP_TOKEN` is absent when calling `SpringAgent.FromEnvironment()`. |
+| `OrchestrationAuthException` | The MCP server rejects the session token (`Reason = "InvalidToken"`). |
+| `OrchestrationTransportException` | HTTP transport failures, timeouts, invalid JSON-RPC, a JSON-RPC error, or an `isError` messaging tool result. |
 
 ## Workflow-State Guidance
 
@@ -135,10 +131,10 @@ discipline:
 
 ## Security Model
 
-- The callback token is per-invocation and scoped to the current thread.
-- Do not cache or reuse the token across invocations.
-- The token is tenant-scoped and cannot authenticate callbacks for another tenant.
-- Token rotation during an invocation is not supported in v0.1.
+- The MCP session token is minted per turn and scoped to the current thread.
+- It is an opaque 256-bit random secret — unforgeable by construction, never derived from tenant data.
+- It is revoked when the turn ends; do not cache or reuse it across turns.
+- The token is tenant-scoped; cross-tenant containment is enforced platform-side regardless of the credential.
 
 ## Sample Image Walkthrough
 

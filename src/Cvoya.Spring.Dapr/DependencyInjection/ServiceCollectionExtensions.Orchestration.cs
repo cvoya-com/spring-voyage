@@ -84,17 +84,14 @@ internal static class ServiceCollectionExtensionsOrchestration
         // HTTP surface.
         services.TryAddSingleton<IAgentExecutionStore, DbAgentExecutionStore>();
 
-        // ADR-0048 / ADR-0049: default IMessagingToolProvider resolves the
-        // static two-tool messaging surface (sv.messaging.send /
-        // sv.messaging.broadcast) for every agent / unit caller. TryAdd keeps
-        // the override hook open for hosts that need a decorated or
-        // tenant-scoped provider.
-        services.TryAddSingleton<IMessagingToolProvider, MessagingToolProvider>();
-
         // ADR-0049 / #2576: the shared message-delivery seam (validation,
         // per-thread hop budget, bounded-retry delivery) and the messaging
         // tool handlers built on top of it. Singletons: stateless across
-        // calls; per-call state flows through method arguments.
+        // calls; per-call state flows through method arguments. ADR-0051
+        // re-fronts the handlers as SvMessagingSkillRegistry — registered
+        // in AddCvoyaSpringDaprRouting alongside the other Sv*SkillRegistry
+        // types — so sv.messaging.* is served by the single platform MCP
+        // server under the MCP session token.
         services.TryAddSingleton<MessageDeliveryService>();
         services.TryAddSingleton<MessagingToolHandlers>();
 

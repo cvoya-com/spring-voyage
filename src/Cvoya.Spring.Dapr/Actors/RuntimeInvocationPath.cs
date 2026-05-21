@@ -39,8 +39,8 @@ using Microsoft.Extensions.Logging;
 ///     the lean public surface declared by
 ///     <see cref="IRuntimeInvocationPath"/>. Builds a minimal
 ///     <see cref="PromptAssemblyContext"/> from the
-///     <see cref="IAgentDefinitionProvider"/>, <see cref="ISkillRegistry"/>
-///     enumeration, and <see cref="IMessagingToolProvider"/> alone.
+///     <see cref="IAgentDefinitionProvider"/> and the
+///     <see cref="ISkillRegistry"/> enumeration alone.
 ///     This is the surface task C2 wires <c>UnitActor</c> through —
 ///     units have no per-mailbox prior-message buffer, so the lean shape
 ///     is sufficient for them.
@@ -67,9 +67,7 @@ using Microsoft.Extensions.Logging;
 public class RuntimeInvocationPath(
     IAgentDefinitionProvider agentDefinitionProvider,
     IEnumerable<ISkillRegistry> skillRegistries,
-    IMessagingToolProvider messagingToolProvider,
-    IAgentDispatchCoordinator dispatchCoordinator,
-    ILogger<RuntimeInvocationPath> logger) : IRuntimeInvocationPath
+    IAgentDispatchCoordinator dispatchCoordinator) : IRuntimeInvocationPath
 {
     private readonly IReadOnlyList<ISkillRegistry> _skillRegistries = skillRegistries.ToList();
 
@@ -165,10 +163,10 @@ public class RuntimeInvocationPath(
     /// <summary>
     /// Builds a minimal <see cref="PromptAssemblyContext"/> for the lean
     /// <see cref="InvokeAsync(Address, Message, CancellationToken)"/>
-    /// path: agent instructions from <see cref="IAgentDefinitionProvider"/>,
-    /// skills from the registered <see cref="ISkillRegistry"/> set, and
-    /// messaging tools from
-    /// <see cref="IMessagingToolProvider"/>. Per-mailbox prior
+    /// path: agent instructions from <see cref="IAgentDefinitionProvider"/>
+    /// and skills from the registered <see cref="ISkillRegistry"/> set —
+    /// messaging tools (<c>sv.messaging.*</c>) ride the same registry set
+    /// since ADR-0051. Per-mailbox prior
     /// messages, pending amendments, and effective per-membership
     /// metadata are intentionally absent — those are caller-side
     /// concerns the rich overload is designed to carry.
@@ -185,33 +183,11 @@ public class RuntimeInvocationPath(
                 Tools: r.GetToolDefinitions()))
             .ToList();
 
-        // Resolve the messaging tools the subject may invoke to deliver
-        // messages. Populated for every agent / unit caller (ADR-0048 /
-        // ADR-0049). The provider takes a Guid threadId — the inbound
-        // thread id is a string envelope, but every domain message that
-        // reaches here carries a parseable id. Non-parseable values fall
-        // back to Guid.Empty so the provider can still return a "no tools"
-        // verdict deterministically.
-        Guid threadId = Guid.Empty;
-        if (!string.IsNullOrWhiteSpace(inbound.ThreadId)
-            && !Guid.TryParse(inbound.ThreadId, out threadId))
-        {
-            logger.LogDebug(
-                "Inbound thread id {ThreadId} for subject {Subject} is not a Guid; messaging-tool resolution uses Guid.Empty.",
-                inbound.ThreadId, subject);
-        }
-
-        var messagingTools = messagingToolProvider.GetMessagingTools(subject, threadId);
-        if (messagingTools.Length > 0)
-        {
-            logger.LogDebug(
-                "Resolved {Count} messaging tool(s) for subject {Subject} on thread {ThreadId}.",
-                messagingTools.Length, subject, threadId);
-        }
-
-        // MessagingToolDescriptor is not yet folded into
-        // PromptAssemblyContext.Skills. The tools are resolved-but-not-yet-
-        // attached; surfacing them in the context is a later deliverable.
+        // ADR-0051: sv.messaging.send / sv.messaging.broadcast are served by
+        // the single platform MCP server as SvMessagingSkillRegistry — they
+        // surface through the ISkillRegistry enumeration above like every
+        // other sv.* tool, so no separate messaging-tool resolution is needed.
+        _ = inbound;
 
         return new PromptAssemblyContext(
             Policies: null,

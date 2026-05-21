@@ -105,70 +105,19 @@ public class ClaudeCodeLauncherTests
             "leaving WorkingDirectory unset lets the dispatcher default to WorkspaceMountPath");
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task PrepareAsync_MessagingToolsNullOrEmpty_WritesOnlySpringVoyageMcpServer(
-        bool useEmptyTools)
+    [Fact]
+    public async Task PrepareAsync_WritesOnlyTheSinglePlatformMcpServer()
     {
-        var context = CreateContext(
-            useEmptyTools ? Array.Empty<MessagingToolDescriptor>() : null);
+        // ADR-0051: one MCP server serves every sv.* tool — sv.messaging.*
+        // included. The launcher no longer writes a second spring-orchestration
+        // server, and there is no per-turn callback-token refresh env var.
+        var context = CreateContext();
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         var servers = GetMcpServers(prep);
         servers.EnumerateObject().Select(property => property.Name)
             .ShouldBe(new[] { "spring-voyage" });
-    }
-
-    [Fact]
-    public async Task PrepareAsync_MessagingToolsPresent_WritesSpringOrchestrationMcpServer()
-    {
-        var context = CreateContext(CreateMessagingTools());
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        var servers = GetMcpServers(prep);
-        servers.EnumerateObject().Select(property => property.Name)
-            .ShouldBe(new[] { "spring-voyage", "spring-orchestration" });
-
-        var orchestration = servers.GetProperty("spring-orchestration");
-        orchestration.GetProperty("type").GetString().ShouldBe("http");
-        orchestration.GetProperty("url").GetString()
-            .ShouldBe(LauncherCallbackTestSupport.OrchestrationMcpUrl);
-        orchestration.GetProperty("headers").GetProperty("Authorization").GetString()
-            .ShouldBe(
-                $"Bearer {prep.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackTokenEnvVar]}");
-    }
-
-    [Fact]
-    public async Task PrepareAsync_MessagingToolsPresent_SetsMcpConfigPathEnvVarForSidecar()
-    {
-        // #2580: the sidecar refreshes the spring-orchestration callback
-        // token in .mcp.json per turn; the launcher must point it at the
-        // on-disk config file via SPRING_ORCHESTRATION_MCP_CONFIG.
-        var context = CreateContext(CreateMessagingTools());
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        prep.EnvironmentVariables.ShouldContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
-        prep.EnvironmentVariables["SPRING_ORCHESTRATION_MCP_CONFIG"]
-            .ShouldBe("/workspace/.mcp.json");
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task PrepareAsync_MessagingToolsAbsent_DoesNotSetMcpConfigPathEnvVar(
-        bool useEmptyTools)
-    {
-        // Without orchestration tools there is no spring-orchestration
-        // block to refresh — the sidecar env var stays unset.
-        var context = CreateContext(
-            useEmptyTools ? Array.Empty<MessagingToolDescriptor>() : null);
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
         prep.EnvironmentVariables.ShouldNotContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
     }
 
@@ -421,19 +370,12 @@ public class ClaudeCodeLauncherTests
         prep.StdinPayload.ShouldNotContain("concurrent_threads is on");
     }
 
-    private static AgentLaunchContext CreateContext(
-        MessagingToolDescriptor[]? messagingTools = null) =>
-        LauncherCallbackTestSupport.CreateContext() with { MessagingTools = messagingTools };
+    private static AgentLaunchContext CreateContext() =>
+        LauncherCallbackTestSupport.CreateContext();
 
     private static JsonElement GetMcpServers(AgentLaunchSpec prep)
     {
         using var parsed = JsonDocument.Parse(prep.WorkspaceFiles[".mcp.json"]);
         return parsed.RootElement.GetProperty("mcpServers").Clone();
     }
-
-    private static MessagingToolDescriptor[] CreateMessagingTools() =>
-    [
-        new(MessagingToolName.Send, default, default),
-        new(MessagingToolName.Broadcast, default, default),
-    ];
 }

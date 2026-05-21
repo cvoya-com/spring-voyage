@@ -127,28 +127,19 @@ public interface IAgentRuntimeLauncher
 /// Optional model identifier from the agent's <see cref="AgentExecutionConfig.Model"/>.
 /// <c>null</c> means "use launcher default".
 /// </param>
-/// <param name="MessagingTools">
-/// Per-invocation messaging tool descriptors the launcher should attach
-/// to the runtime container, sourced from
-/// <see cref="Cvoya.Spring.Core.Orchestration.IMessagingToolProvider.GetMessagingTools"/>
-/// at the platform-side call site (ADR-0048 / ADR-0049). Defaults to an
-/// empty array so callers that are not messaging callers retain their
-/// current behaviour.
-/// </param>
 /// <param name="AgentAddress">
 /// Full address for the invoked runtime. Defaults to <c>agent:{AgentId}</c>
 /// when omitted, but dispatchers should pass the inbound message target so
-/// unit runtimes receive a <c>unit:</c>-scoped callback token.
+/// the OTLP resource attributes are stamped with the correct subject scheme.
 /// </param>
 /// <param name="CallbackThreadId">
-/// Guid-shaped thread id to stamp into the per-invocation callback token.
+/// Guid-shaped thread id stamped into the OTLP-ingest callback token.
 /// Defaults to parsing <see cref="ThreadId"/> when omitted.
 /// </param>
 /// <param name="MessageId">
-/// Inbound message id to stamp into the per-invocation callback token.
-/// Launchers require this for <c>SPRING_CALLBACK_TOKEN</c>; synthetic
-/// launch paths that are not serving an inbound message must supply their
-/// own synthetic id.
+/// Inbound message id stamped into the OTLP-ingest callback token. Synthetic
+/// launch paths that are not serving an inbound message supply their own
+/// synthetic id.
 /// </param>
 public record AgentLaunchContext(
     string AgentId,
@@ -163,7 +154,6 @@ public record AgentLaunchContext(
     bool ConcurrentThreads = true,
     string? Provider = null,
     string? Model = null,
-    MessagingToolDescriptor[]? MessagingTools = null,
     Address? AgentAddress = null,
     Guid? CallbackThreadId = null,
     Guid? MessageId = null);

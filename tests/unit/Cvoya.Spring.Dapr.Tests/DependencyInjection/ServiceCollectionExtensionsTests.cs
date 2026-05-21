@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Execution;
@@ -83,30 +84,29 @@ public class ServiceCollectionExtensionsTests
     }
 
     /// <summary>
-    /// ADR-0048 / ADR-0049: <c>AddCvoyaSpringDapr</c> must register a default
-    /// <see cref="IMessagingToolProvider"/> so callers can resolve it
-    /// unconditionally. The OSS platform default is the static provider,
-    /// which returns the closed two-tool messaging set
-    /// (<c>sv.messaging.send</c>, <c>sv.messaging.broadcast</c>) for every
-    /// agent:// or unit:// address. Discovery / inspection / status tools
-    /// live on the <c>sv.directory.*</c> surface.
+    /// ADR-0051: <c>AddCvoyaSpringDapr</c> registers
+    /// <see cref="Cvoya.Spring.Dapr.Skills.SvMessagingSkillRegistry"/> into the
+    /// <see cref="ISkillRegistry"/> set so the single platform MCP server
+    /// serves <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c>
+    /// alongside every other <c>sv.*</c> tool. Because the tools live in the
+    /// <c>sv</c> namespace, the effective-grant resolver's platform tier
+    /// surfaces them for every agent / unit subject — that is the default
+    /// grant seeding existing agents rely on.
     /// </summary>
     [Fact]
-    public void AddCvoyaSpringDapr_RegistersMessagingToolProviderAsDefault()
+    public void AddCvoyaSpringDapr_RegistersMessagingSkillRegistry()
     {
         using var provider = BuildProvider();
 
-        var toolProvider = provider.GetService<IMessagingToolProvider>();
+        var registries = provider.GetServices<ISkillRegistry>();
+        var messaging = registries.OfType<Cvoya.Spring.Dapr.Skills.SvMessagingSkillRegistry>()
+            .SingleOrDefault();
 
-        toolProvider.ShouldNotBeNull();
-        toolProvider.ShouldBeOfType<MessagingToolProvider>();
+        messaging.ShouldNotBeNull();
 
-        var tools = toolProvider.GetMessagingTools(
-            new Cvoya.Spring.Core.Messaging.Address(
-                Cvoya.Spring.Core.Messaging.Address.AgentScheme,
-                Guid.NewGuid()),
-            Guid.NewGuid());
-        tools.Length.ShouldBe(2);
+        var toolNames = messaging.GetToolDefinitions().Select(t => t.Name).ToArray();
+        toolNames.ShouldContain("sv.messaging.send");
+        toolNames.ShouldContain("sv.messaging.broadcast");
     }
 
     /// <summary>

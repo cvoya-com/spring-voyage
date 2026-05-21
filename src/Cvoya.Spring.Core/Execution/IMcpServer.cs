@@ -35,12 +35,23 @@ public interface IMcpServer
     /// Implementations MUST throw when the inputs cannot materialise a
     /// subject — there is no fail-open path; every session has a Subject.
     /// </summary>
+    /// <paramref name="messageId"/> is the inbound message the turn responds
+    /// to; it carries the per-turn delivery authority the retired callback
+    /// JWT used to provide (ADR-0051), reaching messaging tools through
+    /// <see cref="McpSession.MessageId"/> / <c>ToolCallContext.MessageId</c>.
+    /// Every dispatch call site already has the message in hand; synthetic
+    /// launch paths that are not serving an inbound message pass
+    /// <see cref="System.Guid.Empty"/>.
     /// <exception cref="System.ArgumentException">
     /// Thrown when <paramref name="agentId"/> is not Guid-shaped or when
     /// <paramref name="callerKind"/> is not <see cref="Address.AgentScheme"/> /
     /// <see cref="Address.UnitScheme"/>.
     /// </exception>
-    McpSession IssueSession(string agentId, string threadId, string callerKind = "agent");
+    McpSession IssueSession(
+        string agentId,
+        string threadId,
+        string callerKind = "agent",
+        Guid messageId = default);
 
     /// <summary>Revokes a previously issued session.</summary>
     void RevokeSession(string token);
@@ -69,9 +80,19 @@ public interface IMcpServer
 /// <c>tools/list</c> filtering and <c>tools/call</c> authorization,
 /// so every session is enforceable.
 /// </param>
+/// <param name="MessageId">
+/// The inbound message the turn is responding to. The MCP session is minted
+/// per turn and revoked on turn-end, so it carries the full
+/// <c>(tenant, agentAddress, threadId, messageId)</c> per-turn delivery
+/// authority the retired callback JWT used to carry (ADR-0051). Messaging
+/// tools read it through <c>ToolCallContext.MessageId</c> to stamp the
+/// outgoing message. Defaults to <see cref="System.Guid.Empty"/> so
+/// positional construction in tests written before ADR-0051 keeps compiling.
+/// </param>
 public record McpSession(
     string Token,
     string AgentId,
     string ThreadId,
     string CallerKind,
-    Address Subject);
+    Address Subject,
+    Guid MessageId = default);

@@ -34,10 +34,9 @@ using Microsoft.Extensions.Logging;
 ///     <c>sv.messaging.broadcast</c>) only deliver messages — they do not
 ///     record a routing decision (ADR-0048 / ADR-0049). A runtime that
 ///     wants its routing choice on the activity stream calls this tool;
-///     it can log ANY decision, whether or not it executed. It lives on
-///     the <c>sv.*</c> surface, which uses the long-lived MCP token, so
-///     it stays reachable even when the short-lived messaging callback
-///     token has expired.
+///     it can log ANY decision, whether or not it executed. Per ADR-0051
+///     it sits on the same single platform MCP server as every other
+///     <c>sv.*</c> tool, messaging included, under the MCP session token.
 ///   </item>
 /// </list>
 /// </summary>
