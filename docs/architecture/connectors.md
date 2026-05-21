@@ -199,6 +199,29 @@ The generic framework in #616 will fold this behaviour into a
 specific plumbing; until that lands, each connector carries its own typed
 marker.
 
+### Clock skew vs. bad credentials (#2595)
+
+A correctly-configured GitHub App can still fail with GitHub's generic
+`Bad credentials` message when the **container clock is skewed**. The
+connector signs the GitHub App JWT with the container's local clock; if
+that clock is far behind real time the JWT's `exp` is already in the past,
+so GitHub rejects every App API call. On macOS/Windows this happens after
+host sleep — the libkrun/QEMU podman-machine VM clock freezes while the
+host is asleep and does not resync on resume.
+
+GitHub stamps every HTTP response — including a `401` — with a trusted
+`Date` header. When `GitHubInstallationsClient`'s App-JWT call
+(`GET /app/installations`) is rejected with a `401`,
+`GitHubClockSkewDetector` compares that header against the local clock; if
+the skew exceeds ~60s it rethrows as a `GitHubClockSkewException` whose
+message names the skew and tells the developer to resync the
+container/host clock. The connector wizard surfaces that message verbatim
+instead of GitHub's misleading `Bad credentials`. Below the threshold the
+original rejection passes through unchanged, so a genuine credential
+failure is still reported as one. `deploy.sh up` additionally runs a
+best-effort podman-machine clock resync so a post-sleep deploy starts with
+an honest clock.
+
 ## Tier-1 credential bootstrap (GitHub)
 
 The GitHub connector's tier-1 credentials (`GitHub__AppId`,

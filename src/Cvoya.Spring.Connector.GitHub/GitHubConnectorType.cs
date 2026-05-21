@@ -399,6 +399,20 @@ public class GitHubConnectorType : IConnectorType
                 ErrorMessage: null,
                 Status: CredentialValidationStatus.Valid);
         }
+        catch (GitHubClockSkewException ex)
+        {
+            // #2595: GitHub rejected the App JWT with "Bad credentials", but the
+            // real cause is a skewed container clock — the credentials are fine.
+            // Report NetworkError (the retriable, not-a-credential-problem bucket)
+            // with the actionable message so the operator resyncs the clock
+            // rather than re-checking the App ID / private key.
+            _logger.LogWarning(ex,
+                "GitHub App credential validation failed due to container clock skew.");
+            return new CredentialValidationResult(
+                Valid: false,
+                ErrorMessage: ex.Message,
+                Status: CredentialValidationStatus.NetworkError);
+        }
         catch (AuthorizationException ex)
         {
             _logger.LogInformation(ex,
