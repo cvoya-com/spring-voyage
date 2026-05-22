@@ -39,15 +39,31 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Registers all Dapr-backed implementations for routing, execution, and prompt assembly.
     /// </summary>
+    /// <remarks>
+    /// Both Spring Voyage hosts call this method and therefore compose the
+    /// same service graph; <paramref name="role"/> is the single signal that
+    /// distinguishes them. It selects which execution-side hosted services
+    /// start on the host — the worker-only execution hosted services start
+    /// only when <paramref name="role"/> is
+    /// <see cref="SpringHostRole.ExecutionHost"/> (ADR-0052). The default
+    /// <see cref="SpringHostRole.HttpFrontDoor"/> keeps existing
+    /// single-argument call sites (predominantly test harnesses) compiling
+    /// unchanged.
+    /// </remarks>
     /// <param name="services">The service collection to configure.</param>
     /// <param name="configuration">The application configuration, used to resolve the PostgreSQL connection string.</param>
+    /// <param name="role">The operational role of the host being composed.
+    /// Defaults to <see cref="SpringHostRole.HttpFrontDoor"/>.</param>
     /// <returns>The same service collection for chaining.</returns>
-    public static IServiceCollection AddCvoyaSpringDapr(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddCvoyaSpringDapr(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        SpringHostRole role = SpringHostRole.HttpFrontDoor)
     {
         return services
             .AddCvoyaSpringInfrastructure(configuration)
             .AddCvoyaSpringRouting()
-            .AddCvoyaSpringExecution()
+            .AddCvoyaSpringExecution(role)
             .AddCvoyaSpringInitiative()
             .AddCvoyaSpringMessaging()
             .AddCvoyaSpringStateTenancySecrets()
