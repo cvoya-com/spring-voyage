@@ -10,6 +10,8 @@ using Cvoya.Spring.Dapr.Mcp;
 using Cvoya.Spring.Host.Worker.Composition;
 using Cvoya.Spring.Host.Worker.Endpoints;
 
+using Microsoft.AspNetCore.Hosting.Server.Features;
+
 public partial class Program
 {
     public static async Task Main(string[] args)
@@ -69,11 +71,30 @@ public partial class Program
             // interfaces, which keeps the worker's MCP socket reachable from
             // outside its own container: the agent reaches it through the
             // published `-p 5050:5050` mapping, not loopback (#1199).
+            //
+            // The app port(s) must be re-bound explicitly here: the moment
+            // ConfigureKestrel adds any Listen* endpoint, Kestrel stops
+            // honouring the URL-derived bindings from ASPNETCORE_URLS, so a
+            // bare ListenAnyIP(mcpPort) would silently drop the :8080 Dapr app
+            // channel and leave /health unreachable. We parse the configured
+            // URLs and re-add their ports so both surfaces stay live.
             var mcpPort = builder.Configuration.GetValue<int?>("Mcp:Port")
                 ?? new McpServerOptions().Port;
             if (mcpPort > 0)
             {
-                builder.WebHost.ConfigureKestrel(options => options.ListenAnyIP(mcpPort));
+                var appUrls = (builder.Configuration[WebHostDefaults.ServerUrlsKey]
+                        ?? "http://0.0.0.0:8080")
+                    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+                builder.WebHost.ConfigureKestrel(options =>
+                {
+                    foreach (var url in appUrls)
+                    {
+                        options.ListenAnyIP(BindingAddress.Parse(url).Port);
+                    }
+
+                    options.ListenAnyIP(mcpPort);
+                });
             }
 
             var app = builder.Build();
