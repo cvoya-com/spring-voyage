@@ -24,7 +24,7 @@ using Xunit;
 /// Endpoint-level coverage for the persistent-agent lifecycle surface (#396).
 /// ADR-0052 / Wave 3 (#2618): the API host delegates deploy / undeploy /
 /// scale / deployment-status / logs to the execution host (<c>spring-worker</c>)
-/// over <see cref="IPersistentAgentExecutionGateway"/>. These tests drive a
+/// over <see cref="IExecutionHostGateway"/>. These tests drive a
 /// substitute gateway and assert the wire contract: 404 shape when the agent
 /// does not exist, idempotent undeploy, canonical empty-deployment shape, and
 /// the translation of a worker-side rejection into a 4xx.
@@ -77,7 +77,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
 
         // The gateway's UndeployAsync is idempotent — the worker returns the
         // canonical "not running" state when nothing is tracked.
-        _factory.PersistentAgentExecutionGateway
+        _factory.ExecutionHostGateway
             .UndeployAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(PersistentAgentDeploymentState.NotRunning(Actor1_Id.ToString("N")));
 
@@ -102,7 +102,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
 
         // The execution host rejects replicas > 1; the gateway surfaces that
         // rejection as a SpringException, which the endpoint translates to 400.
-        _factory.PersistentAgentExecutionGateway
+        _factory.ExecutionHostGateway
             .ScaleAsync(Arg.Any<string>(), Arg.Is(2), Arg.Any<CancellationToken>())
             .Returns<PersistentAgentDeploymentState>(_ => throw new SpringException(
                 "Horizontal scaling (replicas > 1) is not supported by the OSS core yet."));
@@ -125,7 +125,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
 
         // No tracked deployment — the worker returns the canonical
         // "not running" state.
-        _factory.PersistentAgentExecutionGateway
+        _factory.ExecutionHostGateway
             .GetDeploymentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(PersistentAgentDeploymentState.NotRunning(Actor1_Id.ToString("N")));
 
@@ -152,7 +152,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
         // gateway surfaces that as a SpringException and the endpoint
         // translates it into a 404 so the CLI shows a clear "no deployment"
         // message.
-        _factory.PersistentAgentExecutionGateway
+        _factory.ExecutionHostGateway
             .GetLogsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns<PersistentAgentLogsState>(_ => throw new SpringException(
                 "Persistent agent is not deployed; nothing to read logs from."));
@@ -170,7 +170,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
             .ResolveAsync(Arg.Is<Address>(a => a.Id == Agent_A_Id), Arg.Any<CancellationToken>())
             .Returns(AgentEntry(Agent_A_Id));
 
-        _factory.PersistentAgentExecutionGateway
+        _factory.ExecutionHostGateway
             .GetLogsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new PersistentAgentLogsState(
                 AgentId: Actor1_Id.ToString("N"),

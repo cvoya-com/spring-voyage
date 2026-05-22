@@ -271,7 +271,7 @@ public static class UnitEndpoints
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
-        [FromServices] IPersistentAgentExecutionGateway executionGateway,
+        [FromServices] IExecutionHostGateway executionGateway,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("unit", id), cancellationToken);
@@ -909,7 +909,7 @@ public static class UnitEndpoints
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
         [FromServices] IUnitConnectorConfigStore connectorConfigStore,
         [FromServices] IUnitMembershipRepository membershipRepository,
-        [FromServices] IPersistentAgentExecutionGateway executionGateway,
+        [FromServices] IExecutionHostGateway executionGateway,
         [FromServices] IActivityEventBus activityEventBus,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -975,7 +975,7 @@ public static class UnitEndpoints
         IEnumerable<IConnectorType> connectorTypes,
         IUnitConnectorConfigStore connectorConfigStore,
         IUnitMembershipRepository membershipRepository,
-        IPersistentAgentExecutionGateway executionGateway,
+        IExecutionHostGateway executionGateway,
         IActivityEventBus activityEventBus,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -1190,7 +1190,7 @@ public static class UnitEndpoints
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
         [FromServices] IUnitConnectorConfigStore connectorConfigStore,
         [FromServices] IUnitMembershipRepository membershipRepository,
-        [FromServices] IPersistentAgentExecutionGateway executionGateway,
+        [FromServices] IExecutionHostGateway executionGateway,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -1695,7 +1695,7 @@ public static class UnitEndpoints
     /// failure on one member is logged and recorded but does not block the
     /// others, mirroring the per-step pattern in <see cref="ForceDeleteUnitAsync"/>.
     /// <para>
-    /// <see cref="IPersistentAgentExecutionGateway.UndeployAsync"/> is
+    /// <see cref="IExecutionHostGateway.UndeployAsync"/> is
     /// idempotent — it is a no-op when nothing is deployed — so non-persistent
     /// agents (ephemeral runtime, or persistent agents that were never
     /// deployed) cost only a delegated lookup on the execution host.
@@ -1704,7 +1704,7 @@ public static class UnitEndpoints
     private static async Task UndeployPersistentAgentMembersAsync(
         Guid unitActorId,
         IUnitMembershipRepository membershipRepository,
-        IPersistentAgentExecutionGateway executionGateway,
+        IExecutionHostGateway executionGateway,
         ILogger logger,
         CancellationToken ct)
     {

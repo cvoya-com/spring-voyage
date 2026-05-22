@@ -14,10 +14,11 @@ using global::Dapr.Client;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// <see cref="IPersistentAgentExecutionGateway"/> implementation that
-/// delegates every persistent-agent lifecycle operation to the execution
+/// <see cref="IExecutionHostGateway"/> implementation that delegates every
+/// container-lifecycle operation — persistent-agent deploy / undeploy / scale /
+/// deployment-status / logs and unit-container teardown — to the execution
 /// host (<c>spring-worker</c>) over Dapr service invocation (ADR-0052 /
-/// Wave 3 / #2618).
+/// Wave 3 / #2618, #2627).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -39,7 +40,7 @@ using Microsoft.Extensions.Logging;
 /// error it produced when the work ran in-process.
 /// </para>
 /// </remarks>
-public class DaprPersistentAgentExecutionGateway : IPersistentAgentExecutionGateway
+public class DaprExecutionHostGateway : IExecutionHostGateway
 {
     /// <summary>The Dapr app id of the execution host.</summary>
     public const string WorkerAppId = "spring-worker";
@@ -48,15 +49,15 @@ public class DaprPersistentAgentExecutionGateway : IPersistentAgentExecutionGate
         new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _client;
-    private readonly ILogger<DaprPersistentAgentExecutionGateway> _logger;
+    private readonly ILogger<DaprExecutionHostGateway> _logger;
 
     /// <summary>
     /// Initializes the gateway with a Dapr-invokable <see cref="HttpClient"/>
     /// bound to the execution host's app id.
     /// </summary>
-    public DaprPersistentAgentExecutionGateway(
+    public DaprExecutionHostGateway(
         DaprClient daprClient,
-        ILogger<DaprPersistentAgentExecutionGateway> logger)
+        ILogger<DaprExecutionHostGateway> logger)
     {
         _client = daprClient.CreateInvokableHttpClient(WorkerAppId);
         _logger = logger;

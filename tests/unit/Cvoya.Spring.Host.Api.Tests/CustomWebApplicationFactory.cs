@@ -92,25 +92,25 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     public IStateStore StateStore { get; } = Substitute.For<IStateStore>();
 
     /// <summary>
-    /// Gets the mock <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway"/>
+    /// Gets the mock <see cref="Cvoya.Spring.Dapr.Execution.IExecutionHostGateway"/>
     /// registered in the test DI container. ADR-0052 / Wave 3 (#2618, #2627):
     /// the API host delegates persistent-agent deploy / undeploy / scale /
     /// deployment-status / logs and unit-container teardown to the worker over
     /// this gateway instead of resolving the execution singletons in-process.
     /// </summary>
     /// <remarks>
-    /// <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway.GetDeploymentAsync"/>
+    /// <see cref="Cvoya.Spring.Dapr.Execution.IExecutionHostGateway.GetDeploymentAsync"/>
     /// is stubbed to the canonical "not running" state by default — the agent
     /// detail / runtime-status endpoints read deployment state on every call,
     /// and "no tracked deployment" is the sane baseline most tests want.
     /// Tests that exercise a running deployment override it per-test.
     /// </remarks>
-    public Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway PersistentAgentExecutionGateway { get; }
+    public Cvoya.Spring.Dapr.Execution.IExecutionHostGateway ExecutionHostGateway { get; }
         = BuildExecutionGatewayStub();
 
-    private static Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway BuildExecutionGatewayStub()
+    private static Cvoya.Spring.Dapr.Execution.IExecutionHostGateway BuildExecutionGatewayStub()
     {
-        var gateway = Substitute.For<Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway>();
+        var gateway = Substitute.For<Cvoya.Spring.Dapr.Execution.IExecutionHostGateway>();
         gateway
             .GetDeploymentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(callInfo =>
@@ -533,7 +533,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(AnalyticsQueryService);
             services.AddSingleton(ActivityEventBus);
             services.AddSingleton(UnitActivityObservable);
-            services.AddSingleton(PersistentAgentExecutionGateway);
+            services.AddSingleton(ExecutionHostGateway);
             services.AddSingleton(ConnectorConfigStore);
             services.AddSingleton(ConnectorRuntimeStore);
             services.AddSingleton(StubConnectorType);

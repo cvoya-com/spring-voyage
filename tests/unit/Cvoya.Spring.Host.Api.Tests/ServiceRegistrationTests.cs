@@ -171,16 +171,17 @@ public class ServiceRegistrationTests : IDisposable
 
     /// <summary>
     /// ADR-0052 / Wave 3 (#2618, #2627): the API host resolves
-    /// <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway"/>
-    /// — its delegated view of the worker's persistent-agent surface and
-    /// unit-container teardown — in place of the execution singletons.
+    /// <see cref="Cvoya.Spring.Dapr.Execution.IExecutionHostGateway"/>
+    /// — its delegation channel to the execution host's persistent-agent
+    /// surface and unit-container teardown — in place of the execution
+    /// singletons.
     /// </summary>
     [Fact]
-    public void ApiHost_ResolvesPersistentAgentExecutionGateway()
+    public void ApiHost_ResolvesExecutionHostGateway()
     {
         using var client = _factory.CreateClient();
 
-        _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway>()
+        _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.IExecutionHostGateway>()
             .ShouldNotBeNull();
     }
 

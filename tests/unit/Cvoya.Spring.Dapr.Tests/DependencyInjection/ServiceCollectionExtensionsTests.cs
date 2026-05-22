@@ -118,7 +118,7 @@ public class ServiceCollectionExtensionsTests
     /// / A2A-transport surface — registers under
     /// <see cref="SpringHostRole.ExecutionHost"/> only. The HTTP front door
     /// delegates persistent-agent deploy/undeploy and unit-container teardown
-    /// to the worker over <c>IPersistentAgentExecutionGateway</c>, so its
+    /// to the worker over <c>IExecutionHostGateway</c>, so its
     /// composition registers ZERO execution services.
     /// </summary>
     [Fact]
@@ -225,17 +225,18 @@ public class ServiceCollectionExtensionsTests
 
     /// <summary>
     /// ADR-0052 / Wave 3 (#2618): the HTTP front door resolves
-    /// <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway"/>
-    /// — its delegated view of the worker's persistent-agent surface.
+    /// <see cref="Cvoya.Spring.Dapr.Execution.IExecutionHostGateway"/>
+    /// — its delegation channel to the execution host's persistent-agent
+    /// surface.
     /// </summary>
     [Theory]
     [InlineData(SpringHostRole.HttpFrontDoor)]
     [InlineData(SpringHostRole.ExecutionHost)]
-    public void AddCvoyaSpringDapr_RegistersPersistentAgentExecutionGateway(SpringHostRole role)
+    public void AddCvoyaSpringDapr_RegistersExecutionHostGateway(SpringHostRole role)
     {
         using var provider = BuildProvider(role);
 
-        provider.GetService<Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway>()
+        provider.GetService<Cvoya.Spring.Dapr.Execution.IExecutionHostGateway>()
             .ShouldNotBeNull();
     }
 

@@ -732,7 +732,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // over the gateway. A running-but-unhealthy persistent deployment
         // projects to `unavailable`.
         var actorId = agentId.ToString("N");
-        _factory.PersistentAgentExecutionGateway
+        _factory.ExecutionHostGateway
             .GetDeploymentAsync(actorId, Arg.Any<CancellationToken>())
             .Returns(new Cvoya.Spring.Dapr.Execution.PersistentAgentDeploymentState(
                 AgentId: actorId,
@@ -754,7 +754,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body.Status.ShouldBe("unavailable");
 
         // Reset the shared substitute so a sibling test doesn't see this entry.
-        _factory.PersistentAgentExecutionGateway
+        _factory.ExecutionHostGateway
             .GetDeploymentAsync(actorId, Arg.Any<CancellationToken>())
             .Returns(Cvoya.Spring.Dapr.Execution.PersistentAgentDeploymentState.NotRunning(actorId));
     }

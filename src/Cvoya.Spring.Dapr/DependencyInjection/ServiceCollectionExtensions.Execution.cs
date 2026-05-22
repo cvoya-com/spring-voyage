@@ -209,7 +209,7 @@ internal static class ServiceCollectionExtensionsExecution
         // them. They are registered in the role-gated block below so the HTTP
         // front door registers zero execution services; UnitEndpoints'
         // force-delete path delegates unit-container teardown to the worker
-        // over IPersistentAgentExecutionGateway.
+        // over IExecutionHostGateway.
 
         services.AddOptions<AgentContextOptions>().BindConfiguration(AgentContextOptions.SectionName);
 
@@ -233,7 +233,7 @@ internal static class ServiceCollectionExtensionsExecution
         // (powering deploy/scale/logs/undeploy — #396) are all
         // execution-host-only (ADR-0052 / #2618) — registered in the
         // role-gated block below. The API host delegates the operator surface
-        // to the worker over IPersistentAgentExecutionGateway.
+        // to the worker over IExecutionHostGateway.
 
         // #2336 / Sub C of #2332. The introspector fetches the agent's
         // image-tier tool definitions from its /a2a/tools endpoint at
@@ -256,13 +256,14 @@ internal static class ServiceCollectionExtensionsExecution
         // validates sessions, and the surface is a worker Kestrel route.
         services.AddOptions<McpServerOptions>().BindConfiguration(McpServerOptions.SectionName);
 
-        // ADR-0052 / #2618: the HTTP front door delegates persistent-agent
-        // deploy / undeploy / scale / deployment-status / logs to the
-        // execution host over Dapr service invocation. The gateway depends
-        // only on DaprClient — no execution singleton — so it registers on
-        // both hosts; the API host resolves it from AgentEndpoints /
-        // UnitEndpoints in place of the execution singletons.
-        services.TryAddSingleton<IPersistentAgentExecutionGateway, DaprPersistentAgentExecutionGateway>();
+        // ADR-0052 / #2618, #2627: the HTTP front door delegates persistent-
+        // agent deploy / undeploy / scale / deployment-status / logs and
+        // unit-container teardown to the execution host over Dapr service
+        // invocation. The gateway depends only on DaprClient — no execution
+        // singleton — so it registers on both hosts; the API host resolves it
+        // from AgentEndpoints / UnitEndpoints in place of the execution
+        // singletons.
+        services.TryAddSingleton<IExecutionHostGateway, DaprExecutionHostGateway>();
 
         // ADR-0052 / #2618, #2627: every execution service belongs to the
         // execution host only. The HTTP front door used to resolve the
@@ -272,7 +273,7 @@ internal static class ServiceCollectionExtensionsExecution
         // ContainerLifecycleManager / IUnitContainerLifecycle) because
         // AgentEndpoints / UnitEndpoints called into them in-process. Wave 3
         // (#2618) and #2627 make those endpoints delegate to the worker over
-        // IPersistentAgentExecutionGateway, so the front-door composition
+        // IExecutionHostGateway, so the front-door composition
         // registers none of these — AddCvoyaSpringDapr(HttpFrontDoor)
         // registers zero execution services. The execution-host (worker)
         // graph still gets every one. Gated unconditionally — not behind

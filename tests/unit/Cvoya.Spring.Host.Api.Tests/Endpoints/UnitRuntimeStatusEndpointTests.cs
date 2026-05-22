@@ -94,7 +94,7 @@ public class UnitRuntimeStatusEndpointTests : IClassFixture<CustomWebApplication
         // over the gateway. A running-but-unhealthy deployment projects to
         // `unavailable`.
         var actorId = unitId.ToString("N");
-        _factory.PersistentAgentExecutionGateway
+        _factory.ExecutionHostGateway
             .GetDeploymentAsync(actorId, Arg.Any<CancellationToken>())
             .Returns(new PersistentAgentDeploymentState(
                 AgentId: actorId,
@@ -116,7 +116,7 @@ public class UnitRuntimeStatusEndpointTests : IClassFixture<CustomWebApplication
         body.Status.ShouldBe("unavailable");
 
         // Reset the shared substitute so a sibling test doesn't see this entry.
-        _factory.PersistentAgentExecutionGateway
+        _factory.ExecutionHostGateway
             .GetDeploymentAsync(actorId, Arg.Any<CancellationToken>())
             .Returns(PersistentAgentDeploymentState.NotRunning(actorId));
     }

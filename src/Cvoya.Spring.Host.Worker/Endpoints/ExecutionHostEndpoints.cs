@@ -27,13 +27,13 @@ using Microsoft.AspNetCore.Mvc;
 /// surface and are not exposed on the public ingress. The route id is the
 /// agent's / unit's actor Guid in canonical 32-char no-dash hex.
 /// </remarks>
-public static class PersistentAgentExecutionEndpoints
+public static class ExecutionHostEndpoints
 {
     /// <summary>
     /// Maps the internal execution-delegation routes onto
     /// <paramref name="app"/>.
     /// </summary>
-    public static IEndpointRouteBuilder MapPersistentAgentExecutionEndpoints(
+    public static IEndpointRouteBuilder MapExecutionHostEndpoints(
         this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/internal/agents/{id}");

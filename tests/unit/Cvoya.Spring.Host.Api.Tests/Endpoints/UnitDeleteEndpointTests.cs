@@ -109,7 +109,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         // #2627: unit-container teardown is delegated to the worker over the
         // execution gateway — the API host no longer drives it in-process.
-        await _factory.PersistentAgentExecutionGateway.Received(1)
+        await _factory.ExecutionHostGateway.Received(1)
             .StopUnitContainerAsync(ActorId, Arg.Any<CancellationToken>());
         await _factory.DirectoryService.Received(1).UnregisterAsync(
             Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
@@ -129,7 +129,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(LifecycleStatus.Error);
 
-        _factory.PersistentAgentExecutionGateway
+        _factory.ExecutionHostGateway
             .StopUnitContainerAsync(ActorId, Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("container already gone")));
 
@@ -171,7 +171,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        await _factory.PersistentAgentExecutionGateway.DidNotReceive()
+        await _factory.ExecutionHostGateway.DidNotReceive()
             .StopUnitContainerAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _factory.ActivityEventBus.DidNotReceive().PublishAsync(
             Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>());
@@ -290,12 +290,12 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();
-        _factory.PersistentAgentExecutionGateway.ClearReceivedCalls();
+        _factory.ExecutionHostGateway.ClearReceivedCalls();
         _factory.ActivityEventBus.ClearReceivedCalls();
 
         // Reset the container-teardown stub to success; individual tests
         // override it when they want to exercise the partial-failure path.
-        _factory.PersistentAgentExecutionGateway
+        _factory.ExecutionHostGateway
             .StopUnitContainerAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
