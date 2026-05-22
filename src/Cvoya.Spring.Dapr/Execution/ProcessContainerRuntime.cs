@@ -19,7 +19,7 @@ using Microsoft.Extensions.Options;
 public class ProcessContainerRuntime(
     string binaryName,
     IOptions<ContainerRuntimeOptions> options,
-    ILoggerFactory loggerFactory) : IContainerRuntime, IWorkspaceVolumeLocator
+    ILoggerFactory loggerFactory) : IContainerRuntime, IWorkspaceVolumePopulator
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<ProcessContainerRuntime>();
     private readonly ContainerRuntimeOptions _options = options.Value;
@@ -629,15 +629,20 @@ public class ProcessContainerRuntime(
             $"Failed to remove volume {volumeName}. Exit code: {exitCode}. Stderr: {stderr}");
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Resolves a named volume to its host-side mount point by shelling out to
+    /// <c>volume inspect --format {{.Mountpoint}}</c>. Returns <c>null</c> when
+    /// the volume does not exist.
+    /// </summary>
     /// <remarks>
-    /// Shells out to <c>volume inspect --format {{.Mountpoint}}</c> — a
-    /// strictly-local lookup on both podman and docker. This is the same
-    /// mechanism <see cref="GetVolumeMetricsAsync"/> uses to find the path it
-    /// hands to <c>du</c>; both go through <see cref="ResolveVolumeMountpointAsync"/>
-    /// so the runtime has a single volume-inspect call site (#2608).
+    /// Used only by <see cref="GetVolumeMetricsAsync"/>, which needs a path to
+    /// hand to <c>du</c>. This path is meaningful only when the dispatcher
+    /// shares a filesystem with the runtime's volume storage — workspace
+    /// seeding deliberately does <i>not</i> use it (see
+    /// <see cref="TryPopulateVolumeAsync"/> and issue #2637) because that
+    /// assumption does not hold when the runtime lives in a VM.
     /// </remarks>
-    public async Task<string?> ResolveVolumeMountpointAsync(string volumeName, CancellationToken ct = default)
+    private async Task<string?> ResolveVolumeMountpointAsync(string volumeName, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(volumeName);
 
@@ -693,6 +698,80 @@ public class ProcessContainerRuntime(
         }
 
         return new VolumeMetrics(sizeBytes, LastWrite: null);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryPopulateVolumeAsync(
+        string volumeName, string stagingHostDir, string helperImage, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(volumeName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(stagingHostDir);
+        ArgumentException.ThrowIfNullOrWhiteSpace(helperImage);
+
+        // A missing volume is reported as false — not an error — so the
+        // workspace materialiser can fall back to a per-invocation bind mount.
+        var (inspectExit, _, _) = await RunProcessAsync(
+            binaryName, ["volume", "inspect", volumeName], ct);
+        if (inspectExit != 0)
+        {
+            return false;
+        }
+
+        // Populate the volume by creating a throwaway container that mounts it,
+        // copying the staged files in with `cp`, then removing the container.
+        // `cp` transfers files over the runtime's own client connection, so it
+        // works whether or not the dispatcher process shares a filesystem with
+        // the runtime's volume storage — it does on a native-Linux host, but
+        // NOT when the runtime lives in a VM (`podman machine` on macOS), where
+        // the volume's backing directory does not exist on the dispatcher host
+        // at all. Writing into that directory directly was the #2608 bug this
+        // replaces; see issue #2637 for the follow-up pull-model proposal.
+        const string stageMount = "/spring-volume-stage";
+        var helperName = "spring-wsstage-" + Guid.NewGuid().ToString("N");
+
+        var (createExit, _, createErr) = await RunProcessAsync(
+            binaryName,
+            ["create", "--name", helperName, "--volume", $"{volumeName}:{stageMount}", helperImage],
+            ct);
+        if (createExit != 0)
+        {
+            throw new InvalidOperationException(
+                $"Failed to create the staging container for volume {volumeName} "
+                + $"from image {helperImage}. Exit code: {createExit}. Stderr: {createErr}");
+        }
+
+        try
+        {
+            // `<dir>/.` copies the directory's *contents* into the destination,
+            // preserving the world-readable / world-writable modes the
+            // materialiser applied so the in-container agent (a different uid)
+            // can rewrite `.mcp.json` each turn.
+            var source = stagingHostDir.TrimEnd(Path.DirectorySeparatorChar)
+                + Path.DirectorySeparatorChar + ".";
+            var (cpExit, _, cpErr) = await RunProcessAsync(
+                binaryName,
+                ["cp", source, $"{helperName}:{stageMount}"],
+                ct);
+            if (cpExit != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to copy the staged workspace into volume {volumeName}. "
+                    + $"Exit code: {cpExit}. Stderr: {cpErr}");
+            }
+
+            return true;
+        }
+        finally
+        {
+            var (rmExit, _, rmErr) = await RunProcessAsync(
+                binaryName, ["rm", "-f", helperName], ct);
+            if (rmExit != 0)
+            {
+                _logger.LogWarning(
+                    "Failed to remove staging container {HelperName} (exit {Exit}): {Stderr}",
+                    helperName, rmExit, rmErr);
+            }
+        }
     }
 
     /// <inheritdoc />

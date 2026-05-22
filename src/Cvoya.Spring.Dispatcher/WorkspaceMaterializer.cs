@@ -24,11 +24,11 @@ using Microsoft.Extensions.Options;
 ///   <item>
 ///     <b>Persistent volume.</b> When the workspace mount path equals the
 ///     in-container path of one of the requested <c>volumeName:containerPath</c>
-///     mounts, the files are written directly into that volume's host mount
-///     point. The container then carries exactly one workspace mount — the
-///     per-agent persistent volume — and the files survive across container
-///     restarts. No per-container cleanup: the volume is reclaimed only on
-///     agent undeploy by <c>AgentVolumeManager</c>.
+///     mounts, the files are copied into that volume by the container runtime
+///     (see <see cref="IWorkspaceVolumePopulator"/>). The container then carries
+///     exactly one workspace mount — the per-agent persistent volume — and the
+///     files survive across container restarts. No per-container cleanup: the
+///     volume is reclaimed only on agent undeploy by <c>AgentVolumeManager</c>.
 ///   </item>
 ///   <item>
 ///     <b>Bind-mount fallback.</b> When no requested volume mount coincides
@@ -52,8 +52,8 @@ public interface IWorkspaceMaterializer
     /// Materialises <paramref name="workspace"/> ahead of container start.
     /// When <paramref name="requestedVolumeMounts"/> contains a
     /// <c>volumeName:containerPath</c> entry whose container path equals
-    /// <see cref="WorkspaceRequest.MountPath"/>, the files are written into
-    /// that named volume's host mount point and the returned
+    /// <see cref="WorkspaceRequest.MountPath"/>, the files are copied into
+    /// that named volume by the container runtime and the returned
     /// <see cref="MaterializedWorkspace.MountSpec"/> is <c>null</c> (the
     /// caller already has the volume in its mount list). Otherwise the files
     /// land in a fresh per-invocation host directory and
@@ -61,9 +61,21 @@ public interface IWorkspaceMaterializer
     /// spec the caller must append. Throws
     /// <see cref="InvalidOperationException"/> for invalid relative paths.
     /// </summary>
+    /// <param name="workspace">The files to materialise and their in-container mount path.</param>
+    /// <param name="requestedVolumeMounts">
+    /// The container's requested <c>volumeName:containerPath</c> mounts, used to
+    /// detect when the workspace mount coincides with a per-agent volume.
+    /// </param>
+    /// <param name="helperImage">
+    /// The image used to create the short-lived helper container for the
+    /// runtime-mediated volume copy — pass the agent image being launched.
+    /// Ignored on the bind-mount fallback path.
+    /// </param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task<MaterializedWorkspace> MaterializeAsync(
         WorkspaceRequest workspace,
-        IReadOnlyList<string>? requestedVolumeMounts = null,
+        IReadOnlyList<string>? requestedVolumeMounts,
+        string helperImage,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -95,9 +107,10 @@ public interface IWorkspaceMaterializer
 /// Result of <see cref="IWorkspaceMaterializer.MaterializeAsync"/>.
 /// </summary>
 /// <param name="HostDirectory">
-/// Absolute host path the files were written to: a fresh per-invocation
-/// directory for the bind-mount fallback, or the named volume's host mount
-/// point for the persistent-volume path.
+/// For the bind-mount fallback, the per-invocation host directory the files
+/// were written to. For the persistent-volume path this carries the volume
+/// name instead — the staging directory is deleted once the runtime has
+/// copied its contents into the volume, so there is no host path to retain.
 /// </param>
 /// <param name="MountPath">In-container path of the workspace mount.</param>
 /// <param name="MountSpec">
@@ -118,7 +131,7 @@ public record MaterializedWorkspace(
 /// </summary>
 public sealed class WorkspaceMaterializer(
     IOptions<DispatcherOptions> options,
-    IWorkspaceVolumeLocator volumeLocator,
+    IWorkspaceVolumePopulator volumePopulator,
     ILoggerFactory loggerFactory) : IWorkspaceMaterializer
 {
     // The static Encoding.UTF8 emits a UTF-8 BOM. A BOM at the start of a
@@ -135,10 +148,12 @@ public sealed class WorkspaceMaterializer(
     /// <inheritdoc />
     public async Task<MaterializedWorkspace> MaterializeAsync(
         WorkspaceRequest workspace,
-        IReadOnlyList<string>? requestedVolumeMounts = null,
+        IReadOnlyList<string>? requestedVolumeMounts,
+        string helperImage,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentException.ThrowIfNullOrWhiteSpace(helperImage);
         if (string.IsNullOrWhiteSpace(workspace.MountPath))
         {
             throw new InvalidOperationException("Workspace mount path is required.");
@@ -147,42 +162,6 @@ public sealed class WorkspaceMaterializer(
         {
             throw new InvalidOperationException(
                 $"Workspace mount path '{workspace.MountPath}' must be an absolute path inside the container.");
-        }
-
-        // #2608: when the workspace mount path coincides with a named-volume
-        // mount the caller already requested, write the launcher files into
-        // that volume's host mount point rather than into a separate
-        // per-invocation bind mount. The container then carries exactly one
-        // workspace mount — the per-agent persistent volume — and the files
-        // (CLAUDE.md, .mcp.json, …) sit alongside the CLI's session state and
-        // the bridge's marker files instead of in a divergent directory.
-        var volumeName = FindCoincidingVolume(workspace.MountPath, requestedVolumeMounts);
-        if (volumeName is not null)
-        {
-            var mountpoint = await volumeLocator
-                .ResolveVolumeMountpointAsync(volumeName, cancellationToken);
-            if (mountpoint is not null)
-            {
-                await WriteFilesAsync(mountpoint, workspace, cancellationToken);
-                _logger.LogInformation(
-                    "Materialised workspace into volume={VolumeName} mountpoint={Mountpoint} "
-                    + "mount={MountPath} files={FileCount}",
-                    volumeName, mountpoint, workspace.MountPath, workspace.Files.Count);
-
-                // MountSpec is null: the caller already mounts this volume, so
-                // there is nothing to append and nothing to clean up per
-                // container — the volume is reclaimed only on agent undeploy.
-                return new MaterializedWorkspace(mountpoint, workspace.MountPath, MountSpec: null);
-            }
-
-            // Volume named but its mount point did not resolve (e.g. the
-            // volume was not created yet, or a remote driver). Fall through to
-            // the bind-mount path so the launch still gets a populated
-            // workspace rather than silently launching an empty one.
-            _logger.LogWarning(
-                "Workspace mount {MountPath} coincides with volume {VolumeName} but its host "
-                + "mount point did not resolve; falling back to a per-invocation bind mount.",
-                workspace.MountPath, volumeName);
         }
 
         var root = _options.WorkspaceRoot;
@@ -195,6 +174,10 @@ public sealed class WorkspaceMaterializer(
 
         Directory.CreateDirectory(root);
 
+        // Always stage the files into a fresh per-invocation host directory
+        // first. For the bind-mount fallback that directory *is* the workspace
+        // mount; for the volume path it is a transient staging area the
+        // container runtime copies into the named volume and we then delete.
         var subdirName = "spring-ws-" + Guid.NewGuid().ToString("N");
         var hostDir = Path.Combine(root, subdirName);
         Directory.CreateDirectory(hostDir);
@@ -210,6 +193,52 @@ public sealed class WorkspaceMaterializer(
             // a half-populated workspace into the workspace root.
             TryDelete(hostDir);
             throw;
+        }
+
+        // #2608: when the workspace mount path coincides with a named-volume
+        // mount the caller already requested, the launcher files belong inside
+        // that per-agent persistent volume — the single workspace mount —
+        // rather than in a separate per-invocation bind mount. The copy is
+        // mediated by the container runtime (IWorkspaceVolumePopulator) so it
+        // works regardless of whether the dispatcher shares a filesystem with
+        // the runtime's volume storage — it does not under `podman machine` on
+        // macOS. See issue #2637 for the follow-up pull-model proposal.
+        var volumeName = FindCoincidingVolume(workspace.MountPath, requestedVolumeMounts);
+        if (volumeName is not null)
+        {
+            bool populated;
+            try
+            {
+                populated = await volumePopulator.TryPopulateVolumeAsync(
+                    volumeName, hostDir, helperImage, cancellationToken);
+            }
+            catch
+            {
+                TryDelete(hostDir);
+                throw;
+            }
+
+            if (populated)
+            {
+                // The staging directory has served its purpose — the files now
+                // live in the volume. MountSpec is null: the caller already
+                // mounts this volume, so there is nothing to append and nothing
+                // to clean up per container (the volume is reclaimed only on
+                // agent undeploy).
+                TryDelete(hostDir);
+                _logger.LogInformation(
+                    "Materialised workspace into volume={VolumeName} mount={MountPath} files={FileCount}",
+                    volumeName, workspace.MountPath, workspace.Files.Count);
+                return new MaterializedWorkspace(volumeName, workspace.MountPath, MountSpec: null);
+            }
+
+            // Volume named but it does not exist yet. Fall through to the
+            // bind-mount path — keeping hostDir — so the launch still gets a
+            // populated workspace rather than silently launching an empty one.
+            _logger.LogWarning(
+                "Workspace mount {MountPath} coincides with volume {VolumeName} but the volume "
+                + "does not exist; falling back to a per-invocation bind mount.",
+                workspace.MountPath, volumeName);
         }
 
         var mountSpec = $"{hostDir}:{workspace.MountPath}";

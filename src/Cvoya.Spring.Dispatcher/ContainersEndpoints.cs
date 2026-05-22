@@ -100,7 +100,7 @@ public static class ContainersEndpoints
             try
             {
                 materialized = await workspaceMaterializer.MaterializeAsync(
-                    workspaceRequest, request.Mounts, cancellationToken);
+                    workspaceRequest, request.Mounts, request.Image, cancellationToken);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
@@ -130,9 +130,10 @@ public static class ContainersEndpoints
                 // untouched — it is a distinct concern (agent-definition YAML /
                 // tenant-config JSON) and never coincides with the per-agent
                 // workspace volume. Passing no volume mounts keeps it on the
-                // per-invocation bind-mount path.
+                // per-invocation bind-mount path, where the helper image is
+                // unused.
                 materializedContext = await workspaceMaterializer.MaterializeAsync(
-                    contextWorkspaceRequest, requestedVolumeMounts: null, cancellationToken);
+                    contextWorkspaceRequest, requestedVolumeMounts: null, request.Image, cancellationToken);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
