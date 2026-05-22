@@ -135,24 +135,39 @@ public class ServiceRegistrationTests : IDisposable
     }
 
     /// <summary>
-    /// ADR-0052 / PR 1 of #2611: <c>McpServer</c> is intentionally NOT gated
-    /// worker-only in this PR — gating it breaks the API host's
-    /// <c>PersistentAgentLifecycle.DeployAsync</c> until PR 2 (#2614)
-    /// decouples that path. It must still register as an
-    /// <see cref="IHostedService"/> on the API host.
+    /// ADR-0052 §2 / PR 2 of #2611 (#2614): the <c>McpServer</c> hosted
+    /// service runs worker-only — there is one session authority, co-located
+    /// with the dispatcher. The API host (a stateless HTTP front door) must
+    /// NOT register it as an <see cref="IHostedService"/>.
     /// </summary>
     [Fact]
-    public void ApiHost_RegistersMcpServerHostedService()
+    public void ApiHost_DoesNotRegisterMcpServerHostedService()
     {
         using var client = _factory.CreateClient();
 
         var hosted = _factory.Services.GetServices<IHostedService>().ToList();
 
-        hosted.ShouldContain(
+        hosted.ShouldNotContain(
             s => s is Cvoya.Spring.Dapr.Mcp.McpServer,
-            "McpServer must register as an IHostedService on the API host; " +
-            "ADR-0052 PR 1 leaves it un-gated until #2614 decouples " +
-            "PersistentAgentLifecycle from a started McpServer in the API host.");
+            "McpServer must NOT register as an IHostedService on the API host; " +
+            "ADR-0052 §2 places the single session authority worker-only.");
+    }
+
+    /// <summary>
+    /// ADR-0052 §1: the <c>McpServer</c> / <c>IMcpServer</c> DI singletons
+    /// stay resolvable on the API host even though the hosted service is
+    /// worker-only — OpenAPI doc-gen and the latent dispatcher singleton
+    /// still resolve them.
+    /// </summary>
+    [Fact]
+    public void ApiHost_McpServerSingletonStillResolves()
+    {
+        using var client = _factory.CreateClient();
+
+        _factory.Services.GetService<Cvoya.Spring.Dapr.Mcp.McpServer>()
+            .ShouldNotBeNull();
+        _factory.Services.GetService<Cvoya.Spring.Core.Execution.IMcpServer>()
+            .ShouldNotBeNull();
     }
 
     public void Dispose()

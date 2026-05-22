@@ -133,28 +133,45 @@ public class ServiceCollectionExtensionsTests
     }
 
     /// <summary>
-    /// ADR-0052 / PR 1 of #2611: <c>McpServer</c> is intentionally NOT gated
-    /// by host role in this PR. It registers as an <see cref="IHostedService"/>
-    /// under both <see cref="SpringHostRole.HttpFrontDoor"/> and
-    /// <see cref="SpringHostRole.ExecutionHost"/> — gating it worker-only
-    /// breaks the API host's <c>PersistentAgentLifecycle.DeployAsync</c>
-    /// until PR 2 (#2614) decouples that path.
+    /// ADR-0052 §2 / PR 2 of #2611 (#2614): the <c>McpServer</c> hosted
+    /// service (port listener + in-process session store) runs in exactly
+    /// one host — the worker — so there is one session authority. It
+    /// registers as an <see cref="IHostedService"/> under
+    /// <see cref="SpringHostRole.ExecutionHost"/> only, NOT under
+    /// <see cref="SpringHostRole.HttpFrontDoor"/>.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_McpServer_RegistersAsHostedServiceUnderExecutionHostOnly()
+    {
+        using var executionProvider = BuildProvider(SpringHostRole.ExecutionHost);
+        executionProvider.GetServices<IHostedService>().ToList().ShouldContain(
+            s => s is Cvoya.Spring.Dapr.Mcp.McpServer,
+            "McpServer must register as an IHostedService under ExecutionHost — " +
+            "ADR-0052 §2 places the single session authority on the worker.");
+
+        using var frontDoorProvider = BuildProvider(SpringHostRole.HttpFrontDoor);
+        frontDoorProvider.GetServices<IHostedService>().ToList().ShouldNotContain(
+            s => s is Cvoya.Spring.Dapr.Mcp.McpServer,
+            "McpServer must NOT register as an IHostedService under HttpFrontDoor — " +
+            "ADR-0052 §2 keeps the session authority worker-only.");
+    }
+
+    /// <summary>
+    /// ADR-0052 §1: the <c>McpServer</c> / <c>IMcpServer</c> DI singletons
+    /// stay registered unconditionally on both host roles (OpenAPI doc-gen,
+    /// the latent <c>A2AExecutionDispatcher</c> singleton). Only the
+    /// <c>AddHostedService</c> wrapper is execution-host-gated.
     /// </summary>
     [Theory]
     [InlineData(SpringHostRole.HttpFrontDoor)]
     [InlineData(SpringHostRole.ExecutionHost)]
-    public void AddCvoyaSpringDapr_McpServer_RegistersAsHostedServiceUnderBothRoles(
+    public void AddCvoyaSpringDapr_McpServerSingleton_ResolvesUnderBothRoles(
         SpringHostRole role)
     {
         using var provider = BuildProvider(role);
 
-        var hosted = provider.GetServices<IHostedService>().ToList();
-
-        hosted.ShouldContain(
-            s => s is Cvoya.Spring.Dapr.Mcp.McpServer,
-            $"McpServer must register as an IHostedService under {role}; " +
-            "ADR-0052 PR 1 leaves it un-gated until #2614 decouples " +
-            "PersistentAgentLifecycle from a started McpServer in the API host.");
+        provider.GetService<Cvoya.Spring.Dapr.Mcp.McpServer>().ShouldNotBeNull();
+        provider.GetService<Cvoya.Spring.Core.Execution.IMcpServer>().ShouldNotBeNull();
     }
 
     [Fact]

@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Dapr.Mcp;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -36,7 +37,6 @@ using Microsoft.Extensions.Options;
 public class PersistentAgentLifecycle(
     IContainerRuntime containerRuntime,
     IAgentDefinitionProvider agentDefinitionProvider,
-    IMcpServer mcpServer,
     IEnumerable<IAgentRuntimeLauncher> launchers,
     IRuntimeCatalog runtimeCatalog,
     IAgentContextBuilder agentContextBuilder,
@@ -44,6 +44,7 @@ public class PersistentAgentLifecycle(
     ContainerLifecycleManager containerLifecycleManager,
     AgentVolumeManager volumeManager,
     IOptions<DaprSidecarOptions> daprSidecarOptions,
+    IOptions<McpServerOptions> mcpServerOptions,
     ILoggerFactory loggerFactory,
     // ADR-0039 / #2336: tool-introspection seam. The deploy path invokes
     // the introspector after readiness to populate image_tools (#2336 /
@@ -54,6 +55,7 @@ public class PersistentAgentLifecycle(
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<PersistentAgentLifecycle>();
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
+    private readonly McpServerOptions _mcpServerOptions = mcpServerOptions.Value;
     private readonly IAgentToolsIntrospector? _toolsIntrospector = toolsIntrospector;
     // ADR-0038: launchers are keyed on the catalogue runtime entry's
     // launcher strategy id; the lifecycle service derives that id from
@@ -139,11 +141,6 @@ public class PersistentAgentLifecycle(
         }
         var kind = runtime.Launcher;
 
-        if (mcpServer.Endpoint is null)
-        {
-            throw new SpringException("MCP server has not been started; endpoint is unavailable.");
-        }
-
         var sessionId = $"persistent-{agentId}";
         var prompt = definition.Instructions ?? string.Empty;
         // ADR-0039: a unit-as-agent definition returns UnitId == AgentId; a
@@ -152,19 +149,24 @@ public class PersistentAgentLifecycle(
         var scheme = string.Equals(definition.UnitId, definition.AgentId, StringComparison.Ordinal)
             ? Address.UnitScheme
             : Address.AgentScheme;
-        // ADR-0051: this is a deploy-time launch with no inbound message, so
-        // the session carries no per-turn message id; sv.messaging.* tools are
-        // served by the single platform MCP server like every other sv.* tool.
-        var session = mcpServer.IssueSession(agentId, sessionId, scheme);
 
         var deployTarget = Address.For(scheme, agentId);
 
+        // ADR-0052 §3: a deploy is a launch with no inbound message — no
+        // thread, no message id — so there is no turn context to scope an MCP
+        // session to. The deploy path therefore issues NO launch-time session:
+        // the container's .mcp.json carries the endpoint but no usable token
+        // until its first dispatched turn delivers a per-turn session token
+        // (PR 3 / #2615). The MCP endpoint comes from configuration — the
+        // single McpServer hosted service runs worker-only (ADR-0052 §2), so
+        // this code (which can run in the API host) has no started listener
+        // to read McpServer.Endpoint from.
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
             ThreadId: sessionId,
             Prompt: prompt,
-            McpEndpoint: mcpServer.Endpoint,
-            McpToken: session.Token,
+            McpEndpoint: _mcpServerOptions.ContainerEndpoint,
+            McpToken: string.Empty,
             TenantId: Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
             // #2251: forward the agent's owning unit id so launchers can pass
             // it to ILlmCredentialResolver — without this the resolver skips

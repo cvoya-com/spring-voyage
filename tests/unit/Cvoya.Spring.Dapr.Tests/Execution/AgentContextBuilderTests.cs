@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.Dapr.Mcp;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -24,17 +25,24 @@ public class AgentContextBuilderTests
 {
     private const string AgentId = "test-agent";
     private const string ThreadId = "t-abc";
+    private const string McpContainerHost = "host.docker.internal";
+    private const int McpPort = 9999;
+    // ADR-0052 §3: the container-facing MCP endpoint is derived from
+    // McpServerOptions (ContainerHost + Port), not the live listener.
     private const string McpEndpoint = "http://host.docker.internal:9999/mcp/";
     private const string McpToken = "mcp-test-token";
 
-    private readonly IMcpServer _mcpServer;
+    private static IOptions<McpServerOptions> McpOptions() =>
+        Options.Create(new McpServerOptions
+        {
+            ContainerHost = McpContainerHost,
+            Port = McpPort,
+        });
+
     private readonly AgentContextBuilder _builder;
 
     public AgentContextBuilderTests()
     {
-        _mcpServer = Substitute.For<IMcpServer>();
-        _mcpServer.Endpoint.Returns(McpEndpoint);
-
         var agentContextOptions = Options.Create(new AgentContextOptions
         {
             Bucket2Url = "https://bucket2.example.com",
@@ -52,7 +60,7 @@ public class AgentContextBuilderTests
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
 
         _builder = new AgentContextBuilder(
-            _mcpServer,
+            McpOptions(),
             agentContextOptions,
             ollamaOptions,
             loggerFactory);
@@ -158,7 +166,7 @@ public class AgentContextBuilderTests
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
 
-        var builder = new AgentContextBuilder(_mcpServer, agentContextOptions, ollamaOptions, loggerFactory);
+        var builder = new AgentContextBuilder(McpOptions(), agentContextOptions, ollamaOptions, loggerFactory);
         var ctx = MakeLaunchContext();
         var result = await builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
 
@@ -216,13 +224,45 @@ public class AgentContextBuilderTests
     [Fact]
     public async Task BuildAsync_McpToken_IsPassedThrough_NotMinted()
     {
-        // The MCP token comes from IMcpServer.IssueSession (pre-minted by
-        // the MCP server) and must be forwarded verbatim — the builder must
-        // NOT replace it with a freshly minted token.
+        // The MCP token is supplied via AgentLaunchContext.McpToken and must
+        // be forwarded verbatim — the builder must NOT replace it with a
+        // freshly minted token. ADR-0052 §3: the deploy path supplies an
+        // empty token; dispatch supplies a per-turn session token.
         var ctx = MakeLaunchContext();
         var result = await _builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
 
         result.EnvironmentVariables["SPRING_MCP_TOKEN"].ShouldBe(McpToken);
+    }
+
+    [Fact]
+    public async Task BuildAsync_McpUrl_ComesFromOptions_NotLaunchContext()
+    {
+        // ADR-0052 §3: the container-facing MCP endpoint is derived from
+        // McpServerOptions (ContainerHost + Port), independent of whatever
+        // the launch context carries.
+        var ctx = MakeLaunchContext();
+        var result = await _builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
+
+        result.EnvironmentVariables["SPRING_MCP_URL"].ShouldBe(McpEndpoint);
+    }
+
+    [Fact]
+    public async Task BuildAsync_McpToken_Empty_WhenLaunchContextHasNoToken()
+    {
+        // ADR-0052 §3: the persistent-agent deploy path supplies an empty
+        // MCP token (no turn context to authorise) — the builder forwards it
+        // verbatim rather than minting one.
+        var ctx = new AgentLaunchContext(
+            AgentId: AgentId,
+            ThreadId: ThreadId,
+            Prompt: "do things",
+            McpEndpoint: McpEndpoint,
+            McpToken: string.Empty,
+            TenantId: AcmeTenantId);
+
+        var result = await _builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
+
+        result.EnvironmentVariables["SPRING_MCP_TOKEN"].ShouldBe(string.Empty);
     }
 
     [Fact]
@@ -236,7 +276,7 @@ public class AgentContextBuilderTests
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
 
-        var builder = new AgentContextBuilder(_mcpServer, agentContextOptions, ollamaOptions, loggerFactory);
+        var builder = new AgentContextBuilder(McpOptions(), agentContextOptions, ollamaOptions, loggerFactory);
         var ctx = MakeLaunchContext();
         var result = await builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
 

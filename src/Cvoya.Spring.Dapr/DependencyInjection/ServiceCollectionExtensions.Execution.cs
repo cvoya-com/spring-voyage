@@ -287,10 +287,13 @@ internal static class ServiceCollectionExtensionsExecution
                 // persistent-agent container and emits spring.container.healthy via
                 // System.Diagnostics.Metrics (BCL Meter, MeterName = "Cvoya.Spring.Dapr").
                 services.AddHostedService<ContainerHealthMetricsService>();
+                // ADR-0052 §2: the McpServer port listener (and its in-process
+                // session store) runs in exactly one host — the worker — so
+                // there is one session authority. The McpServer / IMcpServer
+                // DI singletons above stay registered on both hosts; only this
+                // hosted-service wrapper is execution-host-gated.
+                services.AddHostedService(sp => sp.GetRequiredService<McpServer>());
             }
-
-            // McpServer stays in both hosts here; PR 2 / #2614 gates it worker-only once PersistentAgentLifecycle no longer needs a started McpServer in the API host.
-            services.AddHostedService(sp => sp.GetRequiredService<McpServer>());
         }
 
         return services;

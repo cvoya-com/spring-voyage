@@ -88,6 +88,9 @@ public class PersistentAgentRegistryTests : IDisposable
         services.AddSingleton<ContainerLifecycleManager>();
         services.AddSingleton(_agentProvider);
         services.AddSingleton(_mcpServer);
+        // ADR-0052 §3: PersistentAgentLifecycle resolves the container-facing
+        // MCP endpoint from McpServerOptions instead of a started McpServer.
+        services.AddSingleton(Options.Create(new Cvoya.Spring.Dapr.Mcp.McpServerOptions { Port = 5050 }));
         services.AddSingleton(_launcher);
         services.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(_ => new[] { _launcher });
         services.AddSingleton<AgentVolumeManager>();
