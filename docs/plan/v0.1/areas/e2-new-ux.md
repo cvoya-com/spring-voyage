@@ -6,7 +6,7 @@
 
 ### The killer use case
 
-A v0.1 user creates a unit from a template (software-engineering or product-management), connects it to a GitHub repository, assigns tasks to the unit, and engages with it directly. The unit's orchestrator triages incoming work and delegates to its agents. While work is in flight, the user can monitor progress, intervene with feedback, and answer clarifying questions the unit asks back. Every step of this flow is reachable from the `spring` CLI as well as from the web portal.
+A v0.1 user creates a unit from a template (software-engineering or product-management), connects it to a GitHub repository, assigns tasks to the unit, and engages with it directly. The unit's runtime triages incoming work and delegates to its agents. While work is in flight, the user can monitor progress, intervene with feedback, and answer clarifying questions the unit asks back. Every step of this flow is reachable from the `spring` CLI as well as from the web portal.
 
 This use case is the justification for a separate engagement surface. The existing management portal is shaped around configuration and monitoring — the right tool for setting up a unit, reviewing analytics, and managing credentials. It is the wrong mental model for the back-and-forth of active collaboration. E2 builds the surface where that collaboration happens.
 

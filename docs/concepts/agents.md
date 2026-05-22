@@ -88,14 +88,14 @@ The launcher attaches the platform MCP surface unconditionally for every
 `agent://` and `unit://` runtime; membership is not a gate. Unit operators and
 runtime authors do not configure a separate routing layer.
 
-## Orchestration decisions
+## Routing decisions
 
 Recording a routing decision is *optional*. A plain `sv.messaging.*` delivery
 records a `MessageSent` activity and nothing more. When a runtime wants the
 *decision* itself on the activity stream, it calls `sv.runtime.report_decision`
 — ADR-0050 generalised that tool so it records any routing decision, executed
 or not. The platform then publishes an `ActivityEvent` with
-`EventType = DecisionMade` and an `RoutingDecision` payload:
+`EventType = DecisionMade` and a `RoutingDecision` payload:
 
 | Field | Type | Description |
 | --- | --- | --- |

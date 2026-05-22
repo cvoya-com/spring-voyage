@@ -49,7 +49,7 @@ When the sender does not know (or does not want to pick) which member should han
 spring message send unit:dd55c4ea8d725e43a9df88d07af02b69 "Implement the login feature described in issue #15"
 ```
 
-The unit actor receives the message, applies boundary filtering, and invokes the unit's runtime through the same launcher path used for any agent. The runtime decides whether to answer directly or delegate to a child through the orchestration tools (see [Units & Agents](../../architecture/units.md) and [ADR-0039](../../decisions/0039-units-are-agents.md)). Responses flow back through the same thread.
+The unit actor receives the message, applies boundary filtering, and invokes the unit's runtime through the same launcher path used for any agent. The runtime decides whether to answer directly or delegate to a child through the `sv.messaging.*` delivery tools (see [Units & Agents](../../architecture/units.md) and [ADR-0039](../../decisions/0039-units-are-agents.md)). Responses flow back through the same thread.
 
 ### Example: multicast
 
@@ -117,7 +117,7 @@ See [Observing Activity](observing.md#conversations-and-inbox) for more examples
 | Scheme        | Shape                          | When to use                                                                                          |
 | ------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `agent`       | `agent:<32-hex-no-dash>`       | You know exactly which member should handle the work.                                                |
-| `unit`        | `unit:<32-hex-no-dash>`        | You want the unit's runtime to handle the work (answer directly or delegate to a child via the orchestration tools). |
+| `unit`        | `unit:<32-hex-no-dash>`        | You want the unit's runtime to handle the work (answer directly or delegate to a child via the `sv.messaging.*` delivery tools). |
 | `human`       | `human:<32-hex-no-dash>`       | You want to route a message to a human participant (notifications, approvals, escalations).         |
 
 There is no `connector` send target: connectors are non-routable bridges ([ADR-0048](../../decisions/0048-event-vs-request-message-semantics.md)). A connector translates inbound external events into messages and exposes outbound skills agents invoke — you never send a message *to* one.

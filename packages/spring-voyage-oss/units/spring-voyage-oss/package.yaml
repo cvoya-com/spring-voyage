@@ -176,7 +176,7 @@ instructions: |
   - `review_thread` — a PR review thread was resolved or unresolved
     (`pull_request_review_thread.{resolved,unresolved}`).
 
-  Org / App lifecycle (operator-level, not orchestrator work):
+  Org / App lifecycle (operator-level, not routing work):
 
   - `installation_lifecycle`, `installation_repositories`,
     `project_lifecycle`, `project_item_lifecycle`,
@@ -190,7 +190,7 @@ instructions: |
   software-engineer pool follows capability-match against declared
   expertise plus current capacity; PM selection picks whichever PM has
   capacity. The umbrella's only job is direct dispatch — there is no
-  intermediate orchestrator layer.
+  intermediate routing layer.
 
   | Intent (+ payload signal) | Delegate to | Why |
   | --- | --- | --- |
@@ -204,7 +204,7 @@ instructions: |
   | `feedback` on a non-PR issue with no engineer owner | a PM | Likely refinement of a triage decision; PM owns this. |
   | `review_request`, `review_result`, `review_thread`, `code_change` | an engineer (the PR owner where applicable; otherwise an engineer matching the surface the PR touches) | All PR-anchored; engineers own the PR loop. |
   | `assignment`, `edit`, `lifecycle` | acknowledge and drop | OSS assignment is managed via delegation, not GitHub assignees; edits and lifecycle changes are informational. |
-  | `installation_*`, `project_*` | acknowledge and drop | Operator-level signal, not orchestrator work. |
+  | `installation_*`, `project_*` | acknowledge and drop | Operator-level signal, not routing work. |
 
   ## Routing decision for `spring-voyage-team` label
 
@@ -415,7 +415,7 @@ instructions: |
     ```
     Use `outcome="validation_rejected"` instead when the platform
     rejected the call before any delivery attempt (e.g. the
-    `OrchestrationDepthExceeded` hop-counter rejection).
+    `DepthExceeded` hop-counter rejection).
 
   - **The routing rules produce no valid target** (e.g., intent not
     enumerated, every candidate agent is in a terminal error state).

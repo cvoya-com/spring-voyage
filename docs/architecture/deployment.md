@@ -314,10 +314,10 @@ Consumers that want the Dockerfile's `--build-arg CLAUDE_CODE_VERSION=<x.y.z>` e
 
 The solution follows a layered architecture with clean separation between domain abstractions and infrastructure:
 
-- **`Cvoya.Spring.Core`** — Domain interfaces and types. No Dapr or infrastructure dependencies. Defines `IAddressable`, `IMessageReceiver`, `IOrchestrationToolProvider`, `OrchestrationDecision`, `IExecutionConfigInheritanceResolver`, `IActivityObservable`, `IExecutionDispatcher`, `IAgentRuntimeLauncher`, `IAgentDefinitionProvider`, `IUnitPolicyEnforcer`, `ISecretStore`/`ISecretRegistry`/`ISecretResolver`, and all domain models.
-- **`Cvoya.Spring.Dapr`** — Dapr implementations: actors (`AgentActor`, `UnitActor`, `HumanActor`), `A2AExecutionDispatcher`, the Dapr `IOrchestrationToolProvider` implementation, `ExecutionConfigInheritanceResolver`, `PersistentAgentRegistry`, `DaprStateBackedSecretStore`, state management, and routing.
+- **`Cvoya.Spring.Core`** — Domain interfaces and types. No Dapr or infrastructure dependencies. Defines `IAddressable`, `IMessageReceiver`, `RoutingDecision`, `IExecutionConfigInheritanceResolver`, `IActivityObservable`, `IExecutionDispatcher`, `IAgentRuntimeLauncher`, `IAgentDefinitionProvider`, `IUnitPolicyEnforcer`, `ISecretStore`/`ISecretRegistry`/`ISecretResolver`, and all domain models.
+- **`Cvoya.Spring.Dapr`** — Dapr implementations: actors (`AgentActor`, `UnitActor`, `HumanActor`), `A2AExecutionDispatcher`, `MessageDeliveryService`, `ExecutionConfigInheritanceResolver`, `PersistentAgentRegistry`, `DaprStateBackedSecretStore`, state management, and routing.
 - **`Cvoya.Spring.AgentRuntimes`** — Per-runtime launchers (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`, `SpringVoyageAgentLauncher`) and the `IAgentRuntimeLauncherRegistry`.
-- **`Cvoya.Spring.AgentSdk`** — Runtime-image-facing typed `IOrchestrationClient` over the host's HTTP callback API, with `SpringAgent.FromEnvironment()` reading `SPRING_CALLBACK_URL` / `SPRING_CALLBACK_TOKEN`. Consumed by workflow-driven runtime images (see [Agent SDK](agent-sdk.md)).
+- **`Cvoya.Spring.AgentSdk`** — Runtime-image-facing typed `IMessagingClient` over the platform MCP server, with `SpringAgent.FromEnvironment()` reading `SPRING_MCP_URL` / `SPRING_MCP_TOKEN`. Consumed by workflow-driven runtime images (see [Agent SDK](agent-sdk.md)).
 - **`Cvoya.Spring.A2A`** — A2A protocol client and server for cross-framework agent communication.
 - **`Cvoya.Spring.Connector.GitHub`** — GitHub connector with webhook handling and skills.
 - **`Cvoya.Spring.Host.Api`** — ASP.NET Core API host (REST, WebSocket, SSE, auth, local dev mode).

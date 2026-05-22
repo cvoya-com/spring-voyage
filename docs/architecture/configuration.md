@@ -6,7 +6,7 @@
 
 ## Problem
 
-Spring Voyage reads ~25 tier-1 config values — platform identity, infrastructure bindings, service wiring — across Database / Dapr / GitHub / AI / Ollama / Secrets / Dispatcher / ContainerRuntime / WorkflowOrchestration subsystems. Historically each subsystem validated (or failed to validate) its own config on its own schedule: fail-fast at startup for one, fail-at-first-use for the next, silent default with warning for a third. An operator hitting an unconfigured feature got a 502, a clean 404, or a log-only warning depending on which subsystem they touched. Operators also had no place to look post-deploy to answer "is the platform deployed correctly?".
+Spring Voyage reads ~25 tier-1 config values — platform identity, infrastructure bindings, service wiring — across Database / Dapr / GitHub / AI / Ollama / Secrets / Dispatcher / ContainerRuntime subsystems. Historically each subsystem validated (or failed to validate) its own config on its own schedule: fail-fast at startup for one, fail-at-first-use for the next, silent default with warning for a third. An operator hitting an unconfigured feature got a 502, a clean 404, or a log-only warning depending on which subsystem they touched. Operators also had no place to look post-deploy to answer "is the platform deployed correctly?".
 
 Issue [#616](https://github.com/cvoya-com/spring-voyage/issues/616) generalises the GitHub-specific availability seam ([PR #621's `IGitHubConnectorAvailability`](https://github.com/cvoya-com/spring-voyage/pull/621)) into a cross-subsystem framework and surfaces the result to operators over HTTP, CLI, and the portal.
 
@@ -125,4 +125,3 @@ A handful of Spring Voyage options classes were evaluated during #639 and left o
 
 - **Rx activity pipeline** (`StreamEventPublisherOptions`). The only knob is `PubSubName`, which defaults to `"pubsub"` and is resolved via Dapr pub/sub — Dapr surfaces the component-not-found error on first publish and a host-level validator would only duplicate that signal without adding value.
 - **AI provider (`AiProviderOptions.ApiKey`, base URL)**. Tenant-default LLM credentials are tier-2 concerns (`ILlmCredentialResolver`, #619) — surfacing them through the tier-1 framework would dilute the "is the platform deployed correctly?" question the framework is designed to answer.
-- **Workflow orchestration (`WorkflowOrchestrationOptions.ContainerImage`, timeouts)**. These are per-unit manifest values, not host-wide deployment config; they surface through the orchestration-strategy resolver when the relevant unit is run.

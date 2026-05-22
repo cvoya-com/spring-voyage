@@ -178,7 +178,7 @@ All four actor types implement `IMessageReceiver` (and therefore `IAddressable`)
 | Actor              | Represents                | Key Responsibilities                                                     |
 | ------------------ | ------------------------- | ------------------------------------------------------------------------ |
 | **AgentActor**     | Single AI entity          | Runtime state, cognition (AI calls), pub/sub subscriptions, mailbox      |
-| **UnitActor**      | Composite agent (a group) | Member management, policies, expertise directory, orchestration dispatch |
+| **UnitActor**      | Composite agent (a group) | Member management, policies, expertise directory, message-delivery dispatch |
 | **HumanActor**     | Human participant         | Notification routing, permission enforcement                             |
 
 Connectors are **not** actors — they are non-routable bridges (event translation + outbound skills); see [Connectors](connectors.md) and [ADR-0048](../decisions/0048-event-vs-request-message-semantics.md).

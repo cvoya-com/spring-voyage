@@ -299,7 +299,7 @@ calling the **same single platform MCP server** (ADR-0051):
 | Typed `MessagingClient` | Workflow-driven | Runtime images using `Cvoya.Spring.AgentSdk` | The launcher stamps `SPRING_MCP_URL` and `SPRING_MCP_TOKEN` into the container environment. `MessagingClient` calls `sv.messaging.*` over JSON-RPC `tools/call` against that same MCP server. |
 
 Both surfaces dispatch to the same platform-side
-[`MessagingToolHandlers`](../../src/Cvoya.Spring.Dapr/Orchestration/MessagingToolHandlers.cs)
+[`MessagingToolHandlers`](../../src/Cvoya.Spring.Dapr/Messaging/MessagingToolHandlers.cs)
 implementation, re-fronted as the `SvMessagingSkillRegistry` on the platform
 MCP server. The SDK surface lives in
 [`src/Cvoya.Spring.AgentSdk/`](../../src/Cvoya.Spring.AgentSdk/) and is
@@ -310,7 +310,7 @@ is documented in [Platform MCP Tools](platform-mcp-tools.md).
 With a single delivery seam, delegation-loop prevention is implemented once: a
 per-thread hop counter incremented on every `sv.messaging.send` /
 `sv.messaging.multicast` call rejects a call past the platform limit with the
-validation-class `OrchestrationDepthExceeded` tool error.
+validation-class `DepthExceeded` tool error.
 
 ## 4c. Launcher's tool-attachment responsibility
 

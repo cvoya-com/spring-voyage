@@ -93,7 +93,7 @@ bus.ActivityStream
 | `AgentActor.RunDispatchAsync` | `ErrorOccurred` | dispatcher failures |
 | `AgentActor.EmitCostIncurredAsync` | `CostIncurred` | every LLM completion, carries `Cost`, `model`, `inputTokens`, `outputTokens`, `costSource` |
 | `AgentActor.RunInitiativeCheckAsync` | `InitiativeTriggered`, `ReflectionCompleted`, `ReflectionActionDispatched`, `ReflectionActionSkipped` | Tier-2 reflection loop |
-| `UnitActor.ReceiveAsync / HandleDomainMessageAsync` | `MessageReceived`, `DecisionMade`, `ErrorOccurred`, `WorkflowStepCompleted` | runtime dispatch, orchestration delegation, dispatcher no-response completions |
+| `UnitActor.ReceiveAsync / HandleDomainMessageAsync` | `MessageReceived`, `DecisionMade`, `ErrorOccurred`, `WorkflowStepCompleted` | runtime dispatch, routing decisions, dispatcher no-response completions |
 | `AgentDispatchCoordinator.RunDispatchAsync` | `DecisionMade`, `WorkflowStepCompleted`, `ErrorOccurred` | for a **connector-origin** turn (`From.Scheme == connector`), emits a `DecisionMade` recording the routing **outcome** after the runtime invocation returns — `event_processed` / `processing_failed` — so the activity stream is never silent on a connector event, **including the "no agent dispatched" case** (#2560). `Details` carries `decision`, `connectorEventType`, the external entity reference (e.g. issue number), and `inboundMessageId`; `CorrelationId` is the originating connector thread id. The runtime-facing signal that would let this event carry the unit's actual decision + `dispatched_to` is deferred design work (#2572) |
 | `MessagingToolHandlers.HandleSendAsync / HandleMulticastAsync` | `MessageSent` | an `sv.messaging.send` / `sv.messaging.multicast` from a unit's runtime — carries the target(s); `CorrelationId` is the thread id, so it joins the same correlation chain as the connector `MessageReceived` and the coordinator's routing-outcome `DecisionMade` (#2560). A routing decision, when the runtime chooses to record one, is a separate optional `sv.runtime.report_decision` call that emits `DecisionMade` |
 | `UnitActor.AddMemberAsync / RemoveMemberAsync / TransitionAsync / SetMetadataAsync` | `StateChanged` | membership, lifecycle, metadata edits |
@@ -133,7 +133,7 @@ The SSE relay decouples Rx.NET's synchronous `OnNext` callback from the HTTP wri
 | Layer                     | What                          | How                          |
 | ------------------------- | ----------------------------- | ---------------------------- |
 | **Agent → Agent**         | Mentoring, quality monitoring | Pub/sub with permission      |
-| **Unit → Members**        | Orchestration awareness       | `IUnitActivityObservable.GetStreamAsync` — subscribe-time filter over the bus |
+| **Unit → Members**        | Routing awareness             | `IUnitActivityObservable.GetStreamAsync` — subscribe-time filter over the bus |
 | **Human → Agent/Unit**    | Dashboard, CLI, alerts        | SSE/WebSocket + REST         |
 | **Platform → Everything** | Telemetry, cost, audit        | System-wide collection       |
 
@@ -169,7 +169,7 @@ Runtime containers (agent, unit, sub-agents) ship spans, logs, and span events t
 - `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <per-invocation callback JWT>`
 - `OTEL_RESOURCE_ATTRIBUTES=sv.tenant.id=...,sv.subject.uuid=...,sv.subject.kind=agent|unit|human`
 
-Auth reuses the per-invocation callback token the launcher already mints for the dispatcher orchestration callback — no new credential primitive. The ingest controller cross-checks the resource attributes against the bearer JWT's claims so a leaked token can't be replayed against another subject; mismatches drop silently.
+Auth reuses the per-invocation callback token the launcher already mints for the OTLP-ingest callback — no new credential primitive. The ingest controller cross-checks the resource attributes against the bearer JWT's claims so a leaked token can't be replayed against another subject; mismatches drop silently.
 
 ### Capture, redaction, retention
 

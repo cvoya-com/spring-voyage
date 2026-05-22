@@ -204,7 +204,7 @@ public class Adr0037Tests
     }
 
     [Fact]
-    public void ManifestParser_NoUnitOrchestrationBlock_Succeeds()
+    public void ManifestParser_MinimalUnitWithAiBlock_Succeeds()
     {
         var yaml = """
             apiVersion: spring.voyage/v1

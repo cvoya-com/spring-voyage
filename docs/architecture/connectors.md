@@ -116,9 +116,9 @@ The open-source host ships three connector types out of the box:
 
 GitHub unit bindings may also carry optional label-roundtrip rules:
 `add_on_assign` and `remove_on_assign`. When a unit emits a routed delegate
-`OrchestrationDecision`, the GitHub connector subscriber loads the unit's
-GitHub binding and applies those labels to the originating issue with the
-connector's credentials.
+`RoutingDecision` (on a `DecisionMade` activity event), the GitHub connector
+subscriber loads the unit's GitHub binding and applies those labels to the
+originating issue with the connector's credentials.
 
 ### Connector-side display identity lives on the `TenantUser`
 

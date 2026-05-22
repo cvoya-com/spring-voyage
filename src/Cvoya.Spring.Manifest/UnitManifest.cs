@@ -186,7 +186,7 @@ public class AiManifest
     [YamlMember(Alias = "model")]
     public AiModelManifest? Model { get; set; }
 
-    /// <summary>Skills available to the orchestrator.</summary>
+    /// <summary>Skills available to the agent.</summary>
     [YamlMember(Alias = "skills")]
     public List<SkillReference>? Skills { get; set; }
 

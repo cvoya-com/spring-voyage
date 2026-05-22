@@ -249,11 +249,11 @@ services:
       # surfaces as a startup failure in spring-worker rather than a
       # silent authentication-with-weak-literal.
       Dispatcher__BearerToken: ${SPRING_DISPATCHER_WORKER_TOKEN:?must be set; source ~/.spring-voyage/host/dispatcher.env after './spring-voyage-host.sh start'}
-      # #2586: agent-facing orchestration callback base URL. The worker's
-      # launcher stamps this onto every runtime container as
-      # SPRING_CALLBACK_URL; agent containers reach the delegate_to /
-      # fanout_to + orchestration-MCP endpoints through the tenant-facing
-      # Caddy listener (ADR 0028 Decision D), which proxies to spring-api.
+      # #2586: agent-facing OTLP-ingest callback base URL (ADR-0051). The
+      # worker's launcher stamps this onto every runtime container as
+      # SPRING_CALLBACK_URL; agent containers reach the OTLP callback
+      # endpoint through the tenant-facing Caddy listener (ADR 0028
+      # Decision D), which proxies to spring-api.
       CallbackBaseUrl__BaseUrl: http://spring-caddy:8443/
     command: ["dotnet", "/app/Cvoya.Spring.Host.Worker.dll"]
     volumes:
@@ -305,9 +305,9 @@ services:
       # before `docker compose up`. A missing token surfaces as a startup
       # failure instead of silent authentication-with-weak-literal.
       Dispatcher__BearerToken: ${SPRING_DISPATCHER_WORKER_TOKEN:?must be set; source ~/.spring-voyage/host/dispatcher.env after './spring-voyage-host.sh start'}
-      # #2586: agent-facing orchestration callback base URL — see the
-      # spring-worker block. Bound on the API host too so the option graph
-      # is identical on every host that calls AddCvoyaSpringDapr.
+      # #2586: agent-facing OTLP-ingest callback base URL (ADR-0051) — see
+      # the spring-worker block. Bound on the API host too so the option
+      # graph is identical on every host that calls AddCvoyaSpringDapr.
       CallbackBaseUrl__BaseUrl: http://spring-caddy:8443/
     command: ["dotnet", "/app/Cvoya.Spring.Host.Api.dll"]
     volumes:

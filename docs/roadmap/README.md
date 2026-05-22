@@ -32,7 +32,7 @@ The phase documents below are **historical**: they record how V2 was originally 
 
 ## Open Core Model
 
-Spring Voyage follows an open core model. This repository contains the complete, fully functional platform: agents (units are agents that have children), messaging, routing, runtime-decided orchestration with the closed orchestration-tool surface, execution, connectors, CLI, basic RBAC, ephemeral cloning, observability, basic cost tracking, A2A protocol, unit nesting, package system, and dashboard.
+Spring Voyage follows an open core model. This repository contains the complete, fully functional platform: agents (units are agents that have children), messaging, routing, runtime-decided work delivery over the `sv.messaging.*` tool surface, execution, connectors, CLI, basic RBAC, ephemeral cloning, observability, basic cost tracking, A2A protocol, unit nesting, package system, and dashboard.
 
 Commercial extensions (multi-tenancy, OAuth/SSO/SAML, billing, and advanced features) are developed separately and extend this codebase via dependency injection without modifying it.
 

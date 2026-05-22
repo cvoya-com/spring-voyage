@@ -32,11 +32,10 @@ There are only a handful of real differences. They flow from one structural fact
 
 | Feature | Notes |
 |---|---|
-| **Children** | Units compose member agents and sub-units. A leaf agent has none. The child list drives orchestration tool attachment, expertise aggregation, and the Unit × Agents tab. |
+| **Children** | Units compose member agents and sub-units. A leaf agent has none. The child list drives expertise aggregation and the Unit × Agents tab. |
 | **Boundary** | Units define a boundary (`UnitBoundary`) that controls what callers outside the unit see and which work the unit is eligible to receive. Leaf agents have no boundary surface. |
 | **Recursively-enforced policies** | Policies set on a unit cascade to its children (skill / model / cost / execution-mode dimensions). Policies set on a leaf agent are local. |
 | **Connector binding** | A unit owns a connector binding that translates external events (GitHub webhooks, Slack messages, etc.) into platform messages. Agents inherit connector reachability from their owning unit; they cannot bind connectors directly. The Agent × Config → Connector sub-tab is a read-only inherited view of the owning unit's binding. |
-| **Orchestration strategy** | A unit declares a pluggable orchestration strategy ([AGENTS.md](../../AGENTS.md)) that decides how member agents handle a unit-scoped message. Leaf agents have no orchestration layer below them. |
 | **Membership operations** | Add / remove member agents and sub-units via the membership endpoints. Leaf agents only participate as members. |
 | **Multi-parent membership** | A unit can be a member of multiple parent units (see [Multi-Parent](../decisions/) when filed). Leaf-agent membership rules are simpler. |
 | **Expertise aggregation** | A unit's effective expertise is the union of its own declared expertise plus its children's. Leaf-agent expertise is just what the agent declares. |
@@ -54,7 +53,7 @@ That's it. Everything else either applies to both or is unit-only.
 
 When designing a new feature, endpoint, panel, or tab, ask in order:
 
-1. **Does it concern composition (children, boundary, orchestration, recursive policy)?** → Unit-only.
+1. **Does it concern composition (children, boundary, recursive policy)?** → Unit-only.
 2. **Does it concern cloning?** → Agent-only.
 3. **Otherwise** → applies to both. Build it once with a `{ kind, id }` parameter; do not split it into `unit-*` and `agent-*` variants.
 
@@ -71,7 +70,7 @@ Both subjects are addressable. The schemes differ:
 | Human | `human://` (short-circuits the directory by design) | `human:a2…` |
 | Tenant | (none — tenant is not addressable as an actor) | — |
 
-The dispatcher resolves either scheme through the same runtime layer. The scheme only changes which orchestration tools the runtime sees and which mailbox identity the callback uses.
+The dispatcher resolves either scheme through the same runtime layer. Both schemes see the same `sv.messaging.*` delivery tools; the scheme only changes which mailbox identity the callback uses.
 
 ## `execution.hosting` (issue #2436)
 

@@ -126,7 +126,7 @@ Agent members do not bind the GitHub connector themselves; they inherit `$GITHUB
 
 ### End-to-end (via GitHub)
 
-The truest smoke is an actual webhook delivery. Open an issue on the bound repository with no `area:*` label and watch `spring activity list --unit spring-voyage-oss` for an `OrchestrationDecision` event delegating to a PM agent (`drucker` or `deming`) — the router runs PM triage first, then re-routes once an `area:*` label is on. Add an `area:*` label to a fresh issue and observe the unit route the resulting `label_change` directly to an engineer agent.
+The truest smoke is an actual webhook delivery. Open an issue on the bound repository with no `area:*` label and watch `spring activity list --unit spring-voyage-oss` for a `DecisionMade` event delegating to a PM agent (`drucker` or `deming`) — the router runs PM triage first, then re-routes once an `area:*` label is on. Add an `area:*` label to a fresh issue and observe the unit route the resulting `label_change` directly to an engineer agent.
 
 ### Program management (direct prompt)
 

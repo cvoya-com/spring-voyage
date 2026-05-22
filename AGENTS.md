@@ -13,7 +13,7 @@ Architecture lives under [`docs/architecture/`](docs/architecture/README.md); de
 Key concepts:
 
 - **Agents** — Dapr virtual actors with partitioned mailboxes.
-- **Units** — composite agents with pluggable orchestration strategies. A unit **is** an agent — see [`docs/concepts/units-vs-agents.md`](docs/concepts/units-vs-agents.md) for the quick reference on what's shared vs different; most features apply to both subjects identically.
+- **Units** — composite agents that have children. A unit **is** an agent — see [`docs/concepts/units-vs-agents.md`](docs/concepts/units-vs-agents.md) for the quick reference on what's shared vs different; most features apply to both subjects identically. How a unit routes work across its members is runtime behaviour, not platform configuration ([ADR-0039](docs/decisions/0039-units-are-agents.md)).
 - **Humans** — addressable thread participants (not agents). A human implements only `IMessageReceiver` and can be a member of a unit with permission grants. See [`docs/concepts/humans.md`](docs/concepts/humans.md). Portal surfaces for humans are scoped to v0.2.
 - **Connectors** — bridges between external systems and units.
 - **Messages** — typed communications between addressable entities.

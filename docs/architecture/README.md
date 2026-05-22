@@ -104,7 +104,7 @@ Each goal directly addresses a v1 limitation:
 | [Initiative](initiative.md) | Initiative levels, tiered cognition, initiative policies |
 | [Workflows](workflows.md) | Workflow-as-container, platform-internal workflows, A2A execution dispatch, agent tool launchers, A2A sidecar protocol, workflow patterns |
 | [Agent Runtime](agent-runtime.md) | A2A dispatcher tiers, launcher contract, MCP callback, Dapr Conversation provider/model YAML contract (Ollama / OpenAI / Anthropic / Google), adding a new launcher |
-| [Agent SDK](agent-sdk.md) | Runtime-image `MessagingClient`, MCP environment contract, orchestration authorization, error model, workflow-state guidance |
+| [Agent SDK](agent-sdk.md) | Runtime-image `MessagingClient`, MCP environment contract, message-delivery authorization, error model, workflow-state guidance |
 | [Platform MCP Tools](platform-mcp-tools.md) | The `sv.<area>.<verb>` platform MCP tool taxonomy, the `sv.messaging.send` / `sv.messaging.multicast` delivery tools on the ADR-0049 ack contract, the per-thread hop counter, the single platform MCP server (`spring-voyage`) under one auth model, descriptor / schema shape, per-runtime attachment |
 | [Agent Credential Rotation](agent-credential-rotation.md) | Design rationale for D1 spec § 2.2.3 — restart-as-rotation-primitive, supervisor re-injection via `IAgentContextBuilder`, future evolution to mounted-files + refresher |
 | [Connectors](connectors.md) | Connector model, skills, implementation tiers |

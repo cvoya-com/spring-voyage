@@ -51,17 +51,9 @@ A unit is a group of agents. Start by creating one:
 spring unit create engineering-team --description "My engineering team"
 ```
 
-### Set the Orchestration Strategy
-
-Tell the unit how to route messages to its members:
-
-```
-spring unit set engineering-team \
-  --structure hierarchical \
-  --ai-execution delegated \
-  --ai-tool software-dev-cycle \
-  --ai-environment-image spring-workflows/software-dev-cycle:latest
-```
+A unit does not declare a routing strategy: how a unit routes work across its
+members is decided by the unit's own runtime, not by platform configuration
+(see [ADR-0039](../../decisions/0039-units-are-agents.md)).
 
 ### Set the Default Execution Environment
 
