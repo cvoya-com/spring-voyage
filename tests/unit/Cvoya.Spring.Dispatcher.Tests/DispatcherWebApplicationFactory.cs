@@ -26,16 +26,16 @@ public class DispatcherWebApplicationFactory : WebApplicationFactory<Program>
     /// arguments it was invoked with.
     /// </summary>
     /// <remarks>
-    /// The double also implements <see cref="IWorkspaceVolumeLocator"/> — in
-    /// production the dispatcher binds the locator to the same singleton as the
+    /// The double also implements <see cref="IWorkspaceVolumePopulator"/> — in
+    /// production the dispatcher binds the populator to the same singleton as the
     /// container runtime (a <c>ProcessContainerRuntime</c> implements both), so
     /// the test double must satisfy both interfaces for the DI cast to succeed
-    /// (#2608). By default the substituted locator returns <c>null</c> for any
+    /// (#2608). By default the substituted populator returns <c>false</c> for any
     /// volume, so endpoint tests stay on the bind-mount fallback path unless a
     /// test arranges otherwise.
     /// </remarks>
     public IContainerRuntime ContainerRuntime { get; } =
-        Substitute.For<IContainerRuntime, IWorkspaceVolumeLocator>();
+        Substitute.For<IContainerRuntime, IWorkspaceVolumePopulator>();
 
     /// <summary>Default bearer token pre-seeded on the host for authenticated tests.</summary>
     public const string ValidToken = "test-token-worker-1";

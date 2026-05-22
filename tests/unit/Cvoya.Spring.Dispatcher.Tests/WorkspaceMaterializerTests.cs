@@ -43,6 +43,8 @@ public class WorkspaceMaterializerTestsCollection { }
 [Collection(nameof(WorkspaceMaterializerTestsCollection))]
 public class WorkspaceMaterializerTests
 {
+    private const string HelperImage = "ghcr.io/cvoya/agent:latest";
+
     [Fact]
     public async Task MaterializeAsync_DirectoryAndFiles_AreReadableByOtherUsers()
     {
@@ -72,8 +74,8 @@ public class WorkspaceMaterializerTests
                 WorkspaceRoot = root,
             });
             // No volume mounts → the bind-mount fallback path under test here.
-            var volumeLocator = Substitute.For<IWorkspaceVolumeLocator>();
-            var sut = new WorkspaceMaterializer(options, volumeLocator, NullLoggerFactory.Instance);
+            var volumePopulator = Substitute.For<IWorkspaceVolumePopulator>();
+            var sut = new WorkspaceMaterializer(options, volumePopulator, NullLoggerFactory.Instance);
 
             var request = new WorkspaceRequest
             {
@@ -86,7 +88,7 @@ public class WorkspaceMaterializerTests
             };
 
             var materialised = await sut.MaterializeAsync(
-                request, requestedVolumeMounts: null, TestContext.Current.CancellationToken);
+                request, requestedVolumeMounts: null, HelperImage, TestContext.Current.CancellationToken);
 
             try
             {
@@ -135,30 +137,43 @@ public class WorkspaceMaterializerTests
 
     /// <summary>
     /// #2608: when the workspace mount path coincides with a named-volume
-    /// mount the caller already requested, the launcher files are written
-    /// straight into that volume's host mount point — no separate
-    /// per-invocation bind mount, and <see cref="MaterializedWorkspace.MountSpec"/>
-    /// is <c>null</c> so the caller appends nothing to the container's mounts.
+    /// mount the caller already requested, the launcher files are copied into
+    /// that volume via the container runtime — no separate per-invocation bind
+    /// mount, and <see cref="MaterializedWorkspace.MountSpec"/> is <c>null</c>
+    /// so the caller appends nothing to the container's mounts. The transient
+    /// staging directory is deleted once the runtime has the files.
     /// </summary>
     [Fact]
-    public async Task MaterializeAsync_WritesIntoNamedVolume_WhenMountPathCoincides()
+    public async Task MaterializeAsync_CopiesIntoNamedVolume_WhenMountPathCoincides()
     {
-        var volumeMountpoint = Path.Combine(
-            Path.GetTempPath(), "spring-vol-tests-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(volumeMountpoint);
+        var root = Path.Combine(Path.GetTempPath(), "spring-ws-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
 
         try
         {
             const string VolumeName = "spring-ws-agent-007";
-            var volumeLocator = Substitute.For<IWorkspaceVolumeLocator>();
-            volumeLocator
-                .ResolveVolumeMountpointAsync(VolumeName, Arg.Any<CancellationToken>())
-                .Returns(volumeMountpoint);
 
-            // WorkspaceRoot is irrelevant on this path — the files go into the
-            // volume, not a per-invocation directory.
-            var options = Options.Create(new DispatcherOptions { WorkspaceRoot = "/nonexistent" });
-            var sut = new WorkspaceMaterializer(options, volumeLocator, NullLoggerFactory.Instance);
+            // Capture what the materialiser staged before it deletes the
+            // staging directory, so we can prove the right files were handed
+            // to the runtime-mediated copy.
+            string? capturedStagingDir = null;
+            string? capturedClaudeMd = null;
+            string? capturedMcpJson = null;
+
+            var volumePopulator = Substitute.For<IWorkspaceVolumePopulator>();
+            volumePopulator
+                .TryPopulateVolumeAsync(
+                    VolumeName, Arg.Any<string>(), HelperImage, Arg.Any<CancellationToken>())
+                .Returns(callInfo =>
+                {
+                    capturedStagingDir = callInfo.ArgAt<string>(1);
+                    capturedClaudeMd = File.ReadAllText(Path.Combine(capturedStagingDir, "CLAUDE.md"));
+                    capturedMcpJson = File.ReadAllText(Path.Combine(capturedStagingDir, ".mcp.json"));
+                    return Task.FromResult(true);
+                });
+
+            var options = Options.Create(new DispatcherOptions { WorkspaceRoot = root });
+            var sut = new WorkspaceMaterializer(options, volumePopulator, NullLoggerFactory.Instance);
 
             var request = new WorkspaceRequest
             {
@@ -175,29 +190,34 @@ public class WorkspaceMaterializerTests
             var materialised = await sut.MaterializeAsync(
                 request,
                 requestedVolumeMounts: [$"{VolumeName}:/spring/workspace"],
+                HelperImage,
                 TestContext.Current.CancellationToken);
 
-            // Files landed inside the volume's host mount point.
-            materialised.HostDirectory.ShouldBe(volumeMountpoint);
-            File.ReadAllText(Path.Combine(volumeMountpoint, "CLAUDE.md")).ShouldBe("# system prompt");
-            File.ReadAllText(Path.Combine(volumeMountpoint, ".mcp.json")).ShouldBe("{}");
+            // The files the runtime was asked to copy were the request's files.
+            capturedStagingDir.ShouldNotBeNull();
+            capturedClaudeMd.ShouldBe("# system prompt");
+            capturedMcpJson.ShouldBe("{}");
+
+            // HostDirectory carries the volume name on the volume path.
+            materialised.HostDirectory.ShouldBe(VolumeName);
 
             // No bind-mount spec to append — the caller already mounts the volume.
             materialised.MountSpec.ShouldBeNull();
 
-            // Cleanup is a no-op for a volume-backed workspace: the per-agent
-            // persistent volume survives container exit.
+            // The transient staging directory is deleted once the runtime has
+            // copied the files into the volume.
+            Directory.Exists(capturedStagingDir).ShouldBeFalse();
+
+            // Cleanup is a no-op for a volume-backed workspace.
             sut.Cleanup(materialised);
-            Directory.Exists(volumeMountpoint).ShouldBeTrue();
-            File.Exists(Path.Combine(volumeMountpoint, "CLAUDE.md")).ShouldBeTrue();
         }
         finally
         {
             try
             {
-                if (Directory.Exists(volumeMountpoint))
+                if (Directory.Exists(root))
                 {
-                    Directory.Delete(volumeMountpoint, recursive: true);
+                    Directory.Delete(root, recursive: true);
                 }
             }
             catch
@@ -208,26 +228,27 @@ public class WorkspaceMaterializerTests
     }
 
     /// <summary>
-    /// #2608: when a volume mount is requested but its host mount point does
-    /// not resolve (e.g. the volume was never created), the materializer falls
-    /// back to the per-invocation bind mount so the launch still gets a
-    /// populated workspace rather than silently launching an empty one.
+    /// #2608: when a volume mount is requested but the volume does not exist
+    /// (the populator reports <c>false</c>), the materializer falls back to the
+    /// per-invocation bind mount so the launch still gets a populated workspace
+    /// rather than silently launching an empty one.
     /// </summary>
     [Fact]
-    public async Task MaterializeAsync_FallsBackToBindMount_WhenVolumeMountpointUnresolved()
+    public async Task MaterializeAsync_FallsBackToBindMount_WhenVolumeAbsent()
     {
         var root = Path.Combine(Path.GetTempPath(), "spring-ws-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
 
         try
         {
-            var volumeLocator = Substitute.For<IWorkspaceVolumeLocator>();
-            volumeLocator
-                .ResolveVolumeMountpointAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-                .Returns((string?)null);
+            var volumePopulator = Substitute.For<IWorkspaceVolumePopulator>();
+            volumePopulator
+                .TryPopulateVolumeAsync(
+                    Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(false);
 
             var options = Options.Create(new DispatcherOptions { WorkspaceRoot = root });
-            var sut = new WorkspaceMaterializer(options, volumeLocator, NullLoggerFactory.Instance);
+            var sut = new WorkspaceMaterializer(options, volumePopulator, NullLoggerFactory.Instance);
 
             var request = new WorkspaceRequest
             {
@@ -238,6 +259,7 @@ public class WorkspaceMaterializerTests
             var materialised = await sut.MaterializeAsync(
                 request,
                 requestedVolumeMounts: ["spring-ws-agent-008:/spring/workspace"],
+                HelperImage,
                 TestContext.Current.CancellationToken);
 
             // Bind-mount fallback: a per-invocation directory under the root,
@@ -278,9 +300,9 @@ public class WorkspaceMaterializerTests
 
         try
         {
-            var volumeLocator = Substitute.For<IWorkspaceVolumeLocator>();
+            var volumePopulator = Substitute.For<IWorkspaceVolumePopulator>();
             var options = Options.Create(new DispatcherOptions { WorkspaceRoot = root });
-            var sut = new WorkspaceMaterializer(options, volumeLocator, NullLoggerFactory.Instance);
+            var sut = new WorkspaceMaterializer(options, volumePopulator, NullLoggerFactory.Instance);
 
             var request = new WorkspaceRequest
             {
@@ -292,14 +314,15 @@ public class WorkspaceMaterializerTests
                 request,
                 // Source starts with '/': a host bind mount, not a named volume.
                 requestedVolumeMounts: ["/host/dir:/spring/workspace"],
+                HelperImage,
                 TestContext.Current.CancellationToken);
 
             materialised.MountSpec.ShouldNotBeNull();
             materialised.HostDirectory.ShouldStartWith(root);
 
-            // The volume locator must never be consulted — nothing was a volume.
-            await volumeLocator.DidNotReceive()
-                .ResolveVolumeMountpointAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            // The volume populator must never be consulted — nothing was a volume.
+            await volumePopulator.DidNotReceive().TryPopulateVolumeAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
 
             sut.Cleanup(materialised);
         }

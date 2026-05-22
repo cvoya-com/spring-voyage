@@ -49,15 +49,14 @@ public partial class Program
         // DispatcherClientContainerRuntime instead (registered in the Dapr DI layer).
         builder.Services.AddSingleton<IContainerRuntime, PodmanRuntime>();
 
-        // #2608: the workspace materialiser needs to resolve a named volume's
-        // host mount point to write launcher files straight into the per-agent
-        // persistent volume. ProcessContainerRuntime (the PodmanRuntime base)
-        // implements IWorkspaceVolumeLocator — bind it to the same singleton so
-        // there is one `volume inspect` code path. This capability is
-        // dispatcher-local: the worker-side proxy runtime never materialises
-        // workspaces and so does not implement the locator.
-        builder.Services.AddSingleton<IWorkspaceVolumeLocator>(
-            sp => (IWorkspaceVolumeLocator)sp.GetRequiredService<IContainerRuntime>());
+        // #2608: the workspace materialiser populates the per-agent persistent
+        // volume with launcher files before container start. ProcessContainerRuntime
+        // (the PodmanRuntime base) implements IWorkspaceVolumePopulator — bind it to
+        // the same singleton so the populate goes through the runtime that owns the
+        // volume. This capability is dispatcher-local: the worker-side proxy runtime
+        // never materialises workspaces and so does not implement the populator.
+        builder.Services.AddSingleton<IWorkspaceVolumePopulator>(
+            sp => (IWorkspaceVolumePopulator)sp.GetRequiredService<IContainerRuntime>());
 
         // Workspace materialiser: per-invocation agent workspaces are populated here
         // on the dispatcher host — written into the per-agent persistent volume when
