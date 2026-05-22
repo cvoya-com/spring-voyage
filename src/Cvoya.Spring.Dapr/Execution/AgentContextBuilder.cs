@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Execution;
 using System.Security.Cryptography;
 
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Dapr.Mcp;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -16,14 +17,18 @@ using Microsoft.Extensions.Options;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Credential strategy:</b> every scoped token (Bucket-2, LLM provider, MCP)
-/// is minted fresh per <see cref="BuildAsync"/> call using a cryptographically
+/// <b>Credential strategy:</b> the scoped tokens (Bucket-2, LLM provider) are
+/// minted fresh per <see cref="BuildAsync"/> call using a cryptographically
 /// random 32-byte value encoded as a URL-safe base-64 string. Tokens are
 /// agent-scoped and per-launch: they are never reused across agent identities,
 /// and successive launches of the same agent receive distinct tokens. The MCP
-/// token is not generated here — it is minted by <see cref="IMcpServer"/> and
-/// passed in via <see cref="AgentLaunchContext.McpToken"/> because the MCP
-/// server owns the session registry.
+/// token is not generated here — it is passed in via
+/// <see cref="AgentLaunchContext.McpToken"/>. ADR-0052 §3: the persistent-agent
+/// deploy path supplies an empty MCP token (a freshly-deployed container has no
+/// turn context to authorise); a real per-turn session token is delivered on
+/// the first dispatched turn (PR 3 / #2615). The MCP endpoint URL is resolved
+/// from <see cref="McpServerOptions"/> — this builder is an endpoint-only
+/// consumer and does not co-reside with the started worker-side McpServer.
 /// </para>
 /// <para>
 /// <b>LLM provider URL resolution:</b> the builder first checks
@@ -50,7 +55,7 @@ using Microsoft.Extensions.Options;
 /// </para>
 /// </remarks>
 public class AgentContextBuilder(
-    IMcpServer mcpServer,
+    IOptions<McpServerOptions> mcpServerOptions,
     IOptions<AgentContextOptions> agentContextOptions,
     IOptions<OllamaOptions> ollamaOptions,
     ILoggerFactory loggerFactory) : IAgentContextBuilder
@@ -84,6 +89,7 @@ public class AgentContextBuilder(
     internal const string EnvWorkspacePath = AgentVolumeManager.WorkspacePathEnvVar;
     internal const string EnvConcurrentThreads = "SPRING_CONCURRENT_THREADS";
 
+    private readonly McpServerOptions _mcpServerOptions = mcpServerOptions.Value;
     private readonly AgentContextOptions _agentContextOptions = agentContextOptions.Value;
     private readonly OllamaOptions _ollamaOptions = ollamaOptions.Value;
     private readonly ILogger _logger = loggerFactory.CreateLogger<AgentContextBuilder>();
@@ -95,10 +101,15 @@ public class AgentContextBuilder(
     {
         // Resolve platform-side endpoint URLs.
         var llmProviderUrl = ResolveLlmProviderUrl();
-        var mcpUrl = mcpServer.Endpoint ?? string.Empty;
+        // ADR-0052 §3: the container-facing MCP endpoint is derived from
+        // configuration, not the live listener — the single McpServer hosted
+        // service runs worker-only and this builder is an endpoint-only
+        // consumer that may run without a started listener.
+        var mcpUrl = _mcpServerOptions.ContainerEndpoint;
 
         // Mint per-launch, agent-scoped credentials.
-        // The MCP token is pre-minted by the MCP server (passed in via launchContext).
+        // The MCP token is supplied via launchContext (empty on the deploy
+        // path; a per-turn session token on dispatch — ADR-0052 §3).
         var bucket2Token = MintScopedToken();
         var llmProviderToken = MintScopedToken();
 

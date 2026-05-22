@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.Dapr.Mcp;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,7 +45,6 @@ public class PersistentAgentLifecycleTests
 
     private readonly IContainerRuntime _containerRuntime = Substitute.For<IContainerRuntime>();
     private readonly IAgentDefinitionProvider _agentProvider = Substitute.For<IAgentDefinitionProvider>();
-    private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
     private readonly IAgentRuntimeLauncher _launcher = Substitute.For<IAgentRuntimeLauncher>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
@@ -87,7 +87,15 @@ public class PersistentAgentLifecycleTests
         services.AddSingleton<ContainerLifecycleManager>();
         services.AddSingleton<AgentVolumeManager>();
         services.AddSingleton(_agentProvider);
-        services.AddSingleton(_mcpServer);
+        // ADR-0052 §3: the deploy path no longer issues an MCP session — it
+        // resolves the container-facing endpoint from McpServerOptions and
+        // supplies an empty launch-time token. A stable port is configured
+        // so ContainerEndpoint is meaningful (Port == 0 is test-only).
+        services.AddSingleton(Options.Create(new McpServerOptions
+        {
+            ContainerHost = "host.docker.internal",
+            Port = 5050,
+        }));
         services.AddSingleton(_launcher);
         services.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(_ => new[] { _launcher });
         services.AddSingleton(catalog);
@@ -261,8 +269,12 @@ public class PersistentAgentLifecycleTests
     }
 
     [Fact]
-    public async Task Deploy_LeafAgentDefinition_IssuesAgentSchemeSession()
+    public async Task Deploy_LeafAgentDefinition_UsesAgentSchemeAddress()
     {
+        // ADR-0052 §3: the deploy path no longer issues an MCP session. It
+        // still picks the deploy-target scheme from the unit-vs-agent
+        // discriminator — a leaf agent (UnitId != AgentId) deploys under the
+        // agent scheme.
         var ct = TestContext.Current.CancellationToken;
         var parentUnitId = GuidFormatter.Format(Guid.NewGuid());
         _agentProvider.GetByIdAsync(AgentAId, Arg.Any<CancellationToken>())
@@ -273,22 +285,22 @@ public class PersistentAgentLifecycleTests
                 new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Persistent),
                 UnitId: parentUnitId));
 
-        _mcpServer.Endpoint.Returns("http://localhost:5040/mcp");
-        _mcpServer.IssueSession(AgentAId, $"persistent-{AgentAId}", Address.AgentScheme)
-            .Returns(new McpSession("tok", AgentAId, $"persistent-{AgentAId}", Address.AgentScheme,
-                new Address(Address.AgentScheme, AgentAGuid)));
-        _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
+        AgentLaunchContext? captured = null;
+        _launcher.PrepareAsync(Arg.Do<AgentLaunchContext>(c => captured = c), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("test stops here"));
 
         await Should.ThrowAsync<InvalidOperationException>(
             () => _lifecycle.DeployAsync(AgentAId, cancellationToken: ct));
 
-        _mcpServer.Received(1).IssueSession(AgentAId, $"persistent-{AgentAId}", Address.AgentScheme);
+        captured.ShouldNotBeNull();
+        captured!.AgentAddress!.Scheme.ShouldBe(Address.AgentScheme);
     }
 
     [Fact]
-    public async Task Deploy_UnitAsAgentDefinition_IssuesUnitSchemeSession()
+    public async Task Deploy_UnitAsAgentDefinition_UsesUnitSchemeAddress()
     {
+        // ADR-0052 §3: no launch-time MCP session is issued. A unit-as-agent
+        // definition (UnitId == AgentId) deploys under the unit scheme.
         var ct = TestContext.Current.CancellationToken;
         _agentProvider.GetByIdAsync(AgentAId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
@@ -298,10 +310,6 @@ public class PersistentAgentLifecycleTests
                 new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Persistent),
                 UnitId: AgentAId));
 
-        _mcpServer.Endpoint.Returns("http://localhost:5040/mcp");
-        _mcpServer.IssueSession(AgentAId, $"persistent-{AgentAId}", Address.UnitScheme)
-            .Returns(new McpSession("tok", AgentAId, $"persistent-{AgentAId}", Address.UnitScheme,
-                new Address(Address.UnitScheme, AgentAGuid)));
         AgentLaunchContext? captured = null;
         _launcher.PrepareAsync(Arg.Do<AgentLaunchContext>(c => captured = c), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("test stops here"));
@@ -309,9 +317,40 @@ public class PersistentAgentLifecycleTests
         await Should.ThrowAsync<InvalidOperationException>(
             () => _lifecycle.DeployAsync(AgentAId, cancellationToken: ct));
 
-        _mcpServer.Received(1).IssueSession(AgentAId, $"persistent-{AgentAId}", Address.UnitScheme);
         captured.ShouldNotBeNull();
         captured!.AgentAddress!.Scheme.ShouldBe(Address.UnitScheme);
+    }
+
+    [Fact]
+    public async Task Deploy_DoesNotRequireStartedMcpServer_AndSuppliesConfiguredEndpointWithEmptyToken()
+    {
+        // ADR-0052 §3: the deploy path no longer touches a started McpServer.
+        // It must not throw the old "MCP server has not been started" error,
+        // and the launch context carries the endpoint from McpServerOptions
+        // with an empty launch-time token (the per-turn token is delivered on
+        // the first dispatched turn — PR 3 / #2615).
+        var ct = TestContext.Current.CancellationToken;
+        _agentProvider.GetByIdAsync(AgentAId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentAId,
+                "A",
+                null,
+                new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Persistent),
+                UnitId: AgentAId));
+
+        AgentLaunchContext? captured = null;
+        _launcher.PrepareAsync(Arg.Do<AgentLaunchContext>(c => captured = c), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("test stops here"));
+
+        // Reaching PrepareAsync proves DeployAsync did not fail earlier on a
+        // missing/unstarted McpServer endpoint.
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => _lifecycle.DeployAsync(AgentAId, cancellationToken: ct));
+        ex.Message.ShouldBe("test stops here");
+
+        captured.ShouldNotBeNull();
+        captured!.McpEndpoint.ShouldBe("http://host.docker.internal:5050/mcp/");
+        captured.McpToken.ShouldBe(string.Empty);
     }
 
     [Fact]

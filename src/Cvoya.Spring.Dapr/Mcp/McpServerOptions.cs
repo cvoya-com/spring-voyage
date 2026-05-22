@@ -47,4 +47,21 @@ public class McpServerOptions
     /// <c>ExtraHosts = "host.docker.internal:host-gateway"</c>.
     /// </summary>
     public string ContainerHost { get; set; } = "host.docker.internal";
+
+    /// <summary>
+    /// The container-facing MCP endpoint, derived from <see cref="ContainerHost"/>
+    /// and <see cref="Port"/> without a started listener. ADR-0052 §3:
+    /// endpoint-only consumers (e.g. <c>PersistentAgentLifecycle</c>,
+    /// <c>AgentContextBuilder</c>) that do not co-reside with the started
+    /// <c>McpServer</c> resolve the endpoint from configuration rather than
+    /// from the live <c>McpServer.Endpoint</c>.
+    /// </summary>
+    /// <remarks>
+    /// When <see cref="Port"/> is <c>0</c> this yields a meaningless <c>:0</c>
+    /// endpoint — but <see cref="Port"/> <c>== 0</c> is a test-only setting;
+    /// production always sets a stable port (the OSS deploy uses <c>5050</c>).
+    /// The worker's own started <c>McpServer</c> keeps using its bound port,
+    /// which is the only correct value when <see cref="Port"/> is <c>0</c>.
+    /// </remarks>
+    public string ContainerEndpoint => $"http://{ContainerHost}:{Port}/mcp/";
 }

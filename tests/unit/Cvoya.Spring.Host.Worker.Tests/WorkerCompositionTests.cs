@@ -341,10 +341,11 @@ public class WorkerCompositionTests
     }
 
     /// <summary>
-    /// ADR-0052 / PR 1 of #2611: <c>McpServer</c> is not gated by host role
-    /// in this PR, so it registers as an <see cref="IHostedService"/> in the
-    /// Worker DI graph (it registers in the API host too — see
-    /// <c>Cvoya.Spring.Dapr.Tests</c>).
+    /// ADR-0052 §2 / PR 2 of #2611 (#2614): the <c>McpServer</c> hosted
+    /// service runs worker-only — it is the single session authority,
+    /// co-located with the dispatcher. The worker (the execution host) must
+    /// register it as an <see cref="IHostedService"/> (the API host does
+    /// not — see <c>Cvoya.Spring.Host.Api.Tests</c>).
     /// </summary>
     [Fact]
     public void AddWorkerServices_RegistersMcpServerHostedService()

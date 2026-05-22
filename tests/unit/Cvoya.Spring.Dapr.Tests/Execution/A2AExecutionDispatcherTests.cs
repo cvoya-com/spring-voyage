@@ -114,6 +114,9 @@ public class A2AExecutionDispatcherTests
         persistentServices.AddSingleton<AgentVolumeManager>();
         persistentServices.AddSingleton(Substitute.For<IAgentDefinitionProvider>());
         persistentServices.AddSingleton(Substitute.For<IMcpServer>());
+        // ADR-0052 §3: PersistentAgentLifecycle resolves the container-facing
+        // MCP endpoint from McpServerOptions instead of a started McpServer.
+        persistentServices.AddSingleton(Options.Create(new Cvoya.Spring.Dapr.Mcp.McpServerOptions { Port = 5050 }));
         persistentServices.AddSingleton(_launcher);
         persistentServices.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(
             p => [p.GetRequiredService<IAgentRuntimeLauncher>()]);
