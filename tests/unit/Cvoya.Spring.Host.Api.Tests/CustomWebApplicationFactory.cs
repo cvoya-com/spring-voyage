@@ -92,30 +92,25 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     public IStateStore StateStore { get; } = Substitute.For<IStateStore>();
 
     /// <summary>
-    /// Gets the mock <see cref="IUnitContainerLifecycle"/> registered in the test DI container.
-    /// </summary>
-    public IUnitContainerLifecycle UnitContainerLifecycle { get; } = Substitute.For<IUnitContainerLifecycle>();
-
-    /// <summary>
-    /// Gets the mock <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway"/>
-    /// registered in the test DI container. ADR-0052 / Wave 3 (#2618): the API
-    /// host delegates persistent-agent deploy / undeploy / scale /
-    /// deployment-status / logs to the worker over this gateway instead of
-    /// resolving the execution singletons in-process.
+    /// Gets the mock <see cref="Cvoya.Spring.Dapr.Execution.IExecutionHostGateway"/>
+    /// registered in the test DI container. ADR-0052 / Wave 3 (#2618, #2627):
+    /// the API host delegates persistent-agent deploy / undeploy / scale /
+    /// deployment-status / logs and unit-container teardown to the worker over
+    /// this gateway instead of resolving the execution singletons in-process.
     /// </summary>
     /// <remarks>
-    /// <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway.GetDeploymentAsync"/>
+    /// <see cref="Cvoya.Spring.Dapr.Execution.IExecutionHostGateway.GetDeploymentAsync"/>
     /// is stubbed to the canonical "not running" state by default — the agent
     /// detail / runtime-status endpoints read deployment state on every call,
     /// and "no tracked deployment" is the sane baseline most tests want.
     /// Tests that exercise a running deployment override it per-test.
     /// </remarks>
-    public Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway PersistentAgentExecutionGateway { get; }
+    public Cvoya.Spring.Dapr.Execution.IExecutionHostGateway ExecutionHostGateway { get; }
         = BuildExecutionGatewayStub();
 
-    private static Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway BuildExecutionGatewayStub()
+    private static Cvoya.Spring.Dapr.Execution.IExecutionHostGateway BuildExecutionGatewayStub()
     {
-        var gateway = Substitute.For<Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway>();
+        var gateway = Substitute.For<Cvoya.Spring.Dapr.Execution.IExecutionHostGateway>();
         gateway
             .GetDeploymentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(callInfo =>
@@ -424,13 +419,10 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             "Host=test;Database=test;Username=test;Password=test");
 
         // Satisfy DispatcherConfigurationRequirement (#2518 — mandatory on
-        // every host that runs PersistentAgentRegistry as a hosted service,
-        // which the API host does). The value is never actually called: the
-        // test factory's stubs replace IUnitContainerLifecycle and the
-        // PersistentAgentRegistry timer never runs because no
-        // persistent_agent_runtime rows exist in the in-memory database.
-        // The string just has to be a syntactically valid absolute http(s)
-        // URL so the validator doesn't trip the malformed-URL branch.
+        // every production host; the dispatcher base URL is validated at
+        // composition time). The value is never actually called in these
+        // tests. The string just has to be a syntactically valid absolute
+        // http(s) URL so the validator doesn't trip the malformed-URL branch.
         builder.UseSetting("Dispatcher:BaseUrl", "http://spring-dispatcher.test/");
         builder.UseSetting("Dispatcher:BearerToken", "test-token");
 
@@ -489,7 +481,6 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(IAnalyticsQueryService),
                 typeof(IActivityEventBus),
                 typeof(IUnitActivityObservable),
-                typeof(IUnitContainerLifecycle),
                 typeof(IUnitConnectorConfigStore),
                 typeof(IUnitConnectorRuntimeStore),
                 typeof(IConnectorType),
@@ -542,8 +533,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(AnalyticsQueryService);
             services.AddSingleton(ActivityEventBus);
             services.AddSingleton(UnitActivityObservable);
-            services.AddSingleton(UnitContainerLifecycle);
-            services.AddSingleton(PersistentAgentExecutionGateway);
+            services.AddSingleton(ExecutionHostGateway);
             services.AddSingleton(ConnectorConfigStore);
             services.AddSingleton(ConnectorRuntimeStore);
             services.AddSingleton(StubConnectorType);

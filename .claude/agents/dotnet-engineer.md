@@ -1,6 +1,6 @@
 ---
 name: dotnet-engineer
-description: Implements core Spring Voyage v0.1 platform features — Dapr actors, domain interfaces, message routing, orchestration strategies, prompt assembly, API host, worker host, and CLI. Use for any backend implementation task.
+description: Implements core Spring Voyage v0.1 platform features — Dapr actors, domain interfaces, message routing and delivery, prompt assembly, API host, worker host, and CLI. Use for any backend implementation task.
 model: opus
 tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch
 ---

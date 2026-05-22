@@ -113,11 +113,13 @@ public class ServiceCollectionExtensionsTests
     }
 
     /// <summary>
-    /// ADR-0052 / Wave 3 (#2618): the persistent-agent execution singletons
-    /// register under <see cref="SpringHostRole.ExecutionHost"/> only. The
-    /// HTTP front door delegates the persistent-agent surface to the worker
-    /// over <c>IPersistentAgentExecutionGateway</c>, so its composition
-    /// registers none of these — the Wave 1 "still resolve" debt is removed.
+    /// ADR-0052 / Wave 3 (#2618, #2627): every execution singleton — the
+    /// persistent-agent services and the container-lifecycle / unit-teardown
+    /// / A2A-transport surface — registers under
+    /// <see cref="SpringHostRole.ExecutionHost"/> only. The HTTP front door
+    /// delegates persistent-agent deploy/undeploy and unit-container teardown
+    /// to the worker over <c>IExecutionHostGateway</c>, so its
+    /// composition registers ZERO execution services.
     /// </summary>
     [Fact]
     public void AddCvoyaSpringDapr_HttpFrontDoor_DoesNotRegisterExecutionSingletons()
@@ -132,12 +134,27 @@ public class ServiceCollectionExtensionsTests
             .ShouldBeNull();
         provider.GetService<Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry>()
             .ShouldBeNull();
+
+        // #2627: the container-lifecycle / unit-teardown surface.
+        provider.GetService<Cvoya.Spring.Core.Execution.IContainerRuntime>()
+            .ShouldBeNull();
+        provider.GetService<Cvoya.Spring.Dapr.Execution.ContainerLifecycleManager>()
+            .ShouldBeNull();
+        provider.GetService<Cvoya.Spring.Core.Units.IUnitContainerLifecycle>()
+            .ShouldBeNull();
+        provider.GetService<Cvoya.Spring.Core.Execution.IDaprSidecarManager>()
+            .ShouldBeNull();
+        provider.GetService<Cvoya.Spring.Core.Execution.IA2ATransportFactory>()
+            .ShouldBeNull();
+        provider.GetService<Cvoya.Spring.Core.Execution.IAgentContextBuilder>()
+            .ShouldBeNull();
     }
 
     /// <summary>
-    /// ADR-0052 / Wave 3 (#2618): the same execution singletons all resolve
-    /// under <see cref="SpringHostRole.ExecutionHost"/> — the worker is the
-    /// execution host and owns the persistent-agent containers.
+    /// ADR-0052 / Wave 3 (#2618, #2627): the same execution singletons all
+    /// resolve under <see cref="SpringHostRole.ExecutionHost"/> — the worker
+    /// is the execution host and owns the persistent-agent and per-unit
+    /// runtime containers.
     /// </summary>
     [Fact]
     public void AddCvoyaSpringDapr_ExecutionHost_RegistersExecutionSingletons()
@@ -151,6 +168,20 @@ public class ServiceCollectionExtensionsTests
         provider.GetService<Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry>()
             .ShouldNotBeNull();
         provider.GetService<Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry>()
+            .ShouldNotBeNull();
+
+        // #2627: the container-lifecycle / unit-teardown surface.
+        provider.GetService<Cvoya.Spring.Core.Execution.IContainerRuntime>()
+            .ShouldNotBeNull();
+        provider.GetService<Cvoya.Spring.Dapr.Execution.ContainerLifecycleManager>()
+            .ShouldNotBeNull();
+        provider.GetService<Cvoya.Spring.Core.Units.IUnitContainerLifecycle>()
+            .ShouldNotBeNull();
+        provider.GetService<Cvoya.Spring.Core.Execution.IDaprSidecarManager>()
+            .ShouldNotBeNull();
+        provider.GetService<Cvoya.Spring.Core.Execution.IA2ATransportFactory>()
+            .ShouldNotBeNull();
+        provider.GetService<Cvoya.Spring.Core.Execution.IAgentContextBuilder>()
             .ShouldNotBeNull();
     }
 
@@ -194,17 +225,18 @@ public class ServiceCollectionExtensionsTests
 
     /// <summary>
     /// ADR-0052 / Wave 3 (#2618): the HTTP front door resolves
-    /// <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway"/>
-    /// — its delegated view of the worker's persistent-agent surface.
+    /// <see cref="Cvoya.Spring.Dapr.Execution.IExecutionHostGateway"/>
+    /// — its delegation channel to the execution host's persistent-agent
+    /// surface.
     /// </summary>
     [Theory]
     [InlineData(SpringHostRole.HttpFrontDoor)]
     [InlineData(SpringHostRole.ExecutionHost)]
-    public void AddCvoyaSpringDapr_RegistersPersistentAgentExecutionGateway(SpringHostRole role)
+    public void AddCvoyaSpringDapr_RegistersExecutionHostGateway(SpringHostRole role)
     {
         using var provider = BuildProvider(role);
 
-        provider.GetService<Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway>()
+        provider.GetService<Cvoya.Spring.Dapr.Execution.IExecutionHostGateway>()
             .ShouldNotBeNull();
     }
 

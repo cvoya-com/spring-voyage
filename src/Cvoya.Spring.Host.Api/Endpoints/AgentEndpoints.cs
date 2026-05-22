@@ -605,7 +605,7 @@ public static class AgentEndpoints
         string id,
         DeployPersistentAgentRequest? request,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] IPersistentAgentExecutionGateway executionGateway,
+        [FromServices] IExecutionHostGateway executionGateway,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -662,7 +662,7 @@ public static class AgentEndpoints
     private static async Task<IResult> UndeployPersistentAgentAsync(
         string id,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] IPersistentAgentExecutionGateway executionGateway,
+        [FromServices] IExecutionHostGateway executionGateway,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -683,7 +683,7 @@ public static class AgentEndpoints
         string id,
         ScalePersistentAgentRequest request,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] IPersistentAgentExecutionGateway executionGateway,
+        [FromServices] IExecutionHostGateway executionGateway,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -708,7 +708,7 @@ public static class AgentEndpoints
     private static async Task<IResult> GetPersistentAgentLogsAsync(
         string id,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] IPersistentAgentExecutionGateway executionGateway,
+        [FromServices] IExecutionHostGateway executionGateway,
         [FromQuery] int? tail,
         CancellationToken cancellationToken)
     {
@@ -739,7 +739,7 @@ public static class AgentEndpoints
     private static async Task<IResult> GetPersistentAgentDeploymentAsync(
         string id,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] IPersistentAgentExecutionGateway executionGateway,
+        [FromServices] IExecutionHostGateway executionGateway,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -759,7 +759,7 @@ public static class AgentEndpoints
     /// the actor's per-thread channel snapshot
     /// (<see cref="IAgentActor.GetRuntimeStatusAsync"/>) with the worker's
     /// persistent-deployment health (read over
-    /// <see cref="IPersistentAgentExecutionGateway"/>) to project one of
+    /// <see cref="IExecutionHostGateway"/>) to project one of
     /// <c>idle</c> / <c>busy</c> / <c>queued</c> / <c>unavailable</c>.
     /// Endpoint is poll-friendly: no activity-event side effect, no
     /// permission gate beyond the group-level authentication.
@@ -768,7 +768,7 @@ public static class AgentEndpoints
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
-        [FromServices] IPersistentAgentExecutionGateway executionGateway,
+        [FromServices] IExecutionHostGateway executionGateway,
         [FromServices] IAgentExecutionStore executionStore,
         CancellationToken cancellationToken)
     {
@@ -889,7 +889,7 @@ public static class AgentEndpoints
     /// Maps the worker-reported <see cref="PersistentAgentDeploymentState"/>
     /// (ADR-0052 / #2618) onto the public HTTP response. The deployment state
     /// is read from the execution host over the
-    /// <see cref="IPersistentAgentExecutionGateway"/>; the API host no longer
+    /// <see cref="IExecutionHostGateway"/>; the API host no longer
     /// reaches into the registry types directly.
     /// </summary>
     /// <param name="state">The worker-reported deployment state.</param>
@@ -1089,7 +1089,7 @@ public static class AgentEndpoints
         [FromServices] IUnitMembershipRepository membershipRepository,
         [FromServices] MessageRouter messageRouter,
         [FromServices] IAuthenticatedCallerAccessor callerAccessor,
-        [FromServices] IPersistentAgentExecutionGateway executionGateway,
+        [FromServices] IExecutionHostGateway executionGateway,
         [FromServices] IAgentExecutionStore executionStore,
         [FromServices] IInitiativeEngine initiativeEngine,
         [FromServices] IToolGrantResolver toolGrantResolver,

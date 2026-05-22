@@ -6,21 +6,24 @@ namespace Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Core;
 
 /// <summary>
-/// The HTTP front door's view of the execution host's persistent-agent
-/// lifecycle surface (ADR-0052 / Wave 3 / #2618). The API host's
-/// <c>AgentEndpoints</c> / <c>UnitEndpoints</c> resolve this gateway instead
-/// of injecting the execution singletons (<c>PersistentAgentLifecycle</c>,
-/// <c>PersistentAgentRegistry</c>, …) — those singletons are
-/// execution-host-only and never register under
-/// <see cref="DependencyInjection.SpringHostRole.HttpFrontDoor"/>.
+/// The API host's delegation channel to the execution host — the HTTP front
+/// door's view of the execution host's container-lifecycle surface (ADR-0052 /
+/// Wave 3 / #2618, #2627). The API host's <c>AgentEndpoints</c> /
+/// <c>UnitEndpoints</c> resolve this gateway instead of injecting the
+/// execution singletons (<c>PersistentAgentLifecycle</c>,
+/// <c>PersistentAgentRegistry</c>, <c>IUnitContainerLifecycle</c>, …) — those
+/// singletons are execution-host-only and never register under
+/// <see cref="DependencyInjection.SpringHostRole.HttpFrontDoor"/>, so the API
+/// host registers zero execution services.
 /// </summary>
 /// <remarks>
-/// The default implementation, <see cref="DaprPersistentAgentExecutionGateway"/>,
-/// delegates to the worker over Dapr service invocation. Deploy / undeploy /
-/// scale / deployment-status / logs are all delegated uniformly — there is no
-/// partial in-process read path on the API host.
+/// The default implementation, <see cref="DaprExecutionHostGateway"/>,
+/// delegates to the execution host (<c>spring-worker</c>) over Dapr service
+/// invocation. Persistent-agent deploy / undeploy / scale / deployment-status /
+/// logs and unit-container teardown are all delegated uniformly — there is no
+/// partial in-process execution path on the API host.
 /// </remarks>
-public interface IPersistentAgentExecutionGateway
+public interface IExecutionHostGateway
 {
     /// <summary>
     /// Deploys (or reconciles) a persistent agent's backing container.
@@ -60,4 +63,17 @@ public interface IPersistentAgentExecutionGateway
     /// </exception>
     Task<PersistentAgentLogsState> GetLogsAsync(
         string agentActorId, int tail, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Tears down a unit's backing runtime container, Dapr sidecar, and
+    /// network (#2627). Idempotent — a unit with no tracked container handle
+    /// still completes successfully. Drives the force-delete unit-teardown
+    /// path that previously resolved <c>IUnitContainerLifecycle</c> in-process
+    /// on the API host.
+    /// </summary>
+    /// <exception cref="SpringException">
+    /// Thrown when the worker cannot be reached or rejects the teardown.
+    /// </exception>
+    Task StopUnitContainerAsync(
+        string unitActorId, CancellationToken cancellationToken);
 }

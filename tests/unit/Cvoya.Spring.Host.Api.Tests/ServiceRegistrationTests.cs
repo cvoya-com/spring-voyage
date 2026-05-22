@@ -142,17 +142,46 @@ public class ServiceRegistrationTests : IDisposable
     }
 
     /// <summary>
-    /// ADR-0052 / Wave 3 (#2618): the API host resolves
-    /// <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway"/>
-    /// — its delegated view of the worker's persistent-agent surface — in
-    /// place of the execution singletons.
+    /// #2627: the API host delegates unit-container teardown to the worker,
+    /// so the <c>HttpFrontDoor</c> composition registers none of the
+    /// container-lifecycle / unit-teardown / A2A-transport execution services
+    /// either. Together with
+    /// <see cref="ApiHost_DoesNotRegisterExecutionSingletons"/> this is the
+    /// #2627 acceptance bar: <c>AddCvoyaSpringDapr(HttpFrontDoor)</c> registers
+    /// ZERO execution services and the API host still boots.
     /// </summary>
     [Fact]
-    public void ApiHost_ResolvesPersistentAgentExecutionGateway()
+    public void ApiHost_DoesNotRegisterUnitContainerExecutionServices()
     {
         using var client = _factory.CreateClient();
 
-        _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway>()
+        _factory.Services.GetService<Cvoya.Spring.Core.Execution.IContainerRuntime>()
+            .ShouldBeNull();
+        _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.ContainerLifecycleManager>()
+            .ShouldBeNull();
+        _factory.Services.GetService<Cvoya.Spring.Core.Units.IUnitContainerLifecycle>()
+            .ShouldBeNull();
+        _factory.Services.GetService<Cvoya.Spring.Core.Execution.IDaprSidecarManager>()
+            .ShouldBeNull();
+        _factory.Services.GetService<Cvoya.Spring.Core.Execution.IA2ATransportFactory>()
+            .ShouldBeNull();
+        _factory.Services.GetService<Cvoya.Spring.Core.Execution.IAgentContextBuilder>()
+            .ShouldBeNull();
+    }
+
+    /// <summary>
+    /// ADR-0052 / Wave 3 (#2618, #2627): the API host resolves
+    /// <see cref="Cvoya.Spring.Dapr.Execution.IExecutionHostGateway"/>
+    /// — its delegation channel to the execution host's persistent-agent
+    /// surface and unit-container teardown — in place of the execution
+    /// singletons.
+    /// </summary>
+    [Fact]
+    public void ApiHost_ResolvesExecutionHostGateway()
+    {
+        using var client = _factory.CreateClient();
+
+        _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.IExecutionHostGateway>()
             .ShouldNotBeNull();
     }
 
