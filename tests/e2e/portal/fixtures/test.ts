@@ -123,7 +123,7 @@ export const test = base.extend<PortalFixtures, PortalWorkerFixtures>({
     // Cleanup order matters:
     //   1. Agents — independent of units; deleting a unit cascades through
     //      memberships but does NOT delete the agent rows themselves.
-    //   2. Units  — cascades memberships, secrets, boundary, orchestration.
+    //   2. Units  — cascades memberships, secrets, boundary, policy.
     //   3. Tenant secrets, tokens — leaf resources.
     // Any cleanup error is logged via testInfo.attach but does not fail
     // the test — failure to clean up should not mask the test outcome

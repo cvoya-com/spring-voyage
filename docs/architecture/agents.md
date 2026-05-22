@@ -91,7 +91,7 @@ In v1, handling concurrent work of the same type required manually defining mult
 
 | Mode       | Effect                                                                                                                                                                                                                                                                                                                                                               |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `detached` | Clones become direct members of the parent's unit — peers of the parent. The parent unit's runtime decides how to spread work across the parent and its clones via the orchestration tools.                                                                                                                                                                                                             |
+| `detached` | Clones become direct members of the parent's unit — peers of the parent. The parent unit's runtime decides how to spread work across the parent and its clones via the `sv.messaging.*` delivery tools.                                                                                                                                                                                                             |
 | `attached` | The parent agent promotes itself to a unit. Clones become its children. From the enclosing unit's perspective, the parent remains a single entity (a unit is an agent that has children). The parent's runtime now decides whether to answer directly or delegate to its clones; if all clones are destroyed and no active cloning is needed, the parent reverts to a leaf agent. |
 
 
@@ -110,7 +110,7 @@ In v1, handling concurrent work of the same type required manually defining mult
 - `ephemeral-no-memory` — Stateless workers: formatters, linters, validators, anything where the clone's experience has no lasting value.
 - `ephemeral-with-memory` — Skilled workers: the parent is a senior engineer who spawns temporary helpers. Each helper's learnings (patterns discovered, pitfalls encountered) feed back to the parent, making it better over time.
 - `persistent` — Scale-out: the agent needs genuinely independent instances that build their own expertise. Each clone diverges and specializes.
-- `detached` — Simple scaling within an existing unit. The parent unit's runtime decides how to route work across the parent and its clones via the orchestration tools.
+- `detached` — Simple scaling within an existing unit. The parent unit's runtime decides how to route work across the parent and its clones via the `sv.messaging.*` delivery tools.
 - `attached` — Encapsulated scaling. The parent hides its clones behind a unit boundary. Clean abstraction for the enclosing unit.
 
 #### Persistent Cloning Policy (#416)
@@ -329,8 +329,8 @@ Additional tools are injected based on the agent's tool manifest and the unit's 
 
 ## See Also
 
-- [Units](units.md) — unit entity model; how agents compose into groups; orchestration tools and decisions
-- [Agent SDK](agent-sdk.md) — `Cvoya.Spring.AgentSdk` for runtime images that consume orchestration tools as method calls
+- [Units](units.md) — unit entity model; how agents compose into groups; message-delivery tools and routing decisions
+- [Agent SDK](agent-sdk.md) — `Cvoya.Spring.AgentSdk` for runtime images that consume the `sv.messaging.*` delivery tools as method calls
 - [Policies](policies.md) — unit policy framework constraining agent behaviour
 - [Expertise](expertise.md) — expertise profiles and directory
 - [Unit Lifecycle](unit-lifecycle.md) — validation, status, paths to creation

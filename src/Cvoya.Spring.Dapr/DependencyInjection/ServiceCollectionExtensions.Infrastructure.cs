@@ -148,8 +148,8 @@ internal static class ServiceCollectionExtensionsInfrastructure
             // #2597: the runtime callback base URL (CallbackBaseUrl:BaseUrl)
             // is stamped onto every runtime container as SPRING_CALLBACK_URL by
             // DispatcherCallbackEnvironmentBuilder. A missing or malformed value
-            // previously failed lazily — at the first delegate_to / fanout_to
-            // dispatch — instead of at host boot. Mandatory on every production
+            // previously failed lazily — at the first runtime callback — instead
+            // of at host boot. Mandatory on every production
             // host (the gate above already skips registration on design-time
             // tooling) so the misconfiguration aborts startup with a precise
             // diagnostic.

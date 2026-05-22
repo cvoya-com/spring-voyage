@@ -42,7 +42,7 @@ body:
       options:
         - "Core (interfaces, types)"
         - "Dapr (actors, routing, execution)"
-        - "Orchestration (strategies)"
+        - "Messaging (message delivery)"
         - "Connectors"
         - "API / Host"
         - "CLI"

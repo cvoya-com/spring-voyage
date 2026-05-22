@@ -16,9 +16,8 @@ This guide is for developers contributing to the Spring Voyage platform itself -
 SpringVoyage.sln
 src/
   Spring.Core/                    # Domain interfaces and types (no Dapr dependency)
-    Messaging/                    # IAddressable, IMessageReceiver, Message, Address
-    Orchestration/                # IOrchestrationToolProvider, OrchestrationDecision,
-                                  #   OrchestrationToolDescriptor, IUnitContext
+    Messaging/                    # IAddressable, IMessageReceiver, Message, Address,
+                                  #   RoutingDecision, IUnitContext
     Agents/                       # IExecutionConfigInheritanceResolver and agent-config types
     Execution/                    # IAgentRuntimeLauncher, AgentLaunchSpec
     Observability/                # IActivityObservable, ActivityEvent

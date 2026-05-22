@@ -32,7 +32,7 @@ The full per-endpoint reference is in `v1.html` (see [Contents](#contents) above
 
 | Group | Tag | What it covers |
 | --- | --- | --- |
-| Units | `Units` | Tenant execution containers (orchestration roots), members, lifecycle, memberships, connector pointer, human permissions |
+| Units | `Units` | Tenant execution containers, members, lifecycle, memberships, connector pointer, human permissions |
 | Connectors (tenant) | `Connectors`, `Connectors.GitHub`, `Connectors.GitHub.OAuth`, `Connectors.Arxiv`, `Connectors.WebSearch` | External integrations (GitHub, ArXiv, web-search), per-tenant install / bind, per-unit config, credential validation |
 | Agents | `Agents` | Agent definitions, lifecycle (deploy / scale / undeploy), execution, logs, skills, memberships, memories |
 | Agent Runtimes | `AgentRuntimes` | Per-tenant install rows for LLM-provider runtimes (Claude, OpenAI, Google, Ollama), config, credential health, model catalog |
@@ -42,7 +42,7 @@ The full per-endpoint reference is in `v1.html` (see [Contents](#contents) above
 | Cost & Budget | `Costs`, `Tenant`, `Budgets` | Per-agent, per-unit, per-tenant cost; cost time series; per-agent / per-unit / per-tenant budgets |
 | Cloning | `Clones`, `CloningPolicy` | Per-agent clones; per-agent + tenant-wide cloning policy |
 | Expertise | `Expertise` | Per-agent expertise, per-unit own + aggregated expertise |
-| Unit governance | `UnitPolicy`, `UnitBoundary`, `UnitExecution` | Unit policy, boundary projection rules, execution defaults (orchestration is runtime behaviour per [ADR-0039](../decisions/0039-units-are-agents.md); the prior `/units/{id}/orchestration` HTTP surface is removed and returns 410) |
+| Unit governance | `UnitPolicy`, `UnitBoundary`, `UnitExecution` | Unit policy, boundary projection rules, execution defaults (a unit's runtime decides how members route work per [ADR-0039](../decisions/0039-units-are-agents.md); there is no platform-level routing-config surface) |
 | Platform tenants | `PlatformTenants` | Platform-level tenant CRUD (PlatformOperator only) |
 | Dashboard | `Dashboard` | Summary, unit KPIs, agent metrics, cost rollup |
 | Packages | `Packages` | Installed-package + unit-template discovery |

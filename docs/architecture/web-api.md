@@ -48,7 +48,7 @@ The resource groups (counts taken from the committed `openapi.json` at the v0.1 
 
 | Group | Tag | Endpoints | Verbs | What it covers |
 | --- | --- | ---: | --- | --- |
-| Units | `Units` | 23 | GET / POST / PATCH / DELETE | Tenant execution containers (orchestration roots), members, lifecycle, memberships, connector pointer, human permissions |
+| Units | `Units` | 23 | GET / POST / PATCH / DELETE | Tenant execution containers, members, lifecycle, memberships, connector pointer, human permissions |
 | Connectors (tenant) | `Connectors`, `Connectors.GitHub`, `Connectors.GitHub.OAuth`, `Connectors.Arxiv`, `Connectors.WebSearch` | 22 | GET / POST / PUT / PATCH / DELETE | External integrations (GitHub, ArXiv, web-search), per-tenant install / bind, per-unit config, credential validation |
 | Agents | `Agents` | 13 | GET / POST / PATCH / PUT / DELETE | Agent definitions, lifecycle (deploy / scale / undeploy), execution, logs, skills, memberships, memories |
 | Agent Runtimes (install) | `AgentRuntimes` | 9 | GET / POST / PATCH / DELETE | Per-tenant install rows for LLM-provider runtimes (Claude, OpenAI, Google, Ollama), config, credential health, model catalog |
@@ -58,7 +58,7 @@ The resource groups (counts taken from the committed `openapi.json` at the v0.1 
 | Cost & Budget | `Costs`, `Tenant`, `Budgets` | 8 | GET / PUT | Per-agent, per-unit, per-tenant cost; cost time series; per-agent / per-unit / per-tenant budgets |
 | Cloning | `Clones`, `CloningPolicy` | 9 | GET / POST / PUT / DELETE | Per-agent clones; per-agent + tenant-wide cloning policy |
 | Expertise | `Expertise` | 5 | GET / PUT | Per-agent expertise, per-unit own + aggregated expertise |
-| Unit governance | `UnitPolicy`, `UnitBoundary`, `UnitExecution` | 11 | GET / PUT / DELETE | Unit policy, boundary projection rules, execution defaults (orchestration is runtime behaviour per [ADR-0039](../decisions/0039-units-are-agents.md); the legacy `/units/{id}/orchestration` endpoint returns 410 Gone) |
+| Unit governance | `UnitPolicy`, `UnitBoundary`, `UnitExecution` | 11 | GET / PUT / DELETE | Unit policy, boundary projection rules, execution defaults (a unit's runtime decides how members route work per [ADR-0039](../decisions/0039-units-are-agents.md); there is no platform-level routing-config surface) |
 | Platform tenants | `PlatformTenants` | 4 | GET / POST / PATCH / DELETE | Platform-level tenant CRUD (PlatformOperator only) |
 | Dashboard | `Dashboard` | 4 | GET | Summary, unit KPIs, agent metrics, cost rollup |
 | Packages | `Packages` | 4 | GET | Installed-package + unit-template discovery |

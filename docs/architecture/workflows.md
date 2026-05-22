@@ -6,7 +6,7 @@
 
 ## Workflows & External Orchestration
 
-A unit is an agent ([ADR-0039](../decisions/0039-units-are-agents.md)) — when its mailbox receives a message, the unit's own runtime runs and decides how to use the orchestration tools the launcher attaches. A *workflow-driven* unit is just a unit whose runtime image embeds a workflow engine: instead of relying on an LLM tool-call loop, the image runs a deterministic state machine that consumes the orchestration tools through `Cvoya.Spring.AgentSdk`'s typed `IOrchestrationClient`.
+A unit is an agent ([ADR-0039](../decisions/0039-units-are-agents.md)) — when its mailbox receives a message, the unit's own runtime runs and decides how to use the `sv.messaging.*` delivery tools the launcher attaches. A *workflow-driven* unit is just a unit whose runtime image embeds a workflow engine: instead of relying on an LLM tool-call loop, the image runs a deterministic state machine that consumes the `sv.messaging.*` tools through `Cvoya.Spring.AgentSdk`'s typed `IMessagingClient`.
 
 This document covers:
 
@@ -18,7 +18,7 @@ This document covers:
 
 ### Workflow-as-Container (Primary Model)
 
-Domain workflows are deployed as **containers** — the same deployment model used for any agent runtime image. A workflow container is the runtime image for a unit whose `ai.runtime` resolves to a workflow-driven launcher; it runs alongside the unit, consumes orchestration tools through the SDK, and drives a deterministic plan to completion. This decouples workflow evolution from platform releases: updating a workflow means deploying a new container image, not recompiling the host.
+Domain workflows are deployed as **containers** — the same deployment model used for any agent runtime image. A workflow container is the runtime image for a unit whose `ai.runtime` resolves to a workflow-driven launcher; it runs alongside the unit, consumes the `sv.messaging.*` delivery tools through the SDK, and drives a deterministic plan to completion. This decouples workflow evolution from platform releases: updating a workflow means deploying a new container image, not recompiling the host.
 
 **How it works:**
 
@@ -78,7 +78,7 @@ public class SoftwareDevCycleWorkflow : Workflow<DevCycleInput, DevCycleOutput>
 }
 ```
 
-The unit's `ai` block points at the workflow container image and selects the workflow-driven launcher; activities inside the workflow call `IOrchestrationClient.DelegateAsync` / `FanoutAsync` for the action verbs, and the `sv.*` directory tool surface for discovery / inspection / status queries. See [Units & Agents](units.md) for the unit-definition example and [Agent SDK](agent-sdk.md) for the SDK contract.
+The unit's `ai` block points at the workflow container image and selects the workflow-driven launcher; activities inside the workflow call `IMessagingClient.SendAsync` / `MulticastAsync` to deliver messages, and the `sv.*` directory tool surface for discovery / inspection / status queries. See [Units & Agents](units.md) for the unit-definition example and [Agent SDK](agent-sdk.md) for the SDK contract.
 
 ### Platform-Internal Workflows (Dapr Workflows in Host)
 

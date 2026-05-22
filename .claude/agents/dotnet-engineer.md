@@ -11,7 +11,7 @@ tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch
 
 ## Ownership
 
-Core platform implementation: domain interfaces and types, Dapr actor implementations (agents, units, connectors, humans), message routing, execution dispatchers, orchestration strategies, prompt assembly, platform workflows, the API host, the worker host, and the CLI.
+Core platform implementation: domain interfaces and types, Dapr actor implementations (agents, units, connectors, humans), message routing, execution dispatchers, message delivery, prompt assembly, platform workflows, the API host, the worker host, and the CLI.
 
 ## Required reading
 

@@ -35,7 +35,7 @@ When a connector is attached to a unit, it:
 
 1. Begins listening for external events from the connected system
 2. Translates those events into one-way platform messages
-3. Delivers each message to the unit; the unit's runtime decides whether to answer directly or delegate to a child via the orchestration tools (see [ADR-0039](../decisions/0039-units-are-agents.md))
+3. Delivers each message to the unit; the unit's runtime decides whether to answer directly or delegate to a child via the `sv.messaging.*` delivery tools (see [ADR-0039](../decisions/0039-units-are-agents.md))
 4. Registers its skills with the unit, making them available to all agents
 
 ## Skill Discovery
@@ -91,6 +91,7 @@ spring connector github label-rules set <binding-id> --add-on-assign triage --re
 Both flags are repeatable. The command replaces the stored lists; passing no
 label flags clears both lists while preserving the rest of the binding config.
 
-Rules fire when the GitHub connector observes an `OrchestrationDecision` event
-for the bound unit with `Kind=Delegate` and `Status=Routed`. The event shape is
-defined in [ADR-0039 section 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence).
+Rules fire when the GitHub connector observes a `DecisionMade` activity event
+carrying a `RoutingDecision` for the bound unit with `Kind=Delegate` and
+`Status=Routed`. The routing-decision evidence model is described in
+[ADR-0050 § 3](../decisions/0050-platform-mcp-tool-surface.md).

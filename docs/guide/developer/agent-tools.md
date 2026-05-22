@@ -4,7 +4,7 @@ This guide is for developers building a Spring Voyage agent in .NET — either a
 
 ## When to reach for image-tier tools
 
-Most agents do not need image-tier tools. The platform ships `sv.*` (expertise search, orchestration, the small set of platform primitives), and a connector binding contributes everything the connector knows how to do against its external system. Reach for image-tier tools when:
+Most agents do not need image-tier tools. The platform ships `sv.*` (expertise search, message delivery, the small set of platform primitives), and a connector binding contributes everything the connector knows how to do against its external system. Reach for image-tier tools when:
 
 - The agent integrates with a system that no shipped connector covers, **and** you do not want to author a full connector for it — for example a thin shim over a project-internal HTTP API.
 - The agent needs a deterministic in-process helper (cryptography, calculation, local file inspection) that the LLM should be able to call by name.
@@ -132,6 +132,6 @@ A minimal end-to-end image lives at [`samples/tools-agent-image`](../../../sampl
 ## See also
 
 - [Tools](../../concepts/tools.md) — the three-tier effective tool model the platform resolves at dispatch.
-- [Agent SDK](../../architecture/agent-sdk.md) — the broader SDK contract (orchestration callbacks, environment variables, error model).
+- [Agent SDK](../../architecture/agent-sdk.md) — the broader SDK contract (messaging callbacks, environment variables, error model).
 - [Bring Your Own Image (BYOI)](../operator/byoi-agent-images.md) — image conformance, base images, and the A2A bridge.
 - [`samples/tools-agent-image/README.md`](../../../samples/tools-agent-image/README.md) — runnable reference for SDK tool registration.

@@ -29,10 +29,6 @@
     <PackageReference Include="Dapr.Actors" />
     <PackageReference Include="Dapr.Workflow" />
     <PackageReference Include="System.Reactive" />
-    <!-- #2586: the relocated orchestration callback-token tests mint and
-         tamper with callback JWTs directly (JwtSecurityTokenHandler) to
-         exercise CallbackTokenValidator / OrchestrationCallbackDiagnostics. -->
-    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
     <!-- #1248: OpenAPI 3.1 component schemas are JSON Schema 2020-12.
          Contract tests validate response bodies against the committed
          openapi.json so semantic drift (required→optional, status-code

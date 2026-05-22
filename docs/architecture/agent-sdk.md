@@ -21,7 +21,7 @@ The MCP session token is minted per turn by the dispatcher and revoked when the 
 
 ## Authorization Model
 
-The platform does not gate orchestration by entity type and does not gate on membership. Agents and units both reach the dispatcher under their own address scheme. The dispatcher rejects callers whose scheme is neither `unit://` nor `agent://` (e.g. `human://`, `connector://`) with `UnsupportedCallerScheme`.
+The platform does not gate message delivery by entity type and does not gate on membership. Agents and units both reach the dispatcher under their own address scheme. The dispatcher rejects callers whose scheme is neither `unit://` nor `agent://` (e.g. `human://`, `connector://`) with `UnsupportedCallerScheme`.
 
 A2A messaging remains available to every addressable entity through the existing A2A protocol, separately from this SDK.
 
@@ -76,12 +76,12 @@ Targets are Spring Voyage address strings such as `agent:aaaaaaaa000000000000000
 | Exception | When thrown |
 | --- | --- |
 | `MissingCallbackEnvironmentException` | `SPRING_MCP_URL` or `SPRING_MCP_TOKEN` is absent when calling `SpringAgent.FromEnvironment()`. |
-| `OrchestrationAuthException` | The MCP server rejects the session token (`Reason = "InvalidToken"`). |
-| `OrchestrationTransportException` | HTTP transport failures, timeouts, invalid JSON-RPC, a JSON-RPC error, or an `isError` messaging tool result. |
+| `MessagingAuthException` | The MCP server rejects the session token (`Reason = "InvalidToken"`). |
+| `MessagingTransportException` | HTTP transport failures, timeouts, invalid JSON-RPC, a JSON-RPC error, or an `isError` messaging tool result. |
 
 ## Workflow-State Guidance
 
-The SDK does not provide workflow durability. If an image needs restart survival or multi-step state, put a state store such as SQLite or Redis in the image or alongside it as a sidecar. The platform delivers the inbound message, validates callbacks, records orchestration evidence, and collects the runtime's final result.
+The SDK does not provide workflow durability. If an image needs restart survival or multi-step state, put a state store such as SQLite or Redis in the image or alongside it as a sidecar. The platform delivers the inbound message, validates callbacks, records routing-decision evidence, and collects the runtime's final result.
 
 ## Per-Thread State
 

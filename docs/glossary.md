@@ -120,7 +120,7 @@ The deterministic v5 UUID owning the single OSS-operator `TenantUser` row: `5c4c
 **Observer**
 An agent that subscribes to another agent's activity stream (with permission).
 
-**Orchestration decision**
+**Routing decision**
 An `ActivityEvent` with `EventType=DecisionMade` published by the platform when a runtime calls `sv.runtime.report_decision`. Shape: `Kind` (`Delegate` or `Fanout`), `Status` (`Accepted`, `Routed`, or `Failed`), `Targets` (array of addresses), `ResultMessageIds` (array of result message Guids), and `Reason` (optional runtime-supplied string). Recording a decision is optional — a plain `sv.messaging.*` delivery publishes a `MessageSent` activity instead. See [ADR-0050](decisions/0050-platform-mcp-tool-surface.md).
 
 **Platform MCP tools**

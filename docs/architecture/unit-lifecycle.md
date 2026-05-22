@@ -60,7 +60,7 @@ Build up a unit progressively via the CLI:
 # Authenticate with the platform (required once; skipped in local dev mode)
 spring auth
 
-# Create the unit with delegated orchestration (workflow container)
+# Create the unit with a workflow-driven runtime (workflow container)
 spring unit create engineering-team
 spring unit set engineering-team \
   --description "Software engineering team" \
@@ -212,7 +212,7 @@ Stops all agents, deactivates actors, cleans up subscriptions and execution envi
 
 ## See Also
 
-- [Units](units.md) — unit entity model, membership, nested units, sub-unit creation surfaces, orchestration tools
+- [Units](units.md) — unit entity model, membership, nested units, sub-unit creation surfaces, message-delivery tools
 - [Agents](agents.md) — agent model, cloning, prompt assembly
 - [Workflows](workflows.md) — Dapr Workflow integration; `UnitValidationWorkflow` rationale
 - [CLI & Web](cli-and-web.md) — full CLI reference

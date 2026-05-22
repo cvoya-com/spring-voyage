@@ -10,7 +10,7 @@ import { expect, test } from "../../fixtures/test.js";
  *   2. User opens the unit detail and sees the seeded agents on the
  *      Members tab.
  *   3. User sends a first message via the Messages tab and verifies the
- *      orchestrator agent replies (covers #1465 — silent regression
+ *      unit's agent replies (covers #1465 — silent regression
  *      class where the dispatcher ↔ agent transport stops working).
  *
  * GitHub binding is exercised separately by the connector specs and is
@@ -138,7 +138,7 @@ test.describe("killer use case — software-engineering team", () => {
           timeout: 240_000,
           intervals: [2000, 5000, 10_000],
           message:
-            "Expected an agent-authored event on the engagement timeline — the orchestrator either failed to dispatch, or its reply never landed (regression class from #1465).",
+            "Expected an agent-authored event on the engagement timeline — the unit's runtime either failed to dispatch, or its reply never landed (regression class from #1465).",
         },
       )
       .toBeGreaterThan(0);

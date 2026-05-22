@@ -81,7 +81,7 @@ The `RoutingDecision` event shape and the `DecisionMade` activity are documented
 
 ## 4. The per-thread hop counter
 
-With a single delivery seam, delegation-loop prevention is implemented once. A **per-thread hop counter** is incremented on every `sv.messaging.send` / `sv.messaging.multicast` call. A call past the platform limit is rejected with the validation-class `OrchestrationDepthExceeded` tool error.
+With a single delivery seam, delegation-loop prevention is implemented once. A **per-thread hop counter** is incremented on every `sv.messaging.send` / `sv.messaging.multicast` call. A call past the platform limit is rejected with the validation-class `DepthExceeded` tool error.
 
 This terminates a cycle `A→B→A→…` carried on a single thread while leaving a normal delegation chain unaffected. The counter rides the message on the thread; it is not a per-runtime or per-container counter.
 
