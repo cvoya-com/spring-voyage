@@ -10,6 +10,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+using Shouldly;
 
 using Xunit;
 
@@ -86,6 +89,70 @@ public class ServiceRegistrationTests : IDisposable
         // Creating the server triggers endpoint resolution, which fails if any
         // minimal API handler parameter cannot be resolved from the DI container.
         using var client = _factory.CreateClient();
+    }
+
+    /// <summary>
+    /// ADR-0052: the API host composes with
+    /// <see cref="SpringHostRole.HttpFrontDoor"/>, so the four worker-only
+    /// execution hosted services
+    /// (<see cref="Cvoya.Spring.Dapr.Execution.AgentVolumeManager"/>,
+    /// <see cref="Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry"/>,
+    /// <see cref="Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry"/>,
+    /// <see cref="Cvoya.Spring.Dapr.Execution.ContainerHealthMetricsService"/>)
+    /// must NOT register as <see cref="IHostedService"/> on the API host.
+    /// </summary>
+    [Fact]
+    public void ApiHost_DoesNotRegisterExecutionHostedServices()
+    {
+        // Triggers host build so the DI container is populated.
+        using var client = _factory.CreateClient();
+
+        var hosted = _factory.Services.GetServices<IHostedService>().ToList();
+
+        hosted.ShouldNotContain(s => s is Cvoya.Spring.Dapr.Execution.AgentVolumeManager);
+        hosted.ShouldNotContain(s => s is Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry);
+        hosted.ShouldNotContain(s => s is Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry);
+        hosted.ShouldNotContain(s => s is Cvoya.Spring.Dapr.Execution.ContainerHealthMetricsService);
+    }
+
+    /// <summary>
+    /// ADR-0052: gating only the <c>AddHostedService</c> wrappers must leave
+    /// the execution DI singletons resolvable on the API host — endpoint code
+    /// resolves <see cref="Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry"/>
+    /// as a plain singleton.
+    /// </summary>
+    [Fact]
+    public void ApiHost_ExecutionSingletonsStillResolve()
+    {
+        using var client = _factory.CreateClient();
+
+        _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry>()
+            .ShouldNotBeNull();
+        _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.AgentVolumeManager>()
+            .ShouldNotBeNull();
+        _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry>()
+            .ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// ADR-0052 / PR 1 of #2611: <c>McpServer</c> is intentionally NOT gated
+    /// worker-only in this PR — gating it breaks the API host's
+    /// <c>PersistentAgentLifecycle.DeployAsync</c> until PR 2 (#2614)
+    /// decouples that path. It must still register as an
+    /// <see cref="IHostedService"/> on the API host.
+    /// </summary>
+    [Fact]
+    public void ApiHost_RegistersMcpServerHostedService()
+    {
+        using var client = _factory.CreateClient();
+
+        var hosted = _factory.Services.GetServices<IHostedService>().ToList();
+
+        hosted.ShouldContain(
+            s => s is Cvoya.Spring.Dapr.Mcp.McpServer,
+            "McpServer must register as an IHostedService on the API host; " +
+            "ADR-0052 PR 1 leaves it un-gated until #2614 decouples " +
+            "PersistentAgentLifecycle from a started McpServer in the API host.");
     }
 
     public void Dispose()

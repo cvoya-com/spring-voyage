@@ -36,7 +36,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 internal static class ServiceCollectionExtensionsExecution
 {
     internal static IServiceCollection AddCvoyaSpringExecution(
-        this IServiceCollection services)
+        this IServiceCollection services,
+        SpringHostRole role)
     {
         var isDocGen = BuildEnvironment.IsDesignTimeTooling;
 
@@ -270,14 +271,26 @@ internal static class ServiceCollectionExtensionsExecution
 
         if (!isDocGen)
         {
-            services.AddHostedService(sp => sp.GetRequiredService<AgentVolumeManager>());
-            services.AddHostedService(sp => sp.GetRequiredService<PersistentAgentRegistry>());
-            services.AddHostedService(sp => sp.GetRequiredService<EphemeralAgentRegistry>());
+            // ADR-0052: the execution hosted services that supervise
+            // delegated-execution containers start only on the execution
+            // host (spring-worker). The DI singletons above stay registered
+            // unconditionally on both hosts — only these IHostedService
+            // wrappers are gated — so API-host code that resolves
+            // PersistentAgentRegistry / AgentVolumeManager / the registries
+            // as plain singletons keeps resolving regardless of host role.
+            if (role == SpringHostRole.ExecutionHost)
+            {
+                services.AddHostedService(sp => sp.GetRequiredService<AgentVolumeManager>());
+                services.AddHostedService(sp => sp.GetRequiredService<PersistentAgentRegistry>());
+                services.AddHostedService(sp => sp.GetRequiredService<EphemeralAgentRegistry>());
+                // Container health gauge (#1378): polls GetHealthAsync for every tracked
+                // persistent-agent container and emits spring.container.healthy via
+                // System.Diagnostics.Metrics (BCL Meter, MeterName = "Cvoya.Spring.Dapr").
+                services.AddHostedService<ContainerHealthMetricsService>();
+            }
+
+            // McpServer stays in both hosts here; PR 2 / #2614 gates it worker-only once PersistentAgentLifecycle no longer needs a started McpServer in the API host.
             services.AddHostedService(sp => sp.GetRequiredService<McpServer>());
-            // Container health gauge (#1378): polls GetHealthAsync for every tracked
-            // persistent-agent container and emits spring.container.healthy via
-            // System.Diagnostics.Metrics (BCL Meter, MeterName = "Cvoya.Spring.Dapr").
-            services.AddHostedService<ContainerHealthMetricsService>();
         }
 
         return services;

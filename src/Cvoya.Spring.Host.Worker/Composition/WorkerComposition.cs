@@ -117,7 +117,11 @@ public static class WorkerComposition
         services
             .AddCvoyaSpringCore()
             .AddCvoyaSpringRuntimeCatalog()
-            .AddCvoyaSpringDapr(configuration)
+            // ADR-0052: the Worker is the execution host — it owns the Dapr
+            // actors and delegated-execution supervision, so the execution
+            // hosted services (agent-volume manager, persistent/ephemeral
+            // agent registries, container-health metrics) start here.
+            .AddCvoyaSpringDapr(configuration, SpringHostRole.ExecutionHost)
             .AddCvoyaSpringModelProviders()
             .AddCvoyaSpringAgentRuntimes()
             .AddCvoyaSpringOllamaLlm(configuration)

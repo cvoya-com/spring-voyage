@@ -56,7 +56,12 @@ public partial class Program
                 // construction. The latter TryAdds an empty fallback so the real
                 // catalogue must be in DI first.
                 .AddCvoyaSpringRuntimeCatalog()
-                .AddCvoyaSpringDapr(builder.Configuration)
+                // ADR-0052: this is the HTTP front door — it serves the REST
+                // surface but does not own delegated-execution supervision,
+                // so the worker-only execution hosted services do not start
+                // here. HttpFrontDoor is the AddCvoyaSpringDapr default;
+                // passed explicitly for legibility.
+                .AddCvoyaSpringDapr(builder.Configuration, SpringHostRole.HttpFrontDoor)
                 // ADR-0038 (#1761) collapsed the four per-provider AgentRuntime
                 // projects into runtime-catalog.yaml + Cvoya.Spring.ModelProviders
                 // adapters + Cvoya.Spring.AgentRuntimes launcher consolidation.

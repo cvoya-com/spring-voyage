@@ -317,6 +317,45 @@ public class WorkerCompositionTests
         installed.ShouldAllBe(r => r.DeletedAt == null);
     }
 
+    /// <summary>
+    /// ADR-0052: the Worker composes with
+    /// <see cref="SpringHostRole.ExecutionHost"/>, so the four worker-only
+    /// execution hosted services
+    /// (<see cref="Cvoya.Spring.Dapr.Execution.AgentVolumeManager"/>,
+    /// <see cref="Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry"/>,
+    /// <see cref="Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry"/>,
+    /// <see cref="Cvoya.Spring.Dapr.Execution.ContainerHealthMetricsService"/>)
+    /// must register as <see cref="IHostedService"/> in the Worker DI graph.
+    /// </summary>
+    [Fact]
+    public void AddWorkerServices_RegistersExecutionHostedServices()
+    {
+        using var provider = BuildWorkerServiceProvider();
+
+        var hosted = provider.GetServices<IHostedService>().ToList();
+
+        hosted.ShouldContain(s => s is Cvoya.Spring.Dapr.Execution.AgentVolumeManager);
+        hosted.ShouldContain(s => s is Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry);
+        hosted.ShouldContain(s => s is Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry);
+        hosted.ShouldContain(s => s is Cvoya.Spring.Dapr.Execution.ContainerHealthMetricsService);
+    }
+
+    /// <summary>
+    /// ADR-0052 / PR 1 of #2611: <c>McpServer</c> is not gated by host role
+    /// in this PR, so it registers as an <see cref="IHostedService"/> in the
+    /// Worker DI graph (it registers in the API host too — see
+    /// <c>Cvoya.Spring.Dapr.Tests</c>).
+    /// </summary>
+    [Fact]
+    public void AddWorkerServices_RegistersMcpServerHostedService()
+    {
+        using var provider = BuildWorkerServiceProvider();
+
+        var hosted = provider.GetServices<IHostedService>().ToList();
+
+        hosted.ShouldContain(s => s is Cvoya.Spring.Dapr.Mcp.McpServer);
+    }
+
     private static ServiceProvider BuildWorkerServiceProvider()
     {
         var builder = WebApplication.CreateBuilder();

@@ -21,17 +21,21 @@ using Microsoft.Extensions.Options;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Mandatory on every host that runs <see cref="PersistentAgentRegistry"/>
-/// as a hosted service</b> — that is, every host where
-/// <c>AddCvoyaSpringExecution()</c> registers the hosted service (i.e. every
-/// runtime host other than design-time tooling such as the build-time OpenAPI
-/// emitter). API-side call sites that drive delegated execution include the
-/// background restart path (<see cref="PersistentAgentRegistry"/>'s health
-/// timer → <see cref="PersistentAgentRegistry.TryRestartAsync"/>) and the
-/// imperative endpoints in <c>AgentEndpoints</c> / <c>UnitEndpoints</c>
-/// (deploy, undeploy, runtime updates) that resolve
-/// <see cref="PersistentAgentLifecycle"/>. The Worker host also drives
-/// delegated execution (agent deploy, workflow-orchestration strategy).
+/// <b>Mandatory on every runtime host that drives delegated execution</b> —
+/// that is, every runtime host other than design-time tooling such as the
+/// build-time OpenAPI emitter. API-side call sites that drive delegated
+/// execution include the imperative endpoints in <c>AgentEndpoints</c> /
+/// <c>UnitEndpoints</c> (deploy, undeploy, runtime updates) that resolve
+/// <see cref="PersistentAgentLifecycle"/>. The Worker (execution) host also
+/// drives delegated execution and additionally runs
+/// <see cref="PersistentAgentRegistry"/> as a hosted service — its
+/// background restart path (the registry's health timer →
+/// <see cref="PersistentAgentRegistry.TryRestartAsync"/>). Per ADR-0052 the
+/// execution hosted services register only on the execution host
+/// (<c>AddCvoyaSpringExecution</c> gates them by
+/// <see cref="Cvoya.Spring.Dapr.DependencyInjection.SpringHostRole"/>), but
+/// the dispatcher endpoint is still required on both hosts because the API
+/// host resolves <see cref="PersistentAgentLifecycle"/> directly.
 /// A missing <c>Dispatcher:BaseUrl</c> on either host previously deferred the
 /// error to the first dispatcher call — minutes after host start — and on the
 /// API host crashed the restart loop, after which the registry's catch
@@ -80,7 +84,7 @@ public sealed class DispatcherConfigurationRequirement(
 
     /// <inheritdoc />
     public string Description =>
-        "HTTP endpoint of the spring-dispatcher service used by every host that runs PersistentAgentRegistry as a hosted service (API + Worker) to launch and supervise delegated-execution containers.";
+        "HTTP endpoint of the spring-dispatcher service used by every host that drives delegated execution (API + Worker) to launch and supervise delegated-execution containers.";
 
     /// <inheritdoc />
     public Uri? DocumentationUrl { get; } =
@@ -101,8 +105,9 @@ public sealed class DispatcherConfigurationRequirement(
             if (registrationOptions.IsMandatory)
             {
                 const string Reason =
-                    "Dispatcher:BaseUrl is not set. PersistentAgentRegistry runs as a hosted service on this host " +
-                    "(API restart loop, deploy/undeploy endpoints, worker dispatch) and requires the dispatcher endpoint.";
+                    "Dispatcher:BaseUrl is not set. This host drives delegated execution " +
+                    "(deploy/undeploy endpoints, worker dispatch, and — on the execution host — the " +
+                    "PersistentAgentRegistry restart loop) and requires the dispatcher endpoint.";
                 return Task.FromResult(ConfigurationRequirementStatus.Invalid(
                     reason: Reason,
                     suggestion: Suggestion,

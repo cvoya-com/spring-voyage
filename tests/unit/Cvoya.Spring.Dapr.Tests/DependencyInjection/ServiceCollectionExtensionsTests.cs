@@ -52,6 +52,111 @@ public class ServiceCollectionExtensionsTests
         return services.BuildServiceProvider();
     }
 
+    /// <summary>
+    /// Builds the DI graph the same way <see cref="BuildProvider"/> does but
+    /// for a caller-chosen <see cref="SpringHostRole"/> so the host-role gate
+    /// (ADR-0052) can be exercised directly.
+    /// </summary>
+    private static ServiceProvider BuildProvider(SpringHostRole role)
+    {
+        var services = new ServiceCollection();
+        var config = new ConfigurationBuilder().Build();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(config);
+        services.AddSingleton(Substitute.For<IActorProxyFactory>());
+        services.AddDbContext<SpringDbContext>(options =>
+            options.UseInMemoryDatabase($"DiTest_{Guid.NewGuid():N}"));
+        services.AddCvoyaSpringDapr(config, role);
+
+        return services.BuildServiceProvider();
+    }
+
+    /// <summary>
+    /// ADR-0052: the four worker-only execution hosted services
+    /// (<see cref="Cvoya.Spring.Dapr.Execution.AgentVolumeManager"/>,
+    /// <see cref="Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry"/>,
+    /// <see cref="Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry"/>,
+    /// <c>ContainerHealthMetricsService</c>) register as
+    /// <see cref="IHostedService"/> when the host composes with
+    /// <see cref="SpringHostRole.ExecutionHost"/>.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_ExecutionHost_RegistersExecutionHostedServices()
+    {
+        using var provider = BuildProvider(SpringHostRole.ExecutionHost);
+
+        var hosted = provider.GetServices<IHostedService>().ToList();
+
+        hosted.ShouldContain(s => s is Cvoya.Spring.Dapr.Execution.AgentVolumeManager);
+        hosted.ShouldContain(s => s is Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry);
+        hosted.ShouldContain(s => s is Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry);
+        hosted.ShouldContain(s => s is Cvoya.Spring.Dapr.Execution.ContainerHealthMetricsService);
+    }
+
+    /// <summary>
+    /// ADR-0052: the four worker-only execution hosted services do NOT
+    /// register as <see cref="IHostedService"/> when the host composes with
+    /// <see cref="SpringHostRole.HttpFrontDoor"/> — the API host serves the
+    /// REST surface but does not own delegated-execution supervision.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_HttpFrontDoor_DoesNotRegisterExecutionHostedServices()
+    {
+        using var provider = BuildProvider(SpringHostRole.HttpFrontDoor);
+
+        var hosted = provider.GetServices<IHostedService>().ToList();
+
+        hosted.ShouldNotContain(s => s is Cvoya.Spring.Dapr.Execution.AgentVolumeManager);
+        hosted.ShouldNotContain(s => s is Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry);
+        hosted.ShouldNotContain(s => s is Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry);
+        hosted.ShouldNotContain(s => s is Cvoya.Spring.Dapr.Execution.ContainerHealthMetricsService);
+    }
+
+    /// <summary>
+    /// ADR-0052: the DI singletons backing the gated execution hosted
+    /// services stay registered unconditionally on both host roles. The API
+    /// host resolves <see cref="Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry"/>
+    /// (and the other registry singletons) as plain singletons; gating only
+    /// the <c>AddHostedService</c> wrappers must not break that resolution.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_HttpFrontDoor_ExecutionSingletonsStillResolve()
+    {
+        using var provider = BuildProvider(SpringHostRole.HttpFrontDoor);
+
+        provider.GetService<Cvoya.Spring.Dapr.Execution.AgentVolumeManager>()
+            .ShouldNotBeNull();
+        provider.GetService<Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry>()
+            .ShouldNotBeNull();
+        provider.GetService<Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry>()
+            .ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// ADR-0052 / PR 1 of #2611: <c>McpServer</c> is intentionally NOT gated
+    /// by host role in this PR. It registers as an <see cref="IHostedService"/>
+    /// under both <see cref="SpringHostRole.HttpFrontDoor"/> and
+    /// <see cref="SpringHostRole.ExecutionHost"/> — gating it worker-only
+    /// breaks the API host's <c>PersistentAgentLifecycle.DeployAsync</c>
+    /// until PR 2 (#2614) decouples that path.
+    /// </summary>
+    [Theory]
+    [InlineData(SpringHostRole.HttpFrontDoor)]
+    [InlineData(SpringHostRole.ExecutionHost)]
+    public void AddCvoyaSpringDapr_McpServer_RegistersAsHostedServiceUnderBothRoles(
+        SpringHostRole role)
+    {
+        using var provider = BuildProvider(role);
+
+        var hosted = provider.GetServices<IHostedService>().ToList();
+
+        hosted.ShouldContain(
+            s => s is Cvoya.Spring.Dapr.Mcp.McpServer,
+            $"McpServer must register as an IHostedService under {role}; " +
+            "ADR-0052 PR 1 leaves it un-gated until #2614 decouples " +
+            "PersistentAgentLifecycle from a started McpServer in the API host.");
+    }
+
     [Fact]
     public void AddCvoyaSpringDapr_RegistersMessageRouter()
     {
