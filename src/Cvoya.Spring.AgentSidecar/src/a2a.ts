@@ -34,15 +34,13 @@ import { randomUUID } from "node:crypto";
 
 import { runAgentBridge } from "./bridge.js";
 import type { ThreadBindingConfig } from "./config.js";
-import {
-  MESSAGING_MCP_CONFIG_ENV_VAR,
-  refreshMessagingToken,
-} from "./messaging-mcp.js";
+import { MCP_CONFIG_ENV_VAR, rewriteMcpToken } from "./mcp-config.js";
 import { ThreadIdRegistry } from "./threads.js";
 import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "./version.js";
 
-const CALLBACK_TOKEN_FIELD = "callbackToken";
-const CALLBACK_TOKEN_ENV_VAR = "SPRING_CALLBACK_TOKEN";
+// ADR-0052 §4: the worker-side dispatcher delivers the per-turn MCP
+// session token in the A2A `message/send` metadata under this field.
+const MCP_TOKEN_FIELD = "mcpToken";
 
 /**
  * A2A `TaskState` values, in the kebab-case-lower wire form required by the
@@ -285,7 +283,12 @@ export class A2AHandler {
     return [...this.deps.agentArgv, flag, threadId];
   }
 
-  private extractCallbackToken(params: unknown): string | undefined {
+  /**
+   * Extracts the per-turn MCP session token from `message/send` params.
+   * ADR-0052 §4: the worker-side dispatcher places it on
+   * `params.message.metadata.mcpToken`.
+   */
+  private extractMcpToken(params: unknown): string | undefined {
     if (!params || typeof params !== "object") {
       return undefined;
     }
@@ -300,34 +303,34 @@ export class A2AHandler {
       return undefined;
     }
 
-    const metadataToken = (metadata as Record<string, unknown>)[CALLBACK_TOKEN_FIELD];
+    const metadataToken = (metadata as Record<string, unknown>)[MCP_TOKEN_FIELD];
     return typeof metadataToken === "string" && metadataToken.length > 0
       ? metadataToken
       : undefined;
   }
 
   /**
-   * #2580: rewrites the `spring-orchestration` MCP server's
+   * ADR-0052 §4 / #2615: rewrites the `spring-voyage` MCP server's
    * `Authorization` header in the launcher-written MCP config with the
-   * current turn's per-message callback token, so each exec dials the
-   * dispatcher with a fresh, correctly thread-scoped token.
+   * current turn's per-turn MCP session token, so each exec dials the
+   * worker-side McpServer with a token it actually issued for this turn.
    *
    * No-ops silently when:
-   *   - `SPRING_ORCHESTRATION_MCP_CONFIG` is unset (agent launched
-   *     without orchestration tools, or an older launcher);
-   *   - the message carried no callback token (the launch-time token in
-   *     `.mcp.json` is left as-is — the pre-#2580 behaviour).
+   *   - `SPRING_MCP_CONFIG` is unset (agent launched without an MCP
+   *     config — e.g. the A2A-native Spring Voyage agent);
+   *   - the message carried no `mcpToken` (the launch-time token in the
+   *     config is left as-is).
    *
-   * A refresh failure is logged as a warning but never fails the turn:
-   * a stale token still lets the CLI start; it just loses `delegate_to`
-   * once expired, which is exactly the pre-fix state.
+   * A rewrite failure is logged as a warning but never fails the turn:
+   * a stale (or empty) token still lets the CLI start; it just loses the
+   * platform MCP tools.
    */
-  private refreshMessagingMcpToken(callbackToken: string | undefined): void {
-    const configPath = this.deps.spawnEnv[MESSAGING_MCP_CONFIG_ENV_VAR];
-    if (!configPath || configPath.length === 0 || !callbackToken) {
+  private rewriteMcpToken(mcpToken: string | undefined): void {
+    const configPath = this.deps.spawnEnv[MCP_CONFIG_ENV_VAR];
+    if (!configPath || configPath.length === 0 || !mcpToken) {
       return;
     }
-    const result = refreshMessagingToken(configPath, callbackToken);
+    const result = rewriteMcpToken(configPath, mcpToken);
     if (result.warning) {
       process.stderr.write(
         `${JSON.stringify({
@@ -335,7 +338,7 @@ export class A2AHandler {
           level: "warn",
           component: "spring-voyage-agent-sidecar",
           bridgeVersion: BRIDGE_VERSION,
-          message: "orchestration callback-token refresh failed",
+          message: "per-turn MCP token rewrite failed",
           detail: result.warning,
         })}\n`,
       );
@@ -369,19 +372,17 @@ export class A2AHandler {
     this.tasks.set(taskId, task);
 
     const userText = this.extractText(req.params);
-    const callbackToken = this.extractCallbackToken(req.params);
-    const spawnEnv = callbackToken
-      ? { ...this.deps.spawnEnv, [CALLBACK_TOKEN_ENV_VAR]: callbackToken }
-      : this.deps.spawnEnv;
+    const spawnEnv = this.deps.spawnEnv;
     const stderrLines: string[] = [];
 
-    // #2580: refresh the orchestration callback token in `.mcp.json`
-    // before each exec. The launcher-written token expires after 5
-    // minutes; a persistent container would otherwise lose
-    // `delegate_to` / `fanout_to` and mis-attribute delegations to the
-    // launch-time thread. The CLI re-reads `.mcp.json` on every process
-    // start, so rewriting it here is picked up by the spawn below.
-    this.refreshMessagingMcpToken(callbackToken);
+    // ADR-0052 §4 / #2615: rewrite the `spring-voyage` MCP server's
+    // Authorization header in the launcher-written MCP config with the
+    // per-turn MCP session token delivered in this turn's message/send
+    // metadata. A launch-time-sticky token is wrong for a long-lived
+    // persistent container — the session is per-turn and revoked at turn
+    // end. The CLI re-reads its MCP config on every process start, so
+    // rewriting it here is picked up by the spawn below.
+    this.rewriteMcpToken(this.extractMcpToken(req.params));
 
     // ADR-0041 / #2094: `params.message.contextId` is the platform
     // thread.id. When the launcher declared a thread-binding (e.g.

@@ -64,6 +64,15 @@ public class CodexLauncher(
     /// </summary>
     internal const string McpConfigFileName = ".mcp.json";
 
+    /// <summary>
+    /// ADR-0052 §4: env var the launcher sets to the absolute container path
+    /// of the MCP config file. The TypeScript agent-sidecar bridge reads this
+    /// to know which file's <c>spring-voyage</c> server block to rewrite with
+    /// the per-turn MCP session token delivered in each A2A <c>message/send</c>.
+    /// Read by <c>src/Cvoya.Spring.AgentSidecar/src/mcp-config.ts</c>.
+    /// </summary>
+    internal const string McpConfigPathEnvVar = "SPRING_MCP_CONFIG";
+
     private readonly ILogger _logger = loggerFactory.CreateLogger<CodexLauncher>();
 
     /// <inheritdoc />
@@ -122,6 +131,10 @@ public class CodexLauncher(
             // D3c: canonical path where the per-agent workspace volume is
             // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
+            // ADR-0052 §4: absolute container path of the `.mcp.json` the
+            // bridge rewrites with the per-turn MCP session token before
+            // every CLI spawn.
+            [McpConfigPathEnvVar] = $"{WorkspaceMountPath}/{McpConfigFileName}",
         };
 
         // ADR-0051: the OTLP-ingest env contract (SPRING_CALLBACK_URL /
