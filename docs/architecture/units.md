@@ -101,7 +101,7 @@ A unit's `ai` block (`runtime`, `model`, `image`) describes the runtime that run
 | Tool | Purpose |
 |---|---|
 | `sv.messaging.send(address, message, reason?)` | One-way delivery of the message to a single addressable target. Returns a delivery acknowledgement (the message reached the recipient's mailbox), never the recipient's reply. |
-| `sv.messaging.broadcast(scope \| addresses, message, reason?)` | One-way delivery to many targets, addressed explicitly or by a directory-relationship `scope`. |
+| `sv.messaging.multicast(scope \| addresses, message, reason?)` | One-way delivery to many targets, addressed explicitly or by a directory-relationship `scope`. |
 
 The platform delivers messages; it does not orchestrate. There is no `delegate_to` / `fanout_to` tool — "delegation" is message *content* the recipient's runtime interprets, not a distinct platform tool. A runtime delegates by sending a message via `sv.messaging.send` whose content says so. Recording the routing decision is an optional, explicit `sv.runtime.report_decision` call.
 

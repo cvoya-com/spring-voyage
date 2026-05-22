@@ -264,7 +264,7 @@ which already lives exactly as long as the turn.
 Platform MCP tools follow the `sv.<area>.<verb>` taxonomy
 ([ADR-0050](../decisions/0050-platform-mcp-tool-surface.md)). The platform's
 message-delivery surface is exactly two tools — `sv.messaging.send` and
-`sv.messaging.broadcast` — on the [ADR-0049](../decisions/0049-message-delivery-tool-contract.md)
+`sv.messaging.multicast` — on the [ADR-0049](../decisions/0049-message-delivery-tool-contract.md)
 delivery-acknowledgement contract. The runtime path attaches the platform MCP
 surface unconditionally for every `agent://` and `unit://` runtime; unit
 operators and runtime authors do not enable a separate orchestration mode.
@@ -272,7 +272,7 @@ operators and runtime authors do not enable a separate orchestration mode.
 | Tool | Description |
 | --- | --- |
 | `sv.messaging.send` | One-way delivery of a message to a single addressable target. Returns a delivery acknowledgement — the message reached the recipient's mailbox — never the recipient's reply. Records a `MessageSent` activity. |
-| `sv.messaging.broadcast` | One-way delivery to many targets, addressed explicitly or by a directory-relationship `scope` (`unit-members`, `siblings`). Records a `MessageSent` activity per target. |
+| `sv.messaging.multicast` | One-way delivery to many targets, addressed explicitly or by a directory-relationship `scope` (`unit-members`, `siblings`). Records a `MessageSent` activity per target. |
 
 The `delegate_to` / `fanout_to` orchestration tools no longer exist
 ([ADR-0050 § 2](../decisions/0050-platform-mcp-tool-surface.md), superseding
@@ -309,7 +309,7 @@ is documented in [Platform MCP Tools](platform-mcp-tools.md).
 
 With a single delivery seam, delegation-loop prevention is implemented once: a
 per-thread hop counter incremented on every `sv.messaging.send` /
-`sv.messaging.broadcast` call rejects a call past the platform limit with the
+`sv.messaging.multicast` call rejects a call past the platform limit with the
 validation-class `OrchestrationDepthExceeded` tool error.
 
 ## 4c. Launcher's tool-attachment responsibility
@@ -343,7 +343,7 @@ MCP tool surface from [ADR-0050](../decisions/0050-platform-mcp-tool-surface.md)
 
 When a runtime calls `sv.runtime.report_decision`, the platform publishes a
 `DecisionMade` activity event. The durable payload is the Core
-`OrchestrationDecision` record. ADR-0050 generalised the call: it now records
+`RoutingDecision` record. ADR-0050 generalised the call: it now records
 any routing decision — executed or not — and is independent of whether a
 message was delivered. A plain `sv.messaging.*` delivery publishes a
 `MessageSent` activity and nothing more; `report_decision` is the explicit,
@@ -375,11 +375,11 @@ stream. The normalized event shape is:
 }
 ```
 
-`Kind` is `Delegate` or `Fanout`. `OrchestrationDecision` /
-`OrchestrationDecisionKind` / `OrchestrationDecisionStatus` are retained as the
+`Kind` is `Delegate` or `Fanout`. `RoutingDecision` /
+`RoutingDecisionKind` / `RoutingDecisionStatus` are retained as the
 `sv.runtime.report_decision` payload; only that tool publishes a
 `DecisionMade` event. A `sv.messaging.*` delivery publishes a `MessageSent`
-activity, not an `OrchestrationDecision`. `Reason` is plain text supplied by
+activity, not an `RoutingDecision`. `Reason` is plain text supplied by
 the runtime's tool call; it is never hidden model reasoning.
 
 Subscribers consume this stream as routing-decision evidence. For example, the

@@ -13,18 +13,18 @@ using Shouldly;
 
 using Xunit;
 
-public class OrchestrationCallbackConfigurationRequirementTests
+public class CallbackBaseUrlConfigurationRequirementTests
 {
-    private static IOptions<OrchestrationCallbackOptions> Opts(string? baseUrl = null) =>
-        Options.Create(new OrchestrationCallbackOptions { BaseUrl = baseUrl });
+    private static IOptions<CallbackBaseUrlOptions> Opts(string? baseUrl = null) =>
+        Options.Create(new CallbackBaseUrlOptions { BaseUrl = baseUrl });
 
-    private static OrchestrationCallbackConfigurationRequirementOptions Registration(bool isMandatory = true) =>
+    private static CallbackBaseUrlConfigurationRequirementOptions Registration(bool isMandatory = true) =>
         new(IsMandatory: isMandatory);
 
     [Fact]
     public async Task ValidateAsync_NonMandatory_MissingBaseUrl_ReturnsDisabledInformation()
     {
-        var requirement = new OrchestrationCallbackConfigurationRequirement(
+        var requirement = new CallbackBaseUrlConfigurationRequirement(
             Opts(baseUrl: null), Registration(isMandatory: false));
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
@@ -33,14 +33,14 @@ public class OrchestrationCallbackConfigurationRequirementTests
         status.Severity.ShouldBe(SeverityLevel.Information);
         status.Reason.ShouldNotBeNull();
         status.Suggestion.ShouldNotBeNull();
-        status.Suggestion!.ShouldContain("OrchestrationCallback__BaseUrl");
+        status.Suggestion!.ShouldContain("CallbackBaseUrl__BaseUrl");
         status.FatalError.ShouldBeNull();
     }
 
     [Fact]
     public async Task ValidateAsync_Mandatory_MissingBaseUrl_ReturnsInvalidWithFatalError()
     {
-        var requirement = new OrchestrationCallbackConfigurationRequirement(
+        var requirement = new CallbackBaseUrlConfigurationRequirement(
             Opts(baseUrl: null), Registration(isMandatory: true));
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
@@ -51,13 +51,13 @@ public class OrchestrationCallbackConfigurationRequirementTests
         status.Reason.ShouldNotBeNull();
         status.Reason!.ShouldContain("SPRING_CALLBACK_URL");
         status.Suggestion.ShouldNotBeNull();
-        status.Suggestion!.ShouldContain("OrchestrationCallback__BaseUrl");
+        status.Suggestion!.ShouldContain("CallbackBaseUrl__BaseUrl");
     }
 
     [Fact]
     public async Task ValidateAsync_Mandatory_WhitespaceBaseUrl_ReturnsInvalidWithFatalError()
     {
-        var requirement = new OrchestrationCallbackConfigurationRequirement(
+        var requirement = new CallbackBaseUrlConfigurationRequirement(
             Opts(baseUrl: "   "), Registration(isMandatory: true));
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
@@ -69,7 +69,7 @@ public class OrchestrationCallbackConfigurationRequirementTests
     [Fact]
     public async Task ValidateAsync_MalformedBaseUrl_ReturnsInvalid()
     {
-        var requirement = new OrchestrationCallbackConfigurationRequirement(
+        var requirement = new CallbackBaseUrlConfigurationRequirement(
             Opts(baseUrl: "this-is-not-a-url"), Registration());
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
@@ -82,7 +82,7 @@ public class OrchestrationCallbackConfigurationRequirementTests
     [Fact]
     public async Task ValidateAsync_NonHttpScheme_ReturnsInvalid()
     {
-        var requirement = new OrchestrationCallbackConfigurationRequirement(
+        var requirement = new CallbackBaseUrlConfigurationRequirement(
             Opts(baseUrl: "ftp://spring-caddy:8443/"), Registration());
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
@@ -94,7 +94,7 @@ public class OrchestrationCallbackConfigurationRequirementTests
     [Fact]
     public async Task ValidateAsync_ValidHttpBaseUrl_ReturnsMet()
     {
-        var requirement = new OrchestrationCallbackConfigurationRequirement(
+        var requirement = new CallbackBaseUrlConfigurationRequirement(
             Opts(baseUrl: "http://spring-caddy:8443/"), Registration());
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
@@ -106,7 +106,7 @@ public class OrchestrationCallbackConfigurationRequirementTests
     [Fact]
     public async Task ValidateAsync_ValidHttpsBaseUrl_ReturnsMet()
     {
-        var requirement = new OrchestrationCallbackConfigurationRequirement(
+        var requirement = new CallbackBaseUrlConfigurationRequirement(
             Opts(baseUrl: "https://api.example.com/"), Registration());
 
         var status = await requirement.ValidateAsync(TestContext.Current.CancellationToken);
@@ -117,14 +117,14 @@ public class OrchestrationCallbackConfigurationRequirementTests
     [Fact]
     public async Task RequirementMetadata_Mandatory_IsStable()
     {
-        var requirement = new OrchestrationCallbackConfigurationRequirement(
+        var requirement = new CallbackBaseUrlConfigurationRequirement(
             Opts(), Registration(isMandatory: true));
 
-        requirement.RequirementId.ShouldBe("orchestration-callback-base-url");
-        requirement.SubsystemName.ShouldBe("Orchestration callback");
+        requirement.RequirementId.ShouldBe("callback-base-url");
+        requirement.SubsystemName.ShouldBe("Callback base URL");
         requirement.IsMandatory.ShouldBeTrue();
-        requirement.EnvironmentVariableNames.ShouldContain("OrchestrationCallback__BaseUrl");
-        requirement.ConfigurationSectionPath.ShouldBe(OrchestrationCallbackOptions.SectionName + ":BaseUrl");
+        requirement.EnvironmentVariableNames.ShouldContain("CallbackBaseUrl__BaseUrl");
+        requirement.ConfigurationSectionPath.ShouldBe(CallbackBaseUrlOptions.SectionName + ":BaseUrl");
         requirement.DocumentationUrl.ShouldNotBeNull();
         await Task.CompletedTask;
     }
@@ -132,7 +132,7 @@ public class OrchestrationCallbackConfigurationRequirementTests
     [Fact]
     public async Task RequirementMetadata_NonMandatory_ReflectsRegistrationOptions()
     {
-        var requirement = new OrchestrationCallbackConfigurationRequirement(
+        var requirement = new CallbackBaseUrlConfigurationRequirement(
             Opts(), Registration(isMandatory: false));
 
         requirement.IsMandatory.ShouldBeFalse();

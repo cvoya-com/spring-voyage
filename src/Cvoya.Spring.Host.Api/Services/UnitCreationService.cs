@@ -213,7 +213,7 @@ public class UnitCreationService : IUnitCreationService
             ?? manifest.Ai?.Model?.Id;
         var color = !string.IsNullOrWhiteSpace(overrides.Color) ? overrides.Color : manifest.Color;
 
-        // Per-unit orchestration metadata declared in the manifest. These
+        // Per-unit configuration metadata declared in the manifest. These
         // mirror UpdateUnitRequest fields so the YAML authoring surface and
         // the PATCH /api/v1/units/{id} surface agree on the same set of
         // configurable knobs.
@@ -305,7 +305,7 @@ public class UnitCreationService : IUnitCreationService
         // IUnitBoundaryStore so the unit actor's boundary state matches what
         // a `PUT /api/v1/units/{id}/boundary` call would have produced. We
         // call the store directly (rather than writing to the Definition
-        // JSON like expertise / orchestration) because boundary already has
+        // JSON like expertise / execution) because boundary already has
         // a live persistence seam that the HTTP surface consumes — this
         // keeps YAML-applied and API-applied boundaries wire-identical. An
         // absent or all-empty block is a no-op so the unit's default
@@ -985,7 +985,7 @@ public class UnitCreationService : IUnitCreationService
             // every other unit-keyed store. The state-store path is opaque
             // (a key prefix), so the only effect of switching from name to
             // actorId is rename-safety and uniformity with the connector /
-            // execution / orchestration stores.
+            // execution stores.
             // The store's SetAsync takes SkillBundleReference values and
             // re-resolves them internally so the persisted record always
             // carries the freshest prompt + required-tools snapshot. The

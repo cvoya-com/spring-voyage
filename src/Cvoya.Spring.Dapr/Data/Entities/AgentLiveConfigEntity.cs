@@ -51,15 +51,15 @@ public class AgentLiveConfigEntity : ITenantScopedEntity
 
     /// <summary>
     /// Free-form specialty label (e.g. <c>reviewer</c>,
-    /// <c>implementer</c>) consumed by orchestration strategies. Null
-    /// when unset.
+    /// <c>implementer</c>) surfaced to runtimes and operators for agent
+    /// selection; the platform does not route on it. Null when unset.
     /// </summary>
     public string? Specialty { get; set; }
 
     /// <summary>
-    /// Whether the agent participates in orchestration. Defaults to
-    /// <c>true</c> — orchestration strategies skip agents whose row holds
-    /// an explicit <c>false</c>.
+    /// Whether the agent processes inbound messages. Defaults to
+    /// <c>true</c> — an agent whose row holds an explicit <c>false</c>
+    /// skips processing the messages delivered to it.
     /// </summary>
     public bool Enabled { get; set; } = true;
 

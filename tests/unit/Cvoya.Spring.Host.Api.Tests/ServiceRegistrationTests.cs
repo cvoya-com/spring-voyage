@@ -40,11 +40,11 @@ public class ServiceRegistrationTests : IDisposable
                 // exercises endpoint DI resolution.
                 builder.UseSetting("Dispatcher:BaseUrl", "http://spring-dispatcher.test/");
                 builder.UseSetting("Dispatcher:BearerToken", "test-token");
-                // #2597: OrchestrationCallback:BaseUrl is mandatory on the
+                // #2597: CallbackBaseUrl:BaseUrl is mandatory on the
                 // API host — the agent-runtime launcher stamps it onto
                 // runtime containers as SPRING_CALLBACK_URL. Set a
                 // syntactically valid URL so the validator passes.
-                builder.UseSetting("OrchestrationCallback:BaseUrl", "http://spring-caddy.test:8443/");
+                builder.UseSetting("CallbackBaseUrl:BaseUrl", "http://spring-caddy.test:8443/");
                 // #639 SecretsConfigurationRequirement — use an ephemeral
                 // dev key so the validator reports Met+Warning instead of
                 // aborting on missing key material.

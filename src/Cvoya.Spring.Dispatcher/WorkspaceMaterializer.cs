@@ -191,7 +191,7 @@ public sealed class WorkspaceMaterializer(
     /// World-<i>writable</i>, not just world-readable: the in-container
     /// agent runs as a different uid than the dispatcher (see
     /// <see cref="ApplyWorldReadable"/>), and the sidecar rewrites
-    /// <c>.mcp.json</c> in place on every turn to refresh the orchestration
+    /// <c>.mcp.json</c> in place on every turn to refresh the runtime
     /// callback token (#2580). A 0644 file owned by the dispatcher uid is
     /// not writable by the agent uid — the refresh fails with
     /// <c>EACCES</c>, the token is never rotated, and it expires mid-turn.

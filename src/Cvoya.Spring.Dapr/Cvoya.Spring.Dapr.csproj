@@ -45,14 +45,13 @@
   </ItemGroup>
 
   <!--
-    Orchestration tool JSON schemas (ADR-0039 §3). Loaded once at startup by
-    DirectoryOrchestrationToolProvider and emitted as the InputSchema /
-    OutputSchema fields on each OrchestrationToolDescriptor. Source-of-truth
-    JSON files live alongside the provider so the schema and the tool name
-    travel together.
+    Messaging tool JSON schemas (ADR-0049). Loaded once at startup by
+    SvMessagingSkillRegistry and emitted as the InputSchema field on each
+    ToolDefinition. Source-of-truth JSON files live alongside the registry
+    so the schema and the tool name travel together.
   -->
   <ItemGroup>
-    <EmbeddedResource Include="Orchestration\Resources\*.schema.json" />
+    <EmbeddedResource Include="Messaging\Resources\*.schema.json" />
   </ItemGroup>
 
 </Project>

@@ -37,7 +37,7 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers all Dapr-backed implementations for routing, execution, orchestration, and prompt assembly.
+    /// Registers all Dapr-backed implementations for routing, execution, and prompt assembly.
     /// </summary>
     /// <param name="services">The service collection to configure.</param>
     /// <param name="configuration">The application configuration, used to resolve the PostgreSQL connection string.</param>
@@ -49,7 +49,7 @@ public static class ServiceCollectionExtensions
             .AddCvoyaSpringRouting()
             .AddCvoyaSpringExecution()
             .AddCvoyaSpringInitiative()
-            .AddCvoyaSpringOrchestration()
+            .AddCvoyaSpringMessaging()
             .AddCvoyaSpringStateTenancySecrets()
             .AddCvoyaSpringObservability();
     }

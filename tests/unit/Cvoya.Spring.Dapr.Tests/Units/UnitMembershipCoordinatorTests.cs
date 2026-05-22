@@ -21,7 +21,7 @@ using Xunit;
 /// edge cases and duplicate handling. Per #2052 / ADR-0040 the
 /// coordinator drives <see cref="IUnitMemberGraphStore"/> against EF;
 /// these tests use an in-memory fake store so the coordinator's
-/// orchestration is the unit under test.
+/// coordination logic is the unit under test.
 /// </summary>
 public class UnitMembershipCoordinatorTests
 {

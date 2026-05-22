@@ -16,7 +16,7 @@ using Cvoya.Spring.Dapr.Auth;
 /// and a connector binding. Domain messages are dispatched through the unit's
 /// runtime launcher via the same path used by <see cref="IAgentActor"/>. The
 /// launcher attaches the platform messaging tools (<c>sv.messaging.send</c>,
-/// <c>sv.messaging.broadcast</c>) so the runtime can deliver messages; the
+/// <c>sv.messaging.multicast</c>) so the runtime can deliver messages; the
 /// platform delivers messages, it does not orchestrate (ADR-0048 / ADR-0049).
 /// Discovery, inspection, and status queries live on the
 /// <c>sv.directory.*</c> tool surface (<c>sv.directory.list_members</c>,

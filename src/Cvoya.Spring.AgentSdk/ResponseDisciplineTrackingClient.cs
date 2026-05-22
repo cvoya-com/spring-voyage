@@ -13,7 +13,7 @@ namespace Cvoya.Spring.AgentSdk;
 /// <para>
 /// Idempotent on the tracking side — multiple posts only set the flag
 /// once. The wrapped client's behaviour is preserved verbatim;
-/// <c>SendAsync</c> / <c>BroadcastAsync</c> are pass-through and do not
+/// <c>SendAsync</c> / <c>MulticastAsync</c> are pass-through and do not
 /// satisfy the response-discipline contract (they deliver a message, they
 /// don't return a final reply to the requester).
 /// </para>
@@ -48,10 +48,10 @@ internal sealed class ResponseDisciplineTrackingClient : IMessagingClient
         CancellationToken cancellationToken = default)
         => _inner.SendAsync(threadId, targetUnitId, prompt, cancellationToken);
 
-    public Task<MessageBroadcastResponse> BroadcastAsync(
+    public Task<MessageMulticastResponse> MulticastAsync(
         string threadId,
         IReadOnlyList<string> targetUnitIds,
         string prompt,
         CancellationToken cancellationToken = default)
-        => _inner.BroadcastAsync(threadId, targetUnitIds, prompt, cancellationToken);
+        => _inner.MulticastAsync(threadId, targetUnitIds, prompt, cancellationToken);
 }

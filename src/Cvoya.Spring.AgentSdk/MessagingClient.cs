@@ -11,7 +11,7 @@ using System.Text.Json;
 /// <summary>
 /// <see cref="IMessagingClient"/> implementation that delivers messages
 /// through the single platform MCP server (ADR-0051). It calls
-/// <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c> over JSON-RPC 2.0
+/// <c>sv.messaging.send</c> / <c>sv.messaging.multicast</c> over JSON-RPC 2.0
 /// <c>tools/call</c>, authenticated by the MCP session bearer token — the
 /// same server and credential the runtime already uses for every other
 /// <c>sv.*</c> tool.
@@ -19,7 +19,7 @@ using System.Text.Json;
 /// <remarks>
 /// The per-turn callback JWT and the standalone messaging REST surface are
 /// retired (ADR-0051). The public <see cref="SendAsync"/> /
-/// <see cref="BroadcastAsync"/> contract is unchanged — only the transport
+/// <see cref="MulticastAsync"/> contract is unchanged — only the transport
 /// and the credential moved. The MCP session token carries the caller's
 /// identity, thread, and inbound message id, so the SDK no longer threads a
 /// caller address or message id on the wire.
@@ -27,7 +27,7 @@ using System.Text.Json;
 public sealed class MessagingClient : IMessagingClient
 {
     private const string SendTool = "sv.messaging.send";
-    private const string BroadcastTool = "sv.messaging.broadcast";
+    private const string MulticastTool = "sv.messaging.multicast";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -106,7 +106,7 @@ public sealed class MessagingClient : IMessagingClient
     }
 
     /// <inheritdoc />
-    public async Task<MessageBroadcastResponse> BroadcastAsync(
+    public async Task<MessageMulticastResponse> MulticastAsync(
         string threadId,
         IReadOnlyList<string> targetUnitIds,
         string prompt,
@@ -122,15 +122,15 @@ public sealed class MessagingClient : IMessagingClient
             ["message"] = prompt,
         };
 
-        var toolResult = await CallToolAsync(BroadcastTool, arguments, cancellationToken)
+        var toolResult = await CallToolAsync(MulticastTool, arguments, cancellationToken)
             .ConfigureAwait(false);
 
-        var result = Deserialize<MessagingBroadcastResponseDto>(toolResult);
-        return new MessageBroadcastResponse(
+        var result = Deserialize<MessagingMulticastResponseDto>(toolResult);
+        return new MessageMulticastResponse(
             result.MessageId ?? string.Empty,
             result.ThreadId ?? string.Empty,
             (result.Deliveries ?? Array.Empty<MessagingDeliveryOutcomeDto>())
-                .Select(outcome => new MessageBroadcastDelivery(
+                .Select(outcome => new MessageMulticastDelivery(
                     outcome.Target ?? string.Empty,
                     outcome.Delivered,
                     outcome.Error))
@@ -166,7 +166,7 @@ public sealed class MessagingClient : IMessagingClient
     /// <summary>
     /// Issues an MCP <c>tools/call</c> JSON-RPC request and returns the
     /// parsed text content. Surfaces an MCP <c>isError</c> tool result or a
-    /// JSON-RPC error as an <see cref="OrchestrationException"/>-shaped
+    /// JSON-RPC error as an <see cref="MessageDeliveryException"/>-shaped
     /// failure so callers see a uniform contract.
     /// </summary>
     private async Task<JsonElement> CallToolAsync(
@@ -204,13 +204,13 @@ public sealed class MessagingClient : IMessagingClient
         }
         catch (HttpRequestException ex)
         {
-            throw new OrchestrationTransportException(
+            throw new MessagingTransportException(
                 "Failed to call the Spring Voyage platform MCP server.",
                 ex);
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new OrchestrationTransportException(
+            throw new MessagingTransportException(
                 "Timed out calling the Spring Voyage platform MCP server.",
                 ex);
         }
@@ -222,14 +222,14 @@ public sealed class MessagingClient : IMessagingClient
 
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
-                throw new OrchestrationAuthException(
+                throw new MessagingAuthException(
                     $"Spring Voyage MCP server rejected the session token (HTTP {(int)response.StatusCode}).",
                     "InvalidToken");
             }
 
             if (!response.IsSuccessStatusCode)
             {
-                throw new OrchestrationTransportException(
+                throw new MessagingTransportException(
                     $"Spring Voyage MCP server returned HTTP {(int)response.StatusCode}.");
             }
 
@@ -242,7 +242,7 @@ public sealed class MessagingClient : IMessagingClient
     /// result envelope (<c>{ content: [{ type, text }], isError }</c>). A
     /// transport-level JSON-RPC <c>error</c>, an <c>isError: true</c> tool
     /// result, or an unauthenticated rejection raises the matching
-    /// orchestration exception.
+    /// message-delivery exception.
     /// </summary>
     private static JsonElement ParseToolResult(string toolName, string body)
     {
@@ -253,7 +253,7 @@ public sealed class MessagingClient : IMessagingClient
         }
         catch (JsonException ex)
         {
-            throw new OrchestrationTransportException(
+            throw new MessagingTransportException(
                 "Spring Voyage MCP server returned an invalid JSON-RPC response body.",
                 ex);
         }
@@ -269,14 +269,14 @@ public sealed class MessagingClient : IMessagingClient
                     msg.ValueKind == JsonValueKind.String
                         ? msg.GetString()
                         : null;
-                throw new OrchestrationTransportException(
+                throw new MessagingTransportException(
                     $"Spring Voyage MCP server rejected '{toolName}': {message ?? "JSON-RPC error."}");
             }
 
             if (!root.TryGetProperty("result", out var result) ||
                 result.ValueKind != JsonValueKind.Object)
             {
-                throw new OrchestrationTransportException(
+                throw new MessagingTransportException(
                     $"Spring Voyage MCP server returned no result for '{toolName}'.");
             }
 
@@ -287,7 +287,7 @@ public sealed class MessagingClient : IMessagingClient
 
             if (isError)
             {
-                throw new OrchestrationTransportException(
+                throw new MessagingTransportException(
                     $"Spring Voyage messaging tool '{toolName}' failed: {text}");
             }
 
@@ -298,7 +298,7 @@ public sealed class MessagingClient : IMessagingClient
             }
             catch (JsonException ex)
             {
-                throw new OrchestrationTransportException(
+                throw new MessagingTransportException(
                     $"Spring Voyage messaging tool '{toolName}' returned a non-JSON result body.",
                     ex);
             }
@@ -328,7 +328,7 @@ public sealed class MessagingClient : IMessagingClient
     {
         var value = element.Deserialize<T>(JsonOptions);
         return value
-            ?? throw new OrchestrationTransportException(
+            ?? throw new MessagingTransportException(
                 "Spring Voyage messaging tool returned an empty result body.");
     }
 
@@ -341,7 +341,7 @@ public sealed class MessagingClient : IMessagingClient
         string? Target,
         string? ThreadId);
 
-    private sealed record MessagingBroadcastResponseDto(
+    private sealed record MessagingMulticastResponseDto(
         string? MessageId,
         string? ThreadId,
         MessagingDeliveryOutcomeDto[]? Deliveries);

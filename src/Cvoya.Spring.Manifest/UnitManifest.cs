@@ -116,11 +116,11 @@ public class UnitManifest
     [YamlMember(Alias = "color")]
     public string? Color { get; set; }
 
-    /// <summary>Optional specialty label used by orchestration strategies.</summary>
+    /// <summary>Optional specialty label surfaced for unit selection; the platform does not route on it.</summary>
     [YamlMember(Alias = "specialty")]
     public string? Specialty { get; set; }
 
-    /// <summary>Whether this unit participates in orchestration. Defaults to true.</summary>
+    /// <summary>Whether this unit processes inbound messages. Defaults to true.</summary>
     [YamlMember(Alias = "enabled")]
     public bool? Enabled { get; set; }
 

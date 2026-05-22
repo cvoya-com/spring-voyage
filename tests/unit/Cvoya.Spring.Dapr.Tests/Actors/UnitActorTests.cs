@@ -160,7 +160,7 @@ public class UnitActorTests
     }
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessage_DoesNotConsultOrchestrationStrategy()
+    public async Task ReceiveAsync_DomainMessage_DoesNotConsultUnitStrategy()
     {
         var message = CreateMessage();
 

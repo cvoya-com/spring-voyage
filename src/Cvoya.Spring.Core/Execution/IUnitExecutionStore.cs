@@ -48,7 +48,7 @@ public interface IUnitExecutionStore
     /// non-null field replaces the corresponding slot, and null fields
     /// leave the existing persisted value alone (partial update).
     /// Implementations must preserve every other property on the
-    /// Definition document (expertise, instructions, orchestration).
+    /// Definition document (expertise, instructions).
     /// </summary>
     Task SetAsync(
         string unitId,

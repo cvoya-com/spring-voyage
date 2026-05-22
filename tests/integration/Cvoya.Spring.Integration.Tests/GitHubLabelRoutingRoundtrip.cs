@@ -10,7 +10,6 @@ using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Tenancy;
 
 using Microsoft.Extensions.Logging;
@@ -25,7 +24,7 @@ using Xunit;
 
 /// <summary>
 /// End-to-end coverage for the GitHub label roundtrip: a routing
-/// <see cref="OrchestrationDecision"/> activity event (post-ADR-0049 these are
+/// <see cref="RoutingDecision"/> activity event (post-ADR-0049 these are
 /// recorded by <c>sv.runtime.report_decision</c>, not by the messaging
 /// delivery tools) carries the originating GitHub issue number, and the
 /// GitHub connector subscriber applies the binding's label rules through
@@ -85,12 +84,12 @@ public class GitHubLabelRoutingRoundtrip
 
         var activityEvent = bus.PublishedEvents.Single();
         activityEvent.EventType.ShouldBe(ActivityEventType.DecisionMade);
-        var decision = JsonSerializer.Deserialize<OrchestrationDecision>(
+        var decision = JsonSerializer.Deserialize<RoutingDecision>(
             activityEvent.Details!.Value.GetRawText());
         decision.ShouldNotBeNull();
         decision!.TenantId.ShouldBe(OssTenantIds.Default);
-        decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
-        decision.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
+        decision.Kind.ShouldBe(RoutingDecisionKind.Delegate);
+        decision.Status.ShouldBe(RoutingDecisionStatus.Routed);
 
         client.Issue.Labels.ReceivedCalls().Count().ShouldBe(2);
         await client.Issue.Labels.Received(1)
@@ -113,15 +112,15 @@ public class GitHubLabelRoutingRoundtrip
 
     private static ActivityEvent CreateDecisionEvent(int issueNumber)
     {
-        var decision = new OrchestrationDecision(
+        var decision = new RoutingDecision(
             DecisionId: Guid.NewGuid(),
             TenantId: OssTenantIds.Default,
             UnitAddress: Unit,
             ThreadId: Guid.NewGuid(),
             InputMessageId: Guid.NewGuid(),
-            Kind: OrchestrationDecisionKind.Delegate,
+            Kind: RoutingDecisionKind.Delegate,
             Targets: [Child],
-            Status: OrchestrationDecisionStatus.Routed,
+            Status: RoutingDecisionStatus.Routed,
             ResultMessageIds: [],
             Reason: "route issue to implementation agent",
             Metadata: JsonSerializer.SerializeToElement(new

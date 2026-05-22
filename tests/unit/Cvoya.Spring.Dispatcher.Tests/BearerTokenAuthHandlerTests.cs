@@ -19,9 +19,9 @@ using Xunit;
 /// <summary>
 /// Pins <see cref="BearerTokenAuthHandler"/> auth behaviour: an unrecognised
 /// bearer token is a genuine failure, a missing header abstains. The
-/// orchestration callback surface relocated off the dispatcher onto the
-/// Dapr-connected API host (#2586), so the dispatcher no longer carries an
-/// orchestration-path special case.
+/// runtime callback surface relocated off the dispatcher onto the
+/// Dapr-connected API host (#2586), so the dispatcher no longer carries a
+/// callback-path special case.
 /// </summary>
 public class BearerTokenAuthHandlerTests
 {

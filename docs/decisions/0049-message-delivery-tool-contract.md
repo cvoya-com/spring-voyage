@@ -1,11 +1,11 @@
 # 0049 — Message-delivery tools return a delivery acknowledgement, never a reply
 
-> **Amendment (2026-05-21, [#2578](https://github.com/cvoya-com/spring-voyage/issues/2578)) — the delivery tool family is `sv.messaging.*`.** [ADR-0050](0050-platform-mcp-tool-surface.md) renames the message-delivery tools: `delegate_to` / `fanout_to` are deleted and replaced by `sv.messaging.send` / `sv.messaging.broadcast`. The delivery-acknowledgement contract decided here is unchanged and applies to them as-is. The message-carried hop counter noted as follow-up [#2576](https://github.com/cvoya-com/spring-voyage/issues/2576) in Consequences is now implemented on the single delivery seam.
+> **Amendment (2026-05-21, [#2578](https://github.com/cvoya-com/spring-voyage/issues/2578)) — the delivery tool family is `sv.messaging.*`.** [ADR-0050](0050-platform-mcp-tool-surface.md) renames the message-delivery tools: `delegate_to` / `fanout_to` are deleted and replaced by `sv.messaging.send` / `sv.messaging.multicast`. The delivery-acknowledgement contract decided here is unchanged and applies to them as-is. The message-carried hop counter noted as follow-up [#2576](https://github.com/cvoya-com/spring-voyage/issues/2576) in Consequences is now implemented on the single delivery seam.
 
 - **Status:** Proposed — the message-delivery tool family (`delegate_to`, `fanout_to`, and future `send_message_to` / `broadcast_to`) shares one contract. Each tool is an **RPC** whose response is a **delivery acknowledgement**: the message was durably placed in each recipient's mailbox. A delivery tool **never** waits for the recipient to *process* the message and **never** carries the recipient's work product — that is a one-way `Message` (ADR-0048), produced if and when the recipient decides. Delivery is **synchronous with bounded retry** inside the dispatcher handler (R attempts over a T budget, platform defaults); there is no delivery queue. The only failure delivery can encounter is transient infrastructure — `agent://` / `unit://` / `human://` targets are virtual Dapr actors that always activate; a non-existent or cross-tenant target is caught by *synchronous validation*. Both failure classes — validation failure and terminal delivery failure — are returned **synchronously as tool errors**, so the calling model sees them as the tool result. Because failure is never modelled as a message, there is **no platform sender address** and no delivery-failure message type.
 - **Date:** 2026-05-20
 - **Related:** [#2569](https://github.com/cvoya-com/spring-voyage/issues/2569) / [#2570](https://github.com/cvoya-com/spring-voyage/pull/2570) (the orchestration-tool reshape that implements this ADR); [#2576](https://github.com/cvoya-com/spring-voyage/issues/2576) (follow-up — message-carried hop counter for delegation-loop prevention).
-- **Related ADRs:** [0048 — Domain messaging is one-way](0048-event-vs-request-message-semantics.md) — this ADR is the *tool-layer* corollary: 0048 makes the messaging layer one-way; 0049 fixes what the tools that send those messages return. [0039 — Units are agents](0039-units-are-agents.md) — the orchestration tool surface (`delegate_to` / `fanout_to`) and the `OrchestrationDecision` record.
+- **Related ADRs:** [0048 — Domain messaging is one-way](0048-event-vs-request-message-semantics.md) — this ADR is the *tool-layer* corollary: 0048 makes the messaging layer one-way; 0049 fixes what the tools that send those messages return. [0039 — Units are agents](0039-units-are-agents.md) — the orchestration tool surface (`delegate_to` / `fanout_to`) and the `RoutingDecision` record.
 - **Related code:** `src/Cvoya.Spring.Dapr/Orchestration/OrchestrationToolHandlers.cs` (synchronous bounded-retry delivery; returns a delivery ack, not the target response), `src/Cvoya.Spring.Dapr/Orchestration/OrchestrationDepthCounter.cs` (**deleted** — call-stack-scoped, ineffective under one-way delivery), `src/Cvoya.Spring.Dispatcher/OrchestrationCallbackEndpoints.cs` + `OrchestrationCallbackModels.cs` (REST + MCP responses carry the ack DTO), `src/Cvoya.Spring.AgentSdk/OrchestrationClient.cs` (`DelegateAsync` / `FanoutAsync` return the ack), `src/Cvoya.Spring.Dapr/Orchestration/Resources/{delegate_to,fanout_to}.output.schema.json` (ack shape), `src/Cvoya.Spring.Dapr/Actors/AgentActor.cs` (`HandleDomainMessageAsync` — the load-bearing fast-enqueue invariant, see Decision §5).
 
 ## Context
@@ -20,7 +20,7 @@ The distinction that resolves this: **a tool may be an RPC; a tool that delivers
 
 ### 1. One contract for the whole message-delivery tool family
 
-`delegate_to`, `fanout_to`, and any future delivery tool (`send_message_to`, `broadcast_to`, …) behave identically at the delivery layer. They differ only in the `OrchestrationDecision` / activity they record and in their target arity. A new delivery tool inherits this contract; it does not redefine it.
+`delegate_to`, `fanout_to`, and any future delivery tool (`send_message_to`, `broadcast_to`, …) behave identically at the delivery layer. They differ only in the `RoutingDecision` / activity they record and in their target arity. A new delivery tool inherits this contract; it does not redefine it.
 
 ### 2. The response is a delivery acknowledgement
 
@@ -47,10 +47,10 @@ Both reach the calling model as the tool result. Neither is modelled as a messag
 
 ## Consequences
 
-- `OrchestrationDepthCounter` is **deleted**. It is call-stack-scoped (a `using` scope around the delivery call); under fire-and-forget delivery the scope disposes immediately, so it never observes depth > 1 and limits nothing. `OrchestrationException.RejectCodes.OrchestrationDepthExceeded` is **retained**, reserved for its replacement.
+- `OrchestrationDepthCounter` is **deleted**. It is call-stack-scoped (a `using` scope around the delivery call); under fire-and-forget delivery the scope disposes immediately, so it never observes depth > 1 and limits nothing. `MessageDeliveryException.RejectCodes.OrchestrationDepthExceeded` is **retained**, reserved for its replacement.
 - Delegation-loop prevention moves to a **message-carried hop counter** rejected past a platform limit — tracked as follow-up [#2576](https://github.com/cvoya-com/spring-voyage/issues/2576). There is a brief window with no loop guard; acceptable pre-release for the unusual cyclic-delegation topology.
 - `delegate_to` / `fanout_to` output schemas, the dispatcher REST + MCP responses, `OrchestrationCallbackModels`, and `OrchestrationClient.DelegateAsync` / `FanoutAsync` all return the ack DTO instead of a response message / results array.
-- `OrchestrationDecision` recording on the activity stream is unchanged — the decision still happened and is still recorded.
+- `RoutingDecision` recording on the activity stream is unchanged — the decision still happened and is still recorded.
 - `Message` is unchanged — no new field (consistent with ADR-0048).
 
 ## Alternatives considered

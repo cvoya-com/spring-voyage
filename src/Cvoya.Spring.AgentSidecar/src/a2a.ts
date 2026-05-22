@@ -35,9 +35,9 @@ import { randomUUID } from "node:crypto";
 import { runAgentBridge } from "./bridge.js";
 import type { ThreadBindingConfig } from "./config.js";
 import {
-  ORCHESTRATION_MCP_CONFIG_ENV_VAR,
-  refreshOrchestrationToken,
-} from "./orchestration-mcp.js";
+  MESSAGING_MCP_CONFIG_ENV_VAR,
+  refreshMessagingToken,
+} from "./messaging-mcp.js";
 import { ThreadIdRegistry } from "./threads.js";
 import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "./version.js";
 
@@ -322,12 +322,12 @@ export class A2AHandler {
    * a stale token still lets the CLI start; it just loses `delegate_to`
    * once expired, which is exactly the pre-fix state.
    */
-  private refreshOrchestrationMcpToken(callbackToken: string | undefined): void {
-    const configPath = this.deps.spawnEnv[ORCHESTRATION_MCP_CONFIG_ENV_VAR];
+  private refreshMessagingMcpToken(callbackToken: string | undefined): void {
+    const configPath = this.deps.spawnEnv[MESSAGING_MCP_CONFIG_ENV_VAR];
     if (!configPath || configPath.length === 0 || !callbackToken) {
       return;
     }
-    const result = refreshOrchestrationToken(configPath, callbackToken);
+    const result = refreshMessagingToken(configPath, callbackToken);
     if (result.warning) {
       process.stderr.write(
         `${JSON.stringify({
@@ -381,7 +381,7 @@ export class A2AHandler {
     // `delegate_to` / `fanout_to` and mis-attribute delegations to the
     // launch-time thread. The CLI re-reads `.mcp.json` on every process
     // start, so rewriting it here is picked up by the spawn below.
-    this.refreshOrchestrationMcpToken(callbackToken);
+    this.refreshMessagingMcpToken(callbackToken);
 
     // ADR-0041 / #2094: `params.message.contextId` is the platform
     // thread.id. When the launcher declared a thread-binding (e.g.

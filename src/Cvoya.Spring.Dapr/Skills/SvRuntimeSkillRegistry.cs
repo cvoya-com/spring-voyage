@@ -9,7 +9,6 @@ using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 
@@ -31,7 +30,7 @@ using Microsoft.Extensions.Logging;
 ///     <c>sv.runtime.report_decision</c> — records a structured routing /
 ///     delegation decision as a <see cref="ActivityEventType.DecisionMade"/>
 ///     activity. The platform's messaging tools (<c>sv.messaging.send</c> /
-///     <c>sv.messaging.broadcast</c>) only deliver messages — they do not
+///     <c>sv.messaging.multicast</c>) only deliver messages — they do not
 ///     record a routing decision (ADR-0048 / ADR-0049). A runtime that
 ///     wants its routing choice on the activity stream calls this tool;
 ///     it can log ANY decision, whether or not it executed. Per ADR-0051
@@ -100,7 +99,7 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             },
             "rationale": {
               "type": "string",
-              "description": "Why this routing was chosen — the same rationale you would pass as the 'reason' argument to sv.messaging.send / sv.messaging.broadcast."
+              "description": "Why this routing was chosen — the same rationale you would pass as the 'reason' argument to sv.messaging.send / sv.messaging.multicast."
             },
             "outcome": {
               "type": "string",
@@ -243,9 +242,9 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
     /// structured <see cref="ActivityEventType.DecisionMade"/> activity, so
     /// it is visible on the activity stream. The optional <c>outcome</c>
     /// argument discriminates a decision that executed (omitted →
-    /// <see cref="OrchestrationDecisionStatus.Routed"/>) from one that could
+    /// <see cref="RoutingDecisionStatus.Routed"/>) from one that could
     /// not be carried out (present →
-    /// <see cref="OrchestrationDecisionStatus.NotExecuted"/>).
+    /// <see cref="RoutingDecisionStatus.NotExecuted"/>).
     /// </summary>
     private async Task<JsonElement> InvokeReportDecisionAsync(
         JsonElement arguments,
@@ -261,8 +260,8 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             "delivery_failed",
             "not_attempted");
         var kind = string.Equals(TryReadStringArg(arguments, "kind"), "fanout", StringComparison.Ordinal)
-            ? OrchestrationDecisionKind.Fanout
-            : OrchestrationDecisionKind.Delegate;
+            ? RoutingDecisionKind.Fanout
+            : RoutingDecisionKind.Delegate;
         var rationale = TryReadStringArg(arguments, "rationale");
         var detail = TryReadStringArg(arguments, "detail");
 
@@ -284,7 +283,7 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
         // A decision the runtime could not execute may name its target by
         // canonical address or by a human-facing name (the runtime knows
         // members by name via sv.directory.get_member). . Parse what is a canonical
-        // address into OrchestrationDecision.Targets; the verbatim
+        // address into RoutingDecision.Targets; the verbatim
         // strings always go onto the metadata so the intended target is
         // never lost even when it was a name.
         var parsedTargets = targetStrings
@@ -297,10 +296,10 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
         // present `outcome` records one that could not be carried out
         // (NotExecuted) — distinct from a delivery attempted and Failed.
         var status = outcome is null
-            ? OrchestrationDecisionStatus.Routed
-            : OrchestrationDecisionStatus.NotExecuted;
+            ? RoutingDecisionStatus.Routed
+            : RoutingDecisionStatus.NotExecuted;
 
-        var decision = new OrchestrationDecision(
+        var decision = new RoutingDecision(
             DecisionId: Guid.NewGuid(),
             TenantId: _tenantContext.CurrentTenantId,
             UnitAddress: subject,
@@ -314,7 +313,7 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
             Metadata: BuildDecisionMetadata(outcome, detail, targetStrings),
             CreatedAt: DateTimeOffset.UtcNow);
 
-        var targetLabel = kind == OrchestrationDecisionKind.Fanout
+        var targetLabel = kind == RoutingDecisionKind.Fanout
             ? $"{targetStrings.Count} target(s)"
             : $"'{targetStrings[0]}'";
         var summary = outcome is null

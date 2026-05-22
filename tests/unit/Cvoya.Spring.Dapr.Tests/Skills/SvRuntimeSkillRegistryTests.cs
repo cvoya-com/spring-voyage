@@ -9,7 +9,6 @@ using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Skills;
@@ -188,10 +187,10 @@ public class SvRuntimeSkillRegistryTests
         captured.Source.Id.ShouldBe(callerId);
         captured.CorrelationId.ShouldBe(threadId.ToString("D"));
 
-        var decision = JsonSerializer.Deserialize<OrchestrationDecision>(captured.Details!.Value);
+        var decision = JsonSerializer.Deserialize<RoutingDecision>(captured.Details!.Value);
         decision.ShouldNotBeNull();
-        decision!.Status.ShouldBe(OrchestrationDecisionStatus.NotExecuted);
-        decision.Kind.ShouldBe(OrchestrationDecisionKind.Delegate);
+        decision!.Status.ShouldBe(RoutingDecisionStatus.NotExecuted);
+        decision.Kind.ShouldBe(RoutingDecisionKind.Delegate);
         decision.TenantId.ShouldBe(_tenantId);
         decision.ThreadId.ShouldBe(threadId);
         decision.Targets.Single().ToString().ShouldBe(targetAddress.ToString());
@@ -236,8 +235,8 @@ public class SvRuntimeSkillRegistryTests
         captured!.EventType.ShouldBe(ActivityEventType.DecisionMade);
         captured.Severity.ShouldBe(ActivitySeverity.Info);
 
-        var decision = JsonSerializer.Deserialize<OrchestrationDecision>(captured.Details!.Value);
-        decision!.Status.ShouldBe(OrchestrationDecisionStatus.Routed);
+        var decision = JsonSerializer.Deserialize<RoutingDecision>(captured.Details!.Value);
+        decision!.Status.ShouldBe(RoutingDecisionStatus.Routed);
         decision.Reason.ShouldBe("child owns this work");
         decision.Metadata!.Value.TryGetProperty("executionOutcome", out _).ShouldBeFalse();
     }
@@ -260,7 +259,7 @@ public class SvRuntimeSkillRegistryTests
         await registry.InvokeAsync(
             SvRuntimeSkillRegistry.ReportDecisionTool, args, ctx, TestContext.Current.CancellationToken);
 
-        var decision = JsonSerializer.Deserialize<OrchestrationDecision>(captured!.Details!.Value);
+        var decision = JsonSerializer.Deserialize<RoutingDecision>(captured!.Details!.Value);
         decision!.Targets.ShouldBeEmpty();
         decision.Metadata!.Value.GetProperty("intendedTargets")[0].GetString().ShouldBe("ada");
     }
@@ -288,8 +287,8 @@ public class SvRuntimeSkillRegistryTests
         await registry.InvokeAsync(
             SvRuntimeSkillRegistry.ReportDecisionTool, args, ctx, TestContext.Current.CancellationToken);
 
-        var decision = JsonSerializer.Deserialize<OrchestrationDecision>(captured!.Details!.Value);
-        decision!.Kind.ShouldBe(OrchestrationDecisionKind.Fanout);
+        var decision = JsonSerializer.Deserialize<RoutingDecision>(captured!.Details!.Value);
+        decision!.Kind.ShouldBe(RoutingDecisionKind.Fanout);
         decision.Targets.Length.ShouldBe(2);
         decision.Metadata!.Value.GetProperty("intendedTargets").GetArrayLength().ShouldBe(2);
     }

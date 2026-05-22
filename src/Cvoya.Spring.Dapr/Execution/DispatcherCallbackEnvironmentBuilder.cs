@@ -19,16 +19,16 @@ using Microsoft.Extensions.Options;
 /// ADR-0051 retired the messaging callback surface and its per-turn JWT —
 /// <c>sv.messaging.*</c> is served by the single platform MCP server. This
 /// builder survives as the OTLP-ingest credential path: it stamps
-/// <c>SPRING_CALLBACK_URL</c> (from <see cref="OrchestrationCallbackOptions.BaseUrl"/>)
+/// <c>SPRING_CALLBACK_URL</c> (from <see cref="CallbackBaseUrlOptions.BaseUrl"/>)
 /// and <c>SPRING_CALLBACK_TOKEN</c> (a JWT minted via <see cref="Core.Runtime.ICallbackTokenIssuer"/>),
 /// which <c>LauncherOtelEnvironment</c> consumes to wire the <c>/otlp</c>
 /// ingest endpoint and its bearer token.
 /// </remarks>
 public class DispatcherCallbackEnvironmentBuilder(
-    IOptions<OrchestrationCallbackOptions> callbackOptions,
+    IOptions<CallbackBaseUrlOptions> callbackOptions,
     ICallbackTokenIssuer callbackTokenIssuer) : IAgentCallbackEnvironmentBuilder
 {
-    private readonly OrchestrationCallbackOptions _callbackOptions = callbackOptions.Value;
+    private readonly CallbackBaseUrlOptions _callbackOptions = callbackOptions.Value;
     private readonly ICallbackTokenIssuer _callbackTokenIssuer = callbackTokenIssuer;
 
     /// <inheritdoc />
@@ -60,7 +60,7 @@ public class DispatcherCallbackEnvironmentBuilder(
         if (string.IsNullOrWhiteSpace(_callbackOptions.BaseUrl))
         {
             throw new SpringException(
-                "OrchestrationCallback:BaseUrl is required to inject SPRING_CALLBACK_URL for agent runtimes.");
+                "CallbackBaseUrl:BaseUrl is required to inject SPRING_CALLBACK_URL for agent runtimes.");
         }
 
         if (!Uri.TryCreate(_callbackOptions.BaseUrl, UriKind.Absolute, out var baseUri) ||
@@ -68,7 +68,7 @@ public class DispatcherCallbackEnvironmentBuilder(
              !string.Equals(baseUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
         {
             throw new SpringException(
-                $"OrchestrationCallback:BaseUrl '{_callbackOptions.BaseUrl}' is not a valid absolute http(s) URI.");
+                $"CallbackBaseUrl:BaseUrl '{_callbackOptions.BaseUrl}' is not a valid absolute http(s) URI.");
         }
 
         var normalizedBase = baseUri.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)

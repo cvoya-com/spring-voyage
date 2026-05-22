@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "sv.messaging.broadcast.input",
-  "description": "Input for sv.messaging.broadcast — a one-way message-delivery tool (ADR-0049). It durably delivers one message to multiple targets in parallel; it does NOT wait for or return the recipients' replies. Supply exactly one of 'scope' or 'addresses'. The platform delivers messages, it does not orchestrate.",
+  "title": "sv.messaging.multicast.input",
+  "description": "Input for sv.messaging.multicast — a one-way message-delivery tool (ADR-0049). It durably delivers one message to multiple targets in parallel; it does NOT wait for or return the recipients' replies. Supply exactly one of 'scope' or 'addresses'. The platform delivers messages, it does not orchestrate.",
   "type": "object",
   "properties": {
     "scope": {

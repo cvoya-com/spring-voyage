@@ -18,7 +18,7 @@ using global::Dapr.Actors.Runtime;
 /// by thread id is the natural home for a per-thread integer: Dapr's
 /// turn-based per-actor concurrency serialises every <see cref="IncrementAsync"/>
 /// call for a given thread, so concurrent <c>sv.messaging.send</c> /
-/// <c>sv.messaging.broadcast</c> deliveries on one thread cannot race the
+/// <c>sv.messaging.multicast</c> deliveries on one thread cannot race the
 /// counter without any explicit lock. The row is durable across actor
 /// deactivation, so the bound holds even when the thread spans process
 /// restarts.

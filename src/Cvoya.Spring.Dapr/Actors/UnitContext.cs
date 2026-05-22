@@ -4,12 +4,11 @@
 namespace Cvoya.Spring.Dapr.Actors;
 
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Provides unit context to orchestration strategies, exposing the unit's
+/// Provides unit context for message routing, exposing the unit's
 /// address, current members, and message-sending capability.
 /// </summary>
 internal sealed class UnitContext : IUnitContext
@@ -23,9 +22,9 @@ internal sealed class UnitContext : IUnitContext
     /// <param name="members">The current list of unit members.</param>
     /// <param name="providerId">
     /// The unit's persisted AI-provider id (matches <c>IAiProvider.Id</c>);
-    /// <c>null</c> when the unit hasn't declared one. Orchestration
-    /// strategies pass this to <c>IAiProviderRegistry.Get</c> at dispatch
-    /// time so per-unit provider selection follows the manifest's
+    /// <c>null</c> when the unit hasn't declared one. The dispatch path
+    /// passes this to <c>IAiProviderRegistry.Get</c> so per-unit provider
+    /// selection follows the manifest's
     /// <c>execution.provider</c> slot (#1696).
     /// </param>
     /// <param name="logger">The logger instance.</param>

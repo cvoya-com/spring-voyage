@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Tests.Orchestration;
+namespace Cvoya.Spring.Dapr.Tests.Messaging;
 
 using System.Text.Json;
 
@@ -9,7 +9,7 @@ using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
-using Cvoya.Spring.Dapr.Orchestration;
+using Cvoya.Spring.Dapr.Messaging;
 using Cvoya.Spring.Dapr.Routing;
 
 using global::Dapr.Actors;
@@ -37,7 +37,7 @@ public class MessageDeliveryServiceTests
 
     private readonly IAgentProxyResolver _agentProxyResolver = Substitute.For<IAgentProxyResolver>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
-    private readonly IOrchestrationTenantResolver _tenantResolver = Substitute.For<IOrchestrationTenantResolver>();
+    private readonly IMessageTenantResolver _tenantResolver = Substitute.For<IMessageTenantResolver>();
     private readonly RecordingThreadRegistry _threadRegistry = new();
     private readonly ILogger<MessageDeliveryService> _logger =
         Substitute.For<ILogger<MessageDeliveryService>>();
@@ -69,10 +69,10 @@ public class MessageDeliveryServiceTests
         StubHopActor(17);
         var service = CreateService(maxHopCount: 16);
 
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
             service.EnsureHopBudgetAsync(Guid.NewGuid(), CancellationToken.None));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationDepthExceeded);
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.DepthExceeded);
     }
 
     [Fact]
@@ -92,10 +92,10 @@ public class MessageDeliveryServiceTests
     {
         var address = new Address(Address.UnitScheme, Guid.NewGuid());
 
-        var ex = Should.Throw<OrchestrationException>(() =>
+        var ex = Should.Throw<MessageDeliveryException>(() =>
             MessageDeliveryService.EnsureNotSelfTarget(address, address));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationSelfDelegation);
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.SelfDelivery);
     }
 
     [Fact]
@@ -106,10 +106,10 @@ public class MessageDeliveryServiceTests
             .Returns(OtherTenantId);
         var service = CreateService();
 
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
             service.EnsureCallerTenantAsync(caller, TenantId, CancellationToken.None));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationCrossTenant);
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.CrossTenant);
     }
 
     [Fact]
@@ -148,10 +148,10 @@ public class MessageDeliveryServiceTests
             .Returns<Task<Message?>>(_ => throw new InvalidOperationException("dapr is down"));
 
         var service = CreateService();
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
             service.DeliverWithRetryAsync(caller, target, CreateMessage(), CancellationToken.None));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationDeliveryFailed);
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.DeliveryFailed);
     }
 
     private IThreadHopActor StubHopActor(params int[] returnsSequence)
@@ -244,7 +244,7 @@ public class MessageDeliveryServiceTests
             _tenantResolver,
             ScopeFactoryWith(_threadRegistry),
             _logger,
-            Options.Create(new OrchestrationDeliveryOptions
+            Options.Create(new MessageDeliveryOptions
             {
                 MaxAttempts = 3,
                 Budget = TimeSpan.FromSeconds(2),

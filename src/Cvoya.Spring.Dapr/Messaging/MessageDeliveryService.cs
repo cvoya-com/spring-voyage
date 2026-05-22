@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Orchestration;
+namespace Cvoya.Spring.Dapr.Messaging;
 
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
@@ -28,11 +28,11 @@ public sealed record MessageDeliveryAck(
     Guid ThreadId);
 
 /// <summary>
-/// Per-target delivery outcome for a <c>sv.messaging.broadcast</c> call
+/// Per-target delivery outcome for a <c>sv.messaging.multicast</c> call
 /// (ADR-0049). Reports whether the message reached each recipient's mailbox
 /// — not the recipients' work products.
 /// </summary>
-public sealed record BroadcastTargetAck(
+public sealed record MulticastTargetAck(
     Address Target,
     bool Delivered,
     string? Error);
@@ -46,7 +46,7 @@ public sealed record BroadcastTargetAck(
 /// <para>
 /// Each delivery resolves its own thread from the <c>(caller, target)</c>
 /// participant set via <see cref="IThreadRegistry"/> (#2596 / ADR-0030).
-/// A message delivered by <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c>
+/// A message delivered by <c>sv.messaging.send</c> / <c>sv.messaging.multicast</c>
 /// carries the thread of <i>that</i> hop's participant set — it never
 /// inherits the caller's upstream <see cref="Message.ThreadId"/>. The actor
 /// mailbox keys its per-thread FIFO channel and dispatch-cancellation scope
@@ -57,13 +57,13 @@ public sealed record BroadcastTargetAck(
 public class MessageDeliveryService(
     IAgentProxyResolver agentProxyResolver,
     IActorProxyFactory actorProxyFactory,
-    IOrchestrationTenantResolver tenantResolver,
+    IMessageTenantResolver tenantResolver,
     IServiceScopeFactory scopeFactory,
     ILogger<MessageDeliveryService> logger,
-    IOptions<OrchestrationDeliveryOptions>? deliveryOptions = null)
+    IOptions<MessageDeliveryOptions>? deliveryOptions = null)
 {
-    private readonly OrchestrationDeliveryOptions _deliveryOptions =
-        deliveryOptions?.Value ?? new OrchestrationDeliveryOptions();
+    private readonly MessageDeliveryOptions _deliveryOptions =
+        deliveryOptions?.Value ?? new MessageDeliveryOptions();
 
     /// <summary>
     /// ADR-0039 §3 gate 6 — cross-tenant containment, caller side. The
@@ -78,8 +78,8 @@ public class MessageDeliveryService(
         var resolved = await tenantResolver.GetTenantForAddressAsync(caller, ct);
         if (resolved != expectedTenantId)
         {
-            throw new OrchestrationException(
-                OrchestrationException.RejectCodes.OrchestrationCrossTenant,
+            throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.CrossTenant,
                 $"Caller '{caller}' belongs to tenant '{GuidFormatter.Format(resolved)}' " +
                 $"but the callback token claims tenant '{GuidFormatter.Format(expectedTenantId)}'.");
         }
@@ -98,8 +98,8 @@ public class MessageDeliveryService(
         var resolved = await tenantResolver.GetTenantForAddressAsync(target, ct);
         if (resolved != expectedTenantId)
         {
-            throw new OrchestrationException(
-                OrchestrationException.RejectCodes.OrchestrationCrossTenant,
+            throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.CrossTenant,
                 $"Target '{target}' belongs to tenant '{GuidFormatter.Format(resolved)}' " +
                 $"but the callback token claims tenant '{GuidFormatter.Format(expectedTenantId)}'.");
         }
@@ -113,19 +113,19 @@ public class MessageDeliveryService(
     {
         if (AddressEquals(caller, target))
         {
-            throw new OrchestrationException(
-                OrchestrationException.RejectCodes.OrchestrationSelfDelegation,
+            throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.SelfDelivery,
                 $"Caller '{caller}' cannot deliver a message to itself.");
         }
     }
 
     /// <summary>
     /// Increments the per-thread message-delivery hop counter (#2576) and
-    /// throws <see cref="OrchestrationException"/> with
-    /// <see cref="OrchestrationException.RejectCodes.OrchestrationDepthExceeded"/>
+    /// throws <see cref="MessageDeliveryException"/> with
+    /// <see cref="MessageDeliveryException.RejectCodes.DepthExceeded"/>
     /// when the new count exceeds
-    /// <see cref="OrchestrationDeliveryOptions.MaxHopCount"/>. Called once per
-    /// <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c> call before
+    /// <see cref="MessageDeliveryOptions.MaxHopCount"/>. Called once per
+    /// <c>sv.messaging.send</c> / <c>sv.messaging.multicast</c> call before
     /// any delivery attempt, so a fan-out cycle terminates at the limit.
     /// </summary>
     public async Task EnsureHopBudgetAsync(Guid threadId, CancellationToken ct)
@@ -139,8 +139,8 @@ public class MessageDeliveryService(
         var hopCount = await hopActor.IncrementAsync();
         if (hopCount > _deliveryOptions.MaxHopCount)
         {
-            throw new OrchestrationException(
-                OrchestrationException.RejectCodes.OrchestrationDepthExceeded,
+            throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.DepthExceeded,
                 $"Thread '{GuidFormatter.Format(threadId)}' exceeded the message-delivery hop limit " +
                 $"of {_deliveryOptions.MaxHopCount} (hop {hopCount}). The conversation is likely in a " +
                 "delivery cycle; no further messages will be delivered on this thread.");
@@ -150,10 +150,10 @@ public class MessageDeliveryService(
     /// <summary>
     /// Delivers a message to one target with bounded retry (ADR-0049 §4),
     /// returning a per-target outcome rather than throwing on a transient
-    /// failure. Used by the broadcast path so one failed target does not
+    /// failure. Used by the multicast path so one failed target does not
     /// abort the rest.
     /// </summary>
-    public async Task<BroadcastTargetAck> DeliverOutcomeAsync(
+    public async Task<MulticastTargetAck> DeliverOutcomeAsync(
         Address caller,
         Address target,
         Message message,
@@ -162,7 +162,7 @@ public class MessageDeliveryService(
         try
         {
             await DeliverWithRetryAsync(caller, target, message, ct);
-            return new BroadcastTargetAck(target, true, null);
+            return new MulticastTargetAck(target, true, null);
         }
         catch (OperationCanceledException)
         {
@@ -170,7 +170,7 @@ public class MessageDeliveryService(
         }
         catch (Exception ex)
         {
-            return new BroadcastTargetAck(target, false, ex.Message);
+            return new MulticastTargetAck(target, false, ex.Message);
         }
     }
 
@@ -180,9 +180,9 @@ public class MessageDeliveryService(
     /// fast-enqueue invariant (§5) means it returns in milliseconds — the
     /// loop blocks only on the enqueue, never on the recipient's runtime.
     /// Only transient infrastructure failures are retried; an
-    /// <see cref="OrchestrationException"/> (validation) is never retried and
+    /// <see cref="MessageDeliveryException"/> (validation) is never retried and
     /// propagates immediately. A retry budget exhausted by transient failures
-    /// surfaces as a terminal <see cref="OrchestrationException"/>.
+    /// surfaces as a terminal <see cref="MessageDeliveryException"/>.
     /// </summary>
     public async Task DeliverWithRetryAsync(
         Address caller,
@@ -191,8 +191,8 @@ public class MessageDeliveryService(
         CancellationToken ct)
     {
         var proxy = agentProxyResolver.Resolve(target.Scheme, GuidFormatter.Format(target.Id))
-            ?? throw new OrchestrationException(
-                OrchestrationException.RejectCodes.OrchestrationDeliveryFailed,
+            ?? throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.DeliveryFailed,
                 $"Could not resolve message-delivery target '{target}'.");
 
         // #2596 / ADR-0030 — this delivery is its own conversation hop:
@@ -228,7 +228,7 @@ public class MessageDeliveryService(
             {
                 throw;
             }
-            catch (OrchestrationException)
+            catch (MessageDeliveryException)
             {
                 // Validation rejection from the recipient — never transient.
                 throw;
@@ -263,8 +263,8 @@ public class MessageDeliveryService(
             backoff += backoff;
         }
 
-        throw new OrchestrationException(
-            OrchestrationException.RejectCodes.OrchestrationDeliveryFailed,
+        throw new MessageDeliveryException(
+            MessageDeliveryException.RejectCodes.DeliveryFailed,
             $"Delivery of message '{message.Id}' to '{target}' failed after " +
             $"{_deliveryOptions.MaxAttempts} attempt(s) within the delivery budget.",
             lastTransient ?? new InvalidOperationException("Delivery failed."));

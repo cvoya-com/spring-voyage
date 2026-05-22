@@ -1,12 +1,12 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.Orchestration;
+namespace Cvoya.Spring.Core.Messaging;
 
 using Cvoya.Spring.Core.Messaging;
 
 /// <summary>
-/// Provides access to unit state and members for orchestration strategies.
+/// Provides access to unit state and members for the unit's runtime.
 /// </summary>
 public interface IUnitContext
 {
@@ -24,9 +24,9 @@ public interface IUnitContext
     /// The unit's declared AI provider id (matches
     /// <c>IAiProvider.Id</c> — e.g. <c>anthropic</c>, <c>ollama</c>).
     /// Sourced from the persisted <c>execution.provider</c> slot.
-    /// <c>null</c> when the unit hasn't declared one — orchestration
-    /// strategies that need a provider then fall back to whichever
-    /// <c>IAiProvider</c> the DI default resolves to (#1696).
+    /// <c>null</c> when the unit hasn't declared one — callers that
+    /// need a provider then fall back to whichever <c>IAiProvider</c>
+    /// the DI default resolves to (#1696).
     /// </summary>
     string? ProviderId { get; }
 

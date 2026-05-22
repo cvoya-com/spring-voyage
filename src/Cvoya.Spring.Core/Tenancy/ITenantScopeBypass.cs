@@ -22,8 +22,8 @@ using System;
 /// returned scope.
 /// </para>
 /// <para>
-/// <strong>When NOT to use this.</strong> Normal business queries, unit
-/// orchestration, message routing, and anything driven by a user request
+/// <strong>When NOT to use this.</strong> Normal business queries,
+/// message routing, and anything driven by a user request
 /// must never call <see cref="BeginBypass(string)"/>. If a feature
 /// appears to need cross-tenant reads to serve a user, the correct
 /// answer is almost always to rethink the feature rather than reach for

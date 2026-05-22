@@ -28,7 +28,7 @@ using Cvoya.Spring.Core.Agents;
 /// </param>
 /// <param name="Model">Per-membership model override, or <c>null</c> to inherit the agent's own <c>Model</c>.</param>
 /// <param name="Specialty">Per-membership specialty override, or <c>null</c> to inherit.</param>
-/// <param name="Enabled">Per-membership enabled flag. Defaults to <c>true</c> on insert. When <c>false</c>, this unit's orchestration strategy skips the agent even if the agent itself is enabled.</param>
+/// <param name="Enabled">Per-membership enabled flag. Defaults to <c>true</c> on insert. When <c>false</c>, the agent skips processing messages flowing through this unit even if the agent itself is enabled.</param>
 /// <param name="ExecutionMode">Per-membership execution-mode override, or <c>null</c> to inherit.</param>
 /// <param name="Roles">
 /// ADR-0046 §8: free-form team-role strings the agent advertises on this

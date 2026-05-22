@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Orchestration;
+namespace Cvoya.Spring.Dapr.Messaging;
 
 using System.Text.Json;
 
@@ -14,11 +14,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Recipient scopes a <c>sv.messaging.broadcast</c> call may target instead
+/// Recipient scopes a <c>sv.messaging.multicast</c> call may target instead
 /// of an explicit address list. Resolved against the caller's position in
 /// the unit member graph.
 /// </summary>
-public enum BroadcastScope
+public enum MulticastScope
 {
     /// <summary>The members of the calling unit.</summary>
     UnitMembers,
@@ -29,7 +29,7 @@ public enum BroadcastScope
 
 /// <summary>
 /// Handlers backing the platform messaging tools <c>sv.messaging.send</c>
-/// and <c>sv.messaging.broadcast</c> (ADR-0048 / ADR-0049). Both are
+/// and <c>sv.messaging.multicast</c> (ADR-0048 / ADR-0049). Both are
 /// one-way message-delivery tools: the platform durably places the message
 /// in the recipient mailbox(es) and returns a delivery acknowledgement —
 /// never the recipient's reply. Each call emits a plain
@@ -49,7 +49,7 @@ public class MessagingToolHandlers(
     /// returns a delivery acknowledgement (ADR-0049). Delivery is synchronous
     /// with bounded retry; the tool never blocks on the recipient's runtime.
     /// Validation failures, hop-budget exhaustion, and terminal delivery
-    /// failures throw <see cref="OrchestrationException"/>.
+    /// failures throw <see cref="MessageDeliveryException"/>.
     /// </summary>
     public async Task<MessageDeliveryAck> HandleSendAsync(
         Address caller,
@@ -98,15 +98,15 @@ public class MessagingToolHandlers(
     /// recipient set is either <paramref name="explicitTargets"/> or, when
     /// that is <c>null</c>, the addresses resolved from
     /// <paramref name="scope"/>. Synchronous validation failures and
-    /// hop-budget exhaustion throw <see cref="OrchestrationException"/>
+    /// hop-budget exhaustion throw <see cref="MessageDeliveryException"/>
     /// before any delivery attempt; a transient delivery failure surfaces as
     /// that target's outcome, not as a thrown exception.
     /// </summary>
-    public async Task<BroadcastResult> HandleBroadcastAsync(
+    public async Task<MulticastResult> HandleMulticastAsync(
         Address caller,
         Guid tenantId,
         IReadOnlyList<Address>? explicitTargets,
-        BroadcastScope? scope,
+        MulticastScope? scope,
         Message message,
         string? reason,
         Guid threadId,
@@ -117,16 +117,16 @@ public class MessagingToolHandlers(
 
         if (explicitTargets is null && scope is null)
         {
-            throw new OrchestrationException(
-                OrchestrationException.RejectCodes.OrchestrationInvalidRequest,
-                "sv.messaging.broadcast requires exactly one of 'addresses' or 'scope'.");
+            throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.InvalidRequest,
+                "sv.messaging.multicast requires exactly one of 'addresses' or 'scope'.");
         }
 
         if (explicitTargets is not null && scope is not null)
         {
-            throw new OrchestrationException(
-                OrchestrationException.RejectCodes.OrchestrationInvalidRequest,
-                "sv.messaging.broadcast accepts 'addresses' or 'scope', not both.");
+            throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.InvalidRequest,
+                "sv.messaging.multicast accepts 'addresses' or 'scope', not both.");
         }
 
         await deliveryService.EnsureCallerTenantAsync(caller, tenantId, ct);
@@ -141,13 +141,13 @@ public class MessagingToolHandlers(
             await deliveryService.EnsureTargetTenantAsync(target, tenantId, ct);
         }
 
-        // #2576 — one hop per broadcast call, regardless of fan-out width.
+        // #2576 — one hop per multicast call, regardless of fan-out width.
         await deliveryService.EnsureHopBudgetAsync(threadId, ct);
 
         if (!string.IsNullOrWhiteSpace(reason))
         {
             logger.LogInformation(
-                "Broadcasting message {MessageId} from {Caller} to {TargetCount} target(s) on thread {ThreadId}. Reason: {Reason}",
+                "Multicasting message {MessageId} from {Caller} to {TargetCount} target(s) on thread {ThreadId}. Reason: {Reason}",
                 message.Id, caller, targets.Count, threadId, reason);
         }
 
@@ -159,35 +159,35 @@ public class MessagingToolHandlers(
         await PublishMessageSentAsync(
             caller,
             threadId,
-            $"Message broadcast to {targets.Count} target(s).",
+            $"Message multicast to {targets.Count} target(s).",
             targets,
             reason,
             ct);
 
-        return new BroadcastResult(message.Id, threadId, outcomes);
+        return new MulticastResult(message.Id, threadId, outcomes);
     }
 
     /// <summary>
-    /// Resolves a <see cref="BroadcastScope"/> to a concrete address set.
-    /// <see cref="BroadcastScope.UnitMembers"/> reads the members of the
+    /// Resolves a <see cref="MulticastScope"/> to a concrete address set.
+    /// <see cref="MulticastScope.UnitMembers"/> reads the members of the
     /// caller (valid only when the caller is a <c>unit://</c> address);
-    /// <see cref="BroadcastScope.Siblings"/> walks to the caller's parent
+    /// <see cref="MulticastScope.Siblings"/> walks to the caller's parent
     /// unit(s) and returns their members, excluding the caller. The
     /// resolution mirrors <c>SvDirectorySkillRegistry.ListMembersAsync</c> /
     /// <c>GetSiblingsAsync</c>.
     /// </summary>
     private async Task<IReadOnlyList<Address>> ResolveScopeAsync(
         Address caller,
-        BroadcastScope scope,
+        MulticastScope scope,
         CancellationToken ct)
     {
         return scope switch
         {
-            BroadcastScope.UnitMembers => await ResolveUnitMembersAsync(caller, ct),
-            BroadcastScope.Siblings => await ResolveSiblingsAsync(caller, ct),
-            _ => throw new OrchestrationException(
-                OrchestrationException.RejectCodes.OrchestrationInvalidRequest,
-                $"Unknown broadcast scope '{scope}'."),
+            MulticastScope.UnitMembers => await ResolveUnitMembersAsync(caller, ct),
+            MulticastScope.Siblings => await ResolveSiblingsAsync(caller, ct),
+            _ => throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.InvalidRequest,
+                $"Unknown multicast scope '{scope}'."),
         };
     }
 
@@ -197,9 +197,9 @@ public class MessagingToolHandlers(
     {
         if (!string.Equals(caller.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
         {
-            throw new OrchestrationException(
-                OrchestrationException.RejectCodes.OrchestrationInvalidRequest,
-                $"Broadcast scope 'unit-members' is only valid for a unit:// caller; got '{caller}'.");
+            throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.InvalidRequest,
+                $"Multicast scope 'unit-members' is only valid for a unit:// caller; got '{caller}'.");
         }
 
         return await memberGraphStore.GetMembersAsync(caller.Id, ct);
@@ -304,10 +304,10 @@ public class MessagingToolHandlers(
 }
 
 /// <summary>
-/// Result of a <c>sv.messaging.broadcast</c> call — the delivered message
+/// Result of a <c>sv.messaging.multicast</c> call — the delivered message
 /// id, the thread, and a per-target delivery outcome (ADR-0049).
 /// </summary>
-public sealed record BroadcastResult(
+public sealed record MulticastResult(
     Guid MessageId,
     Guid ThreadId,
-    IReadOnlyList<BroadcastTargetAck> Deliveries);
+    IReadOnlyList<MulticastTargetAck> Deliveries);

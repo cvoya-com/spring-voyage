@@ -1,13 +1,13 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Orchestration;
+namespace Cvoya.Spring.Dapr.Messaging;
 
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
-/// OSS-default <see cref="IOrchestrationTenantResolver"/>. Every address
+/// OSS-default <see cref="IMessageTenantResolver"/>. Every address
 /// resolves to <see cref="OssTenantIds.Default"/> because the OSS platform
 /// ships functionally single-tenant (see
 /// <see cref="OssTenantIds"/> for the rationale on the pinned id).
@@ -21,7 +21,7 @@ using Cvoya.Spring.Core.Tenancy;
 /// <c>TryAddSingleton</c> seam and the handler picks it up without code
 /// changes.
 /// </remarks>
-public sealed class SingleTenantOrchestrationTenantResolver : IOrchestrationTenantResolver
+public sealed class SingleTenantMessageTenantResolver : IMessageTenantResolver
 {
     /// <inheritdoc />
     public Task<Guid> GetTenantForAddressAsync(Address address, CancellationToken cancellationToken = default)

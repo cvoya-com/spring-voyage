@@ -15,7 +15,7 @@ using Xunit;
 /// <see cref="SpringAgent.RunWithResponseDisciplineAsync"/> (#2493).
 /// Accessed by reflection because the type is intentionally internal —
 /// the tests assert the only contract that matters: the flag flips
-/// once on the first PostResultAsync, never on Send / Broadcast.
+/// once on the first PostResultAsync, never on Send / Multicast.
 /// </summary>
 public class ResponseDisciplineTrackingClientTests
 {
@@ -23,7 +23,7 @@ public class ResponseDisciplineTrackingClientTests
     {
         public int PostResultCalls;
         public int SendCalls;
-        public int BroadcastCalls;
+        public int MulticastCalls;
 
         public Task PostResultAsync(string threadId, string result, CancellationToken cancellationToken = default)
         {
@@ -37,10 +37,10 @@ public class ResponseDisciplineTrackingClientTests
             return Task.FromResult(new MessageSendResponse(true, string.Empty, string.Empty, string.Empty));
         }
 
-        public Task<MessageBroadcastResponse> BroadcastAsync(string threadId, IReadOnlyList<string> targetUnitIds, string prompt, CancellationToken cancellationToken = default)
+        public Task<MessageMulticastResponse> MulticastAsync(string threadId, IReadOnlyList<string> targetUnitIds, string prompt, CancellationToken cancellationToken = default)
         {
-            BroadcastCalls++;
-            return Task.FromResult(new MessageBroadcastResponse(string.Empty, string.Empty, Array.Empty<MessageBroadcastDelivery>()));
+            MulticastCalls++;
+            return Task.FromResult(new MessageMulticastResponse(string.Empty, string.Empty, Array.Empty<MessageMulticastDelivery>()));
         }
     }
 
@@ -87,15 +87,15 @@ public class ResponseDisciplineTrackingClientTests
     }
 
     [Fact]
-    public async Task BroadcastAsync_DoesNotFlipTracker()
+    public async Task MulticastAsync_DoesNotFlipTracker()
     {
         var inner = new RecordingClient();
         var tracker = NewTracker(inner);
 
-        await tracker.BroadcastAsync(
+        await tracker.MulticastAsync(
             Guid.NewGuid().ToString("D"), new[] { "unit:123" }, "prompt", TestContext.Current.CancellationToken);
 
         ResultPosted(tracker).ShouldBeFalse();
-        inner.BroadcastCalls.ShouldBe(1);
+        inner.MulticastCalls.ShouldBe(1);
     }
 }

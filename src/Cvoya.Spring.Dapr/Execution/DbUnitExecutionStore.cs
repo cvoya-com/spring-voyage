@@ -32,7 +32,7 @@ using Microsoft.Extensions.Logging;
 /// route handlers; see #1666 for the regression that motivated the
 /// clarification). The <c>execution</c> slot is rewritten in place and
 /// every other property on the Definition document (instructions /
-/// expertise / orchestration) is preserved verbatim.
+/// expertise) is preserved verbatim.
 /// </para>
 /// <para>
 /// Partial updates are supported: a non-null field on

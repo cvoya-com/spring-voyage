@@ -88,7 +88,7 @@ public interface IAgentActor : IAgent
     /// (which returns durable configuration), from <see cref="GetStatusAsync"/>
     /// (which returns the installation lifecycle state), and from
     /// <c>StatusQuery</c> via the message router (which is the
-    /// orchestration-tool surface): this method is a cheap actor-state read
+    /// <c>sv.directory.get_status</c> tool surface): this method is a cheap actor-state read
     /// intended to be polled at sub-2s cadence and does not emit a
     /// <c>StatusQuery</c> activity event.
     /// </summary>

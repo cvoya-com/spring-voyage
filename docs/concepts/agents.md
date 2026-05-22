@@ -71,7 +71,7 @@ The platform's message-delivery surface is two MCP tools
 | Tool | Description |
 | --- | --- |
 | `sv.messaging.send` | One-way delivery of a message to a single addressable target. Returns a delivery acknowledgement — the message reached the recipient's mailbox — never the recipient's reply. |
-| `sv.messaging.broadcast` | One-way delivery to multiple targets, addressed explicitly or by a directory-relationship `scope` (`unit-members`, `siblings`). |
+| `sv.messaging.multicast` | One-way delivery to multiple targets, addressed explicitly or by a directory-relationship `scope` (`unit-members`, `siblings`). |
 
 The platform delivers messages; it does not orchestrate. There is no
 `delegate_to` / `fanout_to` tool — "delegation" is message *content* the
@@ -95,7 +95,7 @@ records a `MessageSent` activity and nothing more. When a runtime wants the
 *decision* itself on the activity stream, it calls `sv.runtime.report_decision`
 — ADR-0050 generalised that tool so it records any routing decision, executed
 or not. The platform then publishes an `ActivityEvent` with
-`EventType = DecisionMade` and an `OrchestrationDecision` payload:
+`EventType = DecisionMade` and an `RoutingDecision` payload:
 
 | Field | Type | Description |
 | --- | --- | --- |

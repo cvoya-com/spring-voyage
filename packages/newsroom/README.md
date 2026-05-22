@@ -29,7 +29,7 @@ What peers on the desk do constantly is **communicate**:
   heads-up, not an instruction; the peer owns their beat and decides what to do
   with it.
 - A reporter who learns something newsroom-wide **broadcasts** it —
-  `sv.messaging.broadcast` with `scope: unit-members`: "major story breaking,
+  `sv.messaging.multicast` with `scope: unit-members`: "major story breaking,
   hold the front page." Every peer on the desk gets it at once.
 
 | | `spring-voyage-oss` (delegation-shaped) | `newsroom` (communication-shaped) |
@@ -37,7 +37,7 @@ What peers on the desk do constantly is **communicate**:
 | Unit's role | Router — receives work, dispatches down | Room — peers exchange information |
 | Work flow | Routed to the best-fit member | Owned by each member; never routed |
 | Member relationship | Hierarchy: unit assigns, agents receive | Peers: equals informing each other |
-| Reach-for tool | Delegation-style routing | `sv.messaging.send` / `sv.messaging.broadcast` |
+| Reach-for tool | Delegation-style routing | `sv.messaging.send` / `sv.messaging.multicast` |
 
 Read the two packages side by side to see **when to reach for `sv.messaging.*`
 vs delegation-style routing**: route work down when a unit owns triage and
@@ -60,7 +60,7 @@ need to stay informed.
 
 Every agent's `instructions:` teach the pattern explicitly: work your own
 beat; when you find something cross-cutting, `sv.messaging.send` it to the
-relevant peer; when something is newsroom-wide, `sv.messaging.broadcast` it;
+relevant peer; when something is newsroom-wide, `sv.messaging.multicast` it;
 never delegate to a peer — they own their beat, you own yours.
 
 ## Using the package

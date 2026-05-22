@@ -30,15 +30,16 @@ using Cvoya.Spring.Core.Agents;
 /// <param name="Provider">Optional LLM provider identifier persisted on the unit-actor metadata, or <c>null</c> to leave unchanged.</param>
 /// <param name="Hosting">Optional hosting hint persisted on the unit-actor metadata, or <c>null</c> to leave unchanged.</param>
 /// <param name="Specialty">
-/// Optional free-form specialty label consumed by orchestration strategies
-/// (e.g. "reviewer", "implementer"). Mirrors
+/// Optional free-form specialty label (e.g. "reviewer", "implementer")
+/// surfaced to runtimes and operators for unit selection; the platform
+/// does not route on it. Mirrors
 /// <see cref="AgentMetadata.Specialty"/>; <c>null</c> to leave unchanged.
 /// Added in #2341 for unit/agent parity per <c>units-vs-agents.md</c>.
 /// </param>
 /// <param name="Enabled">
-/// When <c>false</c>, orchestration strategies skip this unit. Re-enabling is
-/// cheap. Mirrors <see cref="AgentMetadata.Enabled"/>; <c>null</c> to leave
-/// unchanged. Added in #2341.
+/// When <c>false</c>, the unit skips processing inbound messages.
+/// Re-enabling is cheap. Mirrors <see cref="AgentMetadata.Enabled"/>;
+/// <c>null</c> to leave unchanged. Added in #2341.
 /// </param>
 /// <param name="ExecutionMode">
 /// How this unit participates in message dispatch. Mirrors

@@ -29,7 +29,7 @@ namespace Cvoya.Spring.Core.Skills;
 /// </param>
 /// <param name="MessageId">
 /// The inbound message the current turn is responding to. Carried so a
-/// messaging tool (<c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c>)
+/// messaging tool (<c>sv.messaging.send</c> / <c>sv.messaging.multicast</c>)
 /// can stamp the outgoing <see cref="Cvoya.Spring.Core.Messaging.Message"/>
 /// and any audit record with the cause of the turn — the per-turn delivery
 /// authority the retired callback JWT used to carry (ADR-0051). The MCP

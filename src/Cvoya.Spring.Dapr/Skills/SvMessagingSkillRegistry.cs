@@ -9,16 +9,15 @@ using System.Text.Json;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
-using Cvoya.Spring.Dapr.Orchestration;
+using Cvoya.Spring.Dapr.Messaging;
 
 using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Platform <see cref="ISkillRegistry"/> for the message-delivery tools
-/// <c>sv.messaging.send</c> and <c>sv.messaging.broadcast</c> (ADR-0048 /
+/// <c>sv.messaging.send</c> and <c>sv.messaging.multicast</c> (ADR-0048 /
 /// ADR-0049). It re-fronts the existing <see cref="MessagingToolHandlers"/>
 /// delivery seam as a registry so messaging joins the other
 /// <c>Sv*SkillRegistry</c> types on the single platform MCP server (ADR-0051):
@@ -59,8 +58,8 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
     /// <summary>Tool name for <c>sv.messaging.send</c>.</summary>
     public const string SendTool = "sv.messaging.send";
 
-    /// <summary>Tool name for <c>sv.messaging.broadcast</c>.</summary>
-    public const string BroadcastTool = "sv.messaging.broadcast";
+    /// <summary>Tool name for <c>sv.messaging.multicast</c>.</summary>
+    public const string MulticastTool = "sv.messaging.multicast";
 
     private readonly MessagingToolHandlers _handlers;
     private readonly ITenantContext _tenantContext;
@@ -84,9 +83,9 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
                 SchemaDescription(LoadSchema(assembly, "sv.messaging.send.input.schema.json")),
                 LoadSchema(assembly, "sv.messaging.send.input.schema.json")),
             new ToolDefinition(
-                BroadcastTool,
-                SchemaDescription(LoadSchema(assembly, "sv.messaging.broadcast.input.schema.json")),
-                LoadSchema(assembly, "sv.messaging.broadcast.input.schema.json")),
+                MulticastTool,
+                SchemaDescription(LoadSchema(assembly, "sv.messaging.multicast.input.schema.json")),
+                LoadSchema(assembly, "sv.messaging.multicast.input.schema.json")),
         };
     }
 
@@ -114,7 +113,7 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         return toolName switch
         {
             SendTool => InvokeSendAsync(arguments, context, cancellationToken),
-            BroadcastTool => InvokeBroadcastAsync(arguments, context, cancellationToken),
+            MulticastTool => InvokeMulticastAsync(arguments, context, cancellationToken),
             _ => throw new SkillNotFoundException(toolName),
         };
     }
@@ -158,7 +157,7 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         });
     }
 
-    private async Task<JsonElement> InvokeBroadcastAsync(
+    private async Task<JsonElement> InvokeMulticastAsync(
         JsonElement arguments,
         ToolCallContext context,
         CancellationToken cancellationToken)
@@ -174,11 +173,11 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         if (hasAddresses == hasScope)
         {
             throw new ArgumentException(
-                "sv.messaging.broadcast requires exactly one of an 'addresses' array or a 'scope' string.");
+                "sv.messaging.multicast requires exactly one of an 'addresses' array or a 'scope' string.");
         }
 
         List<Address>? targets = null;
-        BroadcastScope? scope = null;
+        MulticastScope? scope = null;
 
         if (hasAddresses)
         {
@@ -195,10 +194,10 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
                 targets.Add(target);
             }
         }
-        else if (!TryParseBroadcastScope(scopeValue, out scope))
+        else if (!TryParseMulticastScope(scopeValue, out scope))
         {
             throw new ArgumentException(
-                $"'{scopeValue}' is not a valid broadcast scope. Use 'unit-members' or 'siblings'.");
+                $"'{scopeValue}' is not a valid multicast scope. Use 'unit-members' or 'siblings'.");
         }
 
         var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
@@ -208,7 +207,7 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
             targets is { Count: > 0 } ? targets[0] : caller,
             ExtractMessagePayload(arguments));
 
-        var result = await _handlers.HandleBroadcastAsync(
+        var result = await _handlers.HandleMulticastAsync(
             caller,
             _tenantContext.CurrentTenantId,
             targets,
@@ -308,12 +307,12 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         return false;
     }
 
-    private static bool TryParseBroadcastScope(string? value, out BroadcastScope? scope)
+    private static bool TryParseMulticastScope(string? value, out MulticastScope? scope)
     {
         scope = value switch
         {
-            "unit-members" => BroadcastScope.UnitMembers,
-            "siblings" => BroadcastScope.Siblings,
+            "unit-members" => MulticastScope.UnitMembers,
+            "siblings" => MulticastScope.Siblings,
             _ => null,
         };
 
@@ -334,7 +333,7 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
 
     private static JsonElement LoadSchema(Assembly assembly, string fileName)
     {
-        var resourceName = $"Cvoya.Spring.Dapr.Orchestration.Resources.{fileName}";
+        var resourceName = $"Cvoya.Spring.Dapr.Messaging.Resources.{fileName}";
         using var stream = assembly.GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException(
                 $"Embedded messaging-tool schema '{resourceName}' was not found. " +

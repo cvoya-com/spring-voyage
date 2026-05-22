@@ -15,7 +15,7 @@ using Microsoft.Extensions.Options;
 
 /// <summary>
 /// Tier-1 requirement: the agent-reachable API-host base URL
-/// (<c>OrchestrationCallback:BaseUrl</c>) that
+/// (<c>CallbackBaseUrl:BaseUrl</c>) that
 /// <see cref="DispatcherCallbackEnvironmentBuilder"/> stamps onto every
 /// runtime container as <c>SPRING_CALLBACK_URL</c>.
 /// </summary>
@@ -33,7 +33,7 @@ using Microsoft.Extensions.Options;
 /// </para>
 /// <para>
 /// The <c>IsMandatory</c> flag is set at registration time via
-/// <see cref="OrchestrationCallbackConfigurationRequirementOptions"/>:
+/// <see cref="CallbackBaseUrlConfigurationRequirementOptions"/>:
 /// hosts that drive delegated execution register with <c>IsMandatory =
 /// true</c>; design-time tooling skips the validator entirely (the
 /// requirement is registered only when <c>!isDocGen</c>).
@@ -43,39 +43,39 @@ using Microsoft.Extensions.Options;
 /// </para>
 /// <list type="bullet">
 ///   <item>Missing <c>BaseUrl</c> on a mandatory host → <see cref="ConfigurationStatus.Invalid"/> with a fatal error; aborts host startup.</item>
-///   <item>Missing <c>BaseUrl</c> on a non-mandatory host → <see cref="ConfigurationStatus.Disabled"/> with a pointer at <c>OrchestrationCallback:BaseUrl</c>.</item>
+///   <item>Missing <c>BaseUrl</c> on a non-mandatory host → <see cref="ConfigurationStatus.Disabled"/> with a pointer at <c>CallbackBaseUrl:BaseUrl</c>.</item>
 ///   <item>Malformed <c>BaseUrl</c> (not a valid absolute HTTP(S) URI) → <see cref="ConfigurationStatus.Invalid"/>.</item>
 ///   <item>Valid <c>BaseUrl</c> → <see cref="ConfigurationStatus.Met"/>.</item>
 /// </list>
 /// </remarks>
-public sealed class OrchestrationCallbackConfigurationRequirement(
-    IOptions<OrchestrationCallbackOptions> optionsAccessor,
-    OrchestrationCallbackConfigurationRequirementOptions registrationOptions) : IConfigurationRequirement
+public sealed class CallbackBaseUrlConfigurationRequirement(
+    IOptions<CallbackBaseUrlOptions> optionsAccessor,
+    CallbackBaseUrlConfigurationRequirementOptions registrationOptions) : IConfigurationRequirement
 {
-    private readonly IOptions<OrchestrationCallbackOptions> _options =
+    private readonly IOptions<CallbackBaseUrlOptions> _options =
         optionsAccessor ?? throw new ArgumentNullException(nameof(optionsAccessor));
-    private readonly OrchestrationCallbackConfigurationRequirementOptions _registrationOptions =
+    private readonly CallbackBaseUrlConfigurationRequirementOptions _registrationOptions =
         registrationOptions ?? throw new ArgumentNullException(nameof(registrationOptions));
 
     /// <inheritdoc />
-    public string RequirementId => "orchestration-callback-base-url";
+    public string RequirementId => "callback-base-url";
 
     /// <inheritdoc />
-    public string DisplayName => "Orchestration callback base URL";
+    public string DisplayName => "Callback base URL";
 
     /// <inheritdoc />
-    public string SubsystemName => "Orchestration callback";
+    public string SubsystemName => "Callback base URL";
 
     /// <inheritdoc />
     public bool IsMandatory => _registrationOptions.IsMandatory;
 
     /// <inheritdoc />
     public IReadOnlyList<string> EnvironmentVariableNames { get; } =
-        new[] { "OrchestrationCallback__BaseUrl" };
+        new[] { "CallbackBaseUrl__BaseUrl" };
 
     /// <inheritdoc />
     public string? ConfigurationSectionPath =>
-        OrchestrationCallbackOptions.SectionName + ":BaseUrl";
+        CallbackBaseUrlOptions.SectionName + ":BaseUrl";
 
     /// <inheritdoc />
     public string Description =>
@@ -96,14 +96,14 @@ public sealed class OrchestrationCallbackConfigurationRequirement(
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
             const string Suggestion =
-                "Set OrchestrationCallback:BaseUrl (environment variable OrchestrationCallback__BaseUrl=...) "
+                "Set CallbackBaseUrl:BaseUrl (environment variable CallbackBaseUrl__BaseUrl=...) "
                 + "to the API host's agent-reachable base URL "
                 + "(e.g. http://spring-caddy:8443/ on the spring-tenant-default network).";
 
             if (_registrationOptions.IsMandatory)
             {
                 const string Reason =
-                    "OrchestrationCallback:BaseUrl is not set. The agent-runtime launcher stamps it onto "
+                    "CallbackBaseUrl:BaseUrl is not set. The agent-runtime launcher stamps it onto "
                     + "every runtime container as SPRING_CALLBACK_URL and the first runtime launch "
                     + "would fail without it.";
                 return Task.FromResult(ConfigurationRequirementStatus.Invalid(
@@ -113,7 +113,7 @@ public sealed class OrchestrationCallbackConfigurationRequirement(
             }
 
             return Task.FromResult(ConfigurationRequirementStatus.Disabled(
-                reason: "OrchestrationCallback:BaseUrl is not set — agent runtimes launched on this host "
+                reason: "CallbackBaseUrl:BaseUrl is not set — agent runtimes launched on this host "
                     + "cannot reach the API host's OTLP-ingest endpoint.",
                 suggestion: Suggestion));
         }
@@ -121,7 +121,7 @@ public sealed class OrchestrationCallbackConfigurationRequirement(
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var parsed)
             || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
         {
-            var reason = $"OrchestrationCallback:BaseUrl '{baseUrl}' is not a valid absolute http(s) URI.";
+            var reason = $"CallbackBaseUrl:BaseUrl '{baseUrl}' is not a valid absolute http(s) URI.";
             var suggestion =
                 "Provide an absolute URL such as http://spring-caddy:8443/ "
                 + "(the API host's agent-reachable base URL on the spring-tenant-default network).";
@@ -137,16 +137,16 @@ public sealed class OrchestrationCallbackConfigurationRequirement(
 
 /// <summary>
 /// Registration-time options for
-/// <see cref="OrchestrationCallbackConfigurationRequirement"/>. Registered
+/// <see cref="CallbackBaseUrlConfigurationRequirement"/>. Registered
 /// as a singleton by the DI extension that wires the requirement so the
 /// requirement can read its <c>IsMandatory</c> value from a normal DI
 /// constructor parameter (mirrors
 /// <see cref="DispatcherConfigurationRequirementOptions"/>).
 /// </summary>
 /// <param name="IsMandatory">
-/// When <c>true</c>, a missing or malformed <c>OrchestrationCallback:BaseUrl</c>
+/// When <c>true</c>, a missing or malformed <c>CallbackBaseUrl:BaseUrl</c>
 /// aborts host startup. Hosts that launch agent runtimes register with
 /// <c>true</c>; harnesses that exercise the DI graph without delegated
 /// execution may register with <c>false</c>.
 /// </param>
-public sealed record OrchestrationCallbackConfigurationRequirementOptions(bool IsMandatory);
+public sealed record CallbackBaseUrlConfigurationRequirementOptions(bool IsMandatory);

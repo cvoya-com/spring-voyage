@@ -42,7 +42,7 @@ internal sealed class LauncherCallbackTestSupport
         var options = Options.Create(new CallbackTokenOptions());
         var issuer = new CallbackTokenIssuer(keyProvider, options);
         Builder = new DispatcherCallbackEnvironmentBuilder(
-            Options.Create(new OrchestrationCallbackOptions
+            Options.Create(new CallbackBaseUrlOptions
             {
                 BaseUrl = CallbackUrl,
             }),

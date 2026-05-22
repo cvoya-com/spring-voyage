@@ -23,10 +23,10 @@ namespace Cvoya.Spring.Dapr.Execution;
 /// <c>spring-tenant-default</c> network shared with runtime containers.
 /// </para>
 /// </remarks>
-public class OrchestrationCallbackOptions
+public class CallbackBaseUrlOptions
 {
     /// <summary>Configuration section name.</summary>
-    public const string SectionName = "OrchestrationCallback";
+    public const string SectionName = "CallbackBaseUrl";
 
     /// <summary>
     /// Agent-reachable base URL of the API host. The OTLP-ingest endpoint is

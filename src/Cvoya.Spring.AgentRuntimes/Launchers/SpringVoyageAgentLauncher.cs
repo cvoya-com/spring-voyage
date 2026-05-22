@@ -184,10 +184,10 @@ public class SpringVoyageAgentLauncher(
         // Reuses the per-invocation callback token (SPRING_CALLBACK_TOKEN)
         // for OTLP auth — no new credential primitive. The OTLP endpoint
         // sits on the platform's API host at /otlp/v1/, alongside the
-        // dispatcher's orchestration callback.
+        // dispatcher's runtime callback.
         LauncherOtelEnvironment.Add(context, envVars);
 
-        // ADR-0051: sv.messaging.send / sv.messaging.broadcast are served by
+        // ADR-0051: sv.messaging.send / sv.messaging.multicast are served by
         // the single platform MCP server (SPRING_MCP_URL / SPRING_MCP_TOKEN)
         // alongside every other sv.* tool. The runtime discovers them via the
         // MCP server's tools/list — there is no separate messaging env var.

@@ -19,7 +19,7 @@ using Xunit;
 /// Per #2052 / ADR-0040 the member graph lives in EF; tests seed the
 /// in-memory <see cref="IUnitMemberGraphStore"/> directly.
 /// </summary>
-public class UnitOrchestrationTests
+public class UnitRuntimeDispatchTests
 {
     [Fact]
     public async Task ReceiveAsync_DomainMessage_CallsRuntimeInvocationPathWithMessage()

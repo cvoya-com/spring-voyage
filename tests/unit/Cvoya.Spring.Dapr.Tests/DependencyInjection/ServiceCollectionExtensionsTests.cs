@@ -7,12 +7,12 @@ using System.Collections.Generic;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
-using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Execution;
-using Cvoya.Spring.Dapr.Orchestration;
+using Cvoya.Spring.Dapr.Messaging;
 using Cvoya.Spring.Dapr.Routing;
 
 using global::Dapr.Actors.Client;
@@ -87,7 +87,7 @@ public class ServiceCollectionExtensionsTests
     /// ADR-0051: <c>AddCvoyaSpringDapr</c> registers
     /// <see cref="Cvoya.Spring.Dapr.Skills.SvMessagingSkillRegistry"/> into the
     /// <see cref="ISkillRegistry"/> set so the single platform MCP server
-    /// serves <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c>
+    /// serves <c>sv.messaging.send</c> / <c>sv.messaging.multicast</c>
     /// alongside every other <c>sv.*</c> tool. Because the tools live in the
     /// <c>sv</c> namespace, the effective-grant resolver's platform tier
     /// surfaces them for every agent / unit subject — that is the default
@@ -106,7 +106,7 @@ public class ServiceCollectionExtensionsTests
 
         var toolNames = messaging.GetToolDefinitions().Select(t => t.Name).ToArray();
         toolNames.ShouldContain("sv.messaging.send");
-        toolNames.ShouldContain("sv.messaging.broadcast");
+        toolNames.ShouldContain("sv.messaging.multicast");
     }
 
     /// <summary>
@@ -135,14 +135,14 @@ public class ServiceCollectionExtensionsTests
         // string is the only failing mandatory requirement, keeping this
         // test focused on the #261 regression (single InvalidOperationException
         // instead of an AggregateException covering DB + dispatcher).
-        // #2597 — OrchestrationCallback:BaseUrl is now mandatory too; set a
+        // #2597 — CallbackBaseUrl:BaseUrl is now mandatory too; set a
         // valid URL for the same reason.
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Dispatcher:BaseUrl"] = "http://spring-dispatcher.test/",
                 ["Dispatcher:BearerToken"] = "test-token",
-                ["OrchestrationCallback:BaseUrl"] = "http://spring-caddy.test:8443/",
+                ["CallbackBaseUrl:BaseUrl"] = "http://spring-caddy.test:8443/",
             })
             .Build();
         // IConfiguration needs to be present in DI for the requirement's

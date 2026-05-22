@@ -8,7 +8,6 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -25,7 +24,7 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// The class is registered as a singleton: it is stateless across
 /// subjects and captures no Dapr actor types. All subject-specific state
-/// (definition, skills, orchestration tools) resolves through injected
+/// (definition, skills, platform messaging and directory tools) resolves through injected
 /// seams keyed on the subject's address.
 /// </para>
 /// <para>
@@ -183,7 +182,7 @@ public class RuntimeInvocationPath(
                 Tools: r.GetToolDefinitions()))
             .ToList();
 
-        // ADR-0051: sv.messaging.send / sv.messaging.broadcast are served by
+        // ADR-0051: sv.messaging.send / sv.messaging.multicast are served by
         // the single platform MCP server as SvMessagingSkillRegistry — they
         // surface through the ISkillRegistry enumeration above like every
         // other sv.* tool, so no separate messaging-tool resolution is needed.

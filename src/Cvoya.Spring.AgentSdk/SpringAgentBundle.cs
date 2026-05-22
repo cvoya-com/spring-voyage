@@ -11,7 +11,7 @@ namespace Cvoya.Spring.AgentSdk;
 /// Issue #2493.
 /// </summary>
 /// <param name="Messaging">
-/// Callback client for posting results / sending / broadcasting messages.
+/// Callback client for posting results / sending / multicasting messages.
 /// </param>
 /// <param name="Telemetry">
 /// OTLP telemetry primitives — progress, tool-call spans, llm-turn

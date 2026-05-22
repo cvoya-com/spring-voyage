@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Tests.Orchestration;
+namespace Cvoya.Spring.Dapr.Tests.Messaging;
 
 using System.Text.Json;
 
@@ -11,7 +11,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
-using Cvoya.Spring.Dapr.Orchestration;
+using Cvoya.Spring.Dapr.Messaging;
 using Cvoya.Spring.Dapr.Routing;
 
 using global::Dapr.Actors;
@@ -30,10 +30,10 @@ using Xunit;
 
 /// <summary>
 /// Covers <see cref="MessagingToolHandlers"/> under the ADR-0048 / ADR-0049
-/// delivery contract: <c>sv.messaging.send</c> / <c>sv.messaging.broadcast</c>
+/// delivery contract: <c>sv.messaging.send</c> / <c>sv.messaging.multicast</c>
 /// return a delivery acknowledgement, never the target's response; each call
 /// emits a plain <see cref="ActivityEventType.MessageSent"/> activity (never a
-/// DecisionMade); broadcast resolves a <c>scope</c> against the member graph.
+/// DecisionMade); multicast resolves a <c>scope</c> against the member graph.
 /// </summary>
 public class MessagingToolHandlersTests
 {
@@ -44,7 +44,7 @@ public class MessagingToolHandlersTests
 
     private readonly IAgentProxyResolver _agentProxyResolver = Substitute.For<IAgentProxyResolver>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
-    private readonly IOrchestrationTenantResolver _tenantResolver = Substitute.For<IOrchestrationTenantResolver>();
+    private readonly IMessageTenantResolver _tenantResolver = Substitute.For<IMessageTenantResolver>();
     private readonly IUnitMemberGraphStore _memberGraphStore = Substitute.For<IUnitMemberGraphStore>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IThreadHopActor _hopActor = Substitute.For<IThreadHopActor>();
@@ -121,9 +121,9 @@ public class MessagingToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleBroadcast_DeliversPerTargetHopThread()
+    public async Task HandleMulticast_DeliversPerTargetHopThread()
     {
-        // #2596 — a broadcast fans one message out to N targets; each
+        // #2596 — a multicast fans one message out to N targets; each
         // delivery is its own conversation hop and must land on the thread
         // of its own (caller, target) participant set.
         var handlers = CreateHandlers();
@@ -139,7 +139,7 @@ public class MessagingToolHandlersTests
         a2.ReceiveAsync(Arg.Do<Message>(m => delivered2 = m), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
 
-        await handlers.HandleBroadcastAsync(
+        await handlers.HandleMulticastAsync(
             caller, TenantId, [t1, t2], scope: null, CreateMessage(), reason: null,
             Guid.NewGuid(), CancellationToken.None);
 
@@ -188,11 +188,11 @@ public class MessagingToolHandlersTests
     {
         var handlers = CreateHandlers();
 
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
             handlers.HandleSendAsync(
                 Unit(), TenantId, Unit(), CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationSelfDelegation);
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.SelfDelivery);
     }
 
     [Fact]
@@ -211,15 +211,15 @@ public class MessagingToolHandlersTests
                 Unit(), TenantId, target, CreateMessage(), reason: null, threadId, CancellationToken.None);
         }
 
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
             handlers.HandleSendAsync(
                 Unit(), TenantId, target, CreateMessage(), reason: null, threadId, CancellationToken.None));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationDepthExceeded);
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.DepthExceeded);
     }
 
     [Fact]
-    public async Task HandleBroadcast_ExplicitAddresses_DeliversToEach()
+    public async Task HandleMulticast_ExplicitAddresses_DeliversToEach()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -228,7 +228,7 @@ public class MessagingToolHandlersTests
         RegisterAgent(t1);
         RegisterAgent(t2);
 
-        var result = await handlers.HandleBroadcastAsync(
+        var result = await handlers.HandleMulticastAsync(
             caller, TenantId, [t1, t2], scope: null, CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None);
 
         result.Deliveries.Count.ShouldBe(2);
@@ -239,7 +239,7 @@ public class MessagingToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleBroadcast_PartialFailure_ReportsPerTargetOutcome()
+    public async Task HandleMulticast_PartialFailure_ReportsPerTargetOutcome()
     {
         var handlers = CreateHandlers(maxHopCount: 16);
         var t1 = Agent(ChildAgentId);
@@ -249,7 +249,7 @@ public class MessagingToolHandlersTests
         failing.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("target unreachable"));
 
-        var result = await handlers.HandleBroadcastAsync(
+        var result = await handlers.HandleMulticastAsync(
             Unit(), TenantId, [t1, t2], scope: null, CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None);
 
         result.Deliveries.Count.ShouldBe(2);
@@ -259,20 +259,20 @@ public class MessagingToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleBroadcast_AddressesAndScope_ThrowsValidation()
+    public async Task HandleMulticast_AddressesAndScope_ThrowsValidation()
     {
         var handlers = CreateHandlers();
 
-        var ex = await Should.ThrowAsync<OrchestrationException>(() =>
-            handlers.HandleBroadcastAsync(
-                Unit(), TenantId, [Agent(ChildAgentId)], BroadcastScope.UnitMembers,
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
+            handlers.HandleMulticastAsync(
+                Unit(), TenantId, [Agent(ChildAgentId)], MulticastScope.UnitMembers,
                 CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None));
 
-        ex.RejectCode.ShouldBe(OrchestrationException.RejectCodes.OrchestrationInvalidRequest);
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.InvalidRequest);
     }
 
     [Fact]
-    public async Task HandleBroadcast_UnitMembersScope_ResolvesCallerMembers()
+    public async Task HandleMulticast_UnitMembersScope_ResolvesCallerMembers()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -283,8 +283,8 @@ public class MessagingToolHandlersTests
         _memberGraphStore.GetMembersAsync(UnitId, Arg.Any<CancellationToken>())
             .Returns(new[] { m1, m2 });
 
-        var result = await handlers.HandleBroadcastAsync(
-            caller, TenantId, explicitTargets: null, BroadcastScope.UnitMembers,
+        var result = await handlers.HandleMulticastAsync(
+            caller, TenantId, explicitTargets: null, MulticastScope.UnitMembers,
             CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None);
 
         result.Deliveries.Count.ShouldBe(2);
@@ -292,7 +292,7 @@ public class MessagingToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleBroadcast_SiblingsScope_ResolvesParentMembersExcludingCaller()
+    public async Task HandleMulticast_SiblingsScope_ResolvesParentMembersExcludingCaller()
     {
         // The caller's parent unit's members, minus the caller itself.
         var parentId = new Guid("cccccccc-0000-0000-0000-000000000001");
@@ -308,8 +308,8 @@ public class MessagingToolHandlersTests
 
         var handlers = CreateHandlers(membershipRepo: membershipRepo);
 
-        var result = await handlers.HandleBroadcastAsync(
-            caller, TenantId, explicitTargets: null, BroadcastScope.Siblings,
+        var result = await handlers.HandleMulticastAsync(
+            caller, TenantId, explicitTargets: null, MulticastScope.Siblings,
             CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None);
 
         // Only the sibling — the caller is excluded from its own sibling set.
@@ -337,7 +337,7 @@ public class MessagingToolHandlersTests
             _tenantResolver,
             scopeFactory,
             Substitute.For<ILogger<MessageDeliveryService>>(),
-            Options.Create(new OrchestrationDeliveryOptions
+            Options.Create(new MessageDeliveryOptions
             {
                 MaxAttempts = 3,
                 Budget = TimeSpan.FromSeconds(2),

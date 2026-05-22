@@ -114,11 +114,11 @@ public class AgentManifest
     [YamlMember(Alias = "execution")]
     public AgentExecutionManifest? Execution { get; set; }
 
-    /// <summary>Optional specialty label used by orchestration strategies.</summary>
+    /// <summary>Optional specialty label surfaced for agent selection; the platform does not route on it.</summary>
     [YamlMember(Alias = "specialty")]
     public string? Specialty { get; set; }
 
-    /// <summary>Whether this agent participates in orchestration. Defaults to true.</summary>
+    /// <summary>Whether this agent processes inbound messages. Defaults to true.</summary>
     [YamlMember(Alias = "enabled")]
     public bool? Enabled { get; set; }
 

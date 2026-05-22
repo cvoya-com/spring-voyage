@@ -30,8 +30,8 @@ public class SpringAgentSafetyNetTests
         public Task<MessageSendResponse> SendAsync(string threadId, string targetUnitId, string prompt, CancellationToken cancellationToken = default)
             => Task.FromResult(new MessageSendResponse(true, string.Empty, string.Empty, string.Empty));
 
-        public Task<MessageBroadcastResponse> BroadcastAsync(string threadId, IReadOnlyList<string> targetUnitIds, string prompt, CancellationToken cancellationToken = default)
-            => Task.FromResult(new MessageBroadcastResponse(string.Empty, string.Empty, Array.Empty<MessageBroadcastDelivery>()));
+        public Task<MessageMulticastResponse> MulticastAsync(string threadId, IReadOnlyList<string> targetUnitIds, string prompt, CancellationToken cancellationToken = default)
+            => Task.FromResult(new MessageMulticastResponse(string.Empty, string.Empty, Array.Empty<MessageMulticastDelivery>()));
     }
 
     private static TelemetryClient NewDisabledTelemetryClient()

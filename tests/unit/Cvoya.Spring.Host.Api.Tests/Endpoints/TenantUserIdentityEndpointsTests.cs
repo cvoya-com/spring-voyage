@@ -307,8 +307,7 @@ public class TenantUserIdentityEndpointsTests : IClassFixture<CustomWebApplicati
     {
         // ADR-0047 §14: the /api/v1/tenant/humans/{id}/identities routes
         // are retired with a 410 Gone stub that points callers at the new
-        // path. Mirrors the LegacyOrchestrationGoneTests shape so the
-        // contract is uniform across retired surfaces.
+        // path — the uniform contract for retired HTTP surfaces.
         var ct = TestContext.Current.CancellationToken;
         var humanId = Guid.NewGuid().ToString("N");
         using var request = new HttpRequestMessage(

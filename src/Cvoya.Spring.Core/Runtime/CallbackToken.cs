@@ -35,19 +35,19 @@ using Cvoya.Spring.Core.Messaging;
 /// </param>
 /// <param name="AgentAddress">
 /// The agent (or unit) address the runtime is invoked for. The platform
-/// does not gate orchestration by entity type; agents and units both reach
+/// does not gate callbacks by entity type; agents and units both reach
 /// the dispatcher under their own scheme and the membership / self /
 /// depth / tenant gates handle authorisation. The validator preserves the
 /// claim verbatim.
 /// </param>
 /// <param name="ThreadId">
 /// The thread the inbound message belongs to. Every callback during this
-/// invocation acts on this thread; the per-thread orchestration depth
+/// invocation acts on this thread; the per-thread hop-depth
 /// counter is keyed on it.
 /// </param>
 /// <param name="MessageId">
 /// The inbound message id the invocation is responding to. Recorded on
-/// every <see cref="OrchestrationDecision"/> emitted during the turn so
+/// every <see cref="RoutingDecision"/> emitted during the turn so
 /// auditors can trace the cause of every delegation.
 /// </param>
 /// <param name="ExpiresAt">

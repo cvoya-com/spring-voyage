@@ -12,7 +12,6 @@ using System.Text.Json.Serialization;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Orchestration;
 
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -21,7 +20,7 @@ using Octokit;
 
 /// <summary>
 /// Hosted service that observes the platform activity bus for delegated
-/// orchestration decisions and applies the configured GitHub label roundtrip
+/// routing decisions and applies the configured GitHub label roundtrip
 /// (<c>AddOnAssign</c> / <c>RemoveOnAssign</c>) on the originating issue.
 /// </summary>
 /// <remarks>
@@ -199,12 +198,12 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
         if (!TryReadDecision(evt.Details, out var decision))
         {
             _logger.LogDebug(
-                "Decision event {EventId} did not carry an orchestration decision; skipping", evt.Id);
+                "Decision event {EventId} did not carry a routing decision; skipping", evt.Id);
             return;
         }
 
-        if (decision.Kind != OrchestrationDecisionKind.Delegate
-            || decision.Status != OrchestrationDecisionStatus.Routed)
+        if (decision.Kind != RoutingDecisionKind.Delegate
+            || decision.Status != RoutingDecisionStatus.Routed)
         {
             _logger.LogDebug(
                 "Decision event {EventId} is not a routed delegate decision; skipping", evt.Id);
@@ -400,7 +399,7 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
     }
 
     /// <summary>
-    /// Rx filter: only routed delegate orchestration decisions qualify.
+    /// Rx filter: only routed delegate-kind routing decisions qualify.
     /// </summary>
     internal static bool IsRoutedDelegateDecision(ActivityEvent evt)
     {
@@ -418,8 +417,8 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
         }
 
         return TryReadDecision(evt.Details, out var decision)
-            && decision.Kind == OrchestrationDecisionKind.Delegate
-            && decision.Status == OrchestrationDecisionStatus.Routed;
+            && decision.Kind == RoutingDecisionKind.Delegate
+            && decision.Status == RoutingDecisionStatus.Routed;
     }
 
     private async Task<UnitGitHubConfig?> LoadConfigAsync(
@@ -487,7 +486,7 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
 
     private static bool TryReadDecision(
         JsonElement? details,
-        out OrchestrationDecision decision)
+        out RoutingDecision decision)
     {
         decision = null!;
         if (details is null || details.Value.ValueKind != JsonValueKind.Object)
@@ -497,7 +496,7 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
 
         try
         {
-            var parsed = details.Value.Deserialize<OrchestrationDecision>(DecisionJson);
+            var parsed = details.Value.Deserialize<RoutingDecision>(DecisionJson);
             if (parsed is null)
             {
                 return false;

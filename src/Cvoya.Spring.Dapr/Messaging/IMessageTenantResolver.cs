@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Orchestration;
+namespace Cvoya.Spring.Dapr.Messaging;
 
 using Cvoya.Spring.Core.Messaging;
 
@@ -11,7 +11,7 @@ using Cvoya.Spring.Core.Messaging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Every orchestration tool handler invocation enforces gate 6 — the
+/// Every messaging tool handler invocation enforces gate 6 — the
 /// caller's resolved tenant and (when a target is supplied) the target's
 /// resolved tenant must match the <c>tenantId</c> claim carried on the
 /// validated callback token. The resolver is the seam the handler uses to
@@ -30,12 +30,12 @@ using Cvoya.Spring.Core.Messaging;
 /// <para>
 /// Implementations are registered through the standard
 /// <c>TryAddSingleton</c> seam (see
-/// <c>ServiceCollectionExtensions.Orchestration</c>). The interface is
+/// <c>ServiceCollectionExtensions.Messaging</c>). The interface is
 /// intentionally async-Task-of-Guid so cloud implementations can issue
 /// directory or database lookups without changing the handler signatures.
 /// </para>
 /// </remarks>
-public interface IOrchestrationTenantResolver
+public interface IMessageTenantResolver
 {
     /// <summary>
     /// Returns the tenant that owns <paramref name="address"/>. Implementations

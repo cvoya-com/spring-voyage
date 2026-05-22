@@ -20,7 +20,7 @@ using Cvoya.Spring.Core.Artefacts;
 /// <para>
 /// Lookups are keyed by the entity's <c>ActorId</c> because the actor only
 /// knows its Dapr actor id — the user-facing name lives on the directory
-/// row. Every write is a focused update on a single row: the orchestration
+/// row. Every write is a focused update on a single row: the unit-execution
 /// store's larger write semantics (rewrite the entire Definition JSON) are
 /// deliberately kept out of this contract.
 /// </para>

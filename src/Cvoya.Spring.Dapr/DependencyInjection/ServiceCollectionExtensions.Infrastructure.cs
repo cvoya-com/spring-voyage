@@ -145,7 +145,7 @@ internal static class ServiceCollectionExtensionsInfrastructure
             services.AddSingleton(new DispatcherConfigurationRequirementOptions(IsMandatory: true));
             services.TryAddEnumerable(
                 ServiceDescriptor.Singleton<IConfigurationRequirement, DispatcherConfigurationRequirement>());
-            // #2597: the orchestration callback base URL (OrchestrationCallback:BaseUrl)
+            // #2597: the runtime callback base URL (CallbackBaseUrl:BaseUrl)
             // is stamped onto every runtime container as SPRING_CALLBACK_URL by
             // DispatcherCallbackEnvironmentBuilder. A missing or malformed value
             // previously failed lazily — at the first delegate_to / fanout_to
@@ -153,9 +153,9 @@ internal static class ServiceCollectionExtensionsInfrastructure
             // host (the gate above already skips registration on design-time
             // tooling) so the misconfiguration aborts startup with a precise
             // diagnostic.
-            services.AddSingleton(new OrchestrationCallbackConfigurationRequirementOptions(IsMandatory: true));
+            services.AddSingleton(new CallbackBaseUrlConfigurationRequirementOptions(IsMandatory: true));
             services.TryAddEnumerable(
-                ServiceDescriptor.Singleton<IConfigurationRequirement, OrchestrationCallbackConfigurationRequirement>());
+                ServiceDescriptor.Singleton<IConfigurationRequirement, CallbackBaseUrlConfigurationRequirement>());
             // Stage 2 of #522 / #1063: ContainerRuntimeConfigurationRequirement
             // (and the underlying ContainerRuntimeOptions binding) is now
             // dispatcher-only — the worker no longer holds a container CLI

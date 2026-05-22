@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Core.Orchestration;
+namespace Cvoya.Spring.Core.Messaging;
 
 using System.Text.Json;
 
@@ -9,9 +9,9 @@ using Cvoya.Spring.Core.Messaging;
 
 /// <summary>
 /// First-class evidence record emitted whenever a unit's runtime invokes
-/// one of the platform-supplied orchestration tools (see ADR-0039 § 4).
+/// one of the platform-supplied messaging tools (see ADR-0049).
 /// Persisted on the activity stream as
-/// <c>Activity_OrchestrationDecision</c> rows so operators have a uniform
+/// <c>Activity_RoutingDecision</c> rows so operators have a uniform
 /// audit trail of every delegation, fan-out, and inspection across
 /// every runtime image.
 /// </summary>
@@ -41,15 +41,15 @@ using Cvoya.Spring.Core.Messaging;
 /// <param name="Reason">Runtime-supplied textual rationale; never hidden chain-of-thought.</param>
 /// <param name="Metadata">Optional structured metadata captured alongside the decision.</param>
 /// <param name="CreatedAt">UTC timestamp at which the platform recorded the decision.</param>
-public sealed record OrchestrationDecision(
+public sealed record RoutingDecision(
     Guid DecisionId,
     Guid TenantId,
     Address UnitAddress,
     Guid ThreadId,
     Guid InputMessageId,
-    OrchestrationDecisionKind Kind,
+    RoutingDecisionKind Kind,
     Address[] Targets,
-    OrchestrationDecisionStatus Status,
+    RoutingDecisionStatus Status,
     Guid[] ResultMessageIds,
     string? Reason,
     JsonElement? Metadata,

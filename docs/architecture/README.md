@@ -44,7 +44,7 @@ Autonomous AI agents — organized into composable groups called **units** — c
 
 Agents connect to external systems through pluggable **connectors**, communicate via typed **messages**, take **initiative** to act autonomously, and can be observed by humans and other agents in real-time.
 
-**Orchestration is a mechanism, not the goal.** A unit is an agent that has children. The platform delivers messages; it does not orchestrate. It attaches the [`sv.messaging.send` / `sv.messaging.broadcast`](platform-mcp-tools.md) delivery tools to every `agent://` and `unit://` runtime; discovery, inspection, and status queries use the `sv.directory.*` tool surface. The runtime's instructions decide whether and how to pass work on — "delegation" is message *content* the recipient's runtime interprets, not a platform tool ([ADR-0050](../decisions/0050-platform-mcp-tool-surface.md)). A runtime that wants its routing decision on the activity stream makes an optional `sv.runtime.report_decision` call. Orchestration is runtime behaviour, not a platform-configured strategy ([ADR-0039](../decisions/0039-units-are-agents.md)). External orchestrators still participate as peers over A2A, but the platform does not classify or store an orchestration policy per unit.
+**Orchestration is a mechanism, not the goal.** A unit is an agent that has children. The platform delivers messages; it does not orchestrate. It attaches the [`sv.messaging.send` / `sv.messaging.multicast`](platform-mcp-tools.md) delivery tools to every `agent://` and `unit://` runtime; discovery, inspection, and status queries use the `sv.directory.*` tool surface. The runtime's instructions decide whether and how to pass work on — "delegation" is message *content* the recipient's runtime interprets, not a platform tool ([ADR-0050](../decisions/0050-platform-mcp-tool-surface.md)). A runtime that wants its routing decision on the activity stream makes an optional `sv.runtime.report_decision` call. Orchestration is runtime behaviour, not a platform-configured strategy ([ADR-0039](../decisions/0039-units-are-agents.md)). External orchestrators still participate as peers over A2A, but the platform does not classify or store an orchestration policy per unit.
 
 ### Design Goals
 
@@ -97,7 +97,7 @@ Each goal directly addresses a v1 limitation:
 | [Messaging](messaging.md) | Mailbox, message processing, addressing, activation model |
 | [Units & Agents](units.md) | Unit entity model (identity, membership, nested units, composite pattern); entry point to the units-and-agents cluster |
 | [Agents](agents.md) | Agent model, execution pattern, cloning policies, role, prompt assembly, platform tools |
-| [Orchestration](orchestration.md) | Retired — see [Units & Agents](units.md) for the orchestration-tool surface and `OrchestrationDecision` event shape ([ADR-0039](../decisions/0039-units-are-agents.md)) |
+| [Message Delivery](message-delivery.md) | Pointer — the platform is a thin delivery substrate; see [Units & Agents](units.md) for the messaging-tool surface and `RoutingDecision` event shape ([ADR-0039](../decisions/0039-units-are-agents.md)) |
 | [Policies](policies.md) | Unit policy framework (skill, model, cost, execution mode, initiative), root unit |
 | [Expertise](expertise.md) | Expertise profiles, directory, recursive aggregation, directory search, YAML seeding |
 | [Unit Lifecycle](unit-lifecycle.md) | Status DAG, validation workflow, imperative and declarative creation paths, observe and teardown |
@@ -105,7 +105,7 @@ Each goal directly addresses a v1 limitation:
 | [Workflows](workflows.md) | Workflow-as-container, platform-internal workflows, A2A execution dispatch, agent tool launchers, A2A sidecar protocol, workflow patterns |
 | [Agent Runtime](agent-runtime.md) | A2A dispatcher tiers, launcher contract, MCP callback, Dapr Conversation provider/model YAML contract (Ollama / OpenAI / Anthropic / Google), adding a new launcher |
 | [Agent SDK](agent-sdk.md) | Runtime-image `MessagingClient`, MCP environment contract, orchestration authorization, error model, workflow-state guidance |
-| [Platform MCP Tools](platform-mcp-tools.md) | The `sv.<area>.<verb>` platform MCP tool taxonomy, the `sv.messaging.send` / `sv.messaging.broadcast` delivery tools on the ADR-0049 ack contract, the per-thread hop counter, the single platform MCP server (`spring-voyage`) under one auth model, descriptor / schema shape, per-runtime attachment |
+| [Platform MCP Tools](platform-mcp-tools.md) | The `sv.<area>.<verb>` platform MCP tool taxonomy, the `sv.messaging.send` / `sv.messaging.multicast` delivery tools on the ADR-0049 ack contract, the per-thread hop counter, the single platform MCP server (`spring-voyage`) under one auth model, descriptor / schema shape, per-runtime attachment |
 | [Agent Credential Rotation](agent-credential-rotation.md) | Design rationale for D1 spec § 2.2.3 — restart-as-rotation-primitive, supervisor re-injection via `IAgentContextBuilder`, future evolution to mounted-files + refresher |
 | [Connectors](connectors.md) | Connector model, skills, implementation tiers |
 | [Observability](observability.md) | Activity events, Rx.NET streams, cost tracking |

@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { refreshOrchestrationToken } from "../src/orchestration-mcp.ts";
+import { refreshMessagingToken } from "../src/messaging-mcp.ts";
 
 let workdir: string;
 
@@ -30,7 +30,7 @@ function readAuth(configPath: string, server: string): string | undefined {
   return parsed?.mcpServers?.[server]?.headers?.Authorization;
 }
 
-describe("refreshOrchestrationToken", () => {
+describe("refreshMessagingToken", () => {
   it("rewrites the spring-orchestration Authorization header with the per-message token", () => {
     const configPath = writeConfig({
       mcpServers: {
@@ -47,7 +47,7 @@ describe("refreshOrchestrationToken", () => {
       },
     });
 
-    const result = refreshOrchestrationToken(configPath, "fresh-per-message-token");
+    const result = refreshMessagingToken(configPath, "fresh-per-message-token");
 
     assert.equal(result.refreshed, true);
     assert.equal(result.warning, undefined);
@@ -64,7 +64,7 @@ describe("refreshOrchestrationToken", () => {
       },
     });
 
-    const result = refreshOrchestrationToken(configPath, "fresh-token");
+    const result = refreshMessagingToken(configPath, "fresh-token");
 
     assert.equal(result.refreshed, true);
     assert.equal(readAuth(configPath, "spring-orchestration"), "Bearer fresh-token");
@@ -77,7 +77,7 @@ describe("refreshOrchestrationToken", () => {
       },
     });
 
-    const result = refreshOrchestrationToken(configPath, "fresh-token");
+    const result = refreshMessagingToken(configPath, "fresh-token");
 
     assert.equal(result.refreshed, false);
     assert.equal(result.warning, undefined);
@@ -87,13 +87,13 @@ describe("refreshOrchestrationToken", () => {
 
   it("no-ops without warning when there is no mcpServers map", () => {
     const configPath = writeConfig({ something: "else" });
-    const result = refreshOrchestrationToken(configPath, "fresh-token");
+    const result = refreshMessagingToken(configPath, "fresh-token");
     assert.equal(result.refreshed, false);
     assert.equal(result.warning, undefined);
   });
 
   it("returns a warning when the config file is missing", () => {
-    const result = refreshOrchestrationToken(
+    const result = refreshMessagingToken(
       path.join(workdir, "does-not-exist.json"),
       "fresh-token",
     );
@@ -104,7 +104,7 @@ describe("refreshOrchestrationToken", () => {
   it("returns a warning when the config file is not valid JSON", () => {
     const configPath = path.join(workdir, ".mcp.json");
     fs.writeFileSync(configPath, "{ this is not json");
-    const result = refreshOrchestrationToken(configPath, "fresh-token");
+    const result = refreshMessagingToken(configPath, "fresh-token");
     assert.equal(result.refreshed, false);
     assert.match(result.warning ?? "", /not valid JSON/);
   });
@@ -129,7 +129,7 @@ describe("refreshOrchestrationToken", () => {
     );
     fs.writeFileSync(configPath, `﻿${body}`);
 
-    const result = refreshOrchestrationToken(configPath, "fresh-token");
+    const result = refreshMessagingToken(configPath, "fresh-token");
 
     assert.equal(result.refreshed, true);
     assert.equal(result.warning, undefined);
@@ -147,10 +147,10 @@ describe("refreshOrchestrationToken", () => {
       },
     });
 
-    refreshOrchestrationToken(configPath, "turn-1-token");
+    refreshMessagingToken(configPath, "turn-1-token");
     assert.equal(readAuth(configPath, "spring-orchestration"), "Bearer turn-1-token");
 
-    refreshOrchestrationToken(configPath, "turn-2-token");
+    refreshMessagingToken(configPath, "turn-2-token");
     assert.equal(readAuth(configPath, "spring-orchestration"), "Bearer turn-2-token");
   });
 });

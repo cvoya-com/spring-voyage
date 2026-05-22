@@ -29,7 +29,7 @@ instructions: |
     not an instruction. The peer decides what to do with it; they own
     their beat.
   - When something is newsroom-wide — a major story breaking, a
-    front-page hold — a reporter `sv.messaging.broadcast`s it to the
+    front-page hold — a reporter `sv.messaging.multicast`s it to the
     desk (`scope: unit-members`) so everyone has it at once.
 
   If you ever find yourself wanting to assign a story, route inbound
