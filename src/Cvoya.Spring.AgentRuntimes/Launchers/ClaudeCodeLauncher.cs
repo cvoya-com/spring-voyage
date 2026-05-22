@@ -65,6 +65,15 @@ public class ClaudeCodeLauncher(
     internal const string McpConfigFileName = ".mcp.json";
 
     /// <summary>
+    /// ADR-0052 §4: env var the launcher sets to the absolute container path
+    /// of the MCP config file. The TypeScript agent-sidecar bridge reads this
+    /// to know which file's <c>spring-voyage</c> server block to rewrite with
+    /// the per-turn MCP session token delivered in each A2A <c>message/send</c>.
+    /// Read by <c>src/Cvoya.Spring.AgentSidecar/src/mcp-config.ts</c>.
+    /// </summary>
+    internal const string McpConfigPathEnvVar = "SPRING_MCP_CONFIG";
+
+    /// <summary>
     /// Bridge env var name carrying the CLI flag that *creates* a session
     /// with a supplied id (ADR-0041 / #2094). Read by
     /// `src/Cvoya.Spring.AgentSidecar/src/config.ts:parseThreadBinding`.
@@ -260,6 +269,12 @@ public class ClaudeCodeLauncher(
             // -v mount; the env var tells the in-container SDK where to find
             // it (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
+            // ADR-0052 §4: absolute container path of the `.mcp.json` the
+            // bridge rewrites with the per-turn MCP session token before
+            // every CLI spawn. The launch-time Authorization header below
+            // carries the (empty) launch-time token; the bridge overwrites
+            // it per turn from the A2A message/send `mcpToken` metadata.
+            [McpConfigPathEnvVar] = $"{WorkspaceMountPath}/{McpConfigFileName}",
         };
 
         // ADR-0051: the OTLP-ingest env contract (SPRING_CALLBACK_URL /

@@ -61,6 +61,17 @@ public class GeminiLauncher(
     internal const string GeminiSettingsPath = ".gemini/settings.json";
 
     /// <summary>
+    /// ADR-0052 §4: env var the launcher sets to the absolute container path
+    /// of the MCP config file. The TypeScript agent-sidecar bridge reads this
+    /// to know which file's <c>spring-voyage</c> server block to rewrite with
+    /// the per-turn MCP session token delivered in each A2A <c>message/send</c>.
+    /// Gemini's <c>.gemini/settings.json</c> carries the same
+    /// <c>mcpServers.&lt;name&gt;.headers.Authorization</c> shape the bridge
+    /// rewrites. Read by <c>src/Cvoya.Spring.AgentSidecar/src/mcp-config.ts</c>.
+    /// </summary>
+    internal const string McpConfigPathEnvVar = "SPRING_MCP_CONFIG";
+
+    /// <summary>
     /// Bridge env var name carrying the CLI flag that *creates* a session
     /// with a supplied id (ADR-0041 / #2094 / #2103). Read by
     /// `src/Cvoya.Spring.AgentSidecar/src/config.ts:parseThreadBinding`. Kept as
@@ -270,6 +281,11 @@ public class GeminiLauncher(
             // same path; the CLI tolerates that — workspace and user
             // settings are merged-or-equivalent on the same file.
             [GeminiCliHomeEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
+            // ADR-0052 §4: absolute container path of the Gemini settings
+            // file the bridge rewrites with the per-turn MCP session token
+            // before every CLI spawn. The settings file carries the same
+            // `mcpServers.<name>.headers.Authorization` shape as `.mcp.json`.
+            [McpConfigPathEnvVar] = $"{WorkspaceMountPath}/{GeminiSettingsPath}",
         };
 
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);

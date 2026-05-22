@@ -115,54 +115,11 @@ describe("A2AHandler.handle", () => {
     assert.equal(task["x-spring-voyage-bridge-version"], BRIDGE_VERSION);
   });
 
-  it("overrides SPRING_CALLBACK_TOKEN for a per-message callback token", async () => {
-    const handler = makeHandler(
-      [PROCESS_NODE, "-e", "process.stdout.write(process.env.SPRING_CALLBACK_TOKEN ?? '')"],
-      { PATH: process.env.PATH, SPRING_CALLBACK_TOKEN: "launch-token" },
-    );
-
-    const res = await handler.handle({
-      jsonrpc: "2.0",
-      method: "message/send",
-      params: {
-        callbackToken: "top-level-injected-token",
-        metadata: { callbackToken: "params-metadata-injected-token" },
-        message: {
-          callbackToken: "message-injected-token",
-          metadata: { callbackToken: "fresh-message-token" },
-          parts: [{ text: "ping" }],
-        },
-      },
-      id: "callback-token",
-    });
-
-    const task = res.result as Record<string, unknown>;
-    const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
-    assert.equal(artifacts[0]?.parts[0]?.text, "fresh-message-token");
-  });
-
-  it("keeps launch-time SPRING_CALLBACK_TOKEN when a message has no callback token", async () => {
-    const handler = makeHandler(
-      [PROCESS_NODE, "-e", "process.stdout.write(process.env.SPRING_CALLBACK_TOKEN ?? '')"],
-      { PATH: process.env.PATH, SPRING_CALLBACK_TOKEN: "launch-token" },
-    );
-
-    const res = await handler.handle({
-      jsonrpc: "2.0",
-      method: "message/send",
-      params: { message: { parts: [{ text: "ping" }] } },
-      id: "callback-token-fallback",
-    });
-
-    const task = res.result as Record<string, unknown>;
-    const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
-    assert.equal(artifacts[0]?.parts[0]?.text, "launch-token");
-  });
-
-  // #2580: the bridge refreshes the spring-orchestration callback token in
-  // .mcp.json before each exec, so a persistent container never dials the
-  // dispatcher with the expired launch-time token.
-  it("refreshes the spring-orchestration token in .mcp.json before each exec", async () => {
+  // ADR-0052 §4 / #2615: the bridge rewrites the spring-voyage MCP token in
+  // the launcher-written MCP config before each exec, so a persistent
+  // container always dials the worker-side McpServer with a token it
+  // actually issued for that turn.
+  it("rewrites the spring-voyage token in the MCP config before each exec", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sv-a2a-mcp-"));
     try {
       const configPath = path.join(dir, ".mcp.json");
@@ -170,10 +127,10 @@ describe("A2AHandler.handle", () => {
         configPath,
         JSON.stringify({
           mcpServers: {
-            "spring-orchestration": {
+            "spring-voyage": {
               type: "http",
-              url: "http://callback",
-              headers: { Authorization: "Bearer launch-time-stale-token" },
+              url: "http://mcp",
+              headers: { Authorization: "Bearer launch-time-empty-token" },
             },
           },
         }),
@@ -183,7 +140,7 @@ describe("A2AHandler.handle", () => {
         [PROCESS_NODE, "-e", "process.stdout.write('ok')"],
         {
           PATH: process.env.PATH,
-          SPRING_ORCHESTRATION_MCP_CONFIG: configPath,
+          SPRING_MCP_CONFIG: configPath,
         },
       );
 
@@ -192,32 +149,32 @@ describe("A2AHandler.handle", () => {
         method: "message/send",
         params: {
           message: {
-            metadata: { callbackToken: "fresh-per-message-token" },
+            metadata: { mcpToken: "fresh-per-turn-token" },
             parts: [{ text: "ping" }],
           },
         },
-        id: "mcp-refresh",
+        id: "mcp-rewrite",
       });
 
-      const refreshed = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      const rewritten = JSON.parse(fs.readFileSync(configPath, "utf8"));
       assert.equal(
-        refreshed.mcpServers["spring-orchestration"].headers.Authorization,
-        "Bearer fresh-per-message-token",
+        rewritten.mcpServers["spring-voyage"].headers.Authorization,
+        "Bearer fresh-per-turn-token",
       );
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("leaves .mcp.json untouched when a message carries no callback token", async () => {
+  it("leaves the MCP config untouched when a message carries no mcpToken", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sv-a2a-mcp-"));
     try {
       const configPath = path.join(dir, ".mcp.json");
       const original = JSON.stringify({
         mcpServers: {
-          "spring-orchestration": {
+          "spring-voyage": {
             type: "http",
-            url: "http://callback",
+            url: "http://mcp",
             headers: { Authorization: "Bearer launch-token" },
           },
         },
@@ -226,7 +183,7 @@ describe("A2AHandler.handle", () => {
 
       const handler = makeHandler(
         [PROCESS_NODE, "-e", "process.stdout.write('ok')"],
-        { PATH: process.env.PATH, SPRING_ORCHESTRATION_MCP_CONFIG: configPath },
+        { PATH: process.env.PATH, SPRING_MCP_CONFIG: configPath },
       );
 
       await handler.handle({
@@ -236,9 +193,9 @@ describe("A2AHandler.handle", () => {
         id: "mcp-no-token",
       });
 
-      // No per-message token → the launch-time token is left as-is.
+      // No per-turn token → the launch-time token is left as-is.
       assert.equal(
-        JSON.parse(fs.readFileSync(configPath, "utf8")).mcpServers["spring-orchestration"]
+        JSON.parse(fs.readFileSync(configPath, "utf8")).mcpServers["spring-voyage"]
           .headers.Authorization,
         "Bearer launch-token",
       );

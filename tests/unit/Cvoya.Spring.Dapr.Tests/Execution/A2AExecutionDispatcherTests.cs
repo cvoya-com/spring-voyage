@@ -557,11 +557,13 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_DoesNotAttachAnyCallbackMetadataToTheA2AMessage()
+    public async Task DispatchAsync_AttachesPerTurnMcpTokenToTheA2AMessageMetadata()
     {
-        // ADR-0051: the per-turn callback JWT is retired. The A2A message
-        // metadata no longer carries a callbackToken — messaging tools
-        // authenticate through the MCP session token, minted per turn.
+        // ADR-0052 §4: the per-turn MCP session token is delivered to the
+        // agent container in the A2A message/send metadata under the
+        // `mcpToken` key. The TypeScript bridge reads this field and
+        // rewrites the `spring-voyage` MCP server block's Authorization
+        // header in `.mcp.json` before spawning the CLI.
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("the prompt");
@@ -571,11 +573,141 @@ public class A2AExecutionDispatcherTests
 
         recorder.Calls.Count.ShouldBe(1);
         using var document = JsonDocument.Parse(recorder.Calls[0].Body);
+        var metadata = document.RootElement
+            .GetProperty("params")
+            .GetProperty("message")
+            .GetProperty("metadata");
+        metadata.GetProperty("mcpToken").GetString().ShouldBe("test-token");
+    }
+
+    [Fact]
+    public async Task DispatchAsync_PersistentAgent_WarmContainer_IssuesPerTurnSessionAndRevokes()
+    {
+        // ADR-0052 §4: every persistent dispatch — including the warm-
+        // container path — issues exactly one per-turn MCP session scoped
+        // to the real per-turn thread id + message id (NOT the stable
+        // `persistent-{agentId}` container-identity thread), delivers the
+        // token in the A2A message/send metadata, and revokes the session
+        // at turn end.
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId,
+                "My Agent",
+                "instructions",
+                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        await _persistentRegistry.RegisterAsync(
+            AgentId,
+            new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/"),
+            "existing-container",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var message = CreateMessage(threadId: Guid.NewGuid().ToString("D"));
+        _persistentContainerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+        var recorder = InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        // The session is scoped to the real per-turn thread id + message id.
+        _mcpServer.Received(1).IssueSession(
+            AgentId, message.ThreadId!, message.To.Scheme, message.Id);
+        _mcpServer.Received(1).RevokeSession("test-token");
+
+        // The token rides on the A2A message/send metadata.
+        recorder.Calls.Count.ShouldBe(1);
+        using var document = JsonDocument.Parse(recorder.Calls[0].Body);
         document.RootElement
             .GetProperty("params")
             .GetProperty("message")
-            .TryGetProperty("metadata", out _)
-            .ShouldBeFalse();
+            .GetProperty("metadata")
+            .GetProperty("mcpToken")
+            .GetString()
+            .ShouldBe("test-token");
+    }
+
+    [Fact]
+    public async Task DispatchAsync_PersistentAgent_A2ACallThrows_StillRevokesPerTurnSession()
+    {
+        // ADR-0052 §4: the per-turn session is revoked in a finally block,
+        // so a failed dispatch does not leak the session.
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId,
+                "My Agent",
+                "instructions",
+                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        await _persistentRegistry.RegisterAsync(
+            AgentId,
+            new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/"),
+            "existing-container",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var message = CreateMessage(threadId: Guid.NewGuid().ToString("D"));
+        _persistentContainerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+        _containerRuntime.SendHttpJsonAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("connection refused"));
+
+        var act = () => _dispatcher.DispatchAsync(
+            message, context: null, TestContext.Current.CancellationToken);
+        await Should.ThrowAsync<Exception>(act);
+
+        _mcpServer.Received(1).IssueSession(
+            AgentId, message.ThreadId!, message.To.Scheme, message.Id);
+        _mcpServer.Received(1).RevokeSession("test-token");
+    }
+
+    [Fact]
+    public async Task DispatchAsync_PersistentAgent_ColdStart_DoesNotIssueLaunchTimeSession()
+    {
+        // ADR-0052 §3/§4: the cold-start (auto-start) path no longer issues
+        // a launch-time MCP session. The launch context carries an empty
+        // McpToken — the only session a persistent container ever sees is
+        // the per-turn session issued by DispatchPersistentAsync, scoped to
+        // the real per-turn thread id, NOT the `persistent-{agentId}`
+        // container-identity thread.
+        var message = CreateMessage(threadId: Guid.NewGuid().ToString("D"));
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId, "My Agent", "instructions",
+                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        // StartAsync returns a container id, but the readiness probe fails
+        // (no real server) so the dispatch throws after the launch. Use a
+        // short cancellation budget to avoid the full 60s readiness wait.
+        _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns("spring-persistent-cold");
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(2));
+
+        var act = () => _dispatcher.DispatchAsync(message, context: null, cts.Token);
+        await Should.ThrowAsync<Exception>(act);
+
+        // The launch context the launcher saw carried an empty MCP token —
+        // the launch path issues no session of its own.
+        await _launcher.Received().PrepareAsync(
+            Arg.Is<AgentLaunchContext>(ctx => ctx.McpToken == string.Empty),
+            Arg.Any<CancellationToken>());
+
+        // No session was ever issued against the stable container-identity
+        // thread `persistent-{agentId}` — only the per-turn thread.
+        _mcpServer.DidNotReceive().IssueSession(
+            Arg.Any<string>(), $"persistent-{AgentId}", Arg.Any<string>(), Arg.Any<Guid>());
     }
 
     [Fact]

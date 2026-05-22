@@ -122,8 +122,7 @@ public class CodexLauncherTests
     public async Task PrepareAsync_WritesOnlyTheSinglePlatformMcpServer()
     {
         // ADR-0051: one MCP server serves every sv.* tool — sv.messaging.*
-        // included. The launcher no longer writes a second spring-orchestration
-        // server, and there is no per-turn callback-token refresh env var.
+        // included. The launcher no longer writes a second messaging server.
         var context = LauncherCallbackTestSupport.CreateContext();
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
@@ -131,7 +130,11 @@ public class CodexLauncherTests
         var mcpServers = GetMcpServers(prep);
         mcpServers.EnumerateObject().Select(property => property.Name)
             .ShouldBe(new[] { "spring-voyage" });
+        // ADR-0052 §4: the dead SPRING_ORCHESTRATION_MCP_CONFIG env var is
+        // gone; SPRING_MCP_CONFIG points the bridge at the `.mcp.json` it
+        // rewrites per turn with the delivered MCP session token.
         prep.EnvironmentVariables.ShouldNotContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
+        prep.EnvironmentVariables["SPRING_MCP_CONFIG"].ShouldBe("/workspace/.mcp.json");
     }
 
     [Fact]

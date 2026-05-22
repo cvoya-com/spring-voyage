@@ -360,12 +360,19 @@ public class A2AExecutionDispatcher(
                     $"Ephemeral agent '{agentId}' did not become A2A-ready within {EffectiveReadinessTimeout}.");
             }
 
+            // ADR-0052 §4: deliver the per-turn session token in the A2A
+            // message/send metadata so token delivery is uniform across the
+            // ephemeral and persistent dispatch paths. (The ephemeral
+            // container's launch-time `.mcp.json` already carries this same
+            // per-turn token, so the bridge's rewrite is a no-op-equivalent
+            // here — kept uniform deliberately.)
             return await SendA2AMessageAsync(
                 endpoint,
                 agentId,
                 containerId,
                 message,
                 prompt,
+                session.Token,
                 cancellationToken);
         }
         finally
@@ -746,6 +753,22 @@ public class A2AExecutionDispatcher(
         // id, so the in-flight suppression doesn't hide actual breakage.
         using var dispatchScope = persistentAgentRegistry.BeginDispatch(agentId);
 
+        // ADR-0052 §4: every persistent dispatch — warm container or
+        // cold start — issues exactly one per-turn MCP session and
+        // delivers the token in the A2A message/send (§4). The launch
+        // path no longer issues a launch-time session (StartPersistentAgentAsync),
+        // so this is the only session the container ever sees. The
+        // session is scoped to the real per-turn thread id + message id
+        // (the same arguments the ephemeral path passes), NOT the stable
+        // `persistent-{agentId}` container-identity thread. message.To.Scheme
+        // carries the receiver's kind so platform tools (#2231) can resolve
+        // the caller's kind without an extra lookup; message.Id rides on the
+        // session so sv.messaging.* tools carry per-turn delivery authority
+        // (ADR-0051). The session is revoked in the finally below at turn end,
+        // matching the ephemeral path.
+        var session = mcpServer.IssueSession(
+            agentId, message.ThreadId!, message.To.Scheme, message.Id);
+
         SvMessage? response;
         try
         {
@@ -755,6 +778,7 @@ public class A2AExecutionDispatcher(
                 containerId,
                 message,
                 prompt,
+                session.Token,
                 cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -767,6 +791,10 @@ public class A2AExecutionDispatcher(
                 agentId);
             await persistentAgentRegistry.MarkUnhealthyAsync(agentId, containerId, cancellationToken);
             throw;
+        }
+        finally
+        {
+            mcpServer.RevokeSession(session.Token);
         }
 
         // #2519: a successful A2A POST is the strongest possible "this
@@ -812,14 +840,23 @@ public class A2AExecutionDispatcher(
             throw new SpringException("MCP server has not been started; endpoint is unavailable.");
         }
 
-        // Use a stable thread ID for persistent agent MCP sessions.
+        // The persistent agent's container-identity thread id. Stable
+        // across restarts so launcher-emitted env vars / config files
+        // carry a coherent thread id between launch and the first turn.
         var sessionId = $"persistent-{agentId}";
         var prompt = definition.Instructions ?? string.Empty;
-        // Receiver's scheme threaded into the session so platform tools
-        // (#2231) can resolve the caller's kind without an extra lookup.
-        // ADR-0051: the inbound message id rides on the session so
-        // sv.messaging.* tools carry the per-turn delivery authority.
-        var session = mcpServer.IssueSession(agentId, sessionId, message.To.Scheme, message.Id);
+
+        // ADR-0052 §3/§4: the launch path no longer issues an MCP
+        // session. A deploy/auto-start is a launch with no turn context —
+        // there is no per-turn threadId / messageId to scope a session to,
+        // and a session minted here would be revoked before the first real
+        // turn anyway. The freshly-started container has no usable MCP token
+        // until the turn's message/send delivers one (DispatchPersistentAsync
+        // issues the per-turn session and the TypeScript bridge writes it into
+        // .mcp.json before spawning the CLI). The launch-time .mcp.json
+        // carries the endpoint but an empty token. McpEndpoint is still set
+        // from the live worker-side McpServer so the container knows where to
+        // dial once it has a token.
 
         // #1321: populate agent definition YAML + tenant config JSON for the
         // /spring/context/ mount (D1 spec § 2.2.2).
@@ -832,7 +869,9 @@ public class A2AExecutionDispatcher(
             ThreadId: sessionId,
             Prompt: prompt,
             McpEndpoint: mcpServer.Endpoint,
-            McpToken: session.Token,
+            // ADR-0052 §3/§4: no launch-time session — the container has
+            // no usable token until its first turn's message/send.
+            McpToken: string.Empty,
             TenantId: tenantId,
             // #2251: forward the agent's owning unit id so launchers can pass
             // it to ILlmCredentialResolver — without this the resolver skips
@@ -972,6 +1011,7 @@ public class A2AExecutionDispatcher(
         string? containerId,
         SvMessage originalMessage,
         string prompt,
+        string mcpToken,
         CancellationToken cancellationToken)
     {
         using var transport = _transportFactory.CreateTransport(containerId);
@@ -1013,6 +1053,20 @@ public class A2AExecutionDispatcher(
                 Parts = [new TextPart { Text = userMessage }],
                 MessageId = originalMessage.Id.ToString(),
                 ContextId = contextIdWire,
+                // ADR-0052 §4: deliver the per-turn MCP session token in the
+                // message/send metadata under `mcpToken`. The TypeScript
+                // agent-sidecar bridge reads this field and rewrites the
+                // `spring-voyage` MCP server block's Authorization header in
+                // `.mcp.json` before spawning the CLI, so every turn dials the
+                // worker-side McpServer with a token it actually issued for
+                // that turn. The session is revoked at turn end by the
+                // dispatch path that issued it. The field is intentionally a
+                // clean, accurately-named `mcpToken` — it is the MCP session
+                // token, not the retired callback JWT.
+                Metadata = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                {
+                    ["mcpToken"] = JsonSerializer.SerializeToElement(mcpToken),
+                },
             },
             Configuration = new MessageSendConfiguration
             {

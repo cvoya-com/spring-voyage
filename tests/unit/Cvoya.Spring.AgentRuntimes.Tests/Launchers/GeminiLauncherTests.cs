@@ -108,8 +108,7 @@ public class GeminiLauncherTests
     public async Task PrepareAsync_WritesOnlyTheSinglePlatformMcpServer()
     {
         // ADR-0051: one MCP server serves every sv.* tool — sv.messaging.*
-        // included. The launcher no longer writes a second spring-orchestration
-        // server with an includeTools messaging allowlist.
+        // included. The launcher no longer writes a second messaging server.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nAnalyze thoroughly.",
             mcpToken: "gemini-secret-token");
@@ -120,6 +119,11 @@ public class GeminiLauncherTests
         var servers = settings.RootElement.GetProperty("mcpServers");
         servers.EnumerateObject().Select(property => property.Name)
             .ShouldBe(new[] { "spring-voyage" });
+        // ADR-0052 §4: SPRING_MCP_CONFIG points the bridge at the Gemini
+        // settings file it rewrites per turn with the delivered MCP
+        // session token (same mcpServers.<name>.headers shape as .mcp.json).
+        prep.EnvironmentVariables["SPRING_MCP_CONFIG"]
+            .ShouldBe("/workspace/.gemini/settings.json");
     }
 
     [Fact]
