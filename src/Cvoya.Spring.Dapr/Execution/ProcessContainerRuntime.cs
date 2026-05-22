@@ -717,6 +717,35 @@ public class ProcessContainerRuntime(
             return false;
         }
 
+        const string stageMount = "/spring-volume-stage";
+
+        // #2639 stopgap: a freshly-created named volume's root directory is
+        // owned root:root 0755. The in-container agent runs as a non-root uid,
+        // so it cannot create entries in its own workspace root (`.claude/`,
+        // `worktrees/`, the repo clone, …) — Claude Code then fails to create
+        // CLAUDE_CONFIG_DIR and returns an empty reply. Make the volume root
+        // world-writable (sticky, like /tmp) via a one-shot root helper so any
+        // agent uid can write it. `chmod` runs as --user 0 because the root is
+        // root-owned; the helper image's entrypoint is overridden to `sh`.
+        // The proper fix (#2637 pull model) lets the agent container be the
+        // volume's first mounter, so the image pre-populates the correct
+        // ownership and this stopgap is removed.
+        var (chmodExit, _, chmodErr) = await RunProcessAsync(
+            binaryName,
+            [
+                "run", "--rm", "--user", "0",
+                "--volume", $"{volumeName}:{stageMount}",
+                "--entrypoint", "sh", helperImage,
+                "-c", $"chmod 1777 {stageMount}",
+            ],
+            ct);
+        if (chmodExit != 0)
+        {
+            throw new InvalidOperationException(
+                $"Failed to make volume {volumeName} root writable by the agent uid "
+                + $"using image {helperImage}. Exit code: {chmodExit}. Stderr: {chmodErr}");
+        }
+
         // Populate the volume by creating a throwaway container that mounts it,
         // copying the staged files in with `cp`, then removing the container.
         // `cp` transfers files over the runtime's own client connection, so it
@@ -726,7 +755,6 @@ public class ProcessContainerRuntime(
         // the volume's backing directory does not exist on the dispatcher host
         // at all. Writing into that directory directly was the #2608 bug this
         // replaces; see issue #2637 for the follow-up pull-model proposal.
-        const string stageMount = "/spring-volume-stage";
         var helperName = "spring-wsstage-" + Guid.NewGuid().ToString("N");
 
         var (createExit, _, createErr) = await RunProcessAsync(
