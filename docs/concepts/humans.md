@@ -19,7 +19,7 @@ This page covers humans in two roles: as ACL-bound platform subjects (the part t
 | Have an outbound connector binding (translate external events into messages) | No — that's a unit/connector concern |
 | Be cloned, deployed, scaled | No |
 | Have memory, skills, traces, expertise, budget, policy, runtime | No |
-| Be addressable via the directory | No — `human:` short-circuits the directory ([messaging.md](../architecture/messaging.md)) |
+| Be discoverable via the expertise directory | No — humans have no expertise profile; they surface in `sv.directory.list_members` as members, not as routable expertise |
 
 ## Team role vs. platform role
 
@@ -113,7 +113,7 @@ Human (configuration slot) → TenantUser (authenticated principal) → TenantUs
 
 When an agent renders `@<human-name>` in a PR comment or calls `--add-reviewer <login>`, the agent walks `Human → TenantUser → TenantUserConnectorIdentity` for the connector and reads the `username` from the tenant-user's row. The outbound API call's **credential** is, separately and unconnectedly, the unit binding's pinned credential (App-installation or PAT secret — [ADR-0047 §6](../decisions/0047-platform-user-human-split.md)). The mapping is the display / mention / attribution seam, never the auth seam.
 
-**OSS default.** Every `Human` row maps to the single OSS-operator `TenantUser` pinned by `OssTenantUserIds.Operator` (deterministic v5 UUID — see [Tenants](tenants.md#oss-operator-tenantuser) and [Identifiers § 6](../architecture/identifiers.md#6-the-oss-operator-tenantuser-id)). N declared `Human` rows resolve to the same one tenant user, which carries the operator's GitHub / Slack / Linear handles once. No duplication onto every `Human` row.
+**OSS default.** Every `Human` row maps to the single OSS-operator `TenantUser` pinned by `OssTenantUserIds.Operator` (deterministic v5 UUID — see [Tenants § OSS operator TenantUser](tenants.md#oss-operator-tenantuser) and [Data & identity](../architecture/data-and-identity.md#the-oss-default-tenant)). N declared `Human` rows resolve to the same one tenant user, which carries the operator's GitHub / Slack / Linear handles once. No duplication onto every `Human` row.
 
 **Hosted overlay.** Per-`Human` explicit override (binding `Human X` to `TenantUser Y` independent of the default policy) is **v0.2** — OUT2 in the umbrella. v0.1 ships the derived projection (default-to-operator in OSS; the resolution policy's choice in hosted).
 
@@ -162,10 +162,10 @@ Human pages live at `/humans/<guid>` and are reached either directly (Cmd-K, act
 - [ADR-0047](../decisions/0047-platform-user-human-split.md) — `TenantUser` actor kind; display-side connector identity owned by the `TenantUser`; `Human → TenantUser` mapping; the `OssTenantUserIds.Operator` pin.
 - [ADR-0046](../decisions/0046-unified-members-grammar.md) — unified `members:` grammar; humans as a member kind; `HumanTemplate`; vocabulary trim.
 - [ADR-0044](../decisions/0044-team-role-vs-platform-role.md) — team role vs. platform role; the `IPackageHumanResolutionPolicy` seam (§§ 1, 4 survive ADR-0046 unchanged).
-- [ADR-0039 — Units are agents](../decisions/0039-units-are-agents.md) — what makes a unit an agent (and by contrast, what makes a human *not* an agent).
+- [ADR-0053 — Units are agents](../decisions/0053-units-are-agents-and-one-way-delivery.md) — what makes a unit an agent (and by contrast, what makes a human *not* an agent).
 - [Packages](packages.md) — the unified `members:` grammar and the recursive folder layout.
 - [Templates](templates.md) — `HumanTemplate` alongside `UnitTemplate` / `AgentTemplate`.
 - [Units vs agents](units-vs-agents.md) — agent-shaped contract.
-- [`docs/architecture/messaging.md`](../architecture/messaging.md) — why `human:` short-circuits the directory.
-- [`docs/architecture/infrastructure.md`](../architecture/infrastructure.md) — `HumanActor` and the actor-interface table.
+- [`docs/architecture/messaging.md`](../architecture/messaging.md) — addressing and the agent mailbox.
+- [`docs/architecture/components.md`](../architecture/components.md) — `HumanActor` and the actor inventory.
 - [`docs/design/canonical-tabs.md`](../design/canonical-tabs.md) — Explorer tab structure including the Human column.

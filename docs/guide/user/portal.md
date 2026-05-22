@@ -6,11 +6,11 @@ The Spring Voyage web portal (`Cvoya.Spring.Web`, a Next.js app) is a browser-ba
 
 ## Launching the portal
 
-```bash
-spring dashboard   # opens the configured web URL in your default browser
-```
-
-If running the portal directly (`npm run dev` inside `src/Cvoya.Spring.Web/`), navigate to `http://localhost:3000`. Authentication uses the same token flow as the CLI; in `LocalDev` mode no login is required.
+Open the deployment's configured web URL in a browser — `http://localhost` for
+a default install, or `https://<your-host>` once DNS and TLS are set up. If
+running the portal directly (`npm run dev` inside `src/Cvoya.Spring.Web/`),
+navigate to `http://localhost:3000`. Authentication uses the same token flow as
+the CLI.
 
 ## Navigation
 
@@ -22,7 +22,7 @@ The left sidebar lists all top-level routes:
 | `/inbox` — **Inbox** | Engagements awaiting your reply | `spring inbox list` |
 | `/units` — **Units** | Unit list with status and delete | `spring unit list` |
 | `/activity` — **Activity** | Paginated activity feed with filters | `spring activity list` |
-| `/conversations` — **Engagements** | Engagement list, "Awaiting you" inbox, thread deep-links | `spring conversation list` / `spring inbox list` |
+| `/conversations` — **Engagements** | Engagement list, "Awaiting you" inbox, thread deep-links | `spring thread list` / `spring inbox list` |
 | `/connectors` — **Connectors** | Catalog of connector types and unit bindings | `spring connector catalog` |
 | `/initiative` — **Initiative** | Per-agent initiative policy editor + recent events | *(no CLI equivalent — parity gap)* |
 | `/analytics/costs` — **Analytics → Costs** | Tenant-wide spend, per-source breakdown, budget editors | `spring analytics costs`, `spring cost set-budget` |
@@ -39,7 +39,7 @@ A **Settings** hub at `/settings` collects cross-cutting configuration (the in-s
 | Panel | What it does | CLI equivalent |
 |-------|--------------|----------------|
 | **Tenant budget** | Read and edit the tenant-wide daily cost ceiling | `spring cost set-budget --scope tenant --amount <n> --period daily` |
-| **Tenant defaults** | Set / rotate tenant-scoped LLM credentials (`anthropic-oauth`, `anthropic-api-key`, `openai-api-key`, `google-api-key`) | `spring secret --scope tenant {create,rotate,delete} <name>` |
+| **Tenant defaults** | Set / rotate tenant-scoped LLM credentials (`anthropic-oauth`, `anthropic-api-key`, `openai-api-key`, `google-api-key`) | `spring secret {create,rotate,delete} --scope tenant <name>` |
 | **Account** | Current user and API tokens | `spring auth token list` |
 | **About** | Version, build hash, license | `spring platform info` |
 
@@ -86,10 +86,10 @@ A five-step wizard driving the same `/api/v1/units` endpoints as the CLI. Units 
 
 ### Step 1 — Details
 
-Collects name, display name, description, execution tool (claude-code, codex, gemini, dapr-agent, custom), hosting mode, image/runtime defaults, and a UI color.
+Collects name, display name, description, agent runtime (`claude-code`, `codex`, `gemini`, `spring-voyage`), hosting mode, image/model defaults, and a UI color.
 
-- **Provider dropdown** is shown only for `spring-voyage-agent`; other tools hardcode their provider.
-- **Model dropdown** is shown for every tool with a known catalog (Claude, OpenAI, Gemini, Dapr Agent). The catalog comes from `GET /api/v1/models/{provider}`.
+- **Provider dropdown** is shown only for the multi-provider `spring-voyage` runtime; fixed-provider runtimes hardcode their provider.
+- **Model dropdown** is shown for every runtime with a known catalog. The catalog comes from `GET /api/v1/models/{provider}`.
 - **Credential section** shows the resolved status for the required LLM provider key. Three states: *Tenant default inherited* (green + Override button), *Unit override set* (green), *Not configured* (amber + inline input + "Save as tenant default" checkbox). The Create button is disabled until the credential resolves.
 
 ## Via CLI
@@ -97,20 +97,20 @@ Collects name, display name, description, execution tool (claude-code, codex, ge
 ```bash
 spring unit create my-unit \
   --display-name "My Unit" \
-  --tool claude-code \
+  --runtime claude-code \
   --model claude-sonnet-4-6 \
   --hosting ephemeral
 
 # With inline credential (saves as tenant default):
 spring unit create my-unit \
-  --tool claude-code \
-  --api-key-from-file ~/.config/anthropic/api-key \
+  --runtime claude-code \
+  --oauth-token-from-file ~/.config/anthropic/claude-code-token \
   --save-as-tenant-default
 
-# dapr-agent with explicit provider:
+# spring-voyage runtime with an explicit model provider:
 spring unit create my-unit \
-  --tool dapr-agent \
-  --provider anthropic \
+  --runtime spring-voyage \
+  --model-provider anthropic \
   --model claude-sonnet-4-6
 ```
 
@@ -152,7 +152,7 @@ The page has eleven tabs:
 
 ### General
 
-Editable display name, description, model, and color. **CLI note:** no `spring unit set` in the shipped CLI; workaround is `spring apply -f` after editing a YAML export. Parity gap.
+Editable display name, description, model, and color. **CLI:** `spring unit set <unit> [--display-name …] [--description …] [--model …] [--color …]`.
 
 ### Agents
 
@@ -173,7 +173,7 @@ Editable display name, description, model, and color. **CLI note:** no `spring u
 
 ### Skills
 
-Grid of per-agent skill toggles. **CLI note:** no CLI equivalent today. Declare skills in agent YAML and `spring apply`. Parity gap.
+Grid of per-agent skill toggles. **CLI:** `spring unit skills` / `spring agent skills` (`list` / `add` / `remove` / `set`) equip already-installed skill bundles.
 
 ### Policies
 
@@ -207,7 +207,7 @@ Delegates to a connector-specific component. For GitHub:
 - **Default reviewer** — optional; agents request this login as PR reviewer unless overriding per-call.
 - **Webhook events** — **Connector defaults** checkbox (issues, pull_request, issue_comment) or a custom per-event selection.
 
-Saving POSTs `/api/v1/connectors/github/units/{unitId}/config`. **CLI note:** GitHub connector configuration is portal-only; use a unit YAML manifest's `connectors:` block and `spring apply -f` as alternative. Parity gap.
+Saving POSTs `/api/v1/connectors/github/units/{unitId}/config`. **CLI:** `spring connector bind --unit <unit> --type github --owner … --repo …` writes the same per-unit config.
 
 ### Secrets
 
@@ -276,14 +276,14 @@ Mirrors `spring agent create` field-for-field. For lightweight "create-and-add t
 
 | Field | Required | CLI flag |
 |-------|----------|----------|
-| Agent id | yes | positional `<id>` |
-| Display name | yes | `--name` |
+| Display name | yes | `--name` (agent id is platform-assigned) |
 | Role | no | `--role` |
-| Execution tool | no | `--tool` |
+| Agent runtime | no | `--runtime` |
 | Container image | no | `--image` |
-| Container runtime | no | `--runtime` |
-| Model | no | *(via `--definition-file`)* |
-| Initial unit assignment | yes | `--unit` (repeatable) |
+| Model provider | no | `--model-provider` |
+| Model | no | `--model` |
+| Hosting mode | no | `--hosting` |
+| Unit assignment | no | `--unit` (repeatable; omit for top-level) |
 
 ```bash
 spring agent create \
@@ -291,7 +291,7 @@ spring agent create \
   --role reviewer \
   --unit engineering \
   --image ghcr.io/example/agent:latest \
-  --tool claude-code
+  --runtime claude-code
 ```
 
 ## Agents lens (`/agents`)
@@ -379,8 +379,8 @@ The engagement surface is the portal's view of threads. The routes currently use
 ### Via CLI
 
 ```bash
-spring conversation list
-spring conversation list --unit engineering-team --status active
+spring thread list
+spring thread list --unit engineering-team
 ```
 
 ### Engagement list (`/conversations`)
@@ -392,10 +392,9 @@ spring conversation list --unit engineering-team --status active
 
 | Action | Portal | CLI |
 |--------|--------|-----|
-| List engagements | `/conversations` | `spring conversation list` |
+| List engagements | `/conversations` | `spring thread list` |
 | Filter by unit | `?unit=…` | `--unit …` |
 | Filter by participant | `?participant=scheme:<32-hex>` | `--participant scheme:<32-hex>` |
-| Filter by status | `?status=active\|completed` | `--status active\|completed` |
 
 ### Thread view (`/conversations/{id}`)
 
@@ -403,13 +402,13 @@ The thread view is the per-engagement workspace — the collaboration surface.
 
 - **Header** — thread id, status, participants, and a "View activity" pivot.
 - **Thread** — one bubble per event, role-attributed by sender scheme (`human:` right-aligned, `agent:` / `unit:` / `system:` left-aligned). `DecisionMade`, `StateChanged`, `WorkflowStepCompleted`, and `ReflectionCompleted` events collapse by default.
-- **Composer** — textarea + recipient field. Submit on click or `⌘/Ctrl+Enter`. POSTs to `/api/v1/conversations/{id}/messages`.
-- **Live updates** — subscribes to the SSE stream filtered by `correlationId`.
+- **Composer** — textarea + recipient field. Submit on click or `⌘/Ctrl+Enter`.
+- **Live updates** — subscribes to the SSE stream filtered by thread.
 
 | Action | Portal | CLI |
 |--------|--------|-----|
-| Show a thread | `/conversations/{id}` | `spring conversation show <id>` |
-| Send into a thread | composer | `spring conversation send --conversation <id> <addr> <text>` |
+| Show a thread | `/conversations/{id}` | `spring thread show <id>` |
+| Send into a thread | composer | `spring thread send --thread <id> <addr> <text>` |
 
 ## Initiative (`/initiative`)
 
@@ -462,10 +461,10 @@ Costs also shows the tenant daily budget editor and per-agent budget links.
 #### Via CLI
 
 ```bash
-spring package install software-engineering
-spring unit members list engineering-team
-spring unit start engineering-team
-spring activity list --source unit:engineering-team
+spring package install spring-voyage-oss
+spring unit members list spring-voyage-oss
+spring unit start spring-voyage-oss
+spring activity list --source unit:<id>
 ```
 
 ### Adding an agent to an existing unit
@@ -489,7 +488,10 @@ Navigate to `/units/{unit}` → **Connector** tab → Install App (if needed) �
 
 #### Via CLI
 
-No direct CLI surface. Use a YAML manifest with a `connectors:` block and `spring apply -f`.
+```bash
+spring connector install github
+spring connector bind --unit <unit> --type github --owner <org> --repo <repo>
+```
 
 ### Viewing and filtering activity
 
@@ -508,23 +510,21 @@ spring activity list --source <unit:..|agent:..> \
 
 | Capability | Portal | CLI | Notes |
 |------------|--------|-----|-------|
-| Edit unit general settings | **General** tab | *(none)* | workaround: export + `spring apply` |
-| Bind a connector during unit creation | Wizard Step 3 | *(none)* | |
-| GitHub connector configuration | Connector tab | *(none)* | use YAML |
-| Unit-scoped secrets CRUD | Secrets tab | *(none)* | use YAML or portal |
-| Per-agent skills toggles | Skills tab | *(none)* | declare in agent YAML |
-| Initiative policy editor | `/initiative` | *(none)* | |
-| Per-source cost breakdown | `/analytics/costs` (bars) | *(none)* | tracked [#554](https://github.com/cvoya-com/spring-voyage/issues/554) |
-| `spring apply` for YAML manifests | *(none)* | `spring apply -f` | |
-| Unit policy editor | Policies tab | `spring unit policy <dim> get/set/clear` | at parity since PR #473 |
-| Budget configuration | `/analytics/costs` | `spring cost set-budget` | at parity since PR #474 |
-| Expertise directory | `/directory` | `spring directory list/show/search` | at parity since PR #555 |
+| Edit unit general settings | **General** tab | `spring unit set` | at parity |
+| Bind a connector during unit creation | Wizard Step 3 | *(none)* | create first, then `spring connector bind` |
+| GitHub connector configuration | Connector tab | `spring connector bind` | at parity |
+| Per-agent skills equip | Skills tab | `spring agent skills` / `spring unit skills` | at parity |
+| Initiative policy editor | `/initiative` | *(none)* | parity gap |
+| Per-source cost breakdown | `/analytics/costs` (bars) | `spring analytics costs --by-source` | at parity |
+| Unit policy editor | Policies tab | `spring unit policy <dim> get/set/clear` | at parity |
+| Budget configuration | `/analytics/costs` | `spring cost set-budget` | at parity |
+| Expertise directory | `/directory` | `spring directory list/show/search` | at parity |
 
 ## Related reading
 
 - [Getting Started](../intro/getting-started.md) — end-to-end setup with the CLI.
 - [Managing Units and Agents](units-and-agents.md) — CLI reference.
 - [Observing Activity](observing.md) — activity and cost patterns.
-- [Declarative Configuration](declarative.md) — YAML authoring and `spring apply`.
+- [Declarative Configuration](declarative.md) — YAML package authoring and `spring package install`.
 - [Managing Secrets](../operator/secrets.md) — credential tiers and rotation.
-- Architecture: [CLI & Web](../../architecture/cli-and-web.md).
+- Architecture: [Interfaces](../../architecture/interfaces.md).

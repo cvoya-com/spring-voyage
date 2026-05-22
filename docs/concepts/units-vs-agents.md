@@ -1,6 +1,6 @@
 # Units vs agents — quick reference
 
-A **unit is an agent** ([ADR-0039](../decisions/0039-units-are-agents.md)). This page is the one-screen reference for what that means for decision-making: which features apply to both, what's unique to each, and how to decide when designing a new surface, endpoint, or UX.
+A **unit is an agent** ([ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)). This page is the one-screen reference for what that means for decision-making: which features apply to both, what's unique to each, and how to decide when designing a new surface, endpoint, or UX.
 
 ## What's the same
 
@@ -37,7 +37,7 @@ There are only a handful of real differences. They flow from one structural fact
 | **Recursively-enforced policies** | Policies set on a unit cascade to its children (skill / model / cost / execution-mode dimensions). Policies set on a leaf agent are local. |
 | **Connector binding** | A unit owns a connector binding that translates external events (GitHub webhooks, Slack messages, etc.) into platform messages. Agents inherit connector reachability from their owning unit; they cannot bind connectors directly. The Agent × Config → Connector sub-tab is a read-only inherited view of the owning unit's binding. |
 | **Membership operations** | Add / remove member agents and sub-units via the membership endpoints. Leaf agents only participate as members. |
-| **Multi-parent membership** | A unit can be a member of multiple parent units (see [Multi-Parent](../decisions/) when filed). Leaf-agent membership rules are simpler. |
+| **Multi-parent membership** | An agent can belong to multiple parent units (M:N); a sub-unit has exactly one parent. See [Units & agents](../architecture/units-and-agents.md#the-membership-graph). |
 | **Expertise aggregation** | A unit's effective expertise is the union of its own declared expertise plus its children's. Leaf-agent expertise is just what the agent declares. |
 | **Human-permission grants** | Units own per-subject human grants for configure / operate / view. Leaf agents inherit through their owning unit. |
 
@@ -65,29 +65,29 @@ Both subjects are addressable. The schemes differ:
 
 | Subject | Address scheme | Example |
 |---|---|---|
-| Leaf agent | `agent://` | `agent:b168ee61…` |
-| Unit | `unit://` | `unit:35e66200…` |
-| Human | `human://` (short-circuits the directory by design) | `human:a2…` |
+| Leaf agent | `agent:` | `agent:b168ee61…` |
+| Unit | `unit:` | `unit:35e66200…` |
+| Human | `human:` | `human:a2…` |
 | Tenant | (none — tenant is not addressable as an actor) | — |
 
-The dispatcher resolves either scheme through the same runtime layer. Both schemes see the same `sv.messaging.*` delivery tools; the scheme only changes which mailbox identity the callback uses.
+The `agent:` and `unit:` schemes encode containment shape, but the scheme does
+not gate behaviour: both resolve to the same actor kind on the messaging
+dimension and both see the same `sv.messaging.*` delivery tools. Addresses are
+`(scheme, Guid)` pairs; see [Messaging](messaging.md) and
+[Data & identity](../architecture/data-and-identity.md).
 
-## `execution.hosting` (issue #2436)
+## `execution.hosting`
 
 `execution.hosting` is a first-class field on both unit and agent
-manifests (and on agent / unit templates). Valid literals — `persistent`
-(default), `ephemeral`, `pooled` — are accepted case-insensitively and
-rejected at parse time when they don't match. Member agents inherit the
-parent unit's value when neither they nor their template declares one.
-Precedence: **agent &gt; template &gt; unit &gt; default (`persistent`)**.
-
-See `docs/developer/creating-packages.md § execution.hosting` for the
-authoring guide and `Cvoya.Spring.Core.Execution.AgentHostingMode` for
-the enum the dispatcher reads at runtime.
+manifests (and on agent / unit templates). The two modes are `ephemeral`
+(default — a fresh container per turn) and `persistent` (a long-lived
+container). Member agents inherit the parent unit's value when neither they
+nor their template declares one. See [Deployment](../architecture/deployment.md)
+for the hosting modes.
 
 ## Humans are subjects, not agents
 
-A **human** is a third kind of subject — addressable, can be a member of a unit, can participate in threads — but **not an agent**. A human implements only `IMessageReceiver`; the agent-shaped surfaces (memory, skills, traces, execution config, runtime, deployment) do not apply. See [Humans](humans.md) for the concept (including the install-time resolution model and the team-role / platform-role split) and [`docs/design/canonical-tabs.md`](../design/canonical-tabs.md) for the Explorer tab structure.
+A **human** is a third kind of subject — addressable, can be a member of a unit, can participate in threads — but **not an agent**. A human implements only the message-receiving contract; the agent-shaped surfaces (memory, skills, traces, execution config, runtime, deployment) do not apply. See [Humans](humans.md) for the concept (including the install-time resolution model and the team-role / platform-role split).
 
 In the package grammar, humans live on the same `members:` list as agents and sub-units, under the `- human:` discriminator ([ADR-0046](../decisions/0046-unified-members-grammar.md)). There is no separate top-level `humans:` block — the parser rejects the legacy shape with a structured `LegacyHumansBlock` error.
 
@@ -99,7 +99,7 @@ The runtime path treats unit and leaf agent identically. Splitting unit-* and ag
 
 See also:
 
-- [ADR-0039 — Units are agents](../decisions/0039-units-are-agents.md) — the durable architecture decision.
+- [ADR-0053 — Units are agents; one-way delivery](../decisions/0053-units-are-agents-and-one-way-delivery.md) — the durable architecture decision.
 - [Agents](agents.md) — the agent-layer concept doc.
 - [Units](units.md) — the unit-specific layer doc.
 - [Humans](humans.md) — humans as subjects (not agents).

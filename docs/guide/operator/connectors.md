@@ -6,7 +6,7 @@ Connectors are the plugin layer that bridges Spring Voyage units to external sys
 
 On a fresh OSS deployment the Worker host's bootstrap installs every registered connector onto the default tenant automatically, so you usually skip straight to the "validate credentials" step. Reach for `install` / `uninstall` only when you want to curate the list (e.g. hide GitHub on a deployment that doesn't authorise outbound webhooks).
 
-All commands below assume you've authenticated the CLI (`spring auth login`). Every mutation is **CLI-only** — the portal may render read-only banners but writes come through `spring`.
+All commands below assume you've authenticated the CLI (`spring auth`). Every mutation is **CLI-only** — the portal may render read-only banners but writes come through `spring`.
 
 ## Listing installed connectors
 

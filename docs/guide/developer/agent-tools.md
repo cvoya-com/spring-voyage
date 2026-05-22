@@ -132,6 +132,6 @@ A minimal end-to-end image lives at [`samples/tools-agent-image`](../../../sampl
 ## See also
 
 - [Tools](../../concepts/tools.md) — the three-tier effective tool model the platform resolves at dispatch.
-- [Agent SDK](../../architecture/agent-sdk.md) — the broader SDK contract (messaging callbacks, environment variables, error model).
+- [Agent runtime — The AgentSDK](../../architecture/agent-runtime.md#the-agentsdk) — the broader SDK contract (messaging client, environment variables, error model).
 - [Bring Your Own Image (BYOI)](../operator/byoi-agent-images.md) — image conformance, base images, and the A2A bridge.
 - [`samples/tools-agent-image/README.md`](../../../samples/tools-agent-image/README.md) — runnable reference for SDK tool registration.

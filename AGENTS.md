@@ -12,13 +12,13 @@ Architecture lives under [`docs/architecture/`](docs/architecture/README.md); de
 
 Key concepts:
 
-- **Agents** — Dapr virtual actors with partitioned mailboxes.
-- **Units** — composite agents that have children. A unit **is** an agent — see [`docs/concepts/units-vs-agents.md`](docs/concepts/units-vs-agents.md) for the quick reference on what's shared vs different; most features apply to both subjects identically. How a unit routes work across its members is runtime behaviour, not platform configuration ([ADR-0039](docs/decisions/0039-units-are-agents.md)).
+- **Agents** — Dapr virtual actors with a per-thread mailbox.
+- **Units** — composite agents that have children. A unit **is** an agent — see [`docs/concepts/units-vs-agents.md`](docs/concepts/units-vs-agents.md) for the quick reference on what's shared vs different; most features apply to both subjects identically. How a unit routes work across its members is runtime behaviour, not platform configuration ([ADR-0053](docs/decisions/0053-units-are-agents-and-one-way-delivery.md)).
 - **Humans** — addressable thread participants (not agents). A human implements only `IMessageReceiver` and can be a member of a unit with permission grants. See [`docs/concepts/humans.md`](docs/concepts/humans.md). Portal surfaces for humans are scoped to v0.2.
-- **Connectors** — bridges between external systems and units.
-- **Messages** — typed communications between addressable entities.
-- **Execution patterns** — _hosted_ (in-process) and _delegated_ (containerised tool execution).
-- **Prompt assembly** — four-layer composition: platform, unit context, conversation context, agent instructions.
+- **Connectors** — non-routable bridges between external systems and units.
+- **Messages** — typed, one-way communications between addressable entities, exchanged on durable threads.
+- **Execution** — the platform coordinates external agent runtimes (Claude Code, Codex, Gemini, …) running in containers; it does not host its own tool-use loop. Agents run in one of two hosting modes — _ephemeral_ (a container per turn) or _persistent_ (a long-lived container).
+- **Prompt assembly** — four-layer composition: platform, unit context, thread context, agent instructions.
 
 ## Build, test, lint
 
@@ -34,7 +34,9 @@ This applies to dispatched sub-agents the same way: a PR claim of "tests pass" m
 
 ## Documentation updates
 
-When shipping a feature, update the relevant architecture or guide doc in the same PR. A PR that changes user-visible behaviour or architecture without touching the corresponding docs is not complete. New concepts get a doc entry alongside the change.
+[`docs/architecture/`](docs/architecture/README.md) is a **living description of the system** — keep it current the same way ADRs are authored. Any design-affecting change updates the relevant `docs/architecture/` page **and its diagrams** in the same PR; a behavioural or architectural change that leaves those docs stale is not complete. The architecture docs are the single source of truth — these instruction files, and the `docs/concepts/` and `docs/guide/` docs, point at them rather than restating them.
+
+When shipping a feature, also update the relevant guide doc, and add a `docs/concepts/` entry for any new concept. The "why" behind a design decision belongs in an ADR under [`docs/decisions/`](docs/decisions/README.md).
 
 For changes under `src/Cvoya.Spring.Web/`, keep `src/Cvoya.Spring.Web/DESIGN.md` in sync — it is the portal's visual contract.
 
@@ -42,7 +44,7 @@ For changes under `src/Cvoya.Spring.Web/`, keep `src/Cvoya.Spring.Web/DESIGN.md`
 
 This repository is the **public, open-source core** of Spring Voyage. A private repository extends it via git submodule and dependency injection — adding multi-tenancy, OAuth/SSO, billing, and premium features.
 
-- **Don't bypass `ITenantContext`.** Resolve the current tenant through `ITenantContext.CurrentTenantId` (a `Guid`). Never hardcode the literal string `"default"` and never assume only one tenant exists. The OSS deployment's fresh-install rows are owned by `Cvoya.Spring.Core.Tenancy.OssTenantIds.Default` (a deterministic v5 UUID; see [`docs/architecture/identifiers.md` § 5](docs/architecture/identifiers.md#5-the-oss-default-tenant-id)) — reference the constant from code, never the literal string. New persisted entities that should be tenant-scoped must implement `ITenantScopedEntity` so the cloud host can enforce isolation through its scoped overrides.
+- **Don't bypass `ITenantContext`.** Resolve the current tenant through `ITenantContext.CurrentTenantId` (a `Guid`). Never hardcode the literal string `"default"` and never assume only one tenant exists. The OSS deployment's fresh-install rows are owned by `Cvoya.Spring.Core.Tenancy.OssTenantIds.Default` (a deterministic v5 UUID; see [`docs/architecture/data-and-identity.md`](docs/architecture/data-and-identity.md)) — reference the constant from code, never the literal string. New persisted entities that should be tenant-scoped must implement `ITenantScopedEntity` so the cloud host can enforce isolation through its scoped overrides.
 - **Don't make services static or use singletons outside DI.** Everything must go through the container so the private repo can control lifetime and scoping.
 - **Don't create internal types that the private repo would need to access.** If a type is part of the extension contract, make it `public`. Use `internal` only for true implementation details.
 - **Don't reference private repo issues, PRs, or branches.** It is fine to acknowledge that a Spring Voyage hosted service exists, but do not link to or create dependencies on `cvoya-com/spring` issues or PRs from this repo. The dependency direction is one-way: the private repo may reference this repo's work, not the reverse.

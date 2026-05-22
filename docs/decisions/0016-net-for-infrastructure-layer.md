@@ -3,7 +3,7 @@
 - **Status:** Accepted — the platform infrastructure (actors, routing, REST API, workflows, CLI) is .NET 10 / C#. Agent runtimes stay language-agnostic via the Dapr sidecar.
 - **Date:** 2026-04-21
 - **Related code:** every project under `src/Cvoya.Spring.*/` except `src/Cvoya.Spring.Web/` (Next.js) and the Python-based agent runtimes in containers.
-- **Related docs:** [`docs/architecture/infrastructure.md`](../architecture/infrastructure.md), [ADR 0015](0015-dapr-as-infrastructure-runtime.md).
+- **Related docs:** [`docs/architecture/infrastructure.md`](../architecture/components.md), [ADR 0015](0015-dapr-as-infrastructure-runtime.md).
 
 ## Context
 
@@ -38,5 +38,5 @@ Rust was not seriously considered — the productivity gap relative to .NET was 
 
 - **One language to onboard contributors into.** Anyone who can read C# can read every layer of the platform.
 - **Dapr SDK pin matters.** Major Dapr SDK upgrades are platform events, not per-feature changes; tracked under the platform-versioning section of [`docs/architecture/security.md`](../architecture/security.md).
-- **Web portal is its own stack.** `src/Cvoya.Spring.Web/` is Next.js / React / TypeScript (see [ADR 0001](0001-web-portal-rendering-strategy.md), [ADR 0005](0005-portal-standalone-mode.md)). The contract between portal and platform is the OpenAPI surface, generated once and consumed on both sides.
+- **Web portal is its own stack.** `src/Cvoya.Spring.Web/` is Next.js / React / TypeScript (see [ADR 0001](archive/0001-web-portal-rendering-strategy.md), [ADR 0005](0005-portal-standalone-mode.md)). The contract between portal and platform is the OpenAPI surface, generated once and consumed on both sides.
 - **Agent runtime authors keep their language.** Adding a new agent runtime (under `src/Cvoya.Spring.AgentRuntimes.*`) means writing a thin C# `IAgentRuntime` adapter; the agent's actual behaviour stays in whatever container it ships in.

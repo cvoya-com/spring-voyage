@@ -193,5 +193,5 @@ server; they use different endpoints (`/api/generate` vs `/v1/chat/completions`)
 
 - `eng/deploy/README.md` — container topology, ports, volumes.
 - `eng/deploy/spring.env.example` — full configuration reference.
-- `docs/architecture/infrastructure.md` — Dapr components, state stores.
+- `docs/architecture/components.md` — Dapr components, infrastructure dependencies.
 - `src/Cvoya.Spring.Dapr/Execution/OllamaProvider.cs` — reference implementation.

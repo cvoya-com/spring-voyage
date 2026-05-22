@@ -1,5 +1,7 @@
 # Phase 4: A2A + Strategies + Runtime + Portal UX
 
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../architecture/README.md). Kept for context.
+
 > **[Roadmap Index](README.md)** | _Historical snapshot — live progress in the [V2 milestone](https://github.com/cvoya-com/spring-voyage/milestone/1) and umbrella [#418](https://github.com/cvoya-com/spring-voyage/issues/418)._
 
 Cross-framework interoperability, full orchestration strategy spectrum, multi-AI runtime, and the first wave of portal UX features. This phase also absorbs follow-up enhancements from Phase 2.

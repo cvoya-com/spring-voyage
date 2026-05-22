@@ -39,7 +39,7 @@ The verb:
 
 Restart the platform after the file changes (`./deploy.sh restart` for Podman, `docker compose --env-file spring.env up -d` for Compose) so the connector picks up the new credentials.
 
-See [`docs/architecture/cli-and-web.md § GitHub App bootstrap verb (#631)`](../../architecture/cli-and-web.md#github-app-bootstrap-verb-631) for the full flag list, including `--org`, `--write-secrets`, and `--public-url`.
+Run `spring github-app register --help` for the full flag list, including `--org`, `--write-env`, `--write-secrets`, and `--env-path`.
 
 ## Path B — Manual registration
 
@@ -234,5 +234,5 @@ See [Architecture — Connectors § disabled-with-reason](../../architecture/con
 - [Deployment guide § Tier-1 platform credentials](deployment.md#tier-1-platform-credentials--github-app-identity-env-only) — env-file shape and quirks.
 - [Managing Secrets § The three config tiers](secrets.md#the-three-config-tiers-615) — why GitHub App credentials are tier-1 (deployment identity) and not tier-2.
 - [GitHub Connector README](../../../src/Cvoya.Spring.Connector.GitHub/README.md) — the per-setting configuration table the connector binds.
-- [Architecture — CLI & Web § GitHub App bootstrap verb](../../architecture/cli-and-web.md#github-app-bootstrap-verb-631) — `spring github-app register` flag reference.
+- [Architecture — Connectors](../../architecture/connectors.md) — the `IConnectorType` contract and the GitHub connector's disabled-with-reason model.
 - GitHub docs — [Registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app), [Generating a private key](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps).

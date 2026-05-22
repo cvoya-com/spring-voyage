@@ -17,7 +17,7 @@ Security posture of the entire codebase: tenant isolation correctness, credentia
 
 1. `AGENTS.md` — extensibility model, `ITenantContext` rules, "What NOT to Do" section (mandatory)
 2. `CONVENTIONS.md` — DI registration patterns, error handling
-3. `docs/architecture/infrastructure.md` — Dapr building blocks, state store access patterns
+3. `docs/architecture/security.md` and `docs/architecture/data-and-identity.md` — the OSS security model, tenant isolation, the secrets stack, and state-store access patterns
 
 ## Working Style
 

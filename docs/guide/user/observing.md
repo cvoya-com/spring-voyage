@@ -4,83 +4,80 @@ This guide covers how to monitor agent activity, track costs, and use the dashbo
 
 ## Activity Streams
 
-### Stream Unit Activity (Real-Time)
+### List Unit Activity
 
 ```
-spring activity stream --unit engineering-team
+spring activity list --source unit:<id> --limit 50
 ```
 
-This streams all activity events from the unit and its members in real-time. You'll see:
+This lists recent activity events from the unit and its members. You'll see:
 
 - Messages sent and received
-- Conversations starting and completing
 - Decisions being made
 - Errors and warnings
 - Tool calls and results
 - Cost events
 
-Press `Ctrl+C` to stop streaming.
+### Stream Activity in Real Time
 
-### Stream a Specific Agent
-
-```
-spring activity stream --agent ada --unit engineering-team
-```
-
-### Filter by Event Type
+`spring activity tail` streams activity events live over Server-Sent Events:
 
 ```
-spring activity stream --unit engineering-team --type error,warning
-spring activity stream --unit engineering-team --type decision,conversation-completed
+spring activity tail                            # tenant-wide
+spring activity tail --unit engineering-team    # one unit and its descendants
+spring activity tail --source agent:<id>        # one agent
 ```
 
-### View Activity History
+Press `Ctrl+C` to stop streaming. `activity tail` accepts `--kind`, `--severity`, `--from`, and `--json`.
+
+### Filter Listed Activity
 
 ```
-spring activity history --unit engineering-team --since "2 hours ago"
-spring activity history --agent ada --since "yesterday"
+spring activity list --source unit:<id> --severity Warning
+spring activity list --source unit:<id> --type DecisionMade --limit 20
 ```
 
-## Conversations and Inbox
+`activity list` filters by `--source`, `--type`, `--severity`, and `--limit`.
 
-Activity is the raw, chronological log; **conversations** are the narrative view of one specific thread. Both surfaces share the same underlying event store — a conversation is just the subset of activity events that carry the same correlation id (the conversation id assigned by the messaging layer).
+## Threads and Inbox
 
-### List and Show Conversations
+Activity is the raw, chronological log; **threads** are the narrative view of one participant set's shared exchanges. Both surfaces share the same underlying event store — a thread is the ordered subset of activity that belongs to one `ThreadId`.
 
-```
-spring conversation list
-spring conversation list --unit engineering-team
-spring conversation list --agent ada
-spring conversation list --status active
-spring conversation list --participant human:f47ac10b58cc4372a5670e02b2c3d479
-spring conversation show <conversation-id>
-```
-
-`list` prints one row per conversation — id, status, origin, participants, event count, last activity, opening summary. Filters narrow by unit, agent, participant address, or status (`active` / `completed`). `show` prints the conversation header followed by the ordered event timeline so you can read the back-and-forth in context. Both accept `--output json`.
-
-### Respond to an Existing Conversation
-
-To post a new message into a thread the agent is already working on — without starting a new conversation — use either of the equivalent forms:
+### List and Show Threads
 
 ```
-spring conversation send --conversation <id> agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Looks good — ship it."
-spring message send agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Looks good — ship it." --conversation <id>
+spring thread list
+spring thread list --unit engineering-team
+spring thread list --agent ada
+spring thread list --participant human:f47ac10b58cc4372a5670e02b2c3d479
+spring thread show <thread-id>
 ```
 
-Both resolve to the same server endpoint; pick whichever reads better in the surrounding script.
+`list` prints one row per thread. Filters narrow by unit, agent, or participant address. `show` prints the thread header followed by the ordered event timeline. Both accept `--output json`.
+
+### Post Into an Existing Thread
+
+To post a new message into a thread an agent is already working on, use either of the equivalent forms:
+
+```
+spring thread send --thread <id> agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Looks good — ship it."
+spring message send agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Looks good — ship it." --thread <id>
+```
+
+Both deliver a one-way domain message on the thread; pick whichever reads better in the surrounding script.
 
 ### Inbox: Things Awaiting You
 
-The inbox is the human-facing "things pointed at me that I have not responded to" surface. A conversation shows up here when an agent (or unit) has delivered a message to your `human:` address and no other participant has observed a follow-up message after that point; it drops off as soon as you respond. Trailing observability events on the conversation (state changes from dispatch teardown, cost emissions) do not affect the inbox.
+The inbox is the human-facing "things pointed at me that I have not responded to" surface. A thread shows up here when an agent (or unit) has delivered a message to your `human:` address and you have not yet responded; it drops off as soon as you respond.
 
 ```
-spring inbox list                              # conversations awaiting a reply from you
-spring inbox show <conversation-id>            # open the pending thread
-spring inbox respond <conversation-id> "Approved — proceed."
-spring inbox respond <conversation-id> --to agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Redirect the reply."
+spring inbox list                         # threads awaiting a reply from you
+spring inbox show <thread-id>             # open the pending thread
+spring inbox respond <thread-id> "Approved — proceed."
+spring inbox respond <thread-id> --to agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Direct the message elsewhere."
 ```
 
-`respond` is a thin wrapper over `spring conversation send --conversation <id>` — it resolves the pending ask's sender automatically so the common case ("reply to whoever asked") needs no address.
+`respond` resolves the pending ask's sender automatically so the common case ("reply to whoever asked") needs no address.
 
 ## Agent Status
 
@@ -90,7 +87,7 @@ spring inbox respond <conversation-id> --to agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6
 spring agent status --unit engineering-team
 ```
 
-Shows each agent's current state: idle, active (with conversation details), or suspended.
+Shows each agent's current state and per-thread activity.
 
 ### Check a Specific Agent
 
@@ -98,7 +95,7 @@ Shows each agent's current state: idle, active (with conversation details), or s
 spring agent status ada --unit engineering-team
 ```
 
-Shows detailed status: current conversation, pending conversations, recent activity, memory summary.
+Shows detailed status: in-flight turns, recent activity, and a memory summary.
 
 ## Cost Tracking
 
@@ -142,44 +139,41 @@ value; weekly / monthly amounts are normalised locally (`amount / 7` and
 `amount / 30` respectively) so the portal's "Edit budget" action and the CLI
 agree on what "$50 monthly" means.
 
-## Web Dashboard
+## Web Portal
 
-Open the web dashboard for a graphical view:
-
-```
-spring dashboard
-```
-
-The dashboard provides:
+The web portal gives a graphical view of the same data — open it in a browser
+at the deployment's configured URL. It provides:
 
 - Real-time activity feeds for all units and agents
-- Agent status cards with current work and queue depth
+- Agent status cards with current work
 - Cost graphs and budget tracking
-- Conversation history and detail views
-- Workflow progress visualization
+- Thread (engagement) history and detail views
+
+See [Web Portal Walkthrough](portal.md) for the page-by-page reference.
 
 ## Notifications
 
-Notifications are configured per-human in the unit definition:
+Notification subscriptions are configured per-human on the unit. The `humans`
+ACL verb sets them when granting a permission:
 
 ```
-spring unit humans add engineering-team savasp --permission owner --notifications slack,email
+spring unit humans add engineering-team <identity> --permission owner --notifications slack,email
 ```
 
 Notification events include:
 
 - Agent errors and escalations
-- Workflow steps requiring approval
+- Steps requiring approval
 - Cost budget alerts
-- Conversation completions (configurable)
+- Thread completions (configurable)
 
 ## Tips
 
-- **Use `spring activity stream`** during active work to watch agents in real-time
+- **Use `spring activity tail`** during active work to watch agents in real time
+- **Use `spring activity list`** to scan recent history with filters
 - **Use `spring agent status`** for a quick check of what's happening
 - **Use `spring analytics costs`** regularly to track spending (or the
   deprecated `spring cost summary` alias)
-- **Use the dashboard** for a comprehensive overview when managing multiple units
 
 ## See it in action
 

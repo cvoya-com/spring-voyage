@@ -1,6 +1,6 @@
 # Spring Voyage -- User Guide
 
-Spring Voyage is an open-source collaboration platform for teams of AI agents -- and the humans they work with. You stand up small fleets of AI collaborators that operate on real work, on the real systems where that work happens, with people in the loop where it counts. Units organise the agents; orchestration is one mechanism inside a unit, not the whole of the platform -- see the [concepts overview](../../concepts/overview.md) for the full mental model.
+Spring Voyage is an open-source collaboration platform for teams of AI agents -- and the humans they work with. You stand up small fleets of AI collaborators that operate on real work, on the real systems where that work happens, with people in the loop where it counts. A unit is an agent that has children -- units compose recursively. The platform delivers one-way messages between agents, units, and humans; it does not orchestrate. How a unit routes work across its members is its own runtime's decision -- see the [concepts overview](../../concepts/overview.md) for the full mental model.
 
 This guide covers how to use Spring Voyage through the `spring` CLI. It walks through authentication, creating and managing units and agents, sending messages, observing activity, and day-to-day operations.
 
@@ -13,7 +13,7 @@ This guide covers how to use Spring Voyage through the `spring` CLI. It walks th
 | [Messaging and Interaction](../user/messaging.md) | Sending messages, reading conversations, interacting with agents |
 | [Observing Activity](../user/observing.md) | Activity streams, cost tracking, dashboards |
 | [Web Portal Walkthrough](../user/portal.md) | Pages, tabs, and CLI equivalents for the browser UI |
-| [Declarative Configuration](../user/declarative.md) | YAML definitions, `spring apply`, and version-controlled setup |
+| [Declarative Configuration](../user/declarative.md) | YAML packages, `spring package install`, and version-controlled setup |
 | [Deployment](../operator/deployment.md) | Operator guide: Docker Compose / Podman, Dapr components, TLS, secrets |
 | [Bring Your Own Image (BYOI)](../operator/byoi-agent-images.md) | How to ship a custom agent container image — the three conformance paths, env contract, and debugging tips |
 | [Runnable Examples](../user/examples.md) | Catalog of e2e scenario scripts that double as usage examples |
@@ -27,11 +27,11 @@ This guide covers how to use Spring Voyage through the `spring` CLI. It walks th
 ## Quick Start
 
 ```
-# Authenticate (skip for local dev mode)
-spring auth login
+# Authenticate against a remote platform (skip for local single-tenant mode)
+spring auth
 
 # Create a unit and an agent inside it
-# (ADR-0039 §8: --name is the only display surface; identity is platform-allocated.)
+# (--name is the only display surface; identity is a platform-allocated Guid.)
 spring unit create my-team
 spring agent create \
     --name my-agent \
@@ -48,7 +48,7 @@ spring message send agent:<id> "Hello, what can you do?"
 spring activity list --source unit:my-team --limit 20
 ```
 
-> `spring agent create` requires `--name` (the only display surface — agent identity is platform-allocated per ADR-0039 §8) and at least one `--unit`. Pick the agent's runtime via `--runtime` (`claude-code`, `codex`, `gemini`, `spring-voyage`, …) and supply richer execution config through `--definition-file` when needed; see [Managing Units and Agents](../user/units-and-agents.md) for the full set.
+> `spring agent create` requires `--name` (the only display surface — agent identity is a platform-allocated Guid) and accepts zero or more `--unit` values (omit for a top-level tenant-parented agent). Pick the agent's runtime via `--runtime` (`claude-code`, `codex`, `gemini`, `spring-voyage`) and supply richer execution config through `--definition-file` when needed; see [Managing Units and Agents](../user/units-and-agents.md) for the full set.
 
 ## See it in action
 

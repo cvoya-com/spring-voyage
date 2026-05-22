@@ -3,7 +3,7 @@
 - **Status:** Accepted — the platform coordinates external agent runtimes (Claude Code, Codex, Gemini CLI, dapr-agent, …) running in containers; it does not implement its own multi-turn tool-use loop. The legacy `Hosted` execution mode was removed in [#118](https://github.com/cvoya-com/spring-voyage/issues/118).
 - **Date:** 2026-04-21
 - **Related code:** `src/Cvoya.Spring.Core/AgentRuntimes/`, `src/Cvoya.Spring.AgentRuntimes/`, `src/Cvoya.Spring.ModelProviders/`, `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Dispatcher/`.
-- **Related docs:** [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md), [`docs/architecture/units.md`](../architecture/units.md), [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtimes-and-tenant-scoping.md).
+- **Related docs:** [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md), [`docs/architecture/units.md`](../architecture/units-and-agents.md), [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtime.md).
 - **Related ADRs:** [ADR-0038 — AgentRuntime and ModelProvider as separate identities](0038-agent-runtime-and-model-provider-split.md) — separates the in-container engine identity (this ADR's "agent runtime") from the model-provider identity, and replaces the per-runtime / per-provider classes referenced above with a single checked-in `runtime-catalog.yaml` plus small strategy registries.
 
 ## Context
@@ -14,7 +14,7 @@ Three concrete pressures pushed the question:
 
 1. **Agent tools evolve fast.** Skills, slash commands, MCP integrations, permission models, streaming shapes, and session/checkpoint formats are moving targets. Every Claude Code release ships changes that a hosted loop would have to chase.
 2. **MCP became the cross-tool contract.** Once Claude Code, Cursor, and several others standardised on MCP for tool surfaces, "platform skills exposed as MCP" became the universal way to reach every agent runtime — no per-tool work needed.
-3. **Lightweight LLM calls are different.** Classification, summarisation, the Tier 1 screener ([ADR 0020](0020-tiered-cognition-for-initiative.md)) — none of those need an agent loop. They want a single completion call. (Routing was originally listed here too as a lightweight-call use case; [ADR 0039](0039-units-are-agents.md) reshaped routing into runtime behaviour, removing the platform's lightweight-routing path.)
+3. **Lightweight LLM calls are different.** Classification, summarisation, the Tier 1 screener ([ADR 0020](0020-tiered-cognition-for-initiative.md)) — none of those need an agent loop. They want a single completion call. (Routing was originally listed here too as a lightweight-call use case; [ADR 0039](archive/0039-units-are-agents.md) reshaped routing into runtime behaviour, removing the platform's lightweight-routing path.)
 
 ## Decision
 
@@ -33,6 +33,6 @@ Three concrete pressures pushed the question:
 ## Consequences
 
 - **Container start cost on every agent turn (ephemeral path).** Mitigated by the persistent-agent registry ([ADR 0011](0011-persistent-agent-lifecycle-http-surface.md)) for workloads where start cost dominates.
-- **Adding a new agent runtime is a thin adapter.** `IAgentRuntime` + `IAgentToolLauncher` + a per-runtime project under `src/Cvoya.Spring.AgentRuntimes.*`; no platform changes. See [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtimes-and-tenant-scoping.md) for the contract.
+- **Adding a new agent runtime is a thin adapter.** `IAgentRuntime` + `IAgentToolLauncher` + a per-runtime project under `src/Cvoya.Spring.AgentRuntimes.*`; no platform changes. See [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtime.md) for the contract.
 - **Two LLM-call surfaces, intentionally distinct.** `IAgentRuntime` (full agent dispatch) for tool-use work; `IAiProvider` for stateless completions. Mixing them is a code-review smell.
 - **Platform skills are MCP-shaped, not tool-shaped.** Anyone adding a new platform-level skill ships an MCP tool definition; every agent runtime inherits it for free.

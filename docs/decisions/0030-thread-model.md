@@ -1,9 +1,9 @@
 # 0030 — Thread model: participant-set identity, single AgentMemory, per-thread visibility policy
 
-- **Status:** Accepted (2026-04-29). Supersedes [0018 — partitioned mailbox](0018-partitioned-mailbox.md). v0.1 work.
+- **Status:** Accepted (2026-04-29). Supersedes [0018 — partitioned mailbox](archive/0018-partitioned-mailbox.md). v0.1 work.
 - **Date:** 2026-04-29
 - **Related code:** *(none yet — code rename to follow per [#1287](https://github.com/cvoya-com/spring-voyage/issues/1287))*
-- **Related docs:** [`docs/architecture/thread-model.md`](../architecture/thread-model.md) (long-form F1 design); [`docs/glossary.md`](../glossary.md).
+- **Related docs:** [`docs/architecture/thread-model.md`](../architecture/messaging.md) (long-form F1 design); [`docs/glossary.md`](../glossary.md).
 - **Related ADRs:** [0026 — per-agent container scope](0026-per-agent-container-scope.md); [0029 — tenant execution boundary](0029-tenant-execution-boundary.md).
 - **Issues:** [#1123](https://github.com/cvoya-com/spring-voyage/issues/1123) (the reframing); [#1268](https://github.com/cvoya-com/spring-voyage/issues/1268) (F1 system design); [#1273](https://github.com/cvoya-com/spring-voyage/issues/1273) (this ADR).
 
@@ -13,7 +13,7 @@ The prior model treated a *conversation* as a chat-style container the user crea
 
 Two operational pain points kept surfacing. The agent mailbox conflated message arrival with execution serialisation ([#1085](https://github.com/cvoya-com/spring-voyage/issues/1085)): the single active-conversation slot meant a slow turn on one thread head-of-line-blocked every other thread that agent participated in. The UX pushed work-categorisation onto the user ([#1086](https://github.com/cvoya-com/spring-voyage/issues/1086)): "which conversation does this belong in?" is a question only the chat-container metaphor needed to ask. Both were symptoms of a model that was wrong rather than rough.
 
-[#1123](https://github.com/cvoya-com/spring-voyage/issues/1123) captured the reframing — *the thread is the participant set, not a chat container*. F1 ([#1268](https://github.com/cvoya-com/spring-voyage/issues/1268)) settled the design across ten specific questions in [`docs/architecture/thread-model.md`](../architecture/thread-model.md). This ADR makes the architectural shape durable; the F1 doc carries the per-question rationale.
+[#1123](https://github.com/cvoya-com/spring-voyage/issues/1123) captured the reframing — *the thread is the participant set, not a chat container*. F1 ([#1268](https://github.com/cvoya-com/spring-voyage/issues/1268)) settled the design across ten specific questions in [`docs/architecture/thread-model.md`](../architecture/messaging.md). This ADR makes the architectural shape durable; the F1 doc carries the per-question rationale.
 
 ## Decision
 
@@ -66,4 +66,4 @@ Two operational pain points kept surfacing. The agent mailbox conflated message 
 
 ### ADR-0018 superseded
 
-The control-channel and observation-channel partitioning from [ADR-0018](0018-partitioned-mailbox.md) carries forward unchanged — control still pre-empts work; observations still arrive as a batched digest. What this ADR replaces is the conversation-channel single-active-slot semantics: per-thread FIFO holds inside each thread, but threads run concurrently by default per the `concurrent_threads` flag.
+The control-channel and observation-channel partitioning from [ADR-0018](archive/0018-partitioned-mailbox.md) carries forward unchanged — control still pre-empts work; observations still arrive as a batched digest. What this ADR replaces is the conversation-channel single-active-slot semantics: per-thread FIFO holds inside each thread, but threads run concurrently by default per the `concurrent_threads` flag.

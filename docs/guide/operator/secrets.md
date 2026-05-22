@@ -228,7 +228,7 @@ spring unit create local-dev --runtime spring-voyage --model-provider ollama --a
 # → "Runtime 'spring-voyage' with provider 'ollama' does not require a credential."
 ```
 
-See [CLI & Web § Inline credential flags](../../architecture/cli-and-web.md#inline-credential-flags-626) for the full rejection matrix.
+See the [CLI reference](../../cli-reference.md#spring-agent-and-spring-unit-execution-shorthand-flags) for the inline-credential flag set and the rejection matrix.
 
 ## Per-agent secrets
 

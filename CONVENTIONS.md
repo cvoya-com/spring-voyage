@@ -72,7 +72,7 @@ using Microsoft.Extensions.Logging;
 
 ### Identifiers
 
-Every actor (unit, agent, human, connector, tenant) has exactly one stable identifier: a `Guid`. There is no parallel string identifier (no slug, no scoped handle, no namespaced name). `display_name` is presentation-only — never unique, never addressable, never a foreign-key target. See [`docs/architecture/identifiers.md`](docs/architecture/identifiers.md) and [ADR-0036](docs/decisions/0036-single-identity-model.md) for the durable decision.
+Every actor (unit, agent, human, connector, tenant) has exactly one stable identifier: a `Guid`. There is no parallel string identifier (no slug, no scoped handle, no namespaced name). `display_name` is presentation-only — never unique, never addressable, never a foreign-key target. See [`docs/architecture/data-and-identity.md`](docs/architecture/data-and-identity.md) and [ADR-0036](docs/decisions/0036-single-identity-model.md) for the durable decision.
 
 - **Type.** Repository signatures, DTO ids, route parameters, and method parameters that take an actor identifier are typed `Guid`. Never `string`.
 - **Wire form on URLs, address strings, manifest references, CLI output, log lines.** 32-char lowercase no-dash hex (`Guid.ToString("N")`). One helper: `Cvoya.Spring.Core.Identifiers.GuidFormatter.Format`.

@@ -1,10 +1,12 @@
 # Agent Runtime Boundary — Contract Specification
 
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../architecture/README.md). Kept for context.
+
 - **Status:** Accepted
 - **Version:** v0.1 (initial)
 - **Date:** 2026-04-28
 - **Implements:** [ADR-0029 — Tenant execution boundary](../decisions/0029-tenant-execution-boundary.md), Stage 1
-- **Anchors on:** [ADR-0030 — Thread model](../decisions/0030-thread-model.md), [`docs/architecture/thread-model.md`](../architecture/thread-model.md) (F1)
+- **Anchors on:** [ADR-0030 — Thread model](../decisions/0030-thread-model.md), [`docs/architecture/messaging.md`](../architecture/messaging.md) (F1)
 - **Aligned with:** [ADR-0026 — Per-agent container scope](../decisions/0026-per-agent-container-scope.md), [ADR-0027 — Agent-image conformance contract](../decisions/0027-agent-image-conformance-contract.md)
 
 ---
@@ -44,10 +46,10 @@ Each normative requirement in this spec is intended to be testable. Example payl
 
 - ADR-0029 — buckets and surfaces this spec implements: [`docs/decisions/0029-tenant-execution-boundary.md`](../decisions/0029-tenant-execution-boundary.md).
 - ADR-0030 — the thread model this spec consumes: [`docs/decisions/0030-thread-model.md`](../decisions/0030-thread-model.md).
-- F1 design — long-form rationale and the per-question decisions on threads / memory / tasks: [`docs/architecture/thread-model.md`](../architecture/thread-model.md).
+- F1 design — long-form rationale and the per-question decisions on threads / memory / tasks: [`docs/architecture/messaging.md`](../architecture/messaging.md).
 - ADR-0026 — per-agent container scope: [`docs/decisions/0026-per-agent-container-scope.md`](../decisions/0026-per-agent-container-scope.md).
 - ADR-0027 — A2A 0.3.x conformance and the three image paths: [`docs/decisions/0027-agent-image-conformance-contract.md`](../decisions/0027-agent-image-conformance-contract.md).
-- Public Web API conventions, versioning, deprecation, role taxonomy: [`docs/architecture/web-api.md`](../architecture/web-api.md).
+- Public Web API conventions, versioning, deprecation, role taxonomy: [`docs/architecture/interfaces.md`](../architecture/interfaces.md).
 - Platform-side runtime / dispatcher description (informative): [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md).
 
 ### 0.5 Conformance summary
@@ -392,7 +394,7 @@ Normative requirements:
 
 Lifetime guidance (informative): operators **SHOULD** set published token TTLs to at least **24 hours** to give a typical persistent-agent restart cycle ample headroom. The platform's restart path (§ "Failure recovery" in ADR-0029) re-mints on every restart, so token TTL only constrains how long a container can run **without** a restart before the platform must force one.
 
-Future evolution (informative): a follow-up revision **MAY** add a mounted-files + credential-refresher mechanism that allows zero-downtime rotation for long-running containers. That mechanism would be additive to this section: the env-var channel of § 2.2.1 stays as the canonical credential-delivery surface; a refresher would write fresh credentials into a new path under `/spring/context/credentials/` that the SDK MAY re-read on demand. SDKs that consume only the env-var channel remain conforming. See [`docs/architecture/agent-credential-rotation.md`](../architecture/agent-credential-rotation.md) for the design rationale and the path to that evolution.
+Future evolution (informative): a follow-up revision **MAY** add a mounted-files + credential-refresher mechanism that allows zero-downtime rotation for long-running containers. That mechanism would be additive to this section: the env-var channel of § 2.2.1 stays as the canonical credential-delivery surface; a refresher would write fresh credentials into a new path under `/spring/context/credentials/` that the SDK MAY re-read on demand. SDKs that consume only the env-var channel remain conforming. See [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md) for the design rationale and the path to that evolution.
 
 ### 2.3 Conformance — `IAgentContext`
 
@@ -421,7 +423,7 @@ The platform **MUST** grant every agent exactly one persistent filesystem volume
 ### 3.2 Lifetime semantics
 
 - The volume **MUST** persist across container restarts: crashes, redeploys, scaling events, image upgrades, host migrations.
-- The volume **MUST** be reclaimed only when the agent is explicitly deleted, OR — for cloned agents whose cloning policy declares ephemeral workspace — when the clone is reaped. The cloning-policy semantics are governed by [`docs/architecture/units.md`](../architecture/units.md) and outside the scope of this spec.
+- The volume **MUST** be reclaimed only when the agent is explicitly deleted, OR — for cloned agents whose cloning policy declares ephemeral workspace — when the clone is reaped. The cloning-policy semantics are governed by [`docs/architecture/units-and-agents.md`](../architecture/units-and-agents.md) and outside the scope of this spec.
 - The platform **MUST NOT** silently truncate, snapshot-revert, or otherwise mutate the volume's contents during its lifetime. Operator-driven restoration (e.g., from a backup) is permitted but is an operator action, not a platform action.
 
 ### 3.3 Recovery is agent-owned
@@ -566,7 +568,7 @@ Synchronous (non-streaming) clients **MAY** wait for the completion sentinel and
 ### 4.5 Auth
 
 - Tenant identity **MUST** be verified at the endpoint via the scoped credential delivered in `IAgentContext` (§ 2.1, `bucket2_token`).
-- Authz **MUST** be uniform: any caller presenting a valid scoped credential for tenant T **MAY** send to any thread T participates in. The endpoint **MUST NOT** apply per-message role gates beyond the tenant-scope check; per-message authz is not a function of the broader Web API role taxonomy (see [`docs/architecture/web-api.md` § Roles and URL scope](../architecture/web-api.md#roles-and-url-scope)) — Bucket 2 is the agent → platform return path, not an operator surface.
+- Authz **MUST** be uniform: any caller presenting a valid scoped credential for tenant T **MAY** send to any thread T participates in. The endpoint **MUST NOT** apply per-message role gates beyond the tenant-scope check; per-message authz is not a function of the broader Web API role taxonomy (see [`docs/architecture/interfaces.md` § Roles and URL scope](../architecture/interfaces.md#roles-and-url-scope)) — Bucket 2 is the agent → platform return path, not an operator surface.
 - Scoped tokens **MUST** be agent-scoped: one agent's `bucket2_token` **MUST NOT** be valid for another agent's traffic. The platform **MUST** reject (HTTP 403 / gRPC `PERMISSION_DENIED`) attempts to send on threads the token's owning agent does not participate in.
 - Tokens **SHOULD** be opaque to the agent (the SDK reads the token from env, presents it as a bearer credential, does not interpret it).
 
@@ -575,7 +577,7 @@ The token format is platform-defined and out of scope for this spec.
 ### 4.6 Versioning posture
 
 - The wire protocol is A2A 0.3.x; bumping to A2A 0.4.x or 1.x is a coordinated breaking change per ADR-0027.
-- The URL path is `/api/v1/...`. Per [`docs/architecture/web-api.md`](../architecture/web-api.md) § "Versioning and deprecation":
+- The URL path is `/api/v1/...`. Per [`docs/architecture/interfaces.md`](../architecture/interfaces.md) § "Versioning and deprecation":
   - `v1` is strictly additive. Adding new optional request fields, new response frame types (with new `stage` / `kind` values), or new endpoints under the same surface ships transparently.
   - Breaking changes wait for `v2` (new URL space `/api/v2/...`).
   - Deprecated endpoints carry the `Deprecation: true` and `Sunset` headers per the public API policy.
@@ -660,7 +662,7 @@ The following surfaces are deliberately not specified by this document. Each has
 - **Cold-start fields** (`is_first_contact`, `instructions.opening_offer`). F1 Q9 / ADR-0030 makes cold start a UX (E2) and agent-runtime concern, not a platform contract field. Agent runtimes (Claude CLI, etc.) carry their own cold-start prompt mechanisms.
 - **ADR-0028 Decision C amendment for platform-wide Ollama.** Flagged in ADR-0029 as a follow-up; tracked separately and not part of this spec.
 - **Implementation choices** — programming language, framework, transport library, supervision topology, container-runtime backend (Podman vs. Kubernetes). Stages 2 / 3 of ADR-0029.
-- **Long-running zero-downtime credential rotation.** § 2.2.3 specifies restart as the rotation primitive; a future revision MAY add a mounted-files + refresher mechanism for in-place rotation without container restart. Design rationale and the path to that evolution live in [`docs/architecture/agent-credential-rotation.md`](../architecture/agent-credential-rotation.md).
+- **Long-running zero-downtime credential rotation.** § 2.2.3 specifies restart as the rotation primitive; a future revision MAY add a mounted-files + refresher mechanism for in-place rotation without container restart. Design rationale and the path to that evolution live in [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md).
 - **Credential revocation propagation latency.** § 2.2.3 sets the SDK's auth-failure contract; the cross-platform mechanism for proactively revoking a credential and forcing a restart is its own design (separate follow-up).
 
 ---
@@ -670,7 +672,7 @@ The following surfaces are deliberately not specified by this document. Each has
 | Version | Date | Change |
 |---|---|---|
 | v0.1 | 2026-04-28 | Initial specification. Implements ADR-0029 Stage 1; consumes F1 / ADR-0030. |
-| v0.1.1 | 2026-04-28 | § 2.2.3 (Credential rotation): replace "TBD in Stage 2" with the restart-as-rotation-primitive contract — per-launch minting, restart re-injection, no-in-place-mutation, SDK auth-failure contract. § 2.3, § 5 conformance updated. Long-running zero-downtime rotation deferred to a future revision; see [`docs/architecture/agent-credential-rotation.md`](../architecture/agent-credential-rotation.md). Closes #1325 (design phase). |
+| v0.1.1 | 2026-04-28 | § 2.2.3 (Credential rotation): replace "TBD in Stage 2" with the restart-as-rotation-primitive contract — per-launch minting, restart re-injection, no-in-place-mutation, SDK auth-failure contract. § 2.3, § 5 conformance updated. Long-running zero-downtime rotation deferred to a future revision; see [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md). Closes #1325 (design phase). |
 | v0.1.2 | 2026-04-29 | § 2.1 static metadata: add `thread_id` field (optional; present when launch originates from a known dispatch thread, absent on supervisor-driven restarts). § 2.2.1 env-var table: add `SPRING_THREAD_ID` (optional). Closes #1300 (propagation) and closes #1347 (D3d implementation: `IAgentContextBuilder.RefreshForRestartAsync`, `SupervisorState` identity fields, `ContainerSupervisorActor.RestartAsync` re-mint). |
 | v0.1.3 | 2026-04-29 | § 2.1: add "LLM selection (Dapr-agent-specific)" subsection — `model`, `llm_provider`, `llm_component` fields (all optional, Dapr-agent only). § 2.2.1 env-var table: add `SPRING_MODEL`, `SPRING_LLM_PROVIDER`, `SPRING_LLM_COMPONENT` (all optional, Dapr-agent only). These were already emitted by `SpringVoyageAgentLauncher`; this revision makes them normative so they can be safely removed from launcher-specific code if they migrate into `AgentContextBuilder`. Closes #1327. |
 | v0.1.4 | 2026-05-07 | § 2.1: align `model` / `llm_component` descriptions with [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md) — Dapr component files now follow the `llm-{provider.id}` naming convention; the launcher resolves `SPRING_LLM_COMPONENT` to `llm-anthropic` / `llm-openai` / `llm-google` / `llm-ollama`. Example `agent_definition` updated to the structured `(runtime, model)` shape (`ai.runtime` + `ai.model.{provider, id}`). |

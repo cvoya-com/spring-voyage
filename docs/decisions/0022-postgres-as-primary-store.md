@@ -3,7 +3,7 @@
 - **Status:** Accepted — relational data (tenants, definitions, activity history, secrets, expertise, …) lives in PostgreSQL through EF Core; actor runtime state goes through the Dapr state store abstraction (PostgreSQL today, swappable per-environment).
 - **Date:** 2026-04-21
 - **Related code:** `src/Cvoya.Spring.Dapr/Data/SpringDbContext.cs`, `src/Cvoya.Spring.Dapr/Data/Configurations/`, `eng/dapr/components/local/statestore.yaml`.
-- **Related docs:** [`docs/architecture/infrastructure.md`](../architecture/infrastructure.md), [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtimes-and-tenant-scoping.md) (tenant-scoping model).
+- **Related docs:** [`docs/architecture/infrastructure.md`](../architecture/components.md), [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtime.md) (tenant-scoping model).
 
 ## Context
 
@@ -18,7 +18,7 @@ Two extreme positions were on the table: "everything through Dapr state store" (
 
 **PostgreSQL is the primary operational database for relational business data, accessed via EF Core (`SpringDbContext` + `IEntityTypeConfiguration<T>` per entity). Actor runtime state goes through the Dapr state store abstraction — backed by PostgreSQL today via the Dapr Postgres component, but swappable to Redis / Cosmos DB / Azure Tables without code changes.**
 
-- **Relational data stays relational.** `tenants`, `agent_definitions`, `units`, `conversations`, `activity_events`, `expertise_entries`, `tenant_agent_runtime_installs`, `tenant_connector_installs`, `credential_health` — every business entity is an EF Core entity with explicit configurations and tenant query filters (see [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtimes-and-tenant-scoping.md)). EF Core's tracking + transactions + migrations are non-negotiable for this shape.
+- **Relational data stays relational.** `tenants`, `agent_definitions`, `units`, `conversations`, `activity_events`, `expertise_entries`, `tenant_agent_runtime_installs`, `tenant_connector_installs`, `credential_health` — every business entity is an EF Core entity with explicit configurations and tenant query filters (see [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtime.md)). EF Core's tracking + transactions + migrations are non-negotiable for this shape.
 - **Actor state goes through Dapr.** `AgentActor` / `UnitActor` runtime fields are persisted via `StateManager`. The Dapr state store backend is operationally PostgreSQL today, but the application code never references it directly; swapping to Redis or Cosmos in another deployment is a YAML change.
 - **One operational database in OSS.** PostgreSQL serves both roles. Operators run one Postgres instance; the Dapr abstraction is about portability of the application code, not about needing a different database.
 - **Migrations are EF Core's.** `DatabaseMigrator` runs EF migrations on Worker host startup ([`docs/developer/operations.md`](../developer/operations.md)). The Dapr state component manages its own schema independently.

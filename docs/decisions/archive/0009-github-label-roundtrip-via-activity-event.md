@@ -1,5 +1,7 @@
 # 0009 — GitHub label roundtrip wired via activity-event subscription
 
+> **Archived — superseded.** Kept for reasoning history; it does not describe the current system. The current decision is [ADR-0053 — Units are agents; the platform delivers one-way messages](../0053-units-are-agents-and-one-way-delivery.md). See the [archive index](README.md).
+
 > **Superseded by [ADR-0039](0039-units-are-agents.md).** The strategy taxonomy this ADR depended on was removed; the connector subscriber now filters on `OrchestrationDecision` events (`Kind == Delegate`) and per-binding label-roundtrip rules replace the unit-level `LabelRoutingPolicy`. See ADR-0039 § 4 and `docs/concepts/connectors.md` § GitHub Label Routing for the current shape. The body below is preserved as historical context only.
 
 - **Status:** Superseded by [ADR-0039](0039-units-are-agents.md) — strategy emits `DecisionMade` event; GitHub connector subscribes as a hosted service.

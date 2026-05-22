@@ -4,7 +4,7 @@ This directory is the **consumer-facing reference** for the Spring Voyage public
 
 If you're an external developer integrating with Spring Voyage — building a CLI, a portal, an automation, or a tenant agent that calls back into the platform — start here.
 
-If you're a contributor changing the API, start at [`docs/architecture/web-api.md`](../architecture/web-api.md) instead. That document is the architecture-layer reference (how the spec is produced, how it evolves, what the freeze commits the platform to). The reference here is generated from the same source of truth.
+If you're a contributor changing the API, start at [`docs/architecture/interfaces.md`](../architecture/interfaces.md) instead. That document is the architecture-layer reference (the Web API, the OpenAPI contract, how the spec is produced and consumed). The reference here is generated from the same source of truth.
 
 ## Contents
 
@@ -18,17 +18,17 @@ If you're a contributor changing the API, start at [`docs/architecture/web-api.m
 
 The v1 spec is **code-first**. The .NET endpoints under `src/Cvoya.Spring.Host.Api/Endpoints/*.cs` are the authority; the build emits `openapi.json` after every `dotnet build`; CI rejects PRs whose working tree drifts. The generated HTML reference here is rebuilt from `openapi.json`, so the per-endpoint detail you read in `v1.html` is whatever shipped on `main`.
 
-See [`docs/architecture/web-api.md` § Source of truth](../architecture/web-api.md#source-of-truth) for the full pipeline diagram.
+See [`docs/architecture/interfaces.md` § The OpenAPI contract](../architecture/interfaces.md#the-openapi-contract) for the full pipeline.
 
 ## v1 freeze
 
-The v1 contract was frozen for the v0.1 release. The committed `openapi.json` at the freeze commit is the authoritative enumeration of every public endpoint in v1; the [Versioning and deprecation](../architecture/web-api.md#versioning-and-deprecation) policy governs every change after.
+The v1 contract was frozen for the v0.1 release. The committed `openapi.json` at the freeze commit is the authoritative enumeration of every public endpoint in v1; v1 is strictly additive thereafter (see [`docs/architecture/interfaces.md`](../architecture/interfaces.md)).
 
 In short: **v1 is strictly additive.** Breaking changes wait for v2; new endpoints, new optional request properties, new response properties, and new enum values ship transparently inside v1. Conforming consumers can rely on every documented shape, status code, and behaviour for the lifetime of v1.
 
 ## Resource groups
 
-The full per-endpoint reference is in `v1.html` (see [Contents](#contents) above for how to obtain it). The high-level inventory below mirrors the table in [`docs/architecture/web-api.md` § Resource surface](../architecture/web-api.md#resource-surface) — refer back to that document for live counts as additive changes ship.
+The full per-endpoint reference is in `v1.html` (see [Contents](#contents) above for how to obtain it). The high-level inventory below groups the API by concern; `openapi.json` is the authoritative enumeration as additive changes ship.
 
 | Group | Tag | What it covers |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ The full per-endpoint reference is in `v1.html` (see [Contents](#contents) above
 | Cost & Budget | `Costs`, `Tenant`, `Budgets` | Per-agent, per-unit, per-tenant cost; cost time series; per-agent / per-unit / per-tenant budgets |
 | Cloning | `Clones`, `CloningPolicy` | Per-agent clones; per-agent + tenant-wide cloning policy |
 | Expertise | `Expertise` | Per-agent expertise, per-unit own + aggregated expertise |
-| Unit governance | `UnitPolicy`, `UnitBoundary`, `UnitExecution` | Unit policy, boundary projection rules, execution defaults (a unit's runtime decides how members route work per [ADR-0039](../decisions/0039-units-are-agents.md); there is no platform-level routing-config surface) |
+| Unit governance | `UnitPolicy`, `UnitBoundary`, `UnitExecution` | Unit policy, boundary projection rules, execution defaults (a unit's runtime decides how members route work per [ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md); there is no platform-level routing-config surface) |
 | Platform tenants | `PlatformTenants` | Platform-level tenant CRUD (PlatformOperator only) |
 | Dashboard | `Dashboard` | Summary, unit KPIs, agent metrics, cost rollup |
 | Packages | `Packages` | Installed-package + unit-template discovery |
@@ -68,7 +68,7 @@ The API namespace is single-versioned at `/api/v1/...` and split into three scop
 | `/api/v1/tenant/...` | `TenantOperator` or `TenantUser` (per endpoint) | runtimes / connectors install, secrets, units, agents, threads, dashboard |
 | `/api/v1/webhooks/...` | HMAC-signed (not bearer) | external system event ingest (e.g., GitHub) |
 
-In OSS deployments every authenticated caller is granted all three role claims. The hosted Spring Voyage service scopes per-identity. See [`docs/architecture/web-api.md` § Roles and URL scope](../architecture/web-api.md#roles-and-url-scope) for the full role taxonomy.
+In OSS deployments every authenticated caller is granted all three role claims. The hosted Spring Voyage service scopes per-identity. See [`docs/architecture/security.md`](../architecture/security.md) for the full role taxonomy.
 
 ## Authentication quick-start
 
@@ -136,7 +136,7 @@ curl http://localhost:5000/api/v1/tenant/threads/{thread_id} \
   -H "Authorization: Bearer svat_..."
 ```
 
-The thread surface is the canonical way to drive agents from outside the platform. See [`docs/architecture/thread-model.md`](../architecture/thread-model.md) for the full participant-set semantics, and [ADR-0030](../decisions/0030-thread-model.md) for the rationale.
+The thread surface is the canonical way to drive agents from outside the platform. See [`docs/architecture/messaging.md`](../architecture/messaging.md) for the full participant-set semantics, and [ADR-0030](../decisions/0030-thread-model.md) for the rationale.
 
 ### Watch tenant activity
 
@@ -186,7 +186,7 @@ Because `v1.html` is generated from `openapi.json` on every consumer build, drif
 
 ## Cross-references
 
-- [`docs/architecture/web-api.md`](../architecture/web-api.md) — architecture-layer reference: how the spec is produced, where it's consumed, how it evolves, the v1 freeze and the versioning policy that governs change.
+- [`docs/architecture/interfaces.md`](../architecture/interfaces.md) — architecture-layer reference: the Web API, the OpenAPI contract, the CLI and portal clients built on it.
 - [`docs/specs/agent-runtime-boundary.md`](../specs/agent-runtime-boundary.md) — the agent SDK contract and the Bucket-2 send-endpoint contract from the agent-runtime side.
 - [`docs/decisions/0029-tenant-execution-boundary.md`](../decisions/0029-tenant-execution-boundary.md), [`docs/decisions/0030-thread-model.md`](../decisions/0030-thread-model.md) — the ADRs behind the thread / participant-set surface and the tenant→platform boundary.
 - [`src/Cvoya.Spring.Host.Api/openapi.json`](../../src/Cvoya.Spring.Host.Api/openapi.json) — the OpenAPI source of truth.

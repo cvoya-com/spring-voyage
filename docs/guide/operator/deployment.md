@@ -2,7 +2,7 @@
 
 This guide walks an operator from zero to a working single-host Spring Voyage deployment. Kubernetes and multi-region deployments are covered in the Spring Voyage Cloud repository; this guide targets the open-source single-host scenario (workstation, home server, or single server).
 
-For the architectural picture read [Architecture — Deployment](../../architecture/deployment.md) and [Architecture — Infrastructure](../../architecture/infrastructure.md) first. Operator tasks above provisioning (backups, DataProtection keys, migrations) live in [Developer — Operations](../../developer/operations.md).
+For the architectural picture read [Architecture — Deployment](../../architecture/deployment.md) and [Architecture — Components](../../architecture/components.md) first. Operator tasks above provisioning (backups, DataProtection keys, migrations) live in [Developer — Operations](../../developer/operations.md).
 
 Two paths are supported:
 
@@ -546,7 +546,7 @@ If agents still cannot reach the host, confirm the per-user bridge network exist
 ## Related documentation
 
 - [Architecture — Deployment](../../architecture/deployment.md) — agent hosting modes, persistent agent lifecycle, solution structure.
-- [Architecture — Infrastructure](../../architecture/infrastructure.md) — Dapr building blocks, IAddressable, data persistence.
+- [Architecture — Components](../../architecture/components.md) — Dapr building blocks, actors, infrastructure dependencies.
 - [Developer — Setup](../../developer/setup.md) — local dev loop without containers (`dapr run` + `dotnet run`).
 - [Developer — Operations](../../developer/operations.md) — migrations, DataProtection keys, backups.
 - [Developer — Secret store](../../developer/secret-store.md) — per-agent / per-unit secret scoping and rotation.

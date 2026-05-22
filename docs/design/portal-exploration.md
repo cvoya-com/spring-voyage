@@ -1,12 +1,14 @@
 # Web Portal UX Exploration
 
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../architecture/README.md). Kept for context.
+
 > **Status:** Plan of record.
 > **Umbrella:** [#434](https://github.com/cvoya-com/spring-voyage/issues/434) — tracks all sub-issues.
 > **Source:** PR [#429](https://github.com/cvoya-com/spring-voyage/pull/429).
 >
 > **Closes:** [#406](https://github.com/cvoya-com/spring-voyage/issues/406)
 >
-> **Related:** [ADR 0001 — Web portal rendering strategy](../decisions/0001-web-portal-rendering-strategy.md) (superseded — see [#436](https://github.com/cvoya-com/spring-voyage/issues/436)), [Architecture: CLI & Web](../architecture/cli-and-web.md), [Guide: Observing](../guide/user/observing.md).
+> **Related:** [ADR 0001 — Web portal rendering strategy](../decisions/archive/0001-web-portal-rendering-strategy.md) (superseded — see [#436](https://github.com/cvoya-com/spring-voyage/issues/436)), [Architecture: CLI & Web](../architecture/interfaces.md), [Guide: Observing](../guide/user/observing.md).
 
 ---
 
@@ -63,7 +65,7 @@ Walked `src/Cvoya.Spring.Web/src/app/`:
 ### What's **missing** from the portal today (confirmed by walking the tree)
 
 - No Conversations surface (no `/conversations` route, no chat UI).
-- No Policies surface (only `/initiative` exists; `UnitPolicy`'s Skill / Model / Cost / ExecutionMode dimensions described in `docs/architecture/units.md` § "Unit Policy Framework" are not exposed anywhere).
+- No Policies surface (only `/initiative` exists; `UnitPolicy`'s Skill / Model / Cost / ExecutionMode dimensions described in `docs/architecture/units-and-agents.md` § "Unit Policy Framework" are not exposed anywhere).
 - No RBAC / members UI (the existing "members" tab on `/units/[id]` lists **unit membership** — agents and sub-units — not humans / roles).
 - No Auth / user-profile surface (no sign-in UI, no token management page; the OSS runs in daemon mode without auth per `docs/architecture/security.md`).
 - No Connectors catalog page (only per-unit binding inside `/units/[id]` → Connector tab).
@@ -363,7 +365,7 @@ Conversations list:
 |--------------------------------------------------------------|
 | c-1834  Review PR #42       ada <-> grace     active    4m   |
 | c-1830  Answer #41          ada              completed  1h   |
-| c-1821  Triage bug #38      ada, grace, savasp active   3h   |
+| c-1821  Triage bug #38      ada, grace, morgan active   3h   |
 | c-1811  Daily standup       unit:eng-team    completed  9h   |
 +--------------------------------------------------------------+
 ```
@@ -374,7 +376,7 @@ Conversation detail:
 +--------------------------------------------------------------+
 | < Conversations / c-1834       [ Status: active ]  [ Close ] |
 |--------------------------------------------------------------|
-| Participants:  ada (backend), grace (frontend), savasp (you) |
+| Participants:  ada (backend), grace (frontend), morgan (you) |
 | Unit:          engineering-team                              |
 | Origin:        GitHub PR #42                                 |
 | Cost so far:   $0.31                                         |
@@ -388,11 +390,11 @@ Conversation detail:
 |                                                              |
 |  [grace ]  Frontend tests also clean on my end.       2:05   |
 |                                                              |
-|  [savasp]  Looks good to me — ship it. (you)          2:06   |
+|  [morgan]  Looks good to me — ship it. (you)          2:06   |
 |                                                              |
 |                                                              |
 |--------------------------------------------------------------|
-|  Send message as:  [ savasp v ]                              |
+|  Send message as:  [ morgan v ]                              |
 |  [                                                         ] |
 |  [ Compose...                                      ] [Send] |
 +--------------------------------------------------------------+
@@ -481,13 +483,13 @@ Members tab on unit detail (hosted build):
 | engineering-team / Members                        [+ Invite] |
 |--------------------------------------------------------------|
 |  name          email              role         notify        |
-|  savasp        savas@...           owner        slack,email   |
+|  morgan        morgan@...           owner        slack,email   |
 |  alice         alice@...           operator     email         |
 |  bob           bob@...             viewer       —             |
 |                                                              |
 |  Audit (last 5)                                              |
-|  - alice promoted to operator by savasp     3 days ago       |
-|  - bob invited as viewer by savasp          7 days ago       |
+|  - alice promoted to operator by morgan     3 days ago       |
+|  - bob invited as viewer by morgan          7 days ago       |
 +--------------------------------------------------------------+
 ```
 
@@ -575,7 +577,7 @@ Edit dialog for a single dimension (example: Skill):
 Key changes:
 
 - One tab, five panels, one shape: "allow list / block list / caps". The repetition is a feature — once the user learns one dimension, the others follow.
-- An **Effective policy** block shows the final merged decision, including any deny from a parent unit. This matches the enforcement chain described in `docs/architecture/units.md` ("First deny short-circuits").
+- An **Effective policy** block shows the final merged decision, including any deny from a parent unit. This matches the enforcement chain described in `docs/architecture/units-and-agents.md` ("First deny short-circuits").
 - Cost caps link back to the Costs page so the user can see their current spend relative to the cap.
 
 **CLI parity.** The CLI does not expose unit-policy editing commands today — `spring unit policy set-skill ...` and friends don't exist. That's a major parity gap given the policy framework is in the core. Parity gap to file.

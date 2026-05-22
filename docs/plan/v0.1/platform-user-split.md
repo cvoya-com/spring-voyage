@@ -1,5 +1,7 @@
 # TenantUser / human split + connector identity location — execution plan
 
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../architecture/README.md). Kept for context.
+
 **Initiative.** Implementation of [ADR-0047 — TenantUser / human split; connector identity on the tenant user](../../decisions/0047-platform-user-human-split.md). Tracked under the umbrella [#2487](https://github.com/cvoya-com/spring-voyage/issues/2487) on milestone `v0.1`. The umbrella supersedes the original single-PR shape of #2487 (a localised webhook fix) and pulls forward `TenantUser` pieces originally scoped for v0.2 / v0.3.
 
 This plan enumerates the **phase sequence by impact zone**, with the structural `blockedBy` ordering set at the phase grain. Per the umbrella's step-0 contract, individual issues are not pre-allocated here — each phase fans out into 1–3 single-PR sub-issues after this plan + ADR land and the ADR is moved to Accepted. The grain is "one phase, one or a handful of consecutive PRs."
@@ -30,7 +32,7 @@ These mirror the conventions established in [`docs/plan/v0.1/units-are-agents.md
 | G | CLI: `spring user identity {set,list,remove}`; binding subcommands gain `--pat-secret-name` and reject neither/both; `--owner` removed; `--repo` accepts qualified form only | CLI scenarios cover the new verbs + the dropped flags' parse-time rejections + the binding-auth gate; help text clean | B |
 | H | Portal: user-identity page is "your handles" only (no PAT input); new-unit wizard GitHub step gains an auth-choice sub-step (App-installation or PAT secret); existing GitHub tab cleanup | Vitest + Playwright cover the new page; wizard reaches Install step in both auth-choice branches | B + C |
 | I | `spring-voyage-oss` package: install flow continues to use App-installation by default; no ADR-0034 amendment | Package install e2e green against a repo with the SV App installed and against a repo without (PAT path through the binding) | D + E |
-| J | Documentation: `concepts/humans.md`, `concepts/tenants.md`, `architecture/identifiers.md`; amendment line on ADR-0036 §1 (new actor kind) | Docs render cleanly; docs-evergreen-framing CI job passes; CodeQL / openapi-drift clean | D + H |
+| J | Documentation: `concepts/humans.md`, `concepts/tenants.md`, `architecture/data-and-identity.md`; amendment line on ADR-0036 §1 (new actor kind) | Docs render cleanly; docs-evergreen-framing CI job passes; CodeQL / openapi-drift clean | D + H |
 
 Filing-time refinement: any phase whose natural PR count exceeds one fans out into ordered sub-issues at the obvious seam. The expected fan-out is roughly A → 2 PRs (entity + migration; `UnitGitHubConfig` shape change), B → 2 PRs (routes + 410 stub; OpenAPI regen), G → 2 PRs (CLI rename; binding flag changes), H → 2 PRs (page + wizard); the rest are sized for a single PR.
 
@@ -124,7 +126,7 @@ Updates the concept and architecture docs to describe the `TenantUser` concept a
 
 The ADR-0034 amendment is **dropped** from this plan — ADR-0034's §§ 4–5 are not obsoleted by ADR-0047 (the binding still atomically captures auth at template-apply time; the change is that auth may now be `pat_secret_name` as well as `installation_id`, which is an extension, not an obsolescence).
 
-Files touched: `docs/concepts/humans.md` (the `Human → TenantUser` display mapping, the OSS default), `docs/concepts/tenants.md` (where `TenantUser` rows live in the model; cross-tenant identity is two rows), `docs/architecture/identifiers.md` (the actor-kind list, the `OssTenantUserIds.Operator` recipe), `docs/decisions/0036-single-identity-model.md` (the amendment line on §1 — landed alongside the Phase A actor-kind change but doc-finalised here).
+Files touched: `docs/concepts/humans.md` (the `Human → TenantUser` display mapping, the OSS default), `docs/concepts/tenants.md` (where `TenantUser` rows live in the model; cross-tenant identity is two rows), `docs/architecture/data-and-identity.md` (the actor-kind list, the `OssTenantUserIds.Operator` recipe), `docs/decisions/0036-single-identity-model.md` (the amendment line on §1 — landed alongside the Phase A actor-kind change but doc-finalised here).
 
 Acceptance signal: docs render cleanly; the docs-evergreen-framing CI job passes; every concept doc that referenced "human identity" updates to point at the `TenantUser` surface.
 

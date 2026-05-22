@@ -15,4 +15,4 @@ Higher levels require more permissions. Initiative is governed by unit-level pol
 
 To keep cost predictable, Spring Voyage runs initiative through a two-tier cognition model: a cheap, locally-hosted screening LLM filters incoming events, and the agent's primary LLM only reflects on the small fraction that warrants attention. See [ADR 0020 — Tiered cognition for initiative](../decisions/0020-tiered-cognition-for-initiative.md) for the rationale.
 
-For the full execution model — Tier 1/Tier 2 mechanics, the perceive-reflect-decide-act-learn loop, policy enforcement, and how initiative integrates with messaging and observability — see [Architecture: Initiative](../architecture/initiative.md).
+For the full execution model — Tier 1/Tier 2 mechanics, the perceive-reflect-decide-act-learn loop, and policy enforcement — see [Architecture: Units & agents § Initiative](../architecture/units-and-agents.md#initiative).

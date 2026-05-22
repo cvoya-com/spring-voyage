@@ -1,5 +1,7 @@
 # Area C: Public Web API + OpenAPI contract
 
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../architecture/README.md). Kept for context.
+
 **Status:** ✅ **Done.** Umbrella [#1216](https://github.com/cvoya-com/spring-voyage/issues/1216) closed. All C1 pieces shipped: C1.1 (reference doc), C1.2a (three-role authz model), C1.2b (URL restructure into `/api/v1/{platform,tenant}/...`), C1.2c (connector split — `provision` for `PlatformOperator`, `bind` for `TenantOperator`), C1.2d (tenant CRUD endpoint), C1.3 (semantic contract tests), and C1.4 (versioning policy). C2 (freeze + publish) was deferred and is tracked as a separate backlog item.
 
 Self-onboarding flow (Google identity → bootstrap a new tenant) is hosted-platform-only and lives at [`cvoya-com/spring#825`](https://github.com/cvoya-com/spring/issues/825).

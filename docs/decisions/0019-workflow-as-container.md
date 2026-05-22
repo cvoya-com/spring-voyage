@@ -3,11 +3,11 @@
 - **Status:** Accepted — domain workflows ship as container images with their own Dapr sidecars; only platform-internal lifecycle workflows are compiled into the host.
 - **Date:** 2026-04-21
 - **Related code:** `src/Cvoya.Spring.Dapr/Workflows/` (platform-internal), `eng/build/examples/dockerfiles/` (workflow-container patterns).
-- **Related docs:** [`docs/architecture/workflows.md`](../architecture/workflows.md), [ADR 0015](0015-dapr-as-infrastructure-runtime.md).
+- **Related docs:** [`docs/architecture/workflows.md`](../architecture/agent-runtime.md), [ADR 0015](0015-dapr-as-infrastructure-runtime.md).
 
 ## Context
 
-Spring Voyage units whose runtime image embeds a workflow engine delegate sequencing to a long-running, durable workflow (per [ADR-0039](0039-units-are-agents.md), this is one shape of "the unit's runtime decides"). Two shapes were on the table:
+Spring Voyage units whose runtime image embeds a workflow engine delegate sequencing to a long-running, durable workflow (per [ADR-0039](archive/0039-units-are-agents.md), this is one shape of "the unit's runtime decides"). Two shapes were on the table:
 
 1. **Compile every workflow into the host.** All workflows live in the platform binary; deploying a workflow change means redeploying the platform.
 2. **Workflows as containers.** Each domain workflow is an independent container image with its own Dapr sidecar; the platform invokes it through the dispatcher path.

@@ -2,7 +2,11 @@
 
 ## What a unit is
 
-A **unit** is an [agent](agents.md) that owns children.
+A **unit** is an [agent](agents.md) that owns children. Composition is
+recursive: a unit appears to its parent as a single agent. When a message
+reaches a unit, the unit's **own runtime runs** and decides whether to answer
+directly or hand work to a member — there is no separate orchestration layer
+([ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)).
 
 This page covers only the unit-specific layer. Shared concepts such as mailbox
 intake, execution config, runtime invocation, inheritance, and the platform

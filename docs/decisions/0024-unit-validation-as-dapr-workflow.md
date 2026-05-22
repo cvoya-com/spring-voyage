@@ -3,7 +3,7 @@
 - **Status:** Accepted — 2026-04-21 — defer-validation rollout ([#941](https://github.com/cvoya-com/spring-voyage/issues/941)) shipped as `UnitValidationWorkflow`, a Dapr Workflow + in-container probe activities. The actor-shaped `RuntimeProbeActor` that surfaced in an early wave of the design was rejected in favour of the workflow.
 - **Date:** 2026-04-21
 - **Related code:** `src/Cvoya.Spring.Dapr/Workflows/UnitValidationWorkflow.cs`, `src/Cvoya.Spring.Dapr/Workflows/Activities/`, `src/Cvoya.Spring.Dapr/Actors/UnitActor.cs` (validation scheduling / completion), `src/Cvoya.Spring.Core/AgentRuntimes/ProbeStep.cs`, `src/Cvoya.Spring.Core/Units/UnitValidationCodes.cs`, `src/Cvoya.Spring.Cli/Commands/UnitValidationWaitLoop.cs`.
-- **Related docs:** [`docs/architecture/units.md § Unit validation workflow`](../architecture/units.md#unit-validation-workflow), [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtimes-and-tenant-scoping.md), [ADR 0019 — Workflow as container](0019-workflow-as-container.md), [ADR 0015 — Dapr as infrastructure runtime](0015-dapr-as-infrastructure-runtime.md).
+- **Related docs:** [`docs/architecture/units.md § Unit validation workflow`](../architecture/units-and-agents.md), [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtime.md), [ADR 0019 — Workflow as container](0019-workflow-as-container.md), [ADR 0015 — Dapr as infrastructure runtime](0015-dapr-as-infrastructure-runtime.md).
 
 ## Context
 

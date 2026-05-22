@@ -2,168 +2,150 @@
 
 Definitions of key terms used throughout the Spring Voyage documentation.
 
-**Spring Voyage** is an open-source collaboration platform for teams of AI agents — and the humans they work with. Throughout this glossary, "platform" refers to Spring Voyage; "the substrate" refers to the same thing from the operator's vantage. Orchestration is one mechanism inside a unit; collaboration between humans and agents is the larger frame the platform exists to make tractable.
+**Spring Voyage** is an open-source collaboration platform for teams of AI agents — and the humans they work with. Throughout this glossary, "platform" refers to Spring Voyage. The platform delivers messages between agents; it does not orchestrate. Collaboration between humans and agents is the larger frame the platform exists to make tractable.
 
 ---
 
 **A2A (Agent-to-Agent)**
-An open protocol for cross-framework agent communication. Enables Spring agents to collaborate with agents built on other frameworks (Google ADK, LangGraph, etc.).
+An open protocol for cross-framework agent communication. The platform drives every agent-runtime container over A2A, and Spring agents can collaborate with agents built on other frameworks (Google ADK, LangGraph, etc.).
 
 **Activation**
-What causes an agent to wake up and act. Activation triggers include direct messages, pub/sub subscriptions, scheduled reminders, volatile timers, external events (via bindings), workflow steps, and initiative.
+What causes an agent to wake up and act. Activation triggers include a direct message, a pub/sub subscription, a Dapr reminder or timer, or the initiative cognition loop.
 
 **Address**
-A globally unique routable identity for any addressable entity. Shape: `(Scheme, Guid)` — a scheme like `agent`, `unit`, `human`, or `connector` plus the addressed actor's stable `Guid` identity. Canonical wire form: `scheme:<32-hex-no-dash>` (e.g. `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`). Parsers are lenient (the dashed Guid form is accepted everywhere); the emit form is uniform. There is no path-shaped address, no `@<uuid>` form, and no namespace+name pair — identity is the `Guid`. The membership graph is the addressing fabric (a unit's members are reached by walking the graph from the addressed actor toward the tenant root); presentation rendering uses `display_name` resolved at read time and never participates in routing. See [Identifiers](architecture/identifiers.md), [ADR-0036](decisions/0036-single-identity-model.md), and the `display_name` validator in `Cvoya.Spring.Core.Validation.DisplayNameValidator`.
+A routable identity for any addressable entity. Shape: `(Scheme, Guid)` — a scheme (`agent`, `unit`, `human`, or `connector`) plus the addressed actor's stable `Guid`. Canonical wire form: `scheme:<32-hex-no-dash>` (e.g. `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`). Parsers are lenient (the dashed Guid form is accepted everywhere); the emit form is uniform. There is no path-shaped address, no `@<uuid>` form, and no namespace+name pair — identity is the `Guid`. An address identifies an actor; it does not encode hierarchy. See [Data & identity](architecture/data-and-identity.md) and [ADR-0036](decisions/0036-single-identity-model.md).
 
 **Agent**
-An autonomous AI-powered entity. The fundamental building block of the platform. Can be a worker, observer, advisor, monitor, researcher, or any other role. Every agent has an identity, can receive messages, and can reason about how to respond.
+An autonomous AI-powered participant — the fundamental building block of the platform. Every agent has an identity, a mailbox, and an execution config, and reasons about how to respond to the messages it receives. A **unit** is an agent that has children; a **leaf agent** is an agent with none.
 
-**Agent Actor (AgentActor)**
-The Dapr virtual actor implementing an agent. Manages runtime state, AI cognition, pub/sub subscriptions, and the mailbox.
+**AgentActor**
+The Dapr virtual actor implementing a leaf agent. Owns the per-thread mailbox channels, the observation channel, lifecycle status, and initiative state.
 
 **AgentRuntime**
-The in-container execution engine that runs an agent's turn — Claude Code, Codex, Gemini CLI, Spring Voyage Agent. Closed set in v0.1; declared as data in `eng/runtime-catalog/runtime-catalog.yaml`. Each runtime entry declares the providers it can dispatch to (`modelProviders[]`), the per-edge `authMethod` and `credentialEnvVar`, the thread-binding mechanism, and the system-prompt injection mode. Per-runtime *behaviour* lives behind the `IAgentRuntimeLauncher` strategy interface, dispatched by the catalogue entry's `launcher` id. The user-facing execution config is the tuple `(runtime, model)` — a runtime plus a structured `model: {provider, id}`. See `docs/architecture/agent-runtime.md` and ADR-0038.
+The in-container execution engine that runs an agent's turn — Claude Code, Codex, Gemini CLI, or the Spring Voyage agent. Declared as data in `runtime-catalog.yaml`. The user-facing execution config is the tuple `(runtime, model)` — a runtime plus a structured `model: {provider, id}`. See [Agent runtime](architecture/agent-runtime.md) and [ADR-0038](decisions/0038-agent-runtime-and-model-provider-split.md).
 
 **AgentMemory**
-The agent's single, ordered, append-only memory store. Entries are **MemoryEntry** records with optional `thread_id` and `threadOnly` attributes. When the agent is operating in any thread, it reads the visible subset — entries whose `thread_id == current_thread`, or `threadOnly == false`, or `thread_id == null` (thread-less). Writes go through the `store(memory)` MCP tool; reads through `recall(query)`. Visibility is governed at write time by the thread's **ThreadMemoryPolicy**. See `docs/concepts/threads.md` for positioning, `docs/architecture/thread-model.md` § Q4 for design detail, and ADR-0030 for the durable decision.
-
-**AgentThreadMemory**
-**Superseded — was a separate-store framing in an early F1 draft.** The current model (see `docs/architecture/thread-model.md` § Q4) collapses to a single **AgentMemory** store with per-entry `thread_id` and `threadOnly` attributes; the term "per-thread memory" is now informally a filter view over `AgentMemory` (the entries with `thread_id == T`).
+An agent's single, ordered, append-only memory store. Entries are **memory entry** records with optional `thread_id` and `threadOnly` attributes; per-thread visibility is governed by the thread's **ThreadMemoryPolicy**. Memory is read and written through the `sv.memory.*` MCP tools. See [Messaging § Agent memory](architecture/messaging.md#agent-memory).
 
 **Boundary**
 The interface a unit exposes when acting as a member of a parent unit. Controls what is visible (transparent, translucent, or opaque) and what operations are projected, filtered, or synthesized.
 
 **Clone**
-A platform-managed copy of an agent, spawned to handle concurrent work. Governed by the agent's cloning policy (none, ephemeral-no-memory, ephemeral-with-memory, persistent) and attachment mode (detached, attached).
+A platform-managed copy of an agent, spawned to handle concurrent work. Governed by the agent's cloning policy (`none`, `ephemeral-no-memory`, `ephemeral-with-memory`, `persistent`) and an attachment mode (`detached`, `attached`). Units cannot be cloned — composition is a unit's scaling mechanism.
 
-**Cognition Loop**
-The five-step reasoning process agents use during initiative: Perceive, Reflect, Decide, Act, Learn.
+**Cognition loop**
+The five-step reasoning process agents use during initiative: perceive, reflect, decide, act, learn.
 
 **Collaboration**
-The active shared space where participants converse, coordinate, and get work done. The UX active-workspace surface — what a user opens to do something today. Recorded by the system as a **Thread** and presented in product navigation as an **Engagement**. Example phrasing: "Open collaboration with the writing agent." See `docs/concepts/threads.md` for positioning across the three layers (Thread / Engagement / Collaboration).
+The active shared space where participants converse, coordinate, and get work done — the UX active-workspace surface. Recorded by the system as a **thread** and presented in product navigation as an **engagement**. See [Threads, engagements, and collaborations](concepts/threads.md).
 
 **Connector**
-A pluggable adapter bridging an external system (GitHub, Slack, Figma, etc.) to a unit. Provides event translation (external events become one-way platform messages) and skills (capabilities agents can use). A connector is a non-routable bridge — not an actor; nothing routes a message to it ([ADR-0048](decisions/0048-event-vs-request-message-semantics.md)).
+A pluggable bridge between an external system (GitHub, Slack, arXiv, …) and a unit. Provides inbound event translation (external events become one-way platform messages) and optional outbound skills. A connector is a non-routable bridge — not an actor; nothing routes a message *to* it ([ADR-0053 § 5](decisions/0053-units-are-agents-and-one-way-delivery.md)).
 
-**Conversation**
-**Superseded by Thread.** The pre-v0.1 term for what is now a thread. v0.1 leaves a free hand on schema and API change (see `docs/architecture/thread-model.md` § Q10 — no migration, no legacy partition), so there is no `ConversationId` field surviving on disk; the rename is uniform. See **Thread**.
-
-**Conversation Channel**
-**Superseded — now described as the per-thread queue inside the agent's mailbox.** See `docs/architecture/messaging.md` (F2 will refresh) and **Thread**.
-
-**Control Channel**
-A partition of the agent's mailbox for platform control messages (Cancel, StatusQuery, HealthCheck, PolicyUpdate). Control messages are never blocked behind work.
+**Control channel**
+A partition of the agent's mailbox for platform control messages (`Cancel`, `StatusQuery`, `HealthCheck`, `PolicyUpdate`). Control messages are never blocked behind work.
 
 **Dapr**
 A distributed application runtime providing building blocks (actors, pub/sub, state, secrets, workflows) as a sidecar process. The infrastructure foundation of Spring Voyage.
 
-**Delegated Execution**
-An execution pattern where the agent actor dispatches work to an isolated execution environment (container) running a tool like Claude Code. The tool drives its own agentic loop.
-
 **Directory**
-A registry of agent expertise, queryable within and across units. Each unit maintains its members' expertise profiles. Directories compose recursively through the unit hierarchy.
+A registry of agent expertise, queryable within and across units. A unit's effective expertise is the recursive union of its own declared domains and every descendant's. A runtime reads it through the `sv.directory.*` and `sv.expertise.*` MCP tools.
 
 **display_name**
-The human-facing label for an actor (unit, agent, human, connector, tenant) used in wizard listings, activity-log narrative, drawer panels, and CLI table output. Not unique, not addressable, not a foreign-key target. The platform rejects any `display_name` that round-trips through `Guid.TryParseExact` for any standard form, so a token that looks Guid-shaped is unambiguously identity, not a name. CLI surfaces accept `display_name` as **search input** (returning 0/1/n results); they never accept it as a routed lookup. See [Identifiers](architecture/identifiers.md), [ADR-0036 § 2](decisions/0036-single-identity-model.md), and `Cvoya.Spring.Core.Validation.DisplayNameValidator`.
+The human-facing label for an actor (unit, agent, human, connector, tenant), used in wizard listings, activity-log narrative, and CLI table output. Not unique, not addressable, not a foreign-key target. The platform rejects any `display_name` that parses as a `Guid`, so a Guid-shaped token is unambiguously identity. See [Data & identity](architecture/data-and-identity.md) and [ADR-0036](decisions/0036-single-identity-model.md).
 
-**Domain Package**
-See Package.
+**Domain message**
+A `Message` of `MessageType.Domain` — a one-way **event** ("something happened") delivered to a unit or agent. The platform never inspects the payload. The sender is not blocked on a return value; a dispatch response is recorded on the thread, never routed back. See [Messaging](architecture/messaging.md) and [ADR-0053](decisions/0053-units-are-agents-and-one-way-delivery.md).
 
 **Engagement**
-The ongoing shared context between participants over time. The UX product-narrative term for the enduring relationship between participants — used in product navigation, lists, and continuity-of-relationship copy. Recorded by the system as one or more **Threads** (a participant-set change produces a new thread; the engagement absorbs the transition) and worked in as a **Collaboration**. Example phrasing: "Continue this engagement." See `docs/concepts/threads.md` for positioning across the three layers (Thread / Engagement / Collaboration).
+The product / UX narrative term for the enduring relationship between participants over time. Recorded by the system as one or more **threads** and worked in as a **collaboration**. See [Threads, engagements, and collaborations](concepts/threads.md).
 
-**Execution Environment**
-An isolated runtime (container) where a delegated agent's work runs. Separate from the agent actor. Sandboxed by default.
+**Execution config**
+How the platform runs an agent or unit: `(runtime, model, image, hosting)`. Fields left empty inherit from the parent unit, or from tenant defaults for a top-level entity.
 
-**Expertise Profile**
-A structured description of what an agent knows and how well it knows it. Seeded from configuration, optionally evolved through observation and learning.
+**Expertise profile**
+A structured description of what an agent knows and how well it knows it (domains with a level: `beginner` / `intermediate` / `advanced` / `expert`). Seeded from configuration, optionally evolved through observation and learning.
 
-**Human Actor (HumanActor)**
+**HumanActor**
 The Dapr virtual actor representing a human participant. Routes notifications and enforces permission levels.
 
-**IAddressable**
-The foundational interface: "I have an address." Every entity that participates in the platform implements this.
-
-**IMessageReceiver**
-The core messaging interface: "I can receive messages." Extends IAddressable. Implemented by all four actor types.
-
 **Initiative**
-An agent's capacity to autonomously decide to act without external triggers. Ranges from Passive (no initiative) to Autonomous (full self-direction). Governed by unit-level policies.
+An agent's capacity to act without an external trigger. Four levels — `Passive`, `Attentive`, `Proactive`, `Autonomous` — each granting a wider self-modification scope. Governed by unit-level policies. See [Initiative](concepts/initiative.md).
 
 **Mailbox**
-An agent's inbound message system, logically partitioned into control, conversation, and observation channels.
+An agent's inbound message system, logically partitioned into a control channel, per-thread FIFO channels, and an observation channel.
 
-**MemoryEntry**
-A single record in an agent's **AgentMemory**. Shape: `{ id, timestamp, payload, thread_id?, threadOnly? }`. The `payload` may be any kind of memory artifact (fact, lesson, generalised pattern, observation, reasoning step, etc.) — the platform stores them uniformly and the agent's cognition decides what each represents. The `threadOnly` attribute is stamped at write time from the thread's **ThreadMemoryPolicy** and controls cross-thread visibility for the entry. See `docs/concepts/threads.md` for positioning, `docs/architecture/thread-model.md` § Q4 for design detail, and ADR-0030 for the durable decision.
-
-**MemoryPromotionPolicy**
-**Superseded by ThreadMemoryPolicy.** The prior draft's framing of "promotion between two stores" is replaced by "visibility attribute on a single store"; the underlying intent — a per-thread privacy knob — is preserved under the new name. See `docs/architecture/thread-model.md` § Q4.
-
-**Model**
-A specific LLM identified by the structured pair `{provider, id}` (e.g. `{provider: anthropic, id: claude-opus-4-7}`). The provider is intrinsic to the model — there is no separate `provider` axis in the manifest, on the wire, or stored on a tenant install row. The platform validates that `model.provider` is in the chosen runtime's allowed-provider set. See ADR-0038.
-
-**ModelProvider**
-The company or service whose API hosts a set of LLMs — `anthropic`, `openai`, `google`, `ollama`, future additions. Open set, declared as data in `eng/runtime-catalog/runtime-catalog.yaml`. Each entry carries `apiBaseUrl`, `modelsEndpoint`, an `adapter` strategy id (`anthropic`, `openai-compatible`, `google`), the auth methods the provider accepts (`authMethods`), the LLM API contract it implements (`llmApiContract: {name, version}`), and a seed list of `defaultModels`. ModelProviders are the routing / credential boundary the platform uses internally — `ILlmCredentialResolver` is keyed on `(tenant, provider, authMethod)`. Per-wire-format behaviour lives behind `IModelProviderAdapter` strategies. See ADR-0038.
+**Memory entry**
+A single record in an agent's **AgentMemory**. Shape: `{ id, timestamp, payload, thread_id?, threadOnly? }`. The `payload` may be any kind of memory artifact (fact, lesson, observation, reasoning step, …); the platform stores them uniformly. The `threadOnly` attribute is stamped at write time from the thread's **ThreadMemoryPolicy** and controls cross-thread visibility. **Tasks are memory entries** — there is no typed `task` platform concept.
 
 **Message**
-A typed communication between addressable entities. Contains an ID, sender, recipient, type, conversation ID, payload, and timestamp.
+A typed communication between addressable entities. Fields: `Id`, `From`, `To`, `Type` (`MessageType`), `ThreadId`, `Payload`, `Timestamp`.
 
-**Observation Channel**
-A partition of the agent's mailbox for events from subscriptions, timers, and observed agents. Processed in batch by the initiative cognition loop.
+**MessageType**
+Separates domain traffic from control traffic. `Domain` carries work the runtime interprets; `Cancel`, `StatusQuery`, `HealthCheck`, and `PolicyUpdate` are control types the platform handles directly.
+
+**Model**
+A specific LLM identified by the structured pair `{provider, id}` (e.g. `{provider: anthropic, id: claude-opus-4-7}`). The provider is intrinsic to the model. See [ADR-0038](decisions/0038-agent-runtime-and-model-provider-split.md).
+
+**ModelProvider**
+The company or service whose API hosts a set of LLMs — `anthropic`, `openai`, `google`, `ollama`, and future additions. Declared as data in `runtime-catalog.yaml`. The credential boundary the platform resolves against. See [ADR-0038](decisions/0038-agent-runtime-and-model-provider-split.md).
+
+**Observation channel**
+A partition of the agent's mailbox for events from pub/sub subscriptions, reminders, and timers. Processed in batch by the initiative cognition loop.
 
 **OssTenantIds.Default**
-The deterministic v5 UUID owning every tenant-scoped row in a fresh OSS install: `dd55c4ea-8d72-5e43-a9df-88d07af02b69` (no-dash form: `dd55c4ea8d725e43a9df88d07af02b69`). Computed once over namespace `00000000-0000-0000-0000-000000000000` and label `cvoya/tenant/oss-default`, pinned as a literal in `src/Cvoya.Spring.Core/Tenancy/OssTenantIds.cs`. Recomputable from outside the platform via any v5 implementation. The class also exposes `DefaultDashed` and `DefaultNoDash` `const string` literals for grep-ability across configuration files, dashboards, and audit logs. See [Identifiers § 5](architecture/identifiers.md#5-the-oss-default-tenant-id) and [ADR-0036 § 8](decisions/0036-single-identity-model.md).
+The deterministic v5 UUID owning every tenant-scoped row in a fresh OSS install: `dd55c4ea-8d72-5e43-a9df-88d07af02b69`. Computed over a fixed namespace and the label `cvoya/tenant/oss-default`, pinned as a literal in `src/Cvoya.Spring.Core/Tenancy/OssTenantIds.cs`. See [Data & identity § The OSS default tenant](architecture/data-and-identity.md#the-oss-default-tenant).
 
 **OssTenantUserIds.Operator**
-The deterministic v5 UUID owning the single OSS-operator `TenantUser` row: `5c4c8e29-d91b-5b50-8651-64536cfb68ee` (no-dash form: `5c4c8e29d91b5b50865164536cfb68ee`). Computed once over namespace `00000000-0000-0000-0000-000000000000` and label `cvoya/tenant-user/oss-operator`, pinned as a literal in `src/Cvoya.Spring.Core/Tenancy/OssTenantUserIds.cs`. The class also exposes `OperatorDashed` and `OperatorNoDash` `const string` literals. In OSS every `Human` resolves to this `TenantUser` through the `Human → TenantUser` mapping; the operator's GitHub / Slack / Linear handles are configured once on this row's `TenantUserConnectorIdentity` entries. See [Identifiers § 6](architecture/identifiers.md#6-the-oss-operator-tenantuser-id) and [ADR-0047 §§ 1, 3](decisions/0047-platform-user-human-split.md).
-
-**Observer**
-An agent that subscribes to another agent's activity stream (with permission).
-
-**Routing decision**
-An `ActivityEvent` with `EventType=DecisionMade` published by the platform when a runtime calls `sv.runtime.report_decision`. Shape: `Kind` (`Delegate` or `Fanout`), `Status` (`Accepted`, `Routed`, or `Failed`), `Targets` (array of addresses), `ResultMessageIds` (array of result message Guids), and `Reason` (optional runtime-supplied string). Recording a decision is optional — a plain `sv.messaging.*` delivery publishes a `MessageSent` activity instead. See [ADR-0050](decisions/0050-platform-mcp-tool-surface.md).
-
-**Platform MCP tools**
-The platform-provided MCP tools an agent runtime consumes, all named `sv.<area>.<verb>` ([ADR-0050](decisions/0050-platform-mcp-tool-surface.md)). The areas are `directory`, `memory`, `messaging`, `runtime`, and `expertise`. The platform's message-delivery surface is exactly two tools — `sv.messaging.send` and `sv.messaging.multicast` — on the [ADR-0049](decisions/0049-message-delivery-tool-contract.md) delivery-acknowledgement contract; the platform delivers messages, it does not orchestrate. There are no `delegate_to` / `fanout_to` tools — "delegation" is message content the recipient's runtime interprets. The tools are exposed through one platform MCP server (`spring-voyage`) under one auth model — the MCP session bearer token ([ADR-0051](decisions/0051-unified-platform-mcp-auth-model.md)). LLM-driven runtimes use MCP directly; workflow-driven runtimes use the `Cvoya.Spring.AgentSdk` `MessagingClient`, which calls the same tools over JSON-RPC against the same server. See [Platform MCP Tools](architecture/platform-mcp-tools.md).
+The deterministic v5 UUID owning the single OSS-operator `TenantUser` row: `5c4c8e29-d91b-5b50-8651-64536cfb68ee`. Computed over a fixed namespace and the label `cvoya/tenant-user/oss-operator`, pinned in `src/Cvoya.Spring.Core/Tenancy/OssTenantUserIds.cs`. In OSS every `Human` resolves to this `TenantUser`. See [Data & identity](architecture/data-and-identity.md#the-oss-default-tenant) and [ADR-0047](decisions/0047-platform-user-human-split.md).
 
 **Package**
-An installable bundle of domain-specific content: agent templates, unit templates, skills, workflows, connectors, and execution environments. How the platform remains domain-agnostic while supporting specific domains.
+An installable bundle of domain-specific content: agent and unit definitions, skills, and templates. How the platform stays domain-agnostic while supporting specific domains. See [Packages](concepts/packages.md) and [ADR-0035](decisions/0035-package-as-bundling-unit.md).
+
+**Platform MCP tools**
+The platform-provided MCP tools an agent runtime consumes, all named `sv.<area>.<verb>` — the areas are `directory`, `memory`, `messaging`, `runtime`, and `expertise`. The message-delivery surface is exactly two tools — `sv.messaging.send` and `sv.messaging.multicast` — on a delivery-acknowledgement contract; the platform delivers messages, it does not orchestrate. There are no `delegate_to` / `fanout_to` tools — "delegation" is message content the recipient's runtime interprets. The tools are exposed through **one** worker-side MCP server, authenticated by **one per-turn MCP session token**. See [Messaging § The platform MCP tool surface](architecture/messaging.md#the-platform-mcp-tool-surface) and [ADR-0054](decisions/0054-one-mcp-server-one-execution-host.md).
+
+**Routing decision**
+An optional, explicit record of how a unit's runtime routed work — published as a `DecisionMade` activity event when a runtime calls `sv.runtime.report_decision`. A plain `sv.messaging.*` delivery publishes a `MessageSent` activity instead; recording the decision itself is never required.
 
 **Skill**
-A bundle of a prompt fragment (`.md`) and optional tool definitions (`.tools.json`). The smallest unit of reusable domain knowledge.
+A bundle of a markdown prompt fragment plus optional tool definitions. The smallest unit of reusable domain knowledge. A package *ships* a skill; an operator *equips* it on a unit or agent. See [Skills](concepts/skills.md).
 
 **Tenant**
-An isolated organizational unit. Contains a root unit, users, and resources. Maps to a Dapr namespace. The top-level boundary for access control, billing, and resource isolation.
+An isolated organizational unit — the top-level boundary for access control, billing, and resource isolation. Modelled in the OSS core as a `tenant_id` value on every tenant-scoped entity, not as infrastructure.
 
 **TenantUser**
-The authenticated principal of Spring Voyage scoped to one tenant — the operator in OSS, tenant members in cloud. A new actor kind added by [ADR-0047 §1](decisions/0047-platform-user-human-split.md), distinct from `Human` (which is a configuration entity declared by a package). Display-side connector identity — GitHub login, Slack handle — is owned by the `TenantUser`, not by the `Human` row, and stored on `TenantUserConnectorIdentity` rows keyed by `(tenant_id, tenant_user_id, connector_id)`. Natural key `(tenant_id, auth_subject)` — the same human authenticated against two tenants produces two distinct `TenantUser` rows. In OSS the single operator row is pinned by [`OssTenantUserIds.Operator`](#osstenantuseridsoperator). See [Tenants § TenantUser](concepts/tenants.md#tenantuser-the-authenticated-principal).
-
-**Tier 1 (Screening)**
-The first tier of the initiative cognition model. A small, locally-hosted LLM performs fast, cheap screening of events to decide whether the agent's primary LLM should be invoked.
-
-**Tier 2 (Reflection)**
-The second tier of the initiative cognition model. The agent's primary LLM (Claude, GPT-4, etc.) performs full cognition: perceive, reflect, decide, act, learn. Invoked selectively.
+The authenticated principal of Spring Voyage scoped to one tenant — the operator in OSS, tenant members in cloud. Distinct from `Human` (a configuration entity declared by a package). Display-side connector identity — GitHub login, Slack handle — is owned by the `TenantUser`, stored on `TenantUserConnectorIdentity` rows. See [Tenants § TenantUser](concepts/tenants.md#tenantuser-the-authenticated-principal) and [ADR-0047](decisions/0047-platform-user-human-split.md).
 
 **Thread**
-The unique, persistent, system-level record for a set of two or more participants, containing their lifelong shared exchanges and activity. The participant set IS the identity: there is exactly one thread per unique participant set; adding or removing a participant produces a different thread. This is the system / architectural concept — used in code, schema, APIs, and architecture docs. Users do not see threads directly: the product presents the thread as an **Engagement**, and the user works inside it as a **Collaboration**. See `docs/concepts/threads.md` for positioning across the three layers, `docs/architecture/thread-model.md` for design detail, and ADR-0030 for the durable decision.
+The unique, persistent, system-level record for a set of two or more participants, containing their lifelong shared exchanges and activity. The participant set IS the identity: there is exactly one thread per unique participant set; adding or removing a participant produces a different thread. This is the system / architectural concept used in code, schema, and APIs; the product presents a thread as an **engagement** and the user works inside it as a **collaboration**. See [Threads, engagements, and collaborations](concepts/threads.md) and [ADR-0030](decisions/0030-thread-model.md).
 
 **ThreadMemoryPolicy**
-Per-thread policy that sets the default `threadOnly` attribute for memory entries (**MemoryEntry**) stored by an agent operating in that thread. `threadOnly: true` (default) restricts the entry's visibility to the originating thread; `threadOnly: false` allows the entry to be visible to that agent across its other threads. The only memory-flow knob in v0.1. See `docs/concepts/threads.md` for positioning, `docs/architecture/thread-model.md` § Q4 for design detail, and ADR-0030 for the durable decision.
+Per-thread policy that sets the default `threadOnly` attribute for memory entries stored by an agent operating in that thread. `threadOnly: true` (default) restricts an entry's visibility to its originating thread; `threadOnly: false` makes it visible to that agent across its other threads.
+
+**Tier 1 (screening)**
+The first tier of the initiative cognition model. A small, locally-hosted LLM performs fast, cheap screening of observed events to decide whether the agent's primary LLM should be invoked.
+
+**Tier 2 (reflection)**
+The second tier of the initiative cognition model. The agent's primary LLM performs full cognition (perceive, reflect, decide, act, learn). Invoked selectively, only on Tier-1 "act" verdicts.
 
 **Timeline**
-The ordered, timestamped record of all artifacts within a thread: messages (user / agent / initiative), task lifecycle events, **ParticipantStateChanged** events, retractions, and system events. Append-only at the platform level; corrections and retractions are new Timeline events that reference prior artifacts, not in-place mutations. Per-thread FIFO is the ordering invariant. See `docs/architecture/thread-model.md` § Q7.
+The ordered, append-only record of all artifacts within a thread: messages, `ParticipantStateChanged` events, retractions, and system events. Corrections and retractions are new Timeline events that reference prior artifacts, not in-place mutations. Per-thread FIFO is the ordering invariant.
+
+**Tool**
+The runtime-invocation surface an agent calls — a concrete, named, schema-typed action, id `<namespace>.<tool_name>`. Distinct from a skill (authored prose). Tools reach an agent in three tiers: platform (`sv.*`), connector (`<connector-slug>.*`), and image. See [Tools](concepts/tools.md).
 
 **Topic**
-A named pub/sub channel for event distribution. Topic names are namespaced by tenant + owner Guid + topic name (`{tenant-id}/{owner-id}/{topic}`); system topics use the `system/` prefix.
+A named pub/sub channel for event distribution. Topic names are namespaced `{tenant-id}/{owner-id}/{topic}`; system topics use the `system/` prefix.
 
 **Unit**
-A group of agents -- and the humans who work with them -- performing together. A unit IS an agent (composite pattern): it has a mailbox, execution config, and runtime invocation path, with hierarchy, membership, connector binding, and boundary rules added on top.
+An agent that has children. A unit IS an agent: it has a mailbox, an execution config, and a runtime invocation path, with membership, expertise aggregation, connector binding, and a boundary added on top. When a message reaches a unit, the unit's own runtime runs. See [Units](concepts/units.md) and [ADR-0053](decisions/0053-units-are-agents-and-one-way-delivery.md).
 
-**Unit Actor (UnitActor)**
-The Dapr virtual actor implementing a unit. Manages membership, policies, the expertise directory, boundaries, connector bindings, and the unit-specific lifecycle while dispatching domain messages through the runtime-launcher path shared with agents.
+**UnitActor**
+The Dapr virtual actor implementing a unit. Owns the same mailbox contract as an agent, plus member dispatch; the member graph itself is EF-authoritative.
 
-**Unit-as-agent**
-The framing from ADR-0039: a unit is structurally identical to an agent; the only operational difference is the presence of children. The platform attaches the same platform MCP tools — including the `sv.messaging.*` delivery tools — to every `agent://` and `unit://` runtime; a unit's runtime delegates to a child by delivering a message to it. There is no creation-time mode toggle.
+**UnitPolicy**
+The governance record on a unit — optional slots constraining member agents (skill, model, cost, execution-mode, initiative). A unit is a trust boundary: a unit policy cannot be escaped by a per-membership or per-agent override.
 
 **Workflow**
-A durable, structured execution plan. Domain workflows run in containers; platform-internal workflows run in the host process.
+A durable, structured execution plan. Workflow-driven agent runtimes ship as their own container images; the platform's internal lifecycle workflows (validation, agent creation, cloning) run as Dapr Workflows in the worker.

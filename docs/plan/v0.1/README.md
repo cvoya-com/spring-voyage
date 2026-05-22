@@ -1,5 +1,7 @@
 # Spring Voyage v0.1 — Plan of Record
 
+> **Historical planning record.** This is the v0.1 plan-of-record index — it captures planned intent; live status lives in GitHub and the current system is described in [docs/architecture/](../../architecture/README.md). Kept for context.
+
 **Active release frame.** First public release of Spring Voyage — the open-source collaboration platform for teams of AI agents and the humans they work with. Replaces the scrapped V2 release. V1 was internal-only.
 
 This directory is the canonical narrative for v0.1 planning and execution. Live status (what's in/out, who's doing what) lives in GitHub: milestone `v0.1`, per-area umbrella issues, and `area:*` labels. The files here own the *intent*; GitHub owns the *state*.

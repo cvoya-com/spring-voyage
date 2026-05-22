@@ -7,10 +7,12 @@ This guide covers the full lifecycle of units and agents: creation, configuratio
 ### Creating a Unit
 
 ```
-spring unit create <name> [--description "..."]
+spring unit create <name> [--description "..."] [--runtime <id>] [--model <id>]
 ```
 
-A unit is usable immediately after creation. You can add agents, connectors, and policies incrementally.
+A unit *is* an agent that has children — give it a runtime and model so its own
+runtime can run when a message reaches it. A unit is usable immediately after
+creation; add member agents, connectors, and policies incrementally.
 
 #### From a package (catalog install)
 
@@ -18,7 +20,7 @@ A unit is usable immediately after creation. You can add agents, connectors, and
 spring package install <package-name> [--input key=value ...]
 ```
 
-This installs all artefacts in the package atomically via `POST /api/v1/packages/install`. If any step fails, the whole install rolls back. The portal equivalent is the **From catalog** source on the `/units/create` wizard. The removed `spring unit create-from-template` and `spring unit create --from-template` verbs were superseded by this path (see [ADR-0035](../../decisions/0035-cross-package-self-contained.md)).
+This installs all artefacts in the package atomically via `POST /api/v1/packages/install`. If any step fails, the whole install rolls back. The portal equivalent is the **From catalog** source on the `/units/create` wizard. Declarative YAML is shipped as a package and installed this way — there is no `spring apply` verb (see [ADR-0035](../../decisions/0035-package-as-bundling-unit.md)).
 
 ### Listing Units
 
@@ -28,18 +30,17 @@ spring unit list
 
 ### Configuring a Unit
 
-Set execution defaults (image, runtime, tool, provider, model) independently:
+Set execution defaults — `image`, `runtime`, `model-provider`, `model` — independently:
 
 ```bash
 # Set one or more execution defaults (partial update — pass only flags you want to change)
 spring unit execution set <name> \
-  --agent claude \
+  --runtime claude-code \
   --image ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest \
-  --runtime podman \
   --model claude-sonnet-4-6
 ```
 
-There is no `spring unit set` verb. Use `spring unit execution get <name>` to inspect current defaults and `spring unit execution clear <name>` to strip the block.
+Use `spring unit execution get <name>` to inspect current defaults and `spring unit execution clear <name> [--field <name>]` to strip the block or one field.
 
 ### Setting Policies
 
@@ -67,27 +68,27 @@ Pass a YAML fragment instead of flags: `spring unit policy skill set eng-team -f
 
 ### Execution defaults
 
-Units and agents share a five-field `execution:` block (`image`, `runtime`, `tool`, `provider`, `model`). The unit block acts as the default inherited by member agents. See `docs/architecture/units.md § Unit execution defaults` for the resolution chain.
+Units and agents share an `execution:` block — `image`, the agent `runtime`, and a structured `model` (`{provider, id}`). The unit block is the default inherited by member agents; agents add `hosting`. See [Units & agents — Execution config inheritance](../../architecture/units-and-agents.md#execution-config-inheritance) for the resolution chain.
 
 ```bash
 spring unit execution get   <unit>
-spring unit execution set   <unit> [--image …] [--runtime docker|podman] [--agent …] [--provider …] [--model …]
-spring unit execution clear <unit> [--field image|runtime|tool|provider|model]
+spring unit execution set   <unit> [--image …] [--runtime <id>] [--model-provider <id>] [--model <id>]
+spring unit execution clear <unit> [--field image|runtime|model-provider|model]
 
 spring agent execution get   <agent>
-spring agent execution set   <agent> [--image …] [--runtime …] [--agent …] [--provider …] [--model …] [--hosting ephemeral|persistent]
-spring agent execution clear <agent> [--field image|runtime|tool|provider|model|hosting]
+spring agent execution set   <agent> [--image …] [--runtime <id>] [--model-provider <id>] [--model <id>] [--hosting ephemeral|persistent]
+spring agent execution clear <agent> [--field image|runtime|model-provider|model|hosting]
 ```
 
 - `set` is a **partial update** — pass only the flags to change.
 - `clear --field X` clears one field; `clear` without `--field` strips the whole block.
 - `--hosting` is agent-exclusive.
-- `--provider` / `--model` are meaningful only when the resolved runtime kind is `spring-voyage` (i.e. `--agent ollama|openai|google`).
+- `--runtime` is the agent-runtime kind (`claude-code`, `codex`, `gemini`, `spring-voyage`). `--model-provider` is required for multi-provider runtimes (`spring-voyage`); the provider follows from the model otherwise. Container runtime (podman vs docker) is platform configuration, not an execution field.
 
-`spring agent create` accepts `--image`, `--runtime`, `--agent` as shorthands for the corresponding `execution.X` fields:
+`spring agent create` accepts `--image`, `--runtime`, `--model-provider`, `--model`, `--hosting` as shorthands for the corresponding `execution.X` fields:
 
 ```bash
-spring agent create --name backend-eng --unit engineering-team --agent claude --image ghcr.io/my/agent:v1 --runtime podman
+spring agent create --name backend-eng --unit engineering-team --runtime claude-code --model claude-sonnet-4-6
 ```
 
 ### Managing Members
@@ -146,8 +147,9 @@ to invoke. Equipping a skill on a subject *concatenates that fragment*
 into the assembled prompt: equipped on a **unit**, the body lands in
 Layer 2 (unit context) and is visible to every member agent; equipped on
 an **agent**, it lands in Layer 4 (agent instructions) and is private to
-that agent. See `docs/architecture/agents.md` for the four-layer model
-and `docs/concepts/skills.md` for the package authoring shape.
+that agent. See [Units & agents — Prompt assembly](../../architecture/units-and-agents.md#prompt-assembly)
+for the four-layer model and `docs/concepts/skills.md` for the package
+authoring shape.
 
 Addressing is always `<package>/<skill>`. No version pinning — operators
 who reinstall the package with new content pick up the new body on the
@@ -198,10 +200,10 @@ declaration order — the same order the assembled prompt renders them.
 ### Creating an Agent
 
 ```bash
-spring agent create --name <display-name> --unit <unit> --role <role> --agent <runtime-id>
+spring agent create --name <display-name> --unit <unit> --role <role> --runtime <runtime-id>
 ```
 
-Agent identity is assigned by the platform (a server-allocated Guid) per ADR-0039 §8; `--name` is the only display surface.
+Agent identity is a server-allocated Guid; `--name` is the only display surface. `--unit` is repeatable and optional — omit it for a top-level tenant-parented agent.
 
 Agent instructions, expertise, and other properties are typically set via YAML definitions. For quick adjustments:
 
@@ -228,15 +230,6 @@ spring unit set <unit> --instructions "Be helpful."
 ```bash
 spring agent status <agent>
 spring agent status --unit <unit>    # all agents in a unit
-```
-
-### Agent Cloning Configuration
-
-```bash
-spring agent set <agent> \
-  --cloning-policy ephemeral-with-memory \
-  --cloning-attachment attached \
-  --cloning-max 3
 ```
 
 ### Creating and Listing Clones
@@ -289,16 +282,16 @@ Three conformance paths:
 |------|-------------|
 | 1 (default) | `FROM ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` + install your CLI tool. Works on Debian 12 + Node 22. |
 | 2 | Non-Debian / Node-less image — copy the bridge SEA binary from each GitHub Release into your custom base. |
-| 3 | Image already speaks A2A natively (e.g. `dapr-agents`). No bridge involved. |
+| 3 | Image already speaks A2A natively (the `spring-voyage` agent image takes this path). No bridge involved. |
 
-OSS launchers (Claude Code, Codex, Gemini) use path 1; Dapr Agent uses path 3. See [Bring Your Own Image (BYOI)](../operator/byoi-agent-images.md) for recipes and debugging tips.
+OSS launchers (Claude Code, Codex, Gemini) use path 1; the Spring Voyage Agent uses path 3. See [Bring Your Own Image (BYOI)](../operator/byoi-agent-images.md) for recipes and debugging tips.
 
 ### Bundled reference images
 
-| Image | Path | `tool:` | Ready to dispatch? |
-|-------|------|---------|-------------------|
+| Image | Path | `runtime:` | Ready to dispatch? |
+|-------|------|------------|-------------------|
 | `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest` | 1 | `claude-code` | Yes — after `./eng/build/build-agent-images.sh` runs |
-| `ghcr.io/cvoya-com/spring-voyage-agent:latest` | 3 | `spring-voyage-agent` | Yes — after `./eng/build/build-agent-images.sh` runs |
+| `ghcr.io/cvoya-com/spring-voyage-agent:latest` | 3 | `spring-voyage` | Yes — after `./eng/build/build-agent-images.sh` runs |
 | `ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` | 1 base | (none) | No — use as a `FROM` base, not as a dispatch target |
 
 `./eng/build/build.sh` runs `build-agent-images.sh` for you.
@@ -348,22 +341,23 @@ spring connector bind --unit engineering-team --type github \
 
 - **catalog** lists slug, display name, and description for every registered connector type.
 - **show** prints the binding pointer plus typed config (for GitHub: owner, repo, events, installation id, reviewer).
-- **bind** writes the per-unit config and connector binding atomically. GitHub is the only typed bind surface today; other types show a "not yet supported" message. Removing a binding uses the unit lifecycle (stop / delete); a dedicated `unbind` command is planned.
+- **bind** writes the per-unit config and connector binding atomically. GitHub is the only typed bind surface today; other types show a "not yet supported" message. `spring connector unbind` removes a connector install from the tenant.
   - The `--reviewer` flag is **optional**. Omit it (or pass an empty value) to bind with no default reviewer — agents under the unit then open pull requests without a requested reviewer. See [Connectors § Authentication](../../concepts/connectors.md#authentication).
 - **bindings** lists every unit bound to a given connector type.
 
-For GitHub, install the GitHub App and supply the installation id on `bind`. See [Register your GitHub App](github-app-setup.md).
+For GitHub, install the GitHub App and supply the installation id on `bind`. See [Register your GitHub App](../operator/github-app-setup.md).
 
 ## Building Container Images
 
+Agent and unit runtime images are built from the repo, not through the `spring`
+CLI. The in-tree build scripts produce the OSS images:
+
 ```bash
-spring build packages/software-engineering          # build all images
-spring build packages/software-engineering/workflows  # workflows only
-spring build packages/software-engineering/execution  # execution envs only
-spring images list                                   # list built images
+./eng/build/build-agent-images.sh           # build the OSS agent images
+./eng/build/build.sh                        # full build (also runs the above)
 ```
 
-For local development `spring apply` auto-builds missing images.
+Operators bringing their own images follow [Bring Your Own Image (BYOI)](../operator/byoi-agent-images.md).
 
 ## See it in action
 

@@ -4,18 +4,13 @@ Spring Voyage is an open-source collaboration platform for teams of AI agents --
 
 Autonomous AI agents -- organized into composable groups called **units** -- collaborate with each other and with humans on any domain: software engineering, product management, creative work, research, operations, and more.
 
-This document series describes the core concepts and abstractions that make up the Spring Voyage model. No code is shown here -- these documents focus on *what* the system is, not *how* it is built.
+This document series describes the core concepts and abstractions that make up the Spring Voyage model. No code is shown here -- these documents focus on *what* the system is, not *how* it is built. For system design see [`docs/architecture/`](../architecture/README.md); for the "why" behind each major choice see the [ADRs](../decisions/README.md).
 
-## Where Orchestration Fits
+## What the platform does, and does not, do
 
-*Orchestration* is one mechanism a unit can use to route work across its members. Spring Voyage's bet is that **collaboration** is the bigger category -- the part that's still genuinely under-explored -- and orchestration is one piece of how the platform supports it.
+**A unit IS an agent that has children.** Composition is recursive: a unit appears to its parent as a single agent. The platform **delivers messages; it does not orchestrate.** When a message reaches a unit, the unit's own runtime runs and decides whether to answer directly, hand work to a member, or fan it out — that decision lives in the runtime, not in platform configuration. There is no "orchestration strategy" the platform configures ([ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)).
 
-Concretely, the runtime launcher attaches the platform messaging tools
-and the runtime decides whether to answer directly, send work to one
-member, or broadcast to several -- see
-[Agents -- Platform messaging tools](agents.md#platform-messaging-tools).
-External orchestrators (ADK, LangGraph, Temporal, ...) participate over A2A.
-But routing is only one slice of what happens inside a unit:
+Routing work is only one slice of what happens inside a unit. Spring Voyage's bet is that **collaboration** between humans and agents is the bigger, still-under-explored category:
 
 - **Humans participate as first-class members**, not just as observers. Multiple humans can be Owners, Operators, or Viewers on the same unit, ask the unit clarifying questions, answer questions the unit asks back, and intervene mid-work.
 - **Engagements / collaborations** are the durable shared spaces where work happens over time -- see [Threads, Engagements, and Collaborations](threads.md). The platform records each shared space as a thread keyed by the participant set; the user works in it as a collaboration.
@@ -23,7 +18,7 @@ But routing is only one slice of what happens inside a unit:
 - **Initiative** lets agents act on what they observe rather than only respond to triggers.
 - **Boundaries** let a unit expose a deliberate face to the outside while preserving deep access for permitted humans.
 
-Orchestration sits inside that stack. It answers "how should this unit route this message right now?" -- not "what is Spring Voyage for?"
+External agent frameworks (ADK, LangGraph, Temporal, …) participate over the A2A protocol.
 
 ## Document Map
 
@@ -42,7 +37,7 @@ Orchestration sits inside that stack. It answers "how should this unit route thi
 
 ## Core Principles
 
-**Domain-agnostic.** The platform knows nothing about software engineering, product management, or any specific domain. Domain knowledge lives in packages -- bundles of agent templates, skills, workflows, and connectors. The platform provides the primitives; packages provide the expertise.
+**Domain-agnostic.** The platform knows nothing about software engineering, product management, or any specific domain. Domain knowledge lives in packages -- bundles of agent and unit definitions, skills, and templates. The platform provides the primitives; packages provide the expertise.
 
 **Composable.** Units nest recursively. A unit of three agents appears as a single agent to its parent unit. An engineering team, a product squad, and a research cell can all be members of a larger organization -- each hiding its internal complexity behind a clean boundary.
 

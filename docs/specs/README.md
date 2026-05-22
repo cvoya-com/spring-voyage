@@ -1,5 +1,7 @@
 # Specifications
 
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../architecture/README.md). Kept for context.
+
 Implementation-neutral contract specifications for downstream implementers (SDKs, agent runtimes, integrations).
 
 Architecture docs (`docs/architecture/`) describe the platform implementation. ADRs (`docs/decisions/`) record decisions and trade-offs. Specs (here) define contracts that external implementers conform to.

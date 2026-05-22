@@ -40,7 +40,7 @@ Unit-equipped and agent-equipped skills land in different prompt-assembly layers
 
 ## Prompt-assembly placement
 
-The platform assembles a four-layer prompt at every message turn (see [`docs/architecture/agents.md`](../architecture/agents.md#prompt-assembly--platform-tools)). The two skill-equip surfaces land in two of those layers:
+The platform assembles a four-layer prompt at every message turn (see [`docs/architecture/units-and-agents.md`](../architecture/units-and-agents.md#prompt-assembly)). The two skill-equip surfaces land in two of those layers:
 
 | Layer | Source | Content | Equipped skills land here |
 |---|---|---|---|
@@ -57,13 +57,13 @@ A leaf agent that participates as a member of a unit sees **both** sets of bundl
 
 - The agent actor's prompt-assembly context reads from `IAgentSkillBundleStore` keyed by its own actor id (Layer 4).
 - The same path resolves the agent's owning unit(s) through `IUnitMembershipRepository.ListByAgentAsync` and reads `IUnitSkillBundleStore` keyed by each parent unit's actor id (Layer 2). The bundles from every parent are concatenated into a single Layer 2 section. ([#2363](https://github.com/cvoya-com/spring-voyage/issues/2363))
-- For a **unit-as-agent** (ADR-0039) the actor's own id is the unit's id, so the unit-store keyed by `actorId` returns the unit's own equipped bundles. The membership walk above returns an empty list for a unit subject, so the unit-as-agent case still only renders its own entry.
+- For a **unit** (which is itself an agent — [ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)) the actor's own id is the unit's id, so the unit-store keyed by `actorId` returns the unit's own equipped bundles. The membership walk above returns an empty list for a unit subject, so a unit still only renders its own entry.
 
 Operators thinking about "what does this agent see at runtime" can reason about the two surfaces independently: equipping a skill on the unit affects every member's Layer 2 in one move; equipping on the agent extends only that agent's Layer 4.
 
 #### Multi-parent ordering and dedup
 
-An agent that belongs to more than one unit (M:N memberships, per [ADR-0039](../decisions/0039-units-are-agents.md)) inherits Layer 2 bundles from every parent. The aggregation rules:
+An agent that belongs to more than one unit (M:N memberships, per [ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)) inherits Layer 2 bundles from every parent. The aggregation rules:
 
 - **Order: alphabetical by parent unit's `DisplayName`** (ordinal, case-insensitive). The display name is the only label the operator sees in the portal / CLI, so when two parents both equip distinct skills the assembled prompt's section order matches what they read on screen. The membership table's natural `CreatedAt` order is an internal-mutation timestamp the operator can't reason about and would surface arbitrarily-ordered sections.
 - **Dedup: first occurrence wins on `(packageName, skillName)`.** The agent's own keyed entry (the unit-as-agent case) is processed first, so a unit's own bundle always beats an inherited duplicate. Across parents, the alphabetically-first parent's copy wins.
@@ -92,7 +92,7 @@ Each response entry is an `EquippedSkillEntry`:
   "skillName": "triage-and-assign",
   "promptSummary": "## Triage & Assignment",
   "requiredTools": [
-    { "name": "platform.assign_to_agent", "description": "assign work", "optional": false }
+    { "name": "sv.messaging.send", "description": "deliver a message", "optional": false }
   ]
 }
 ```

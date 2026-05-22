@@ -16,7 +16,7 @@ All connector implementations (currently GitHub via Octokit.net, future connecto
 ## Required reading
 
 - `CONVENTIONS.md`
-- `docs/architecture/connectors.md`, `docs/architecture/units.md`
+- `docs/architecture/connectors.md`, `docs/architecture/units-and-agents.md`
 
 ## Connector-specific rules
 

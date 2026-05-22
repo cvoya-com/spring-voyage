@@ -11,12 +11,13 @@ children. The dispatch path is the same for both, and both runtimes receive the
 same platform MCP tools — the child list does not gate the tool surface. See [Units](units.md) for the
 unit-specific layer, [Units vs agents](units-vs-agents.md) for the quick
 reference on what features apply to both vs only one,
-[ADR-0039](../decisions/0039-units-are-agents.md) for the unit-as-agent
-decision, [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md)
+[ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md) for the
+unit-as-agent and one-way-delivery decision,
+[ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md)
 for the runtime/model config split,
 [ADR-0046](../decisions/0046-unified-members-grammar.md) for the unified
 package-YAML `members:` grammar that declares agents alongside sub-units and
-humans, and [Agent Runtime](../architecture/agent-runtime.md) for launcher
+humans, and [Agent runtime](../architecture/agent-runtime.md) for launcher
 details.
 
 ## Mailbox
@@ -45,15 +46,14 @@ agent values override inherited values per field.
 ## Runtime invocation
 
 At dispatch time the platform resolves the effective execution config,
-assembles the prompt, resolves credentials, asks
-`IMessagingToolProvider` for the platform MCP tools available to this agent in
-the current thread, and launches the selected runtime through
-`IAgentRuntimeLauncher`.
+assembles the prompt, resolves credentials, mints a per-turn MCP session token,
+and launches the selected runtime through `IAgentRuntimeLauncher`.
 
 The launcher owns runtime-specific setup: workspace files, environment
-variables, callback credentials, MCP wiring, and native tool attachment. The
-runtime then answers the message directly or delivers a message to another
-addressable target to coordinate work.
+variables, MCP wiring, and native tool attachment. The runtime then answers the
+message directly or delivers a message to another addressable target to
+coordinate work. See [Agent runtime](../architecture/agent-runtime.md) for the
+launch path.
 
 ## Leaf agent vs. unit
 
@@ -63,10 +63,11 @@ including the `sv.messaging.*` delivery tools. The child list does not gate the
 tool surface; the runtime's instructions decide whether to answer directly or
 deliver work to a member.
 
-## Platform messaging tools
+## Platform MCP tools
 
-The platform's message-delivery surface is two MCP tools
-([ADR-0050](../decisions/0050-platform-mcp-tool-surface.md)):
+A runtime reaches the platform through one MCP server, with tools named
+`sv.<area>.<verb>` ([ADR-0054](../decisions/0054-one-mcp-server-one-execution-host.md)).
+The message-delivery surface is exactly two tools:
 
 | Tool | Description |
 | --- | --- |
@@ -78,39 +79,18 @@ The platform delivers messages; it does not orchestrate. There is no
 recipient's runtime interprets, not a distinct platform tool. A runtime
 delegates by sending a message via `sv.messaging.send` whose content says so.
 
-Discovery, inspection, and runtime-status queries live on the `sv.directory.*`
-tools — `sv.directory.list_members`, `sv.directory.get_member`,
-`sv.directory.get_status`, plus `sv.directory.get_siblings` /
-`sv.directory.get_parents` / `sv.directory.get_self` for broader directory
-navigation.
+Discovery, inspection, memory, and runtime-status sit on the other areas —
+`sv.directory.*` (`list_members`, `get_member`, `get_status`, `get_siblings`,
+`get_parents`, `get_self`), `sv.memory.*`, `sv.expertise.*`, and `sv.runtime.*`.
+Recording a routing decision on the activity stream is an optional, explicit
+`sv.runtime.report_decision` call; a plain `sv.messaging.*` delivery records a
+`MessageSent` activity and nothing more. The full catalogue is in
+[Architecture: Messaging](../architecture/messaging.md#the-platform-mcp-tool-surface)
+and [Tools](tools.md).
 
 The launcher attaches the platform MCP surface unconditionally for every
-`agent://` and `unit://` runtime; membership is not a gate. Unit operators and
+`agent:` and `unit:` runtime; membership is not a gate. Unit operators and
 runtime authors do not configure a separate routing layer.
-
-## Routing decisions
-
-Recording a routing decision is *optional*. A plain `sv.messaging.*` delivery
-records a `MessageSent` activity and nothing more. When a runtime wants the
-*decision* itself on the activity stream, it calls `sv.runtime.report_decision`
-— ADR-0050 generalised that tool so it records any routing decision, executed
-or not. The platform then publishes an `ActivityEvent` with
-`EventType = DecisionMade` and a `RoutingDecision` payload:
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `Kind` | `Delegate` \| `Fanout` | What the runtime decided to do. |
-| `Status` | `Accepted` \| `Routed` \| `Failed` | Outcome of the decision. |
-| `Targets` | `Address[]` | The address(es) the work was routed to. |
-| `ResultMessageIds` | `Guid[]` | IDs of any response messages. |
-| `Reason` | `string?` | Runtime-supplied explanation (failure reason or routing rationale). |
-
-Only `sv.runtime.report_decision` publishes a `DecisionMade` event; the
-`sv.directory.*` and `sv.messaging.*` tools do not.
-
-See [ADR-0050 § 3](../decisions/0050-platform-mcp-tool-surface.md) for the
-generalised `report_decision` contract and [ADR-0039 § 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence)
-for the original first-class-evidence rationale.
 
 ## Inheritance
 

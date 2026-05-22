@@ -3,7 +3,7 @@
 - **Status:** Accepted — Dapr is the runtime substrate for actors, pub/sub, state, secrets, bindings, and durable workflows across every host process in the platform.
 - **Date:** 2026-04-21
 - **Related code:** `eng/dapr/` (component + config profiles), `src/Cvoya.Spring.Host.Worker/`, `src/Cvoya.Spring.Host.Api/`, `src/Cvoya.Spring.Dapr/Actors/`, `src/Cvoya.Spring.Dapr/Workflows/`.
-- **Related docs:** [`docs/architecture/infrastructure.md`](../architecture/infrastructure.md).
+- **Related docs:** [`docs/architecture/infrastructure.md`](../architecture/components.md).
 
 ## Context
 
