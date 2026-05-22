@@ -116,6 +116,16 @@ public class DaprPersistentAgentExecutionGateway : IPersistentAgentExecutionGate
                 $"Execution host returned an empty logs body for agent '{agentActorId}'.");
     }
 
+    /// <inheritdoc />
+    public async Task StopUnitContainerAsync(
+        string unitActorId, CancellationToken cancellationToken)
+    {
+        var path = $"internal/units/{unitActorId}/stop-container";
+        using var response = await SendAsync(
+            HttpMethod.Post, path, body: null, cancellationToken);
+        await ThrowIfNotSuccessAsync(response, path, cancellationToken);
+    }
+
     private async Task<PersistentAgentDeploymentState> InvokeForStateAsync(
         HttpMethod method, string path, object? body, CancellationToken cancellationToken)
     {

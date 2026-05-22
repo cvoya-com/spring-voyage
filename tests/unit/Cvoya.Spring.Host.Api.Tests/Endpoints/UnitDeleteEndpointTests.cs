@@ -107,8 +107,10 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        await _factory.UnitContainerLifecycle.Received(1).StopUnitAsync(
-            ActorId, Arg.Any<CancellationToken>());
+        // #2627: unit-container teardown is delegated to the worker over the
+        // execution gateway — the API host no longer drives it in-process.
+        await _factory.PersistentAgentExecutionGateway.Received(1)
+            .StopUnitContainerAsync(ActorId, Arg.Any<CancellationToken>());
         await _factory.DirectoryService.Received(1).UnregisterAsync(
             Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
             Arg.Any<CancellationToken>());
@@ -127,8 +129,8 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(LifecycleStatus.Error);
 
-        _factory.UnitContainerLifecycle
-            .StopUnitAsync(ActorId, Arg.Any<CancellationToken>())
+        _factory.PersistentAgentExecutionGateway
+            .StopUnitContainerAsync(ActorId, Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("container already gone")));
 
         var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}?force=true", ct);
@@ -169,8 +171,8 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        await _factory.UnitContainerLifecycle.DidNotReceive().StopUnitAsync(
-            Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _factory.PersistentAgentExecutionGateway.DidNotReceive()
+            .StopUnitContainerAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _factory.ActivityEventBus.DidNotReceive().PublishAsync(
             Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>());
     }
@@ -288,13 +290,13 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();
-        _factory.UnitContainerLifecycle.ClearReceivedCalls();
+        _factory.PersistentAgentExecutionGateway.ClearReceivedCalls();
         _factory.ActivityEventBus.ClearReceivedCalls();
 
-        // Reset the container stop stub to success; individual tests override
-        // it when they want to exercise the partial-failure path.
-        _factory.UnitContainerLifecycle
-            .StopUnitAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        // Reset the container-teardown stub to success; individual tests
+        // override it when they want to exercise the partial-failure path.
+        _factory.PersistentAgentExecutionGateway
+            .StopUnitContainerAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         var entry = new DirectoryEntry(

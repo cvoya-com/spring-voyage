@@ -4,29 +4,33 @@
 namespace Cvoya.Spring.Host.Worker.Endpoints;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.AspNetCore.Mvc;
 
 /// <summary>
-/// Internal persistent-agent execution endpoints (ADR-0052 / Wave 3 / #2618).
-/// The execution host (<c>spring-worker</c>) owns the persistent-agent
-/// containers; these routes wrap <see cref="PersistentAgentLifecycle"/> and
-/// <see cref="PersistentAgentRegistry"/> so the HTTP front door
-/// (<c>spring-api</c>) can delegate deploy / undeploy / scale /
-/// deployment-status / logs over Dapr service invocation instead of
-/// resolving the execution singletons in-process.
+/// Internal execution endpoints the HTTP front door delegates to the
+/// execution host (ADR-0052 / Wave 3 / #2618, #2627). The execution host
+/// (<c>spring-worker</c>) owns the persistent-agent containers and the
+/// per-unit runtime containers; these routes wrap
+/// <see cref="PersistentAgentLifecycle"/>, <see cref="PersistentAgentRegistry"/>,
+/// and <see cref="IUnitContainerLifecycle"/> so the
+/// HTTP front door (<c>spring-api</c>) can delegate persistent-agent deploy /
+/// undeploy / scale / deployment-status / logs and unit-container teardown
+/// over Dapr service invocation instead of resolving the execution singletons
+/// in-process.
 /// </summary>
 /// <remarks>
 /// These routes are mounted under <c>/internal/</c> and are reachable only
 /// through the Dapr app channel — they are not part of the public OpenAPI
 /// surface and are not exposed on the public ingress. The route id is the
-/// agent's actor Guid in canonical 32-char no-dash hex.
+/// agent's / unit's actor Guid in canonical 32-char no-dash hex.
 /// </remarks>
 public static class PersistentAgentExecutionEndpoints
 {
     /// <summary>
-    /// Maps the internal persistent-agent execution routes onto
+    /// Maps the internal execution-delegation routes onto
     /// <paramref name="app"/>.
     /// </summary>
     public static IEndpointRouteBuilder MapPersistentAgentExecutionEndpoints(
@@ -39,6 +43,11 @@ public static class PersistentAgentExecutionEndpoints
         group.MapPost("/scale", ScaleAsync);
         group.MapGet("/deployment", GetDeploymentAsync);
         group.MapGet("/logs", GetLogsAsync);
+
+        // #2627: unit-container teardown — the API host's force-delete path
+        // delegates here instead of resolving IUnitContainerLifecycle, so the
+        // front-door composition registers zero execution services.
+        app.MapPost("/internal/units/{id}/stop-container", StopUnitContainerAsync);
 
         return app;
     }
@@ -122,6 +131,27 @@ public static class PersistentAgentExecutionEndpoints
             // deployment; the API host translates a 404 here into the
             // operator-facing "no deployment" message.
             return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status404NotFound);
+        }
+    }
+
+    /// <summary>
+    /// Tears down a unit's runtime container, Dapr sidecar, and network
+    /// (#2627). Wraps <see cref="IUnitContainerLifecycle.StopUnitAsync"/>,
+    /// which is idempotent — a unit with no tracked handle still completes.
+    /// </summary>
+    private static async Task<IResult> StopUnitContainerAsync(
+        string id,
+        [FromServices] IUnitContainerLifecycle containerLifecycle,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await containerLifecycle.StopUnitAsync(id, cancellationToken);
+            return Results.Ok(new UnitContainerTeardownState(id));
+        }
+        catch (SpringException ex)
+        {
+            return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
     }
 

@@ -906,7 +906,6 @@ public static class UnitEndpoints
         [FromQuery] bool? force,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
-        [FromServices] IUnitContainerLifecycle containerLifecycle,
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
         [FromServices] IUnitConnectorConfigStore connectorConfigStore,
         [FromServices] IUnitMembershipRepository membershipRepository,
@@ -954,8 +953,7 @@ public static class UnitEndpoints
 
         return await ForceDeleteUnitAsync(
             id, address, entry.ActorId, status,
-            directoryService, actorProxyFactory,
-            containerLifecycle, connectorTypes, connectorConfigStore,
+            directoryService, connectorTypes, connectorConfigStore,
             membershipRepository, executionGateway,
             activityEventBus, logger, cancellationToken);
     }
@@ -974,8 +972,6 @@ public static class UnitEndpoints
         Guid actorId,
         LifecycleStatus previousStatus,
         IDirectoryService directoryService,
-        IActorProxyFactory actorProxyFactory,
-        IUnitContainerLifecycle containerLifecycle,
         IEnumerable<IConnectorType> connectorTypes,
         IUnitConnectorConfigStore connectorConfigStore,
         IUnitMembershipRepository membershipRepository,
@@ -1010,7 +1006,11 @@ public static class UnitEndpoints
 
         try
         {
-            await containerLifecycle.StopUnitAsync(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorId), cancellationToken);
+            // #2627: unit-container teardown is delegated to the execution
+            // host (spring-worker) over the gateway — the API host no longer
+            // resolves IUnitContainerLifecycle (or any execution service).
+            await executionGateway.StopUnitContainerAsync(
+                Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorId), cancellationToken);
         }
         catch (Exception ex)
         {

@@ -67,10 +67,6 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
 
         await proxy.Received(1).TransitionAsync(LifecycleStatus.Starting, Arg.Any<CancellationToken>());
         await proxy.Received(1).TransitionAsync(LifecycleStatus.Running, Arg.Any<CancellationToken>());
-
-        // Container lifecycle must NOT be invoked — #371.
-        await _factory.UnitContainerLifecycle.DidNotReceive()
-            .StartUnitAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -86,9 +82,6 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/start", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
-
-        await _factory.UnitContainerLifecycle.DidNotReceive()
-            .StartUnitAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -110,10 +103,6 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
 
         await proxy.Received(1).TransitionAsync(LifecycleStatus.Stopping, Arg.Any<CancellationToken>());
         await proxy.Received(1).TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>());
-
-        // Container lifecycle must NOT be invoked — #371.
-        await _factory.UnitContainerLifecycle.DidNotReceive()
-            .StopUnitAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -209,8 +198,8 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     {
         // #2397: /stop must iterate the unit's members and undeploy each
         // persistent-agent deployment so the per-agent container + Dapr
-        // sidecar do not survive Stopped. The IUnitContainerLifecycle
-        // surface from the pre-#371 design stays inert.
+        // sidecar do not survive Stopped. The /stop endpoint never drives
+        // unit-container lifecycle itself (#371).
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
@@ -318,9 +307,6 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/stop", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
-
-        await _factory.UnitContainerLifecycle.DidNotReceive()
-            .StopUnitAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     private IUnitActor ArrangeUnit(TransitionResult startingResult, TransitionResult finalResult)
@@ -335,7 +321,6 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     private void ArrangeResolved(IUnitActor proxy)
     {
         _factory.DirectoryService.ClearReceivedCalls();
-        _factory.UnitContainerLifecycle.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();
         _factory.StubConnectorType.ClearReceivedCalls();
         _factory.ConnectorConfigStore.ClearReceivedCalls();

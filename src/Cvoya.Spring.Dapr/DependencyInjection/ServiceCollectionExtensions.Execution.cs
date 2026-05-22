@@ -186,8 +186,10 @@ internal static class ServiceCollectionExtensionsExecution
         // ("Dispatcher service") and issue #513. TryAdd so downstream
         // deployments that run the dispatcher in-process (test harnesses,
         // alternative topologies) can pre-register their own IContainerRuntime.
+        // ADR-0052 / #2627: IContainerRuntime is execution-host-only — only
+        // the worker's container-lifecycle / unit-teardown surface consumes
+        // it; registered in the role-gated block below.
         services.AddDispatcherHttpClient();
-        services.TryAddSingleton<IContainerRuntime, DispatcherClientContainerRuntime>();
         // ADR-0051: the per-turn callback JWT is no longer the messaging
         // credential — sv.messaging.* is served by the platform MCP server
         // under the MCP session token, gated like every other sv.* tool. The
@@ -198,23 +200,18 @@ internal static class ServiceCollectionExtensionsExecution
         services.TryAddSingleton<ITenantSigningKeyProvider, DispatcherClientTenantSigningKeyProvider>();
         services.TryAddSingleton<ICallbackTokenIssuer, CallbackTokenIssuer>();
         services.TryAddSingleton<IAgentCallbackEnvironmentBuilder, DispatcherCallbackEnvironmentBuilder>();
-        services.AddSingleton<IDaprSidecarManager, DaprSidecarManager>();
-        services.AddSingleton<ContainerLifecycleManager>();
-        services.TryAddSingleton<IUnitContainerLifecycle, UnitContainerLifecycle>();
-        // D2 / Stage 2 of ADR-0029: A2A transport seam. The default
-        // implementation routes every outbound A2A POST through the
-        // dispatcher proxy (DispatcherProxyA2ATransport) when a container
-        // id is available, and falls back to direct-HTTP (DirectA2ATransport)
-        // when it is not (test harnesses, future dual-homed deployments).
-        // Private-cloud or dual-homed hosts that want direct-HTTP for all
-        // containers pre-register their own IA2ATransportFactory before
-        // calling AddCvoyaSpringDapr; TryAdd ensures their registration wins.
-        // IExecutionDispatcher / A2AExecutionDispatcher are execution-host-only
-        // (ADR-0052 / #2618) — registered in the role-gated block below.
-        services.TryAddSingleton<IA2ATransportFactory, DispatcherProxyA2ATransportFactory>();
+
+        // ADR-0052 / #2627: the unit-container-teardown surface
+        // (IContainerRuntime, IDaprSidecarManager, ContainerLifecycleManager,
+        // IUnitContainerLifecycle) and the A2A transport / agent-context
+        // builder are execution-host-only — only the worker's runtime
+        // launchers, dispatcher, and the internal unit-teardown route consume
+        // them. They are registered in the role-gated block below so the HTTP
+        // front door registers zero execution services; UnitEndpoints'
+        // force-delete path delegates unit-container teardown to the worker
+        // over IPersistentAgentExecutionGateway.
 
         services.AddOptions<AgentContextOptions>().BindConfiguration(AgentContextOptions.SectionName);
-        services.TryAddSingleton<IAgentContextBuilder, AgentContextBuilder>();
 
         // Agent definition is owned by Dapr (DB-backed). The four
         // IAgentRuntimeLauncher strategies (ClaudeCodeLauncher, CodexLauncher,
@@ -267,25 +264,38 @@ internal static class ServiceCollectionExtensionsExecution
         // UnitEndpoints in place of the execution singletons.
         services.TryAddSingleton<IPersistentAgentExecutionGateway, DaprPersistentAgentExecutionGateway>();
 
-        // ADR-0052 / #2618: the persistent-agent execution singletons belong
-        // to the execution host only. The HTTP front door used to resolve
-        // PersistentAgentLifecycle / PersistentAgentRegistry / the McpServer
-        // because AgentEndpoints / UnitEndpoints called into them in-process;
-        // Wave 3 (#2618) makes those endpoints delegate to the worker over
+        // ADR-0052 / #2618, #2627: every execution service belongs to the
+        // execution host only. The HTTP front door used to resolve the
+        // persistent-agent singletons (PersistentAgentLifecycle /
+        // PersistentAgentRegistry / the McpServer) and the unit-container
+        // teardown surface (IContainerRuntime / IDaprSidecarManager /
+        // ContainerLifecycleManager / IUnitContainerLifecycle) because
+        // AgentEndpoints / UnitEndpoints called into them in-process. Wave 3
+        // (#2618) and #2627 make those endpoints delegate to the worker over
         // IPersistentAgentExecutionGateway, so the front-door composition
-        // registers none of these. The execution-host (worker) graph still
-        // gets every one. Gated unconditionally — not behind isDocGen —
-        // because the goal is that AddCvoyaSpringDapr(HttpFrontDoor) never
-        // registers them at all.
-        //
-        // The unit-container teardown surface (IContainerRuntime,
-        // IDaprSidecarManager, ContainerLifecycleManager,
-        // IUnitContainerLifecycle, IA2ATransportFactory, IAgentContextBuilder)
-        // stays registered unconditionally above — the API host's
-        // UnitEndpoints still drive unit-container lifecycle in-process, and
-        // delegating that is a separate concern outside Wave 3's scope.
+        // registers none of these — AddCvoyaSpringDapr(HttpFrontDoor)
+        // registers zero execution services. The execution-host (worker)
+        // graph still gets every one. Gated unconditionally — not behind
+        // isDocGen — because the goal is that the front door never registers
+        // them at all.
         if (role == SpringHostRole.ExecutionHost)
         {
+            // Container-lifecycle / unit-teardown surface (#2627). TryAdd so
+            // downstream deployments that run the dispatcher in-process (test
+            // harnesses, alternative topologies) or want direct-HTTP A2A can
+            // pre-register their own IContainerRuntime / IA2ATransportFactory.
+            services.TryAddSingleton<IContainerRuntime, DispatcherClientContainerRuntime>();
+            services.AddSingleton<IDaprSidecarManager, DaprSidecarManager>();
+            services.AddSingleton<ContainerLifecycleManager>();
+            services.TryAddSingleton<IUnitContainerLifecycle, UnitContainerLifecycle>();
+            // D2 / Stage 2 of ADR-0029: A2A transport seam. The default
+            // implementation routes every outbound A2A POST through the
+            // dispatcher proxy (DispatcherProxyA2ATransport) when a container
+            // id is available, and falls back to direct-HTTP
+            // (DirectA2ATransport) when it is not.
+            services.TryAddSingleton<IA2ATransportFactory, DispatcherProxyA2ATransportFactory>();
+            services.TryAddSingleton<IAgentContextBuilder, AgentContextBuilder>();
+
             services.TryAddSingleton<IExecutionDispatcher, A2AExecutionDispatcher>();
             services.TryAddSingleton<IAgentDispatchCoordinator, AgentDispatchCoordinator>();
             services.TryAddSingleton<AgentVolumeManager>();

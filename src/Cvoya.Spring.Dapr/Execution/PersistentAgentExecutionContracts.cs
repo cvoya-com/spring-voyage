@@ -4,12 +4,14 @@
 namespace Cvoya.Spring.Dapr.Execution;
 
 /// <summary>
-/// Wire contracts for the internal persistent-agent execution surface
-/// (ADR-0052 / Wave 3 / #2618). The execution host (<c>spring-worker</c>)
-/// owns the persistent-agent containers; the HTTP front door
+/// Wire contracts for the internal execution surface the HTTP front door
+/// delegates to the execution host (ADR-0052 / Wave 3 / #2618, #2627). The
+/// execution host (<c>spring-worker</c>) owns the persistent-agent containers
+/// and the per-unit runtime containers; the HTTP front door
 /// (<c>spring-api</c>) delegates every deploy / undeploy / scale /
-/// deployment-status / logs operation to the worker over Dapr service
-/// invocation rather than resolving the execution singletons in-process.
+/// deployment-status / logs operation and unit-container teardown to the
+/// worker over Dapr service invocation rather than resolving the execution
+/// singletons in-process.
 /// </summary>
 /// <remarks>
 /// These records are an <em>internal</em> contract between the two .NET
@@ -78,3 +80,12 @@ public sealed record PersistentAgentLogsState(
     string ContainerId,
     int Tail,
     string Logs);
+
+/// <summary>
+/// Response body for the worker's unit-container-teardown endpoint
+/// (#2627). The teardown is idempotent — a unit with no tracked container
+/// handle still returns success — so there is no failure shape; a non-2xx
+/// is surfaced as a <see cref="SpringException"/> by the gateway.
+/// </summary>
+/// <param name="UnitId">The unit's actor id (32-char no-dash hex).</param>
+public sealed record UnitContainerTeardownState(string UnitId);

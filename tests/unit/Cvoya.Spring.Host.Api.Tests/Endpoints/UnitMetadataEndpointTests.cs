@@ -391,6 +391,5 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
     {
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();
-        _factory.UnitContainerLifecycle.ClearReceivedCalls();
     }
 }
