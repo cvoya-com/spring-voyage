@@ -78,7 +78,7 @@ public class SpringVoyageAgentLauncherTests
     // under /tmp, producing a recurring CI flake (#1082). The contract is
     // now enforced by code review on the launcher implementation, which is
     // pure-functional dictionary construction; PrepareAsync_ProvidesEmptyWorkspace
-    // below still pins WorkspaceMountPath = /workspace.
+    // below still pins the empty WorkspaceFiles map.
 
     [Fact]
     public async Task PrepareAsync_SetsRequiredEnvVars()
@@ -128,13 +128,16 @@ public class SpringVoyageAgentLauncherTests
     [Fact]
     public async Task PrepareAsync_ProvidesEmptyWorkspace()
     {
-        // The Dapr Agent receives its prompt via SPRING_SYSTEM_PROMPT — so the
-        // requested workspace is empty (the dispatcher still mounts an empty
-        // dir at /workspace to keep the launch shape uniform across launchers).
+        // The Dapr Agent receives its prompt via SPRING_SYSTEM_PROMPT — so it
+        // carries no workspace files. #2608: with an empty WorkspaceFiles map
+        // ContainerConfigBuilder emits no Workspace and the dispatcher creates
+        // no /workspace bind mount; the container's single workspace mount is
+        // its per-agent persistent volume. The mount path is still the
+        // canonical contract value so all four launchers speak one vocabulary.
         var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
 
         prep.WorkspaceFiles.ShouldBeEmpty();
-        prep.WorkspaceMountPath.ShouldBe("/workspace");
+        prep.WorkspaceMountPath.ShouldBe(AgentWorkspaceContract.WorkspaceMountPathNoSlash);
     }
 
     [Fact]
