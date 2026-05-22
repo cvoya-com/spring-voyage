@@ -133,9 +133,20 @@ public static class ContainerConfigBuilder
             // CMD lookup and the container would exit immediately. See #1159.
             WorkingDirectory: spec.WorkingDirectory
                 ?? (spec.WorkspaceFiles.Count > 0 ? spec.WorkspaceMountPath : null),
-            Workspace: new ContainerWorkspace(
-                MountPath: spec.WorkspaceMountPath,
-                Files: spec.WorkspaceFiles),
+            // #2608: emit the Workspace only when the launcher contributes at
+            // least one workspace file — mirroring the ContextWorkspace
+            // conditional below. When a launcher carries no workspace files
+            // (e.g. SpringVoyageAgentLauncher, whose prompt arrives via env
+            // vars) no Workspace is emitted, so the dispatcher creates no
+            // bind mount and the container is left with a single workspace
+            // mount: its per-agent persistent volume. Without this guard the
+            // dispatcher materialises an empty directory and bind-mounts it
+            // at /workspace, leaving that container with two workspace mounts.
+            Workspace: spec.WorkspaceFiles.Count > 0
+                ? new ContainerWorkspace(
+                    MountPath: spec.WorkspaceMountPath,
+                    Files: spec.WorkspaceFiles)
+                : null,
             // D3a: context files — agent-definition.yaml, tenant-config.json —
             // materialised at /spring/context/ per D1 spec § 2.2.2. Only emit
             // the ContextWorkspace when the launcher provides at least one file;

@@ -17,11 +17,14 @@ using Microsoft.Extensions.Options;
 /// <summary>
 /// <see cref="IAgentRuntimeLauncher"/> for the Spring Voyage Agent container. Sets the
 /// environment variables the Python Dapr Agent expects: MCP endpoint/token,
-/// LLM provider/model, and the assembled system prompt. The dispatcher
-/// materialises an empty per-invocation workspace and bind-mounts it at
-/// <c>/workspace</c> — the Dapr Agent currently consumes its prompt via
-/// <c>SPRING_SYSTEM_PROMPT</c>, but the workspace mount keeps the launch
-/// shape uniform across tool launchers.
+/// LLM provider/model, and the assembled system prompt. The Dapr Agent
+/// consumes its prompt via <c>SPRING_SYSTEM_PROMPT</c>, so this launcher
+/// carries no workspace files. With an empty <see cref="AgentLaunchSpec.WorkspaceFiles"/>
+/// the dispatcher emits no <c>/workspace</c> bind mount (#2608), and the
+/// container runs from its image's own working directory (e.g. <c>/app</c>
+/// for <c>python agent.py</c>). The per-agent persistent volume is the
+/// container's single workspace mount, at
+/// <see cref="AgentWorkspaceContract.WorkspaceMountPath"/>.
 ///
 /// Unlike <see cref="ClaudeCodeLauncher"/> the Dapr Agent is an A2A-native
 /// service and does not need a sidecar adapter — it exposes the A2A endpoint
@@ -39,8 +42,6 @@ public class SpringVoyageAgentLauncher(
     ILoggerFactory loggerFactory,
     IAgentCallbackEnvironmentBuilder? callbackEnvironmentBuilder = null) : IAgentRuntimeLauncher
 {
-    internal const string WorkspaceMountPath = "/workspace";
-
     /// <summary>Default A2A port the Dapr Agent listens on.</summary>
     internal const int DefaultAgentPort = 8999;
 
@@ -210,7 +211,10 @@ public class SpringVoyageAgentLauncher(
         return new AgentLaunchSpec(
             WorkspaceFiles: new Dictionary<string, string>(),
             EnvironmentVariables: envVars,
-            WorkspaceMountPath: WorkspaceMountPath,
+            // Empty WorkspaceFiles → ContainerConfigBuilder emits no Workspace
+            // and the dispatcher creates no bind mount (#2608); the mount path
+            // is supplied for vocabulary consistency with the other launchers.
+            WorkspaceMountPath: AgentWorkspaceContract.WorkspaceMountPathNoSlash,
             // Non-empty argv: skip the agent-base bridge ENTRYPOINT and
             // hand control directly to the Python process that already
             // speaks A2A on :8999. BYOI conformance path 3.

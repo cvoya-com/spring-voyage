@@ -178,6 +178,25 @@ public class ContainerConfigBuilderTests
     }
 
     [Fact]
+    public void Build_EmptyWorkspaceFiles_EmitsNoWorkspace()
+    {
+        // #2608: a launcher that contributes no workspace files (e.g.
+        // SpringVoyageAgentLauncher, whose prompt arrives via env vars)
+        // must not trigger a /workspace bind mount. The builder emits no
+        // Workspace so the dispatcher materialises nothing and the
+        // container keeps a single workspace mount — its per-agent
+        // persistent volume. Mirrors the ContextWorkspace conditional.
+        var spec = MinimalSpec() with
+        {
+            WorkspaceFiles = new Dictionary<string, string>(),
+        };
+
+        var config = ContainerConfigBuilder.Build(Image, spec);
+
+        config.Workspace.ShouldBeNull();
+    }
+
+    [Fact]
     public void Build_ExtraEnvIsMergedOnTopOfSpecEnv()
     {
         var spec = MinimalSpec();

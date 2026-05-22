@@ -24,13 +24,14 @@ using Microsoft.Extensions.Logging;
 ///         Gemini CLI reads this file as its instructions file.</item>
 ///   <item><c>.gemini/settings.json</c> — MCP server endpoint + bearer token the Gemini agent will dial.</item>
 /// </list>
-/// The dispatcher materialises this workspace on its own host filesystem and
-/// bind-mounts it at <c>/workspace</c> inside the container — see issue #1042.
+/// These files are written into the per-agent persistent workspace volume —
+/// the single workspace mount at <see cref="AgentWorkspaceContract.WorkspaceMountPath"/>
+/// (ADR-0029, #2608).
 /// <para>
 /// <b>Expected container image shape:</b> The image must bundle the Gemini CLI
 /// and the A2A sidecar from <c>agents/a2a-sidecar/</c>. The sidecar wraps the
 /// <c>gemini</c> CLI binary, exposing it behind an A2A endpoint. The container
-/// must run Gemini from the <c>/workspace</c> mount so it reads
+/// must run Gemini from the <c>SPRING_WORKSPACE_PATH</c> mount so it reads
 /// <c>GEMINI.md</c> and project-scoped <c>.gemini/settings.json</c>, and honour
 /// the <c>GOOGLE_API_KEY</c> environment variable for authentication with the
 /// Google AI API.
@@ -57,7 +58,6 @@ public class GeminiLauncher(
     /// <summary>Container env var the Gemini CLI reads its API key from.</summary>
     internal const string CredentialEnvVar = "GOOGLE_API_KEY";
 
-    internal const string WorkspaceMountPath = "/workspace";
     internal const string GeminiSettingsPath = ".gemini/settings.json";
 
     /// <summary>
@@ -156,7 +156,7 @@ public class GeminiLauncher(
     ///   without requiring the interactive trust prompt — gemini-cli
     ///   refuses headless invocation in an untrusted directory otherwise
     ///   (see <c>https://geminicli.com/docs/cli/trusted-folders/</c>).
-    ///   The container's <c>/workspace</c> mount is dispatcher-controlled,
+    ///   The container's workspace mount is dispatcher-controlled,
     ///   not user-controlled, so trust is implicit at the platform layer.</item>
     /// </list>
     /// <c>--session-id</c> and <c>--resume</c> are NOT included here —
@@ -285,7 +285,7 @@ public class GeminiLauncher(
             // file the bridge rewrites with the per-turn MCP session token
             // before every CLI spawn. The settings file carries the same
             // `mcpServers.<name>.headers.Authorization` shape as `.mcp.json`.
-            [McpConfigPathEnvVar] = $"{WorkspaceMountPath}/{GeminiSettingsPath}",
+            [McpConfigPathEnvVar] = $"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/{GeminiSettingsPath}",
         };
 
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
@@ -308,7 +308,7 @@ public class GeminiLauncher(
         return new AgentLaunchSpec(
             WorkspaceFiles: workspaceFiles,
             EnvironmentVariables: envVars,
-            WorkspaceMountPath: WorkspaceMountPath);
+            WorkspaceMountPath: AgentWorkspaceContract.WorkspaceMountPath);
     }
 
     private static object BuildGeminiSettings(AgentLaunchContext context)
