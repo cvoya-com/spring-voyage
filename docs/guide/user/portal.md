@@ -189,15 +189,6 @@ Covers all five `UnitPolicy` dimensions — **Skill**, **Model**, **Cost**, **Ex
 | Read | `spring unit policy <dim> get <unit>` |
 | Clear one dimension | `spring unit policy <dim> clear <unit>` |
 
-### Orchestration
-
-Surfaces label routing policy:
-
-| Action | CLI |
-|--------|-----|
-| Add / edit label routing rule | `spring unit policy label-routing set <unit> --label frontend=frontend-engineer` |
-| Clear label routing | `spring unit policy label-routing clear <unit>` |
-
 ### Expertise
 
 Two cards: **Own expertise** (editable, reads/writes `/api/v1/units/{id}/expertise/own`) and **Effective (aggregated) expertise** (recursive, read-only).
@@ -526,7 +517,6 @@ spring activity list --source <unit:..|agent:..> \
 | Per-source cost breakdown | `/analytics/costs` (bars) | *(none)* | tracked [#554](https://github.com/cvoya-com/spring-voyage/issues/554) |
 | `spring apply` for YAML manifests | *(none)* | `spring apply -f` | |
 | Unit policy editor | Policies tab | `spring unit policy <dim> get/set/clear` | at parity since PR #473 |
-| Label-routing policy | Orchestration tab | `spring unit policy label-routing set/clear` | at parity since #602 |
 | Budget configuration | `/analytics/costs` | `spring cost set-budget` | at parity since PR #474 |
 | Expertise directory | `/directory` | `spring directory list/show/search` | at parity since PR #555 |
 
