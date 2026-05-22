@@ -9,8 +9,6 @@ ai:
   model:
     provider: anthropic
     id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 instructions: |
   You are a product designer. You shape the user experience by exploring
   problems, producing design artifacts, and reviewing proposals for
@@ -35,3 +33,5 @@ expertise:
     level: advanced
   - domain: prototyping
     level: advanced
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest

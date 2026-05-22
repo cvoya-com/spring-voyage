@@ -27,8 +27,8 @@ using Cvoya.Spring.Core.ModelProviders;
 /// Per ADR-0038, launchers are keyed on the catalogue runtime's
 /// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/> id. The
 /// dispatcher looks up the runtime by the agent's persisted
-/// <c>execution.agent</c> (i.e.
-/// <see cref="AgentExecutionConfig.AgentRuntimeId"/>) through
+/// <c>execution.runtime</c> (i.e.
+/// <see cref="AgentExecutionConfig.Runtime"/>) through
 /// <see cref="Cvoya.Spring.Core.Catalog.IRuntimeCatalog.GetAgentRuntime"/>
 /// and picks the launcher whose <see cref="Kind"/> matches the
 /// runtime's <c>Launcher</c> field.

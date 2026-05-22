@@ -14,8 +14,6 @@ ai:
   model:
     provider: anthropic
     id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest
 instructions: |
   You are a program manager on the Spring Voyage OSS project. You own
   milestone hygiene, dependency tracking, and the native
@@ -175,3 +173,5 @@ expertise:
     level: expert
   - domain: dependency-modeling
     level: advanced
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest

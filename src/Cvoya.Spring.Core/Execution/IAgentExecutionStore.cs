@@ -6,7 +6,7 @@ namespace Cvoya.Spring.Core.Execution;
 /// <summary>
 /// Read/write seam for the agent's persisted <c>execution:</c> block on
 /// the <c>AgentDefinitions.Definition</c> JSON (#601 / #603 / #409
-/// B-wide). Exposes the same four-field shape as <see cref="IUnitExecutionStore"/>
+/// B-wide). Exposes the same <c>(runtime, model, image)</c> shape as <see cref="IUnitExecutionStore"/>
 /// plus the <c>hosting</c> mode that is always agent-owned.
 /// </summary>
 /// <remarks>
@@ -20,8 +20,8 @@ namespace Cvoya.Spring.Core.Execution;
 /// </para>
 /// <para>
 /// <c>hosting</c> is agent-exclusive — a unit cannot change whether an
-/// agent is ephemeral or persistent. The other fields (image, agent,
-/// provider, model) participate in the agent → unit →
+/// agent is ephemeral or persistent. The other fields (image, runtime,
+/// model) participate in the agent → unit →
 /// fail resolution chain documented in
 /// <c>docs/architecture/units.md</c>.
 /// </para>
@@ -59,35 +59,33 @@ public interface IAgentExecutionStore
 }
 
 /// <summary>
-/// On-disk shape of an agent's persisted <c>execution:</c> block. Each
-/// field is independently nullable — a partial update sends only the
-/// fields the caller wants to change.
+/// On-disk shape of an agent's persisted <c>execution:</c> block. Per the
+/// ADR-0038 amendment (#2634) the block carries exactly
+/// <c>(runtime, model{provider, id}, image, hosting)</c>. Each field is
+/// independently nullable — a partial update sends only the fields the
+/// caller wants to change.
 /// </summary>
 /// <remarks>
-/// #1732: the standalone <c>Tool</c> slot was dropped — the execution
-/// tool is derived 1:1 from <see cref="Agent"/> (the runtime registry
-/// id) via the catalogue runtime's
+/// ADR-0038: the execution tool is derived 1:1 from <see cref="Runtime"/>
+/// (the runtime registry id) via the catalogue runtime's
 /// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/> field.
 /// ADR-0039 G8 removes the container-runtime selector from this record;
 /// the host process owns that platform setting.
 /// </remarks>
 /// <param name="Image">Container image reference.</param>
-/// <param name="Provider">LLM model provider (Spring Voyage Agent–specific).</param>
-/// <param name="Model">Model identifier (Spring Voyage Agent–specific).</param>
+/// <param name="Model">Structured <c>{provider, id}</c> model selector.</param>
 /// <param name="Hosting">Hosting mode (ephemeral / persistent). Agent-exclusive.</param>
-/// <param name="Agent">Agent-runtime registry id (e.g. <c>claude</c>, <c>codex</c>, <c>spring-voyage</c>). Determines both the validation pipeline and the launcher selected at dispatch (via the catalogue runtime's <c>Launcher</c> field).</param>
+/// <param name="Runtime">Agent-runtime registry id (e.g. <c>claude-code</c>, <c>codex</c>, <c>spring-voyage</c>). Determines both the validation pipeline and the launcher selected at dispatch (via the catalogue runtime's <c>Launcher</c> field).</param>
 public record AgentExecutionShape(
     string? Image = null,
-    string? Provider = null,
-    string? Model = null,
+    Cvoya.Spring.Core.Catalog.Model? Model = null,
     string? Hosting = null,
-    string? Agent = null)
+    string? Runtime = null)
 {
     /// <summary>True when every field is null / whitespace.</summary>
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Provider)
-        && string.IsNullOrWhiteSpace(Model)
+        && Model is null
         && string.IsNullOrWhiteSpace(Hosting)
-        && string.IsNullOrWhiteSpace(Agent);
+        && string.IsNullOrWhiteSpace(Runtime);
 }

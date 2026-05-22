@@ -354,7 +354,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
         {
             execution = new
             {
-                agent = "claude",
+                runtime = "claude",
                 image = "acme/agent:v1.2",
             },
         });

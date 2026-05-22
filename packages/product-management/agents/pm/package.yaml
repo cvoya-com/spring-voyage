@@ -9,8 +9,6 @@ ai:
   model:
     provider: anthropic
     id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 instructions: |
   You are a product manager. You triage incoming requests, maintain the
   product roadmap, plan sprints, and turn customer and stakeholder input
@@ -34,3 +32,5 @@ expertise:
     level: advanced
   - domain: requirements-definition
     level: advanced
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest

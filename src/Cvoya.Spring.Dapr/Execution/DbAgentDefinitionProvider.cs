@@ -26,16 +26,15 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Resolution chain per field (<c>image</c>, <c>runtime</c>, <c>provider</c>,
-/// <c>model</c>, <c>agent</c>): <b>agent wins → unit default → null</b>.
+/// Resolution chain per field (<c>image</c>, <c>runtime</c>,
+/// <c>model</c>): <b>agent wins → unit default → null</b>.
 /// <see cref="AgentHostingMode"/> is always agent-owned — a unit cannot
 /// change whether an agent is ephemeral or persistent.
 /// </para>
 /// <para>
-/// #1732: the launcher is selected from the <c>agent</c> slot's
-/// catalogue runtime entry — <c>agent.Agent → unit.Agent → null</c>.
-/// The execution tool is no longer threaded through the manifest /
-/// DTOs / persistence; it is derived from the catalogue runtime's
+/// ADR-0038: the launcher is selected from the <c>runtime</c> slot's
+/// catalogue runtime entry — <c>agent.Runtime → unit.Runtime → null</c>.
+/// The execution tool is derived from the catalogue runtime's
 /// <c>Launcher</c> field at dispatch time.
 /// </para>
 /// <para>
@@ -201,7 +200,7 @@ public class DbAgentDefinitionProvider(
     /// ADR-0039 — units are agents). Returns <c>null</c> when no unit row
     /// exists for <paramref name="unitId"/>, or when the row was soft-deleted.
     /// When the unit row exists but its definition JSON does not carry an
-    /// executable runtime slot (<c>execution.agent</c>), the returned
+    /// executable runtime slot (<c>execution.runtime</c>), the returned
     /// definition has <c>null</c> execution so the dispatcher can surface a
     /// precise configuration error instead of pretending the unit id was
     /// unknown.
@@ -260,13 +259,20 @@ public class DbAgentDefinitionProvider(
                 var metadata = await unitStateCoordinator.GetMetadataAsync(unitIdString, cancellationToken);
 
                 var liveHosting = ParseHosting(metadata.Hosting);
+                // unit_live_config stores model selection as flat
+                // provider / model strings on UnitMetadata; lift the pair
+                // onto the structured Model only when both are present.
+                var liveModel = !string.IsNullOrWhiteSpace(metadata.Provider)
+                        && !string.IsNullOrWhiteSpace(metadata.Model)
+                    ? new Cvoya.Spring.Core.Catalog.Model(
+                        metadata.Provider!.Trim(), metadata.Model!.Trim())
+                    : execution.Model;
                 execution = execution with
                 {
-                    AgentRuntimeId = execution.AgentRuntimeId,
+                    Runtime = execution.Runtime,
                     Image = execution.Image,
                     Hosting = metadata.Hosting is null ? execution.Hosting : liveHosting,
-                    Provider = metadata.Provider ?? execution.Provider,
-                    Model = metadata.Model ?? execution.Model,
+                    Model = liveModel,
                 };
             }
             catch (Exception ex)
@@ -278,7 +284,7 @@ public class DbAgentDefinitionProvider(
         }
 
         // Deliberate null-Execution path (#2208): when the unit row exists but
-        // its JSON has no `execution.agent` runtime slot, return a definition
+        // its JSON has no `execution.runtime` runtime slot, return a definition
         // with Execution: null so the dispatcher can surface a precise
         // "no execution configuration" error instead of a misleading
         // "subject not found" 404.
@@ -301,9 +307,9 @@ public class DbAgentDefinitionProvider(
     /// decides whether that's fatal).
     /// </summary>
     /// <remarks>
-    /// #1732: <see cref="AgentExecutionConfig.AgentRuntimeId"/> is sourced
-    /// from <c>agent.Agent → unit.Agent → null</c>. The dispatcher passes
-    /// the resulting value through
+    /// ADR-0038: <see cref="AgentExecutionConfig.Runtime"/> is sourced
+    /// from <c>agent.Runtime → unit.Runtime → null</c>. The dispatcher
+    /// passes the resulting value through
     /// <see cref="Cvoya.Spring.Core.Catalog.IRuntimeCatalog.GetAgentRuntime"/>
     /// to derive the launcher (via the catalogue runtime's
     /// <c>Launcher</c> field).
@@ -312,24 +318,23 @@ public class DbAgentDefinitionProvider(
         AgentExecutionConfig? agent,
         UnitExecutionDefaults unit)
     {
-        // AgentRuntimeId is required to produce an AgentExecutionConfig at
-        // all. Resolution: agent.AgentRuntimeId (non-empty) → unit.Agent
-        // → null. The dispatcher derives the launcher from the runtime
-        // registry, so without this slot there is no way to dispatch.
-        var agentRuntimeId = FirstNonBlank(agent?.AgentRuntimeId, unit.Agent);
-        if (string.IsNullOrWhiteSpace(agentRuntimeId))
+        // Runtime is required to produce an AgentExecutionConfig at all.
+        // Resolution: agent.Runtime (non-empty) → unit.Runtime → null.
+        // The dispatcher derives the launcher from the runtime registry,
+        // so without this slot there is no way to dispatch.
+        var runtime = FirstNonBlank(agent?.Runtime, unit.Runtime);
+        if (string.IsNullOrWhiteSpace(runtime))
         {
             return null;
         }
 
         return new AgentExecutionConfig(
-            AgentRuntimeId: agentRuntimeId,
+            Runtime: runtime,
             Image: FirstNonBlank(agent?.Image, unit.Image),
             // Hosting mode is agent-owned. Default (Persistent) when the
             // agent has no execution block at all (#2085).
             Hosting: agent?.Hosting ?? AgentHostingMode.Persistent,
-            Provider: FirstNonBlank(agent?.Provider, unit.Provider),
-            Model: FirstNonBlank(agent?.Model, unit.Model));
+            Model: agent?.Model ?? unit.Model);
     }
 
     private static string? FirstNonBlank(string? first, string? second)
@@ -341,38 +346,19 @@ public class DbAgentDefinitionProvider(
 
     private static AgentExecutionConfig? ExtractExecution(JsonElement definition)
     {
-        // Preferred: top-level `execution: { agent, image, hosting, provider, model }`.
-        // #1732: 'execution.tool' on persisted JSON is silently ignored — the
-        // tool kind is derived from 'agent' (the runtime registry id) at
-        // dispatch time. Pre-#1732 'execution.tool' values are not back-mapped
-        // because the runtime id is the durable identity.
+        // The one canonical persisted shape (ADR-0038 amendment, #2634):
+        // top-level `execution: { runtime, model{provider, id}, image, hosting }`.
         if (definition.TryGetProperty("execution", out var exec) &&
             exec.ValueKind == JsonValueKind.Object)
         {
-            var agentRuntimeId = GetStringOrNull(exec, "agent");
+            var runtime = GetStringOrNull(exec, "runtime");
             var image = GetStringOrNull(exec, "image");
             var hosting = ParseHosting(GetStringOrNull(exec, "hosting"));
-            var provider = GetStringOrNull(exec, "provider");
-            var model = GetStringOrNull(exec, "model");
+            var model = ExecutionJson.ReadModel(exec);
 
-            if (agentRuntimeId is not null)
+            if (runtime is not null)
             {
-                return new AgentExecutionConfig(agentRuntimeId, image, hosting, provider, model);
-            }
-        }
-
-        // Legacy: `ai: { agent, environment: { image, runtime } }`. Same
-        // rule — 'ai.tool' is ignored; 'ai.agent' is the durable id.
-        if (definition.TryGetProperty("ai", out var ai) && ai.ValueKind == JsonValueKind.Object)
-        {
-            var agentRuntimeId = GetStringOrNull(ai, "agent");
-            if (ai.TryGetProperty("environment", out var env) && env.ValueKind == JsonValueKind.Object)
-            {
-                var image = GetStringOrNull(env, "image");
-                if (agentRuntimeId is not null && image is not null)
-                {
-                    return new AgentExecutionConfig(agentRuntimeId, image);
-                }
+                return new AgentExecutionConfig(runtime, image, hosting, model);
             }
         }
 

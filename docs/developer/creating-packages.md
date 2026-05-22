@@ -63,8 +63,9 @@ ai:
   model:
     provider: anthropic    # ModelProvider id; intrinsic to the model
     id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 
 instructions: |
   You are a research analyst. You analyze papers,
@@ -77,9 +78,12 @@ expertise:
     level: intermediate
 ```
 
-Execution config is the `(runtime, model)` pair plus an `environment.image`. The
-`runtime` selects an **AgentRuntime** from the runtime catalogue; the `model`
-names a **ModelProvider** and a model id ([ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md)).
+Execution config is the `(runtime, model)` pair plus a top-level
+`execution.image`. The `runtime` selects an **AgentRuntime** from the runtime
+catalogue; the `model` names a **ModelProvider** and a model id
+([ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md)). The
+container image is declared exactly once — top-level `execution.image`, for
+agents and units alike.
 
 ## Creating Units
 

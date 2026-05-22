@@ -86,7 +86,7 @@ public class A2AExecutionDispatcher(
         ?? throw new ArgumentNullException(nameof(tenantContext));
     // ADR-0038: launchers are keyed on the catalogue runtime entry's
     // launcher strategy id. The dispatcher resolves an AgentRuntime from
-    // IRuntimeCatalog using the agent's persisted execution.agent slot,
+    // IRuntimeCatalog using the agent's persisted execution.runtime slot,
     // then picks the launcher whose Kind equals the catalogue
     // entry's `launcher` field.
     private readonly Dictionary<string, IAgentRuntimeLauncher> _launchersByKind =
@@ -190,7 +190,7 @@ public class A2AExecutionDispatcher(
                 "or switch the agent to hosting: persistent.");
         }
 
-        var (kind, launcher) = ResolveLauncher(definition.Execution.AgentRuntimeId, agentId);
+        var (kind, launcher) = ResolveLauncher(definition.Execution.Runtime, agentId);
 
         if (mcpServer.Endpoint is null)
         {
@@ -249,8 +249,8 @@ public class A2AExecutionDispatcher(
             UnitId: definition.UnitId,
             AgentDefinitionYaml: agentDefinitionYaml,
             TenantConfigJson: tenantConfigJson,
-            Provider: definition.Execution.Provider,
-            Model: definition.Execution.Model,
+            Provider: definition.Execution.Model?.Provider,
+            Model: definition.Execution.Model?.Id,
             // D3a: populate D1-spec metadata so the context builder can mint the
             // full bootstrap bundle (env vars + /spring/context/ files) per § 2.
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
@@ -317,7 +317,7 @@ public class A2AExecutionDispatcher(
                     DaprAppId = daprAppId,
                     DaprAppPort = spec.A2APort,
                     DaprSidecarComponentsPath = ResolveDelegatedComponentsPath(
-                        definition.Execution.Provider, agentId),
+                        definition.Execution.Model?.Provider, agentId),
                 };
 
                 var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
@@ -833,7 +833,7 @@ public class A2AExecutionDispatcher(
                 "or on the parent unit as a default (spring unit execution set --image).");
         }
 
-        var (kind, launcher) = ResolveLauncher(definition.Execution.AgentRuntimeId, agentId);
+        var (kind, launcher) = ResolveLauncher(definition.Execution.Runtime, agentId);
 
         if (mcpServer.Endpoint is null)
         {
@@ -879,8 +879,8 @@ public class A2AExecutionDispatcher(
             UnitId: definition.UnitId,
             AgentDefinitionYaml: agentDefinitionYaml,
             TenantConfigJson: tenantConfigJson,
-            Provider: definition.Execution.Provider,
-            Model: definition.Execution.Model,
+            Provider: definition.Execution.Model?.Provider,
+            Model: definition.Execution.Model?.Id,
             // D3a: populate D1-spec metadata for context builder.
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
             AgentAddress: dispatchTarget,
@@ -934,7 +934,7 @@ public class A2AExecutionDispatcher(
                 DaprAppId = daprAppId,
                 DaprAppPort = spec.A2APort,
                 DaprSidecarComponentsPath = ResolveDelegatedComponentsPath(
-                    definition.Execution.Provider, agentId),
+                    definition.Execution.Model?.Provider, agentId),
             };
             var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
                 daprConfig, cancellationToken);
@@ -1322,7 +1322,7 @@ public class A2AExecutionDispatcher(
         string? kind = null;
         if (definition.Execution is not null)
         {
-            var runtime = _runtimeCatalog.GetAgentRuntime(definition.Execution.AgentRuntimeId);
+            var runtime = _runtimeCatalog.GetAgentRuntime(definition.Execution.Runtime);
             kind = runtime?.Launcher;
         }
 
@@ -1333,12 +1333,15 @@ public class A2AExecutionDispatcher(
             instructions = definition.Instructions,
             execution = definition.Execution is null ? null : new
             {
-                agent = definition.Execution.AgentRuntimeId,
+                runtime = definition.Execution.Runtime,
                 kind = kind,
                 image = definition.Execution.Image,
                 hosting = definition.Execution.Hosting.ToString().ToLowerInvariant(),
-                provider = definition.Execution.Provider,
-                model = definition.Execution.Model,
+                model = definition.Execution.Model is null ? null : new
+                {
+                    provider = definition.Execution.Model.Provider,
+                    id = definition.Execution.Model.Id,
+                },
                 concurrent_threads = definition.Execution.ConcurrentThreads,
             },
         };

@@ -338,11 +338,11 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         _factory.UnitExecutionStore
             .GetAsync(UnitEngineeringUuid.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "claude")));
+                new UnitExecutionDefaults(Runtime: "claude")));
         _factory.UnitExecutionStore
             .GetAsync(UnitMarketingUuid.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "codex")));
+                new UnitExecutionDefaults(Runtime: "codex")));
 
         var response = await _client.PostAsync(
             $"/api/v1/tenant/units/{UnitMarketingUuid:N}/agents/{AgentAdaUuid:N}", content: null, ct);
@@ -352,7 +352,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
         body.GetProperty("error").GetString().ShouldBe("MultiParentInheritanceConflict");
         var conflictingFields = body.GetProperty("conflictingFields");
-        conflictingFields.TryGetProperty("agent", out var agentField).ShouldBeTrue();
+        conflictingFields.TryGetProperty("runtime", out var agentField).ShouldBeTrue();
         agentField.GetArrayLength().ShouldBe(2);
         var values = agentField.EnumerateArray()
             .Select(e => e.GetProperty("value").GetString())
@@ -388,18 +388,18 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         _factory.UnitExecutionStore
             .GetAsync(UnitEngineeringUuid.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "claude")));
+                new UnitExecutionDefaults(Runtime: "claude")));
         _factory.UnitExecutionStore
             .GetAsync(UnitMarketingUuid.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "codex")));
+                new UnitExecutionDefaults(Runtime: "codex")));
 
         // Agent declares its own runtime explicitly, so the resolver does
         // not consult either parent's `agent` slot for inheritance.
         _factory.AgentExecutionStore
             .GetAsync(AgentAdaUuid.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<AgentExecutionShape?>(
-                new AgentExecutionShape(Agent: "spring-voyage")));
+                new AgentExecutionShape(Runtime: "spring-voyage")));
 
         var response = await _client.PostAsync(
             $"/api/v1/tenant/units/{UnitMarketingUuid:N}/agents/{AgentAdaUuid:N}", content: null, ct);
@@ -460,11 +460,11 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         _factory.UnitExecutionStore
             .GetAsync(UnitMarketingUuid.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "claude")));
+                new UnitExecutionDefaults(Runtime: "claude")));
         _factory.UnitExecutionStore
             .GetAsync(UnitProductUuid.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "codex")));
+                new UnitExecutionDefaults(Runtime: "codex")));
 
         var response = await _client.DeleteAsync(
             $"/api/v1/tenant/units/{UnitName}/agents/{AgentAdaUuid:N}", ct);
@@ -474,7 +474,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
         body.GetProperty("error").GetString().ShouldBe("MultiParentInheritanceConflict");
         var conflictingFields = body.GetProperty("conflictingFields");
-        conflictingFields.TryGetProperty("agent", out var agentField).ShouldBeTrue();
+        conflictingFields.TryGetProperty("runtime", out var agentField).ShouldBeTrue();
         agentField.GetArrayLength().ShouldBe(2);
         var values = agentField.EnumerateArray()
             .Select(e => e.GetProperty("value").GetString())
@@ -512,11 +512,11 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         _factory.UnitExecutionStore
             .GetAsync(UnitMarketingUuid.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "claude")));
+                new UnitExecutionDefaults(Runtime: "claude")));
         _factory.UnitExecutionStore
             .GetAsync(UnitProductUuid.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "claude")));
+                new UnitExecutionDefaults(Runtime: "claude")));
 
         var response = await _client.DeleteAsync(
             $"/api/v1/tenant/units/{UnitName}/agents/{AgentAdaUuid:N}", ct);

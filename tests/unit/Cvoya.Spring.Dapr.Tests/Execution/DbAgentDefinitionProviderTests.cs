@@ -50,11 +50,10 @@ public class DbAgentDefinitionProviderTests
                     instructions = "Coordinate the work.",
                     execution = new
                     {
-                        agent = "spring-voyage",
+                        runtime = "spring-voyage",
                         image = "ghcr.io/cvoya/unit-runtime:latest",
                         hosting = "persistent",
-                        provider = "ollama",
-                        model = "llama3.2:3b",
+                        model = new { provider = "ollama", id = "llama3.2:3b" },
                     },
                 }),
             });
@@ -71,11 +70,10 @@ public class DbAgentDefinitionProviderTests
         definition.Name.ShouldBe("Runtime Unit");
         definition.Instructions.ShouldBe("Coordinate the work.");
         definition.Execution.ShouldNotBeNull();
-        definition.Execution!.AgentRuntimeId.ShouldBe("spring-voyage");
+        definition.Execution!.Runtime.ShouldBe("spring-voyage");
         definition.Execution.Image.ShouldBe("ghcr.io/cvoya/unit-runtime:latest");
         definition.Execution.Hosting.ShouldBe(AgentHostingMode.Persistent);
-        definition.Execution.Provider.ShouldBe("ollama");
-        definition.Execution.Model.ShouldBe("llama3.2:3b");
+        definition.Execution.Model.ShouldBe(new Cvoya.Spring.Core.Catalog.Model("ollama", "llama3.2:3b"));
     }
 
     [Fact]
@@ -135,7 +133,7 @@ public class DbAgentDefinitionProviderTests
                     instructions = "unit instructions",
                     execution = new
                     {
-                        agent = "claude-code",
+                        runtime = "claude-code",
                         image = "ghcr.io/cvoya/unit-runtime:latest",
                     },
                 }),
@@ -152,7 +150,7 @@ public class DbAgentDefinitionProviderTests
         definition!.Name.ShouldBe("Runtime Unit");
         definition.Instructions.ShouldBe("unit instructions");
         definition.Execution.ShouldNotBeNull();
-        definition.Execution!.AgentRuntimeId.ShouldBe("claude-code");
+        definition.Execution!.Runtime.ShouldBe("claude-code");
     }
 
     [Fact]
@@ -175,7 +173,7 @@ public class DbAgentDefinitionProviderTests
                 Definition = JsonSerializer.SerializeToElement(new
                 {
                     instructions = "Be careful.",
-                    execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
+                    execution = new { runtime = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
                 }),
             });
             db.UnitMemberships.Add(new UnitMembershipEntity
@@ -216,7 +214,7 @@ public class DbAgentDefinitionProviderTests
                 DisplayName = "Lone Agent",
                 Definition = JsonSerializer.SerializeToElement(new
                 {
-                    execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
+                    execution = new { runtime = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
                 }),
             });
         });
@@ -248,7 +246,7 @@ public class DbAgentDefinitionProviderTests
                 DisplayName = "Runtime Unit",
                 Definition = JsonSerializer.SerializeToElement(new
                 {
-                    execution = new { agent = "claude", image = "ghcr.io/cvoya/unit-runtime:latest" },
+                    execution = new { runtime = "claude", image = "ghcr.io/cvoya/unit-runtime:latest" },
                 }),
             });
         });
@@ -273,7 +271,7 @@ public class DbAgentDefinitionProviderTests
             Definition = JsonSerializer.SerializeToElement(new
             {
                 instructions = "Be careful.",
-                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
+                execution = new { runtime = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
             })
         };
 
@@ -281,13 +279,17 @@ public class DbAgentDefinitionProviderTests
 
         def.Instructions.ShouldBe("Be careful.");
         def.Execution.ShouldNotBeNull();
-        def.Execution!.AgentRuntimeId.ShouldBe("claude");
+        def.Execution!.Runtime.ShouldBe("claude");
         def.Execution.Image.ShouldBe("ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest");
     }
 
     [Fact]
-    public void Project_ExtractsLegacyAiEnvironmentBlock()
+    public void Project_IgnoresAiBlock_OnlyReadsCanonicalExecutionBlock()
     {
+        // ADR-0038 amendment (#2634): the legacy `ai:` extraction branch is
+        // deleted. ExtractExecution reads only the canonical top-level
+        // `execution:` block — an agent JSON that carries an `ai:` block
+        // but no `execution:` block projects to a null execution config.
         var entity = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
@@ -296,17 +298,15 @@ public class DbAgentDefinitionProviderTests
             {
                 ai = new
                 {
-                    agent = "claude",
-                    environment = new { image = "legacy:v1" }
+                    runtime = "claude-code",
+                    model = new { provider = "anthropic", id = "claude-sonnet-4" },
                 }
             })
         };
 
         var def = DbAgentDefinitionProvider.Project(entity);
 
-        def.Execution.ShouldNotBeNull();
-        def.Execution!.AgentRuntimeId.ShouldBe("claude");
-        def.Execution.Image.ShouldBe("legacy:v1");
+        def.Execution.ShouldBeNull();
     }
 
     [Fact]
@@ -353,7 +353,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest", hosting = "persistent" }
+                execution = new { runtime = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest", hosting = "persistent" }
             })
         };
 
@@ -372,7 +372,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
+                execution = new { runtime = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest" }
             })
         };
 
@@ -395,7 +395,7 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest", hosting = "pooled" }
+                execution = new { runtime = "claude", image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest", hosting = "pooled" }
             })
         };
 
@@ -419,10 +419,9 @@ public class DbAgentDefinitionProviderTests
             {
                 execution = new
                 {
-                    agent = "openai",
+                    runtime = "openai",
                     image = "ghcr.io/cvoya-com/spring-voyage-agent:latest",
-                    provider = "openai",
-                    model = "gpt-4o-mini",
+                    model = new { provider = "openai", id = "gpt-4o-mini" },
                 }
             })
         };
@@ -430,12 +429,11 @@ public class DbAgentDefinitionProviderTests
         var def = DbAgentDefinitionProvider.Project(entity);
 
         def.Execution.ShouldNotBeNull();
-        def.Execution!.Provider.ShouldBe("openai");
-        def.Execution.Model.ShouldBe("gpt-4o-mini");
+        def.Execution!.Model.ShouldBe(new Cvoya.Spring.Core.Catalog.Model("openai", "gpt-4o-mini"));
     }
 
     [Fact]
-    public void Project_MissingProviderAndModel_LeavesThemNull()
+    public void Project_MissingModel_LeavesItNull()
     {
         var entity = new AgentDefinitionEntity
         {
@@ -443,15 +441,14 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "openai", image = "ghcr.io/cvoya-com/spring-voyage-agent:latest" }
+                execution = new { runtime = "openai", image = "ghcr.io/cvoya-com/spring-voyage-agent:latest" }
             })
         };
 
         var def = DbAgentDefinitionProvider.Project(entity);
 
         def.Execution.ShouldNotBeNull();
-        def.Execution!.Provider.ShouldBeNull();
-        def.Execution.Model.ShouldBeNull();
+        def.Execution!.Model.ShouldBeNull();
     }
 
     [Fact]
@@ -463,14 +460,14 @@ public class DbAgentDefinitionProviderTests
             DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
-                execution = new { agent = "claude", hosting = "persistent" }
+                execution = new { runtime = "claude", hosting = "persistent" }
             })
         };
 
         var def = DbAgentDefinitionProvider.Project(entity);
 
         def.Execution.ShouldNotBeNull();
-        def.Execution!.AgentRuntimeId.ShouldBe("claude");
+        def.Execution!.Runtime.ShouldBe("claude");
         def.Execution.Image.ShouldBeNull();
         def.Execution.Hosting.ShouldBe(AgentHostingMode.Persistent);
     }

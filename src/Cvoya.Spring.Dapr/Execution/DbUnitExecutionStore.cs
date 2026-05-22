@@ -108,9 +108,8 @@ public class DbUnitExecutionStore(
         var existing = Extract(entity.Definition) ?? new UnitExecutionDefaults();
         var merged = new UnitExecutionDefaults(
             Image: PickTrimmed(defaults.Image, existing.Image),
-            Provider: PickTrimmed(defaults.Provider, existing.Provider),
-            Model: PickTrimmed(defaults.Model, existing.Model),
-            Agent: PickTrimmed(defaults.Agent, existing.Agent));
+            Model: defaults.Model ?? existing.Model,
+            Runtime: PickTrimmed(defaults.Runtime, existing.Runtime));
 
         await PersistAsync(db, entity, merged, cancellationToken);
     }
@@ -169,12 +168,8 @@ public class DbUnitExecutionStore(
         {
             var block = new Dictionary<string, object?>();
             if (!string.IsNullOrWhiteSpace(defaults.Image)) block["image"] = defaults.Image!.Trim();
-            if (!string.IsNullOrWhiteSpace(defaults.Provider)) block["provider"] = defaults.Provider!.Trim();
-            if (!string.IsNullOrWhiteSpace(defaults.Model)) block["model"] = defaults.Model!.Trim();
-            if (!string.IsNullOrWhiteSpace(defaults.Agent)) block["agent"] = defaults.Agent!.Trim();
-            // #1732: 'tool' is no longer persisted — it is derived from
-            // 'agent' via the runtime registry on the read path. Existing
-            // 'tool' keys on persisted JSON are silently ignored by Extract.
+            if (!string.IsNullOrWhiteSpace(defaults.Runtime)) block["runtime"] = defaults.Runtime!.Trim();
+            ExecutionJson.WriteModel(block, defaults.Model);
             payload["execution"] = block;
         }
 
@@ -203,13 +198,10 @@ public class DbUnitExecutionStore(
         }
 
         var image = GetStringOrNull(exec, "image");
-        var provider = GetStringOrNull(exec, "provider");
-        var model = GetStringOrNull(exec, "model");
-        var agent = GetStringOrNull(exec, "agent");
-        // #1732: 'tool' on legacy persisted JSON is intentionally ignored —
-        // the runtime registry derives the tool kind from 'agent' on read.
+        var runtime = GetStringOrNull(exec, "runtime");
+        var model = ExecutionJson.ReadModel(exec);
 
-        var shaped = new UnitExecutionDefaults(image, provider, model, agent);
+        var shaped = new UnitExecutionDefaults(image, model, runtime);
         return shaped.IsEmpty ? null : shaped;
     }
 

@@ -15,8 +15,8 @@ namespace Cvoya.Spring.Core.Execution;
 /// <para>
 /// Implementations persist into the same
 /// <c>UnitDefinitions.Definition</c> JSON document the agent-definition
-/// provider reads at dispatch time. The block holds four fields —
-/// <c>image</c>, <c>agent</c>, <c>provider</c>, <c>model</c> — and
+/// provider reads at dispatch time. The block holds three fields —
+/// <c>runtime</c>, <c>model{provider, id}</c>, <c>image</c> — and
 /// serves as the fallback defaults for member
 /// agents per the <i>agent → unit → fail-clean</i> resolution chain
 /// documented in <c>docs/architecture/units.md</c>.
@@ -66,37 +66,34 @@ public interface IUnitExecutionStore
 }
 
 /// <summary>
-/// View of a unit's execution defaults (#601 "B-wide" + #1683 agent-runtime
-/// id). Each field is independently nullable — a unit can declare any
-/// subset.
+/// View of a unit's execution defaults. Per the ADR-0038 amendment
+/// (#2634) the block carries exactly <c>(runtime, model{provider, id},
+/// image)</c>. Each field is independently nullable — a unit can declare
+/// any subset.
 /// </summary>
 /// <remarks>
-/// #1732: the standalone <c>Tool</c> slot was dropped — the execution
-/// tool is derived 1:1 from <see cref="Agent"/> (the runtime registry
-/// id) via the catalogue runtime's
+/// ADR-0038: the execution tool is derived 1:1 from <see cref="Runtime"/>
+/// (the runtime registry id) via the catalogue runtime's
 /// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/> field.
 /// </remarks>
 /// <param name="Image">Default container image reference.</param>
-/// <param name="Provider">Default LLM provider (Dapr-Agent-tool-specific).</param>
-/// <param name="Model">Default model identifier (Dapr-Agent-tool-specific).</param>
-/// <param name="Agent">
-/// Agent runtime registry id (#1683) — sourced from the unit / agent
-/// manifest's <c>ai.agent</c> field. Matches an
+/// <param name="Model">Default structured <c>{provider, id}</c> model selector.</param>
+/// <param name="Runtime">
+/// Agent runtime registry id — sourced from the unit / agent manifest's
+/// <c>ai.runtime</c> field. Matches an
 /// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Id"/> entry in the
-/// runtime catalogue (e.g. <c>claude</c>, <c>codex</c>,
+/// runtime catalogue (e.g. <c>claude-code</c>, <c>codex</c>,
 /// <c>spring-voyage</c>). The validation scheduler reads this slot when
 /// composing the workflow input.
 /// </param>
 public record UnitExecutionDefaults(
     string? Image = null,
-    string? Provider = null,
-    string? Model = null,
-    string? Agent = null)
+    Cvoya.Spring.Core.Catalog.Model? Model = null,
+    string? Runtime = null)
 {
     /// <summary>True when every field is null / whitespace.</summary>
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Provider)
-        && string.IsNullOrWhiteSpace(Model)
-        && string.IsNullOrWhiteSpace(Agent);
+        && Model is null
+        && string.IsNullOrWhiteSpace(Runtime);
 }

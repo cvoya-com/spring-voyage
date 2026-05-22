@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Tests.Agents;
 
 using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Dapr.Agents;
@@ -55,11 +56,10 @@ public class ExecutionConfigInheritanceResolverTests
     public void ResolveAgentConfig_ZeroParents_ReturnsAgentOwnWithNoConflicts()
     {
         var agentOwn = new AgentExecutionConfig(
-            AgentRuntimeId: "claude",
+            Runtime: "claude",
             Image: "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
             Hosting: AgentHostingMode.Persistent,
-            Provider: "anthropic",
-            Model: "claude-sonnet");
+            Model: new Model("anthropic", "claude-sonnet"));
 
         var result = _resolver.ResolveAgentConfig(
             agentOwn,
@@ -79,17 +79,15 @@ public class ExecutionConfigInheritanceResolverTests
         var parentId = Guid.NewGuid();
         StubParent(parentId, new UnitExecutionDefaults(
             Image: "unit-img:1",
-            Provider: "openai",
-            Model: "gpt-4o",
-            Agent: "openai"));
+            Model: new Model("openai", "gpt-4o"),
+            Runtime: "spring-voyage"));
 
-        // Agent declares only AgentRuntimeId + Hosting; everything else
-        // should fall through from the parent.
+        // Agent declares only Runtime + Hosting; everything else should
+        // fall through from the parent.
         var agentOwn = new AgentExecutionConfig(
-            AgentRuntimeId: "claude",
+            Runtime: "claude",
             Image: null,
             Hosting: AgentHostingMode.Persistent,
-            Provider: null,
             Model: null);
 
         var result = _resolver.ResolveAgentConfig(
@@ -99,10 +97,9 @@ public class ExecutionConfigInheritanceResolverTests
             ct: TestContext.Current.CancellationToken);
 
         result.ConflictingFields.ShouldBeEmpty();
-        result.Effective.AgentRuntimeId.ShouldBe("claude"); // agent wins
+        result.Effective.Runtime.ShouldBe("claude"); // agent wins
         result.Effective.Image.ShouldBe("unit-img:1");      // inherited
-        result.Effective.Provider.ShouldBe("openai");       // inherited
-        result.Effective.Model.ShouldBe("gpt-4o");          // inherited
+        result.Effective.Model.ShouldBe(new Model("openai", "gpt-4o")); // inherited
         result.Effective.Hosting.ShouldBe(AgentHostingMode.Persistent); // agent-owned
     }
 
@@ -112,16 +109,14 @@ public class ExecutionConfigInheritanceResolverTests
         var parentId = Guid.NewGuid();
         StubParent(parentId, new UnitExecutionDefaults(
             Image: "unit-img",
-            Provider: "openai",
-            Model: "gpt-4o",
-            Agent: "openai"));
+            Model: new Model("openai", "gpt-4o"),
+            Runtime: "spring-voyage"));
 
         var agentOwn = new AgentExecutionConfig(
-            AgentRuntimeId: "claude",
+            Runtime: "claude",
             Image: "agent-img",
             Hosting: AgentHostingMode.Ephemeral,
-            Provider: "anthropic",
-            Model: "claude-sonnet");
+            Model: new Model("anthropic", "claude-sonnet"));
 
         var result = _resolver.ResolveAgentConfig(
             agentOwn,
@@ -130,10 +125,9 @@ public class ExecutionConfigInheritanceResolverTests
             ct: TestContext.Current.CancellationToken);
 
         result.ConflictingFields.ShouldBeEmpty();
-        result.Effective.AgentRuntimeId.ShouldBe("claude");
+        result.Effective.Runtime.ShouldBe("claude");
         result.Effective.Image.ShouldBe("agent-img");
-        result.Effective.Provider.ShouldBe("anthropic");
-        result.Effective.Model.ShouldBe("claude-sonnet");
+        result.Effective.Model.ShouldBe(new Model("anthropic", "claude-sonnet"));
     }
 
     // ── Branch 3: N parents identical ──────────────────────────────────────
@@ -145,18 +139,16 @@ public class ExecutionConfigInheritanceResolverTests
         var parentB = Guid.NewGuid();
         var common = new UnitExecutionDefaults(
             Image: "shared-img",
-            Provider: "anthropic",
-            Model: "claude-sonnet",
-            Agent: "claude");
+            Model: new Model("anthropic", "claude-sonnet"),
+            Runtime: "claude");
         StubParent(parentA, common);
         StubParent(parentB, common);
 
         // Agent leaves every inheritable field unset.
         var agentOwn = new AgentExecutionConfig(
-            AgentRuntimeId: "",
+            Runtime: "",
             Image: null,
             Hosting: AgentHostingMode.Ephemeral,
-            Provider: null,
             Model: null);
 
         var result = _resolver.ResolveAgentConfig(
@@ -166,10 +158,9 @@ public class ExecutionConfigInheritanceResolverTests
             ct: TestContext.Current.CancellationToken);
 
         result.ConflictingFields.ShouldBeEmpty();
-        result.Effective.AgentRuntimeId.ShouldBe("claude");
+        result.Effective.Runtime.ShouldBe("claude");
         result.Effective.Image.ShouldBe("shared-img");
-        result.Effective.Provider.ShouldBe("anthropic");
-        result.Effective.Model.ShouldBe("claude-sonnet");
+        result.Effective.Model.ShouldBe(new Model("anthropic", "claude-sonnet"));
     }
 
     // ── Branch 4: N parents diverging ──────────────────────────────────────
@@ -179,15 +170,13 @@ public class ExecutionConfigInheritanceResolverTests
     {
         var parentA = Guid.NewGuid();
         var parentB = Guid.NewGuid();
-        StubParent(parentA, new UnitExecutionDefaults(
-            Image: "img-a",
-            Agent: "claude"));
+        StubParent(parentA, new UnitExecutionDefaults(Image: "img-a", Runtime: "claude"));
         StubParent(parentB, new UnitExecutionDefaults(
-            Image: "img-b",     // diverges
-            Agent: "claude"));  // agrees
+            Image: "img-b",       // diverges
+            Runtime: "claude"));  // agrees
 
         var agentOwn = new AgentExecutionConfig(
-            AgentRuntimeId: "",
+            Runtime: "",
             Image: null,
             Hosting: AgentHostingMode.Ephemeral);
 
@@ -206,7 +195,7 @@ public class ExecutionConfigInheritanceResolverTests
         imageConflicts.ShouldContain(new ParentValue(parentB, "img-b"));
 
         // Fields that agreed are still merged; only the diverging slot is null.
-        result.Effective.AgentRuntimeId.ShouldBe("claude");
+        result.Effective.Runtime.ShouldBe("claude");
         result.Effective.Image.ShouldBeNull();
     }
 
@@ -215,13 +204,13 @@ public class ExecutionConfigInheritanceResolverTests
     {
         var parentA = Guid.NewGuid();
         var parentB = Guid.NewGuid();
-        StubParent(parentA, new UnitExecutionDefaults(Image: "img-a", Agent: "claude"));
-        StubParent(parentB, new UnitExecutionDefaults(Image: "img-b", Agent: "claude"));
+        StubParent(parentA, new UnitExecutionDefaults(Image: "img-a", Runtime: "claude"));
+        StubParent(parentB, new UnitExecutionDefaults(Image: "img-b", Runtime: "claude"));
 
         // Agent sets Image explicitly — the per-parent disagreement is
         // moot for that field.
         var agentOwn = new AgentExecutionConfig(
-            AgentRuntimeId: "",
+            Runtime: "",
             Image: "agent-img",
             Hosting: AgentHostingMode.Ephemeral);
 
@@ -233,17 +222,17 @@ public class ExecutionConfigInheritanceResolverTests
 
         result.ConflictingFields.ShouldBeEmpty();
         result.Effective.Image.ShouldBe("agent-img");
-        result.Effective.AgentRuntimeId.ShouldBe("claude");
+        result.Effective.Runtime.ShouldBe("claude");
     }
 
     [Fact]
     public void ResolveAgentConfig_HostingIsNeverInheritedFromParents()
     {
         var parentId = Guid.NewGuid();
-        StubParent(parentId, new UnitExecutionDefaults(Agent: "claude"));
+        StubParent(parentId, new UnitExecutionDefaults(Runtime: "claude"));
 
         var agentOwn = new AgentExecutionConfig(
-            AgentRuntimeId: "",
+            Runtime: "",
             Image: null,
             Hosting: AgentHostingMode.Persistent);
 
@@ -266,7 +255,7 @@ public class ExecutionConfigInheritanceResolverTests
               .Returns(Task.FromResult<UnitExecutionDefaults?>(null));
 
         var agentOwn = new AgentExecutionConfig(
-            AgentRuntimeId: "claude",
+            Runtime: "claude",
             Image: "agent-img",
             Hosting: AgentHostingMode.Ephemeral);
 
@@ -277,7 +266,7 @@ public class ExecutionConfigInheritanceResolverTests
             ct: TestContext.Current.CancellationToken);
 
         result.ConflictingFields.ShouldBeEmpty();
-        result.Effective.AgentRuntimeId.ShouldBe("claude");
+        result.Effective.Runtime.ShouldBe("claude");
         result.Effective.Image.ShouldBe("agent-img");
     }
 

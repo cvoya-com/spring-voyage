@@ -128,15 +128,11 @@ public class AgentManifest
 }
 
 /// <summary>
-/// Typed view of an agent / agent-template <c>execution:</c> block. Mirrors
-/// the unit-side <see cref="ExecutionManifest"/> for the fields that are
-/// meaningful on an agent. The schema is intentionally minimal — image and
-/// hosting are the two fields the platform reads off this block at install
-/// time (issue #2436); the legacy free-form fields (<c>agent</c>,
-/// <c>provider</c>, <c>model</c>) still travel through the persisted
-/// definition JSON read by the dispatcher and the inheritance resolver, but
-/// are not part of the typed manifest because the authoring contract for
-/// those slots is the <c>ai:</c> block per ADR-0038.
+/// Typed view of an agent / agent-template <c>execution:</c> block.
+/// Converges with the unit-side <see cref="ExecutionManifest"/> on
+/// <c>{image, hosting}</c> per the ADR-0038 amendment (#2634). The
+/// runtime and model are authored under the <c>ai:</c> block
+/// (<c>ai.runtime</c>, <c>ai.model{provider, id}</c>).
 /// </summary>
 public class AgentExecutionManifest
 {

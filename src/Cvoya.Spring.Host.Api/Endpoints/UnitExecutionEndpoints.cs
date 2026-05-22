@@ -121,17 +121,17 @@ public static class UnitExecutionEndpoints
 
         request ??= new UnitExecutionResponse();
 
-        // ADR-0038: the wire shape carries `runtime` (agent-runtime
-        // catalogue id) and structured `model: {provider, id}`. The
-        // store still names that catalogue slot `Agent`, so the
-        // wire-domain mapping happens here. ADR-0039 §7 removed the
-        // per-config container-runtime selector; host configuration owns
-        // docker/podman selection.
+        // ADR-0038: the wire shape and the store shape are the one
+        // canonical execution shape — `runtime` (agent-runtime catalogue
+        // id), structured `model: {provider, id}`, and `image`. ADR-0039
+        // §7 removed the per-config container-runtime selector; host
+        // configuration owns docker/podman selection.
         var defaults = new UnitExecutionDefaults(
             Image: request.Image,
-            Provider: request.Model?.Provider,
-            Model: request.Model?.Id,
-            Agent: request.Runtime);
+            Model: request.Model is null
+                ? null
+                : new Cvoya.Spring.Core.Catalog.Model(request.Model.Provider, request.Model.Id),
+            Runtime: request.Runtime);
 
         if (defaults.IsEmpty)
         {
@@ -177,20 +177,16 @@ public static class UnitExecutionEndpoints
             return new UnitExecutionResponse();
         }
 
-        // ADR-0038: project the internal store fields onto the new wire
+        // ADR-0038: project the canonical store shape onto the wire
         // shape — `runtime` (catalogue id) and structured
-        // `model: {provider, id}`. ADR-0039 §7 drops the `containerRuntime`
-        // slot from the wire surface; the internal store still carries it
-        // for back-compat (until G8) but it is never emitted on the wire.
-        AiModelDto? model = null;
-        if (!string.IsNullOrWhiteSpace(defaults.Model) && !string.IsNullOrWhiteSpace(defaults.Provider))
-        {
-            model = new AiModelDto(defaults.Provider!, defaults.Model!);
-        }
+        // `model: {provider, id}`.
+        var model = defaults.Model is null
+            ? null
+            : new AiModelDto(defaults.Model.Provider, defaults.Model.Id);
 
         return new UnitExecutionResponse(
             Image: defaults.Image,
-            Runtime: defaults.Agent,
+            Runtime: defaults.Runtime,
             Model: model);
     }
 }

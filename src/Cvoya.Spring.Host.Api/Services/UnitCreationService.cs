@@ -323,22 +323,15 @@ public class UnitCreationService : IUnitCreationService
         // defaults match what a PUT /api/v1/units/{id}/execution call
         // would produce. An absent or all-empty block is a no-op so an
         // operator who clears the YAML doesn't re-apply a stale default.
-        // ADR-0038: forward the manifest's `ai.runtime` value into the
-        // execution block's `agent` slot (still named "agent" on the
-        // store contract — internal field name; renamed on the wire to
-        // "runtime" by PR-1b). The validator reads `defaults.Agent` as
-        // the agent-runtime registry id.
-        var manifestAgent = manifest.Ai?.Runtime;
-        // #2204: also forward the manifest's `ai.model.provider` so the
-        // persisted execution row reflects the manifest. The validation
-        // scheduler can derive provider from the runtime via the catalogue,
-        // but the auto-start gate needs the row to carry image + runtime +
-        // model — and writing the provider keeps the persisted shape honest
-        // with what `PersistUnitExecutionAsync`'s docstring promised.
-        var manifestProvider = manifest.Ai?.Model?.Provider;
+        // ADR-0038 amendment (#2634): forward the manifest's `ai.runtime`
+        // into the execution block's `runtime` slot and the structured
+        // `ai.model{provider, id}` into the `model` slot — the one
+        // canonical execution shape.
+        var manifestRuntime = manifest.Ai?.Runtime;
+        var manifestModel = ToCatalogModel(manifest.Ai?.Model);
         if (manifest.Execution is { IsEmpty: false }
-            || !string.IsNullOrWhiteSpace(manifestAgent)
-            || !string.IsNullOrWhiteSpace(manifestProvider))
+            || !string.IsNullOrWhiteSpace(manifestRuntime)
+            || manifestModel is not null)
         {
             // #1666: IUnitExecutionStore is keyed by the unit's actor Guid
             // (DbUnitExecutionStore parses the id with GuidFormatter.TryParse
@@ -351,8 +344,8 @@ public class UnitCreationService : IUnitCreationService
                 name,
                 result.Unit.Id,
                 manifest.Execution ?? new ExecutionManifest(),
-                manifestAgent,
-                manifestProvider,
+                manifestRuntime,
+                manifestModel,
                 cancellationToken);
         }
 
@@ -379,17 +372,18 @@ public class UnitCreationService : IUnitCreationService
     /// <c>PUT /api/v1/units/{id}/execution</c> if the write hiccups.
     /// </summary>
     /// <remarks>
-    /// #1683: <paramref name="agent"/> carries the manifest's <c>ai.agent</c>
-    /// value (the agent-runtime registry id) so it lands in the execution
-    /// block's <c>agent</c> slot. ADR-0039 G8 removed the container-
-    /// runtime selector from execution defaults; host configuration owns it.
+    /// ADR-0038: <paramref name="runtime"/> carries the manifest's
+    /// <c>ai.runtime</c> value (the agent-runtime registry id) and
+    /// <paramref name="model"/> the structured <c>ai.model{provider, id}</c>
+    /// pair. ADR-0039 G8 removed the container-runtime selector from
+    /// execution defaults; host configuration owns it.
     /// </remarks>
     private async Task PersistUnitExecutionAsync(
         string unitName,
         Guid unitActorId,
         ExecutionManifest execution,
-        string? agent,
-        string? provider,
+        string? runtime,
+        Cvoya.Spring.Core.Catalog.Model? model,
         CancellationToken cancellationToken)
     {
         if (_executionStore is null)
@@ -402,19 +396,14 @@ public class UnitCreationService : IUnitCreationService
 
         try
         {
-            // ADR-0038: ExecutionManifest no longer carries `provider`
-            // (intrinsic to ai.model.provider) or `tool` (derived from
-            // ai.runtime via the catalogue). The internal store retains
-            // the Provider slot during PR-1b transitional work — #2204
-            // re-wires it to actually receive the structured manifest's
-            // `ai.model.provider` value so the persisted row matches the
-            // manifest and the auto-start gate has all three slots (image,
-            // runtime, model) populated.
+            // ADR-0038 amendment (#2634): the persisted execution block is
+            // the one canonical shape — {runtime, model{provider, id},
+            // image}. The runtime and structured model come from the `ai:`
+            // block; the image from the `execution:` block.
             var defaults = new UnitExecutionDefaults(
                 Image: execution.Image,
-                Provider: provider,
-                Model: execution.Model,
-                Agent: agent);
+                Model: model,
+                Runtime: runtime);
             // #1666: the store is Guid-keyed — see DbUnitExecutionStore
             // line 80, which throws ArgumentException for a non-Guid id.
             // GuidFormatter.Format is the canonical "N"-format counterpart
@@ -776,7 +765,7 @@ public class UnitCreationService : IUnitCreationService
             // the actor-owned fields (Model, Color, …) to the metadata write to
             // avoid a double-write — mirrors UnitEndpoints.CreateUnitAsync.
             // #1732: Tool was dropped from the unit-actor metadata — derived
-            // from execution.agent via the runtime registry at dispatch time.
+            // from execution.runtime via the runtime registry at dispatch time.
             // #2341: Specialty / Enabled / ExecutionMode reach the actor through
             // the same SetMetadataAsync write so the manifest authoring surface
             // and PATCH /api/v1/units/{id} agree on the same set of slots.
@@ -1003,19 +992,16 @@ public class UnitCreationService : IUnitCreationService
             // validate against. The manifest path already writes this
             // through PersistUnitExecutionAsync.
             //
-            // #1683: `Agent` (the agent-runtime registry id) is also
-            // left null here — the direct-create request body carries
-            // no `--agent` flag and partial-update semantics preserve
-            // any pre-existing manifest-applied value on subsequent
-            // overwrites. Operators can set it via
-            // `PUT /api/v1/units/{id}/execution` once the slot is
-            // surfaced on that endpoint.
-            // #1732: `Tool` was dropped from the wire surface entirely —
-            // the execution tool is derived from `Agent` via the runtime
-            // registry.
-            if (_executionStore is not null &&
-                (!string.IsNullOrWhiteSpace(model)
-                    || !string.IsNullOrWhiteSpace(provider)))
+            // ADR-0038 amendment (#2634): the persisted execution block
+            // carries the structured `model{provider, id}` pair — both
+            // halves must be present to write it. `runtime` is left null
+            // here (the direct-create body carries no runtime flag) and
+            // partial-update semantics preserve any pre-existing value.
+            var directModel = !string.IsNullOrWhiteSpace(model)
+                    && !string.IsNullOrWhiteSpace(provider)
+                ? new Cvoya.Spring.Core.Catalog.Model(provider!.Trim(), model!.Trim())
+                : null;
+            if (_executionStore is not null && directModel is not null)
             {
                 try
                 {
@@ -1030,9 +1016,8 @@ public class UnitCreationService : IUnitCreationService
                         actorId,
                         new UnitExecutionDefaults(
                             Image: null,
-                            Provider: provider,
-                            Model: model,
-                            Agent: null),
+                            Model: directModel,
+                            Runtime: null),
                         cancellationToken);
                 }
                 catch (Exception ex)
@@ -1180,12 +1165,12 @@ public class UnitCreationService : IUnitCreationService
 
         if (defaults is null || defaults.IsEmpty
             || string.IsNullOrWhiteSpace(defaults.Image)
-            || string.IsNullOrWhiteSpace(defaults.Model))
+            || defaults.Model is null)
         {
             return LifecycleStatus.Draft;
         }
 
-        var runtimeId = ResolveAgentRuntimeId(defaults);
+        var runtimeId = defaults.Runtime;
         if (string.IsNullOrWhiteSpace(runtimeId))
         {
             return LifecycleStatus.Draft;
@@ -1269,18 +1254,16 @@ public class UnitCreationService : IUnitCreationService
     }
 
     /// <summary>
-    /// Mirrors <c>ArtefactValidationWorkflowScheduler.ResolveAgentRuntimeId</c>:
-    /// the agent-runtime registry id is on <see cref="UnitExecutionDefaults.Agent"/>;
-    /// <see cref="UnitExecutionDefaults.Provider"/> is a last-ditch fallback
-    /// because spring-voyage-style runtimes carry the same string in both
-    /// slots.
+    /// Maps a manifest <see cref="AiModelManifest"/> onto the catalogue
+    /// <see cref="Cvoya.Spring.Core.Catalog.Model"/> record. Returns
+    /// <c>null</c> unless both <c>provider</c> and <c>id</c> are present.
     /// </summary>
-    private static string? ResolveAgentRuntimeId(UnitExecutionDefaults defaults)
-    {
-        if (!string.IsNullOrWhiteSpace(defaults.Agent)) return defaults.Agent;
-        if (!string.IsNullOrWhiteSpace(defaults.Provider)) return defaults.Provider;
-        return null;
-    }
+    private static Cvoya.Spring.Core.Catalog.Model? ToCatalogModel(AiModelManifest? model)
+        => model is not null
+            && !string.IsNullOrWhiteSpace(model.Provider)
+            && !string.IsNullOrWhiteSpace(model.Id)
+            ? new Cvoya.Spring.Core.Catalog.Model(model.Provider!.Trim(), model.Id!.Trim())
+            : null;
 
     /// <summary>
     /// Best-effort rollback: unregisters the directory entry so the caller's

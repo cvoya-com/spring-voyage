@@ -213,16 +213,17 @@ public class PackageInstallServiceIntegrationTests : IDisposable
         var def = agent.Definition!.Value;
         def.TryGetProperty("execution", out var exec).ShouldBeTrue(
             $"agent '{agentDisplayName}' Definition must carry an 'execution' block " +
-            "so the auto-start gate (IAgentExecutionStore.Extract) can read image/model/agent.");
+            "so the auto-start gate (IAgentExecutionStore.Extract) can read image/model/runtime.");
         exec.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Object);
 
-        // Each catalog package above uses the modern ADR-0038 ai: shape with
+        // Each catalog package above uses the ADR-0038 ai: shape with
         // claude-code + anthropic + claude-sonnet-4-6 and the OSS claude
-        // base image. Pinning the exact values here doubles as a guard
-        // against the projection silently dropping a field.
-        exec.GetProperty("agent").GetString().ShouldBe("claude-code");
-        exec.GetProperty("provider").GetString().ShouldBe("anthropic");
-        exec.GetProperty("model").GetString().ShouldBe("claude-sonnet-4-6");
+        // base image. The persisted execution block is the one canonical
+        // shape (#2634): runtime + structured model{provider, id} + image.
+        exec.GetProperty("runtime").GetString().ShouldBe("claude-code");
+        var execModel = exec.GetProperty("model");
+        execModel.GetProperty("provider").GetString().ShouldBe("anthropic");
+        execModel.GetProperty("id").GetString().ShouldBe("claude-sonnet-4-6");
         exec.GetProperty("image").GetString().ShouldStartWith(
             "ghcr.io/cvoya-com/spring-voyage-claude-code-base");
 
@@ -238,9 +239,8 @@ public class PackageInstallServiceIntegrationTests : IDisposable
         shape.ShouldNotBeNull(
             $"IAgentExecutionStore.GetAsync must return a populated shape for '{agentDisplayName}' " +
             "— the auto-start gate (#2374 / #2388) reads through this seam.");
-        shape!.Agent.ShouldBe("claude-code");
-        shape.Provider.ShouldBe("anthropic");
-        shape.Model.ShouldBe("claude-sonnet-4-6");
+        shape!.Runtime.ShouldBe("claude-code");
+        shape.Model.ShouldBe(new Cvoya.Spring.Core.Catalog.Model("anthropic", "claude-sonnet-4-6"));
         shape.Image.ShouldStartWith("ghcr.io/cvoya-com/spring-voyage-claude-code-base");
     }
 

@@ -215,7 +215,7 @@ public static class StateKeys
 
     // #1732: The pre-existing UnitTool key (`Unit:Tool`) was removed —
     // the execution tool is now derived from the runtime registry via the
-    // unit's execution.agent slot, so a duplicate actor-state copy is
+    // unit's execution.runtime slot, so a duplicate actor-state copy is
     // unnecessary. Persisted state keyed on `Unit:Tool` from before
     // #1732 is silently ignored.
 

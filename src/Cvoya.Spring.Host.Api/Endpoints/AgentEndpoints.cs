@@ -347,10 +347,11 @@ public static class AgentEndpoints
         // process owns that platform setting.
         var shape = new AgentExecutionShape(
             Image: request.Image,
-            Provider: request.Model?.Provider,
-            Model: request.Model?.Id,
+            Model: request.Model is null
+                ? null
+                : new Cvoya.Spring.Core.Catalog.Model(request.Model.Provider, request.Model.Id),
             Hosting: normalisedHosting.Value,
-            Agent: request.Runtime);
+            Runtime: request.Runtime);
 
         if (shape.IsEmpty)
         {
@@ -422,10 +423,9 @@ public static class AgentEndpoints
         existing ??= new AgentExecutionShape();
         return new AgentExecutionShape(
             Image: PickNonBlank(patch.Image, existing.Image),
-            Provider: PickNonBlank(patch.Provider, existing.Provider),
-            Model: PickNonBlank(patch.Model, existing.Model),
+            Model: patch.Model ?? existing.Model,
             Hosting: PickNonBlank(patch.Hosting, existing.Hosting),
-            Agent: PickNonBlank(patch.Agent, existing.Agent));
+            Runtime: PickNonBlank(patch.Runtime, existing.Runtime));
 
         static string? PickNonBlank(string? incoming, string? fallback)
         {
@@ -442,8 +442,8 @@ public static class AgentEndpoints
     /// slot on the agent surfaces the field as a candidate for inheritance.
     /// </summary>
     /// <remarks>
-    /// <see cref="AgentExecutionConfig.AgentRuntimeId"/> is non-nullable so a
-    /// missing <see cref="AgentExecutionShape.Agent"/> projects to the empty
+    /// <see cref="AgentExecutionConfig.Runtime"/> is non-nullable so a
+    /// missing <see cref="AgentExecutionShape.Runtime"/> projects to the empty
     /// string — the resolver treats blank as null-equivalent through its own
     /// <c>NullIfBlank</c> normaliser, so the candidate-for-inheritance branch
     /// fires the same way. <c>hosting</c> on the shape is a free-form string
@@ -455,10 +455,9 @@ public static class AgentEndpoints
     /// </remarks>
     private static AgentExecutionConfig ShapeToConfig(AgentExecutionShape shape) =>
         new(
-            AgentRuntimeId: shape.Agent ?? string.Empty,
+            Runtime: shape.Runtime ?? string.Empty,
             Image: shape.Image,
             Hosting: ParseHostingMode(shape.Hosting),
-            Provider: shape.Provider,
             Model: shape.Model);
 
     /// <summary>
@@ -582,20 +581,16 @@ public static class AgentEndpoints
             return new AgentExecutionResponse(ConcurrentThreads: concurrentThreads);
         }
 
-        // ADR-0038: project the internal store shape onto the new wire
+        // ADR-0038: project the canonical store shape onto the wire
         // form — `runtime` (catalogue id), structured `model: {provider, id}`,
-        // and `hosting`. ADR-0039 §7 drops the wire-side `containerRuntime`
-        // slot; the internal store still carries it for back-compat (until
-        // G8) but it is never emitted on the wire.
-        AiModelDto? model = null;
-        if (!string.IsNullOrWhiteSpace(shape.Model) && !string.IsNullOrWhiteSpace(shape.Provider))
-        {
-            model = new AiModelDto(shape.Provider!, shape.Model!);
-        }
+        // and `hosting`.
+        var model = shape.Model is null
+            ? null
+            : new AiModelDto(shape.Model.Provider, shape.Model.Id);
 
         return new AgentExecutionResponse(
             Image: shape.Image,
-            Runtime: shape.Agent,
+            Runtime: shape.Runtime,
             Model: model,
             Hosting: shape.Hosting,
             ConcurrentThreads: concurrentThreads);
@@ -2141,7 +2136,7 @@ public static class AgentEndpoints
     /// for that path.
     /// </para>
     /// <para>
-    /// <see cref="AgentExecutionConfig.AgentRuntimeId"/> is non-nullable on
+    /// <see cref="AgentExecutionConfig.Runtime"/> is non-nullable on
     /// the record but is treated as nullable for inheritance — the resolver
     /// applies <c>NullIfBlank</c> to every input field, so an empty string
     /// surfaces as "inherit this slot from the parent set" the same way a
@@ -2166,24 +2161,40 @@ public static class AgentEndpoints
             return new AgentExecutionConfig(string.Empty, Image: null);
         }
 
-        var agentRuntimeId = ReadStringOrNull(exec, "agent");
+        var runtime = ReadStringOrNull(exec, "runtime");
         var image = ReadStringOrNull(exec, "image");
-        var provider = ReadStringOrNull(exec, "provider");
-        var model = ReadStringOrNull(exec, "model");
         var hosting = ParseHostingMode(ReadStringOrNull(exec, "hosting"));
 
         return new AgentExecutionConfig(
-            AgentRuntimeId: agentRuntimeId ?? string.Empty,
+            Runtime: runtime ?? string.Empty,
             Image: image,
             Hosting: hosting,
-            Provider: provider,
-            Model: model);
+            Model: ReadModel(exec));
     }
 
     private static string? ReadStringOrNull(JsonElement obj, string name)
         => obj.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String
             ? prop.GetString()
             : null;
+
+    /// <summary>
+    /// Reads the canonical structured <c>model: {provider, id}</c> object
+    /// (ADR-0038 amendment, #2634) from an <c>execution</c> JSON element.
+    /// </summary>
+    private static Cvoya.Spring.Core.Catalog.Model? ReadModel(JsonElement exec)
+    {
+        if (!exec.TryGetProperty("model", out var model)
+            || model.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var provider = ReadStringOrNull(model, "provider");
+        var id = ReadStringOrNull(model, "id");
+        return provider is not null && id is not null
+            ? new Cvoya.Spring.Core.Catalog.Model(provider, id)
+            : null;
+    }
 
     // ──────────────────────────────────────────────────────────────────────
     // #2364: lifecycle-state transition endpoints.

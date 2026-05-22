@@ -129,7 +129,7 @@ public class AgentActorConcurrentThreadsTests
 
         var definitionProvider = Substitute.For<IAgentDefinitionProvider>();
         var execConfig = new AgentExecutionConfig(
-            AgentRuntimeId: "claude",
+            Runtime: "claude",
             Image: null,
             ConcurrentThreads: concurrentThreads);
         definitionProvider.GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())

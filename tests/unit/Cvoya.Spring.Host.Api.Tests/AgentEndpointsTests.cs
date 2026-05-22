@@ -490,11 +490,11 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.UnitExecutionStore
             .GetAsync(unitDocker.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "claude-code")));
+                new UnitExecutionDefaults(Runtime: "claude-code")));
         _factory.UnitExecutionStore
             .GetAsync(unitPodman.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "spring-voyage")));
+                new UnitExecutionDefaults(Runtime: "spring-voyage")));
 
         var request = new CreateAgentRequest(
             "Conflicted Agent",
@@ -517,7 +517,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         root.GetProperty("error").GetString().ShouldBe("MultiParentInheritanceConflict");
         root.TryGetProperty("conflictingFields", out var fields).ShouldBeTrue();
-        fields.TryGetProperty("agent", out var runtimeArray).ShouldBeTrue();
+        fields.TryGetProperty("runtime", out var runtimeArray).ShouldBeTrue();
         runtimeArray.ValueKind.ShouldBe(JsonValueKind.Array);
 
         var runtimeValues = runtimeArray
@@ -562,20 +562,20 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.UnitExecutionStore
             .GetAsync(unitDocker.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "claude-code")));
+                new UnitExecutionDefaults(Runtime: "claude-code")));
         _factory.UnitExecutionStore
             .GetAsync(unitPodman.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: "spring-voyage")));
+                new UnitExecutionDefaults(Runtime: "spring-voyage")));
 
         // Per ADR-0039 §6 rule 1 ("an explicit value on the agent always
-        // wins"), declaring `execution.agent` on the agent's own block
+        // wins"), declaring `execution.runtime` on the agent's own block
         // turns the slot into "agent-decided". The resolver no longer
         // reports a conflict on that field — the create succeeds.
         var definitionJson = """
             {
               "execution": {
-                "agent": "claude-code"
+                "runtime": "claude-code"
               }
             }
             """;
@@ -887,7 +887,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         {
             execution = new
             {
-                agent = "claude",
+                runtime = "claude",
                 image = "acme/agent:v1.2",
             },
         });
@@ -923,7 +923,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         var agentDefinition = JsonSerializer.SerializeToElement(new
         {
-            execution = new { agent = "claude" },
+            execution = new { runtime = "claude" },
         });
         await SeedAgentDefinitionAsync(agentId, "Inheriting Agent", agentDefinition, ct);
         await SeedAgentParentMembershipAsync(agentId, unitId, ct);

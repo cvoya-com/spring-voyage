@@ -32,23 +32,24 @@ install) or programmatically (an API call). A definition describes *what* the
 entity is, not *where* it runs:
 
 ```yaml
-agent:
-  name: Ada                          # display name — presentation only
-  role: backend-engineer
-  capabilities: [csharp, postgresql, testing]
-  ai:
-    runtime: claude-code             # AgentRuntime id from runtime-catalog.yaml
-    model:
-      provider: anthropic
-      id: claude-sonnet-4-6
-  execution:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
-    hosting: ephemeral               # or persistent
-  instructions: |
-    You are a backend engineer...
-  expertise:
-    - domain: postgresql
-      level: advanced
+apiVersion: spring.voyage/v1
+kind: Agent
+name: Ada                            # display name — presentation only
+role: backend-engineer
+capabilities: [csharp, postgresql, testing]
+ai:
+  runtime: claude-code               # AgentRuntime id from runtime-catalog.yaml
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+  hosting: ephemeral                 # or persistent
+instructions: |
+  You are a backend engineer...
+expertise:
+  - domain: postgresql
+    level: advanced
 ```
 
 A unit adds a `members:` list and may carry connector bindings, unit policies,
@@ -77,12 +78,13 @@ declared under one `members:` list with a key-prefix discriminator
 ([ADR-0046](../decisions/0046-unified-members-grammar.md)):
 
 ```yaml
-unit:
-  name: engineering-team
-  members:
-    - agent: { ref: ada, roles: [backend], expertise: [postgresql] }
-    - unit:  { ref: database-team }
-    - human: { displayName: "Reviewer" }
+apiVersion: spring.voyage/v1
+kind: Unit
+name: engineering-team
+members:
+  - agent: { ref: ada, roles: [backend], expertise: [postgresql] }
+  - unit:  { ref: database-team }
+  - human: { displayName: "Reviewer" }
 ```
 
 The graph is **EF-authoritative** — there is no actor-state mirror

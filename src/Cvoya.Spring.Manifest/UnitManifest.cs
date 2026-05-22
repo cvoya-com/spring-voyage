@@ -189,31 +189,6 @@ public class AiManifest
     /// <summary>Skills available to the agent.</summary>
     [YamlMember(Alias = "skills")]
     public List<SkillReference>? Skills { get; set; }
-
-    /// <summary>
-    /// Optional execution environment for the agent runtime. The image
-    /// declared here is projected onto <c>execution.image</c> at install
-    /// time when the YAML does not declare a top-level
-    /// <c>execution.image</c>.
-    /// </summary>
-    [YamlMember(Alias = "environment")]
-    public AiEnvironmentManifest? Environment { get; set; }
-}
-
-/// <summary>
-/// Execution-environment block on <see cref="AiManifest"/>. Carries the
-/// container image to launch the agent runtime in; the install activator
-/// projects <see cref="Image"/> onto <c>execution.image</c> when a
-/// top-level slot is absent.
-/// </summary>
-public class AiEnvironmentManifest
-{
-    /// <summary>
-    /// Container image reference for the agent runtime
-    /// (e.g. <c>ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest</c>).
-    /// </summary>
-    [YamlMember(Alias = "image")]
-    public string? Image { get; set; }
 }
 
 /// <summary>
@@ -347,26 +322,23 @@ public class MemberManifest
 }
 
 /// <summary>
-/// Unit-level execution defaults (#601 / #603 / #409 — "B-wide" shape).
+/// Unit-level execution block. Per the ADR-0038 amendment (#2634) the
+/// block converges with the agent-side <see cref="AgentExecutionManifest"/>
+/// on <c>{image, hosting}</c> — the image is declared exactly once,
+/// top-level, for units and agents alike.
 /// </summary>
 /// <remarks>
-/// ADR-0038: <c>execution.provider</c> is removed — the provider is
-/// intrinsic to <c>ai.model.provider</c>. <c>execution.tool</c> stays
-/// out (dropped in #1732).
+/// ADR-0038: the runtime and model are authored under <c>ai:</c>
+/// (<c>ai.runtime</c>, <c>ai.model{provider, id}</c>). ADR-0039 §7
+/// removed the <c>runtime</c> (docker/podman container-runtime selector)
+/// slot; the ADR-0038 amendment removed the <c>model</c> slot
+/// (it duplicated <c>ai.model</c>).
 /// </remarks>
 public class ExecutionManifest
 {
     /// <summary>Container image reference.</summary>
     [YamlMember(Alias = "image")]
     public string? Image { get; set; }
-
-    /// <summary>Container runtime identifier (<c>docker</c> or <c>podman</c>).</summary>
-    [YamlMember(Alias = "runtime")]
-    public string? Runtime { get; set; }
-
-    /// <summary>Default model identifier.</summary>
-    [YamlMember(Alias = "model")]
-    public string? Model { get; set; }
 
     /// <summary>
     /// Hosting mode for the unit and its member agents. One of
@@ -385,8 +357,6 @@ public class ExecutionManifest
     [YamlIgnore]
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Runtime)
-        && string.IsNullOrWhiteSpace(Model)
         && string.IsNullOrWhiteSpace(Hosting);
 }
 

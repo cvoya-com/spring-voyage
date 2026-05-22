@@ -53,7 +53,7 @@ public class ArtefactAutoStartGate(
         // that don't register the store).
         string? image;
         string? runtimeId;
-        string? model;
+        Cvoya.Spring.Core.Catalog.Model? model;
         switch (kind)
         {
             case ArtefactKind.Unit:
@@ -77,9 +77,7 @@ public class ArtefactAutoStartGate(
                     if (defaults is null) return LifecycleStatus.Draft;
                     image = defaults.Image;
                     model = defaults.Model;
-                    runtimeId = !string.IsNullOrWhiteSpace(defaults.Agent)
-                        ? defaults.Agent
-                        : defaults.Provider;
+                    runtimeId = defaults.Runtime;
                     break;
                 }
             case ArtefactKind.Agent:
@@ -103,16 +101,14 @@ public class ArtefactAutoStartGate(
                     if (shape is null) return LifecycleStatus.Draft;
                     image = shape.Image;
                     model = shape.Model;
-                    runtimeId = !string.IsNullOrWhiteSpace(shape.Agent)
-                        ? shape.Agent
-                        : shape.Provider;
+                    runtimeId = shape.Runtime;
                     break;
                 }
             default:
                 return LifecycleStatus.Draft;
         }
 
-        if (string.IsNullOrWhiteSpace(image) || string.IsNullOrWhiteSpace(model))
+        if (string.IsNullOrWhiteSpace(image) || model is null)
         {
             return LifecycleStatus.Draft;
         }
