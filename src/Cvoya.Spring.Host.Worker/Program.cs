@@ -65,9 +65,10 @@ public partial class Program
             // MCP port (Mcp:Port, default 5050) so the agent-facing contract
             // — host.docker.internal:5050, the .mcp.json URL, deploy.sh's
             // `-p 5050:5050` — is unchanged, and the Dapr surface stays off the
-            // agent-reachable port. BindAddress (`+` / all interfaces) is
-            // preserved verbatim because the agent container reaches the worker
-            // through the published port, not loopback (#1199).
+            // agent-reachable port. ListenAnyIP binds the MCP port on all
+            // interfaces, which keeps the worker's MCP socket reachable from
+            // outside its own container: the agent reaches it through the
+            // published `-p 5050:5050` mapping, not loopback (#1199).
             var mcpPort = builder.Configuration.GetValue<int?>("Mcp:Port")
                 ?? new McpServerOptions().Port;
             if (mcpPort > 0)
