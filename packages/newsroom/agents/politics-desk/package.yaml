@@ -9,8 +9,6 @@ ai:
   model:
     provider: anthropic
     id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 instructions: |
   You are the politics-desk reporter. You own the politics beat —
   elections, legislation, regulation, government and the people who run
@@ -58,3 +56,5 @@ expertise:
     level: advanced
   - domain: writing
     level: advanced
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest

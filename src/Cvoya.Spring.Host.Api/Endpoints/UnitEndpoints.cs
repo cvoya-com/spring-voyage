@@ -2134,7 +2134,7 @@ public static class UnitEndpoints
     /// inheritance.
     /// </summary>
     /// <remarks>
-    /// <see cref="AgentExecutionConfig.AgentRuntimeId"/> is non-nullable on
+    /// <see cref="AgentExecutionConfig.Runtime"/> is non-nullable on
     /// the record but the resolver normalises empty strings via
     /// <c>NullIfBlank</c>, so passing an empty string is equivalent to
     /// "no agent runtime declared" for the conflict-detection rules.
@@ -2143,13 +2143,12 @@ public static class UnitEndpoints
     {
         if (shape is null)
         {
-            return new AgentExecutionConfig(AgentRuntimeId: string.Empty, Image: null);
+            return new AgentExecutionConfig(Runtime: string.Empty, Image: null);
         }
 
         return new AgentExecutionConfig(
-            AgentRuntimeId: shape.Agent ?? string.Empty,
+            Runtime: shape.Runtime ?? string.Empty,
             Image: shape.Image,
-            Provider: shape.Provider,
             Model: shape.Model);
     }
 
@@ -2359,9 +2358,9 @@ public static class UnitEndpoints
         }
 
         // Project the child's persisted UnitExecutionDefaults onto the
-        // resolver's AgentExecutionConfig shape. The five inheritable slots
-        // map 1:1 (Agent → AgentRuntimeId, Image, Provider, Model);
-        // a unit with no defaults persisted is treated as fully-inheriting.
+        // resolver's AgentExecutionConfig shape. The inheritable slots map
+        // 1:1 (Runtime, Image, Model); a unit with no defaults persisted
+        // is treated as fully-inheriting.
         var childOwnDefaults = await unitExecutionStore.GetAsync(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(childEntry.ActorId),
             cancellationToken);
@@ -2433,9 +2432,8 @@ public static class UnitEndpoints
         string detail)
     {
         var childOwnConfig = new AgentExecutionConfig(
-            AgentRuntimeId: childOwnDefaults?.Agent ?? string.Empty,
+            Runtime: childOwnDefaults?.Runtime ?? string.Empty,
             Image: childOwnDefaults?.Image,
-            Provider: childOwnDefaults?.Provider,
             Model: childOwnDefaults?.Model);
 
         var resolution = inheritanceResolver.ResolveAgentConfig(

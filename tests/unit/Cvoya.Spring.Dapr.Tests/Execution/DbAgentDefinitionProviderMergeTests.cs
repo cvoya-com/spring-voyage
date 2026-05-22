@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Execution;
 
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -16,11 +17,9 @@ using Xunit;
 /// model (#601 / #603 / #409).
 /// </summary>
 /// <remarks>
-/// #1732: <c>Tool</c> was dropped from <see cref="AgentExecutionConfig"/>
-/// and <see cref="UnitExecutionDefaults"/>. The execution tool is derived
-/// from <see cref="AgentExecutionConfig.AgentRuntimeId"/> via the
-/// catalogue runtime's <c>Launcher</c> field; the merge now resolves the
-/// runtime id (<c>agent.AgentRuntimeId → unit.Agent → null</c>).
+/// ADR-0038 amendment (#2634): the execution config is the one canonical
+/// shape <c>(runtime, model{provider, id}, image, hosting)</c>; the merge
+/// resolves the runtime id (<c>agent.Runtime → unit.Runtime → null</c>).
 /// </remarks>
 public class DbAgentDefinitionProviderMergeTests
 {
@@ -28,24 +27,21 @@ public class DbAgentDefinitionProviderMergeTests
     public void Merge_AgentWins_OnEveryField()
     {
         var agent = new AgentExecutionConfig(
-            AgentRuntimeId: "claude",
+            Runtime: "claude-code",
             Image: "agent-img",
             Hosting: AgentHostingMode.Persistent,
-            Provider: "anthropic",
-            Model: "claude-sonnet");
+            Model: new Model("anthropic", "claude-sonnet"));
         var unit = new UnitExecutionDefaults(
             Image: "unit-img",
-            Provider: "openai",
-            Model: "gpt-4o",
-            Agent: "openai");
+            Model: new Model("openai", "gpt-4o"),
+            Runtime: "spring-voyage");
 
         var merged = DbAgentDefinitionProvider.Merge(agent, unit);
 
         merged.ShouldNotBeNull();
-        merged!.AgentRuntimeId.ShouldBe("claude");
+        merged!.Runtime.ShouldBe("claude-code");
         merged.Image.ShouldBe("agent-img");
-        merged.Provider.ShouldBe("anthropic");
-        merged.Model.ShouldBe("claude-sonnet");
+        merged.Model.ShouldBe(new Model("anthropic", "claude-sonnet"));
         merged.Hosting.ShouldBe(AgentHostingMode.Persistent);
     }
 
@@ -53,45 +49,42 @@ public class DbAgentDefinitionProviderMergeTests
     public void Merge_UnitFillsIn_MissingAgentFields()
     {
         var agent = new AgentExecutionConfig(
-            AgentRuntimeId: "claude",
+            Runtime: "claude-code",
             Image: null,      // missing
             Hosting: AgentHostingMode.Ephemeral,
-            Provider: null,
             Model: null);
         var unit = new UnitExecutionDefaults(
             Image: "unit-img",
-            Provider: "openai",
-            Model: "gpt-4o",
-            Agent: "openai");    // ignored — agent wins on AgentRuntimeId
+            Model: new Model("openai", "gpt-4o"),
+            Runtime: "spring-voyage");    // ignored — agent wins on Runtime
 
         var merged = DbAgentDefinitionProvider.Merge(agent, unit);
 
         merged.ShouldNotBeNull();
-        merged!.AgentRuntimeId.ShouldBe("claude");
+        merged!.Runtime.ShouldBe("claude-code");
         merged.Image.ShouldBe("unit-img");
-        merged.Provider.ShouldBe("openai");
-        merged.Model.ShouldBe("gpt-4o");
+        merged.Model.ShouldBe(new Model("openai", "gpt-4o"));
     }
 
     [Fact]
-    public void Merge_AgentNull_UnitProvidesAgentRuntimeId_UsesUnit()
+    public void Merge_AgentNull_UnitProvidesRuntime_UsesUnit()
     {
         var unit = new UnitExecutionDefaults(
             Image: "unit-img",
-            Agent: "claude");
+            Runtime: "claude-code");
 
         var merged = DbAgentDefinitionProvider.Merge(null, unit);
 
         merged.ShouldNotBeNull();
-        merged!.AgentRuntimeId.ShouldBe("claude");
+        merged!.Runtime.ShouldBe("claude-code");
         merged.Image.ShouldBe("unit-img");
         merged.Hosting.ShouldBe(AgentHostingMode.Persistent);
     }
 
     [Fact]
-    public void Merge_ReturnsNull_WhenNeitherSideProvidesAgentRuntimeId()
+    public void Merge_ReturnsNull_WhenNeitherSideProvidesRuntime()
     {
-        var agent = new AgentExecutionConfig(AgentRuntimeId: "", Image: null);
+        var agent = new AgentExecutionConfig(Runtime: "", Image: null);
         var unit = new UnitExecutionDefaults(Image: "unit-img");
 
         var merged = DbAgentDefinitionProvider.Merge(agent, unit);
@@ -103,7 +96,7 @@ public class DbAgentDefinitionProviderMergeTests
     public void Merge_HostingIsAgentOwned_UnitNeverChangesIt()
     {
         var agent = new AgentExecutionConfig(
-            AgentRuntimeId: "claude",
+            Runtime: "claude-code",
             Image: "x",
             Hosting: AgentHostingMode.Persistent);
         var unit = new UnitExecutionDefaults();

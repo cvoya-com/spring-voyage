@@ -89,8 +89,7 @@ public class ArtefactValidationWorkflowScheduler(
         string displayName;
         string? image;
         string? runtimeId;
-        string? provider;
-        string? model;
+        Cvoya.Spring.Core.Catalog.Model? model;
         switch (kind)
         {
             case ArtefactKind.Unit:
@@ -113,9 +112,8 @@ public class ArtefactValidationWorkflowScheduler(
 
                     displayName = entity.DisplayName;
                     image = defaults.Image;
-                    provider = defaults.Provider;
                     model = defaults.Model;
-                    runtimeId = ResolveAgentRuntimeId(defaults.Agent, defaults.Provider);
+                    runtimeId = NullIfBlank(defaults.Runtime);
                     break;
                 }
             case ArtefactKind.Agent:
@@ -138,9 +136,8 @@ public class ArtefactValidationWorkflowScheduler(
 
                     displayName = entity.DisplayName;
                     image = shape.Image;
-                    provider = shape.Provider;
                     model = shape.Model;
-                    runtimeId = ResolveAgentRuntimeId(shape.Agent, shape.Provider);
+                    runtimeId = NullIfBlank(shape.Runtime);
                     break;
                 }
             default:
@@ -179,7 +176,7 @@ public class ArtefactValidationWorkflowScheduler(
         // the chosen launcher consumes. When the runtime declares no
         // credential (e.g. Ollama) the resolver returns NotFound and we
         // pass the empty string through.
-        var providerForCredential = provider ?? runtimeId!;
+        var providerForCredential = model?.Provider ?? runtimeId!;
         var authForCredential = AuthMethod.ApiKey;
         var catalogRuntime = runtimeCatalog.GetAgentRuntime(runtimeId!);
         if (catalogRuntime is { ModelProviders.Count: > 0 })
@@ -207,7 +204,7 @@ public class ArtefactValidationWorkflowScheduler(
                 cancellationToken);
 
         var credential = credentialResolution.Value ?? string.Empty;
-        var requestedModel = model ?? string.Empty;
+        var requestedModel = model?.Id ?? string.Empty;
 
         // Determine which post-pull steps the runtime does not declare so
         // the workflow can skip them (emitting no events → UI shows "skipped").
@@ -253,20 +250,8 @@ public class ArtefactValidationWorkflowScheduler(
                 ["missing"] = "image,runtime",
             }));
 
-    /// <summary>
-    /// Resolves the agent-runtime registry id from the artefact's persisted
-    /// execution defaults. Precedence — <c>agent</c> wins, then
-    /// <c>provider</c>. <c>agent</c> is the source of truth (sourced from the
-    /// manifest's <c>ai.runtime</c> field). <c>provider</c> is a last-ditch
-    /// fallback because spring-voyage-style runtimes carry the same string in
-    /// both their <c>provider</c> and <c>id</c> slots.
-    /// </summary>
-    internal static string? ResolveAgentRuntimeId(string? agent, string? provider)
-    {
-        if (!string.IsNullOrWhiteSpace(agent)) return agent;
-        if (!string.IsNullOrWhiteSpace(provider)) return provider;
-        return null;
-    }
+    private static string? NullIfBlank(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>
     /// Returns the post-pull probe steps the runtime does NOT declare, so

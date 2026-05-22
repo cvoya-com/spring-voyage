@@ -123,13 +123,16 @@ public class ExecutionDefaultsResolverTests
     }
 
     [Fact]
-    public void Resolve_PackageImage_MemberOverridesModelOnly_FieldwiseMerge()
+    public void Resolve_PackageImage_MemberOverridesImage_FieldwiseMerge()
     {
+        // ADR-0038 amendment (#2634): the unit-level execution block
+        // carries only the container image. A member that declares its
+        // own image overrides the package-level default.
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/pkg:latest",
-                Provider: "anthropic",
-                Model: "claude-opus-4-7",
+                Provider: null,
+                Model: null,
                 InheritUnits: null),
             unitContent: new[]
             {
@@ -139,16 +142,14 @@ public class ExecutionDefaultsResolverTests
                     name: alpha
                     description: x
                     execution:
-                      model: claude-sonnet-4
+                      image: ghcr.io/example/alpha:latest
                     """),
             });
 
         var result = ExecutionDefaultsResolver.Resolve(pkg);
 
         var alpha = result.ByUnit["alpha"];
-        alpha.Image.ShouldBe("ghcr.io/example/pkg:latest");      // inherited
-        alpha.Provider.ShouldBe("anthropic");                      // inherited
-        alpha.Model.ShouldBe("claude-sonnet-4");                   // overridden
+        alpha.Image.ShouldBe("ghcr.io/example/alpha:latest");      // member overrides
     }
 
     [Fact]
@@ -276,8 +277,6 @@ public class ExecutionDefaultsResolverTests
         result.Missing.ShouldBeEmpty();
         result.ByUnit["alpha"].Image.ShouldBe("ghcr.io/example/agents:latest");
         result.ByUnit["beta"].Image.ShouldBe("ghcr.io/example/agents:latest");
-        result.ByUnit["alpha"].Model.ShouldBe("claude-opus-4-7");
-        result.ByUnit["beta"].Model.ShouldBe("claude-opus-4-7");
     }
 
     // ---- Helpers --------------------------------------------------------

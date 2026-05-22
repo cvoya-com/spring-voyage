@@ -130,11 +130,12 @@ public class PackageInstallServiceExecutionPreflightTests
     }
 
     [Fact]
-    public async Task InstallAsync_MemberOverrideImage_PackageModel_FieldwiseMerge()
+    public async Task InstallAsync_MemberOverrideImage_FieldwiseMerge()
     {
-        // Field-wise merge: the package supplies model; the member
-        // supplies its own image. The activator should see the merged
-        // execution defaults — member image plus inherited model.
+        // ADR-0038 amendment (#2634): the unit-level execution block
+        // carries only the container image. The member supplies its own
+        // image; the activator should see the member's image win over the
+        // package-level default.
         using var pkg = await BuildPackageAsync(
             packageYaml: """
                 apiVersion: spring.voyage/v1
@@ -144,7 +145,6 @@ public class PackageInstallServiceExecutionPreflightTests
                 version: 1.0.0
                 execution:
                   image: ghcr.io/example/pkg:latest
-                  model: claude-opus-4-7
                 """,
             unitFiles: new[]
             {
@@ -170,7 +170,6 @@ public class PackageInstallServiceExecutionPreflightTests
 
         var captured = capturingActivator.Captured["alpha"]!;
         captured.Image.ShouldBe("ghcr.io/example/alpha:latest");  // member wins
-        captured.Model.ShouldBe("claude-opus-4-7");                // package fills the gap
     }
 
     // ---- Helpers --------------------------------------------------------

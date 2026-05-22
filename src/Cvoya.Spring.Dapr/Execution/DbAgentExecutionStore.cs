@@ -84,10 +84,9 @@ public class DbAgentExecutionStore(
         var existing = Extract(entity.Definition) ?? new AgentExecutionShape();
         var merged = new AgentExecutionShape(
             Image: PickTrimmed(shape.Image, existing.Image),
-            Provider: PickTrimmed(shape.Provider, existing.Provider),
-            Model: PickTrimmed(shape.Model, existing.Model),
+            Model: shape.Model ?? existing.Model,
             Hosting: PickTrimmed(shape.Hosting, existing.Hosting),
-            Agent: PickTrimmed(shape.Agent, existing.Agent));
+            Runtime: PickTrimmed(shape.Runtime, existing.Runtime));
 
         await PersistAsync(db, entity, merged, cancellationToken);
     }
@@ -146,13 +145,9 @@ public class DbAgentExecutionStore(
         {
             var block = new Dictionary<string, object?>();
             if (!string.IsNullOrWhiteSpace(shape.Image)) block["image"] = shape.Image!.Trim();
-            if (!string.IsNullOrWhiteSpace(shape.Provider)) block["provider"] = shape.Provider!.Trim();
-            if (!string.IsNullOrWhiteSpace(shape.Model)) block["model"] = shape.Model!.Trim();
+            if (!string.IsNullOrWhiteSpace(shape.Runtime)) block["runtime"] = shape.Runtime!.Trim();
             if (!string.IsNullOrWhiteSpace(shape.Hosting)) block["hosting"] = shape.Hosting!.Trim();
-            if (!string.IsNullOrWhiteSpace(shape.Agent)) block["agent"] = shape.Agent!.Trim();
-            // #1732: 'tool' is no longer persisted — it is derived from
-            // 'agent' via the runtime registry on the read path. Existing
-            // 'tool' keys on persisted JSON are silently ignored by Extract.
+            ExecutionJson.WriteModel(block, shape.Model);
             payload["execution"] = block;
         }
 
@@ -175,12 +170,9 @@ public class DbAgentExecutionStore(
 
         var shape = new AgentExecutionShape(
             Image: GetStringOrNull(exec, "image"),
-            Provider: GetStringOrNull(exec, "provider"),
-            Model: GetStringOrNull(exec, "model"),
+            Model: ExecutionJson.ReadModel(exec),
             Hosting: GetStringOrNull(exec, "hosting"),
-            Agent: GetStringOrNull(exec, "agent"));
-        // #1732: 'tool' on legacy persisted JSON is intentionally ignored —
-        // the runtime registry derives the tool kind from 'agent' on read.
+            Runtime: GetStringOrNull(exec, "runtime"));
 
         return shape.IsEmpty ? null : shape;
     }

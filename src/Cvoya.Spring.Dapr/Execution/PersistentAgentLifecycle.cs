@@ -59,7 +59,7 @@ public class PersistentAgentLifecycle(
     private readonly IAgentToolsIntrospector? _toolsIntrospector = toolsIntrospector;
     // ADR-0038: launchers are keyed on the catalogue runtime entry's
     // launcher strategy id; the lifecycle service derives that id from
-    // the agent's persisted execution.agent slot (= ai.runtime) via the
+    // the agent's persisted execution.runtime slot via the
     // runtime catalogue.
     private readonly Dictionary<string, IAgentRuntimeLauncher> _launchersByKind =
         launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
@@ -127,16 +127,16 @@ public class PersistentAgentLifecycle(
                 "Set execution.image in the agent YAML or pass --image on deploy.");
         }
 
-        var runtime = _runtimeCatalog.GetAgentRuntime(definition.Execution.AgentRuntimeId)
+        var runtime = _runtimeCatalog.GetAgentRuntime(definition.Execution.Runtime)
             ?? throw new SpringException(
                 $"No agent runtime is registered in eng/runtime-catalog/runtime-catalog.yaml with id " +
-                $"'{definition.Execution.AgentRuntimeId}' (agent '{agentId}'). Add the entry " +
+                $"'{definition.Execution.Runtime}' (agent '{agentId}'). Add the entry " +
                 "to the catalogue or set ai.runtime to a registered runtime id before deploying.");
         if (!_launchersByKind.TryGetValue(runtime.Launcher, out var launcher))
         {
             throw new SpringException(
                 $"No IAgentRuntimeLauncher registered for launcher strategy id " +
-                $"'{runtime.Launcher}' (agent runtime '{definition.Execution.AgentRuntimeId}', " +
+                $"'{runtime.Launcher}' (agent runtime '{definition.Execution.Runtime}', " +
                 $"agent '{agentId}').");
         }
         var kind = runtime.Launcher;
@@ -172,8 +172,8 @@ public class PersistentAgentLifecycle(
             // it to ILlmCredentialResolver — without this the resolver skips
             // Tier 1 (unit) and the parent-chain walk.
             UnitId: definition.UnitId,
-            Provider: definition.Execution.Provider,
-            Model: definition.Execution.Model,
+            Provider: definition.Execution.Model?.Provider,
+            Model: definition.Execution.Model?.Id,
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
             AgentAddress: deployTarget,
             CallbackThreadId: Guid.NewGuid(),
@@ -227,7 +227,7 @@ public class PersistentAgentLifecycle(
                 // component would otherwise load, fatal-exiting daprd on the
                 // first missing API key).
                 DaprSidecarComponentsPath = ResolveDelegatedComponentsPath(
-                    definition.Execution.Provider, agentId),
+                    definition.Execution.Model?.Provider, agentId),
             };
             var detached = await containerLifecycleManager.LaunchWithSidecarDetachedAsync(
                 daprConfig, cancellationToken);

@@ -192,7 +192,7 @@ public class A2AExecutionDispatcherTests
                 AgentId: AgentId,
                 Name: "My Agent",
                 Instructions: "do things",
-                Execution: new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image,
+                Execution: new AgentExecutionConfig(Runtime: "claude", Image: Image,
                     Hosting: AgentHostingMode.Ephemeral)));
 
         // Default: container starts and the readiness probe will fail (no real
@@ -392,10 +392,9 @@ public class A2AExecutionDispatcherTests
                 Name: "My Agent",
                 Instructions: null,
                 Execution: new AgentExecutionConfig(
-                    AgentRuntimeId: "claude",
+                    Runtime: "claude",
                     Image: Image,
-                    Provider: "openai",
-                    Model: "gpt-4o-mini")));
+                    Model: new Cvoya.Spring.Core.Catalog.Model("openai", "gpt-4o-mini"))));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
         InstallA2AStub();
@@ -594,7 +593,7 @@ public class A2AExecutionDispatcherTests
                 AgentId,
                 "My Agent",
                 "instructions",
-                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
         _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -639,7 +638,7 @@ public class A2AExecutionDispatcherTests
                 AgentId,
                 "My Agent",
                 "instructions",
-                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
         _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -682,7 +681,7 @@ public class A2AExecutionDispatcherTests
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", "instructions",
-                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -723,7 +722,7 @@ public class A2AExecutionDispatcherTests
                 AgentId,
                 "My Agent",
                 "instructions",
-                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
         _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -771,7 +770,7 @@ public class A2AExecutionDispatcherTests
                 AgentId,
                 "My Agent",
                 "instructions",
-                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
         _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -823,7 +822,7 @@ public class A2AExecutionDispatcherTests
                 AgentId,
                 "My Agent",
                 "instructions",
-                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
         _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -906,7 +905,7 @@ public class A2AExecutionDispatcherTests
                 AgentId: AgentId,
                 Name: "My Agent",
                 Instructions: null,
-                Execution: new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image)));
+                Execution: new AgentExecutionConfig(Runtime: "claude", Image: Image)));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
         InstallA2AStub();
@@ -931,7 +930,7 @@ public class A2AExecutionDispatcherTests
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", null,
-                new AgentExecutionConfig(AgentRuntimeId: "not-a-runtime", Image: Image)));
+                new AgentExecutionConfig(Runtime: "not-a-runtime", Image: Image)));
 
         var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
         var ex = await Should.ThrowAsync<SpringException>(act);
@@ -945,7 +944,7 @@ public class A2AExecutionDispatcherTests
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", "instructions",
-                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -974,7 +973,7 @@ public class A2AExecutionDispatcherTests
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", "instructions",
-                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+                new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
         _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
@@ -1002,7 +1001,7 @@ public class A2AExecutionDispatcherTests
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", null,
-                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: null)));
+                new AgentExecutionConfig(Runtime: "claude", Image: null)));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -1022,7 +1021,7 @@ public class A2AExecutionDispatcherTests
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", "instructions",
-                new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Pooled)));
+                new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Pooled)));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
@@ -1200,7 +1199,7 @@ public class A2AExecutionDispatcherTests
     public async Task DispatchAsync_DefaultHostingMode_IsPersistent()
     {
         // Ensure that AgentExecutionConfig with no explicit hosting defaults to Persistent (#2085)
-        var config = new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image);
+        var config = new AgentExecutionConfig(Runtime: "claude", Image: Image);
         config.Hosting.ShouldBe(AgentHostingMode.Persistent);
 
         // Override the default agent provider to return an agent with no explicit hosting
@@ -1210,7 +1209,7 @@ public class A2AExecutionDispatcherTests
                 AgentId: AgentId,
                 Name: "My Agent",
                 Instructions: "do things",
-                Execution: new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image)));
+                Execution: new AgentExecutionConfig(Runtime: "claude", Image: Image)));
 
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
@@ -1267,10 +1266,10 @@ public class A2AExecutionDispatcherTests
         capturedCtx.ShouldNotBeNull();
         capturedCtx!.AgentDefinitionYaml.ShouldNotBeNullOrEmpty();
         capturedCtx.AgentDefinitionYaml.ShouldContain(AgentId);  // agent_id field
-        // #1732: execution.agent (the runtime registry id) — the YAML
-        // includes the derived kind so in-container probes that read it
-        // can see which engine was selected for this turn.
-        capturedCtx.AgentDefinitionYaml.ShouldContain("agent: claude");
+        // ADR-0038 amendment (#2634): execution.runtime (the runtime
+        // registry id) — the YAML includes the derived kind so in-container
+        // probes that read it can see which engine was selected.
+        capturedCtx.AgentDefinitionYaml.ShouldContain("runtime: claude");
         capturedCtx.AgentDefinitionYaml.ShouldContain("kind: claude-code-cli");
         capturedCtx.TenantConfigJson.ShouldNotBeNullOrEmpty();
     }

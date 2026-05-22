@@ -70,8 +70,8 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         ArrangeUnit(ChildUuid, "child");
 
         // Parent A and parent B carry diverging agent-runtime defaults.
-        StubUnitDefaults(ParentAUuid, new UnitExecutionDefaults(Agent: "claude-code"));
-        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Agent: "spring-voyage"));
+        StubUnitDefaults(ParentAUuid, new UnitExecutionDefaults(Runtime: "claude-code"));
+        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Runtime: "spring-voyage"));
         // Child has no own execution block — fully-inheriting.
         StubUnitDefaults(ChildUuid, defaults: null);
 
@@ -94,7 +94,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
         problem.GetProperty("error").GetString().ShouldBe("MultiParentInheritanceConflict");
         var conflictingFields = problem.GetProperty("conflictingFields");
-        conflictingFields.TryGetProperty("agent", out var runtimeEntry).ShouldBeTrue();
+        conflictingFields.TryGetProperty("runtime", out var runtimeEntry).ShouldBeTrue();
         runtimeEntry.GetArrayLength().ShouldBe(2);
 
         // The actor's AddMemberAsync must not run when the inheritance
@@ -119,10 +119,10 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         var parentBProxy = ArrangeUnit(ParentBUuid, "parent-b");
         ArrangeUnit(ChildUuid, "child");
 
-        StubUnitDefaults(ParentAUuid, new UnitExecutionDefaults(Agent: "claude-code"));
-        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Agent: "spring-voyage"));
+        StubUnitDefaults(ParentAUuid, new UnitExecutionDefaults(Runtime: "claude-code"));
+        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Runtime: "spring-voyage"));
         // Child pins agent runtime — the parent-disagreement is moot for that field.
-        StubUnitDefaults(ChildUuid, new UnitExecutionDefaults(Agent: "claude-code"));
+        StubUnitDefaults(ChildUuid, new UnitExecutionDefaults(Runtime: "claude-code"));
 
         await UpsertSubunitEdgeAsync(ParentAUuid, ChildUuid, ct);
 
@@ -178,8 +178,8 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         ArrangeUnit(ParentCUuid, "parent-c");
         ArrangeUnit(ChildUuid, "child");
 
-        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Agent: "claude-code"));
-        StubUnitDefaults(ParentCUuid, new UnitExecutionDefaults(Agent: "claude-code"));
+        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Runtime: "claude-code"));
+        StubUnitDefaults(ParentCUuid, new UnitExecutionDefaults(Runtime: "claude-code"));
         StubUnitDefaults(ChildUuid, defaults: null);
 
         await UpsertSubunitEdgeAsync(ParentAUuid, ChildUuid, ct);
@@ -210,8 +210,8 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         ArrangeUnit(ParentCUuid, "parent-c");
         ArrangeUnit(ChildUuid, "child");
 
-        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Agent: "claude-code"));
-        StubUnitDefaults(ParentCUuid, new UnitExecutionDefaults(Agent: "spring-voyage"));
+        StubUnitDefaults(ParentBUuid, new UnitExecutionDefaults(Runtime: "claude-code"));
+        StubUnitDefaults(ParentCUuid, new UnitExecutionDefaults(Runtime: "spring-voyage"));
         StubUnitDefaults(ChildUuid, defaults: null);
 
         await UpsertSubunitEdgeAsync(ParentAUuid, ChildUuid, ct);
@@ -227,7 +227,7 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
         problem.GetProperty("error").GetString().ShouldBe("MultiParentInheritanceConflict");
         var conflictingFields = problem.GetProperty("conflictingFields");
-        conflictingFields.TryGetProperty("agent", out var runtimeEntry).ShouldBeTrue();
+        conflictingFields.TryGetProperty("runtime", out var runtimeEntry).ShouldBeTrue();
         runtimeEntry.GetArrayLength().ShouldBe(2);
         var values = runtimeEntry.EnumerateArray()
             .Select(e => e.GetProperty("value").GetString())

@@ -165,16 +165,13 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         if (executionDefaults is { IsEmpty: false })
         {
             manifest.Execution ??= new ExecutionManifest();
+            // ADR-0038 amendment (#2634): ExecutionManifest carries only
+            // {image, hosting}. The runtime and model are authored under
+            // `ai:` (ai.runtime, ai.model{provider, id}) — package-level
+            // execution inheritance projects only the container image.
             if (!string.IsNullOrWhiteSpace(executionDefaults.Image))
             {
                 manifest.Execution.Image = executionDefaults.Image;
-            }
-            // ADR-0038: ExecutionManifest no longer carries `provider`.
-            // The package-level inherited Provider is dropped here on the
-            // unit-write path; the model id still flows through.
-            if (!string.IsNullOrWhiteSpace(executionDefaults.Model))
-            {
-                manifest.Execution.Model = executionDefaults.Model;
             }
         }
 
@@ -853,17 +850,14 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         var defObj = new Dictionary<string, object?>();
 
         // Capture the YAML's two declarative shapes:
-        //   • `execution:` — modern wire form, mirrors what
-        //     IAgentExecutionStore.SetAsync writes (image/model/agent/...).
-        //   • `ai:` — ADR-0038 authoring shape with nested `runtime`,
-        //     `model{provider,id}`, and `environment.image`.
-        // The dispatcher's IAgentDefinitionProvider already reads both shapes
-        // (DbAgentDefinitionProvider.ExtractExecution), but the auto-start
-        // gate (#2364 / #2374) reads through IAgentExecutionStore which only
-        // recognises the modern `execution:` block. Without the projection
-        // below, agents authored with the ADR-0038 shape land in Draft after
-        // install because the gate cannot read image/model/runtime out of
-        // `ai.environment.image` + `ai.runtime` + `ai.model.id`.
+        //   • `execution:` — the {image, hosting} block.
+        //   • `ai:` — ADR-0038 authoring shape with nested `runtime` and
+        //     `model{provider, id}`.
+        // The persisted `execution:` JSON block is the one canonical shape
+        // (ADR-0038 amendment, #2634): {runtime, model{provider, id},
+        // image, hosting}. The dispatcher's IAgentDefinitionProvider and
+        // the auto-start gate's IAgentExecutionStore both read it; the
+        // projection below assembles it from the two authored blocks.
         Dictionary<string, object?>? execBlock = null;
         if (agentNode.Children.TryGetValue(new YamlScalarNode("execution"), out var execRaw)
             && execRaw is YamlMappingNode execMap)
@@ -882,14 +876,12 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         // Project (ai, execution) onto the canonical `execution:` block the
         // gate + dispatcher read. Existing top-level execution slots win
         // (the YAML author explicitly set them); missing slots are filled
-        // from the structured `ai:` block per the same mapping
-        // UnitCreationService.PersistUnitExecutionAsync uses for units.
+        // from the structured `ai:` block.
         //
-        // Mapping (closes #2388):
-        //   ai.runtime           → execution.agent     (runtime registry id)
-        //   ai.model.provider    → execution.provider  (LLM provider id)
-        //   ai.model.id          → execution.model     (provider-scoped model id)
-        //   ai.environment.image → execution.image     (only if execution.image absent)
+        // Mapping (ADR-0038 amendment, #2634):
+        //   ai.runtime              → execution.runtime         (runtime registry id)
+        //   ai.model{provider, id}  → execution.model{provider, id}
+        //   execution.image         → execution.image           (top-level only)
         var projected = ProjectExecutionBlock(execBlock, aiBlock);
 
         // Issue #2436: layer the install-time inherited hosting onto the
@@ -1019,39 +1011,35 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             return result;
         }
 
-        // ai.runtime → execution.agent (the runtime registry id; gate reads
-        // this slot as defaults.Agent in ArtefactAutoStartGate).
-        if (!result.ContainsKey("agent") && aiBlock.TryGetValue("runtime", out var rt) && rt is string runtime && !string.IsNullOrWhiteSpace(runtime))
+        // ai.runtime → execution.runtime (the runtime registry id; gate
+        // reads this slot as defaults.Runtime in ArtefactAutoStartGate).
+        if (!result.ContainsKey("runtime") && aiBlock.TryGetValue("runtime", out var rt) && rt is string runtime && !string.IsNullOrWhiteSpace(runtime))
         {
-            result["agent"] = runtime.Trim();
+            result["runtime"] = runtime.Trim();
         }
 
-        // ai.model.{provider,id} → execution.{provider,model}
-        if (aiBlock.TryGetValue("model", out var modelRaw) && modelRaw is Dictionary<string, object?> modelMap)
+        // ai.model{provider, id} → execution.model{provider, id} — the one
+        // canonical structured model object (ADR-0038 amendment, #2634).
+        if (!result.ContainsKey("model")
+            && aiBlock.TryGetValue("model", out var modelRaw)
+            && modelRaw is Dictionary<string, object?> modelMap)
         {
-            if (!result.ContainsKey("provider")
-                && modelMap.TryGetValue("provider", out var prov)
-                && prov is string p && !string.IsNullOrWhiteSpace(p))
+            var provider = modelMap.TryGetValue("provider", out var prov)
+                && prov is string p && !string.IsNullOrWhiteSpace(p)
+                ? p.Trim()
+                : null;
+            var id = modelMap.TryGetValue("id", out var mid)
+                && mid is string m && !string.IsNullOrWhiteSpace(m)
+                ? m.Trim()
+                : null;
+            if (provider is not null && id is not null)
             {
-                result["provider"] = p.Trim();
+                result["model"] = new Dictionary<string, object?>
+                {
+                    ["provider"] = provider,
+                    ["id"] = id,
+                };
             }
-            if (!result.ContainsKey("model")
-                && modelMap.TryGetValue("id", out var mid)
-                && mid is string m && !string.IsNullOrWhiteSpace(m))
-            {
-                result["model"] = m.Trim();
-            }
-        }
-
-        // ai.environment.image → execution.image (fallback only — a top-level
-        // `execution.image` always wins).
-        if (!result.ContainsKey("image")
-            && aiBlock.TryGetValue("environment", out var envRaw)
-            && envRaw is Dictionary<string, object?> envMap
-            && envMap.TryGetValue("image", out var img)
-            && img is string i && !string.IsNullOrWhiteSpace(i))
-        {
-            result["image"] = i.Trim();
         }
 
         return result;

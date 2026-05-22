@@ -125,7 +125,7 @@ public class PersistentDispatchIntegrationTests
                 AgentId: AgentId,
                 Name: "Persistent Agent",
                 Instructions: "do persistent things",
-                Execution: new AgentExecutionConfig(AgentRuntimeId: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+                Execution: new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
 
         _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("assembled prompt");

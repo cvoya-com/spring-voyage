@@ -66,7 +66,7 @@ public class ExecutionConfigInheritanceResolver(
 {
     /// <summary>
     /// Field names returned on <see cref="InheritanceResolution.ConflictingFields"/>
-    /// for the four inheritable slots. Hosting is excluded — it is
+    /// for the three inheritable slots. Hosting is excluded — it is
     /// agent-owned per ADR-0039 §6.
     /// </summary>
     /// <remarks>
@@ -77,9 +77,8 @@ public class ExecutionConfigInheritanceResolver(
     /// </remarks>
     public static class FieldNames
     {
-        public const string Agent = "agent";
+        public const string Runtime = "runtime";
         public const string Image = "image";
-        public const string Provider = "provider";
         public const string Model = "model";
     }
 
@@ -118,10 +117,10 @@ public class ExecutionConfigInheritanceResolver(
         // never inherited from a parent.
         var conflicts = new Dictionary<string, IReadOnlyList<ParentValue>>();
 
-        var resolvedAgentRuntimeId = ResolveField(
-            FieldNames.Agent,
-            ownValue: NullIfBlank(agentOwn.AgentRuntimeId),
-            parentValues: parentDefaults.Select(p => (p.UnitId, NullIfBlank(p.Defaults?.Agent))),
+        var resolvedRuntime = ResolveField(
+            FieldNames.Runtime,
+            ownValue: NullIfBlank(agentOwn.Runtime),
+            parentValues: parentDefaults.Select(p => (p.UnitId, NullIfBlank(p.Defaults?.Runtime))),
             conflicts);
 
         var resolvedImage = ResolveField(
@@ -130,28 +129,22 @@ public class ExecutionConfigInheritanceResolver(
             parentValues: parentDefaults.Select(p => (p.UnitId, NullIfBlank(p.Defaults?.Image))),
             conflicts);
 
-        var resolvedProvider = ResolveField(
-            FieldNames.Provider,
-            ownValue: NullIfBlank(agentOwn.Provider),
-            parentValues: parentDefaults.Select(p => (p.UnitId, NullIfBlank(p.Defaults?.Provider))),
+        // The model is the structured {provider, id} pair (ADR-0038). It
+        // intersects atomically — the whole pair agrees or it conflicts.
+        var resolvedModel = ResolveModelField(
+            agentOwn.Model,
+            parentDefaults.Select(p => (p.UnitId, p.Defaults?.Model)),
             conflicts);
 
-        var resolvedModel = ResolveField(
-            FieldNames.Model,
-            ownValue: NullIfBlank(agentOwn.Model),
-            parentValues: parentDefaults.Select(p => (p.UnitId, NullIfBlank(p.Defaults?.Model))),
-            conflicts);
-
-        // AgentRuntimeId is non-nullable on AgentExecutionConfig. When the
+        // Runtime is non-nullable on AgentExecutionConfig. When the
         // intersection leaves it unresolved (every contributor null) we
         // fall back to the empty string — mirroring the contract on
         // DbAgentDefinitionProvider.Merge, where save-time validation
         // is responsible for rejecting an empty runtime id.
         var effective = agentOwn with
         {
-            AgentRuntimeId = resolvedAgentRuntimeId ?? string.Empty,
+            Runtime = resolvedRuntime ?? string.Empty,
             Image = resolvedImage,
-            Provider = resolvedProvider,
             Model = resolvedModel,
             // Hosting is agent-owned — pass through verbatim.
             Hosting = agentOwn.Hosting,
@@ -263,6 +256,61 @@ public class ExecutionConfigInheritanceResolver(
         if (diverged)
         {
             conflicts[fieldName] = contributing;
+            return null;
+        }
+
+        return first;
+    }
+
+    /// <summary>
+    /// Per-field intersection for the structured <c>{provider, id}</c>
+    /// model selector (ADR-0038). The model intersects atomically: an
+    /// explicit agent model wins; otherwise every contributing parent
+    /// must agree on the whole pair or the field is reported as a
+    /// conflict. Conflict <see cref="ParentValue.Value"/> entries carry
+    /// the model serialised as <c>provider/id</c>.
+    /// </summary>
+    private static Cvoya.Spring.Core.Catalog.Model? ResolveModelField(
+        Cvoya.Spring.Core.Catalog.Model? ownValue,
+        IEnumerable<(Guid UnitId, Cvoya.Spring.Core.Catalog.Model? Value)> parentValues,
+        IDictionary<string, IReadOnlyList<ParentValue>> conflicts)
+    {
+        if (ownValue is not null)
+        {
+            return ownValue;
+        }
+
+        var contributing = new List<(Guid UnitId, Cvoya.Spring.Core.Catalog.Model Model)>();
+        foreach (var (unitId, value) in parentValues)
+        {
+            if (value is null)
+            {
+                continue;
+            }
+            contributing.Add((unitId, value));
+        }
+
+        if (contributing.Count == 0)
+        {
+            return null;
+        }
+
+        var first = contributing[0].Model;
+        var diverged = false;
+        for (var i = 1; i < contributing.Count; i++)
+        {
+            if (contributing[i].Model != first)
+            {
+                diverged = true;
+                break;
+            }
+        }
+
+        if (diverged)
+        {
+            conflicts[FieldNames.Model] = contributing
+                .Select(c => new ParentValue(c.UnitId, $"{c.Model.Provider}/{c.Model.Id}"))
+                .ToArray();
             return null;
         }
 

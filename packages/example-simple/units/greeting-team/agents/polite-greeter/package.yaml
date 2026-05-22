@@ -9,8 +9,6 @@ ai:
   model:
     provider: anthropic
     id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 instructions: |
   You are a polite, formal greeter. When you receive a message, reply
   with a courteous acknowledgement that uses the
@@ -20,3 +18,5 @@ instructions: |
 expertise:
   - domain: formal-greeting
     level: expert
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest

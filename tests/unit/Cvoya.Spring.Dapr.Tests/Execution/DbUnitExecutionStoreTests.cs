@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -41,33 +42,29 @@ public class DbUnitExecutionStoreTests
     [Fact]
     public void Extract_ReturnsAllFields()
     {
-        // #1732: 'tool' on persisted JSON is silently ignored — the runtime
-        // registry derives the tool kind from 'agent' on read.
+        // ADR-0038 amendment (#2634): the canonical persisted shape is
+        // {runtime, model{provider, id}, image}.
         using var doc = JsonDocument.Parse("""
             {
               "execution": {
                 "image": "ghcr.io/foo:latest",
-                "tool": "this-is-ignored",
-                "provider": "ollama",
-                "model": "llama3.2:3b",
-                "agent": "claude"
+                "model": { "provider": "ollama", "id": "llama3.2:3b" },
+                "runtime": "claude-code"
               }
             }
             """);
         var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
         defaults.ShouldNotBeNull();
         defaults!.Image.ShouldBe("ghcr.io/foo:latest");
-        defaults.Provider.ShouldBe("ollama");
-        defaults.Model.ShouldBe("llama3.2:3b");
-        defaults.Agent.ShouldBe("claude");
+        defaults.Model.ShouldBe(new Model("ollama", "llama3.2:3b"));
+        defaults.Runtime.ShouldBe("claude-code");
     }
 
     [Fact]
-    public void Extract_AgentSlot_OmittedWhenAbsent()
+    public void Extract_RuntimeSlot_OmittedWhenAbsent()
     {
-        // Back-compat: pre-#1683 manifests never persisted the `agent`
-        // slot. Extract must keep returning the other fields without
-        // tripping on the missing key.
+        // A unit that declares only an image must keep returning the other
+        // fields without tripping on the missing keys.
         using var doc = JsonDocument.Parse("""
             {
               "execution": {
@@ -78,7 +75,8 @@ public class DbUnitExecutionStoreTests
         var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
         defaults.ShouldNotBeNull();
         defaults!.Image.ShouldBe("ghcr.io/foo:latest");
-        defaults.Agent.ShouldBeNull();
+        defaults.Runtime.ShouldBeNull();
+        defaults.Model.ShouldBeNull();
     }
 
     [Fact]
@@ -108,30 +106,29 @@ public class DbUnitExecutionStoreTests
     public void UnitExecutionDefaults_IsEmpty_FalseWhenOneFieldSet()
     {
         new UnitExecutionDefaults(Image: "x").IsEmpty.ShouldBeFalse();
-        new UnitExecutionDefaults(Model: "x").IsEmpty.ShouldBeFalse();
+        new UnitExecutionDefaults(Model: new Model("ollama", "x")).IsEmpty.ShouldBeFalse();
     }
 
     [Fact]
-    public void UnitExecutionDefaults_IsEmpty_FalseWhenOnlyAgentSet()
+    public void UnitExecutionDefaults_IsEmpty_FalseWhenOnlyRuntimeSet()
     {
-        // #1683: agent is a first-class slot in IsEmpty so a unit can
-        // declare just `ai.agent` without the other fields and still
-        // get its execution block persisted.
-        new UnitExecutionDefaults(Agent: "claude").IsEmpty.ShouldBeFalse();
+        // Runtime is a first-class slot in IsEmpty so a unit can declare
+        // just `ai.runtime` without the other fields and still get its
+        // execution block persisted.
+        new UnitExecutionDefaults(Runtime: "claude-code").IsEmpty.ShouldBeFalse();
     }
 
     [Fact]
-    public async Task SetAsync_RoundTripsAgentSlot()
+    public async Task SetAsync_RoundTripsRuntimeSlot()
     {
-        // #1683: write → read round-trip for the new `agent` slot.
-        // Mirrors the pattern of the other slot tests; uses an in-memory
-        // DB because DbUnitExecutionStore drives EF Core directly.
+        // Write → read round-trip for the `runtime` slot. Uses an
+        // in-memory DB because DbUnitExecutionStore drives EF Core directly.
         var actorGuid = Guid.NewGuid();
         var (store, _) = BuildStore(actorGuid);
 
         await store.SetAsync(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid),
-            new UnitExecutionDefaults(Agent: "claude"),
+            new UnitExecutionDefaults(Runtime: "claude-code"),
             TestContext.Current.CancellationToken);
 
         var read = await store.GetAsync(
@@ -139,21 +136,22 @@ public class DbUnitExecutionStoreTests
             TestContext.Current.CancellationToken);
 
         read.ShouldNotBeNull();
-        read!.Agent.ShouldBe("claude");
+        read!.Runtime.ShouldBe("claude-code");
     }
 
     [Fact]
-    public async Task SetAsync_PartialUpdate_PreservesAgent()
+    public async Task SetAsync_PartialUpdate_PreservesRuntime()
     {
-        // Partial-update semantics extend to the new agent slot:
-        // writing `Image` alone must not clobber a previously-stored
-        // agent value.
+        // Partial-update semantics: writing `Image` alone must not clobber
+        // a previously-stored runtime / model value.
         var actorGuid = Guid.NewGuid();
         var (store, _) = BuildStore(actorGuid);
 
         await store.SetAsync(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid),
-            new UnitExecutionDefaults(Agent: "claude", Provider: "anthropic"),
+            new UnitExecutionDefaults(
+                Runtime: "claude-code",
+                Model: new Model("anthropic", "claude-opus-4-7")),
             TestContext.Current.CancellationToken);
 
         await store.SetAsync(
@@ -167,8 +165,8 @@ public class DbUnitExecutionStoreTests
 
         read.ShouldNotBeNull();
         read!.Image.ShouldBe("ghcr.io/foo:latest");
-        read.Provider.ShouldBe("anthropic");
-        read.Agent.ShouldBe("claude");
+        read.Model.ShouldBe(new Model("anthropic", "claude-opus-4-7"));
+        read.Runtime.ShouldBe("claude-code");
     }
 
     private static (DbUnitExecutionStore Store, IServiceScopeFactory ScopeFactory) BuildStore(Guid unitActorId)

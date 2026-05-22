@@ -78,24 +78,19 @@ public enum AgentHostingMode
 }
 
 /// <summary>
-/// Execution configuration derived from the agent YAML <c>execution:</c>
-/// block (or the legacy <c>ai.environment</c> block). The launcher
-/// fundamentally needs the runtime registry id
-/// (<paramref name="AgentRuntimeId"/>) — which the catalogue resolves
-/// 1:1 to a launcher strategy via
+/// Execution configuration derived from the agent / unit YAML
+/// <c>execution:</c> block. Per the ADR-0038 amendment (#2634) the
+/// config carries exactly <c>(runtime, model{provider, id}, image,
+/// hosting)</c> — one canonical shape shared with the persisted
+/// <c>execution:</c> JSON block. The launcher fundamentally needs the
+/// runtime registry id (<paramref name="Runtime"/>) — which the
+/// catalogue resolves 1:1 to a launcher strategy via
 /// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime.Launcher"/> — and
 /// the container <paramref name="Image"/>.
 /// </summary>
-/// <remarks>
-/// #1732: dropped the standalone <c>Tool</c> slot; the catalogue's
-/// <see cref="Cvoya.Spring.Core.Catalog.AgentRuntime"/> declares both
-/// <c>Id</c> (e.g. <c>claude</c>) and <c>Launcher</c> (e.g.
-/// <c>claude-code-cli</c>), and the catalogue resolves one to the other
-/// 1:1.
-/// </remarks>
-/// <param name="AgentRuntimeId">
-/// The agent-runtime registry id sourced from the YAML <c>ai.agent</c>
-/// / persisted <c>execution.agent</c> slot (e.g. <c>claude</c>,
+/// <param name="Runtime">
+/// The agent-runtime registry id sourced from the YAML <c>ai.runtime</c>
+/// / persisted <c>execution.runtime</c> slot (e.g. <c>claude-code</c>,
 /// <c>codex</c>). The dispatcher resolves this through
 /// <see cref="Cvoya.Spring.Core.Catalog.IRuntimeCatalog.GetAgentRuntime"/>
 /// to pick the matching launcher and to surface the derived launcher id
@@ -108,18 +103,11 @@ public enum AgentHostingMode
 /// <param name="Hosting">
 /// The hosting mode for the agent. Defaults to <see cref="AgentHostingMode.Persistent"/>.
 /// </param>
-/// <param name="Provider">
-/// Optional LLM provider selector for Dapr-Conversation-backed launchers (e.g.
-/// <c>ollama</c>, <c>openai</c>, <c>anthropic</c>, <c>googleai</c>). When set,
-/// launchers pass this through to the agent runtime so it can pin the Dapr
-/// Conversation component by name. When <c>null</c> the launcher falls back to
-/// its built-in default. Ignored by launchers that don't use Dapr Conversation.
-/// </param>
 /// <param name="Model">
-/// Optional model identifier forwarded to the provider. For Ollama this is the
-/// model tag (e.g. <c>llama3.2:3b</c>); for OpenAI-compatible backends it is
-/// the model name (e.g. <c>gpt-4o-mini</c>). <c>null</c> means "let the
-/// launcher choose its default".
+/// Structured <c>{provider, id}</c> model selector (ADR-0038). The
+/// provider is intrinsic to the model — there is no separate flat
+/// <c>provider</c> slot. <c>null</c> means "let the launcher choose its
+/// default".
 /// </param>
 /// <param name="ConcurrentThreads">
 /// Whether the agent may have multiple <c>on_message</c> invocations in flight
@@ -130,27 +118,8 @@ public enum AgentHostingMode
 /// (D1 spec § 2.2.1).
 /// </param>
 public record AgentExecutionConfig(
-    string AgentRuntimeId,
+    string Runtime,
     string? Image,
     AgentHostingMode Hosting = AgentHostingMode.Persistent,
-    string? Provider = null,
-    string? Model = null,
-    bool ConcurrentThreads = true)
-{
-    /// <summary>
-    /// ADR-0038: structured agent-runtime selection. Until Chunk 2 of
-    /// PR-1a swaps every callsite, this property coexists with the legacy
-    /// <see cref="AgentRuntimeId"/> string slot. Chunk 2 deletes the legacy
-    /// slot and reshapes the constructor.
-    /// </summary>
-    public Cvoya.Spring.Core.Catalog.AgentRuntime? RuntimeRef { get; init; }
-
-    /// <summary>
-    /// ADR-0038: structured <c>{provider, id}</c> model selection. Until
-    /// Chunk 2 of PR-1a swaps every callsite, this property coexists with
-    /// the legacy <see cref="Provider"/> + string <see cref="Model"/>
-    /// fields. Chunk 2 deletes the legacy fields and reshapes the
-    /// constructor.
-    /// </summary>
-    public Cvoya.Spring.Core.Catalog.Model? ModelRef { get; init; }
-}
+    Cvoya.Spring.Core.Catalog.Model? Model = null,
+    bool ConcurrentThreads = true);

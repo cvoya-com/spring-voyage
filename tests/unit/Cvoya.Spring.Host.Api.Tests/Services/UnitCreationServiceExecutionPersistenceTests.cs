@@ -62,8 +62,9 @@ public class UnitCreationServiceExecutionPersistenceTests
         {
             Name = "sv-oss-1666-exec",
             Description = "regression #1666 — execution block must persist",
-            // ADR-0038: ai.runtime (the agent-runtime catalogue id) is the
-            // durable id; ExecutionManifest no longer carries Tool or Provider.
+            // ADR-0038 amendment (#2634): ai.runtime is the durable
+            // runtime id; ai.model{provider, id} is the structured model;
+            // ExecutionManifest carries only {image, hosting}.
             Ai = new AiManifest
             {
                 Runtime = "claude-code",
@@ -72,7 +73,6 @@ public class UnitCreationServiceExecutionPersistenceTests
             Execution = new ExecutionManifest
             {
                 Image = "ghcr.io/cvoya/sv-oss-1666-exec:latest",
-                Model = "claude-sonnet-4",
             },
         };
 
@@ -99,26 +99,22 @@ public class UnitCreationServiceExecutionPersistenceTests
         execution.ValueKind.ShouldBe(JsonValueKind.Object);
         execution.GetProperty("image").GetString()
             .ShouldBe("ghcr.io/cvoya/sv-oss-1666-exec:latest");
-        // ADR-0038: tool is no longer persisted. The internal `agent` slot
-        // (renamed to `runtime` on the wire) carries the catalogue runtime
-        // id. #2204: the manifest's `ai.model.provider` is now persisted
-        // onto the same execution row so the auto-start gate (and any
-        // downstream consumers that key off `Provider`) see a consistent
-        // shape with what the manifest declared.
-        execution.TryGetProperty("tool", out _).ShouldBeFalse();
-        execution.GetProperty("provider").GetString().ShouldBe("anthropic");
-        execution.GetProperty("agent").GetString().ShouldBe("claude-code");
-        execution.GetProperty("model").GetString().ShouldBe("claude-sonnet-4");
+        // ADR-0038 amendment (#2634): the persisted execution block is the
+        // one canonical shape — `runtime` (catalogue id) plus a structured
+        // `model: {provider, id}` object.
+        execution.GetProperty("runtime").GetString().ShouldBe("claude-code");
+        var model = execution.GetProperty("model");
+        model.GetProperty("provider").GetString().ShouldBe("anthropic");
+        model.GetProperty("id").GetString().ShouldBe("claude-sonnet-4");
     }
 
     [Fact]
-    public async Task CreateFromManifestAsync_WithAiAgent_PersistsAgentOntoExecutionBlock()
+    public async Task CreateFromManifestAsync_WithAiRuntime_PersistsRuntimeOntoExecutionBlock()
     {
-        // #1683: the manifest's `ai.agent` field is the agent-runtime
+        // ADR-0038: the manifest's `ai.runtime` field is the agent-runtime
         // registry id. UnitCreationService must forward it into the
-        // execution block's `agent` slot so the validation scheduler
-        // (which now reads `defaults.Agent` first) can compose a
-        // workflow input keyed to a real registered runtime.
+        // execution block's `runtime` slot so the validation scheduler can
+        // compose a workflow input keyed to a real registered runtime.
         var actorGuid = Guid.NewGuid();
         var (service, scopeFactory) = BuildService("sv-oss-issue-1683", actorGuid);
 
@@ -151,16 +147,16 @@ public class UnitCreationServiceExecutionPersistenceTests
         persisted.Definition.ShouldNotBeNull();
         var json = persisted.Definition!.Value;
         json.TryGetProperty("execution", out var execution).ShouldBeTrue();
-        execution.GetProperty("agent").GetString().ShouldBe("claude-code");
-        execution.TryGetProperty("runtime", out _).ShouldBeFalse();
+        execution.GetProperty("runtime").GetString().ShouldBe("claude-code");
+        execution.TryGetProperty("agent", out _).ShouldBeFalse();
     }
 
     [Fact]
-    public async Task CreateFromManifestAsync_WithOnlyAiAgent_PersistsAgentBlockAlone()
+    public async Task CreateFromManifestAsync_WithOnlyAiRuntime_PersistsRuntimeBlockAlone()
     {
-        // The manifest may declare `ai.agent` without an explicit
+        // The manifest may declare `ai.runtime` without an explicit
         // `execution:` block. In that case PersistUnitExecutionAsync
-        // still fires (the agent slot alone is enough to make the
+        // still fires (the runtime slot alone is enough to make the
         // execution block non-empty) so the validator can later read
         // back the runtime id.
         var actorGuid = Guid.NewGuid();
@@ -190,7 +186,7 @@ public class UnitCreationServiceExecutionPersistenceTests
         persisted.Definition.ShouldNotBeNull();
         var json = persisted.Definition!.Value;
         json.TryGetProperty("execution", out var execution).ShouldBeTrue();
-        execution.GetProperty("agent").GetString().ShouldBe("codex");
+        execution.GetProperty("runtime").GetString().ShouldBe("codex");
     }
 
     private static (UnitCreationService Service, IServiceScopeFactory ScopeFactory) BuildService(

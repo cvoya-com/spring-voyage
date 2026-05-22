@@ -9,8 +9,6 @@ ai:
   model:
     provider: anthropic
     id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 instructions: |
   You are a friendly, casual greeter. When you receive a message, reply
   with a warm acknowledgement that uses the `say-hello` skill verbatim
@@ -20,3 +18,5 @@ instructions: |
 expertise:
   - domain: casual-greeting
     level: expert
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest

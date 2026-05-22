@@ -102,7 +102,7 @@ public class AgentExecutionInheritanceTests : IClassFixture<CustomWebApplication
         // The diverging slot on the persisted shape is `agent` (the
         // runtime catalogue id) — see ExecutionConfigInheritanceResolver
         // FieldNames.
-        conflictingFields.TryGetProperty("agent", out var agentConflict).ShouldBeTrue();
+        conflictingFields.TryGetProperty("runtime", out var agentConflict).ShouldBeTrue();
         agentConflict.ValueKind.ShouldBe(JsonValueKind.Array);
         agentConflict.GetArrayLength().ShouldBe(2);
 
@@ -148,7 +148,7 @@ public class AgentExecutionInheritanceTests : IClassFixture<CustomWebApplication
                 new AgentExecutionShape(
                     Image: "ghcr.io/example/agent:latest",
                     Hosting: "ephemeral",
-                    Agent: "spring-voyage")));
+                    Runtime: "spring-voyage")));
 
         // Operator sets `runtime` explicitly on the patch — the per-parent
         // disagreement is moot for that field (resolver § "agent value
@@ -197,7 +197,7 @@ public class AgentExecutionInheritanceTests : IClassFixture<CustomWebApplication
         _factory.UnitExecutionStore
             .GetAsync(unitGuid.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<UnitExecutionDefaults?>(
-                new UnitExecutionDefaults(Agent: runtime)));
+                new UnitExecutionDefaults(Runtime: runtime)));
     }
 
     private async Task SeedMembershipsAsync(Guid agentGuid, Guid unitA, Guid unitB, CancellationToken ct)

@@ -9,8 +9,6 @@ ai:
   model:
     provider: anthropic
     id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 instructions: |
   You are a literature reviewer. You scope a topic, survey the existing
   body of work, and produce a structured review that highlights the
@@ -36,3 +34,5 @@ expertise:
     level: advanced
   - domain: research-synthesis
     level: advanced
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest

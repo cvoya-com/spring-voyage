@@ -81,39 +81,24 @@ public static class ExecutionDefaultsResolver
             var memberExec = ParseMemberExecution(unit.Content);
             var inherits = packageExec is not null && packageExec.AppliesTo(unit.Name);
 
-            string? image, provider, model;
-            if (inherits && packageExec is not null)
-            {
-                // Field-wise merge: member non-null beats package; null
-                // member fields fall through to the package's values.
-                // ADR-0038: ExecutionManifest no longer carries `provider` —
-                // it's intrinsic to ai.model.provider. The package-level
-                // declaration still surfaces it during the inheritance
-                // transition; the unit-level write reads only image/model.
-                image = FirstNonBlank(memberExec?.Image, packageExec.Image);
-                provider = packageExec.Provider;
-                model = FirstNonBlank(memberExec?.Model, packageExec.Model);
-            }
-            else
-            {
-                // Member opted out of inheritance (not in
-                // `inherit: [list]`) or no package-level block was
-                // declared. The member's own block is the only source.
-                image = NullIfBlank(memberExec?.Image);
-                provider = null;
-                model = NullIfBlank(memberExec?.Model);
-            }
+            // ADR-0038 amendment (#2634): ExecutionManifest carries only
+            // {image, hosting}; the runtime and model are authored under
+            // `ai:`. Package-level execution inheritance projects only the
+            // container image. Field-wise merge: member non-null beats
+            // package; null member fields fall through to the package's
+            // value when the unit is eligible to inherit.
+            var image = inherits && packageExec is not null
+                ? FirstNonBlank(memberExec?.Image, packageExec.Image)
+                : NullIfBlank(memberExec?.Image);
 
             // Pre-flight gap: `image` is the only field the validator
-            // hard-requires for v0.1. Other fields are optional — the
-            // platform falls back to runtime defaults when the unit
-            // doesn't declare them.
+            // hard-requires for v0.1.
             if (string.IsNullOrWhiteSpace(image))
             {
                 missing.Add(new ExecutionConfigurationMissing(unit.Name, "image"));
             }
 
-            perUnit[unit.Name] = new ResolvedExecutionDefaults(image, provider, model);
+            perUnit[unit.Name] = new ResolvedExecutionDefaults(image);
         }
 
         return new ExecutionDefaultsResolution(perUnit, missing);
@@ -179,24 +164,18 @@ public sealed record ExecutionDefaultsResolution(
     IReadOnlyList<ExecutionConfigurationMissing> Missing);
 
 /// <summary>
-/// Merged execution defaults for one member unit (#1679). Each field
-/// reflects the field-wise merge of the package's
+/// Merged execution defaults for one member unit (#1679). Per the
+/// ADR-0038 amendment (#2634) the unit-level <c>execution:</c> block
+/// carries only the container <see cref="Image"/>; the value reflects
+/// the field-wise merge of the package's
 /// <see cref="PackageExecutionDeclaration"/> and the unit's own
-/// <see cref="ExecutionManifest"/>: member non-null fields win;
-/// member-null fields fall through to the package's values when the
-/// unit is eligible to inherit.
+/// <see cref="ExecutionManifest"/> (member non-null wins; member-null
+/// falls through to the package's value when the unit is eligible to
+/// inherit).
 /// </summary>
 /// <param name="Image">Resolved container image, or null when neither side declared one.</param>
-/// <param name="Provider">Resolved LLM provider, or null.</param>
-/// <param name="Model">Resolved model identifier, or null.</param>
-public sealed record ResolvedExecutionDefaults(
-    string? Image,
-    string? Provider,
-    string? Model)
+public sealed record ResolvedExecutionDefaults(string? Image)
 {
     /// <summary>True when every field is null.</summary>
-    public bool IsEmpty =>
-        string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Provider)
-        && string.IsNullOrWhiteSpace(Model);
+    public bool IsEmpty => string.IsNullOrWhiteSpace(Image);
 }

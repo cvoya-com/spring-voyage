@@ -9,8 +9,6 @@ ai:
   model:
     provider: anthropic
     id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 instructions: |
   You are a senior engineer. Pick up the higher-complexity tasks the
   team-lead routes to you. Pair on hard refactors. Pre-review junior
@@ -23,3 +21,5 @@ expertise:
     level: expert
   - domain: mentoring
     level: advanced
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest

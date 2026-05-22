@@ -561,9 +561,8 @@ public class UnitCreationServiceTests
             .GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new Cvoya.Spring.Core.Execution.UnitExecutionDefaults(
                 Image: "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
-                Provider: "anthropic",
-                Model: "claude-opus-4-7",
-                Agent: "claude-code"));
+                Model: new Cvoya.Spring.Core.Catalog.Model("anthropic", "claude-opus-4-7"),
+                Runtime: "claude-code"));
 
         fixture.CredentialResolver
             .ResolveAsync(
@@ -596,7 +595,6 @@ public class UnitCreationServiceTests
             Execution = new ExecutionManifest
             {
                 Image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
-                Model = "claude-opus-4-7",
             },
         };
 
@@ -643,9 +641,8 @@ public class UnitCreationServiceTests
             .GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new Cvoya.Spring.Core.Execution.UnitExecutionDefaults(
                 Image: "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
-                Provider: "anthropic",
-                Model: "claude-opus-4-7",
-                Agent: "claude-code"));
+                Model: new Cvoya.Spring.Core.Catalog.Model("anthropic", "claude-opus-4-7"),
+                Runtime: "claude-code"));
         fixture.CredentialResolver
             .ResolveAsync(
                 Arg.Any<string>(),
@@ -670,7 +667,6 @@ public class UnitCreationServiceTests
             Execution = new ExecutionManifest
             {
                 Image = "ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest",
-                Model = "claude-opus-4-7",
             },
         };
 
@@ -686,16 +682,18 @@ public class UnitCreationServiceTests
             Arg.Any<CancellationToken>());
     }
 
-    // --- #1065: provider must NOT leak into execution defaults as a runtime id ---
+    // --- ADR-0038 amendment (#2634): the persisted execution model is a
+    //     structured {provider, id} pair ---
 
     [Fact]
-    public async Task CreateAsync_WithModelOnly_PersistsModelInExecutionDefaults()
+    public async Task CreateAsync_WithModelOnly_DoesNotPersistExecutionDefaults()
     {
-        // ADR-0038: the CreateUnitRequest body no longer carries flat
-        // `provider`; the direct-create execution-defaults mirror writes
-        // only the model id. Provider lives on the structured
-        // `execution.model.provider` slot now and is set via the
-        // dedicated execution-set endpoint.
+        // ADR-0038 amendment (#2634): the persisted `execution.model` slot
+        // is the structured {provider, id} pair — both halves are
+        // required. The CreateUnitRequest body carries only a flat model
+        // hint and no provider, so a direct model-only create cannot form
+        // a structured model and writes no execution block. Operators set
+        // the structured model via the dedicated execution-set endpoint.
         var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
@@ -708,13 +706,11 @@ public class UnitCreationServiceTests
                 Color: null,
                 Connector: null,
                 IsTopLevel: true),
-            CancellationToken.None);
+            TestContext.Current.CancellationToken);
 
-        await fixture.ExecutionStore.Received(1).SetAsync(
-            Arg.Is<string>(id => IsGuidN(id)),
-            Arg.Is<Cvoya.Spring.Core.Execution.UnitExecutionDefaults>(d =>
-                d.Provider == null
-                && d.Model == "llama3.2:3b"),
+        await fixture.ExecutionStore.DidNotReceive().SetAsync(
+            Arg.Any<string>(),
+            Arg.Any<Cvoya.Spring.Core.Execution.UnitExecutionDefaults>(),
             Arg.Any<CancellationToken>());
     }
 

@@ -9,8 +9,6 @@ ai:
   model:
     provider: anthropic
     id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 instructions: |
   You are the technology-desk reporter. You own the technology beat —
   product launches, platforms, security, AI, the companies building the
@@ -59,3 +57,5 @@ expertise:
     level: advanced
   - domain: writing
     level: advanced
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest

@@ -152,9 +152,8 @@ public class ArtefactAutoStartGateTests
         _unitStore.GetAsync(actorId, Arg.Any<CancellationToken>())
             .Returns(new UnitExecutionDefaults(
                 Image: "ghcr.io/test:1",
-                Provider: "anthropic",
-                Model: "claude-sonnet-4",
-                Agent: "claude-code"));
+                Model: new Model("anthropic", "claude-sonnet-4"),
+                Runtime: "claude-code"));
         ArrangeRuntimeWithOauthEdge("claude-code", "anthropic");
         ArrangeCredential("anthropic");
         _actorProxyFactory.CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), nameof(UnitActor))
@@ -185,10 +184,9 @@ public class ArtefactAutoStartGateTests
         _agentStore.GetAsync(actorId, Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionShape(
                 Image: "ghcr.io/test:1",
-                Provider: "anthropic",
-                Model: "claude-sonnet-4",
+                Model: new Model("anthropic", "claude-sonnet-4"),
                 Hosting: null,
-                Agent: "claude-code"));
+                Runtime: "claude-code"));
         ArrangeRuntimeWithOauthEdge("claude-code", "anthropic");
         ArrangeCredential("anthropic");
         _actorProxyFactory.CreateActorProxy<IAgentActor>(Arg.Any<ActorId>(), nameof(AgentActor))
@@ -234,8 +232,8 @@ public class ArtefactAutoStartGateTests
     {
         _agentStore.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionShape(
-                Image: null, Provider: "anthropic", Model: "claude-sonnet-4",
-                Hosting: null, Agent: "claude-code"));
+                Image: null, Model: new Model("anthropic", "claude-sonnet-4"),
+                Hosting: null, Runtime: "claude-code"));
 
         var result = await _gate.TryAutoStartAsync(
             ArtefactKind.Agent, AgentGuid, "x", TestContext.Current.CancellationToken);
@@ -248,8 +246,8 @@ public class ArtefactAutoStartGateTests
     {
         _agentStore.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionShape(
-                Image: "ghcr.io/test:1", Provider: "anthropic", Model: null,
-                Hosting: null, Agent: "claude-code"));
+                Image: "ghcr.io/test:1", Model: null,
+                Hosting: null, Runtime: "claude-code"));
 
         var result = await _gate.TryAutoStartAsync(
             ArtefactKind.Agent, AgentGuid, "x", TestContext.Current.CancellationToken);
@@ -262,8 +260,8 @@ public class ArtefactAutoStartGateTests
     {
         _agentStore.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionShape(
-                Image: "ghcr.io/test:1", Provider: "anthropic", Model: "claude-sonnet-4",
-                Hosting: null, Agent: "claude-code"));
+                Image: "ghcr.io/test:1", Model: new Model("anthropic", "claude-sonnet-4"),
+                Hosting: null, Runtime: "claude-code"));
         _runtimeCatalog.GetAgentRuntime("claude-code").Returns((AgentRuntime?)null);
 
         var result = await _gate.TryAutoStartAsync(
@@ -277,8 +275,8 @@ public class ArtefactAutoStartGateTests
     {
         _agentStore.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionShape(
-                Image: "ghcr.io/test:1", Provider: "anthropic", Model: "claude-sonnet-4",
-                Hosting: null, Agent: "claude-code"));
+                Image: "ghcr.io/test:1", Model: new Model("anthropic", "claude-sonnet-4"),
+                Hosting: null, Runtime: "claude-code"));
         ArrangeRuntimeWithOauthEdge("claude-code", "anthropic");
         ArrangeCredential("anthropic", value: null);
 
@@ -296,8 +294,8 @@ public class ArtefactAutoStartGateTests
         // require a credential; image + model + runtime is sufficient.
         _agentStore.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionShape(
-                Image: "ghcr.io/test:1", Provider: "ollama", Model: "qwen3",
-                Hosting: null, Agent: "spring-voyage"));
+                Image: "ghcr.io/test:1", Model: new Model("ollama", "qwen3"),
+                Hosting: null, Runtime: "spring-voyage"));
         ArrangeRuntimeWithNoAuth("spring-voyage", "ollama");
         _actorProxyFactory.CreateActorProxy<IAgentActor>(Arg.Any<ActorId>(), nameof(AgentActor))
             .Returns(ci =>
@@ -331,8 +329,8 @@ public class ArtefactAutoStartGateTests
             .Returns(proxy);
         _agentStore.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionShape(
-                Image: "ghcr.io/test:1", Provider: "anthropic", Model: "claude-sonnet-4",
-                Hosting: null, Agent: "claude-code"));
+                Image: "ghcr.io/test:1", Model: new Model("anthropic", "claude-sonnet-4"),
+                Hosting: null, Runtime: "claude-code"));
         ArrangeRuntimeWithOauthEdge("claude-code", "anthropic");
         ArrangeCredential("anthropic");
 
@@ -354,8 +352,8 @@ public class ArtefactAutoStartGateTests
             .Returns(proxy);
         _agentStore.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionShape(
-                Image: "ghcr.io/test:1", Provider: "anthropic", Model: "claude-sonnet-4",
-                Hosting: null, Agent: "claude-code"));
+                Image: "ghcr.io/test:1", Model: new Model("anthropic", "claude-sonnet-4"),
+                Hosting: null, Runtime: "claude-code"));
         ArrangeRuntimeWithOauthEdge("claude-code", "anthropic");
         ArrangeCredential("anthropic");
 

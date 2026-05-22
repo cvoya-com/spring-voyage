@@ -9,8 +9,6 @@ ai:
   model:
     provider: anthropic
     id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 instructions: |
   You are the wire editor on the `news-desk`. You aggregate the desk's
   output — the stories the beat reporters file — into a coherent wire:
@@ -58,3 +56,5 @@ expertise:
     level: advanced
   - domain: writing
     level: advanced
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
