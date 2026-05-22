@@ -74,7 +74,10 @@ public class GeminiLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceMountPath.ShouldBe("/workspace");
+        // #2608: the workspace mount is the per-agent persistent volume — no
+        // separate /workspace bind mount. Launcher files land in the single
+        // workspace mount at AgentWorkspaceContract.WorkspaceMountPath.
+        prep.WorkspaceMountPath.ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
         prep.WorkspaceFiles.Keys.ShouldBe(new[] { "GEMINI.md", ".gemini/settings.json" }, ignoreOrder: true);
         // Issue #2493: every launcher prepends the always-on
         // ResponseDiscipline fragment; the user's prompt is the tail.
@@ -123,7 +126,7 @@ public class GeminiLauncherTests
         // settings file it rewrites per turn with the delivered MCP
         // session token (same mcpServers.<name>.headers shape as .mcp.json).
         prep.EnvironmentVariables["SPRING_MCP_CONFIG"]
-            .ShouldBe("/workspace/.gemini/settings.json");
+            .ShouldBe($"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/.gemini/settings.json");
     }
 
     [Fact]

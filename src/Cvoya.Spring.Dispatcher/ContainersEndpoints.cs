@@ -88,13 +88,19 @@ public static class ContainersEndpoints
         // Materialise the workspace BEFORE building the config so the bind-mount
         // spec and effective working directory both reference the dispatcher-host
         // path the agent container will actually see (issue #1042).
+        //
+        // #2608: pass the requested volume mounts so the materializer can
+        // detect when the workspace mount path coincides with the per-agent
+        // persistent volume — in which case it writes the launcher files
+        // directly into that volume instead of synthesising a second
+        // (per-invocation bind) workspace mount.
         MaterializedWorkspace? materialized = null;
         if (request.Workspace is { } workspaceRequest)
         {
             try
             {
                 materialized = await workspaceMaterializer.MaterializeAsync(
-                    workspaceRequest, cancellationToken);
+                    workspaceRequest, request.Mounts, cancellationToken);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
@@ -120,8 +126,13 @@ public static class ContainersEndpoints
         {
             try
             {
+                // #2608 leaves the context workspace (/spring/context/)
+                // untouched — it is a distinct concern (agent-definition YAML /
+                // tenant-config JSON) and never coincides with the per-agent
+                // workspace volume. Passing no volume mounts keeps it on the
+                // per-invocation bind-mount path.
                 materializedContext = await workspaceMaterializer.MaterializeAsync(
-                    contextWorkspaceRequest, cancellationToken);
+                    contextWorkspaceRequest, requestedVolumeMounts: null, cancellationToken);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
@@ -258,27 +269,34 @@ public static class ContainersEndpoints
         MaterializedWorkspace? materialized,
         MaterializedWorkspace? materializedContext = null)
     {
-        if (materialized is null && materializedContext is null)
+        // #2608: a materialised workspace whose MountSpec is null was written
+        // straight into a named volume the caller already mounts — there is
+        // nothing to append for it. Only a bind-mount fallback carries a
+        // MountSpec that must be added to the container's mount list.
+        var materializedSpec = materialized?.MountSpec;
+        var contextSpec = materializedContext?.MountSpec;
+
+        if (materializedSpec is null && contextSpec is null)
         {
             return requested;
         }
 
         var capacity = (requested?.Count ?? 0)
-            + (materialized is not null ? 1 : 0)
-            + (materializedContext is not null ? 1 : 0);
+            + (materializedSpec is not null ? 1 : 0)
+            + (contextSpec is not null ? 1 : 0);
         var mounts = new List<string>(capacity);
         if (requested is { Count: > 0 })
         {
             mounts.AddRange(requested);
         }
-        if (materialized is not null)
+        if (materializedSpec is not null)
         {
-            mounts.Add(materialized.MountSpec);
+            mounts.Add(materializedSpec);
         }
         // D3a: append the /spring/context/ bind-mount after the main workspace.
-        if (materializedContext is not null)
+        if (contextSpec is not null)
         {
-            mounts.Add(materializedContext.MountSpec);
+            mounts.Add(contextSpec);
         }
         return mounts;
     }

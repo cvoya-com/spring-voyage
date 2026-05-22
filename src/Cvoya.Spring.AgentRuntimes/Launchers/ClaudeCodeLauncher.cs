@@ -22,8 +22,11 @@ using Microsoft.Extensions.Logging;
 ///   <item><c>CLAUDE.md</c> — the assembled system prompt (all four layers).</item>
 ///   <item><c>.mcp.json</c> — MCP server endpoint + bearer token Claude Code will dial.</item>
 /// </list>
-/// The dispatcher materialises this workspace on its own host filesystem and
-/// bind-mounts it at <c>/workspace</c> inside the container — see issue #1042.
+/// These files are written into the per-agent persistent workspace volume —
+/// the single workspace mount at <see cref="AgentWorkspaceContract.WorkspaceMountPath"/>
+/// (ADR-0029, #2608) — so they sit alongside the CLI's session state, the
+/// bridge's marker files, and everything else <c>SPRING_WORKSPACE_PATH</c>
+/// points at.
 ///
 /// PR 4 of the #1087 series wires the launcher to the BYOI conformance
 /// path 1: the spec leaves <see cref="AgentLaunchSpec.Argv"/> empty so the
@@ -51,8 +54,6 @@ public class ClaudeCodeLauncher(
     /// path's <c>ANTHROPIC_API_KEY</c>.
     /// </summary>
     internal const string CredentialEnvVar = "CLAUDE_CODE_OAUTH_TOKEN";
-
-    internal const string WorkspaceMountPath = "/workspace";
 
     // ADR-0051: a single platform MCP server serves every sv.* tool —
     // sv.messaging.* included — under the MCP session token.
@@ -263,7 +264,7 @@ public class ClaudeCodeLauncher(
             // by pointing CLAUDE_CONFIG_DIR under SPRING_WORKSPACE_PATH the
             // session file survives container restart and can be resumed
             // by the next `--resume <sid>` invocation.
-            [ClaudeConfigDirEnvVar] = $"{AgentWorkspaceContract.WorkspaceMountPath}/{ClaudeConfigDirRelative}",
+            [ClaudeConfigDirEnvVar] = $"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/{ClaudeConfigDirRelative}",
             // D3c: canonical path where the per-agent workspace volume is
             // mounted. The dispatcher provisions the volume and adds the
             // -v mount; the env var tells the in-container SDK where to find
@@ -274,7 +275,7 @@ public class ClaudeCodeLauncher(
             // every CLI spawn. The launch-time Authorization header below
             // carries the (empty) launch-time token; the bridge overwrites
             // it per turn from the A2A message/send `mcpToken` metadata.
-            [McpConfigPathEnvVar] = $"{WorkspaceMountPath}/{McpConfigFileName}",
+            [McpConfigPathEnvVar] = $"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/{McpConfigFileName}",
         };
 
         // ADR-0051: the OTLP-ingest env contract (SPRING_CALLBACK_URL /
@@ -295,7 +296,7 @@ public class ClaudeCodeLauncher(
         return new AgentLaunchSpec(
             WorkspaceFiles: workspaceFiles,
             EnvironmentVariables: envVars,
-            WorkspaceMountPath: WorkspaceMountPath,
+            WorkspaceMountPath: AgentWorkspaceContract.WorkspaceMountPath,
             // Empty argv: defer to the agent-base image's ENTRYPOINT (the
             // TypeScript bridge), which reads SPRING_AGENT_ARGV and spawns
             // the real CLI per `message/send`. BYOI conformance path 1.

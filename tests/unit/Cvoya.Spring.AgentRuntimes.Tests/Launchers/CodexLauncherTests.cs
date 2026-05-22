@@ -74,7 +74,10 @@ public class CodexLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceMountPath.ShouldBe("/workspace");
+        // #2608: the workspace mount is the per-agent persistent volume — no
+        // separate /workspace bind mount. Launcher files land in the single
+        // workspace mount at AgentWorkspaceContract.WorkspaceMountPath.
+        prep.WorkspaceMountPath.ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
         prep.WorkspaceFiles.Keys.ShouldBe(new[] { "AGENTS.md", ".mcp.json" }, ignoreOrder: true);
         // Issue #2493: every launcher prepends the always-on
         // ResponseDiscipline fragment; the user's prompt is the tail.
@@ -134,7 +137,8 @@ public class CodexLauncherTests
         // gone; SPRING_MCP_CONFIG points the bridge at the `.mcp.json` it
         // rewrites per turn with the delivered MCP session token.
         prep.EnvironmentVariables.ShouldNotContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
-        prep.EnvironmentVariables["SPRING_MCP_CONFIG"].ShouldBe("/workspace/.mcp.json");
+        prep.EnvironmentVariables["SPRING_MCP_CONFIG"].ShouldBe(
+            $"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/.mcp.json");
     }
 
     [Fact]

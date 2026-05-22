@@ -23,15 +23,16 @@ using Microsoft.Extensions.Logging;
 ///         Codex reads this file as its instructions equivalent of Claude Code's <c>CLAUDE.md</c>.</item>
 ///   <item><c>.mcp.json</c> — MCP server endpoint + bearer token the Codex agent will dial.</item>
 /// </list>
-/// The dispatcher materialises this workspace on its own host filesystem and
-/// bind-mounts it at <c>/workspace</c> inside the container — see issue #1042.
+/// These files are written into the per-agent persistent workspace volume —
+/// the single workspace mount at <see cref="AgentWorkspaceContract.WorkspaceMountPath"/>
+/// (ADR-0029, #2608).
 /// <para>
 /// <b>Expected container image shape:</b> The image must bundle the Codex CLI
 /// and the A2A sidecar from <c>agents/a2a-sidecar/</c>. The sidecar wraps the
 /// <c>codex</c> CLI binary, exposing it behind an A2A endpoint. The container
-/// must read <c>AGENTS.md</c> and <c>.mcp.json</c> from the <c>/workspace</c>
-/// mount and honour the <c>OPENAI_API_KEY</c> environment variable for
-/// authentication with the OpenAI API.
+/// must read <c>AGENTS.md</c> and <c>.mcp.json</c> from the
+/// <c>SPRING_WORKSPACE_PATH</c> mount and honour the <c>OPENAI_API_KEY</c>
+/// environment variable for authentication with the OpenAI API.
 /// </para>
 /// </summary>
 public class CodexLauncher(
@@ -54,8 +55,6 @@ public class CodexLauncher(
 
     /// <summary>Container env var the Codex CLI reads its API key from.</summary>
     internal const string CredentialEnvVar = "OPENAI_API_KEY";
-
-    internal const string WorkspaceMountPath = "/workspace";
 
     /// <summary>
     /// Workspace-relative file name of the MCP config the Codex CLI reads
@@ -134,7 +133,7 @@ public class CodexLauncher(
             // ADR-0052 §4: absolute container path of the `.mcp.json` the
             // bridge rewrites with the per-turn MCP session token before
             // every CLI spawn.
-            [McpConfigPathEnvVar] = $"{WorkspaceMountPath}/{McpConfigFileName}",
+            [McpConfigPathEnvVar] = $"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/{McpConfigFileName}",
         };
 
         // ADR-0051: the OTLP-ingest env contract (SPRING_CALLBACK_URL /
@@ -182,7 +181,7 @@ public class CodexLauncher(
         return new AgentLaunchSpec(
             WorkspaceFiles: workspaceFiles,
             EnvironmentVariables: envVars,
-            WorkspaceMountPath: WorkspaceMountPath);
+            WorkspaceMountPath: AgentWorkspaceContract.WorkspaceMountPath);
     }
 
     private async Task ResolveRuntimeCredentialAsync(

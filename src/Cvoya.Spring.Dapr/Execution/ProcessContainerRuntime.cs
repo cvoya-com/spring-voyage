@@ -19,7 +19,7 @@ using Microsoft.Extensions.Options;
 public class ProcessContainerRuntime(
     string binaryName,
     IOptions<ContainerRuntimeOptions> options,
-    ILoggerFactory loggerFactory) : IContainerRuntime
+    ILoggerFactory loggerFactory) : IContainerRuntime, IWorkspaceVolumeLocator
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<ProcessContainerRuntime>();
     private readonly ContainerRuntimeOptions _options = options.Value;
@@ -630,13 +630,19 @@ public class ProcessContainerRuntime(
     }
 
     /// <inheritdoc />
-    public async Task<VolumeMetrics?> GetVolumeMetricsAsync(string volumeName, CancellationToken ct = default)
+    /// <remarks>
+    /// Shells out to <c>volume inspect --format {{.Mountpoint}}</c> — a
+    /// strictly-local lookup on both podman and docker. This is the same
+    /// mechanism <see cref="GetVolumeMetricsAsync"/> uses to find the path it
+    /// hands to <c>du</c>; both go through <see cref="ResolveVolumeMountpointAsync"/>
+    /// so the runtime has a single volume-inspect call site (#2608).
+    /// </remarks>
+    public async Task<string?> ResolveVolumeMountpointAsync(string volumeName, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(volumeName);
 
-        // Use `volume inspect --format` to extract the Mountpoint and CreatedAt
-        // fields without parsing full JSON. Content is never read; we only need
-        // the filesystem path to call `du`.
+        // Use `volume inspect --format` to extract the Mountpoint field
+        // without parsing full JSON.
         var (inspectExit, mountpoint, _) = await RunProcessAsync(
             binaryName,
             ["volume", "inspect", "--format", "{{.Mountpoint}}", volumeName],
@@ -649,7 +655,17 @@ public class ProcessContainerRuntime(
         }
 
         mountpoint = mountpoint.Trim();
-        if (string.IsNullOrEmpty(mountpoint))
+        return string.IsNullOrEmpty(mountpoint) ? null : mountpoint;
+    }
+
+    /// <inheritdoc />
+    public async Task<VolumeMetrics?> GetVolumeMetricsAsync(string volumeName, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(volumeName);
+
+        // Content is never read; we only need the filesystem path to call `du`.
+        var mountpoint = await ResolveVolumeMountpointAsync(volumeName, ct);
+        if (mountpoint is null)
         {
             return null;
         }
