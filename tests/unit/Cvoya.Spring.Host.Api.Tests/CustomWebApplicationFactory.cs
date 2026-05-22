@@ -96,6 +96,34 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IUnitContainerLifecycle UnitContainerLifecycle { get; } = Substitute.For<IUnitContainerLifecycle>();
 
+    /// <summary>
+    /// Gets the mock <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway"/>
+    /// registered in the test DI container. ADR-0052 / Wave 3 (#2618): the API
+    /// host delegates persistent-agent deploy / undeploy / scale /
+    /// deployment-status / logs to the worker over this gateway instead of
+    /// resolving the execution singletons in-process.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway.GetDeploymentAsync"/>
+    /// is stubbed to the canonical "not running" state by default — the agent
+    /// detail / runtime-status endpoints read deployment state on every call,
+    /// and "no tracked deployment" is the sane baseline most tests want.
+    /// Tests that exercise a running deployment override it per-test.
+    /// </remarks>
+    public Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway PersistentAgentExecutionGateway { get; }
+        = BuildExecutionGatewayStub();
+
+    private static Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway BuildExecutionGatewayStub()
+    {
+        var gateway = Substitute.For<Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway>();
+        gateway
+            .GetDeploymentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+                Cvoya.Spring.Dapr.Execution.PersistentAgentDeploymentState.NotRunning(
+                    callInfo.ArgAt<string>(0)));
+        return gateway;
+    }
+
     // Issue #2456 removed IGitHubWebhookRegistrar — App-level delivery
     // replaces per-repo webhook registration. The test fixture no longer
     // exposes a registrar substitute.
@@ -515,6 +543,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(ActivityEventBus);
             services.AddSingleton(UnitActivityObservable);
             services.AddSingleton(UnitContainerLifecycle);
+            services.AddSingleton(PersistentAgentExecutionGateway);
             services.AddSingleton(ConnectorConfigStore);
             services.AddSingleton(ConnectorRuntimeStore);
             services.AddSingleton(StubConnectorType);

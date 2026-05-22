@@ -605,7 +605,7 @@ public static class AgentEndpoints
         string id,
         DeployPersistentAgentRequest? request,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] PersistentAgentLifecycle lifecycle,
+        [FromServices] IPersistentAgentExecutionGateway executionGateway,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -625,7 +625,11 @@ public static class AgentEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        // #1748: lifecycle / registry are keyed by the agent's actor Guid.
+        // ADR-0052 / #2618: persistent-agent execution runs on the worker.
+        // The API host delegates deploy / undeploy to the execution host over
+        // Dapr service invocation rather than resolving the execution
+        // singletons in-process. The gateway is keyed by the agent's actor
+        // Guid (#1748).
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
 
         try
@@ -635,7 +639,7 @@ public static class AgentEndpoints
                 // Scale-to-zero intent: the caller asked to deploy with 0
                 // replicas. Treat as undeploy and return the canonical empty
                 // shape so CLIs see a consistent wire contract.
-                await lifecycle.UndeployAsync(actorId, cancellationToken);
+                await executionGateway.UndeployAsync(actorId, cancellationToken);
                 // The wire shape preserves the URL-path agent id so callers
                 // see a stable AgentId across the request/response pair, even
                 // when (in test fixtures) the directory entry's ActorId is
@@ -643,11 +647,11 @@ public static class AgentEndpoints
                 return Results.Ok(EmptyDeploymentResponse(id, replicas: 0));
             }
 
-            var deployed = await lifecycle.DeployAsync(
+            var deployed = await executionGateway.DeployAsync(
                 actorId,
                 imageOverride: request?.Image,
                 cancellationToken);
-            return Results.Ok(ToDeploymentResponse(deployed, replicas: 1));
+            return Results.Ok(ToDeploymentResponse(deployed, id, replicas: 1));
         }
         catch (SpringException ex)
         {
@@ -658,7 +662,7 @@ public static class AgentEndpoints
     private static async Task<IResult> UndeployPersistentAgentAsync(
         string id,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] PersistentAgentLifecycle lifecycle,
+        [FromServices] IPersistentAgentExecutionGateway executionGateway,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -668,7 +672,7 @@ public static class AgentEndpoints
         }
 
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
-        await lifecycle.UndeployAsync(actorId, cancellationToken);
+        await executionGateway.UndeployAsync(actorId, cancellationToken);
 
         // Always return the canonical "not running" shape so the CLI can
         // treat the response the same whether the agent was running or not.
@@ -679,7 +683,7 @@ public static class AgentEndpoints
         string id,
         ScalePersistentAgentRequest request,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] PersistentAgentLifecycle lifecycle,
+        [FromServices] IPersistentAgentExecutionGateway executionGateway,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -692,8 +696,8 @@ public static class AgentEndpoints
 
         try
         {
-            var scaled = await lifecycle.ScaleAsync(actorId, request.Replicas, cancellationToken);
-            return Results.Ok(ToDeploymentResponse(scaled, request.Replicas));
+            var scaled = await executionGateway.ScaleAsync(actorId, request.Replicas, cancellationToken);
+            return Results.Ok(ToDeploymentResponse(scaled, id, request.Replicas));
         }
         catch (SpringException ex)
         {
@@ -704,8 +708,7 @@ public static class AgentEndpoints
     private static async Task<IResult> GetPersistentAgentLogsAsync(
         string id,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] PersistentAgentLifecycle lifecycle,
-        [FromServices] PersistentAgentRegistry registry,
+        [FromServices] IPersistentAgentExecutionGateway executionGateway,
         [FromQuery] int? tail,
         CancellationToken cancellationToken)
     {
@@ -720,13 +723,12 @@ public static class AgentEndpoints
 
         try
         {
-            var logs = await lifecycle.GetLogsAsync(actorId, effectiveTail, cancellationToken);
-            var registered = await registry.TryGetAsync(actorId, cancellationToken);
+            var logs = await executionGateway.GetLogsAsync(actorId, effectiveTail, cancellationToken);
             return Results.Ok(new PersistentAgentLogsResponse(
                 AgentId: id,
-                ContainerId: registered?.ContainerId ?? string.Empty,
-                Tail: effectiveTail,
-                Logs: logs));
+                ContainerId: logs.ContainerId,
+                Tail: logs.Tail,
+                Logs: logs.Logs));
         }
         catch (SpringException ex)
         {
@@ -737,7 +739,7 @@ public static class AgentEndpoints
     private static async Task<IResult> GetPersistentAgentDeploymentAsync(
         string id,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] PersistentAgentRegistry registry,
+        [FromServices] IPersistentAgentExecutionGateway executionGateway,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -747,21 +749,18 @@ public static class AgentEndpoints
         }
 
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
-        var deployment = await registry.TryGetAsync(actorId, cancellationToken);
-        if (deployment is not null)
-        {
-            return Results.Ok(ToDeploymentResponse(deployment, replicas: 1));
-        }
-
-        return Results.Ok(EmptyDeploymentResponse(id, replicas: 0));
+        var deployment = await executionGateway.GetDeploymentAsync(actorId, cancellationToken);
+        return Results.Ok(ToDeploymentResponse(
+            deployment, id, replicas: deployment.Running ? 1 : 0));
     }
 
     /// <summary>
     /// Returns the runtime-status indicator for an agent (#2100). Combines
     /// the actor's per-thread channel snapshot
-    /// (<see cref="IAgentActor.GetRuntimeStatusAsync"/>) with the
-    /// <see cref="PersistentAgentRegistry"/> health probe to project one
-    /// of <c>idle</c> / <c>busy</c> / <c>queued</c> / <c>unavailable</c>.
+    /// (<see cref="IAgentActor.GetRuntimeStatusAsync"/>) with the worker's
+    /// persistent-deployment health (read over
+    /// <see cref="IPersistentAgentExecutionGateway"/>) to project one of
+    /// <c>idle</c> / <c>busy</c> / <c>queued</c> / <c>unavailable</c>.
     /// Endpoint is poll-friendly: no activity-event side effect, no
     /// permission gate beyond the group-level authentication.
     /// </summary>
@@ -769,7 +768,7 @@ public static class AgentEndpoints
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
-        [FromServices] PersistentAgentRegistry persistentAgentRegistry,
+        [FromServices] IPersistentAgentExecutionGateway executionGateway,
         [FromServices] IAgentExecutionStore executionStore,
         CancellationToken cancellationToken)
     {
@@ -782,11 +781,11 @@ public static class AgentEndpoints
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
 
         // Persistent-mode agents only: an `unavailable` probe value can
-        // come from the registry — ephemeral agents have no container to
-        // be unhealthy. Look up the agent's hosting mode through the
-        // execution store; on transient store error fall through to the
-        // actor read (fail-open: report idle/busy/queued rather than
-        // misclassify a healthy ephemeral agent as unavailable).
+        // come from the deployment state — ephemeral agents have no
+        // container to be unhealthy. Look up the agent's hosting mode
+        // through the execution store; on transient store error fall
+        // through to the actor read (fail-open: report idle/busy/queued
+        // rather than misclassify a healthy ephemeral agent as unavailable).
         AgentExecutionShape? shape = null;
         try
         {
@@ -798,15 +797,25 @@ public static class AgentEndpoints
         }
 
         var isPersistent = string.Equals(shape?.Hosting, "persistent", StringComparison.OrdinalIgnoreCase);
-        PersistentAgentEntry? registryEntry = null;
+        // ADR-0052 / #2618: deployment health is read from the execution
+        // host over the gateway. Fail-open (treat as healthy / not-deployed)
+        // so a transient worker hiccup doesn't blank the status chip.
+        PersistentAgentDeploymentState? deploymentState = null;
         if (isPersistent)
         {
-            registryEntry = await persistentAgentRegistry.TryGetAsync(actorId, cancellationToken);
+            try
+            {
+                deploymentState = await executionGateway.GetDeploymentAsync(actorId, cancellationToken);
+            }
+            catch (SpringException)
+            {
+                // Fail-open: the chip is a best-effort indicator.
+            }
         }
 
         if (isPersistent
-            && registryEntry is not null
-            && registryEntry.HealthStatus != AgentHealthStatus.Healthy)
+            && deploymentState is { Running: true }
+            && !string.Equals(deploymentState.HealthStatus, "healthy", StringComparison.OrdinalIgnoreCase))
         {
             // Mirrors the unit-side policy in
             // <c>UnitEndpoints.GetUnitRuntimeStatusAsync</c> (#2440):
@@ -877,31 +886,32 @@ public static class AgentEndpoints
     }
 
     /// <summary>
-    /// Canonical "running" wire shape for a persistent deployment. Maps the
-    /// registry's <see cref="PersistentAgentEntry"/> to the HTTP response so
-    /// callers never have to reach into the registry types directly.
+    /// Maps the worker-reported <see cref="PersistentAgentDeploymentState"/>
+    /// (ADR-0052 / #2618) onto the public HTTP response. The deployment state
+    /// is read from the execution host over the
+    /// <see cref="IPersistentAgentExecutionGateway"/>; the API host no longer
+    /// reaches into the registry types directly.
     /// </summary>
+    /// <param name="state">The worker-reported deployment state.</param>
+    /// <param name="agentId">
+    /// The URL-path agent id, used verbatim as the response <c>AgentId</c> so
+    /// callers see a stable id across the request/response pair.
+    /// </param>
+    /// <param name="replicas">The currently-deployed replica count.</param>
     internal static PersistentAgentDeploymentResponse ToDeploymentResponse(
-        PersistentAgentEntry entry,
+        PersistentAgentDeploymentState state,
+        string agentId,
         int replicas) =>
         new(
-            AgentId: entry.AgentId,
-            Running: entry.ContainerId is not null,
-            HealthStatus: entry.HealthStatus switch
-            {
-                AgentHealthStatus.Healthy => "healthy",
-                AgentHealthStatus.Unhealthy => "unhealthy",
-                _ => "unknown",
-            },
+            AgentId: agentId,
+            Running: state.Running,
+            HealthStatus: state.HealthStatus,
             Replicas: replicas,
-            // #2468: prefer the cross-process Image column on the entry
-            // over the locally-cached AgentDefinition; the Definition slot
-            // is null for entries rehydrated from the shared EF row.
-            Image: entry.Image ?? entry.Definition?.Execution?.Image,
-            Endpoint: entry.Endpoint?.ToString(),
-            ContainerId: entry.ContainerId,
-            StartedAt: entry.StartedAt,
-            ConsecutiveFailures: entry.ConsecutiveFailures);
+            Image: state.Image,
+            Endpoint: state.Endpoint,
+            ContainerId: state.ContainerId,
+            StartedAt: state.StartedAt,
+            ConsecutiveFailures: state.ConsecutiveFailures);
 
     /// <summary>
     /// Canonical "not running" shape. Returned when there is no entry in the
@@ -1079,7 +1089,7 @@ public static class AgentEndpoints
         [FromServices] IUnitMembershipRepository membershipRepository,
         [FromServices] MessageRouter messageRouter,
         [FromServices] IAuthenticatedCallerAccessor callerAccessor,
-        [FromServices] PersistentAgentRegistry persistentAgentRegistry,
+        [FromServices] IPersistentAgentExecutionGateway executionGateway,
         [FromServices] IAgentExecutionStore executionStore,
         [FromServices] IInitiativeEngine initiativeEngine,
         [FromServices] IToolGrantResolver toolGrantResolver,
@@ -1128,20 +1138,29 @@ public static class AgentEndpoints
 
         var result = await messageRouter.RouteAsync(statusQuery, cancellationToken);
 
-        // #1748: registry / stores below are all keyed by the agent's
-        // actor Guid (the form PersistentAgentLifecycle.DeployAsync registers
+        // #1748: gateway / stores below are all keyed by the agent's
+        // actor Guid (the form the worker's execution surface registers
         // with and DbAgentExecutionStore parses).
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
 
-        // Persistent-agent health enrichment (#396): when a persistent
-        // deployment is tracked, surface it alongside the actor's status
-        // payload so `spring agent status <id>` is a single stop for both
-        // ephemeral-actor state and persistent-container state.
+        // Persistent-agent health enrichment (#396): surface the deployment
+        // state alongside the actor's status payload so `spring agent status
+        // <id>` is a single stop for both ephemeral-actor state and
+        // persistent-container state. ADR-0052 / #2618: deployment state is
+        // read from the execution host over the gateway. Fail-open (null) so
+        // a transient worker hiccup doesn't block the status verb entirely.
         PersistentAgentDeploymentResponse? deployment = null;
-        var persistentEntry = await persistentAgentRegistry.TryGetAsync(actorId, cancellationToken);
-        if (persistentEntry is not null)
+        try
         {
-            deployment = ToDeploymentResponse(persistentEntry, replicas: 1);
+            var deploymentState = await executionGateway.GetDeploymentAsync(actorId, cancellationToken);
+            if (deploymentState.Running)
+            {
+                deployment = ToDeploymentResponse(deploymentState, id, replicas: 1);
+            }
+        }
+        catch (SpringException)
+        {
+            // Fail-open: the deployment block is omitted on a worker outage.
         }
 
         // #572 / #573: populate hosting mode and initiative level on the

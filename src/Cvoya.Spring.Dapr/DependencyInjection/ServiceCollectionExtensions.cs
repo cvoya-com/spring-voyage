@@ -65,7 +65,7 @@ public static class ServiceCollectionExtensions
             .AddCvoyaSpringRouting()
             .AddCvoyaSpringExecution(role)
             .AddCvoyaSpringInitiative()
-            .AddCvoyaSpringMessaging()
+            .AddCvoyaSpringMessaging(role)
             .AddCvoyaSpringStateTenancySecrets()
             .AddCvoyaSpringObservability();
     }

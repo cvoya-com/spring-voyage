@@ -137,10 +137,11 @@ internal static class ServiceCollectionExtensionsExecution
         // Singleton: stateless across agents; IExecutionDispatcher and
         // MessageRouter are injected as singleton constructor parameters;
         // activity-emission and active-thread-clearing flow through
-        // per-call delegates so no Dapr actor types are captured. TryAdd so
-        // the private cloud repo can substitute a tenant-aware coordinator
-        // (e.g. one that layers cost attribution or custom retry logic).
-        services.TryAddSingleton<IAgentDispatchCoordinator, AgentDispatchCoordinator>();
+        // per-call delegates so no Dapr actor types are captured.
+        // ADR-0052 / #2618: this coordinator is consumed only by the actor
+        // runtime-invocation pipeline and transitively depends on the
+        // execution-host-only IExecutionDispatcher, so it registers in the
+        // role-gated block below — the HTTP front door never resolves it.
 
         // Agent amendment coordinator (#1337 / #1276 concern 4).
         // Singleton: stateless across agents; IUnitMembershipRepository and
@@ -208,8 +209,9 @@ internal static class ServiceCollectionExtensionsExecution
         // Private-cloud or dual-homed hosts that want direct-HTTP for all
         // containers pre-register their own IA2ATransportFactory before
         // calling AddCvoyaSpringDapr; TryAdd ensures their registration wins.
+        // IExecutionDispatcher / A2AExecutionDispatcher are execution-host-only
+        // (ADR-0052 / #2618) — registered in the role-gated block below.
         services.TryAddSingleton<IA2ATransportFactory, DispatcherProxyA2ATransportFactory>();
-        services.TryAddSingleton<IExecutionDispatcher, A2AExecutionDispatcher>();
 
         services.AddOptions<AgentContextOptions>().BindConfiguration(AgentContextOptions.SectionName);
         services.TryAddSingleton<IAgentContextBuilder, AgentContextBuilder>();
@@ -229,26 +231,12 @@ internal static class ServiceCollectionExtensionsExecution
         // TryAdd* seam (e.g. one that consults tenant-default fallthrough
         // for top-level agents, or layers audit logging on conflict).
         services.TryAddSingleton<IExecutionConfigInheritanceResolver, ExecutionConfigInheritanceResolver>();
-        // D3c: per-agent workspace volume manager. Provisions volumes before
-        // agent containers start, reclaims them on agent delete / ephemeral
-        // completion, and emits volume-level telemetry (size, growth rate).
-        // Registered as a singleton so all dispatch paths share the in-process
-        // tracking map; registered as IHostedService for the metric timer.
-        services.TryAddSingleton<AgentVolumeManager>();
-        services.TryAddSingleton<PersistentAgentRegistry>();
-        // Per-thread registry for ephemeral agent containers. PR 5 of
-        // the #1087 series: the unified A2A dispatch path starts ephemeral
-        // containers in detached mode and tears them down when the turn
-        // drains. The registry exists so the host has a single place to
-        // observe and stop ephemeral containers (and so graceful shutdown
-        // sweeps anything still tracked).
-        services.TryAddSingleton<EphemeralAgentRegistry>();
-        // Imperative lifecycle service powering the persistent-agent CLI surface
-        // (spring agent deploy/status/scale/logs/undeploy — #396). Kept separate
-        // from A2AExecutionDispatcher so the turn-dispatch path stays focused on
-        // "there is a message to run" and the operator surface stays focused on
-        // "there is a container to manage."
-        services.TryAddSingleton<PersistentAgentLifecycle>();
+        // D3c: per-agent workspace volume manager, the persistent / ephemeral
+        // agent registries, and the imperative PersistentAgentLifecycle
+        // (powering deploy/scale/logs/undeploy — #396) are all
+        // execution-host-only (ADR-0052 / #2618) — registered in the
+        // role-gated block below. The API host delegates the operator surface
+        // to the worker over IPersistentAgentExecutionGateway.
 
         // #2336 / Sub C of #2332. The introspector fetches the agent's
         // image-tier tool definitions from its /a2a/tools endpoint at
@@ -261,28 +249,60 @@ internal static class ServiceCollectionExtensionsExecution
         services.AddHttpClient(HttpAgentToolsIntrospector.HttpClientName);
         services.TryAddSingleton<IAgentToolsIntrospector, HttpAgentToolsIntrospector>();
 
-        // In-process MCP server — options and singleton always registered so
-        // endpoints that depend on IMcpServer resolve correctly during OpenAPI
-        // generation. ADR-0052 / Wave 3 (#2625): the MCP surface is served as a
-        // minimal-API route on the worker's existing Kestrel host — the route +
-        // Kestrel-endpoint wiring lives in WorkerComposition. McpServer is no
-        // longer an IHostedService and no longer owns a port listener; it owns
-        // the session store and the JSON-RPC dispatch only.
+        // In-process MCP server. ADR-0052 / Wave 3 (#2625): the MCP surface is
+        // served as a minimal-API route on the worker's existing Kestrel host
+        // — the route + Kestrel-endpoint wiring lives in the worker host.
+        // McpServer is no longer an IHostedService and no longer owns a port
+        // listener; it owns the session store and the JSON-RPC dispatch only.
+        // ADR-0052 / #2618: the McpServer / IMcpServer singletons are
+        // execution-host-only — only the dispatcher (worker-side) issues and
+        // validates sessions, and the surface is a worker Kestrel route.
         services.AddOptions<McpServerOptions>().BindConfiguration(McpServerOptions.SectionName);
-        services.TryAddSingleton<McpServer>();
-        services.TryAddSingleton<IMcpServer>(sp => sp.GetRequiredService<McpServer>());
 
-        if (!isDocGen)
+        // ADR-0052 / #2618: the HTTP front door delegates persistent-agent
+        // deploy / undeploy / scale / deployment-status / logs to the
+        // execution host over Dapr service invocation. The gateway depends
+        // only on DaprClient — no execution singleton — so it registers on
+        // both hosts; the API host resolves it from AgentEndpoints /
+        // UnitEndpoints in place of the execution singletons.
+        services.TryAddSingleton<IPersistentAgentExecutionGateway, DaprPersistentAgentExecutionGateway>();
+
+        // ADR-0052 / #2618: the persistent-agent execution singletons belong
+        // to the execution host only. The HTTP front door used to resolve
+        // PersistentAgentLifecycle / PersistentAgentRegistry / the McpServer
+        // because AgentEndpoints / UnitEndpoints called into them in-process;
+        // Wave 3 (#2618) makes those endpoints delegate to the worker over
+        // IPersistentAgentExecutionGateway, so the front-door composition
+        // registers none of these. The execution-host (worker) graph still
+        // gets every one. Gated unconditionally — not behind isDocGen —
+        // because the goal is that AddCvoyaSpringDapr(HttpFrontDoor) never
+        // registers them at all.
+        //
+        // The unit-container teardown surface (IContainerRuntime,
+        // IDaprSidecarManager, ContainerLifecycleManager,
+        // IUnitContainerLifecycle, IA2ATransportFactory, IAgentContextBuilder)
+        // stays registered unconditionally above — the API host's
+        // UnitEndpoints still drive unit-container lifecycle in-process, and
+        // delegating that is a separate concern outside Wave 3's scope.
+        if (role == SpringHostRole.ExecutionHost)
         {
-            // ADR-0052: the execution hosted services that supervise
-            // delegated-execution containers start only on the execution
-            // host (spring-worker). The DI singletons above stay registered
-            // unconditionally on both hosts — only these IHostedService
-            // wrappers are gated — so API-host code that resolves
-            // PersistentAgentRegistry / AgentVolumeManager / the registries
-            // as plain singletons keeps resolving regardless of host role.
-            if (role == SpringHostRole.ExecutionHost)
+            services.TryAddSingleton<IExecutionDispatcher, A2AExecutionDispatcher>();
+            services.TryAddSingleton<IAgentDispatchCoordinator, AgentDispatchCoordinator>();
+            services.TryAddSingleton<AgentVolumeManager>();
+            services.TryAddSingleton<PersistentAgentRegistry>();
+            services.TryAddSingleton<EphemeralAgentRegistry>();
+            services.TryAddSingleton<PersistentAgentLifecycle>();
+            // ADR-0052 §2: the McpServer / IMcpServer singletons are
+            // execution-host-only — the dispatcher (worker-side) is the sole
+            // session authority and the surface is a worker Kestrel route.
+            services.TryAddSingleton<McpServer>();
+            services.TryAddSingleton<IMcpServer>(sp => sp.GetRequiredService<McpServer>());
+
+            if (!isDocGen)
             {
+                // The execution hosted services that supervise
+                // delegated-execution containers start only on the
+                // execution host (spring-worker).
                 services.AddHostedService(sp => sp.GetRequiredService<AgentVolumeManager>());
                 services.AddHostedService(sp => sp.GetRequiredService<PersistentAgentRegistry>());
                 services.AddHostedService(sp => sp.GetRequiredService<EphemeralAgentRegistry>());

@@ -341,20 +341,25 @@ public class WorkerCompositionTests
     }
 
     /// <summary>
-    /// ADR-0052 §2 / PR 2 of #2611 (#2614): the <c>McpServer</c> hosted
-    /// service runs worker-only — it is the single session authority,
-    /// co-located with the dispatcher. The worker (the execution host) must
-    /// register it as an <see cref="IHostedService"/> (the API host does
-    /// not — see <c>Cvoya.Spring.Host.Api.Tests</c>).
+    /// ADR-0052 / Wave 3 (#2625): the MCP surface is served as a minimal-API
+    /// route on the worker's Kestrel host, so <c>McpServer</c> is no longer
+    /// an <see cref="IHostedService"/> — it owns the session store and the
+    /// JSON-RPC dispatch only. The worker (the execution host) still resolves
+    /// the <c>McpServer</c> / <c>IMcpServer</c> singleton — it is the single
+    /// session authority that the route handler and the dispatcher share —
+    /// while the API host registers neither (see
+    /// <c>Cvoya.Spring.Host.Api.Tests.ServiceRegistrationTests</c>).
     /// </summary>
     [Fact]
-    public void AddWorkerServices_RegistersMcpServerHostedService()
+    public void AddWorkerServices_RegistersMcpServerSingletonButNotAsHostedService()
     {
         using var provider = BuildWorkerServiceProvider();
 
-        var hosted = provider.GetServices<IHostedService>().ToList();
+        provider.GetService<Cvoya.Spring.Dapr.Mcp.McpServer>().ShouldNotBeNull();
+        provider.GetService<Cvoya.Spring.Core.Execution.IMcpServer>().ShouldNotBeNull();
 
-        hosted.ShouldContain(s => s is Cvoya.Spring.Dapr.Mcp.McpServer);
+        var hosted = provider.GetServices<IHostedService>().ToList();
+        hosted.ShouldNotContain(s => s is Cvoya.Spring.Dapr.Mcp.McpServer);
     }
 
     private static ServiceProvider BuildWorkerServiceProvider()

@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Mcp;
 using Cvoya.Spring.Host.Worker.Composition;
+using Cvoya.Spring.Host.Worker.Endpoints;
 
 public partial class Program
 {
@@ -81,6 +82,14 @@ public partial class Program
 
             // Dapr actor endpoints
             app.MapActorsHandlers();
+
+            // Internal persistent-agent execution routes (ADR-0052 / #2618).
+            // The HTTP front door delegates deploy / undeploy / scale /
+            // deployment-status / logs here over Dapr service invocation;
+            // these routes wrap the worker's PersistentAgentLifecycle /
+            // PersistentAgentRegistry. They sit on the Dapr :8080 app channel
+            // and are not exposed on the public ingress.
+            app.MapPersistentAgentExecutionEndpoints();
 
             // MCP JSON-RPC route (ADR-0052 / #2625). Restricted to the MCP
             // Kestrel endpoint via the connection's local port — a request that

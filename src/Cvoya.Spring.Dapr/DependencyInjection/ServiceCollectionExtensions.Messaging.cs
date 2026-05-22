@@ -25,7 +25,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 internal static class ServiceCollectionExtensionsMessaging
 {
     internal static IServiceCollection AddCvoyaSpringMessaging(
-        this IServiceCollection services)
+        this IServiceCollection services,
+        SpringHostRole role)
     {
         // #601 / #603 / #409 B-wide: read/write seam for the persisted unit
         // execution block. Shared between UnitCreationService (manifest
@@ -109,8 +110,16 @@ internal static class ServiceCollectionExtensionsMessaging
         // resolver. TryAdd so the cloud overlay can substitute a
         // tenant-aware variant (e.g. one that layers cost attribution or
         // tenant-scoped tool resolution) without touching this registration.
-        services.TryAddSingleton<Cvoya.Spring.Dapr.Actors.IRuntimeInvocationPath,
-            Cvoya.Spring.Dapr.Actors.RuntimeInvocationPath>();
+        // ADR-0052 / #2618: the runtime-invocation pipeline is consumed only
+        // by AgentActor / UnitActor and transitively depends on the
+        // execution-host-only IExecutionDispatcher, so it registers on the
+        // execution host (spring-worker) only. The HTTP front door hosts no
+        // actors and never resolves it.
+        if (role == SpringHostRole.ExecutionHost)
+        {
+            services.TryAddSingleton<Cvoya.Spring.Dapr.Actors.IRuntimeInvocationPath,
+                Cvoya.Spring.Dapr.Actors.RuntimeInvocationPath>();
+        }
 
         // Prompt
         services.AddSingleton<UnitContextBuilder>();
