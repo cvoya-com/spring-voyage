@@ -1,1113 +1,151 @@
-# Agent Runtime
+# Agent runtime
 
-> **[Architecture Index](README.md)** | Related: [Workflows](workflows.md), [Units](units.md), [Agents](agents.md), [Expertise](expertise.md), [Deployment](deployment.md), [Messaging](messaging.md)
+> **[Architecture index](README.md)** · Related: [Components](components.md), [Runtime flows](runtime-flows.md), [Messaging](messaging.md), [Deployment](deployment.md)
 
----
-
-> The implementation-neutral contract that downstream agent runtimes (in any language) implement is specified in [`docs/specs/agent-runtime-boundary.md`](../specs/agent-runtime-boundary.md). This document describes the Spring Voyage platform's implementation of that contract; an SDK in another language follows the spec, not this doc.
-
-This document describes how the platform turns a single inbound message to an
-`agent:<id>` address into an actual agent turn. The vocabulary is the
-three-concept split from [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md):
-
-- **AgentRuntime** — the in-container execution engine. Closed set in v0.1: `claude-code`, `codex`, `gemini`, `spring-voyage`.
-- **ModelProvider** — the company whose API hosts a set of LLMs. Open set: `anthropic`, `openai`, `google`, `ollama`, future additions.
-- **Model** — a specific LLM, identified by the structured pair `{provider, id}`. The provider is intrinsic to the model.
-
-The user-facing execution config is the tuple `(runtime, model)`. There is no
-separate `provider` axis in the manifest, in the wire shape, or stored on a
-tenant install row — the provider is read off `model.provider`.
-
-The layers, in order of appearance on the dispatch path, are:
-
-1. **`A2AExecutionDispatcher`** — the single entry point invoked by the
-   `AgentActor` when a turn is due.
-2. **`IAgentDefinitionProvider`** — resolves the addressed actor id to an
-   `AgentDefinition` (instructions + `AgentExecutionConfig`). For a
-   `unit:<id>` dispatch, the OSS provider reads `unit_definitions` directly;
-   no parallel `agent_definitions` anchor row is required for the same Guid.
-3. **`IAgentRuntimeLauncher`** — one strategy per agent runtime; prepares the
-   per-invocation working directory, env vars, and volume mounts. Strategies
-   are looked up by the `launcher` id on the runtime's
-   [`runtime-catalog.yaml`](#6-the-runtime-catalogue) entry.
-4. **`IContainerRuntime`** — the execution-dispatcher's handle on the
-   container runtime. In the worker process the binding is
-   `DispatcherClientContainerRuntime`, which forwards every call over HTTP
-   to the `spring-dispatcher` service. The dispatcher's own backend is
-   `PodmanRuntime` (OSS) — this is the only process that holds the host
-   container-runtime credentials. See
-   [Deployment — Dispatcher service](deployment.md#dispatcher-service).
-5. **A2A protocol** — how the dispatcher talks to the running container.
-6. **MCP** — how the container calls back into the platform for tools.
-7. **Dapr Conversation** (Spring Voyage Agent only) — the Dapr building block
-   that routes the LLM call from inside the container to the configured
-   model provider (Ollama / OpenAI / Anthropic / Google).
-
-The contract between the dispatcher and the launcher is intentionally narrow:
-every runtime-specific detail (Claude Code's `--resume` handshake, Codex's
-auth.json layout, the Spring Voyage Agent's MCP bridge) stays behind
-`IAgentRuntimeLauncher`.
+Spring Voyage does not implement an agentic loop. It **coordinates external
+agent runtimes** — `claude`, `codex`, `gemini`, the `spring-voyage` agent —
+running in containers ([ADR-0021](../decisions/0021-spring-voyage-is-not-an-agent-runtime.md)).
+This page covers how a runtime is configured, launched, and driven for a turn:
+the runtime catalogue, the launcher contract, the A2A sidecar bridge, the image
+conformance contract, the AgentSDK, and credential handling.
 
 ---
 
-## 1. `A2AExecutionDispatcher`
+## AgentRuntime, ModelProvider, Model
 
-Source: `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`.
+Three distinct identities ([ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md)):
 
-The dispatcher has two paths:
+- **AgentRuntime** — *how* an agent runs: a container image, a launcher, and how
+  the runtime binds a thread and receives its system prompt. Examples:
+  `claude-code`, `codex`, `gemini`, `spring-voyage`.
+- **ModelProvider** — *who serves the model*: one wire-format family
+  (`anthropic`, `openai`-compatible, `google`) plus credential and live-model
+  concerns. Shared across runtimes.
+- **Model** — a `{provider, id}` pair. The provider is intrinsic to the model.
 
-| Path          | Trigger                                                      | Container lifecycle                    |
-| ------------- | ------------------------------------------------------------ | -------------------------------------- |
-| **Ephemeral** | `AgentExecutionConfig.Hosting == Ephemeral` (default)        | One container per invocation.           |
-| **Persistent**| `AgentExecutionConfig.Hosting == Persistent`                 | Long-lived service; shared across turns. |
+User-facing execution config collapses to `(runtime, model)`. The user picks a
+runtime and a model; the provider follows from the model.
 
-Both paths share steps 1–3 (resolve → assemble prompt → issue MCP session) and
-diverge at the container-runtime call. The persistent path is backed by
-`PersistentAgentRegistry`, which tracks the container's health and re-launches
-it on failure.
+### The runtime catalogue
 
-The dispatcher does **not** accept a per-agent container runtime. It reads the
-agent's `AgentExecutionConfig.AgentRuntimeId` (sourced from the `ai.runtime`
-manifest field, or the wire `runtime` / persisted `agent` execution slot),
-looks up the matching `AgentRuntime` entry in the runtime catalogue, and
-dispatches the turn through the `IAgentRuntimeLauncher` registered under the
-runtime entry's `launcher` id (#1732). The launcher then handles prep. The
-docker/podman binary is host-level platform configuration per ADR-0039 §7.
+`runtime-catalog.yaml` is the checked-in source of truth, loaded by
+`Cvoya.Spring.RuntimeCatalog`. It declares every `ModelProvider` and every
+`AgentRuntime`, plus the **edges** between them — which `(runtime, provider,
+authMethod)` triples are valid and which credential env-var each carries. Adding
+a runtime or provider is a data change in this file plus, if a new wire format
+or launch mechanism is involved, a small strategy registration. There are no
+per-provider or per-runtime classes — `IAgentRuntimeLauncher` and
+`IModelProviderAdapter` are small strategy registries keyed by id.
 
-**Unit-inheritance merge (#601 B-wide).** The
-`AgentExecutionConfig` the dispatcher receives is already merged with the
-parent unit's `execution:` defaults. `DbAgentDefinitionProvider.GetByIdAsync`
-reads the agent's own declared block, looks up the agent's parent unit (first
-membership by `CreatedAt`), pulls the unit's persisted execution defaults
-through `IUnitExecutionStore`, and runs a field-level precedence merge:
+## The launch path
 
-- Per field (`agent`, `image`, `model.provider`, `model.id`) — **agent wins**
-  when the agent set the value; otherwise the
-  unit default fills in; otherwise the field is null and the dispatcher fails
-  cleanly with a merge-aware error message pointing operators at both
-  surfaces.
-- `hosting` is **agent-exclusive** — never inherits. A unit cannot change
-  whether an agent is ephemeral or persistent.
+A turn runs through `A2AExecutionDispatcher` (worker-side):
 
-See [ADR-0039 § 6](../decisions/0039-units-are-agents.md#6-inheritance-top-level-under-tenant-multi-parent-override-reparenting-validation)
-for the current inheritance contract, including top-level tenant defaults,
-single-parent inheritance, multi-parent conflict validation, and reparenting
-checks.
+1. **Resolve** the launcher for the agent's runtime from the catalogue.
+2. **Build** the container config — image, env vars, the workspace, the system
+   prompt, the per-turn MCP token.
+3. **Start** the container (via the dispatcher — see [Deployment](deployment.md)).
+4. **Probe** `/.well-known/agent.json` until the A2A endpoint is ready (≤60s).
+5. **Send** the turn as an A2A `message/send`.
+6. **Capture** the response and map it back to a platform `Message`.
+7. **Tear down** (ephemeral) or leave running (persistent).
 
-```text
-AgentActor.ExecuteTurn()
-  → A2AExecutionDispatcher.DispatchAsync(message, context)
-     → IAgentDefinitionProvider.GetByIdAsync(addressId)
-     → IPromptAssembler.AssembleAsync(message, context)
-     → IMcpServer.IssueSession(agentId, threadId)
-     → launcher.PrepareAsync(launchContext)          ── argv + env + mounts + workdir + stdin
-     → ContainerConfigBuilder.Build(image, spec)     ── single seam to ContainerConfig
-     → IContainerRuntime.StartAsync (detached)        ── ephemeral OR persistent: same call
-     → poll GET /.well-known/agent.json on :A2APort  ── readiness probe (60s budget, 200ms backoff)
-     → A2AClient.SendMessageAsync(SendMessageRequest) ── A2A roundtrip, both modes
-     → MapA2AResponseToMessage(...)                   ── A2A response → Spring message
-     → ephemeral: EphemeralAgentRegistry.ReleaseAsync ── teardown on turn drain
-       persistent: leave running, registered in PersistentAgentRegistry
-```
+Both ephemeral and persistent hosting use this one path
+([ADR-0025](../decisions/0025-unified-agent-launch-contract.md)); persistence is
+a retention policy, not a separate dispatch surface.
 
-Both hosting modes share a single dispatch path. The only branch is the
-post-roundtrip lifecycle decision: ephemeral tears down, persistent stays
-running. The unification was decided in [ADR 0025](../decisions/0025-unified-agent-launch-contract.md)
-and shipped through PRs 4–5 of the #1087 series, collapsing the legacy
-"ephemeral goes through `RunAsync + harvest stdout`" branch onto this
-unified path. The container's PID 1 is now always the agent-base bridge
-(BYOI conformance paths 1/2 — see [ADR 0027](../decisions/0027-agent-image-conformance-contract.md))
-or the agent runtime itself (path 3, native A2A); the platform no longer
-launches containers whose entrypoint is a "wait forever" stub. Container
-scope is per-agent, not per-unit — see [ADR 0026](../decisions/0026-per-agent-container-scope.md).
+### Launchers
 
-`AgentLaunchContext` — the record the dispatcher hands to the launcher —
-carries the resolved `(runtime, provider, modelId)` tuple. The dispatcher
-reads them from `AgentExecutionConfig` and forwards them unchanged; launchers
-that route through Dapr Conversation use `provider` and `modelId` to pin the
-Conversation component and the model. CLI-sidecar launchers ignore them
-because their CLIs hardcode the provider.
+An `IAgentRuntimeLauncher` turns an agent's resolved config into a launch spec —
+image, argv, env vars, the workspace files, and the system prompt. The built-in
+launchers are `ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`, and
+`SpringVoyageAgentLauncher`. Each describes the **workspace as pure data** — a
+file map plus a mount path — and the dispatcher materialises it (see
+[Deployment](deployment.md)). A launcher also writes the MCP server config the
+runtime CLI reads.
 
-**Unit-address resolution.** `unit:<id>` dispatch uses the same flat Dapr actor
-id as `agent:<id>`, but the runtime definition comes from the unit row. The OSS
-`DbAgentDefinitionProvider` first reads `agent_definitions` for leaf agents;
-when no executable agent definition is present for the id, it falls back to
-`unit_definitions` and projects the unit's own `instructions` and `execution`
-block as the launch definition. If a unit row exists but lacks
-`execution.agent`, dispatch fails through the normal `ErrorOccurred` activity
-path with a configuration error rather than silently accepting the message.
+## The A2A sidecar bridge
 
----
+A runtime CLI like `claude` speaks stdin/stdout, not A2A. The platform bridges
+that with the **A2A sidecar** (`Cvoya.Spring.AgentSidecar`, TypeScript), bundled
+into every CLI-based agent image. It:
 
-## 2. Two launcher tiers
+- exposes an **A2A 0.3.x** endpoint (`message/send`, `tasks/get`,
+  `tasks/cancel`) on the agent port (default `8999`);
+- on `message/send`, spawns the runtime CLI, pipes the prompt to stdin, captures
+  stdout/stderr, and maps the result to an A2A task;
+- reads the **per-turn MCP token** from the A2A `message/send` metadata and
+  writes it into the runtime's MCP config (`.mcp.json` for `claude`/`codex`,
+  `.gemini/settings.json` for `gemini`) before spawning the CLI;
+- propagates cancellation (`SIGTERM` → `SIGKILL`).
 
-The OSS core ships two conceptually different launcher tiers. New launchers
-slot into one or the other.
+## Image conformance
 
-### Tier A — CLI-sidecar launchers
+An agent image conforms by speaking A2A 0.3.x on the agent port. There are three
+conformance paths ([ADR-0027](../decisions/0027-agent-image-conformance-contract.md)):
 
-Examples: `ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`.
+1. **`FROM` the OCI base image** — `ghcr.io/cvoya-com/spring-voyage-claude-code-base`
+   bundles the sidecar bridge.
+2. **The sidecar as an npm package** — for images that build their own base.
+3. **A native A2A server** — an image that implements A2A 0.3.x directly (the
+   `spring-voyage-agent` image takes this path).
 
-The agent runtime wraps a CLI agent (Claude Code, Codex, Gemini CLI). The
-launcher materialises the agent's on-disk workspace — API keys, system
-prompt, resume-from-checkpoint state — and the container image's entrypoint
-wraps the CLI in an A2A sidecar so the dispatcher can talk to it the same way
-it talks to a native A2A service.
+The conformance probe is one step of the validation workflow (see
+[Units & agents](units-and-agents.md)).
 
-Key properties:
+## The platform MCP surface in the container
 
-- One container per invocation (ephemeral).
-- The A2A sidecar translates between A2A tasks and the CLI's stdin/stdout.
-- No Dapr sidecar is involved; the LLM call is the CLI's own HTTP call to
-  its provider.
-- These runtimes are **fixed-provider** in the runtime catalogue — each one
-  declares exactly one `modelProviders:` entry, so the wizard hides the
-  provider picker (see [ADR-0038 § 1](../decisions/0038-agent-runtime-and-model-provider-split.md#1-three-concepts-one-tuple-at-the-user-facing-surface)).
+A launched runtime reaches the platform's `sv.*` tools over MCP. The launcher
+writes a one-server config naming the worker `McpServer`:
 
-### Tier B — A2A-native launchers
-
-Example: `SpringVoyageAgentLauncher` (runtime id `spring-voyage`).
-
-The container is itself an A2A service that runs a platform-managed agentic
-loop using `dapr_agents`. The container image:
-
-- Exposes the A2A endpoint on `AGENT_PORT` (8999 by default).
-- Resolves its tools dynamically at startup via the platform's MCP server.
-- Routes its LLM calls through the **Dapr Conversation** building block so
-  the concrete provider (Ollama, OpenAI, Anthropic, Google) is selected by
-  YAML, not code.
-
-Key properties:
-
-- Can run ephemeral **or** persistent.
-- The A2A server is part of the container, not a wrapper around a CLI.
-- The Dapr Conversation component exposes the provider by **component name**
-  (not component `type`). The Python agent passes the component name to
-  `DaprChatClient` so mis-routed or unconfigured providers fail at startup
-  instead of silently falling back to an environment default.
-- This runtime is **multi-provider** in the runtime catalogue — its
-  `modelProviders:` list carries `anthropic`, `openai`, `google`, `ollama`.
-  The wizard surfaces the provider picker as a model-list filter, but the
-  selected provider is recorded only as `model.provider`; there is no
-  separate `provider` slot on the unit / agent (ADR-0038).
-
----
-
-## 3. The A2A transport
-
-Both tiers speak A2A 0.3.x. The dispatcher uses the SDK's `A2AClient` to send
-one `SendMessageRequest` per turn:
-
-```text
-POST /                                     (on the container's :8999)
-Content-Type: application/json
+```jsonc
 {
-  "message": { "role": "user", "parts": [ { "text": "<prompt>" } ], … },
-  "configuration": { "acceptedOutputModes": [ "text/plain" ] }
-}
-```
-
-The response is either a terminal `Message` or an `AgentTask` whose
-`artifacts` carry the final text. `A2AExecutionDispatcher.MapA2AResponseToMessage`
-extracts the text and wraps it into the platform's internal
-`Cvoya.Spring.Core.Messaging.Message` envelope.
-
-**Failure handling.** A `TaskState.failed` in the response is a real
-failure — it surfaces as `ExitCode: 1` in the outbound platform message and
-is assertable in scenarios.
-
----
-
-## 4. MCP channel
-
-`IMcpServer` issues a per-turn session token and exposes `McpEndpoint` — the
-URL the container can reach the platform on (typically
-`http://host.docker.internal:<port>/mcp`). The launcher stamps both into the
-container env (`SPRING_MCP_URL`, `SPRING_MCP_TOKEN`), and the agent inside the
-container calls `tools/list` to discover callable skills and `tools/call` to
-invoke them.
-
-Per ADR-0051 this is the **single** platform MCP server: it serves every
-`sv.*` tool — `sv.directory.*`, `sv.memory.*`, `sv.runtime.*`,
-`sv.expertise.*`, **and** `sv.messaging.*` — under one auth model, the MCP
-session bearer token. The session is minted per turn and carries the inbound
-message id, so `sv.messaging.*` inherits the per-turn `(tenant, agentAddress,
-threadId, messageId)` delivery authority the retired callback JWT used to
-carry. It is revoked in the dispatcher's `finally` block for the ephemeral
-path; persistent agents reuse a stable session id derived from the agent id.
-
-See [Workflows](workflows.md) for the sidecar-protocol layer diagram.
-
----
-
-## 4a. OTLP-ingest bootstrap
-
-Every built-in launcher stamps the OTLP-ingest bootstrap into the runtime
-container so the in-container agent and SDK can ship spans and logs:
-
-| Env var | Source | Purpose |
-| --- | --- | --- |
-| `SPRING_CALLBACK_URL` | Worker `Dispatcher:BaseUrl` | API-host base URL the launcher derives the `/otlp` ingest endpoint from. |
-| `SPRING_CALLBACK_TOKEN` | Per-invocation JWT | Authenticates OTLP ingest; scoped to `(tenantId, agentAddress, threadId, messageId)`. |
-
-These two env vars are the **OTLP-ingest credential only** — ADR-0051 retired
-the per-turn callback JWT as the messaging credential, but the OTLP-ingest
-plane (`OtlpCallbackAuthHandler`) still validates this token shape. Messaging
-no longer needs a separate MCP server or a per-turn token refresh: `.mcp.json`
-carries one server (`spring-voyage`) with the long-lived MCP session token,
-which already lives exactly as long as the turn.
-
----
-
-## 4b. Platform MCP tool surface
-
-Platform MCP tools follow the `sv.<area>.<verb>` taxonomy
-([ADR-0050](../decisions/0050-platform-mcp-tool-surface.md)). The platform's
-message-delivery surface is exactly two tools — `sv.messaging.send` and
-`sv.messaging.multicast` — on the [ADR-0049](../decisions/0049-message-delivery-tool-contract.md)
-delivery-acknowledgement contract. The runtime path attaches the platform MCP
-surface unconditionally for every `agent://` and `unit://` runtime; unit
-operators and runtime authors do not enable a separate orchestration mode.
-
-| Tool | Description |
-| --- | --- |
-| `sv.messaging.send` | One-way delivery of a message to a single addressable target. Returns a delivery acknowledgement — the message reached the recipient's mailbox — never the recipient's reply. Records a `MessageSent` activity. |
-| `sv.messaging.multicast` | One-way delivery to many targets, addressed explicitly or by a directory-relationship `scope` (`unit-members`, `siblings`). Records a `MessageSent` activity per target. |
-
-The `delegate_to` / `fanout_to` orchestration tools no longer exist
-([ADR-0050 § 2](../decisions/0050-platform-mcp-tool-surface.md), superseding
-[ADR-0039 §§ 3–4](../decisions/0039-units-are-agents.md)): the platform
-delivers messages, it does not orchestrate. "Delegation" is message *content*
-the recipient's runtime interprets — a runtime delegates by sending a message
-via `sv.messaging.send` whose content says so. The platform treats a delegated
-message and a peer message identically.
-
-Recording a routing decision is an *optional*, explicit `sv.runtime.report_decision`
-call (§ 4d), not a side effect of delivery. Discovery, inspection, and
-runtime-status queries live on the `sv.directory.*` tools exposed through the
-worker `spring-voyage` MCP server (`sv.directory.list_members`,
-`sv.directory.get_member`, `sv.directory.get_status`, …). See
-[Platform MCP Tools](platform-mcp-tools.md) for the full `sv.<area>.<verb>`
-catalogue.
-
-The delivery handlers are exposed through two runtime-facing surfaces, both
-calling the **same single platform MCP server** (ADR-0051):
-
-| Surface | Runtime style | Runtimes | Attachment |
-| --- | --- | --- | --- |
-| MCP tool calls | LLM-driven | `spring-voyage`, `claude-code`, `codex`, `gemini` | The launcher attaches the single `spring-voyage` MCP server, which serves `sv.messaging.*` alongside every other `sv.*` tool. |
-| Typed `MessagingClient` | Workflow-driven | Runtime images using `Cvoya.Spring.AgentSdk` | The launcher stamps `SPRING_MCP_URL` and `SPRING_MCP_TOKEN` into the container environment. `MessagingClient` calls `sv.messaging.*` over JSON-RPC `tools/call` against that same MCP server. |
-
-Both surfaces dispatch to the same platform-side
-[`MessagingToolHandlers`](../../src/Cvoya.Spring.Dapr/Messaging/MessagingToolHandlers.cs)
-implementation, re-fronted as the `SvMessagingSkillRegistry` on the platform
-MCP server. The SDK surface lives in
-[`src/Cvoya.Spring.AgentSdk/`](../../src/Cvoya.Spring.AgentSdk/) and is
-documented in [Agent SDK](agent-sdk.md). The MCP surface — the taxonomy, the
-single MCP server, the messaging contract, and the per-thread hop counter —
-is documented in [Platform MCP Tools](platform-mcp-tools.md).
-
-With a single delivery seam, delegation-loop prevention is implemented once: a
-per-thread hop counter incremented on every `sv.messaging.send` /
-`sv.messaging.multicast` call rejects a call past the platform limit with the
-validation-class `DepthExceeded` tool error.
-
-## 4c. Launcher's tool-attachment responsibility
-
-Each per-runtime launcher attaches the single platform MCP server before
-handing off to the runtime image (ADR-0051). There is no per-invocation
-messaging tool list to thread through `AgentLaunchContext`: `sv.messaging.*`
-is registered on the platform MCP server as the `SvMessagingSkillRegistry`,
-and `tools/list` is grant-filtered server-side, so the runtime discovers
-exactly the `sv.*` tools its subject is entitled to.
-
-- **LLM-driven runtimes.** The launcher writes one MCP server (`spring-voyage`)
-  into `.mcp.json` / `.gemini/settings.json` (for `claude-code`, `codex`,
-  `gemini`; `spring-voyage` uses its MCP bridge), pointed at `SPRING_MCP_URL`
-  with the `SPRING_MCP_TOKEN` session token.
-- **SDK-driven runtimes.** The launcher stamps `SPRING_MCP_URL` and
-  `SPRING_MCP_TOKEN` into the container environment. `Cvoya.Spring.AgentSdk`'s
-  `MessagingClient` reads them through `SpringAgent.FromEnvironment()` and calls
-  `sv.messaging.*` over JSON-RPC `tools/call` against the same MCP server.
-
-Custom launchers use their runtime's own extension mechanism, but the tool
-names and JSON Schemas stay the same. This keeps the platform contract
-uniform while allowing each runtime image to expose tools through its native
-interface.
-
-This responsibility builds on the launcher contract from
-[ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md) and the
-MCP tool surface from [ADR-0050](../decisions/0050-platform-mcp-tool-surface.md).
-
-## 4d. `DecisionMade` event shape
-
-When a runtime calls `sv.runtime.report_decision`, the platform publishes a
-`DecisionMade` activity event. The durable payload is the Core
-`RoutingDecision` record. ADR-0050 generalised the call: it now records
-any routing decision — executed or not — and is independent of whether a
-message was delivered. A plain `sv.messaging.*` delivery publishes a
-`MessageSent` activity and nothing more; `report_decision` is the explicit,
-optional call a runtime makes when it wants the *decision* itself on the
-stream. The normalized event shape is:
-
-```json
-{
-  "decisionId": "<uuid>",
-  "tenantId": "<uuid>",
-  "unitAddress": {
-    "scheme": "<scheme>",
-    "id": "<uuid>"
-  },
-  "threadId": "<uuid>",
-  "inputMessageId": "<uuid>",
-  "kind": "Delegate | Fanout",
-  "targets": [
-    {
-      "scheme": "<scheme>",
-      "id": "<uuid>"
+  "mcpServers": {
+    "spring-voyage": {
+      "type": "http",
+      "url": "http://host.docker.internal:5050/mcp/",
+      "headers": { "Authorization": "Bearer <per-turn MCP session token>" }
     }
-  ],
-  "status": "Accepted | Routed | Failed",
-  "resultMessageIds": ["<uuid>"],
-  "reason": "<optional string>",
-  "metadata": null,
-  "createdAt": "<ISO-8601>"
+  }
 }
 ```
 
-`Kind` is `Delegate` or `Fanout`. `RoutingDecision` /
-`RoutingDecisionKind` / `RoutingDecisionStatus` are retained as the
-`sv.runtime.report_decision` payload; only that tool publishes a
-`DecisionMade` event. A `sv.messaging.*` delivery publishes a `MessageSent`
-activity, not an `RoutingDecision`. `Reason` is plain text supplied by
-the runtime's tool call; it is never hidden model reasoning.
-
-Subscribers consume this stream as routing-decision evidence. For example, the
-GitHub connector's label-roundtrip subscriber listens for routed
-`Delegate` decisions and applies connector-side label rules from the unit's
-GitHub binding.
-
-See [ADR-0050 § 3](../decisions/0050-platform-mcp-tool-surface.md) for the
-generalised `sv.runtime.report_decision` contract and [ADR-0039 section 4](../decisions/0039-units-are-agents.md#4-orchestration-decisions-are-first-class-evidence)
-for the original first-class-evidence rationale.
-
----
-
-## 4e. Skill registries
-
-See [ADR 0014](../decisions/0014-skill-invoker-seam.md) for the decision record behind the `ISkillInvoker` seam and the expertise-directory-driven skill surface.
-
-Tools exposed over MCP are surfaced by any number of `ISkillRegistry`
-implementations registered in DI. The MCP server enumerates every registry at
-`tools/list` time and routes every `tools/call` to the registry that declared
-the tool. The OSS core ships one registry; built-in connectors that surface
-tools register their own:
-
-| Registry                    | Source | Surface |
-| --------------------------- | ------ | ------- |
-| `ExpertiseSkillRegistry`     | Core (#359)              | **Expertise-directory-driven**: skills are derived live from `IExpertiseAggregator` (per #487 / #498) and projected through the caller's `BoundaryViewContext` (per #497). No startup snapshot — a mutation (agent gains expertise, unit boundary changes) propagates on the next enumeration. |
-
-The built-in `arxiv` and `web-search` connectors each register an
-`ISkillRegistry` under their slug (`arxiv.*`, `websearch.*`). The
-`github` connector deliberately registers none (issues #2384 / #2383):
-agents bound to a GitHub unit run `gh` and `git` directly inside their
-container against the credentials the
-[runtime-context contributor](#4g-connector-runtime-context-contribution-2380)
-injects per launch, so no `github.*` entry surfaces from `tools/list`.
-
-### The expertise-directory-driven skill surface (#359)
-
-The skill surface is a **projection of the expertise directory**, not of the
-agent roster. Concretely:
-
-1. **Source of truth.** `IExpertiseSkillCatalog` reads aggregated expertise
-   through `IExpertiseAggregator` — the same interface that serves every
-   other expertise read. There is no parallel capability registry to keep in
-   sync.
-2. **Typed-contract eligibility.** Only `ExpertiseDomain` entries with a
-   non-null `InputSchemaJson` are surfaced as skills. A consultative-only
-   entry (free-form advice, no structured request shape) leaves the schema
-   null and stays message-only.
-3. **Boundary projection.** External callers see only unit-projected entries
-   (`origin = unit:<id>`). Agent-level expertise inside a unit that isn't
-   covered by a projection is hidden from the outside and visible only to
-   callers already inside the boundary. The catalog applies the boundary in
-   two ways: by asking the aggregator for the caller-aware view, and by
-   filtering non-unit origins out of external enumerations as a defence in
-   depth.
-4. **Naming scheme.** Skill names follow `expertise/{slug}` where the slug is
-   a case-folded, path-safe projection of the domain name (see
-   `ExpertiseSkillNaming`). Agent names never appear in the skill surface —
-   swapping the agent that holds an expertise entry does NOT rename the
-   skill, and the catalog is stable across agent churn.
-5. **Live resolution.** Every enumeration hits the aggregator. The
-   aggregator's cache + `InvalidateAsync` contract from #487 handles the
-   freshness story; the registry's `GetToolDefinitions()` re-fetches on every
-   call (with the last-enumerated snapshot returned while the refresh is in
-   flight, since the `ISkillRegistry` method is synchronous).
-
-### The `ISkillInvoker` seam
-
-Skill callers — planners, the MCP server, any future A2A gateway — never
-reach into `IMessageRouter` directly. Instead they invoke through
-`ISkillInvoker`:
-
-```text
-caller → ISkillInvoker.InvokeAsync(SkillInvocation)
-         → catalog.ResolveAsync(name, caller's BoundaryViewContext)
-         → build Message(to = catalog target, from = caller)
-         → IMessageRouter.RouteAsync(message)         ── boundary + permission + policy + activity
-         → translate response payload back to SkillInvocationResult
-```
-
-Routing through `IMessageRouter` is load-bearing: that is the single
-enforcement seam for boundary opacity (#413 / #497), hierarchy permissions
-(#414), cloning policy (#416), initiative levels (#415), and activity
-emission (#391 / #484). Bypassing the router would make the skill surface a
-governance hole.
-
-A **second, invocation-time boundary re-check** is performed by the invoker:
-the catalog's `ResolveAsync` takes the caller's `BoundaryViewContext`, so a
-skill the caller cannot see is impossible to call even when the caller knows
-the name. Combined with the router's permission chain this gives defence in
-depth.
-
-### Alternative invoker implementations
-
-`ISkillInvoker` is the extension seam that will host the A2A message gateway
-tracked in [#539](https://github.com/cvoya-com/spring-voyage/issues/539).
-The gateway will register an alternative implementation that translates a
-`SkillInvocation` to an outbound A2A call instead of an internal `Message`;
-callers do not change. The default `MessageRouterSkillInvoker` is registered
-with `TryAdd*` so a downstream host (private cloud, integration test harness)
-can pre-register its own and keep it.
-
----
-
-## 4f. Provider surfaces vs. fixed-provider runtimes
-
-The wizard rule from [ADR-0038 § 1](../decisions/0038-agent-runtime-and-model-provider-split.md#1-three-concepts-one-tuple-at-the-user-facing-surface)
-is keyed off whether a runtime declares one or many `modelProviders` in the
-catalogue:
-
-| Runtime           | `modelProviders` in catalogue | Provider picker visibility |
-|-------------------|-------------------------------|----------------------------|
-| `claude-code`     | `[anthropic]`                 | Hidden (fixed)             |
-| `codex`           | `[openai]`                    | Hidden (fixed)             |
-| `gemini`          | `[google]`                    | Hidden (fixed)             |
-| `spring-voyage`   | `[anthropic, openai, google, ollama]` | Shown (filter)     |
-
-**Surface-level consequence:**
-
-- The unit-creation wizard and the CLI accept `model.provider` only when the
-  resolved runtime declares more than one provider. Specifying a provider on
-  a fixed-provider runtime is rejected with a targeted error message so
-  operators don't discover at dispatch time that the field had no effect.
-- A custom runtime that wants to surface a provider selector declares its
-  allowed providers in its `modelProviders:` catalogue entry. The platform's
-  create-unit UI derives the picker visibility from `modelProviders.Count > 1`
-  uniformly; there is no per-runtime UI special-casing.
-- Credentials flow through `ILlmCredentialResolver` keyed on
-  `(tenant, provider, authMethod)` per [ADR-0038 § 4](../decisions/0038-agent-runtime-and-model-provider-split.md#4-credential-matrix-is-derived-from-runtime-catalogyaml).
-  Unit-level inheritance follows ADR-0003. The portal's create wizard does
-  not gate on credential validation at accept time (removed in #941); unit
-  creation flows straight into `Validating`, and the detail page's
-  Validation panel
-  (`src/Cvoya.Spring.Web/src/components/units/detail/validation-panel.tsx`)
-  owns the operator-facing feedback.
-
-Future evolution — for example a "Claude Code with Vertex AI backend"
-runtime — drops the second provider into `claude-code`'s `modelProviders:`
-list and the wizard rule does the rest, no per-runtime code change required.
-
----
-
-## 4g. Connector runtime-context contribution (#2380)
-
-A connector binding (`unit_connector_bindings`) attaches a unit to an
-external system. The runtime container needs the external-system identity
-and a short-lived credential to act on the binding — the GitHub connector,
-for example, needs the owner / repo / installation id / reviewer login and
-an installation access token so the container's `gh` / `git` tooling can
-push branches and open pull requests.
-
-The bridge is `IConnectorRuntimeContextContributor` (in
-`Cvoya.Spring.Connectors.Abstractions`). Every connector that wants to
-contribute runtime context implements the seam; the dispatcher resolves
-the contributions and merges them into the launch spec.
-
-### Resolution order
-
-For each dispatch the dispatcher invokes
-`IConnectorRuntimeContextResolver.ResolveAsync(subject)` immediately after
-the platform `AgentContextBuilder` bootstrap and before the workspace
-volume mount step:
-
-1. If the subject is an `agent:`, resolve the agent's primary parent unit
-   (first `unit_memberships` row by `CreatedAt`).
-2. Starting from that unit, walk ancestors via the production
-   `IUnitHierarchyResolver` (`unit_subunit_memberships`).
-3. For each connector type id, the closest unit's binding wins (a direct
-   binding on the subject shadows any inherited binding of the same type).
-4. For every resolved binding, invoke the matching contributor (one
-   contributor per connector type id) with the binding payload, the
-   binding's owning unit id, the subject address, and the current
-   tenant id.
-
-### Contribution shape
-
-Each contributor returns env-vars + context files. The dispatcher merges
-both onto the bootstrap-merged launch spec.
-
-| Channel | Reserved namespace | Mount path inside the container |
-| --- | --- | --- |
-| Env vars | `SPRING_CONNECTOR_<SLUG_UPPER>_*` (e.g. `SPRING_CONNECTOR_GITHUB_TOKEN`). | Standard process environment. |
-| Context files | `connectors/<slug>/*` (relative to `/spring/context/`). | `/spring/context/connectors/<slug>/...` (the dispatcher mounts the merged context directory at `/spring/context/` per the runtime spec). |
-
-The resolver fails the launch on any of:
-
-- An env-var key that does not respect the
-  `SPRING_CONNECTOR_<SLUG_UPPER>_*` prefix.
-- A context-file sub-path that does not respect the `connectors/<slug>/`
-  prefix.
-- Two contributors writing the same env-var key or file sub-path.
-- A contributor's contribution colliding with a platform-bootstrap env-var
-  (`SPRING_TENANT_ID`, `SPRING_MCP_TOKEN`, …) or context file
-  (`agent-definition.yaml`, `tenant-config.json`).
-
-These checks are deliberate: a clean dispatch failure is better than a
-container running with a partially-populated environment or a silently
-overwritten platform value.
-
-### Credential lifecycle
-
-Tokens contributed through this seam are **per-launch**. The contributor
-mints credentials inline in `ContributeAsync` — they live only for the
-duration of the container, and rotation is handled by launching again.
-Contributors MUST NOT cache credentials across launches. The seam is
-invoked only from the launch path; plain-text credentials never round-trip
-through any API or portal response.
-
-### GitHub-side contract (v0.1)
-
-`GitHubConnectorRuntimeContextContributor` emits the following on every
-launch whose subject inherits a `UnitGitHubConfig`:
-
-| Env var | Source | Purpose |
-| --- | --- | --- |
-| `SPRING_CONNECTOR_GITHUB_OWNER` | `UnitGitHubConfig.Owner` | Repository owner login. |
-| `SPRING_CONNECTOR_GITHUB_REPO` | `UnitGitHubConfig.Repo` | Repository name. |
-| `SPRING_CONNECTOR_GITHUB_INSTALLATION_ID` | `UnitGitHubConfig.AppInstallationId` | GitHub App installation id (decimal). |
-| `SPRING_CONNECTOR_GITHUB_REVIEWER` | `UnitGitHubConfig.Reviewer` | Chosen reviewer login. Omitted when the binding declares no reviewer; v0.2 will resolve this through a per-human GitHub-handle mapping in the hosted overlay. See [PR-without-reviewer is a valid flow](#pr-without-reviewer-is-a-valid-flow) for the end-to-end contract. |
-| `SPRING_CONNECTOR_GITHUB_TOKEN` | `GitHubAppAuth.MintInstallationTokenAsync` | Short-lived installation access token. |
-| `SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT` | Token mint response. | ISO-8601 UTC expiry so the container can plan its work. |
-
-The contributor also writes `connectors/github/binding.json` — the same
-fields minus the token. The token itself lives **only** in the env var so
-log dumps of the context-files mount cannot leak it.
-
-`GITHUB_TOKEN` is published as a **well-known alias** alongside
-`SPRING_CONNECTOR_GITHUB_TOKEN` (#2442). Both names hold the same value;
-the namespaced var stays canonical, while the alias is the convenience
-hop downstream CLIs already read — `gh` and `git` credential helpers
-pick it up natively, so agents do not need to re-export the namespaced
-value before every call. The contributor returns the alias in the new
-`ConnectorRuntimeContextContribution.WellKnownAliasEnvironmentVariables`
-slot, which is exempt from the `SPRING_CONNECTOR_<SLUG_UPPER>_*` namespace
-check but subject to the same no-collision rule.
-
-#### PR-without-reviewer is a valid flow
-
-`UnitGitHubConfig.Reviewer` is **optional**. When the binding declares
-no reviewer (`null` or whitespace), the agent opens pull requests
-**without** a requested reviewer — that is the supported flow, not an
-error condition. The contract is symmetric across every layer:
-
-- **Binding write** (`PUT /api/v1/connectors/github/units/{id}/config`)
-  — `GitHubConnectorType.PutConfigAsync` treats whitespace as `null`,
-  persists `Reviewer = null`, and skips the optional
-  `IConnectorIdentityAutoSeed` call (the operator-identity seed is keyed
-  on a non-empty reviewer login; with no reviewer there is nothing to
-  seed).
-- **Runtime context** — the contributor omits
-  `SPRING_CONNECTOR_GITHUB_REVIEWER` from the env-var map entirely
-  (rather than emitting an empty string), and writes `"Reviewer": null`
-  in `connectors/github/binding.json`. The container sees a clean
-  "not set" signal.
-- **Container workload** — `gh pr create` accepts a missing
-  `--reviewer` argument; the agent's prompt guidance is "set
-  `--reviewer "$SPRING_CONNECTOR_GITHUB_REVIEWER"` **if** the env-var
-  is non-empty," so the PR opens with no reviewer requested. No
-  exception, no log warning, no fallback assignment.
-- **Webhook ingestion, label roundtrip, binding lifecycle** — none of
-  these platform-side paths read `Reviewer`; they remain reviewer-agnostic.
-
-The Spring Voyage OSS package
-([`packages/spring-voyage-oss`](../../packages/spring-voyage-oss/))
-intentionally does **not** set a default reviewer on its GitHub
-connector requirement — the operator supplies one at install time, or
-leaves it unset and accepts the no-reviewer PR flow.
-
-## 4h. Connector prompt-context contribution (#2442)
-
-The runtime-context seam (§ 4g) tells the **container** about a binding
-via env-vars and mounted files. The complementary
-`IConnectorPromptContextContributor` seam (in
-`Cvoya.Spring.Connectors.Abstractions`) tells the **agent's LLM** about
-those env-vars by injecting a markdown fragment into the platform layer
-of the four-layer prompt assembly. Without it, the agent sees the
-env-vars in its container but the prompt never tells it they exist —
-the symptom that surfaced during the OSS dogfood: agents asked "what's
-the repo?" instead of reading `$SPRING_CONNECTOR_GITHUB_OWNER`.
-
-The interface is a sibling of `IConnectorRuntimeContextContributor`. A
-connector type implements either or both:
-
-```csharp
-public interface IConnectorPromptContextContributor
-{
-    Guid ConnectorTypeId { get; }
-    Task<string?> GetPromptHintsAsync(
-        Address subject,
-        Guid bindingOwnerUnitId,
-        UnitConnectorBinding binding,
-        CancellationToken ct);
-}
-```
-
-`null` from a contributor means "no hints for this subject" — no
-opt-in flag, no fall-back to a legacy text path. The dispatcher's
-`IConnectorPromptContextResolver` walks the same direct + inherited
-bindings as the runtime-context resolver (both share an internal
-`ConnectorBindingWalker` so the two paths stay in lockstep), gathers
-each contributor's non-null fragment, and threads the ordered list
-through `PromptAssemblyContext.ConnectorPromptFragments`. The prompt
-assembler wraps the concatenated fragments in a single section under
-the platform layer:
-
-```text
-## Platform Instructions
-…
-
-## Connector context (auto-injected by platform)
-
-### GitHub binding — cvoya-com/spring-voyage
-…body…
-
-### Other connector binding
-…
-```
-
-The section is omitted entirely when the resolver returns no
-fragments — no empty heading. Each contributor is expected to open its
-fragment with a `### …` sub-heading naming the binding so multiple
-connectors render cleanly side-by-side.
-
-### GitHub-side contract (v0.1)
-
-`GitHubConnectorRuntimeContextContributor` implements **both** seams.
-Its prompt fragment substitutes the actual `$OWNER` / `$REPO` at hint
-generation time and lists the env-vars the container has, including
-the `$GITHUB_TOKEN` alias. The exact rendered shape is pinned by a
-snapshot test in
-`tests/unit/Cvoya.Spring.Connector.GitHub.Tests/GitHubConnectorRuntimeContextContributorTests.cs`.
-
----
-
-## 4i. Per-agent workspace volume
-
-Every agent container is launched with two distinct on-disk areas. They
-have different lifetimes; agent authors must put data in the right one
-or risk silently losing work.
-
-| Mount path | Lifetime | Owner | Purpose |
-| --- | --- | --- | --- |
-| `$SPRING_WORKSPACE_PATH` (`/spring/workspace/`) | Per-agent. Survives container restart. Reclaimed when the agent is deleted (persistent agents) or declares work done (ephemeral agents). | Agent author. | Long-lived state: repo clones, task worktrees, derived caches, Claude Code's `CLAUDE_CONFIG_DIR` session files, per-thread state under `concurrent_threads: true` (see § 10). |
-| `/workspace` | Per-message. Rewritten on every `message/send`. | Platform. | Holds the assembled `CLAUDE.md` (the four-layer system prompt) and `.mcp.json` for the launch. The container's `WORKDIR` is set here so the CLI runtime reads `CLAUDE.md` on launch. |
-
-The persistent volume is created and managed by `AgentVolumeManager`
-(`src/Cvoya.Spring.Dapr/Execution/AgentVolumeManager.cs`). The
-canonical mount path and env-var name are constants on
-`AgentWorkspaceContract` (`src/Cvoya.Spring.Core/Execution/`); launchers
-import them so the in-container `$SPRING_WORKSPACE_PATH` always matches
-the platform-side mount. `CLAUDE_CONFIG_DIR` is anchored at
-`$SPRING_WORKSPACE_PATH/.claude` so Claude Code's session files survive
-container restarts and can be resumed by id (ADR-0041, #2094).
-
-### Recommended layout
-
-Long-running agents that operate on a connector-bound repository
-converge on the following layout inside the persistent volume. Agents
-authored against this convention compose cleanly with worktree-driven
-PR workflows, derived-data caches, and the per-thread subtree that
-`concurrent_threads: true` requires.
-
-```
-$SPRING_WORKSPACE_PATH/
-├── $SPRING_CONNECTOR_GITHUB_REPO/   # clone, kept on origin/main
-│   └── .git/
-├── worktrees/                       # one subdir per task, outside the clone
-│   └── <task>/                      # the agent's PR worktree
-├── cache/                           # derived data (issue lists, plan digests, …)
-├── threads/                         # per-thread state (concurrent_threads: true)
-│   └── <thread.id>/
-└── .claude/                         # CLAUDE_CONFIG_DIR — session files
-    └── projects/.../<thread.id>.jsonl
-```
-
-Per-thread state belongs under `threads/<thread.id>/` (§ 10's contract).
-Everything else is per-agent and shared across that agent's threads.
-
-### Canonical clone-and-refresh bootstrap (connector-bound repo)
-
-An agent whose unit (or an ancestor unit) binds the GitHub connector
-inherits `$SPRING_CONNECTOR_GITHUB_OWNER`, `$SPRING_CONNECTOR_GITHUB_REPO`,
-and `$GITHUB_TOKEN` via § 4g's binding-walk. The following snippet is
-idempotent and refresh-friendly; agent authors invoke it at the start
-of every task instead of re-deriving it inline:
-
-```bash
-REPO_DIR="$SPRING_WORKSPACE_PATH/$SPRING_CONNECTOR_GITHUB_REPO"
-if [ ! -d "$REPO_DIR/.git" ]; then
-  git clone \
-    "https://github.com/$SPRING_CONNECTOR_GITHUB_OWNER/$SPRING_CONNECTOR_GITHUB_REPO.git" \
-    "$REPO_DIR"
-fi
-cd "$REPO_DIR"
-git fetch origin
-git checkout main
-git pull --ff-only origin main
-```
-
-`$GITHUB_TOKEN` is the well-known alias `git` and `gh` pick up
-automatically; there is never a need for `gh auth login` or a personal
-PAT inside an agent container. § 4g's "PR-without-reviewer is a valid
-flow" covers how the agent should call `gh pr create` against the
-`$SPRING_CONNECTOR_GITHUB_REVIEWER` env-var.
-
-### Authoring guidance
-
-- **Long-lived state goes in `$SPRING_WORKSPACE_PATH`.** Writing to
-  `/workspace` outside the platform-provided files is lost on the next
-  turn — the dispatcher rewrites the directory.
-- **One repo clone per agent, not per task.** Cloning fresh every turn
-  is wasteful and rate-limit-relevant; the bootstrap above clones once
-  and refreshes thereafter.
-- **Develop in worktrees, not the clone.** The clone stays on
-  `main`; per-task branches live under
-  `$SPRING_WORKSPACE_PATH/worktrees/<task>/` so multiple in-flight tasks
-  on the same agent never collide.
-- **Cache derived data with explicit staleness.** Filenames like
-  `cache/issues-open-2026-05-18.json` make it obvious when a cached
-  snapshot is too old to act on. Treat the cache as accelerator, never
-  authoritative.
-- **Under `concurrent_threads: true`, scope per-thread state to the
-  thread subtree.** See § 10 for the full contract; everything outside
-  `threads/<thread.id>/` is shared across concurrent turns and races.
-
-### Why this lives here
-
-Package prompts that need a long-lived repo clone (the
-[`spring-voyage-oss`](../../packages/spring-voyage-oss/) dogfood unit
-is the first; every future code-bearing package is a likely consumer)
-reference this section rather than redefining the layout per package.
-The contract is a property of the agent runtime, not of any one
-package, so duplicating it in each package's prompts would let the
-two drift.
-
----
-
-## 5. Dapr Conversation wiring (Spring Voyage Agent runtime only)
-
-> **Naming disambiguation.** "Conversation" in this section refers to Dapr's [Conversation API](https://docs.dapr.io/reference/components-reference/supported-conversation/) — the building block that abstracts the LLM provider call (Ollama / OpenAI / Anthropic / Google). It is unrelated to Spring Voyage's **Thread** concept (the participant-set relationship described in [`docs/architecture/thread-model.md`](thread-model.md) and [ADR-0030](../decisions/0030-thread-model.md)).
-
-The `SpringVoyageAgentLauncher` forwards three YAML-driven knobs to the container:
-
-| Env var                | Source (`AgentExecutionConfig`)         | Purpose |
-| ---------------------- | --------------------------------------- | ------- |
-| `SPRING_LLM_PROVIDER`  | `Model.Provider` (default `ollama`)     | Provider id label, used for telemetry / agent-card description. |
-| `SPRING_MODEL`         | `Model.Id` (default `OllamaOptions.DefaultModel`) | Model identifier the component requests. |
-| `SPRING_LLM_COMPONENT` | `llm-{provider}` (computed)             | Dapr Conversation **component name** the agent binds to. Per [ADR-0038 § 3](../decisions/0038-agent-runtime-and-model-provider-split.md#3-modelproviders-are-platform-configuration-alongside-agentruntimes-in-runtime-catalogyaml), in-tree Dapr component files live at `eng/dapr/components/llm-{provider.id}.yaml` with `metadata.name: llm-{provider.id}`. |
-
-`agents/spring-voyage-agent/agent.py` reads `SPRING_LLM_COMPONENT` and passes
-the resolved name to `DaprChatClient(component_name=...)`. The model id is
-selected at launch time: `ContainerLifecycleManager` propagates `SPRING_MODEL`
-into the paired daprd sidecar, and the Ollama Conversation component resolves
-its `model` metadata from `secretstores.local.env`. This lets two units use
-different local Ollama models in the same deployment; deployment only wires the
-endpoint. For Ollama, the `spring-voyage` agent runtime also preflights the
-selected model against the provider URL and calls Ollama's native `/api/pull`
-when the model is missing, so model installation remains a first-use runtime
-concern rather than a deployment-time catalogue guess.
-
-**Dapr component naming convention.** Each provider has one in-tree YAML at
-`eng/dapr/components/delegated-spring-voyage-agent/llm-{provider.id}.yaml`:
-
-| Provider    | YAML file              | `metadata.name` | Dapr `type` |
-|-------------|------------------------|-----------------|-------------|
-| `anthropic` | `llm-anthropic.yaml`   | `llm-anthropic` | `conversation.anthropic` |
-| `openai`    | `llm-openai.yaml`      | `llm-openai`    | `conversation.openai` |
-| `google`    | `llm-google.yaml`      | `llm-google`    | `conversation.googleai` |
-| `ollama`    | `llm-ollama.yaml`      | `llm-ollama`    | `conversation.openai` (Ollama exposes an OpenAI-compatible surface) |
-
-The Dapr `type:` field stays in the `conversation.<provider>` namespace
-because that is Dapr's contract for the Conversation building block, not
-ours. The `metadata.name` is the platform's contract — that is the name
-`SPRING_LLM_COMPONENT` resolves to.
-
-> **Sidecar status.** The OSS topology today ships the Python agent as a
-> standalone A2A service. The `DaprSidecarManager` mounts the components
-> directory at `/components` and runs `daprd --resources-path /components
-> --app-port 8999` alongside the agent so the credential-bearing components
-> resolve at first use.
-
----
-
-## 6. The runtime catalogue
-
-The runtimes the platform supports — and each runtime's allowed providers,
-per-edge auth methods, thread-binding mechanism, and prompt-injection mode —
-live as data in `eng/runtime-catalog/runtime-catalog.yaml`. There are no per-runtime or
-per-provider C# classes; per-wire-format behaviour is encoded in a small set
-of `IModelProviderAdapter` strategies (`anthropic`, `openai-compatible`,
-`google`) and per-runtime behaviour in `IAgentRuntimeLauncher` strategies
-(`claude-code-cli`, `codex-cli`, `gemini-cli`, `spring-voyage-agent`). Both
-strategy registries dispatch by id read off the catalogue entry. See
-[ADR-0038 § 2 + § 3](../decisions/0038-agent-runtime-and-model-provider-split.md#2-agentruntimes-are-platform-configuration-not-per-runtime-classes)
-for the rationale and the full schema.
-
-The user-facing manifest selects the runtime via the top-level `ai:` block:
-
-```yaml
-ai:
-  runtime: spring-voyage
-  model:
-    provider: ollama
-    id: llama3.2:3b
-execution:
-  image: ghcr.io/cvoya-com/spring-voyage-agent:latest # required for container-backed runtimes
-  hosting: ephemeral                          # or "persistent"
-```
-
-For a fixed-provider runtime:
-
-```yaml
-ai:
-  runtime: claude-code
-  model:
-    provider: anthropic
-    id: claude-opus-4-7
-```
-
-`ai.runtime` names a catalogue entry; the dispatcher looks up the launcher
-strategy by the entry's `launcher` id. Pre-ADR-0038 manifests carrying
-`ai.agent`, flat `execution.provider`, `execution.runtime`, or `execution.tool`
-are rejected by `ManifestParser` with a precise error pointing at the new
-shape.
-
-The runtime surfaces the definition to the platform through two paths:
-
-- `spring agent create --definition-file <json>` on the CLI (JSON serialised
-  form of the YAML above under `execution` and `ai` keys).
-- Direct HTTP to `POST /api/v1/agents` with `DefinitionJson` on the request
-  body.
-
-`DbAgentDefinitionProvider.ExtractExecution` is the single reader.
-
----
-
-## 7. The credential matrix
-
-A provider declares the auth methods it accepts (`authMethods` on the
-provider entry). Each agent runtime declares, per provider it can dispatch
-to, the single auth method it consumes (`authMethod` on the `modelProviders[]`
-edge). The runtime × provider × authMethod matrix is the projection of these
-two pieces of config — the catalogue is the single source of truth.
-
-`ILlmCredentialResolver` is keyed on `(tenant, provider, authMethod)` with
-unit-level inheritance carried forward per ADR-0003. The launcher at dispatch
-time:
-
-1. Reads the resolved provider id off `AgentExecutionConfig.Model.Provider`.
-2. Looks up the (runtime, provider) edge in the catalogue to learn the
-   `authMethod` and `credentialEnvVar`.
-3. Calls `ILlmCredentialResolver.ResolveAsync(provider, authMethod, agentId, unitId)`.
-4. Stamps the resolved value into the container env under `credentialEnvVar`.
-
-A provider with an empty `authMethods` list (Ollama in v0.1) requires no
-credential — the launcher skips resolution for that edge.
-
----
-
-## 8. BYOI conformance contract
-
-Operators (OSS and Cloud) frequently want to bring their own agent images — pre-baked with proprietary CLIs, custom system tooling, an internal trust anchor, or a non-Debian distro. The contract between an agent image and `A2AExecutionDispatcher` is small enough to fit on one screen, and there are three conformance paths to satisfy it. [ADR 0027](../decisions/0027-agent-image-conformance-contract.md) is the canonical reference; this section is the operational summary. For a step-by-step guide with copy-pasteable Dockerfile snippets, the full `SPRING_*` env contract, version compatibility rules, and debugging tips, see [`docs/guide/byoi-agent-images.md`](../guide/operator/byoi-agent-images.md).
-
-### The wire contract
-
-An image conforms when the running container, after launch by the dispatcher, exposes:
-
-- A2A 0.3.x at `http://0.0.0.0:${AGENT_PORT}/` (default `8999`, set by the launcher via `AgentLaunchSpec.A2APort`).
-- An Agent Card at `GET /.well-known/agent.json` whose `protocolVersion` is `"0.3"`.
-- A response header `x-spring-voyage-bridge-version: <semver>` on every response (and the same field on the Agent Card / task payload). The dispatcher logs version skew so operators can correlate odd behaviour with stale sidecars.
-- Implementations of A2A `message/send`, `tasks/cancel`, and `tasks/get`.
-- Honouring the launcher-supplied environment, including any `SPRING_*` keys the launcher stamped into `AgentLaunchSpec.EnvironmentVariables`.
-
-### The three paths
-
-| Path | Recipe                                                                                                                                              | When to pick it                                                                                                |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 1    | `FROM ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>` and `RUN`-install your CLI tool. ENTRYPOINT is left as-is — the bridge runs on `:8999` automatically.       | Default. Fastest path. Works for anything that can run on Debian 12 + Node 22.                                  |
-| 2    | Pull the bridge into a custom base by copying the per-target SEA binary from each GitHub Release (`spring-voyage-agent-sidecar-<v>-{linux-amd64,linux-arm64,darwin-arm64}`) into the image and setting it as the `ENTRYPOINT`. No Node runtime required. (An npm-install alternative was published in earlier releases; the npm package is no longer published as of 2026-05-13 — see [BYOI guide § path 2](../guide/operator/byoi-agent-images.md#path-2--pull-the-bridge-into-a-custom-base) and [ADR-0027](../decisions/0027-agent-image-conformance-contract.md).) | You need a non-Debian distro, a rootless image with non-default UIDs, or you can't have Node in the runtime layer. |
-| 3    | Implement A2A 0.3.x natively in your image. No bridge involved. The launcher must speak directly to your endpoint.                                  | You already speak A2A natively (e.g., the Python Dapr Agent at `SpringVoyageAgentLauncher`).                            |
-
-The Tier B native launcher (`SpringVoyageAgentLauncher`) is the canonical example of path 3. The Tier A launchers (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`) all use path 1 by default. The four `spring-voyage-agent-oss-{software-engineering,design,product-management,program-management}` images that back the **Spring Voyage OSS** dogfooding template (`packages/spring-voyage-oss/`) are additional path-1 derivatives — each `FROM ghcr.io/cvoya-com/spring-voyage-agent-base:<semver>`, installs the Claude Code CLI, and adds a role-specific toolchain on top, inheriting the bridge ENTRYPOINT unchanged. See [`docs/decisions/0034-oss-dogfooding-unit.md`](../decisions/0034-oss-dogfooding-unit.md) for the image strategy rationale.
-
-### Versioning commitment
-
-- The bridge OCI tag and SEA binaries use semver and ship in lockstep. (The bridge was also previously distributed as an `@cvoya/spring-voyage-agent-sidecar` npm package; that channel is retired as of 2026-05-13.)
-- N-2 backward compatibility on the bridge package — a worker dialing this bridge accepts versions within the last 2 majors.
-- A2A pinned to `0.3.x`. A bump to `0.4.x` or `1.x` is a deliberate breaking change with a deprecation window on the dispatcher side.
-- The bridge source lives in the same repository as the dispatcher, under [`src/Cvoya.Spring.AgentSidecar/`](../../src/Cvoya.Spring.AgentSidecar). Releases are cut on tags shaped `spring-voyage-vX.Y.Z`.
-
-### Local verification
-
-```bash
-eng/build/build-sidecar.sh                          # builds ghcr.io/cvoya-com/spring-voyage-agent-base:dev
-docker run --rm -p 8999:8999 \
-  -e SPRING_AGENT_ARGV='["true"]' \
-  ghcr.io/cvoya-com/spring-voyage-agent-base:dev &
-
-curl -s http://localhost:8999/.well-known/agent.json | jq '.protocolVersion, .version'
-curl -s -X POST http://localhost:8999/ \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","method":"message/send","params":{"message":{"parts":[{"text":"ping"}]}},"id":1}'
-```
-
-The first command should print `"0.3"` and the bridge semver; the second should return a JSON-RPC `result` whose `status.state` is `completed`.
-
----
-
-## 9. Adding a new launcher
-
-Checklist for a fresh `IAgentRuntimeLauncher`:
-
-1. Add a `runtime-catalog.yaml` entry for the new runtime: stable `id`,
-   `displayName`, `defaultImage`, `launcher` strategy id, `threadBinding`,
-   `systemPromptInjection`, and the `modelProviders:` list with per-edge
-   `authMethod` + `credentialEnvVar`.
-2. Implement `IAgentRuntimeLauncher` and register it under the same
-   `launcher` id used in the catalogue entry.
-3. Decide the tier:
-   - Tier A (CLI wrapped in A2A sidecar) — stamp `SPRING_*` env vars the
-     sidecar consumes, return a workspace mount.
-   - Tier B (native A2A) — stamp `AGENT_PORT`, plus any runtime-specific env.
-4. Register with `services.AddSingleton<IAgentRuntimeLauncher, YourLauncher>()`
-   in `ServiceCollectionExtensions`.
-5. If Dapr Conversation is involved, honour `AgentLaunchContext.Provider` /
-   `Model` and resolve `SPRING_LLM_COMPONENT` to `llm-{provider}` (the
-   in-tree Dapr component naming convention from ADR-0038).
-6. Add a `*LauncherTests` in `tests/unit/Cvoya.Spring.AgentRuntimes.Tests/Launchers/`.
-
-The dispatcher auto-discovers launchers via DI and routes by the runtime
-entry's `launcher` id.
-
----
-
-## 10. `concurrent_threads: true` author contract
-
-> **Authoritative source:** [ADR-0041 — Actor-runtime contract for agent containers](../decisions/0041-actor-runtime-contract.md). This section is the author-facing summary; the ADR is the durable record. The same contract applies to Python SDK agents (see [Agent SDK § "concurrent_threads: true author contract"](agent-sdk.md#concurrent_threads-true-author-contract) for SDK-flavoured guidance).
-
-The agent's `concurrent_threads` flag (sourced from the manifest's
-`execution.concurrent_threads` slot) decides what runs concurrently inside the
-agent's per-invocation container surface:
-
-| Mode                      | Mailbox behaviour                          | In-container concurrency                 |
-| ------------------------- | ------------------------------------------ | ---------------------------------------- |
-| `concurrent_threads: false` (default-safe) | Per-agent serialization across all threads. | One runtime invocation in flight at a time. |
-| `concurrent_threads: true` (opt-in)        | Per-thread channels dispatch independently. | N concurrent runtime invocations, one per active thread. |
-
-The `false` mode is safe for any agent. The `true` mode is an explicit opt-in
-that ships work to N concurrent runtime invocations inside the same container.
-Session files don't fight (each turn gets `--resume <thread.id>`), but
-**everything else in the container is shared and the author owns it**.
-
-### The contract
-
-An agent that sets `concurrent_threads: true`:
-
-- **MAY** hold per-thread state in-process keyed by `thread.id`.
-- **MUST NOT** bind fixed ports. Every per-thread port allocation must be
-  ephemeral / dynamic — two concurrent turns binding `:8080` will collide.
-- **MUST NOT** write outside `$SPRING_WORKSPACE_PATH/threads/<thread.id>/` for
-  thread-local state. Files outside that subtree are visible to every
-  concurrent turn and will race.
-- **MUST NOT** assume any tool's child processes are uniquely theirs. No
-  `pkill -f pytest` patterns — that pattern kills the test runner of every
-  other concurrent turn in the same container.
-- **MUST NOT** mutate shared global state — env vars, working directory,
-  signal handlers. These propagate across every concurrent turn in the
-  process.
-- For CLI runtimes specifically: the system prompt MUST forbid the model from
-  invoking long-running watchers (`pytest --watch`, `npm run dev`,
-  `cargo watch`, `tail -f`, etc.). These never exit on their own and pin the
-  container indefinitely under concurrency. The CLI launchers prepend a short
-  guard fragment to the assembled system prompt automatically when this mode
-  is on (see `LauncherPromptFragments.ConcurrentThreadsGuard`); the fragment
-  is composed with — not a replacement for — the user's prompt.
-
-Agents that cannot meet the contract stay on `concurrent_threads: false` and
-accept head-of-line blocking on their mailbox. The trade-off is intentional;
-see ADR-0041 § "Why HoL on `false` is acceptable for v0.1".
-
-### Safe vs. unsafe patterns
-
-**Safe — ephemeral port binding inside a per-thread workspace:**
-
-```bash
-# inside the runtime image, per turn
-PORT=$(python -c 'import socket; s = socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
-mkdir -p "$SPRING_WORKSPACE_PATH/threads/$SPRING_THREAD_ID/build"
-cd "$SPRING_WORKSPACE_PATH/threads/$SPRING_THREAD_ID"
-node server.js --port "$PORT" >build/server.log 2>&1 &
-SERVER_PID=$!
-trap "kill $SERVER_PID 2>/dev/null" EXIT
-# … hit http://127.0.0.1:$PORT …
-```
-
-**Unsafe — fixed port + global cache + broad pkill:**
-
-```bash
-# DO NOT do this under concurrent_threads: true
-node server.js --port 3000 &     # collides with every other turn
-npm cache clean --force          # stomps a parallel turn's install
-pkill -f node                    # kills every turn's server, not just yours
-```
-
-**Safe — thread-scoped temp dir:**
-
-```bash
-# isolate scratch state under the per-thread subtree the platform owns
-SCRATCH="$SPRING_WORKSPACE_PATH/threads/$SPRING_THREAD_ID/.scratch"
-mkdir -p "$SCRATCH"
-# … work under $SCRATCH …
-```
-
-**Unsafe — shared global cache directories:**
-
-```bash
-# DO NOT do this under concurrent_threads: true
-mkdir -p ~/.cache/myagent           # shared across every concurrent turn
-echo "$RESULT" > /tmp/last-output   # likewise — /tmp is shared
-export AGENT_STATE_FILE=/var/state  # mutates a global
-```
-
-### Surfacing
-
-`spring agent validate <agent-id>` emits a `WARN` line whenever an agent's
-persisted definition declares `execution.concurrent_threads: true`, with a
-pointer to ADR-0041 and this section. The warning is not a blocker — opt-in
-is allowed — but it is visible so authors do not flip the flag without seeing
-the contract. An agent with no `concurrent_threads` slot in its definition
-inherits the runtime's record default and the validator does not warn —
-explicit opt-in is the trigger.
+`tools/list` is grant-filtered server-side, so the runtime discovers exactly the
+`sv.*` tools its subject is entitled to. The tool catalogue and the single MCP
+server are described in [Messaging](messaging.md).
+
+## The AgentSDK
+
+`Cvoya.Spring.AgentSdk` is a typed client for **workflow-driven** runtime images
+— images that run a deterministic workflow rather than an LLM tool-use loop and
+want to call the messaging tools as method calls. Its `MessagingClient` calls
+`sv.messaging.send` / `sv.messaging.multicast` over JSON-RPC `tools/call`
+against the same MCP server, with the same per-turn session token. The image
+author chooses the LLM-driven or workflow-driven shape; the platform does not
+branch — both reach the same delivery handlers.
+
+Workflow-driven runtimes follow the **workflow-as-container** model
+([ADR-0019](../decisions/0019-workflow-as-container.md)): the workflow ships as
+its own image with its own Dapr sidecar, decoupled from the platform's release
+cycle. Workflow-state durability is the image author's concern, not the
+platform's.
+
+## Credentials
+
+An agent container carries two credential surfaces, kept distinct:
+
+- **The per-turn MCP session token** — issued by the worker `McpServer`,
+  delivered in the A2A `message/send`, written into the MCP config by the
+  sidecar, revoked at turn-end. It authenticates every `sv.*` tool call. See
+  [ADR-0054](../decisions/0054-one-mcp-server-one-execution-host.md).
+- **The model-provider credential** — the API key or token the runtime CLI uses
+  to call its LLM. Credentials are keyed `(tenant, provider, authMethod)` with
+  unit→tenant inheritance ([ADR-0003](../decisions/0003-secret-inheritance-unit-to-tenant.md));
+  the catalogue edge names the env-var the runtime expects. Storage and the
+  secrets stack are covered in [Security](security.md).
+
+**Rotation is restart-driven.** A persistent agent's credentials are
+re-injected by rebuilding its launch context and restarting the container —
+there is no in-place credential refresh. The supervisor rebuilds the context via
+`IAgentContextBuilder` on restart, so a rotated secret is picked up on the next
+container start.

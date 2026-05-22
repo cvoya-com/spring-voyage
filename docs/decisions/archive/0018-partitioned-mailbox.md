@@ -1,9 +1,11 @@
 # 0018 — Three-channel partitioned mailbox per agent
 
-- **Status:** Superseded by [0030 — Thread model](0030-thread-model.md) (2026-04-29). The control-channel and observation-channel partitioning carries forward unchanged (control still pre-empts work; observations still arrive as a batched digest). The conversation-channel single-active-slot semantics is replaced by the per-thread FIFO + concurrent-threads model in 0030.
+> **Archived — superseded.** Kept for reasoning history; it does not describe the current system. The current decision is [ADR-0030 — Thread model](../0030-thread-model.md). See the [archive index](README.md).
+
+- **Status:** Superseded by [0030 — Thread model](../0030-thread-model.md) (2026-04-29). The control-channel and observation-channel partitioning carries forward unchanged (control still pre-empts work; observations still arrive as a batched digest). The conversation-channel single-active-slot semantics is replaced by the per-thread FIFO + concurrent-threads model in 0030.
 - **Date:** 2026-04-21
 - **Related code:** `src/Cvoya.Spring.Core/Messaging/`, `src/Cvoya.Spring.Dapr/Actors/AgentActor.cs` (mailbox processing).
-- **Related docs:** [`docs/architecture/messaging.md`](../architecture/messaging.md), [`docs/concepts/messaging.md`](../concepts/messaging.md).
+- **Related docs:** [`docs/architecture/messaging.md`](../../architecture/messaging.md), [`docs/concepts/messaging.md`](../../concepts/messaging.md).
 
 ## Context
 
@@ -19,7 +21,7 @@ A naïve "priority queue with sender-supplied priority" was rejected on first pr
 **Each agent has a partitioned mailbox with three channels — control, conversation, observation — chosen by the platform from `MessageType`. Senders never set priority. The agent processes channels in a deterministic order: control first, then the active conversation slot, then a batched observation digest.**
 
 - **Control channel** — cancellations, status queries, lifecycle events. Always served before conversation work; latency-sensitive.
-- **Conversation channel** — domain message traffic, organised by conversation id. The agent has one active conversation at a time (see [ADR 0011](0011-persistent-agent-lifecycle-http-surface.md) for the persistent-agent variant); other conversations queue as pending.
+- **Conversation channel** — domain message traffic, organised by conversation id. The agent has one active conversation at a time (see [ADR 0011](../0011-persistent-agent-lifecycle-http-surface.md) for the persistent-agent variant); other conversations queue as pending.
 - **Observation channel** — event-stream subscriptions (activity events, directory updates, …). Events accumulate; the agent processes a batched "what happened since I last looked?" digest, not an event at a time.
 
 Sender priority is platform-controlled by message type, not by the sender. There is no API for "send this with high priority."

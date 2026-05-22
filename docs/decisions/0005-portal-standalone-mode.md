@@ -3,7 +3,7 @@
 - **Status:** Accepted — portal runs with `output: "standalone"`; static-export workarounds are removed.
 - **Date:** 2026-04-17
 - **Closes:** [#436](https://github.com/cvoya-com/spring-voyage/issues/436)
-- **Supersedes:** [ADR 0001](0001-web-portal-rendering-strategy.md) — Web portal rendering strategy (static export vs SSR)
+- **Supersedes:** [ADR 0001](archive/0001-web-portal-rendering-strategy.md) — Web portal rendering strategy (static export vs SSR)
 - **Related code:** `src/Cvoya.Spring.Web/next.config.ts`, `src/Cvoya.Spring.Web/src/app/units/[id]/page.tsx`, `src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx`, `eng/build/Dockerfile`
 
 ## Context

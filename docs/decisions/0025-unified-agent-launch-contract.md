@@ -4,7 +4,7 @@
 - **Date:** 2026-04-22
 - **Closes:** [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087)
 - **Related code:** `src/Cvoya.Spring.Core/Execution/IAgentToolLauncher.cs` (`AgentLaunchSpec`, `AgentResponseCapture`), `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Dapr/Execution/EphemeralAgentRegistry.cs`, `src/Cvoya.Spring.Dapr/Execution/PersistentAgentRegistry.cs`, `src/Cvoya.Spring.Dapr/Execution/ContainerConfigBuilder.cs`, `src/Cvoya.Spring.Dapr/Execution/{ClaudeCodeLauncher,CodexLauncher,GeminiLauncher,SpringVoyageAgentLauncher}.cs`.
-- **Related docs:** [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md), [`docs/architecture/workflows.md`](../architecture/workflows.md), [ADR 0017 — A Unit IS an Agent](0017-unit-is-an-agent-composite.md), [ADR 0011 — Persistent-agent lifecycle HTTP surface](0011-persistent-agent-lifecycle-http-surface.md), [ADR 0019 — Domain workflows run as containers](0019-workflow-as-container.md), [ADR 0026 — Per-agent container scope](0026-per-agent-container-scope.md), [ADR 0027 — Agent-image conformance contract](0027-agent-image-conformance-contract.md).
+- **Related docs:** [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md), [`docs/architecture/workflows.md`](../architecture/agent-runtime.md), [ADR 0017 — A Unit IS an Agent](0017-unit-is-an-agent-composite.md), [ADR 0011 — Persistent-agent lifecycle HTTP surface](0011-persistent-agent-lifecycle-http-surface.md), [ADR 0019 — Domain workflows run as containers](0019-workflow-as-container.md), [ADR 0026 — Per-agent container scope](0026-per-agent-container-scope.md), [ADR 0027 — Agent-image conformance contract](0027-agent-image-conformance-contract.md).
 
 ## Context
 

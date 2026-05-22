@@ -45,7 +45,7 @@ The same underlying thread appears differently in each layer:
 
 > "Thread lookup fails when the participant set is empty or contains only one member."
 
-> "Store the new MemoryEntry with thread_id from the agent's operating context."
+> "Store the new memory entry with thread_id from the agent's operating context."
 
 ### Product/UX Voice
 *Used in UI labels, user-facing docs, marketing:*
@@ -63,7 +63,7 @@ The underlying system concept — the participant-set identity, the append-only 
 For more detail on each layer:
 
 - **Glossary definitions:** [`docs/glossary.md`](../glossary.md) carries one-line definitions for Thread, Engagement, Collaboration, and related memory concepts.
-- **Architecture and design rationale:** [`docs/architecture/thread-model.md`](../architecture/thread-model.md) covers the participant-set invariant, memory model, Timeline, participant-state machine, and answers ten specific design questions with rationale.
+- **Architecture:** [`docs/architecture/messaging.md`](../architecture/messaging.md) covers the participant-set invariant, the Timeline, the participant-state machine, and agent memory.
 - **Durable decision:** [`docs/decisions/0030-thread-model.md`](../decisions/0030-thread-model.md) — the ADR capturing the architectural shape.
 
 The thread model underpins how agents reason about work, how the platform tracks history and memory, and how users navigate their ongoing relationships with agents and teams.

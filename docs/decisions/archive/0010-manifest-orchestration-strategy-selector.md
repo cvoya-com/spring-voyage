@@ -1,5 +1,7 @@
 # 0010 — Manifest-driven orchestration-strategy selection resolves per message
 
+> **Archived — superseded.** Kept for reasoning history; it does not describe the current system. The current decision is [ADR-0053 — Units are agents; the platform delivers one-way messages](../0053-units-are-agents-and-one-way-delivery.md). See the [archive index](README.md).
+
 > **Superseded by [ADR-0039](0039-units-are-agents.md).** The orchestration-strategy taxonomy (`IOrchestrationStrategy`, `IOrchestrationStrategyResolver`, the `orchestration:` manifest block) was removed. A unit is an agent that has children; its runtime decides whether to delegate via the orchestration tools the launcher attaches. The body below is preserved as historical context only.
 
 - **Status:** Superseded by [ADR-0039](0039-units-are-agents.md) — `orchestration.strategy` on the manifest persists to `UnitDefinitions.Definition`; `UnitActor` consults `IOrchestrationStrategyResolver` per domain message; `UnitPolicy.LabelRouting` infers `label-routed` when no manifest key is declared.

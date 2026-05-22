@@ -6,11 +6,11 @@ For the internals — mailbox partitioning, cancellation semantics, pub/sub stre
 
 ## Concepts at a glance
 
-Spring Voyage models each routable participant — a named agent, a composite unit, a human operator — as an **actor** with a stable `Guid` identity. A **message** travels from a `From` address to a `To` address, optionally carrying a **thread id** so the receiving actor knows whether to treat the incoming text as the start of new work or as a follow-up to work already in flight. A **connector** also has an address, but it is a non-routable bridge, not an actor — its address appears only as a message's `From`, identifying the external origin of an inbound event ([ADR-0048](../../decisions/0048-event-vs-request-message-semantics.md)).
+Spring Voyage models each routable participant — an agent, a unit (an agent that has children), a human — as an **actor** with a stable `Guid` identity. A **message** travels from a `From` address to a `To` address, carrying a **thread id** so the receiving actor knows which thread the message belongs to. A domain message is a **one-way event** — "something happened" — delivered to the recipient; the sender is never blocked on a return value ([ADR-0053](../../decisions/0053-units-are-agents-and-one-way-delivery.md)). A **connector** also has an address, but it is a non-routable bridge, not an actor — its address appears only as a message's `From`, identifying the external origin of an inbound event.
 
 An address is the pair `(scheme, Guid)` and renders on the wire as `scheme:<32-hex-no-dash>` — for example `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`. There is no path-shaped address; identity is the `Guid`. The platform does not inspect message content to decide routing; it reads the `To` scheme and id, looks the actor up in the directory, and delivers the message once. The actor on the receiving end — an `AgentActor`, `UnitActor`, or `HumanActor` — is responsible for turning the payload into work.
 
-See [Identifiers](../../architecture/identifiers.md) for the full identifier model (wire forms, parser rules, OSS default tenant id, manifest grammar, CLI search-with-context), and [Messaging architecture — Addressing](../../architecture/messaging.md#addressing) for the routing surface.
+See [Data & identity](../../architecture/data-and-identity.md) for the full identifier model (wire forms, parser rules, OSS default tenant id, manifest grammar, CLI search-with-context), and [Messaging architecture — Addressing](../../architecture/messaging.md#addressing-and-activation) for the routing surface.
 
 ## Sending a message from the CLI
 
@@ -49,82 +49,78 @@ When the sender does not know (or does not want to pick) which member should han
 spring message send unit:dd55c4ea8d725e43a9df88d07af02b69 "Implement the login feature described in issue #15"
 ```
 
-The unit actor receives the message, applies boundary filtering, and invokes the unit's runtime through the same launcher path used for any agent. The runtime decides whether to answer directly or delegate to a child through the `sv.messaging.*` delivery tools (see [Units & Agents](../../architecture/units.md) and [ADR-0039](../../decisions/0039-units-are-agents.md)). Responses flow back through the same thread.
+The unit actor receives the message, applies boundary filtering, and invokes the unit's runtime through the same launcher path used for any agent. The runtime decides whether to answer directly or hand work to a child by sending it a message through the `sv.messaging.*` delivery tools (see [Units & agents](../../architecture/units-and-agents.md) and [ADR-0053](../../decisions/0053-units-are-agents-and-one-way-delivery.md)). There is no platform orchestration layer — "delegation" is message content the recipient's runtime interprets.
 
 ### Example: multicast
 
-A multicast send dispatches a single domain message to every actor that matches a routing pattern (for example, all members of a unit advertising a given role). Multicast resolution expands the pattern into a set of addresses, each routed individually; responses are aggregated and returned to the sender.
+A multicast send delivers a single domain message to many targets at once — addressed explicitly, or by a directory-relationship `scope` (`unit-members`, `siblings`). Like every delivery, each is one-way: the tool response is a delivery acknowledgement, never an aggregated reply.
 
-## Conversations
+## Threads
 
-A conversation is the platform's unit of correlated work. Every message carries an optional `ConversationId`; the receiving actor uses it to decide whether the message starts a new piece of work or continues one already in progress.
+A thread is the durable record of one participant set's shared exchanges. Every message carries a `ThreadId`; the receiving actor uses it to thread the message with prior work on the same thread.
 
-- **Creation.** Sending a message without `--conversation` starts a new conversation. The server assigns a fresh id, creates a new conversation channel on the receiving actor, and returns the id to the sender.
-- **Continuation.** Sending additional messages with the same `--conversation <id>` appends them to the active channel. For the conversation that is currently ACTIVE on the actor, follow-ups are delivered at the next checkpoint so the agent can incorporate them without losing its current train of thought. For PENDING conversations the new message accumulates in the channel and is picked up when the conversation becomes active.
-- **Conclusion.** A conversation normally ends when the agent emits a `Completed` event for its work; the channel is released, any result payload is published to observers, and the next pending conversation is promoted to ACTIVE.
-- **Lifelong record (ADR-0030).** A thread is a persistent record of a participant set's shared exchanges — there is no system-level "close" verb. The legitimate "I'm done with this thread" semantic is a per-(thread, participant) `ParticipantStateChanged` transition to `removed`.
-- **Auto-clear on dispatch failure (#1036).** When the dispatcher returns a non-zero `ExitCode` (e.g. container exit code 125 because the runtime image was missing), the agent surfaces the failure rather than silently swallowing it: an `ErrorOccurred` event with the exit code + first stderr line is appended to the conversation, the failure response is still routed back to the original sender, and the conversation is cleared off the agent's active slot. The agent unblocks and the next pending conversation is promoted automatically.
+- **Creation.** Sending a message without `--thread` starts a new thread. The server assigns a fresh thread id and returns it to the sender.
+- **Continuation.** Sending additional messages with the same `--thread <id>` appends them to that thread. By default an agent processes each of its threads concurrently (one in-flight turn per thread), preserving per-thread FIFO order.
+- **Lifelong record ([ADR-0030](../../decisions/0030-thread-model.md)).** A thread is a persistent record of a participant set's shared exchanges — there is no system-level "close" verb. The legitimate "I'm done with this thread" semantic is a per-(thread, participant) `ParticipantStateChanged` transition to `removed`.
+- **One-way delivery.** When a turn completes, the runtime's response is **recorded on the originating thread** — it is never routed back to `Message.From`. A unit or agent that wants to respond sends a *new* one-way message on the thread.
 
-See [Messaging architecture — Partitioned Mailbox with Priority Processing](../../architecture/messaging.md#design-partitioned-mailbox-with-priority-processing) for the full lifecycle, including conversation suspension and multi-conversation scheduling.
+See [Messaging architecture — The agent mailbox](../../architecture/messaging.md#the-agent-mailbox) for the mailbox partitioning that makes this deadlock-free.
 
-### Replies, threading, and multi-turn responses
+### Follow-ups and reading a thread
 
-There is no separate `reply` verb, and two equivalent threading paths exist for follow-ups:
+There is no `reply` verb. Domain messaging is one-way; a "reply" is just another message on the same thread. Two equivalent paths exist for posting a follow-up:
 
-- **`spring message send <address> "<text>" --conversation <id>`** — reuses the generic send verb. Prefer this when the call site already has the address.
-- **`spring conversation send --conversation <id> <address> "<text>"`** — the same effect, but reads as "post into conversation X". Prefer this for scripts that iterate over conversations and want the surface to match `spring conversation list` / `show`.
+- **`spring message send <address> "<text>" --thread <id>`** — reuses the generic send verb. Prefer this when the call site already has the address.
+- **`spring thread send --thread <id> <address> "<text>"`** — the same effect, but reads as "post into thread X". Prefer this for scripts that iterate over threads.
 
-Both call the same `POST /api/v1/conversations/{id}/messages` endpoint under the hood, which in turn routes through the `IMessageRouter` with the conversation id stamped on the outbound message. The agent's own responses travel back on the same conversation channel: for hosted (in-process LLM) agents, each LLM turn produces one or more tokens and eventually a completion event; for delegated (container-based) agents, responses stream as activity events while the container runs.
-
-To watch the reply traffic in real time, use the activity viewer:
+To watch the traffic in real time, use the activity viewer:
 
 ```bash
 spring activity list --source "agent:ada" --limit 20
+spring activity tail  --source "agent:ada"
 ```
 
-This surfaces the activity events — message received, token deltas, checkpoints, completion — emitted on the shared activity stream. The web portal shows the same events in the unit and agent detail pages.
+`activity list` surfaces the activity events — message received, decisions, completion — emitted on the shared activity stream; `activity tail` streams them live over SSE. The web portal shows the same events in the unit and agent detail pages.
 
-### Reading a conversation thread
-
-Scripted review — or "what happened on conversation X?" in a terminal — uses the `spring conversation` verb family:
+Scripted review — "what happened on thread X?" — uses the `spring thread` verb family:
 
 ```bash
-spring conversation list                        # most recent 50 conversations
-spring conversation list --status active        # only open threads
-spring conversation list --unit engineering-team
-spring conversation list --agent ada
-spring conversation show <conversation-id>      # full thread: summary + ordered events
+spring thread list                          # recent threads (default 50)
+spring thread list --unit engineering-team
+spring thread list --agent ada
+spring thread list --participant agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7
+spring thread show <thread-id>              # full thread: summary + ordered events
 ```
 
-`list` renders one row per conversation with id, status, origin, participants, event count, last activity, and the originating summary. `show` prints the conversation header (participants, origin, created / last activity) followed by the full event timeline. Both commands accept `--output json` for downstream tooling.
+`list` renders one row per thread. `show` prints the thread header (participants, origin, created / last activity) followed by the full ordered event timeline. Both commands accept `--output json`.
 
 ### Inbox: things awaiting a human
 
-When agents hand work back to a human — approvals, clarifications, go / no-go decisions — the inbox is the corresponding surface. It lists conversations whose most recent event was a `MessageReceived` addressed to the current human and where the human has not yet replied:
+When agents hand work to a human — approvals, clarifications, go / no-go decisions — the inbox is the corresponding surface. It lists threads awaiting a response from the current human:
 
 ```bash
-spring inbox list                          # awaiting-me queue
-spring inbox show <conversation-id>        # open the thread in context
-spring inbox respond <conversation-id> "Approved — ship it."
+spring inbox list                     # awaiting-me queue
+spring inbox show <thread-id>         # open the thread in context
+spring inbox respond <thread-id> "Approved — ship it."
 ```
 
-`respond` is a thin wrapper over `spring conversation send --conversation <id>`: it resolves the pending ask's sender automatically, so the common case (reply to whoever asked) needs no address. Pass `--to <address>` when you want to redirect the reply to a different participant.
+`respond` resolves the pending ask's sender automatically, so the common case (reply to whoever asked) needs no address. Pass `--to <address>` when you want to direct the message to a different participant.
 
-See [Observing Activity](observing.md#conversations-and-inbox) for more examples.
+See [Observing Activity](observing.md#threads-and-inbox) for more examples.
 
 ## Addressing scheme — when to use each
 
 | Scheme        | Shape                          | When to use                                                                                          |
 | ------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `agent`       | `agent:<32-hex-no-dash>`       | You know exactly which member should handle the work.                                                |
-| `unit`        | `unit:<32-hex-no-dash>`        | You want the unit's runtime to handle the work (answer directly or delegate to a child via the `sv.messaging.*` delivery tools). |
-| `human`       | `human:<32-hex-no-dash>`       | You want to route a message to a human participant (notifications, approvals, escalations).         |
+| `unit`        | `unit:<32-hex-no-dash>`        | You want the unit's runtime to handle the work (answer directly or hand it to a child via the `sv.messaging.*` delivery tools). |
+| `human`       | `human:<32-hex-no-dash>`       | You want to deliver a message to a human participant (notifications, approvals, escalations).         |
 
-There is no `connector` send target: connectors are non-routable bridges ([ADR-0048](../../decisions/0048-event-vs-request-message-semantics.md)). A connector translates inbound external events into messages and exposes outbound skills agents invoke — you never send a message *to* one.
+There is no `connector` send target: connectors are non-routable bridges ([ADR-0053](../../decisions/0053-units-are-agents-and-one-way-delivery.md)). A connector translates inbound external events into messages and exposes outbound skills agents invoke — you never send a message *to* one.
 
 Address parsers are lenient: the dashed Guid form (`agent:8c5fab2a-8e7e-4b9c-92f1-d8a3b4c5d6e7`) is accepted everywhere, but the canonical render uses the no-dash form. `display_name` is presentation-only — never an addressable handle. Use `spring agent show <name>` / `spring unit show <name>` to look up the canonical id when you only know a name.
 
-See [Identifiers](../../architecture/identifiers.md) for the wire-form rules and [Messaging architecture — Addressing](../../architecture/messaging.md#addressing) for the resolution algorithm and permission model.
+See [Data & identity](../../architecture/data-and-identity.md) for the wire-form rules and [Messaging architecture — Addressing](../../architecture/messaging.md#addressing-and-activation) for the resolution algorithm and permission model.
 
 ## Cross-unit messaging
 
@@ -140,10 +136,10 @@ If the sender lacks permission to reach the addressed agent (the receiving unit 
 
 ## Tips
 
-- **Let the unit route when in doubt.** Addressing the unit (`unit:<id>`) and letting the unit's runtime decide whether to answer or delegate is usually the right default for cross-team requests. Pin to a specific `agent:<id>` only when the work genuinely needs that specific agent.
+- **Let the unit route when in doubt.** Addressing the unit (`unit:<id>`) and letting the unit's runtime decide whether to answer or hand work to a child is usually the right default for cross-team requests. Pin to a specific `agent:<id>` only when the work genuinely needs that specific agent.
 - **Hold on to thread ids.** Pass the same `--thread <id>` on follow-ups so the agent's mailbox threads your messages together. Without it, each send creates a fresh thread — noisier and harder to follow.
-- **Multicast is an aggregator, not a fan-out trigger.** A multicast send waits for every matching actor to respond before returning an aggregate payload to the sender. Use it to broadcast announcements; avoid it for long-running work where you want the first responder to win.
-- **The web portal shows the same traffic.** The portal's unit and agent pages display activity events (messages, checkpoints, completions) for any work you drive from the CLI. CLI and portal stay in lock-step — either surface is a valid operator entry point.
+- **Delivery is one-way.** A `send` returns a delivery acknowledgement — the message landed in the recipient's mailbox — never the recipient's reply. Watch the activity feed (or the thread) for the response; it lands as a new message on the same thread.
+- **The web portal shows the same traffic.** The portal's unit and agent pages display activity events (messages, decisions, completions) for any work you drive from the CLI. CLI and portal stay in lock-step — either surface is a valid operator entry point.
 
 ## See it in action
 

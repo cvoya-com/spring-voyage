@@ -12,7 +12,7 @@ Three kinds of entity are **routable actors** — each has a mailbox and can rec
 | **Unit** | A composite agent — group of agents that appears as one to the outside |
 | **Human** | A human participant in a unit |
 
-A **connector** also has an address (`connector:<id>`), but it is **not** a routable actor — it is a bridge to an external system (GitHub, Slack, etc.). A connector address appears only as a message's `From`, identifying the external origin of an inbound event; nothing routes a message *to* a connector. See [Connectors](connectors.md) and [ADR-0048](../decisions/0048-event-vs-request-message-semantics.md).
+A **connector** also has a synthetic address (`connector:<id>`), but it is **not** a routable actor — it is a bridge to an external system (GitHub, Slack, etc.). A connector address appears only as a message's `From`, identifying the external origin of an inbound event; nothing routes a message *to* a connector. See [Connectors](connectors.md) and [ADR-0053 § 5](../decisions/0053-units-are-agents-and-one-way-delivery.md).
 
 A pub/sub **topic** is a separate primitive (see [Pub/Sub Topics](#pubsub-topics) below); it is not an addressable actor.
 
@@ -27,7 +27,7 @@ Every addressable entity has a stable `Guid` identity. An address is the pair `(
 
 There is no path-shaped address, no `@<uuid>` form, no namespace+name pair. The membership graph (which units a particular agent belongs to, which sub-units a unit contains, what tenant owns what) is walked at routing time inside the directory; it does not appear in the address string.
 
-Parsers are lenient — addresses carrying the dashed Guid form (`agent:8c5fab2a-8e7e-4b9c-92f1-d8a3b4c5d6e7`) parse just as well — but the canonical render always uses the no-dash form. Identifier conventions, the JSON-vs-URL split, manifest grammar, and CLI semantics are documented in [Identifiers](../architecture/identifiers.md).
+Parsers are lenient — addresses carrying the dashed Guid form (`agent:8c5fab2a-8e7e-4b9c-92f1-d8a3b4c5d6e7`) parse just as well — but the canonical render always uses the no-dash form. Identifier conventions, the JSON-vs-URL split, manifest grammar, and CLI semantics are documented in [Data & identity](../architecture/data-and-identity.md).
 
 ## Messages
 
@@ -61,20 +61,18 @@ The platform never inspects the payload of a Domain message. Domain-specific sem
 
 Domain messages are **one-way events** — a notification that something happened, delivered to a unit or agent. The sender is not blocked waiting on a return value, and the platform does not route a "reply" back to the sender. When a unit/agent finishes processing a domain message, its output is **recorded on the thread**; if a response or follow-up is warranted, the unit/agent acts through its tools or sends a *new* one-way message on the thread. Request/reply, where a flow needs it, is a pattern built on threads — not a transport primitive.
 
-Control-plane queries (`StatusQuery`, `HealthCheck`) are the exception: they are synchronous infrastructure probes and return their result to the caller directly. See [ADR-0048](../decisions/0048-event-vs-request-message-semantics.md).
+Control-plane queries (`StatusQuery`, `HealthCheck`) are the exception: they are synchronous infrastructure probes and return their result to the caller directly. See [ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md).
 
 ### Routing is Platform-Controlled
 
 The sender does not specify priority or urgency. The platform determines which mailbox channel a message enters based on:
 
-1. **MessageType** -- control types always route to the control channel
+1. **MessageType** -- control types (`Cancel`, `StatusQuery`, `HealthCheck`, `PolicyUpdate`) always route to the **control channel**, processed even mid-work.
 2. **Delivery mechanism** -- for Domain messages:
-   - Direct message (actor method call) goes to the conversation channel
-   - Pub/sub subscription goes to the observation channel
-   - Reminder or timer goes to the observation channel
-   - Input binding (external event via connector) goes to the conversation channel
+   - A direct message enters the **per-thread FIFO channel** for its `ThreadId` — one queue per thread, processed concurrently across threads.
+   - A pub/sub message, reminder, or timer enters the **observation channel**, batched for the initiative cognition loop.
 
-No sender can escalate their own message priority. The platform is the sole authority on routing.
+No sender can escalate their own message priority. The platform is the sole authority on routing. The agent mailbox is detailed in [Architecture: Messaging § The agent mailbox](../architecture/messaging.md#the-agent-mailbox).
 
 ## How Routing Works
 
@@ -82,7 +80,7 @@ All actors have flat, globally unique Dapr actor ids derived from their `Guid`. 
 
 **Permission enforcement** happens at resolution time. The directory walks the membership graph from the addressed actor toward the tenant root and at each boundary edge evaluates the permission rule against the sender; the walk returns either an actor id (permitted) or a structured deny (rejected). This is one synchronous check whose cost is O(membership depth), not per-hop forwarding.
 
-When the addressed actor is a unit (rather than a specific member), the unit applies its boundary filtering and invokes its own runtime; the runtime decides whether to answer directly or delegate to a child by delivering a message via the `sv.messaging.*` tools the launcher attaches (see [ADR-0039](../decisions/0039-units-are-agents.md)).
+When the addressed actor is a unit (rather than a specific member), the unit applies its boundary filtering and invokes its own runtime; the runtime decides whether to answer directly or delegate to a child by delivering a message via the `sv.messaging.*` tools the launcher attaches (see [ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)).
 
 ## Pub/Sub Topics
 
@@ -90,6 +88,13 @@ Topics provide event distribution. An agent subscribes to a topic and receives a
 
 The pub/sub infrastructure is broker-agnostic -- Redis for development, Kafka or Azure Event Hubs for production. The choice is configuration, not code.
 
-## Multicast
+## Message delivery
 
-A multicast send dispatches a single domain message to every actor that matches a routing pattern (for example, all members of a unit advertising a given role). The multicast resolver above the directory expands the pattern into a set of `(scheme, Guid)` addresses, each routed individually. Multicast is useful for broadcast queries ("who can help with this Python issue?") or role-based work distribution.
+A runtime delivers a domain message through two platform MCP tools. Both return a **delivery acknowledgement** — the message was durably placed in the recipient's mailbox — never the recipient's reply.
+
+| Tool | Delivers to |
+|------|-------------|
+| `sv.messaging.send` | One addressable target |
+| `sv.messaging.multicast` | Many targets — addressed explicitly, or by a directory-relationship `scope` (`unit-members`, `siblings`) |
+
+There is no `delegate_to` / `fanout_to` tool. A runtime that wants to *delegate* sends a message whose content says so — "delegation" is message content the recipient's runtime interprets, not a platform mechanism. Multicast is useful for broadcast queries ("who can help with this Python issue?") or role-based work distribution. The delivery contract and the full `sv.<area>.<verb>` tool surface are described in [Architecture: Messaging](../architecture/messaging.md).

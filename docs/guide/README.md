@@ -16,7 +16,7 @@ Using Spring Voyage day-to-day — sending messages, observing activity, working
 - [Managing units and agents](user/units-and-agents.md)
 - [Messaging and interaction](user/messaging.md)
 - [Observing activity](user/observing.md)
-- [Declarative configuration](user/declarative.md) (YAML + `spring apply`)
+- [Declarative configuration](user/declarative.md) (YAML packages + `spring package install`)
 - [Examples](user/examples.md)
 - [Portal walkthrough](user/portal.md)
 

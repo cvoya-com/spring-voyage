@@ -1,5 +1,7 @@
 # Area H: Issue triage (milestone-blind)
 
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../architecture/README.md). Kept for context.
+
 **Status:** ✅ **Done.** Umbrella [#1222](https://github.com/cvoya-com/spring-voyage/issues/1222) closed. ~108 open issues were classified and routed: 2 closed as obsolete, 39 routed to v0.1 areas, 43 to backlog, 10 to needs-thinking, 3 to ambient. New issues are triaged via the `/triage <N>` skill as routine hygiene without a tracking umbrella.
 
 Original planning notes preserved below.

@@ -1,5 +1,7 @@
 # Spring Voyage v0.1 — Decisions Log
 
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../architecture/README.md). Kept for context.
+
 Strategy-level decisions for v0.1, with dates. Append-only — corrections happen via new entries that supersede older ones, not by editing history.
 
 ## 2026-04-25 — V2 release scrapped

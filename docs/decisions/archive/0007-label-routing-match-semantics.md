@@ -1,5 +1,7 @@
 # 0007 — Label-routing match semantics for `LabelRoutedOrchestrationStrategy`
 
+> **Archived — superseded.** Kept for reasoning history; it does not describe the current system. The current decision is [ADR-0053 — Units are agents; the platform delivers one-way messages](../0053-units-are-agents-and-one-way-delivery.md). See the [archive index](README.md).
+
 > **Superseded by [ADR-0039](0039-units-are-agents.md).** The `LabelRoutedOrchestrationStrategy` and `LabelRoutingPolicy` types this ADR describes were removed; label-routing roundtrip rules now live on the GitHub connector binding and fire on `OrchestrationDecision` events. See `docs/concepts/connectors.md` § GitHub Label Routing for the current shape. The body below is preserved as historical context only.
 
 - **Status:** Superseded by [ADR-0039](0039-units-are-agents.md) — case-insensitive set intersection; first payload label wins; `UnitPolicy.LabelRouting` carries the config.

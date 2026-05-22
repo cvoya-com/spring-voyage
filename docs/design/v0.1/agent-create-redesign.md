@@ -1,6 +1,8 @@
 # Agent-create flow redesign — design spec
 
-Status: Design — implementation deferred. Refs `#1763` (UX redesign issue), `#1786` (units-are-agents architecture umbrella). Layers on top of [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md) (runtime / provider / model split) and **[ADR-0039](../../decisions/0039-units-are-agents.md)** (units are agents — orchestration is runtime behaviour, not platform configuration). Sequenced alongside the broader platform work in [`docs/plan/v0.1/units-are-agents.md`](../../plan/v0.1/units-are-agents.md).
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../architecture/README.md). Kept for context.
+
+Status: Design — implementation deferred. Refs `#1763` (UX redesign issue), `#1786` (units-are-agents architecture umbrella). Layers on top of [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md) (runtime / provider / model split) and **[ADR-0039](../../decisions/archive/0039-units-are-agents.md)** (units are agents — orchestration is runtime behaviour, not platform configuration). Sequenced alongside the broader platform work in [`docs/plan/v0.1/units-are-agents.md`](../../plan/v0.1/units-are-agents.md).
 
 This document is the implementation contract for the agent-create UX redesign described in `#1763`. It audits the three creation surfaces that exist today (the unit-tab "Add Agent" dialog, the standalone `/agents/create` wizard, and `spring agent create`), describes the unified target design under the units-are-agents framing recorded in ADR-0039, and slices the UX-side work for downstream PRs. **No production code is touched in this PR — the implementation lands separately.**
 
@@ -511,11 +513,11 @@ The inherit scenarios are parity-critical because the parent model now includes 
 
 ### 6.1 ADR-0039 — units are agents (architectural prerequisite)
 
-[ADR-0039](../../decisions/0039-units-are-agents.md) is the architectural prerequisite this design assumes. The relevant decisions:
+[ADR-0039](../../decisions/archive/0039-units-are-agents.md) is the architectural prerequisite this design assumes. The relevant decisions:
 
 - **A unit is an agent.** Same address shape, same mailbox, same execution config, same runtime path. The only structural difference is that a unit has children. There is no separate "unit-as-router" or "unit-as-agent" mode; there is no creation-time toggle to declare what a unit "is."
-- **Orchestration is runtime behaviour.** The platform has no orchestration-strategy taxonomy, no label-routing policy entity, no `unit.orchestration:` block on the manifest, and no orchestration HTTP endpoint. Workflow / AI routing / hybrid routing / direct response are runtime-image and instruction concerns. (See [ADR-0039 § 2](../../decisions/0039-units-are-agents.md#2-orchestration-is-runtime-behaviour-not-platform-configuration) for the full list of removed types.)
-- **Messaging tools are attached uniformly.** The platform exposes the `sv.messaging.send` / `sv.messaging.multicast` delivery tools to every `agent://` and `unit://` runtime, via (a) the runtime's tool-call surface (MCP, for LLM-driven runtimes) and (b) a typed SDK over an HTTP callback API (`Cvoya.Spring.AgentSdk`, for workflow-driven runtimes). Discovery, inspection, and runtime-status queries live on the `sv.directory.*` tool surface. `delegate_to` / `fanout_to` are removed — see [ADR-0050](../../decisions/0050-platform-mcp-tool-surface.md). The image author chooses which surface fits.
+- **Orchestration is runtime behaviour.** The platform has no orchestration-strategy taxonomy, no label-routing policy entity, no `unit.orchestration:` block on the manifest, and no orchestration HTTP endpoint. Workflow / AI routing / hybrid routing / direct response are runtime-image and instruction concerns. (See [ADR-0039 § 2](../../decisions/archive/0039-units-are-agents.md#2-orchestration-is-runtime-behaviour-not-platform-configuration) for the full list of removed types.)
+- **Messaging tools are attached uniformly.** The platform exposes the `sv.messaging.send` / `sv.messaging.multicast` delivery tools to every `agent://` and `unit://` runtime, via (a) the runtime's tool-call surface (MCP, for LLM-driven runtimes) and (b) a typed SDK over an HTTP callback API (`Cvoya.Spring.AgentSdk`, for workflow-driven runtimes). Discovery, inspection, and runtime-status queries live on the `sv.directory.*` tool surface. `delegate_to` / `fanout_to` are removed — see [ADR-0050](../../decisions/archive/0050-platform-mcp-tool-surface.md). The image author chooses which surface fits.
 - **Routing decisions are recorded on demand.** A `sv.messaging.*` delivery records a `MessageSent` activity; when a runtime wants its routing decision on the activity stream it makes an optional, explicit `sv.runtime.report_decision` call, which emits a `DecisionMade` / `OrchestrationDecision` event. The GitHub label-roundtrip subscriber rewrites against that shape.
 - **Inheritance generalises.** Top-level agents are tenant-parented (same as top-level units). A multi-parent agent that leaves any execution field inherited must have every parent resolve identical effective config; otherwise the platform rejects with a structured 422 naming the diverging field. Reparenting revalidates the same rule.
 - **Container-runtime is platform configuration.** Operators do not pick podman vs docker. The selector is removed from CLI and portal.
@@ -560,7 +562,7 @@ Each task is sized for execution by a less-capable code-generation agent: concre
 
 The platform-side prerequisites (delete strategy taxonomy, label-routing rewrite, container-runtime removal, multi-parent inheritance backend) are sequenced earlier in the same plan (Phases A–H, 67 tasks). Phase B's multi-parent inheritance validation (`IExecutionConfigInheritanceResolver` wired into create / update / membership endpoints) is the strict prerequisite for Phase I; phase H's positional `<id>` removal is the strict prerequisite for Phase L.
 
-DESIGN.md updates land as task **K10** with the rest of Phase K. The `#1786` ADR direction is recorded in [ADR-0039](../../decisions/0039-units-are-agents.md), filed in this same PR.
+DESIGN.md updates land as task **K10** with the rest of Phase K. The `#1786` ADR direction is recorded in [ADR-0039](../../decisions/archive/0039-units-are-agents.md), filed in this same PR.
 
 ---
 
@@ -577,7 +579,7 @@ DESIGN.md updates land as task **K10** with the rest of Phase K. The `#1786` ADR
 
 - Issue: `#1763` — "Align agent creation flow with unit creation: configuration, inheritance, and multi-path entry"
 - Architecture umbrella: `#1786` — Design: unit-as-agent vs unit-as-router (recorded in ADR-0039)
-- [ADR-0039](../../decisions/0039-units-are-agents.md) — units are agents (orchestration is runtime behaviour, not platform configuration); the architectural prerequisite this design assumes
+- [ADR-0039](../../decisions/archive/0039-units-are-agents.md) — units are agents (orchestration is runtime behaviour, not platform configuration); the architectural prerequisite this design assumes
 - [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md) — runtime / image / provider / model split (the field semantics this design layers on)
 - [ADR-0035](../../decisions/0035-package-as-bundling-unit.md) — package-install pipeline (the catalog and file-upload paths this design consolidates against)
 - [Execution plan](../../plan/v0.1/units-are-agents.md) — fine-grained per-task breakdown for ADR-0039 implementation, including Phases I–L for this design's UX-side work

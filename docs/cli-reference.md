@@ -120,7 +120,7 @@ The active execution shorthands are `--image <ref>` and, for agents, `--hosting 
 
 The legacy `--agent` and flat `--provider` flags are **rejected at parse time** with a clear migration hint — there is no compatibility alias.
 
-The legacy `--container-runtime` flag is also **rejected at parse time** under ADR-0039 because container runtime is platform configuration.
+The legacy `--container-runtime` flag is also **rejected at parse time** — container runtime (podman vs docker) is platform configuration, not an operator-facing execution field ([ADR-0053](decisions/0053-units-are-agents-and-one-way-delivery.md) §6).
 
 ### `spring unit create` / `spring unit execution set`
 
@@ -202,7 +202,7 @@ $ spring unit create my-unit --top-level --runtime claude-code
 $ spring unit execution set my-unit --image ghcr.io/example/claude:1 --no-wait
 ```
 
-On success the CLI returns 201 and then **polls** the unit's terminal state. `--wait` is the **default**; the command blocks until the `UnitValidationWorkflow` finishes and exits with a validation-code-derived exit code (see the table below). `--no-wait` returns immediately after the 201, leaving the unit in `Validating`.
+On success the CLI returns 201 and then **polls** the unit's terminal state. `--wait` is the **default**; the command blocks until the `ArtefactValidationWorkflow` finishes and exits with a validation-code-derived exit code (see the table below). `--no-wait` returns immediately after the 201, leaving the unit in `Validating`.
 
 ### `revalidate <id> [--wait | --no-wait]`
 
@@ -211,7 +211,7 @@ $ spring unit revalidate 8c5fab2a8e7e4b8da3e7d18c1a9f0b3c
 $ spring unit revalidate 8c5fab2a8e7e4b8da3e7d18c1a9f0b3c --no-wait
 ```
 
-Calls `POST /api/v1/units/{id}/revalidate`, which is allowed only from `Error` or `Stopped`. The handler flips the unit into `Validating` and dispatches a fresh `UnitValidationWorkflow` run; the CLI polls the same way `create` does.
+Calls `POST /api/v1/units/{id}/revalidate`, which is allowed only from `Error` or `Stopped`. The handler flips the unit into `Validating` and dispatches a fresh `ArtefactValidationWorkflow` run; the CLI polls the same way `create` does.
 
 Exits `2` (usage error) when the unit is not in an allowed state — the server returns 409 with the current status in the problem-details `extensions.currentStatus`.
 
@@ -219,7 +219,7 @@ Exits `2` (usage error) when the unit is not in an allowed state — the server 
 
 Shared by `spring unit create` and `spring unit revalidate` (stable, additive-only):
 
-| Exit | `UnitValidationCodes` | Meaning |
+| Exit | `ArtefactValidationCodes` | Meaning |
 |------|-----------------------|---------|
 | 0  | — | Success (terminal passing state) |
 | 1  | — | Unknown / transport error |
@@ -324,7 +324,7 @@ Exit codes: `0` on success, `1` for API errors (404 subject-not-found, 400 packa
 2. **Pin a model list on install.** `spring model-provider install anthropic --model claude-opus-4-7 --model claude-sonnet-4-6`.
 3. **Reconcile the tenant's list with what the provider currently publishes.** `spring model-provider refresh-models openai --credential sk-proj-…`.
 4. **Retire a model from the catalogue.** `spring model-provider config set openai models=gpt-4o` (existing units keep their pinned id per the pass-through rule).
-5. **Re-run backend validation on a failed unit.** `spring unit revalidate <unit-guid>` — dispatches a fresh `UnitValidationWorkflow` run; exits 20–27 map onto the underlying `UnitValidationCodes`.
+5. **Re-run backend validation on a failed unit.** `spring unit revalidate <unit-guid>` — dispatches a fresh `ArtefactValidationWorkflow` run; exits 20–27 map onto the underlying `ArtefactValidationCodes`.
 6. **Install Ollama with a custom node URL.** `spring model-provider install ollama --base-url http://ollama.internal:11434`.
 7. **Hide OpenAI from a tenant.** `spring model-provider uninstall openai --force`.
 8. **Re-enable OpenAI later.** `spring model-provider install openai` — install is upsert-shaped; prior config is preserved where possible.

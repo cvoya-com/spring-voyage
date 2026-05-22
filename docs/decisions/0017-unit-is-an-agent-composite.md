@@ -3,7 +3,7 @@
 - **Status:** Accepted — `UnitActor` and `AgentActor` both implement the same addressable / message-receiving contract; a unit is indistinguishable from an agent at the messaging boundary.
 - **Date:** 2026-04-21
 - **Related code:** `src/Cvoya.Spring.Core/IAddressable.cs`, `src/Cvoya.Spring.Core/Messaging/IMessageReceiver.cs`, `src/Cvoya.Spring.Dapr/Actors/AgentActor.cs`, `src/Cvoya.Spring.Dapr/Actors/UnitActor.cs`.
-- **Related docs:** [`docs/architecture/units.md`](../architecture/units.md), [`docs/concepts/units.md`](../concepts/units.md).
+- **Related docs:** [`docs/architecture/units.md`](../architecture/units-and-agents.md), [`docs/concepts/units.md`](../concepts/units.md).
 
 ## Context
 

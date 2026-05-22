@@ -21,8 +21,11 @@ Optional:
 dotnet build SpringVoyage.slnx
 
 # Build a specific project
-dotnet build src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj
+dotnet build src/Cvoya.Spring.Host.Worker/Cvoya.Spring.Host.Worker.csproj
 ```
+
+For local builds of container images (platform, agent, sidecar) use
+`eng/build/build.sh`.
 
 ## Running Locally
 
@@ -45,14 +48,31 @@ dapr init
 
 This installs the Dapr sidecar and default components.
 
-### Start the API Host
+### Start the hosts
+
+Spring Voyage runs two .NET hosts with explicit roles (see
+[Components](../architecture/components.md)):
+
+- `spring-api` — the stateless HTTP front door (REST API, webhooks, OpenAPI).
+- `spring-worker` — the execution host: Dapr actors, A2A dispatch, the platform
+  MCP server, and EF Core migrations.
+
+Each gets its own Dapr sidecar. The Worker owns database migrations, so start it
+first (or accept that the API trusts the schema is already in place).
 
 ```
+# Worker host
+dapr run --app-id spring-worker --app-port 5100 --dapr-http-port 3600 \
+  -- dotnet run --project src/Cvoya.Spring.Host.Worker -- --local
+
+# API host
 dapr run --app-id spring-api --app-port 5000 --dapr-http-port 3500 \
   -- dotnet run --project src/Cvoya.Spring.Host.Api -- --local
 ```
 
-The `--local` flag enables single-tenant mode with no authentication.
+The `--local` flag enables local-dev mode with no authentication. For the
+container-based deployment (`deploy.sh`), both hosts and their sidecars are
+started for you — see [Platform Operations](operations.md).
 
 ### Use the CLI
 
@@ -77,18 +97,10 @@ dotnet test tests/unit/Cvoya.Spring.Dapr.Tests/ --filter Category=Integration
 
 ## Building Container Images
 
-Package Dockerfiles produce container images for workflows and execution environments:
-
-```
-# Build all images for a package
-spring build packages/software-engineering
-
-# Build a specific workflow
-spring build packages/software-engineering/workflows/software-dev-cycle
-
-# List built images
-spring images list
-```
+Reference agent-runtime and platform images are built locally with
+`eng/build/build.sh`, which uses Podman and writes the same canonical
+`ghcr.io/cvoya-com/*` refs that release builds publish. Production deployments
+pull pre-built images from GHCR by tag; see [Releases](releases.md).
 
 ## Dapr Component Configuration
 
@@ -106,18 +118,25 @@ and `--config eng/dapr/config/local.yaml`.
 
 ## Database Migrations
 
-Schema changes use EF Core migrations:
+Schema changes use EF Core migrations. `SpringDbContext` lives in
+`Cvoya.Spring.Dapr`, so `dotnet ef` always targets that project:
 
 ```
 # Add a new migration
-dotnet ef migrations add <MigrationName> --project src/Cvoya.Spring.Host.Api
+dotnet tool restore
+dotnet ef migrations add <MigrationName> \
+  --project src/Cvoya.Spring.Dapr \
+  --output-dir Data/Migrations
 
-# Apply migrations
-dotnet ef database update --project src/Cvoya.Spring.Host.Api
-
-# Or via the admin CLI
-spring-admin migrate
+# Apply migrations to a real database
+dotnet ef database update --project src/Cvoya.Spring.Dapr \
+  --connection "Host=...;Database=...;Username=...;Password=..."
 ```
+
+The Worker host auto-applies pending migrations on startup, so a fresh local
+database comes up with an up-to-date schema without running `dotnet ef`
+manually. See [Platform Operations § Database Migrations](operations.md#database-migrations)
+for the auto-migrate flag, multi-replica coordination, and idempotent SQL scripts.
 
 ## Development Workflow
 

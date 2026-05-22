@@ -1,5 +1,7 @@
 # Area G: Code review + decomposition
 
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../architecture/README.md). Kept for context.
+
 **Status:** ✅ **Done.** Umbrella [#1221](https://github.com/cvoya-com/spring-voyage/issues/1221) closed. Discovery completed; cleanup sub-issues were populated and executed. No ADR-0029 boundary violations were found in existing code.
 
 ## Stage 0 — complete ✅

@@ -1,69 +1,133 @@
 # Creating Packages
 
-This guide covers how to create domain packages -- bundles of agents, skills, workflows, connectors, and execution environments that bring domain expertise to the platform.
+This guide covers how to author **domain packages** — installable bundles of
+agents, units, skills, and templates that bring domain expertise to the platform.
+
+For the architecture-level reference (install ordering, two-phase install,
+export, catalogue discovery), see [`docs/architecture/packages.md`](../architecture/packages.md).
 
 ## Package Structure
 
-A package is a directory following this convention:
+A package is a **folder** rooted at a `package.yaml` whose `kind:` is `Package`.
+The directory layout *is* the manifest — the install pipeline discovers artefacts
+by walking conventional subdirectories ([ADR-0043](../decisions/0043-recursive-package-format.md)).
+There is no `content:` block.
 
 ```
 packages/<domain-name>/
-  agents/                    # Agent definition YAML files
-  units/                     # Unit definition YAML files
-  skills/                    # Prompt fragments + tool definitions
-  workflows/                 # Workflow container sources
-    <workflow-name>/
-      Dockerfile
-      <ProjectDir>/          # .NET project, Python code, etc.
-  execution/                 # Agent execution environment sources
-    <env-name>/
-      Dockerfile
-  connectors/                # Connector source (compiled into host)
-    <connector-name>/
+  package.yaml          # kind: Package — name, description, version, inputs
+  agents/               # agent definition folders
+  units/                # unit definition folders
+  skills/               # skill bundles (prompt fragment + optional tools)
+  templates/            # AgentTemplate / UnitTemplate / HumanTemplate
+  execution/            # Dockerfiles for agent execution images (source, not runtime)
 ```
 
-## Creating Agent Templates
+Every standalone artefact is itself a folder rooted at a `package.yaml` carrying
+its own `kind:` discriminator. Folders compose recursively — a unit folder can
+contain its own `agents/`, `units/`, `skills/`, and `templates/` subdirectories.
 
-Agent YAML files define reusable agent configurations:
+`connectors/` and `workflows/` are **not** package-vocabulary directories.
+Connector *bindings* are expressed through a `requires:` block and supplied at
+install time; connector plugins ship as their own .NET projects under `src/`
+(see [Creating Connectors](#creating-connectors)). Workflow-driven runtimes ship
+as their own container images.
+
+A `package.yaml`:
 
 ```yaml
-# packages/my-domain/agents/researcher.yaml
-agent:
-  id: researcher
-  name: Researcher
-  role: researcher
-  capabilities: [analysis, summarization, literature-review]
-
-  ai:
-    runtime: claude-code   # AgentRuntime id from eng/runtime-catalog/runtime-catalog.yaml (ADR-0038)
-    model:
-      provider: anthropic  # ModelProvider id; intrinsic to the model
-      id: claude-sonnet-4-6
-
-  instructions: |
-    You are a research analyst. You analyze papers,
-    summarize findings, and identify patterns.
-
-  expertise:
-    - domain: machine-learning
-      level: advanced
-    - domain: statistics
-      level: intermediate
-
-  activations:
-    - type: message
-    - type: subscription
-      topic: new-papers
+apiVersion: spring.voyage/v1
+kind: Package
+name: my-domain
+description: A short description of the domain bundle.
+version: 1.0.0
+readme: README.md
 ```
+
+## Creating Agents
+
+Each agent is a folder under `agents/` rooted at a `package.yaml` with
+`kind: Agent`:
+
+```yaml
+# packages/my-domain/agents/researcher/package.yaml
+apiVersion: spring.voyage/v1
+kind: Agent
+name: researcher
+description: Research analyst.
+role: researcher
+capabilities: [analysis, summarization, literature-review]
+
+ai:
+  runtime: claude-code     # AgentRuntime id from eng/runtime-catalog/runtime-catalog.yaml (ADR-0038)
+  model:
+    provider: anthropic    # ModelProvider id; intrinsic to the model
+    id: claude-sonnet-4-6
+  environment:
+    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+
+instructions: |
+  You are a research analyst. You analyze papers,
+  summarize findings, and identify patterns.
+
+expertise:
+  - domain: machine-learning
+    level: advanced
+  - domain: statistics
+    level: intermediate
+```
+
+Execution config is the `(runtime, model)` pair plus an `environment.image`. The
+`runtime` selects an **AgentRuntime** from the runtime catalogue; the `model`
+names a **ModelProvider** and a model id ([ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md)).
+
+## Creating Units
+
+A unit is an agent that has children. It is a folder under `units/` with
+`kind: Unit`. Its members — agents, sub-units, and humans — are declared under
+one `members:` list with a key-prefix discriminator:
+
+```yaml
+# packages/my-domain/units/research-cell/package.yaml
+apiVersion: spring.voyage/v1
+kind: Unit
+name: research-cell
+description: A research cell with analysts and a human owner.
+ai:
+  runtime: claude-code
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-6
+  skills:
+    - package: my-org/my-domain
+      skill: paper-analysis
+instructions: |
+  You coordinate a research cell. Route incoming work to the most
+  appropriate member based on their expertise.
+members:
+  - agent: researcher
+  - human:
+      roles: [owner]
+      notifications: ["escalation", "completion"]
+execution:
+  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+requires:
+  - connector: github
+```
+
+How a unit routes work across its members is **runtime behaviour** — it lives in
+the unit's runtime image and instructions, not in platform configuration. There
+is no "orchestration strategy" field ([ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)).
 
 ## Creating Skills
 
-Skills are the smallest reusable unit -- a prompt fragment and optional tool definitions.
+A skill is the smallest reusable artefact — a markdown prompt fragment plus
+optional tool definitions. It is a folder under `skills/` with `kind: Skill`.
 
 ### Prompt Fragment
 
 ```markdown
-<!-- packages/my-domain/skills/paper-analysis.md -->
+<!-- packages/my-domain/skills/paper-analysis/prompt.md -->
 ## Paper Analysis
 
 When you receive a research paper:
@@ -76,25 +140,9 @@ When you receive a research paper:
 
 ### Tool Definitions (Optional)
 
-```json
-// packages/my-domain/skills/paper-analysis.tools.json
-[
-  {
-    "name": "classifyPaper",
-    "description": "Classify a paper by topic, methodology, and quality",
-    "parameters": {
-      "type": "object",
-      "required": ["paperId", "topics", "methodology"],
-      "properties": {
-        "paperId": { "type": "string" },
-        "topics": { "type": "array", "items": { "type": "string" } },
-        "methodology": { "type": "string", "enum": ["experimental", "theoretical", "survey", "mixed"] },
-        "qualityScore": { "type": "number", "minimum": 1, "maximum": 5 }
-      }
-    }
-  }
-]
-```
+A skill may declare MCP tools alongside its prompt fragment. At install the
+platform validates each declared tool against unit policy — a policy-blocked
+tool fails the install; an unprovided tool is an advisory warning.
 
 ### Composing Skills
 
@@ -109,157 +157,73 @@ ai:
       skill: literature-review
 ```
 
-Prompt fragments are concatenated in declaration order. Tool definitions are merged.
+Prompt fragments render into the unit-context layer of the assembled prompt.
 
-## Creating Workflow Containers
+## Templates
 
-Domain workflows run as containers. Create a Dockerfile and the orchestration code:
+A **template** is a non-activating artefact folder (`kind: AgentTemplate`,
+`UnitTemplate`, or `HumanTemplate`) that a concrete artefact clones via
+`from: <template>`, with scalar/map override and list-replace semantics.
+Templates can be reused across packages via `from: <pkg>/<name>@<version>`.
+See [`docs/architecture/packages.md` § Members and templates](../architecture/packages.md#members-and-templates).
 
-```
-packages/my-domain/workflows/research-cycle/
-  Dockerfile
-  ResearchCycle/
-    ResearchCycle.csproj
-    ResearchCycleWorkflow.cs
-```
+## Agent Hosting Mode
 
-The workflow communicates with agents via its Dapr sidecar. It can use Dapr Workflows (C# or Python), Temporal, or any custom process.
+Every agent runs in one of two modes, set by the `execution.hosting` field on a
+unit or agent `execution:` block:
 
-### Referencing in Unit Definitions
+- `ephemeral` *(default)* — a fresh container per dispatch, torn down after the
+  turn. Strongest isolation; best for short, stateless turns.
+- `persistent` — a long-lived container kept running for the agent's service
+  lifetime. Best for warm state and low-latency interactive agents.
 
-```yaml
-unit:
-  ai:
-    runtime: spring-voyage    # AgentRuntime id from eng/runtime-catalog/runtime-catalog.yaml (ADR-0038)
-    model:
-      provider: ollama
-      id: llama3.2:3b
-  execution:
-    image: my-org/research-cycle:latest
-```
-
-The container engine (`docker` / `podman`) is host-level platform configuration, not a package or unit manifest field.
-
-## Creating Execution Environments
-
-Execution environments are containers where delegated agents do work:
-
-```
-packages/my-domain/execution/research-env/
-  Dockerfile
-```
-
-The Dockerfile sets up the tools the agent needs -- Claude Code, Python packages, data analysis tools, etc.
-
-### Referencing in Agent/Unit Definitions
-
-Agent-level (specific to this agent):
-```yaml
-agent:
-  execution:
-    image: my-org/research-env:latest
-    hosting: persistent
-```
-
-Unit-level (default for all members):
-```yaml
-unit:
-  execution:
-    image: my-org/research-env:latest
-    hosting: persistent
-```
-
-Agents that don't specify their own environment inherit the unit's default.
-
-### `execution.hosting` (issue #2436)
-
-The hosting mode controls how the agent's container is scheduled across
-dispatch invocations. It is a first-class field on both unit and agent
-`execution:` blocks (and on agent / unit templates).
-
-Valid literals (case-insensitive, normalised to lower-case at parse time):
-
-- `persistent` *(default)* — long-lived container; the platform keeps it
-  running and routes messages to it for its lifetime.
-- `ephemeral` — a fresh container is spun up per dispatch and torn down
-  when the work is done.
-- `pooled` — reserved for the warm-pool model in #362; the dispatcher
-  rejects this mode with `NotSupportedException` until that work lands.
-
-**Strict validation.** The manifest parser rejects any other literal
-(`permanent`, `none`, …) at parse time with a structured `ManifestParseException`
-naming the field path and the rejected value. Install / upload fails
-fast; runtime never silently defaults around a typo.
-
-**Inheritance.** Member agents inherit the parent unit's `hosting` value
-when neither they nor their template declares one. Precedence:
-
-```
-agent > template > unit > default (persistent)
-```
-
-Templates merge into the agent at install time per ADR-0043 §5d, so a
-template-declared `execution.hosting` flows into the stamped agent
-automatically. The install pipeline then layers the unit's value onto
-any member agent whose merged YAML still lacks one.
+Member agents inherit the parent unit's `hosting` value when neither they nor
+their template declares one (precedence: `agent > template > unit > default`).
+The manifest parser rejects any other literal at parse time with a structured
+`ManifestParseException` — install fails fast on a typo. See
+[Deployment § Agent hosting modes](../architecture/deployment.md#agent-hosting-modes).
 
 ## Creating Connectors
 
-### Simple Connectors (Dapr Bindings)
-
-For straightforward integrations, create a Dapr binding YAML:
-
-```yaml
-# eng/dapr/components/my-binding.yaml
-apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: my-webhook
-spec:
-  type: bindings.http
-  metadata:
-    - name: url
-      value: "https://api.example.com/webhook"
-```
-
-### Rich Connectors (Custom Code)
-
-For bidirectional, stateful integrations, create a .NET project:
+Connectors are **plugins**, not package artefacts. A connector implements the
+`IConnectorType` contract, ships as its own .NET project, and registers through
+one `AddCvoyaSpring*()` DI extension. It is a non-routable bridge — code, not an
+actor; nothing routes a message *to* it. A connector translates external events
+into one-way platform messages and registers outbound skills for agents
+([ADR-0045](../decisions/0045-connector-domain-agnostic-platform.md)).
 
 ```
-packages/my-domain/connectors/my-service/
-  Spring.Connector.MyService.csproj
+src/Cvoya.Spring.Connector.MyService/
+  Cvoya.Spring.Connector.MyService.csproj
   MyServiceConnector.cs
   MyServiceEventTranslator.cs
   MyServiceSkills.cs
 ```
 
-Rich connectors translate external events into one-way platform messages and register skills for agents. A connector is a non-routable bridge — it is code, not an actor, and nothing routes a message to it ([ADR-0048](../decisions/0048-event-vs-request-message-semantics.md)).
+The in-tree connectors — `Cvoya.Spring.Connector.{GitHub,Arxiv,WebSearch}` — are
+the worked examples. A package declares the connectors it needs through a
+`requires:` block; the binding is supplied at install time. See
+[`docs/architecture/connectors.md`](../architecture/connectors.md).
 
-## Building and Testing
+## Building and Installing
 
 ```
-# Build container images
-spring build packages/my-domain
+# Install a package from the in-tree catalogue
+spring package install my-domain
 
-# Apply the package
-spring apply -f packages/my-domain/units/research-cell.yaml
+# Poll install status
+spring package status <install-id>
 
-# Test with a message — resolve the unit's id, then send to it
+# Send a message to an installed unit — resolve the unit's id first
 spring unit show research-cell                       # prints the canonical Guid
 spring message send unit:<id> "Analyze this paper: ..."
 ```
 
-## Phase 6: Formal Package Distribution
+`FileSystemPackageCatalogService` walks `packages/`, so a new package folder
+appears in the catalogue with no further wiring. The packages root is configured
+by `Packages:Root` / `SPRING_PACKAGES_ROOT`.
 
-In Phase 6, packages gain formal distribution:
-
-```
-# Package and publish
-spring package publish my-org/my-domain --version 1.0.0
-
-# Install from registry
-spring package install my-org/my-domain
-```
-
-Until then, packages are directories applied directly with `spring apply`.
+Install is a two-phase atomic flow with a persisted install record — see
+[`docs/architecture/packages.md` § Install and export](../architecture/packages.md#install-and-export)
+for the full HTTP / CLI surface, install scope (`--into <unit>`), typed package
+`inputs`, and export.

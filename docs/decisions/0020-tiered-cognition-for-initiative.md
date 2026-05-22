@@ -3,7 +3,7 @@
 - **Status:** Accepted — initiative uses a cheap local Tier 1 LLM to screen events; only Tier 1's "act" verdicts wake the agent's primary LLM (Tier 2).
 - **Date:** 2026-04-21
 - **Related code:** `src/Cvoya.Spring.Core/Initiative/`, `src/Cvoya.Spring.Dapr/Initiative/Tier1CognitionProvider.cs`.
-- **Related docs:** [`docs/architecture/initiative.md`](../architecture/initiative.md), [`docs/concepts/initiative.md`](../concepts/initiative.md).
+- **Related docs:** [`docs/architecture/initiative.md`](../architecture/units-and-agents.md), [`docs/concepts/initiative.md`](../concepts/initiative.md).
 
 ## Context
 
@@ -17,7 +17,7 @@ A rule-based screener avoids the cost but loses the ability to make context-sens
 
 - **Tier 1 — screening, ~zero marginal cost.** A small model (Phi-3, Llama 3.1 8B, or equivalent) runs on shared platform infrastructure. It evaluates each event against the agent's context summary and emits the verdict. The cost is dominated by infra availability, not per-call price.
 - **Tier 2 — reflection, primary-LLM-priced.** Only invoked on `Act` verdicts (and on a periodic "did I miss something?" reflection). The agent runs its full perceive → reflect → decide → act → learn loop. Cost is proportional to actual decisions, not to event volume.
-- **Batched observation.** Tier 2 receives "what happened since I last reflected?" — an aggregated digest, not one event at a time. Pairs with the partitioned mailbox ([ADR 0018](0018-partitioned-mailbox.md)).
+- **Batched observation.** Tier 2 receives "what happened since I last reflected?" — an aggregated digest, not one event at a time. Pairs with the partitioned mailbox ([ADR 0018](archive/0018-partitioned-mailbox.md)).
 - **Cost target: ~6–8% of total agent cost.** This is the empirical headroom that lets initiative be on by default rather than an opt-in premium.
 
 The choice of where Tier 1 runs (in-process via ONNX/llama.cpp vs. separate Ollama container) is unresolved and tracked in [`docs/architecture/open-questions.md`](../architecture/open-questions.md).

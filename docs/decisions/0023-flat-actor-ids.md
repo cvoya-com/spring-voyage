@@ -13,7 +13,7 @@
 - **Status:** Accepted — every actor has a flat globally-unique Dapr actor id; addresses (canonical wire form `scheme:<32-hex-no-dash>` per [ADR 0036](0036-single-identity-model.md); originally specified as path addresses `agent://team/sub/agent` — see Amendment above) resolve to that id in one directory lookup; messages do not forward hop-by-hop through each unit in the path.
 - **Date:** 2026-04-21
 - **Related code:** `src/Cvoya.Spring.Core/IAddressable.cs`, `src/Cvoya.Spring.Dapr/Routing/`, `src/Cvoya.Spring.Dapr/Actors/UnitActor.cs` (member resolution).
-- **Related docs:** [`docs/architecture/messaging.md`](../architecture/messaging.md), [`docs/architecture/units.md`](../architecture/units.md), [ADR 0017](0017-unit-is-an-agent-composite.md), [ADR 0008](0008-unit-boundary-decorator.md), [ADR 0013](0013-hierarchy-aware-permission-resolution.md).
+- **Related docs:** [`docs/architecture/messaging.md`](../architecture/messaging.md), [`docs/architecture/units.md`](../architecture/units-and-agents.md), [ADR 0017](0017-unit-is-an-agent-composite.md), [ADR 0008](0008-unit-boundary-decorator.md), [ADR 0013](0013-hierarchy-aware-permission-resolution.md).
 
 ## Context
 

@@ -6,11 +6,14 @@ This guide covers running and managing a local Spring Voyage deployment.
 
 ### Local Development
 
-API Host in single-tenant mode + Dapr sidecar + Podman containers. Single machine.
+A local deployment runs two .NET hosts — `spring-api` (HTTP front door) and
+`spring-worker` (execution host) — each with its own Dapr sidecar, plus
+PostgreSQL, Redis, and Podman for agent containers, all on one machine. The
+`spring-dispatcher` host process owns the container runtime.
 
-```
-dapr run --app-id spring-api --app-port 5000 -- dotnet run --project src/Cvoya.Spring.Host.Api -- --local
-```
+For day-to-day development, run the hosts directly with `dapr run` (see
+[setup.md](setup.md)). For a container-based local stack, `eng/deploy/deploy.sh up`
+brings up every service.
 
 See [setup.md](setup.md) for full setup instructions.
 

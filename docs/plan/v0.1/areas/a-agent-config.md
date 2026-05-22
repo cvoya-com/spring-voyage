@@ -1,5 +1,7 @@
 # Area A: Coding-agent config
 
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../architecture/README.md). Kept for context.
+
 **Status:** ✅ **Done.** Umbrella [#1214](https://github.com/cvoya-com/spring-voyage/issues/1214) closed. Subsequent agent-config changes flow as ad-hoc PRs under ongoing hygiene rather than a tracked area.
 
 What shipped: V2 / V2.1 framing scrubbed and `AGENTS.md` / `CONVENTIONS.md` generalised; `CLAUDE.md` collapsed to a pointer; sub-agents slimmed and three new ones added (`web-engineer`, `cli-engineer`, `architect`); four project skills added (`/web`, `/openapi-diff`, `/triage`, `/adr-new`); language LSPs pinned at repo scope; user-level `~/.claude/CLAUDE.md` made project-agnostic; `gh-app` script extended with `--blocked-by` / `--blocking` / `--sub-issue-of` plus `issue link / close / reopen` subcommands.

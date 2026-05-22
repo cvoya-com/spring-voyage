@@ -1,10 +1,10 @@
 # 0041 — Actor-runtime contract for agent containers (per-thread session resume + concurrent-threads modes)
 
-- **Status:** Proposed — 2026-05-10 — supersedes the implicit "long-lived in-process state per agent" assumption with an explicit two-mode contract bound to `concurrent_threads`. Sharpens [ADR-0026](0026-per-agent-container-scope.md) (per-agent container scope) by specifying *what happens inside* the container when N threads share it.
+- **Status:** Accepted — 2026-05-10 — supersedes the implicit "long-lived in-process state per agent" assumption with an explicit two-mode contract bound to `concurrent_threads`. Sharpens [ADR-0026](0026-per-agent-container-scope.md) (per-agent container scope) by specifying *what happens inside* the container when N threads share it.
 - **Date:** 2026-05-10
 - **Tracks:** [#2090](https://github.com/cvoya-com/spring-voyage/issues/2090). Triggered by [#2088](https://github.com/cvoya-com/spring-voyage/issues/2088) / PR [#2093](https://github.com/cvoya-com/spring-voyage/pull/2093) (uvicorn-after-turn shutdown).
 - **Related code:** `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Dapr/Execution/PersistentAgentRegistry.cs`, `src/Cvoya.Spring.Dapr/Actors/AgentActor.cs` (per-thread channels from #2076 / #2078), `agents/spring-voyage-agent-sdk/spring_voyage_agent_sdk/runtime.py`, `src/Cvoya.Spring.AgentSidecar/src/bridge.ts`.
-- **Related docs:** [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md), [`docs/architecture/agent-sdk.md`](../architecture/agent-sdk.md), [ADR-0026 — Per-agent container scope](0026-per-agent-container-scope.md), [ADR-0017 — A Unit IS an Agent](0017-unit-is-an-agent-composite.md), [ADR-0030 — Thread model](0030-thread-model.md), [ADR-0036 — Single-identity model](0036-single-identity-model.md).
+- **Related docs:** [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md), [`docs/architecture/agent-sdk.md`](../architecture/agent-runtime.md), [ADR-0026 — Per-agent container scope](0026-per-agent-container-scope.md), [ADR-0017 — A Unit IS an Agent](0017-unit-is-an-agent-composite.md), [ADR-0030 — Thread model](0030-thread-model.md), [ADR-0036 — Single-identity model](0036-single-identity-model.md).
 
 ## Context
 
@@ -62,7 +62,7 @@ An agent that sets `concurrent_threads: true`:
 - MUST NOT mutate shared global state (env vars, working directory, signal handlers).
 - For CLI runtimes specifically: the system prompt MUST forbid the model from invoking long-running watchers (`pytest --watch`, `npm run dev`, etc.) — these are concurrency-mode footguns.
 
-The contract is documented in author-facing docs ([`docs/architecture/agent-sdk.md`](../architecture/agent-sdk.md) and the equivalent CLI-runtime guidance) and surfaced as warning text in `spring agent validate` when an agent sets `concurrent_threads: true`.
+The contract is documented in author-facing docs ([`docs/architecture/agent-sdk.md`](../architecture/agent-runtime.md) and the equivalent CLI-runtime guidance) and surfaced as warning text in `spring agent validate` when an agent sets `concurrent_threads: true`.
 
 ## Alternatives considered
 

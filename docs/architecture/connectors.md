@@ -1,340 +1,101 @@
 # Connectors
 
-> **[Architecture Index](README.md)** | Related: [Units](units.md), [Agents](agents.md), [Workflows](workflows.md), [Packages](packages.md)
+> **[Architecture index](README.md)** · Related: [Runtime flows](runtime-flows.md), [Units & agents](units-and-agents.md), [Packages](packages.md), [Security](security.md)
+
+A connector bridges an external system (GitHub, Slack, arXiv, …) to a unit. It
+is **domain-agnostic infrastructure**: connectors facilitate the flow of events
+and actions, but the platform does not replicate the upstream system's own
+configuration model ([ADR-0045](../decisions/0045-connector-domain-agnostic-platform.md)).
+
+A connector is a **non-routable bridge** — it is not an actor, and nothing
+routes a domain message to it ([ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)).
 
 ---
 
-## Connector Model
+## Two surfaces, and only two
 
-Connectors bridge external systems to the unit. They provide two things: **event translation** (external events → one-way messages) and **skills** (capabilities agents can use to act on external systems). A connector is a **non-routable bridge** — it is not an actor and never receives a routed message ([ADR-0048](../decisions/0048-event-vs-request-message-semantics.md)).
+| Surface | What it does |
+|---------|--------------|
+| **Inbound** | An event translator. It receives external events (webhooks, polled feeds) and translates each into a one-way domain message addressed at the bound unit. |
+| **Outbound** | An agent-invoked skill. A connector may register an `ISkillRegistry` whose tools (named `<connector-slug>.*`) appear in an agent's MCP tool surface alongside the platform `sv.*` tools. |
 
-### Connector Categories
+A connector that registers no skill registry still functions — inbound events
+flow, lifecycle hooks fire. A connector never exposes a message-receiving
+interface.
 
+## The `IConnectorType` plugin contract
 
-| Category               | Examples                        | Events                         | Actions/Skills                       |
-| ---------------------- | ------------------------------- | ------------------------------ | ------------------------------------ |
-| **Code**               | GitHub, GitLab, Bitbucket       | Issues, PRs, commits, reviews  | Create PR, comment, merge, read code |
-| **Communication**      | Slack, Teams, Discord, Email    | Messages, threads, reactions   | Send message, create channel, reply  |
-| **Documents**          | Google Docs, Notion, Confluence | Edits, comments, shares        | Create/edit doc, add comment         |
-| **Design**             | Figma, Canva                    | Component changes, comments    | Read designs, modify, export         |
-| **Project Management** | Linear, Jira, Asana             | Task created/updated/completed | Create task, update status, assign   |
-| **Knowledge**          | Web search, arxiv, wikis        | New publications, updates      | Search, summarize, bookmark          |
-| **Infrastructure**     | AWS, GCP, Kubernetes            | Alerts, deployments, metrics   | Deploy, scale, configure             |
+A connector ships as its own project (`Cvoya.Spring.Connector.<Name>`),
+implements `IConnectorType`, and registers through one `AddCvoyaSpringConnector<Name>()`
+DI extension. Host code references only the abstraction; the catalogue and
+binding surfaces pick up a new connector automatically. The contract carries:
 
-
-### Connector Surfaces
-
-A connector exposes two surfaces and no more:
-
-1. **Inbound event translation** — it receives external events (webhooks, polled feeds) and translates them into one-way domain messages addressed at the bound unit.
-2. **Outbound skills** — it optionally registers an `ISkillRegistry` whose tools the unit's agents invoke to act on the external system.
-
-A connector is **not** an actor and exposes no message-receiving interface — nothing routes a domain message to a connector ([ADR-0048](../decisions/0048-event-vs-request-message-semantics.md)).
-
-### Implementation Tiers
-
-**Simple connectors** — Dapr bindings (YAML config, no code):
-
-```yaml
-# Cron trigger, HTTP webhook, SMTP — configured, not coded
-apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: github-webhook
-spec:
-  type: bindings.http
-```
-
-**Rich connectors** — custom code (not actors):
-For GitHub, Slack, Figma — bidirectional, stateful, domain-aware. Custom webhook handlers and event translators, connection management, and an `ISkillRegistry`. A rich connector is code, not an actor — nothing routes a message to it.
-
-### Connector tool surfaces
-
-A connector can do two complementary things for the agents that bind it:
-
-1. **Translate inbound events** into domain messages (webhooks, polled
-   feeds). Every connector that subscribes to an external system does
-   this.
-2. **Surface tools** the agent can invoke. A connector that wants to
-   expose platform-MCP tools registers an `ISkillRegistry` whose tool
-   ids live under `<connector-slug>.*`; the auto-grant pipeline writes
-   `unit_tool_grants` rows on bind and revokes them on unbind. Tools
-   reach the agent through MCP `tools/list` alongside the platform
-   `sv.*` surface (see [Tools](../concepts/tools.md) for the three-tier
-   model).
-
-A connector that doesn't register an `ISkillRegistry` still functions —
-inbound events flow as usual, lifecycle hooks fire, and the binding
-record drives whatever else the platform layers on top.
-
-The GitHub connector is intentionally **event-only at the platform-MCP
-boundary in v0.1**. It owns inbound webhooks, App / PAT auth, the binding
-lifecycle, and per-launch runtime-context contribution (#2380), but
-registers **no `github.*` MCP tools**. Agents authored against GitHub
-run `gh` and `git` directly inside their container using the
-short-lived **outbound bearer token** and the owner / repo / reviewer
-metadata that `GitHubConnectorRuntimeContextContributor` injects through
-the `SPRING_CONNECTOR_GITHUB_*` env vars and the
-`connectors/github/binding.json` context file. The token is resolved at
-launch time per [ADR-0047 §6](../decisions/0047-platform-user-human-split.md):
-a freshly-minted installation access token on the App-installation
-branch, or the binding's PAT secret on the PAT branch. The decision and
-the removed-tools list live in issues
-[#2384](https://github.com/cvoya-com/spring-voyage/issues/2384) and
-[#2383](https://github.com/cvoya-com/spring-voyage/issues/2383); a
-hosted-overlay caching layer for selected reads is a v0.2
-consideration.
-
-**Skill discovery (when a connector does ship tools):** Connectors that
-register an `ISkillRegistry` are picked up at host startup. The
-auto-grant pipeline writes one `<ToolNamespace>.*` row per bind into
-`unit_tool_grants`, the resolver surfaces those rows on every effective
-tool set, and member agents inherit them through their unit
-memberships. No per-agent wiring is required.
-
-## Connector discovery surfaces
-
-Connector types are first-class browseable resources on every operator surface:
-
-| Surface | Entry point | Notes |
-| ------- | ----------- | ----- |
-| **HTTP API** | `GET /api/v1/connectors` (catalog), `GET /api/v1/connectors/{slugOrId}` (single type), `GET /api/v1/connectors/{slug}/config-schema` (JSON Schema), `GET /api/v1/connectors/{slugOrId}/bindings` (every unit bound to a type — single round-trip, #520) | Authoritative — the CLI and portal both consume these. |
-| **CLI** | `spring connector catalog` (catalog), `spring connector show --unit <name>` (typed config for a unit binding), `spring connector bindings <slugOrId>` (every unit bound to a type) | See [src/Cvoya.Spring.Cli/Commands/ConnectorCommand.cs](../../src/Cvoya.Spring.Cli/Commands/ConnectorCommand.cs). |
-| **Portal** | `/connectors` (catalog), `/connectors/{slug}` (per-type detail with schema + bound units — rendered from the bulk bindings endpoint) | Sidebar entry under "Connectors". The unit detail page's Connector tab deep-links into the per-type detail page. See the [portal walkthrough](../guide/user/portal.md#connectors-browser-connectors). |
-
-The catalog is hydrated from the open-source registration API: every package that calls `services.AddSpringConnector<TConnector>()` becomes visible across all three surfaces with no further wiring. Connector authors only need to implement `IConnectorType.GetConfigSchemaAsync` to get a typed configuration form on the portal automatically.
+- a stable `TypeId`, a URL-safe `Slug`, and a `ToolNamespace`;
+- a unit-binding config schema (`ConfigType`) and an optional display-identity
+  user-config schema (`UserConfigType`);
+- relative HTTP routes scoped under `/api/v1/connectors/{slug}`;
+- lifecycle hooks — `OnUnitStartingAsync` (register external resources, e.g.
+  webhooks), `OnUnitStoppingAsync` (tear them down);
+- optional health hooks — `ValidateCredentialAsync`, `VerifyContainerBaselineAsync`
+  (both no-op by default).
 
 ### Built-in connectors
 
-The open-source host ships three connector types out of the box:
+| Slug | Scope |
+|------|-------|
+| `github` | App / PAT auth, webhook ingest + filtering, binding lifecycle, label-roundtrip, per-launch runtime-context contribution. **Event-only at the platform-MCP boundary** — no `github.*` MCP tools; agents run `gh` / `git` directly in-container. |
+| `arxiv` | Read-only literature search; no auth, no webhooks |
+| `web-search` | A façade over a pluggable `IWebSearchProvider` (Brave by default); API keys resolved by secret name at invoke time |
 
-| Slug | Project | Scope |
-| ---- | ------- | ----- |
-| `github` | `src/Cvoya.Spring.Connector.GitHub/` | OAuth / App auth, webhook ingestion + filtering, binding lifecycle, label-roundtrip, runtime-context contribution (#2380). **No platform-MCP `github.*` tools** — agents run `gh` / `git` in-container; see issues [#2384](https://github.com/cvoya-com/spring-voyage/issues/2384) / [#2383](https://github.com/cvoya-com/spring-voyage/issues/2383). |
-| `arxiv` | `src/Cvoya.Spring.Connector.Arxiv/` | Read-only: `searchLiterature` and `fetchAbstract` tools; no auth, no webhooks. |
-| `web-search` | `src/Cvoya.Spring.Connector.WebSearch/` | Generic façade over a pluggable `IWebSearchProvider`. Default provider is Brave Search; Bing, Google Custom Search, or SearxNG can be slotted in by registering an additional `IWebSearchProvider` before the host resolves the DI graph. API keys are referenced by unit-scoped secret name and resolved through `ISecretResolver` at tool-invoke time — plaintext never lands in the stored binding. |
+## Connector bindings
 
-GitHub unit bindings may also carry optional label-roundtrip rules:
-`add_on_assign` and `remove_on_assign`. When a unit emits a routed delegate
-`RoutingDecision` (on a `DecisionMade` activity event), the GitHub connector
-subscriber loads the unit's GitHub binding and applies those labels to the
-originating issue with the connector's credentials.
+A unit is bound to a connector type by a binding row in `unit_connector_bindings`
+— one binding per connector type per unit, carrying the typed config. Bindings
+**inherit** down the unit hierarchy: the binding-resolution walk climbs from a
+unit toward the tenant root and the closest binding wins. Binding a connector
+**auto-grants** its tools — one `<ToolNamespace>.*` row per bind into the unit's
+tool grants — and revokes them on unbind, so member agents inherit connector
+tools through their unit memberships with no per-agent wiring.
 
-### Connector-side display identity lives on the `TenantUser`
+A connector binding declares only what the unit needs to *participate*. It does
+**not** replicate the upstream system's subscription model (App installations,
+channel invites). The GitHub webhook handler keys inbound events on
+`(owner, repo)` within the receiving tenant and fans out to every matching
+binding.
 
-Display-side connector identity — the GitHub login or Slack handle the
-agent renders in `@`-mentions, `--add-reviewer` flags, and attribution
-lines — is owned by the caller's [`TenantUser`](../concepts/tenants.md#tenantuser-the-authenticated-principal),
-not by the unit binding ([ADR-0047 §§ 2, 7](../decisions/0047-platform-user-human-split.md)).
-The mapping rows live on `TenantUserConnectorIdentity` keyed by
-`(tenant_id, tenant_user_id, connector_id)` with a narrow shape
-(`username`, `display_handle?`) — no auth fields, no PAT, no
-installation override. Operators manage the rows on the per-user
-**User Identity** surface in the portal (and via `spring user identity`
-on the CLI); the unit binding never carries a display handle.
+## Runtime-context contribution
 
-In OSS every `Human` resolves to the single operator `TenantUser`
-through the [`Human → TenantUser` mapping](../concepts/humans.md#human--tenantuser-display-mapping),
-so the operator's GitHub login is configured once and serves every
-`Human` row declared by every installed package. See
-[`docs/architecture/identifiers.md` § Connector-native identities](identifiers.md#12-connector-native-identities--the-bridge)
-for the full bridge model, the table shape, and the CLI surface.
+A bound connector can deliver identity and a short-lived **outbound bearer
+token** into the runtime container by implementing
+`IConnectorRuntimeContextContributor`. The dispatcher resolves every applicable
+binding (direct or inherited), invokes each contributor at launch, and merges
+the result into the launch spec — env vars under `SPRING_CONNECTOR_<SLUG>_*`,
+context files under `connectors/<slug>/`. Credentials are resolved per launch
+and never cached across launches; rotation is handled by relaunching. A sibling
+prompt-context contributor renders a markdown fragment into the agent's prompt
+naming the bound resource and the env vars its container carries.
 
-## Disabled-with-reason pattern
+For GitHub, the token dispatches on the binding's pinned auth choice
+([ADR-0047](../decisions/0047-platform-user-human-split.md) §6): a freshly-minted
+installation access token on the App branch, or the binding's PAT secret on the
+PAT branch.
 
-A connector's credentials are environmental configuration (env vars bound
-to an `Options` class) — they aren't available at compile time, and they
-aren't first-class platform secrets. The platform still has to decide what
-to do when they are missing or malformed at startup. The GitHub connector
-establishes the pattern other connectors should follow; a platform-wide
-validation framework is tracked as #616.
+## Connector identity vs. credentials
 
-### Three outcomes at connector-init time
+Two distinct things, kept apart:
 
-| State | Example | What happens |
-| ----- | ------- | ------------ |
-| **Valid** | `GitHub__AppId` + a parseable PEM in `GitHub__PrivateKeyPem`. | The hot path runs normally. If the PEM value is a readable filesystem path whose contents parse as PEM, the connector adopts the file contents (ergonomic for Docker secret mounts). |
-| **Missing** | Both `GitHub__AppId` and `GitHub__PrivateKeyPem` unset. | The `GitHubAppConfigurationRequirement` reports `Disabled` (status) with a human-readable reason. Connector-scoped endpoints (`list-installations`, `install-url`) consult the requirement and short-circuit to a structured `404` with `{ "disabled": true, "reason": "…" }` that the portal and CLI render cleanly. The platform still boots; every other surface is unaffected. |
-| **Malformed** | Garbage in `GitHub__PrivateKeyPem`, or a filesystem path that does not resolve to a readable PEM file. | The `GitHubAppConfigurationRequirement` reports `Invalid` with a `FatalError`. The platform's startup configuration validator (#616) throws the fatal error from `StartAsync` so the host fails fast at boot, not on the first `list-installations` call. |
+- **Outbound credentials** live on the **unit binding** — the binding's pinned
+  credential is what every outbound call uses, regardless of caller.
+- **Display identity** (a GitHub login, a Slack handle the agent renders in
+  `@`-mentions) lives on the **`TenantUser`**, in `TenantUserConnectorIdentity`
+  — a strictly display-only row, no auth fields. See
+  [Data & identity](data-and-identity.md).
 
-The classifier lives in
-`Cvoya.Spring.Connector.GitHub.Auth.GitHubAppCredentialsValidator`. It is
-consulted by `GitHubAppConfigurationRequirement` — the tier-1
-`IConfigurationRequirement` implementation introduced in #616 — and is the
-same seam the startup validator enumerates to build the
-`/system/configuration` report (see [Configuration](configuration.md)). The
-requirement is `TryAdd*`-registered so the private cloud repo can
-substitute tenant-scoped implementations (e.g. "App installed for tenant
-X, missing for tenant Y") without forking. The pre-#616
-`IGitHubConnectorAvailability` interface has been removed; the GitHub
-connector now uses the cross-subsystem framework, so there is one seam,
-not two.
+## Disabled-with-reason
 
-### Why structured disabled bodies, not 502s
-
-The original bug (#609) let a missing PEM surface as a `502 Bad Gateway`
-on the first `list-installations` call, carrying the raw
-`System.Security.Cryptography` exception message. That is hostile to both
-the portal (which can't render a configuration banner off a generic 502)
-and operators (who get no guidance on which env var to fix). Returning a
-`404` with an explicit `{ "disabled": true, "reason": "…" }` shape keeps
-the portal simple — it already knows how to render "install the app" —
-and keeps the CLI deterministic.
-
-Connectors adopting this pattern should:
-
-1. **Validate at DI-registration time.** Throw on malformed credentials,
-   register a disabled-with-reason singleton on missing credentials, and
-   normalise the options (e.g. path → contents) on the happy path.
-2. **Gate connector-scoped actions** on the availability marker so hot-
-   path calls short-circuit with a structured `404` when the connector
-   is disabled. Unit-bound actions fail per-unit when the unit is
-   configured against a disabled connector.
-3. **Keep the structured body stable.** The portal and CLI consume
-   `disabled` (boolean) and `reason` (string); other fields are
-   advisory.
-
-The generic framework in #616 will fold this behaviour into a
-`IConnectorTypeAvailability` the platform can resolve without connector-
-specific plumbing; until that lands, each connector carries its own typed
-marker.
-
-### Clock skew vs. bad credentials (#2595)
-
-A correctly-configured GitHub App can still fail with GitHub's generic
-`Bad credentials` message when the **container clock is skewed**. The
-connector signs the GitHub App JWT with the container's local clock; if
-that clock is far behind real time the JWT's `exp` is already in the past,
-so GitHub rejects every App API call. On macOS/Windows this happens after
-host sleep — the libkrun/QEMU podman-machine VM clock freezes while the
-host is asleep and does not resync on resume.
-
-GitHub stamps every HTTP response — including a `401` — with a trusted
-`Date` header. When `GitHubInstallationsClient`'s App-JWT call
-(`GET /app/installations`) is rejected with a `401`,
-`GitHubClockSkewDetector` compares that header against the local clock; if
-the skew exceeds ~60s it rethrows as a `GitHubClockSkewException` whose
-message names the skew and tells the developer to resync the
-container/host clock. The connector wizard surfaces that message verbatim
-instead of GitHub's misleading `Bad credentials`. Below the threshold the
-original rejection passes through unchanged, so a genuine credential
-failure is still reported as one. `deploy.sh up` additionally runs a
-best-effort podman-machine clock resync so a post-sleep deploy starts with
-an honest clock.
-
-## Tier-1 credential bootstrap (GitHub)
-
-The GitHub connector's tier-1 credentials (`GitHub__AppId`,
-`GitHub__PrivateKeyPem`, `GitHub__WebhookSecret`, and the OAuth client
-id/secret) can be bootstrapped via the `spring github-app register` CLI
-verb (#631). The verb drives GitHub's [App-from-manifest
-flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest):
-it opens a pre-filled "create GitHub App" page, receives the one-time
-conversion code on a loopback listener, exchanges it via
-`POST /app-manifests/{code}/conversions`, and writes the resolved
-credentials to either `eng/deploy/spring.env` (default) or platform-scoped
-secrets (via `spring secret --scope platform create`, #612). The
-permission set embedded in the manifest (read issues/PRs/contents/metadata,
-write issue_comment/statuses/checks; webhook events
-issues/pull_request/issue_comment/installation) is locked to what the
-shipped skill bundles actually use — adding a new scope requires updating
-the manifest builder in `Cvoya.Spring.Cli/GitHubApp/GitHubAppManifest.cs`
-alongside the connector.
-
-See
-[`docs/architecture/cli-and-web.md § GitHub App bootstrap verb (#631)`](cli-and-web.md#github-app-bootstrap-verb-631)
-for the verb's flag list and out-of-scope boundary. The connector's
-disabled-with-reason classifier still fires when credentials are missing
-— the verb just makes "missing" a single-step problem to fix.
-
-## Credential-validation and container-baseline hooks
-
-`IConnectorType` carries two optional hooks for connectors that need to
-report ongoing health beyond the boot-time configuration classification:
-
-- `Task<CredentialValidationResult?> ValidateCredentialAsync(string credential, CancellationToken ct)`
-  — exchanges the connector's stored credential for an end-to-end
-  round-trip against the backing service and returns a typed outcome
-  (`Valid` / `Invalid` / `NetworkError` / `Unknown`). The result records
-  live in `Cvoya.Spring.Core.AgentRuntimes` and are shared with the
-  `IAgentRuntime` plugin contract so the credential-health store
-  (separate sub-issue) can speak one vocabulary across runtimes and
-  connectors.
-- `Task<ContainerBaselineCheckResult?> VerifyContainerBaselineAsync(CancellationToken ct)`
-  — probes the host process / container for any tooling beyond outbound
-  HTTPS the connector requires (CLI binary on PATH, side-car
-  reachability, etc.). Returns a passing result for connectors with
-  nothing to verify so the install / wizard surface can render
-  "checked, OK".
-
-Both hooks default to a no-op (`Task.FromResult(null)`), so connectors
-that do not carry authentication (Arxiv, WebSearch) inherit "nothing to
-check" without any extra code. Connectors that DO carry auth override
-`ValidateCredentialAsync`; connectors that depend on a host-side
-binary or side-car override `VerifyContainerBaselineAsync`.
-
-The GitHub connector implements both:
-
-- `ValidateCredentialAsync` consults
-  `GitHubAppConfigurationRequirement` (returns `Unknown` with the
-  disabled reason when credentials are missing or malformed),
-  otherwise mints an installation token via the configured /
-  first-visible installation and calls `GET /installation/repositories`.
-  401/403 → `Invalid`; transport / 5xx / DNS / TLS / timeout →
-  `NetworkError`.
-- `VerifyContainerBaselineAsync` returns `Passed=true` — the connector
-  talks to `api.github.com` over outbound HTTPS only.
-
-The `credential` parameter is currently ignored by the GitHub
-implementation because GitHub App auth is multi-part (App id +
-private key + installation id) — the hook validates the connector's
-bound configuration rather than a single token. Connectors that DO
-accept a single-token credential consume the parameter directly.
-
-Persisting the result of these hooks into a credential-health store
-and flipping health on hot-path 401/403 responses are tracked as
-separate phase-2 sub-issues — the platform side of #674 lands the
-contract first, the storage and middleware land independently.
-
-## Runtime-context contribution (#2380)
-
-A bound connector can deliver its identity and a short-lived **outbound
-bearer token** into the runtime container by implementing
-`IConnectorRuntimeContextContributor`. The dispatcher resolves every
-binding applicable to the subject (direct on the unit, or inherited via
-`unit_subunit_memberships`), invokes each contributor, and merges the
-contribution into the launch spec.
-
-Contributors are bound to the **per-launch** lifecycle: the credential
-is resolved inside `ContributeAsync` and lives only for the duration of
-the container. Rotation is handled by re-launching; contributors MUST
-NOT cache credentials across launches. For the GitHub connector the
-token resolution dispatches on the binding's pinned auth choice
-([ADR-0047 §6](../decisions/0047-platform-user-human-split.md)) — a
-freshly-minted installation access token on the App branch, the
-binding's PAT secret on the PAT branch. The contributor's env-var
-contract reflects the dispatch: `SPRING_CONNECTOR_GITHUB_TOKEN` and
-`SPRING_CONNECTOR_GITHUB_OWNER` / `_REPO` are emitted on every launch;
-`SPRING_CONNECTOR_GITHUB_INSTALLATION_ID` and
-`SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT` are emitted **only on the
-App-installation branch** (PAT secrets carry no installation id and
-rotate out-of-band, so the contributor does not synthesise an expiry).
-
-The prompt-context contributor (#2442) wraps the same surface for the
-agent's LLM — `GitHubConnectorRuntimeContextContributor.BuildPromptFragment`
-emits a markdown fragment that names the env-vars the container has and
-describes the token as an "outbound bearer token" rather than
-implementation-coupling the prompt to the App-installation branch.
-
-Each contributor's env vars must use the reserved namespace
-`SPRING_CONNECTOR_<SLUG_UPPER>_*` and its files must use the
-`connectors/<slug>/*` sub-path. The resolver fails the launch when:
-
-- An env-var key or context-file sub-path collides with another
-  contributor.
-- A contributed name collides with a platform-bootstrap env var (e.g.
-  `SPRING_TENANT_ID`) or context file (e.g. `agent-definition.yaml`).
-
-See [`agent-runtime.md § 4g`](agent-runtime.md#4g-connector-runtime-context-contribution-2380)
-for the launch-path layer diagram, the full GitHub-side env-var contract,
-and the JSON shape of the `connectors/github/binding.json` context file.
+A connector classifies its environment configuration at startup into **valid**,
+**missing**, or **malformed**. Missing config disables the connector with a
+human-readable reason — connector-scoped endpoints short-circuit to a structured
+`404 { "disabled": true, "reason": "…" }` and the platform still boots.
+Malformed config is a fatal startup error (fail-fast). This composes with the
+startup configuration validator described in [Deployment](deployment.md).

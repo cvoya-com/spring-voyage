@@ -1,5 +1,7 @@
 # Area F: Conversation concept
 
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../architecture/README.md). Kept for context.
+
 **Status:** 🟢 **Substantially done.** F1, F2, and F3 all shipped. Two sub-issues (#1292, #1293) are explicitly v0.1-deferred and tracked under umbrella [#1220](https://github.com/cvoya-com/spring-voyage/issues/1220).
 
 ## Reframing anchor
@@ -13,7 +15,7 @@ The conceptual anchor for this area is the participant-set reframing — the sys
 
 The system-design sub-issue (tracked on the umbrella) resolves the open questions — naming, container/execution model, dispatch semantics, memory flow, participant-set change UX, initiative messages, misinference correction, cold start, multi-party, migration — before implementation begins. The execution-plan issue is **deliberately deferred** until system design converges.
 
-> **Terminology:** the three terms — **Thread** (system / architectural), **Engagement** (UX product narrative), **Collaboration** (UX active workspace) — are defined canonically in [`docs/architecture/thread-model.md`](../../../architecture/thread-model.md) and the [glossary](../../../glossary.md). Use those anchors in downstream artefacts.
+> **Terminology:** the three terms — **Thread** (system / architectural), **Engagement** (UX product narrative), **Collaboration** (UX active workspace) — are defined canonically in [`docs/architecture/messaging.md`](../../../architecture/messaging.md) and the [glossary](../../../glossary.md). Use those anchors in downstream artefacts.
 
 ## Dependencies
 

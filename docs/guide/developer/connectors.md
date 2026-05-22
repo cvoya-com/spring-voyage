@@ -4,7 +4,7 @@ This guide is for developers adding a new connector to Spring Voyage — a class
 
 ## What you implement
 
-A connector is a small adapter that satisfies `IConnectorType` (from `Cvoya.Spring.Connectors.Abstractions`) and registers an `ISkillRegistry` for the tools it exposes. The platform discovers connectors through DI: every package that calls `services.AddSpringConnector<TConnector>()` becomes visible across the catalog, the portal, and the CLI without further wiring.
+A connector is a small adapter that satisfies `IConnectorType` (from `Cvoya.Spring.Connectors.Abstractions`) and registers an `ISkillRegistry` for the tools it exposes. The platform discovers connectors through DI: each connector ships its own `AddCvoyaSpringConnector<Name>()` extension (e.g. `AddCvoyaSpringConnectorGitHub`), and a host that calls it makes the connector visible across the catalog, the portal, and the CLI without further wiring.
 
 ```csharp
 public sealed class AcmeConnectorType : IConnectorType

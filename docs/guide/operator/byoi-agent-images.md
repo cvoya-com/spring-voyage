@@ -1,6 +1,6 @@
 # Bring Your Own Image (BYOI) — agent images for Spring Voyage
 
-> **Audience.** Operators and platform engineers who want to ship a custom agent container image — pre-baked with proprietary CLIs, internal trust anchors, a non-Debian distro, or rootless / non-default UID models — and have Spring Voyage's `A2AExecutionDispatcher` invoke it the same way it invokes the built-in launchers (Claude Code, Codex, Gemini, Dapr Agent).
+> **Audience.** Operators and platform engineers who want to ship a custom agent container image — pre-baked with proprietary CLIs, internal trust anchors, a non-Debian distro, or rootless / non-default UID models — and have Spring Voyage's `A2AExecutionDispatcher` invoke it the same way it invokes the built-in launchers (Claude Code, Codex, Gemini, Spring Voyage Agent).
 
 > **Scope.** Step-by-step recipes for each of the three conformance paths defined in [ADR 0027](../../decisions/0027-agent-image-conformance-contract.md), with copy-pasteable Dockerfile snippets, the launcher env-var contract (`SPRING_AGENT_ARGV`, `SPRING_MCP_ENDPOINT`, …), version compatibility rules, and debugging tips.
 
@@ -24,13 +24,13 @@ Pick **one** of three paths to satisfy that contract:
 | 2    | Pull the bridge into a custom base. Copy the per-target SEA binary from each GitHub Release into your image and set it as the `ENTRYPOINT`. No Node runtime required.                                                          |
 | 3    | Implement A2A 0.3.x natively in your image. No bridge involved.                                                                                            |
 
-Path 1 is the default. Pick path 2 when you can't use the recommended base. Pick path 3 when your runtime already speaks A2A natively (e.g. `dapr-agents`).
+Path 1 is the default. Pick path 2 when you can't use the recommended base. Pick path 3 when your runtime already speaks A2A natively (the `spring-voyage` agent image takes this path).
 
 ---
 
 ## Background: how the dispatcher launches your image
 
-When a turn arrives for an `agent:<id>` address whose `execution.tool` matches your launcher (or one of the built-in launchers — Claude Code uses path 1, Dapr Agent uses path 3), the dispatcher executes the unified path documented in [ADR 0025](../../decisions/0025-unified-agent-launch-contract.md):
+When a turn arrives for an `agent:<id>` address whose `execution.runtime` matches your launcher (or one of the built-in launchers — Claude Code uses path 1, the Spring Voyage Agent uses path 3), the dispatcher executes the unified path documented in [ADR 0025](../../decisions/0025-unified-agent-launch-contract.md):
 
 ```text
 A2AExecutionDispatcher.DispatchAsync(message, context)
@@ -137,7 +137,7 @@ The SEA binaries are built from the same source as the path-1 base image; both s
 
 Pick this path when your image already speaks A2A 0.3.x natively. There is no bridge; your process binds `:8999` directly and answers `/.well-known/agent.json` and `POST /`.
 
-The Python `dapr-agents` image at `agents/spring-voyage-agent/` is the in-tree example. The relevant shape:
+The native-A2A Spring Voyage Agent image at `agents/spring-voyage-agent/` is the in-tree example. The relevant shape:
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
@@ -341,7 +341,7 @@ A healthy bridge returns `result.task.status.state: "TASK_STATE_COMPLETED"` and 
 
 ## Local end-to-end smoke
 
-Spring Voyage ships a smoke driver that exercises the unified dispatch path against the in-tree path-1 (Claude Code) and path-3 (Dapr Agent) images. To run it locally:
+Spring Voyage ships a smoke driver that exercises the unified dispatch path against the in-tree path-1 (Claude Code) and path-3 (Spring Voyage Agent) images. To run it locally:
 
 ```bash
 eng/build/build-agent-images.sh --tag dev   # build agent-base + claude + dapr at :dev

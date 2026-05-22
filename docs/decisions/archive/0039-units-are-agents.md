@@ -1,5 +1,7 @@
 # 0039 — Units are agents (orchestration is runtime behaviour, not platform configuration)
 
+> **Archived — superseded.** Kept for reasoning history; it does not describe the current system. The current decision is [ADR-0053 — Units are agents; the platform delivers one-way messages](../0053-units-are-agents-and-one-way-delivery.md). See the [archive index](README.md).
+
 > **Amendment (2026-05-19, [#2536](https://github.com/cvoya-com/spring-voyage/issues/2536)) — orchestration is messaging, no separate gates:** the platform-side orchestration surface is not a separate message-sending mechanism with its own attachment or authorisation policy on top of ordinary messaging. The following changes apply to §3:
 >
 > 1. **§3.3 gate 2 ("Caller is a unit (`unit://` scheme)") is removed.** Agents may call orchestration tools; the membership / self-delegation / depth / tenant gates handle the actual safety properties. The SDK / dispatcher no longer mints or maps an `OrchestrationCallerIsNotUnit` reject code.
@@ -23,7 +25,7 @@
 - **Date:** 2026-05-07
 - **Umbrella:** [#1786](https://github.com/cvoya-com/spring-voyage/issues/1786) — Design: unit-as-agent vs unit-as-router — orchestration vs execution boundary. Concrete bug that surfaced this: [#1759](https://github.com/cvoya-com/spring-voyage/issues/1759).
 - **Related code:** see "Surface affected" — touches Core (`Orchestration/*`, `Policies/LabelRoutingPolicy`), Dapr (`Orchestration/*`, `Actors/UnitActor`, `Actors/AgentActor`), Host.Api (`Endpoints/OrchestrationEndpoints`), Connectors (GitHub label roundtrip), Manifest, Web, CLI, Dapr components, docs.
-- **Related ADRs:** [0021](0021-spring-voyage-is-not-an-agent-runtime.md) (platform is not a runtime), [0024](0024-unit-validation-as-dapr-workflow.md) (unit lifecycle), [0025](0025-unified-agent-launch-contract.md) (launcher contract), [0029](0029-tenant-execution-boundary.md) (execution boundary), [0036](0036-single-identity-model.md) (identity), [0037](0037-package-schema-decomposition.md) (package shape), [0038](0038-agent-runtime-and-model-provider-split.md) (runtime / provider / model — the configuration shape this ADR layers on top of).
+- **Related ADRs:** [0021](../0021-spring-voyage-is-not-an-agent-runtime.md) (platform is not a runtime), [0024](../0024-unit-validation-as-dapr-workflow.md) (unit lifecycle), [0025](../0025-unified-agent-launch-contract.md) (launcher contract), [0029](../0029-tenant-execution-boundary.md) (execution boundary), [0036](../0036-single-identity-model.md) (identity), [0037](../0037-package-schema-decomposition.md) (package shape), [0038](../0038-agent-runtime-and-model-provider-split.md) (runtime / provider / model — the configuration shape this ADR layers on top of).
 
 ## Context
 
@@ -441,7 +443,7 @@ Rejected: ship a one-deploy compatibility shim that reads the old `orchestration
 
 ## Surface affected (delivery scope)
 
-This ADR is implemented as a sequenced multi-PR initiative, tracked under the [#1786](https://github.com/cvoya-com/spring-voyage/issues/1786) umbrella with sub-issues per slice. Detail and ordering live in the execution plan at [`docs/plan/v0.1/units-are-agents.md`](../plan/v0.1/units-are-agents.md). High-level surface:
+This ADR is implemented as a sequenced multi-PR initiative, tracked under the [#1786](https://github.com/cvoya-com/spring-voyage/issues/1786) umbrella with sub-issues per slice. Detail and ordering live in the execution plan at [`docs/plan/v0.1/units-are-agents.md`](../../plan/v0.1/units-are-agents.md). High-level surface:
 
 - **Core domain.** Delete `Cvoya.Spring.Core/Orchestration/*` and `Cvoya.Spring.Core/Policies/LabelRoutingPolicy.cs`. Add `IOrchestrationToolProvider` and `OrchestrationDecision`. Add `IExecutionConfigInheritanceResolver` for multi-parent inheritance. Lands first; everything else depends on it.
 - **Dapr layer.** Delete `Cvoya.Spring.Dapr/Orchestration/*`. Rewrite `UnitActor.ReceiveAsync` to invoke the runtime-launcher path. Add the `IOrchestrationToolProvider` implementation that reads the directory.
@@ -451,7 +453,7 @@ This ADR is implemented as a sequenced multi-PR initiative, tracked under the [#
 - **Web API / OpenAPI / Kiota.** Delete `OrchestrationEndpoints` and `OrchestrationModels`. Add 422 conflict-response shape for multi-parent inheritance. Regenerate Kiota and `openapi-typescript`.
 - **Manifest + parser.** Remove the `orchestration:` block; remove `execution.containerRuntime`. Add legacy-shape error mapping per the migration table.
 - **CLI.** Remove the positional `<id>` from `spring agent create`. Remove `--container-runtime` from agent-and-unit create commands. Update `spring unit create` to drop any orchestration-related flags.
-- **Web portal.** Remove the orchestration-strategy picker on the unit-create wizard. Remove the container-runtime selector. Add the multi-parent inheritance conflict UX (inline error per DESIGN.md §6.3). Update the agent-create wizard per the [`agent-create-redesign.md`](../design/v0.1/agent-create-redesign.md) design.
+- **Web portal.** Remove the orchestration-strategy picker on the unit-create wizard. Remove the container-runtime selector. Add the multi-parent inheritance conflict UX (inline error per DESIGN.md §6.3). Update the agent-create wizard per the [`agent-create-redesign.md`](../../design/v0.1/agent-create-redesign.md) design.
 - **GitHub connector.** Rewrite `Cvoya.Spring.Connector.GitHub/Labels/LabelRoutingRoundtripSubscriber.cs` against the `OrchestrationDecision` event shape. Move per-binding label-roundtrip rules onto the connector binding configuration.
 - **Docs.** `docs/concepts/agents.md` ("a unit is an agent" promoted from a comment in code to the canonical concept doc). `docs/concepts/units.md` shrinks (most content moves to `agents.md`, with the unit-only delta — children, permissions, lifecycle — staying). `docs/architecture/orchestration.md` retired or rewritten as a one-pager pointing at the runtime-side reasoning. `docs/architecture/agent-runtime.md` updated for the orchestration-tool surface. `docs/architecture/agent-sdk.md` (new) covers the SDK contract, env-var convention, callback-token shape, and authoring guide for workflow images. `docs/glossary.md` retires "orchestration strategy" / "orchestration policy"; adds "orchestration tools," "orchestration decision," "agent SDK."
 - **Tests.** Every layer.

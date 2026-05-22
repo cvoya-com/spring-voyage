@@ -18,7 +18,7 @@ See [`docs/architecture/agent-runtime.md`](../../architecture/agent-runtime.md) 
 
 **Where this fits.** On a fresh OSS deployment the Worker host's bootstrap installs every catalogued provider onto the default tenant automatically — so on day one every provider is already visible to the wizard. You only reach for `install` / `uninstall` when curating (e.g. hiding Ollama in a cloud-only deployment, or reshaping the model list for a specific provider).
 
-All commands below assume you've authenticated the CLI (`spring auth login`). Every mutation is **CLI-only** — the portal renders read-only views of this data, but writes come through `spring`.
+All commands below assume you've authenticated the CLI (`spring auth`). Every mutation is **CLI-only** — the portal renders read-only views of this data, but writes come through `spring`.
 
 ## Listing installed providers
 
@@ -173,7 +173,7 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 
 ## Unit validation lifecycle
 
-> **Backend-side validation — [#941](https://github.com/cvoya-com/spring-voyage/issues/941) landed.** The accept-time host-side probe was removed in #941. Credential / tool / model checks now run inside the chosen container image via `UnitValidationWorkflow`, a Dapr Workflow dispatched when a unit enters `Validating`. The operator-facing surface is the unit lifecycle and `spring unit revalidate` — there is no per-provider "validate this unit's credential" button.
+> **Backend-side validation — [#941](https://github.com/cvoya-com/spring-voyage/issues/941) landed.** The accept-time host-side probe was removed in #941. Credential / tool / model checks now run inside the chosen container image via `ArtefactValidationWorkflow`, a Dapr Workflow dispatched when a unit enters `Validating`. The operator-facing surface is the unit lifecycle and `spring unit revalidate` — there is no per-provider "validate this unit's credential" button.
 
 A new unit walks through:
 
@@ -198,7 +198,7 @@ Retry after fixing the underlying issue with:
 $ spring unit revalidate my-unit
 ```
 
-Allowed only from `Error` or `Stopped`. See [`cli-reference.md` → Validation exit codes](../../cli-reference.md#validation-exit-codes) for the exit-code table (20 – 27 map to `UnitValidationCodes`).
+Allowed only from `Error` or `Stopped`. See [`cli-reference.md` → Validation exit codes](../../cli-reference.md#validation-exit-codes) for the exit-code table (20 – 27 map to `ArtefactValidationCodes`).
 
 ## Runtime-image contract (for unit images)
 
@@ -215,12 +215,12 @@ The runtime ↔ provider edges (and the per-edge `authMethod` and `credentialEnv
 
 ## Troubleshooting
 
-- **Unit stays in `Validating` forever.** The `UnitValidationWorkflow` dispatched but the dispatcher sidecar is unhealthy. Check the worker / dispatcher logs and confirm the Dapr sidecar responds on `/healthz`. `spring unit revalidate <name>` restarts the workflow cleanly once the underlying issue is fixed.
+- **Unit stays in `Validating` forever.** The `ArtefactValidationWorkflow` dispatched but the dispatcher sidecar is unhealthy. Check the worker / dispatcher logs and confirm the Dapr sidecar responds on `/healthz`. `spring unit revalidate <name>` restarts the workflow cleanly once the underlying issue is fixed.
 - **Unit is in `Error` with `LastValidationError.Code == "ToolMissing"`.** The image does not carry the binary the probe needs (`curl`, `claude`, etc.). Rebuild the image per the runtime-image contract above.
 - **Unit is in `Error` with `LastValidationError.Code == "CredentialInvalid"`.** The provider rejected the credential (401 / 403). Update the secret (`spring secret …`) and run `spring unit revalidate <name>`. Confirm the credential resolves with `spring model-provider validate-credential <id>` first.
-- **Unit is in `Error` with `LastValidationError.Code == "ModelNotFound"`.** The requested model id is not in the provider's live catalogue. Refresh the catalogue (`spring model-provider refresh-models <id>`) or switch the unit to a listed model via `spring unit patch <name> --model <id>` + `spring unit revalidate`.
+- **Unit is in `Error` with `LastValidationError.Code == "ModelNotFound"`.** The requested model id is not in the provider's live catalogue. Refresh the catalogue (`spring model-provider refresh-models <id>`) or switch the unit to a listed model via `spring unit execution set <name> --model <id>` + `spring unit revalidate`.
 - **`credentials status` returns 404.** No observation has landed yet. Run `spring model-provider validate-credential <id> --credential <key>` to prime the row directly without rotating the catalogue, or exercise the provider via a unit dispatch.
-- **`install` silently "succeeds" but `list` doesn't show the provider.** Confirm the provider id exists under `modelProviders:` in `eng/runtime-catalog/runtime-catalog.yaml` — the closed v0.1 set is `anthropic`, `openai`, `google`, `ollama`. Install writes to the current tenant only, so cross-check the active tenant with `spring auth whoami`.
+- **`install` silently "succeeds" but `list` doesn't show the provider.** Confirm the provider id exists under `modelProviders:` in `eng/runtime-catalog/runtime-catalog.yaml` — the closed v0.1 set is `anthropic`, `openai`, `google`, `ollama`. Install writes to the current tenant only.
 - **A model you pinned is missing from the wizard dropdown.** Re-check the configured list with `spring model-provider show <id>`. If the model is present in the list but absent in the wizard, refresh the portal session (the model list caches per session).
 
 ## See also
