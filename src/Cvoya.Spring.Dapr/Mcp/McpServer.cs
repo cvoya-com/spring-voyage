@@ -17,27 +17,37 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 /// <summary>
 /// In-process MCP server that exposes <see cref="ISkillRegistry"/> tools to
-/// containerised agents over loopback HTTP + JSON-RPC 2.0. Implements the
-/// minimum subset of MCP needed to exchange tool calls: <c>initialize</c>,
+/// containerised agents over HTTP + JSON-RPC 2.0. Implements the minimum
+/// subset of MCP needed to exchange tool calls: <c>initialize</c>,
 /// <c>tools/list</c>, and <c>tools/call</c>. Streaming and notifications are
 /// intentionally out of scope — GitHub connector calls are short RPCs.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Auth model: the dispatcher calls <see cref="IssueSession"/> before launching
-/// a container and hands the resulting bearer token to the container via an env
-/// var. The server validates the <c>Authorization: Bearer &lt;token&gt;</c>
-/// header on every request and binds the call to the issued
-/// <see cref="McpSession"/> . Tokens are single-agent/single-thread and
-/// revoked when the invocation completes.
+/// a container and hands the resulting bearer token to the container via the
+/// per-turn A2A <c>message/send</c> metadata. The server validates the
+/// <c>Authorization: Bearer &lt;token&gt;</c> header on every request and binds
+/// the call to the issued <see cref="McpSession"/>. Tokens are
+/// single-agent/single-thread and revoked when the invocation completes.
+/// </para>
+/// <para>
+/// ADR-0052 / Wave 3 (#2625): the MCP surface is served as a minimal-API
+/// route on the worker's existing Kestrel host — see
+/// <c>WorkerComposition</c> for the Kestrel endpoint + route wiring. The route
+/// delegates to <see cref="HandleRequestAsync"/>. <see cref="McpServer"/> is no
+/// longer an <c>IHostedService</c> and no longer owns a port listener; it owns
+/// the session store and the JSON-RPC dispatch only.
+/// </para>
 /// </remarks>
-public class McpServer : IMcpServer, IHostedService, IDisposable
+public class McpServer : IMcpServer
 {
     private readonly IReadOnlyList<ISkillRegistry> _registries;
     private readonly Dictionary<string, ISkillRegistry> _toolToRegistry;
@@ -47,24 +57,8 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     private readonly IActivityEventBus? _activityEventBus;
     private readonly ConcurrentDictionary<string, McpSession> _sessions = new(StringComparer.Ordinal);
 
-    private HttpListener? _listener;
-    private CancellationTokenSource? _acceptCts;
-    private Task? _acceptLoop;
-    private int _boundPort;
-
-    // HttpListener maintains a process-wide HttpEndPointManager keyed by (host, port).
-    // When multiple McpServer instances concurrently probe for a free loopback port,
-    // they can race each other into the same slot — one wins Start(), the other loses
-    // with "Address already in use", and on .NET the loser's internal prefix state can
-    // even resurface as an EADDRINUSE during a later Close()/Dispose(). Serializing the
-    // "pick free port + Start()" atom within the process eliminates the in-process race;
-    // the retry loop still covers cross-process collisions (other test binaries, leftover
-    // listeners). See #595.
-    private static readonly object s_bindLock = new();
-
     /// <summary>
-    /// Initializes the server with the set of registries to expose. The server
-    /// does not start until <see cref="StartAsync"/> is invoked by the host.
+    /// Initializes the server with the set of registries to expose.
     /// </summary>
     /// <remarks>
     /// <paramref name="scopeFactory"/> is optional so standalone / test
@@ -89,6 +83,14 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         _scopeFactory = scopeFactory;
         _activityEventBus = activityEventBus;
 
+        // ADR-0052 §3: the container-facing endpoint is derived from
+        // configuration, not from a started listener. The MCP surface is now
+        // a Kestrel route on the worker (#2625); there is no listener whose
+        // bound port has to be observed. Endpoint-only consumers
+        // (PersistentAgentLifecycle, A2AExecutionDispatcher) read it the same
+        // way they always have, but it is now non-null from construction.
+        Endpoint = _options.ContainerEndpoint;
+
         _toolToRegistry = new Dictionary<string, ISkillRegistry>(StringComparer.Ordinal);
         foreach (var registry in _registries)
         {
@@ -105,7 +107,7 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     }
 
     /// <inheritdoc />
-    public string? Endpoint { get; private set; }
+    public string? Endpoint { get; }
 
     /// <inheritdoc />
     public McpSession IssueSession(
@@ -164,217 +166,24 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     /// <inheritdoc />
     public void RevokeSession(string token) => _sessions.TryRemove(token, out _);
 
-    /// <inheritdoc />
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        // Binding can race with other loopback listeners (notably parallel xUnit
-        // assemblies or a leftover process grabbing the same ephemeral port between
-        // PickFreePort() and HttpListener.Start()). When the port is 0 (OS-picked)
-        // we retry with a fresh port on Address-In-Use; for a caller-specified port
-        // we surface the error immediately because retrying wouldn't help. See #595.
-        var (listener, port) = BindListenerWithRetry(cancellationToken);
-        _boundPort = port;
-        _listener = listener;
-
-        Endpoint = $"http://{_options.ContainerHost}:{port}/mcp/";
-
-        _acceptCts = new CancellationTokenSource();
-        _acceptLoop = Task.Run(() => AcceptLoopAsync(_acceptCts.Token));
-
-        _logger.LogInformation(
-            "MCP server listening on {BindAddress}:{Port}; container endpoint {Endpoint}",
-            _options.BindAddress, port, Endpoint);
-
-        return Task.CompletedTask;
-    }
-
-    private (HttpListener Listener, int Port) BindListenerWithRetry(CancellationToken cancellationToken)
-    {
-        const int maxAttempts = 8;
-        var allowPortRoll = _options.Port == 0;
-
-        HttpListenerException? lastException = null;
-        for (var attempt = 0; attempt < maxAttempts; attempt++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            HttpListener? listener = null;
-            int port;
-            lock (s_bindLock)
-            {
-                port = _options.Port == 0 ? PickFreePort() : _options.Port;
-                listener = new HttpListener();
-                // Bind on `BindAddress` (default `+` — all interfaces) so the
-                // worker's MCP socket is reachable through a published
-                // container port, not just from the worker's own loopback. See
-                // McpServerOptions.BindAddress for why this matters for #1199.
-                listener.Prefixes.Add($"http://{_options.BindAddress}:{port}/mcp/");
-                try
-                {
-                    listener.Start();
-                    return (listener, port);
-                }
-                catch (HttpListenerException ex)
-                {
-                    lastException = ex;
-                    SafeAbort(listener);
-
-                    if (!allowPortRoll)
-                    {
-                        throw;
-                    }
-                }
-            }
-
-            _logger.LogDebug(
-                lastException,
-                "MCP server bind attempt {Attempt} on port {Port} failed with HttpListenerException (ErrorCode={ErrorCode}); retrying.",
-                attempt + 1, port, lastException?.ErrorCode);
-
-            // Tiny exponential backoff — losing the race once is common under load;
-            // losing it 8 times in a row is essentially impossible on a healthy host.
-            var delayMs = Math.Min(25 * (1 << attempt), 250);
-            Thread.Sleep(delayMs);
-        }
-
-        throw new HttpListenerException(
-            lastException?.ErrorCode ?? 0,
-            $"Failed to bind MCP server on {_options.BindAddress} after {maxAttempts} attempts.");
-    }
-
-    private static void SafeAbort(HttpListener listener)
-    {
-        // HttpListener.Close/Dispose on a listener that failed to Start can itself
-        // throw HttpListenerException while the endpoint manager re-examines its
-        // internal state. Swallow — the listener never took ownership of anything
-        // we care about.
-        try { listener.Abort(); } catch { /* best-effort */ }
-        try { (listener as IDisposable)?.Dispose(); } catch { /* best-effort */ }
-    }
-
-    /// <inheritdoc />
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            _acceptCts?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Provider disposed before host StopAsync (e.g. WebApplicationFactory
-            // disposes the TestServer before stopping the host). Accept loop has
-            // already been torn down as part of Dispose().
-        }
-
-        try
-        {
-            _listener?.Stop();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Listener already disposed; nothing to do.
-        }
-        catch (HttpListenerException)
-        {
-            // Endpoint manager state collision on shutdown — same class of race as
-            // documented on Dispose(). Safe to swallow: we're tearing down anyway.
-        }
-
-        if (_acceptLoop is not null)
-        {
-            try
-            {
-                await _acceptLoop.WaitAsync(cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                // Shutdown deadline reached — accept loop will exit when listener stops.
-            }
-        }
-
-        _logger.LogInformation("MCP server stopped.");
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        _acceptCts?.Dispose();
-        // HttpListener.Dispose() internally calls RemoveListener → RemovePrefixInternal →
-        // GetEPListener against its process-wide endpoint manager. Under parallel test
-        // load the manager's (host, port) entry can be held by another listener that
-        // won the race for the same ephemeral port, and Dispose() surfaces that state
-        // as HttpListenerException("Address already in use"). Nothing useful happens
-        // after teardown — swallow to keep test fixtures clean. See #595.
-        try
-        {
-            (_listener as IDisposable)?.Dispose();
-        }
-        catch (HttpListenerException)
-        {
-            // Endpoint manager state collision — port is already being reclaimed.
-        }
-        catch (ObjectDisposedException)
-        {
-            // Idempotent Dispose.
-        }
-        GC.SuppressFinalize(this);
-    }
-
-    private async Task AcceptLoopAsync(CancellationToken ct)
-    {
-        while (!ct.IsCancellationRequested && _listener is { IsListening: true })
-        {
-            HttpListenerContext context;
-            try
-            {
-                context = await _listener.GetContextAsync();
-            }
-            catch (HttpListenerException)
-            {
-                // Listener was stopped.
-                break;
-            }
-            catch (ObjectDisposedException)
-            {
-                break;
-            }
-            catch (InvalidOperationException)
-            {
-                // Race on shutdown: IsListening read true, then StopAsync called
-                // _listener.Stop(), and GetContextAsync rejected the call with
-                // "Please call the Start() method before calling this method."
-                // Treat identically to HttpListenerException — the listener is gone.
-                break;
-            }
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await HandleRequestAsync(context, ct);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Unhandled exception while serving MCP request.");
-                    try { context.Response.Close(); } catch { /* already closed */ }
-                }
-            }, ct);
-        }
-    }
-
-    internal async Task HandleRequestAsync(HttpListenerContext context, CancellationToken ct)
+    /// <summary>
+    /// Serves one MCP JSON-RPC request. Mapped as a minimal-API route on the
+    /// worker's Kestrel host (ADR-0052 / #2625) — the route reads the request
+    /// body and <c>Authorization</c> header from <see cref="HttpContext"/> and
+    /// writes the JSON-RPC response back onto <see cref="HttpContext.Response"/>.
+    /// </summary>
+    public async Task HandleRequestAsync(HttpContext context, CancellationToken ct)
     {
         var request = context.Request;
         var response = context.Response;
 
-        if (!string.Equals(request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase))
+        if (!HttpMethods.IsPost(request.Method))
         {
             response.StatusCode = (int)HttpStatusCode.MethodNotAllowed;
-            response.Close();
             return;
         }
 
-        var token = ExtractBearerToken(request.Headers["Authorization"]);
+        var token = ExtractBearerToken(request.Headers.Authorization);
         if (token is null || !_sessions.TryGetValue(token, out var session))
         {
             await WriteErrorAsync(
@@ -385,7 +194,7 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         McpRpcRequest? rpcRequest;
         try
         {
-            using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
+            using var reader = new StreamReader(request.Body, Encoding.UTF8);
             var body = await reader.ReadToEndAsync(ct);
             rpcRequest = JsonSerializer.Deserialize<McpRpcRequest>(body);
         }
@@ -432,7 +241,7 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     }
 
     private async Task HandleToolCallAsync(
-        HttpListenerResponse response,
+        HttpResponse response,
         McpRpcRequest request,
         McpSession session,
         CancellationToken ct)
@@ -832,14 +641,14 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     }
 
     private static async Task WriteResultAsync(
-        HttpListenerResponse response, JsonElement? id, object result)
+        HttpResponse response, JsonElement? id, object result)
     {
         var payload = new McpRpcResponse { Id = id, Result = result };
         await WriteJsonAsync(response, (int)HttpStatusCode.OK, payload);
     }
 
     private static async Task WriteErrorAsync(
-        HttpListenerResponse response, JsonElement? id, int code, string message)
+        HttpResponse response, JsonElement? id, int code, string message)
     {
         var payload = new McpRpcErrorResponse
         {
@@ -854,14 +663,13 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         await WriteJsonAsync(response, status, payload);
     }
 
-    private static async Task WriteJsonAsync(HttpListenerResponse response, int status, object body)
+    private static async Task WriteJsonAsync(HttpResponse response, int status, object body)
     {
         response.StatusCode = status;
         response.ContentType = "application/json";
         var buffer = JsonSerializer.SerializeToUtf8Bytes(body);
-        response.ContentLength64 = buffer.Length;
-        await response.OutputStream.WriteAsync(buffer);
-        response.OutputStream.Close();
+        response.ContentLength = buffer.Length;
+        await response.Body.WriteAsync(buffer);
     }
 
     private static string? ExtractBearerToken(string? authHeader)
@@ -881,19 +689,5 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         Span<byte> buffer = stackalloc byte[32];
         RandomNumberGenerator.Fill(buffer);
         return Convert.ToHexStringLower(buffer);
-    }
-
-    private static int PickFreePort()
-    {
-        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        try
-        {
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
-        }
-        finally
-        {
-            listener.Stop();
-        }
     }
 }

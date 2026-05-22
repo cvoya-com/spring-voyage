@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using System.Text.Json;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
@@ -261,16 +262,16 @@ public static class UnitEndpoints
 
     /// <summary>
     /// Returns the runtime-status indicator for a unit (#2100). Mirrors
-    /// <c>AgentEndpoints.GetAgentRuntimeStatusAsync</c>: registry health
-    /// gate first; on healthy / no-registry-entry, ask the unit actor for
-    /// its per-thread channel snapshot (populated by the unit's
-    /// dispatch tracker as of #2491).
+    /// <c>AgentEndpoints.GetAgentRuntimeStatusAsync</c>: deployment-health
+    /// gate first; on healthy / not-deployed, ask the unit actor for its
+    /// per-thread channel snapshot (populated by the unit's dispatch
+    /// tracker as of #2491).
     /// </summary>
     private static async Task<IResult> GetUnitRuntimeStatusAsync(
         string id,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
-        [FromServices] PersistentAgentRegistry persistentAgentRegistry,
+        [FromServices] IPersistentAgentExecutionGateway executionGateway,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("unit", id), cancellationToken);
@@ -283,16 +284,27 @@ public static class UnitEndpoints
 
         // Unlike agents, units don't carry an `execution.hosting` slot —
         // they are always container-backed when running. We treat
-        // "registry entry present and Unhealthy" as `unavailable`;
-        // "no registry entry" is the "not yet started / never deployed"
+        // "deployment running but unhealthy" as `unavailable`;
+        // "not deployed" is the "not yet started / never deployed"
         // case which we report as `idle` rather than `unavailable` so
         // the chip doesn't scream on every Draft / Stopped unit. Operators
         // who want lifecycle-state visibility have the `LifecycleStatus` field
         // (Draft / Validating / Stopped / Error) on the unit detail
-        // endpoint.
-        var registryEntry = await persistentAgentRegistry.TryGetAsync(actorId, cancellationToken);
-        if (registryEntry is not null
-            && registryEntry.HealthStatus != AgentHealthStatus.Healthy)
+        // endpoint. ADR-0052 / #2618: deployment health is read from the
+        // execution host over the gateway; fail-open (treat as healthy) so a
+        // transient worker hiccup doesn't blank the chip.
+        PersistentAgentDeploymentState? deploymentState = null;
+        try
+        {
+            deploymentState = await executionGateway.GetDeploymentAsync(actorId, cancellationToken);
+        }
+        catch (SpringException)
+        {
+            // Fail-open per the comment above.
+        }
+
+        if (deploymentState is { Running: true }
+            && !string.Equals(deploymentState.HealthStatus, "healthy", StringComparison.OrdinalIgnoreCase))
         {
             return Results.Ok(new AgentRuntimeStatusResponse(
                 Status: "unavailable",
@@ -898,7 +910,7 @@ public static class UnitEndpoints
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
         [FromServices] IUnitConnectorConfigStore connectorConfigStore,
         [FromServices] IUnitMembershipRepository membershipRepository,
-        [FromServices] PersistentAgentLifecycle persistentAgentLifecycle,
+        [FromServices] IPersistentAgentExecutionGateway executionGateway,
         [FromServices] IActivityEventBus activityEventBus,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -944,7 +956,7 @@ public static class UnitEndpoints
             id, address, entry.ActorId, status,
             directoryService, actorProxyFactory,
             containerLifecycle, connectorTypes, connectorConfigStore,
-            membershipRepository, persistentAgentLifecycle,
+            membershipRepository, executionGateway,
             activityEventBus, logger, cancellationToken);
     }
 
@@ -967,7 +979,7 @@ public static class UnitEndpoints
         IEnumerable<IConnectorType> connectorTypes,
         IUnitConnectorConfigStore connectorConfigStore,
         IUnitMembershipRepository membershipRepository,
-        PersistentAgentLifecycle persistentAgentLifecycle,
+        IPersistentAgentExecutionGateway executionGateway,
         IActivityEventBus activityEventBus,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -1012,7 +1024,7 @@ public static class UnitEndpoints
             // #2397: persistent-agent members own their own containers + Dapr
             // sidecars; the unit-level teardown above does not touch them.
             await UndeployPersistentAgentMembersAsync(
-                actorId, membershipRepository, persistentAgentLifecycle, logger, cancellationToken);
+                actorId, membershipRepository, executionGateway, logger, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -1178,7 +1190,7 @@ public static class UnitEndpoints
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
         [FromServices] IUnitConnectorConfigStore connectorConfigStore,
         [FromServices] IUnitMembershipRepository membershipRepository,
-        [FromServices] PersistentAgentLifecycle persistentAgentLifecycle,
+        [FromServices] IPersistentAgentExecutionGateway executionGateway,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -1223,7 +1235,7 @@ public static class UnitEndpoints
         try
         {
             await UndeployPersistentAgentMembersAsync(
-                entry.ActorId, membershipRepository, persistentAgentLifecycle, logger, cancellationToken);
+                entry.ActorId, membershipRepository, executionGateway, logger, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -1683,16 +1695,16 @@ public static class UnitEndpoints
     /// failure on one member is logged and recorded but does not block the
     /// others, mirroring the per-step pattern in <see cref="ForceDeleteUnitAsync"/>.
     /// <para>
-    /// <see cref="PersistentAgentLifecycle.UndeployAsync"/> is idempotent —
-    /// it returns <c>false</c> when nothing is tracked — so non-persistent
+    /// <see cref="IPersistentAgentExecutionGateway.UndeployAsync"/> is
+    /// idempotent — it is a no-op when nothing is deployed — so non-persistent
     /// agents (ephemeral runtime, or persistent agents that were never
-    /// deployed) cost only a registry lookup.
+    /// deployed) cost only a delegated lookup on the execution host.
     /// </para>
     /// </summary>
     private static async Task UndeployPersistentAgentMembersAsync(
         Guid unitActorId,
         IUnitMembershipRepository membershipRepository,
-        PersistentAgentLifecycle persistentAgentLifecycle,
+        IPersistentAgentExecutionGateway executionGateway,
         ILogger logger,
         CancellationToken ct)
     {
@@ -1707,7 +1719,7 @@ public static class UnitEndpoints
             var agentId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(membership.AgentId);
             try
             {
-                await persistentAgentLifecycle.UndeployAsync(agentId, ct);
+                await executionGateway.UndeployAsync(agentId, ct);
             }
             catch (Exception ex)
             {

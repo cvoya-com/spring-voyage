@@ -113,17 +113,39 @@ public class ServiceCollectionExtensionsTests
     }
 
     /// <summary>
-    /// ADR-0052: the DI singletons backing the gated execution hosted
-    /// services stay registered unconditionally on both host roles. The API
-    /// host resolves <see cref="Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry"/>
-    /// (and the other registry singletons) as plain singletons; gating only
-    /// the <c>AddHostedService</c> wrappers must not break that resolution.
+    /// ADR-0052 / Wave 3 (#2618): the persistent-agent execution singletons
+    /// register under <see cref="SpringHostRole.ExecutionHost"/> only. The
+    /// HTTP front door delegates the persistent-agent surface to the worker
+    /// over <c>IPersistentAgentExecutionGateway</c>, so its composition
+    /// registers none of these — the Wave 1 "still resolve" debt is removed.
     /// </summary>
     [Fact]
-    public void AddCvoyaSpringDapr_HttpFrontDoor_ExecutionSingletonsStillResolve()
+    public void AddCvoyaSpringDapr_HttpFrontDoor_DoesNotRegisterExecutionSingletons()
     {
         using var provider = BuildProvider(SpringHostRole.HttpFrontDoor);
 
+        provider.GetService<Cvoya.Spring.Dapr.Execution.PersistentAgentLifecycle>()
+            .ShouldBeNull();
+        provider.GetService<Cvoya.Spring.Dapr.Execution.AgentVolumeManager>()
+            .ShouldBeNull();
+        provider.GetService<Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry>()
+            .ShouldBeNull();
+        provider.GetService<Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry>()
+            .ShouldBeNull();
+    }
+
+    /// <summary>
+    /// ADR-0052 / Wave 3 (#2618): the same execution singletons all resolve
+    /// under <see cref="SpringHostRole.ExecutionHost"/> — the worker is the
+    /// execution host and owns the persistent-agent containers.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_ExecutionHost_RegistersExecutionSingletons()
+    {
+        using var provider = BuildProvider(SpringHostRole.ExecutionHost);
+
+        provider.GetService<Cvoya.Spring.Dapr.Execution.PersistentAgentLifecycle>()
+            .ShouldNotBeNull();
         provider.GetService<Cvoya.Spring.Dapr.Execution.AgentVolumeManager>()
             .ShouldNotBeNull();
         provider.GetService<Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry>()
@@ -133,45 +155,57 @@ public class ServiceCollectionExtensionsTests
     }
 
     /// <summary>
-    /// ADR-0052 §2 / PR 2 of #2611 (#2614): the <c>McpServer</c> hosted
-    /// service (port listener + in-process session store) runs in exactly
-    /// one host — the worker — so there is one session authority. It
-    /// registers as an <see cref="IHostedService"/> under
-    /// <see cref="SpringHostRole.ExecutionHost"/> only, NOT under
-    /// <see cref="SpringHostRole.HttpFrontDoor"/>.
+    /// ADR-0052 / Wave 3 (#2625 + #2618): the <c>McpServer</c> /
+    /// <c>IMcpServer</c> singletons register under
+    /// <see cref="SpringHostRole.ExecutionHost"/> only. With the MCP surface
+    /// served as a worker Kestrel route and the API persistent-agent
+    /// endpoints delegating to the worker, the HTTP front door no longer
+    /// resolves the MCP server at all.
     /// </summary>
     [Fact]
-    public void AddCvoyaSpringDapr_McpServer_RegistersAsHostedServiceUnderExecutionHostOnly()
+    public void AddCvoyaSpringDapr_McpServerSingleton_RegistersUnderExecutionHostOnly()
     {
         using var executionProvider = BuildProvider(SpringHostRole.ExecutionHost);
-        executionProvider.GetServices<IHostedService>().ToList().ShouldContain(
-            s => s is Cvoya.Spring.Dapr.Mcp.McpServer,
-            "McpServer must register as an IHostedService under ExecutionHost — " +
-            "ADR-0052 §2 places the single session authority on the worker.");
+        executionProvider.GetService<Cvoya.Spring.Dapr.Mcp.McpServer>().ShouldNotBeNull();
+        executionProvider.GetService<Cvoya.Spring.Core.Execution.IMcpServer>().ShouldNotBeNull();
 
         using var frontDoorProvider = BuildProvider(SpringHostRole.HttpFrontDoor);
-        frontDoorProvider.GetServices<IHostedService>().ToList().ShouldNotContain(
-            s => s is Cvoya.Spring.Dapr.Mcp.McpServer,
-            "McpServer must NOT register as an IHostedService under HttpFrontDoor — " +
-            "ADR-0052 §2 keeps the session authority worker-only.");
+        frontDoorProvider.GetService<Cvoya.Spring.Dapr.Mcp.McpServer>().ShouldBeNull();
+        frontDoorProvider.GetService<Cvoya.Spring.Core.Execution.IMcpServer>().ShouldBeNull();
     }
 
     /// <summary>
-    /// ADR-0052 §1: the <c>McpServer</c> / <c>IMcpServer</c> DI singletons
-    /// stay registered unconditionally on both host roles (OpenAPI doc-gen,
-    /// the latent <c>A2AExecutionDispatcher</c> singleton). Only the
-    /// <c>AddHostedService</c> wrapper is execution-host-gated.
+    /// ADR-0052 / Wave 3 (#2625): the <c>McpServer</c> is no longer an
+    /// <see cref="IHostedService"/> on any host — the MCP surface is a
+    /// minimal-API route on the worker's Kestrel host, so the server owns the
+    /// session store and the JSON-RPC dispatch only.
     /// </summary>
     [Theory]
     [InlineData(SpringHostRole.HttpFrontDoor)]
     [InlineData(SpringHostRole.ExecutionHost)]
-    public void AddCvoyaSpringDapr_McpServerSingleton_ResolvesUnderBothRoles(
-        SpringHostRole role)
+    public void AddCvoyaSpringDapr_McpServer_IsNeverAHostedService(SpringHostRole role)
     {
         using var provider = BuildProvider(role);
 
-        provider.GetService<Cvoya.Spring.Dapr.Mcp.McpServer>().ShouldNotBeNull();
-        provider.GetService<Cvoya.Spring.Core.Execution.IMcpServer>().ShouldNotBeNull();
+        provider.GetServices<IHostedService>().ToList().ShouldNotContain(
+            s => s is Cvoya.Spring.Dapr.Mcp.McpServer,
+            "McpServer is a Kestrel route handler, not a hosted service (ADR-0052 / #2625).");
+    }
+
+    /// <summary>
+    /// ADR-0052 / Wave 3 (#2618): the HTTP front door resolves
+    /// <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway"/>
+    /// — its delegated view of the worker's persistent-agent surface.
+    /// </summary>
+    [Theory]
+    [InlineData(SpringHostRole.HttpFrontDoor)]
+    [InlineData(SpringHostRole.ExecutionHost)]
+    public void AddCvoyaSpringDapr_RegistersPersistentAgentExecutionGateway(SpringHostRole role)
+    {
+        using var provider = BuildProvider(role);
+
+        provider.GetService<Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway>()
+            .ShouldNotBeNull();
     }
 
     [Fact]
@@ -194,15 +228,22 @@ public class ServiceCollectionExtensionsTests
         directoryService.ShouldNotBeNull();
     }
 
+    /// <summary>
+    /// ADR-0052 / Wave 3 (#2618): <see cref="IExecutionDispatcher"/> is the
+    /// per-turn A2A dispatch path — execution-host-only. It registers under
+    /// <see cref="SpringHostRole.ExecutionHost"/>; the HTTP front door, which
+    /// hosts no actors, does not resolve it.
+    /// </summary>
     [Fact]
-    public void AddCvoyaSpringDapr_RegistersExecutionDispatcher()
+    public void AddCvoyaSpringDapr_RegistersExecutionDispatcherUnderExecutionHostOnly()
     {
-        using var provider = BuildProvider();
-
-        var dispatcher = provider.GetService<IExecutionDispatcher>();
-
+        using var executionProvider = BuildProvider(SpringHostRole.ExecutionHost);
+        var dispatcher = executionProvider.GetService<IExecutionDispatcher>();
         dispatcher.ShouldNotBeNull();
         dispatcher.ShouldBeOfType<Cvoya.Spring.Dapr.Execution.A2AExecutionDispatcher>();
+
+        using var frontDoorProvider = BuildProvider(SpringHostRole.HttpFrontDoor);
+        frontDoorProvider.GetService<IExecutionDispatcher>().ShouldBeNull();
     }
 
     /// <summary>

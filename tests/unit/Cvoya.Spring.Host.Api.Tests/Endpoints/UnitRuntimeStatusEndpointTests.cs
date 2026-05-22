@@ -84,21 +84,27 @@ public class UnitRuntimeStatusEndpointTests : IClassFixture<CustomWebApplication
     }
 
     [Fact]
-    public async Task GetUnitRuntimeStatus_RegistryUnhealthy_ReturnsUnavailable()
+    public async Task GetUnitRuntimeStatus_DeploymentUnhealthy_ReturnsUnavailable()
     {
         var ct = TestContext.Current.CancellationToken;
         var unitId = Guid.NewGuid();
         ArrangeUnitDirectoryEntry(unitId, "Crashed Unit");
 
-        var registry = _factory.Services
-            .GetRequiredService<PersistentAgentRegistry>();
+        // ADR-0052 / #2618: deployment health is read from the execution host
+        // over the gateway. A running-but-unhealthy deployment projects to
+        // `unavailable`.
         var actorId = unitId.ToString("N");
-        await registry.RegisterAsync(
-            actorId,
-            new Uri("http://test/unit"),
-            containerId: "container-unit",
-            cancellationToken: ct);
-        await registry.MarkUnhealthyAsync(actorId, cancellationToken: ct);
+        _factory.PersistentAgentExecutionGateway
+            .GetDeploymentAsync(actorId, Arg.Any<CancellationToken>())
+            .Returns(new PersistentAgentDeploymentState(
+                AgentId: actorId,
+                Running: true,
+                HealthStatus: "unhealthy",
+                Image: null,
+                Endpoint: "http://test/unit",
+                ContainerId: "container-unit",
+                StartedAt: DateTimeOffset.UtcNow,
+                ConsecutiveFailures: 3));
 
         var response = await _client.GetAsync(
             $"/api/v1/tenant/units/{unitId:N}/runtime-status", ct);
@@ -109,8 +115,10 @@ public class UnitRuntimeStatusEndpointTests : IClassFixture<CustomWebApplication
         body.ShouldNotBeNull();
         body.Status.ShouldBe("unavailable");
 
-        // Cleanup so a sibling test doesn't see this entry.
-        await registry.RemoveAsync(actorId, ct);
+        // Reset the shared substitute so a sibling test doesn't see this entry.
+        _factory.PersistentAgentExecutionGateway
+            .GetDeploymentAsync(actorId, Arg.Any<CancellationToken>())
+            .Returns(PersistentAgentDeploymentState.NotRunning(actorId));
     }
 
     private void ArrangeUnitDirectoryEntry(Guid unitId, string displayName)

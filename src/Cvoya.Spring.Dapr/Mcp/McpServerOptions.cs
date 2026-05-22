@@ -23,25 +23,6 @@ public class McpServerOptions
     public int Port { get; set; } = 0;
 
     /// <summary>
-    /// Listener bind address. Defaults to <c>+</c> (HttpListener strong
-    /// wildcard — bind on all local interfaces) so the worker's MCP socket is
-    /// reachable from outside its own container once the surrounding port is
-    /// published. Tests that need loopback-only isolation can override to
-    /// <c>127.0.0.1</c>.
-    /// </summary>
-    /// <remarks>
-    /// Until #1199 is finally resolved (likely as part of the V2.1 ADR 0029
-    /// rollout — see #1200), the agent container reaches the worker via
-    /// <c>host.docker.internal:&lt;Port&gt;</c>: <c>spring-worker</c> binds
-    /// here on all interfaces, <c>deploy.sh</c> publishes the same port from
-    /// the worker container to the host, and the agent's
-    /// <c>--add-host=host.docker.internal:host-gateway</c> entry routes there
-    /// through the host bridge. Loopback-only would silently re-introduce the
-    /// MCP-discovery failure that #1199 closes.
-    /// </remarks>
-    public string BindAddress { get; set; } = "+";
-
-    /// <summary>
     /// The hostname the container uses to reach the MCP server. Defaults to
     /// <c>host.docker.internal</c>, which Linux callers resolve via
     /// <c>ExtraHosts = "host.docker.internal:host-gateway"</c>.

@@ -3,8 +3,6 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Mcp;
 
-using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Messaging;
@@ -28,8 +26,14 @@ using Xunit;
 /// <c>tools/call</c> (#2379). Registration tells the server "this tool
 /// exists"; the resolver tells it "this subject may see/invoke it"; unit
 /// policy remains a deny overlay applied after the grant gate.
+/// <para>
+/// ADR-0052 / Wave 3 (#2625): the MCP surface is a minimal-API route on the
+/// worker's Kestrel host — these tests drive
+/// <see cref="McpServer.HandleRequestAsync"/> through
+/// <see cref="McpTestTransport"/>.
+/// </para>
 /// </summary>
-public class McpServerEffectiveGrantsTests : IAsyncLifetime
+public class McpServerEffectiveGrantsTests
 {
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly FakeToolGrantResolver _resolver = new();
@@ -38,16 +42,12 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         ("acme.create_issue", "acme"),
         ("arxiv.search", "arxiv"));
     private readonly FakeEnforcer _enforcer = new();
-    private McpServer? _server;
-    private HttpClient? _client;
+    private readonly McpServer _server;
 
     public McpServerEffectiveGrantsTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-    }
 
-    public async ValueTask InitializeAsync()
-    {
         var services = new ServiceCollection();
         services.AddSingleton<IToolGrantResolver>(_resolver);
         services.AddSingleton<IUnitPolicyEnforcer>(_enforcer);
@@ -55,26 +55,9 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
 
         _server = new McpServer(
             [_registry],
-            Options.Create(new McpServerOptions
-            {
-                BindAddress = "127.0.0.1",
-                ContainerHost = "127.0.0.1",
-            }),
+            Options.Create(new McpServerOptions()),
             _loggerFactory,
             provider.GetRequiredService<IServiceScopeFactory>());
-
-        await _server.StartAsync(CancellationToken.None);
-        _client = new HttpClient { BaseAddress = new Uri(_server.Endpoint!) };
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_server is not null)
-        {
-            await _server.StopAsync(CancellationToken.None);
-            _server.Dispose();
-        }
-        _client?.Dispose();
     }
 
     [Fact]
@@ -342,19 +325,9 @@ public class McpServerEffectiveGrantsTests : IAsyncLifetime
         _registry.LastInvokedName.ShouldBe("acme.create_issue");
     }
 
-    private async Task<JsonElement> PostJsonAsync(string token, object body)
-    {
-        var json = JsonSerializer.Serialize(body);
-        var request = new HttpRequestMessage(HttpMethod.Post, string.Empty)
-        {
-            Content = new StringContent(json, Encoding.UTF8, "application/json"),
-        };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        using var response = await _client!.SendAsync(request);
-        response.EnsureSuccessStatusCode();
-        var content = await response.Content.ReadAsStringAsync();
-        return JsonDocument.Parse(content).RootElement.Clone();
-    }
+    private Task<JsonElement> PostJsonAsync(string token, object body)
+        => McpTestTransport.PostJsonAsync(
+            _server, token, body, TestContext.Current.CancellationToken);
 
     private sealed class FakeToolGrantResolver : IToolGrantResolver
     {

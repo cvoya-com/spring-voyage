@@ -728,15 +728,21 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         ArrangeAgentDirectoryEntry(agentId, "Persistent Sick");
         ArrangeAgentExecutionShape(agentId, hosting: "persistent");
 
-        var registry = _factory.Services
-            .GetRequiredService<Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry>();
+        // ADR-0052 / #2618: deployment health is read from the execution host
+        // over the gateway. A running-but-unhealthy persistent deployment
+        // projects to `unavailable`.
         var actorId = agentId.ToString("N");
-        await registry.RegisterAsync(
-            actorId,
-            new Uri("http://test/agent"),
-            containerId: "container-1",
-            cancellationToken: ct);
-        await registry.MarkUnhealthyAsync(actorId, cancellationToken: ct);
+        _factory.PersistentAgentExecutionGateway
+            .GetDeploymentAsync(actorId, Arg.Any<CancellationToken>())
+            .Returns(new Cvoya.Spring.Dapr.Execution.PersistentAgentDeploymentState(
+                AgentId: actorId,
+                Running: true,
+                HealthStatus: "unhealthy",
+                Image: null,
+                Endpoint: "http://test/agent",
+                ContainerId: "container-1",
+                StartedAt: DateTimeOffset.UtcNow,
+                ConsecutiveFailures: 3));
 
         var response = await _client.GetAsync(
             $"/api/v1/tenant/agents/{agentId:N}/runtime-status", ct);
@@ -747,8 +753,10 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body.ShouldNotBeNull();
         body.Status.ShouldBe("unavailable");
 
-        // Cleanup so a sibling test in the same fixture doesn't see this entry.
-        await registry.RemoveAsync(actorId, ct);
+        // Reset the shared substitute so a sibling test doesn't see this entry.
+        _factory.PersistentAgentExecutionGateway
+            .GetDeploymentAsync(actorId, Arg.Any<CancellationToken>())
+            .Returns(Cvoya.Spring.Dapr.Execution.PersistentAgentDeploymentState.NotRunning(actorId));
     }
 
     [Fact]

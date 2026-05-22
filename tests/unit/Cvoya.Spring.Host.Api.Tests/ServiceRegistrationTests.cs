@@ -116,21 +116,43 @@ public class ServiceRegistrationTests : IDisposable
     }
 
     /// <summary>
-    /// ADR-0052: gating only the <c>AddHostedService</c> wrappers must leave
-    /// the execution DI singletons resolvable on the API host — endpoint code
-    /// resolves <see cref="Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry"/>
-    /// as a plain singleton.
+    /// ADR-0052 / Wave 3 (#2618): the API host delegates persistent-agent
+    /// execution to the worker, so the <c>HttpFrontDoor</c> composition
+    /// registers <em>none</em> of the persistent-agent execution singletons.
+    /// This replaces the Wave 1 "still resolve" assertion — Wave 1 left them
+    /// resolvable as acknowledged debt; Wave 3 removes that debt. The
+    /// acceptance bar of #2618: <c>AddCvoyaSpringDapr(HttpFrontDoor)</c>
+    /// registers zero execution singletons.
     /// </summary>
     [Fact]
-    public void ApiHost_ExecutionSingletonsStillResolve()
+    public void ApiHost_DoesNotRegisterExecutionSingletons()
     {
         using var client = _factory.CreateClient();
 
+        _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.PersistentAgentLifecycle>()
+            .ShouldBeNull();
         _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.PersistentAgentRegistry>()
-            .ShouldNotBeNull();
+            .ShouldBeNull();
         _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.AgentVolumeManager>()
-            .ShouldNotBeNull();
+            .ShouldBeNull();
         _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.EphemeralAgentRegistry>()
+            .ShouldBeNull();
+        _factory.Services.GetService<Cvoya.Spring.Core.Execution.IExecutionDispatcher>()
+            .ShouldBeNull();
+    }
+
+    /// <summary>
+    /// ADR-0052 / Wave 3 (#2618): the API host resolves
+    /// <see cref="Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway"/>
+    /// — its delegated view of the worker's persistent-agent surface — in
+    /// place of the execution singletons.
+    /// </summary>
+    [Fact]
+    public void ApiHost_ResolvesPersistentAgentExecutionGateway()
+    {
+        using var client = _factory.CreateClient();
+
+        _factory.Services.GetService<Cvoya.Spring.Dapr.Execution.IPersistentAgentExecutionGateway>()
             .ShouldNotBeNull();
     }
 
@@ -154,20 +176,21 @@ public class ServiceRegistrationTests : IDisposable
     }
 
     /// <summary>
-    /// ADR-0052 §1: the <c>McpServer</c> / <c>IMcpServer</c> DI singletons
-    /// stay resolvable on the API host even though the hosted service is
-    /// worker-only — OpenAPI doc-gen and the latent dispatcher singleton
-    /// still resolve them.
+    /// ADR-0052 / Wave 3 (#2625 + #2618): with the MCP surface served as a
+    /// worker Kestrel route and the API persistent-agent endpoints delegating
+    /// to the worker, the <c>McpServer</c> / <c>IMcpServer</c> singletons are
+    /// execution-host-only — the <c>HttpFrontDoor</c> composition no longer
+    /// registers them at all.
     /// </summary>
     [Fact]
-    public void ApiHost_McpServerSingletonStillResolves()
+    public void ApiHost_DoesNotRegisterMcpServerSingleton()
     {
         using var client = _factory.CreateClient();
 
         _factory.Services.GetService<Cvoya.Spring.Dapr.Mcp.McpServer>()
-            .ShouldNotBeNull();
+            .ShouldBeNull();
         _factory.Services.GetService<Cvoya.Spring.Core.Execution.IMcpServer>()
-            .ShouldNotBeNull();
+            .ShouldBeNull();
     }
 
     public void Dispose()
