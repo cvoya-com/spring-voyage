@@ -135,9 +135,8 @@ public class PackageManifest
 }
 
 /// <summary>
-/// Package-level <c>execution:</c> block (#1679). Carries the same
-/// inheritable fields as <see cref="ExecutionManifest"/> (<c>image</c>,
-/// <c>provider</c>, <c>model</c>) plus an optional
+/// Package-level <c>execution:</c> block (#1679). Carries the
+/// inheritable container <c>image</c> plus an optional
 /// <see cref="Inherit"/> selector that constrains which member units
 /// pick up the defaults.
 /// </summary>
@@ -170,14 +169,6 @@ public class PackageExecutionManifest
     [YamlMember(Alias = "image")]
     public string? Image { get; set; }
 
-    /// <summary>Default LLM provider inherited by member units.</summary>
-    [YamlMember(Alias = "provider")]
-    public string? Provider { get; set; }
-
-    /// <summary>Default model identifier inherited by member units.</summary>
-    [YamlMember(Alias = "model")]
-    public string? Model { get; set; }
-
     /// <summary>
     /// Inheritance selector: omitted (or the literal scalar
     /// <c>all</c>) means every member unit inherits; a YAML sequence of
@@ -190,8 +181,6 @@ public class PackageExecutionManifest
     /// <summary>True when every inheritable field is null / whitespace.</summary>
     [YamlIgnore]
     public bool IsEmpty =>
-        string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Provider)
-        && string.IsNullOrWhiteSpace(Model);
+        string.IsNullOrWhiteSpace(Image);
 }
 

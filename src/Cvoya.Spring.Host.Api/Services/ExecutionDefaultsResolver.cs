@@ -28,11 +28,10 @@ using YamlDotNet.Serialization.NamingConventions;
 /// Field merge: for each member unit eligible to inherit
 /// (per <see cref="PackageExecutionDeclaration.AppliesTo"/>), the
 /// resolver returns a per-field projection where the member's
-/// non-null fields win and the package's non-null fields fill the
-/// gaps. A member that declared no <c>execution:</c> at all picks up
-/// the package's full block; a member that declared only
-/// <c>execution.image</c> keeps its own image and inherits the
-/// package's runtime / provider / model.
+/// non-null <c>image</c> wins and the package's <c>image</c> fills the
+/// gap. A member that declared no <c>execution:</c> at all picks up
+/// the package's <c>image</c>; a member that declared its own
+/// <c>execution.image</c> keeps it.
 /// </para>
 /// <para>
 /// Pre-flight gap: <c>execution.image</c> is required for every unit

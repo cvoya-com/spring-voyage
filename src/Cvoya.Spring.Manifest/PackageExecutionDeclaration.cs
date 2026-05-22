@@ -15,11 +15,11 @@ using System.Collections.Generic;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The three field slots (<see cref="Image"/>, <see cref="Provider"/>,
-/// <see cref="Model"/>) carry whatever the
-/// package author declared at the container level. Member units pick
-/// these up field-wise unless they override; the merge happens in
-/// <c>ExecutionDefaultsResolver.Resolve</c> at install time.
+/// Per the ADR-0038 amendment (#2634) the package-level
+/// <c>execution:</c> block carries only the container
+/// <see cref="Image"/>. Member units pick it up unless they override;
+/// the merge happens in <c>ExecutionDefaultsResolver.Resolve</c> at
+/// install time.
 /// </para>
 /// <para>
 /// <see cref="InheritUnits"/> is the discriminated form of the package
@@ -29,23 +29,17 @@ using System.Collections.Generic;
 /// </para>
 /// </remarks>
 /// <param name="Image">Default container image.</param>
-/// <param name="Provider">Default LLM provider.</param>
-/// <param name="Model">Default model identifier.</param>
 /// <param name="InheritUnits">
 /// <c>null</c> when every member inherits; otherwise the explicit list
 /// of unit names that participate.
 /// </param>
 public sealed record PackageExecutionDeclaration(
     string? Image,
-    string? Provider,
-    string? Model,
     IReadOnlyList<string>? InheritUnits)
 {
     /// <summary>True when every inheritable field is null / whitespace.</summary>
     public bool IsEmpty =>
-        string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Provider)
-        && string.IsNullOrWhiteSpace(Model);
+        string.IsNullOrWhiteSpace(Image);
 
     /// <summary>
     /// True when <paramref name="unitName"/> is eligible to inherit the

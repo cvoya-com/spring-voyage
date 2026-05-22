@@ -3743,8 +3743,6 @@ export interface components {
         };
         PackageExecutionSummary: {
             image: null | string;
-            provider: null | string;
-            model: null | string;
             inheritUnits: null | string[];
         };
         PackageExportRequest: {

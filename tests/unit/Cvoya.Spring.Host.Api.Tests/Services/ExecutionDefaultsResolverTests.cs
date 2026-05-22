@@ -75,8 +75,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/agent:latest",
-                Provider: null,
-                Model: null,
                 InheritUnits: null),
             unitContent: new[]
             {
@@ -100,8 +98,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/pkg:latest",
-                Provider: null,
-                Model: null,
                 InheritUnits: null),
             unitContent: new[]
             {
@@ -131,8 +127,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/pkg:latest",
-                Provider: null,
-                Model: null,
                 InheritUnits: null),
             unitContent: new[]
             {
@@ -158,8 +152,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/pkg:latest",
-                Provider: null,
-                Model: null,
                 InheritUnits: new[] { "alpha" }),
             unitContent: new[]
             {
@@ -193,8 +185,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/pkg:latest",
-                Provider: null,
-                Model: null,
                 InheritUnits: new[] { "alpha" }),
             unitContent: new[]
             {
@@ -221,13 +211,11 @@ public class ExecutionDefaultsResolverTests
     [Fact]
     public void Resolve_PackageExecutionWithoutImage_MemberHasImage_NoMissing()
     {
-        // The package supplies provider / model defaults but not
-        // an image. Members that supply their own image still resolve cleanly.
+        // The package declares an execution block but no image.
+        // Members that supply their own image still resolve cleanly.
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: null,
-                Provider: "anthropic",
-                Model: "claude-opus-4-7",
                 InheritUnits: null),
             unitContent: new[]
             {
@@ -253,8 +241,6 @@ public class ExecutionDefaultsResolverTests
         var pkg = BuildPackage(
             packageExecution: new PackageExecutionDeclaration(
                 Image: "ghcr.io/example/agents:latest",
-                Provider: "anthropic",
-                Model: "claude-opus-4-7",
                 InheritUnits: null),
             unitContent: new[]
             {

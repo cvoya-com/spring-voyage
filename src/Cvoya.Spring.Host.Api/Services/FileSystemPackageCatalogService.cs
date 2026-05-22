@@ -168,8 +168,6 @@ public class FileSystemPackageCatalogService(
             }
             return new PackageExecutionSummary(
                 Image: exec.Image,
-                Provider: exec.Provider,
-                Model: exec.Model,
                 InheritUnits: exec.InheritUnits);
         }
         catch (Exception ex) when (ex is PackageParseException or YamlDotNet.Core.YamlException or IOException)
