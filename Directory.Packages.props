@@ -61,7 +61,7 @@
          instances against OpenAPI 3.1 component schemas, which are real
          JSON Schema 2020-12. Used only by Cvoya.Spring.Host.Api.Tests so
          the package stays out of the runtime closure. -->
-    <PackageVersion Include="JsonSchema.Net" Version="9.2.0" />
+    <PackageVersion Include="JsonSchema.Net" Version="9.2.1" />
 
     <!-- OTLP/HTTP+protobuf wire-format support (#2501). Google.Protobuf's
          CodedInputStream parses the OTLP envelopes our ingest controller
