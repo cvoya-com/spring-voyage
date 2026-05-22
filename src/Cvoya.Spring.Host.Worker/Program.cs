@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Worker;
 using System.Runtime.InteropServices;
 
 using Cvoya.Spring.Dapr.DependencyInjection;
+using Cvoya.Spring.Dapr.Mcp;
 using Cvoya.Spring.Host.Worker.Composition;
 
 public partial class Program
@@ -56,6 +57,23 @@ public partial class Program
             // container startup. See #586 and WorkerComposition.cs.
             builder.Services.AddWorkerServices(builder.Configuration);
 
+            // ADR-0052 / Wave 3 (#2625): the MCP surface is served as a route on
+            // the worker's own Kestrel host. The default ASP.NET Core endpoint
+            // (:8080) carries the Dapr actor handlers and /health; the MCP
+            // JSON-RPC route binds to an *additional* Kestrel endpoint on the
+            // MCP port (Mcp:Port, default 5050) so the agent-facing contract
+            // — host.docker.internal:5050, the .mcp.json URL, deploy.sh's
+            // `-p 5050:5050` — is unchanged, and the Dapr surface stays off the
+            // agent-reachable port. BindAddress (`+` / all interfaces) is
+            // preserved verbatim because the agent container reaches the worker
+            // through the published port, not loopback (#1199).
+            var mcpPort = builder.Configuration.GetValue<int?>("Mcp:Port")
+                ?? new McpServerOptions().Port;
+            if (mcpPort > 0)
+            {
+                builder.WebHost.ConfigureKestrel(options => options.ListenAnyIP(mcpPort));
+            }
+
             var app = builder.Build();
 
             // Health check
@@ -63,6 +81,29 @@ public partial class Program
 
             // Dapr actor endpoints
             app.MapActorsHandlers();
+
+            // MCP JSON-RPC route (ADR-0052 / #2625). Restricted to the MCP
+            // Kestrel endpoint via the connection's local port — a request that
+            // arrives on the Dapr :8080 endpoint is rejected so the MCP surface
+            // and the Dapr surface stay cleanly separated. The handler reads the
+            // request body + Authorization header from HttpContext and delegates
+            // to the existing McpServer session store / JSON-RPC dispatch.
+            if (mcpPort > 0)
+            {
+                app.MapPost("/mcp/", async (
+                    HttpContext httpContext,
+                    McpServer mcpServer,
+                    CancellationToken cancellationToken) =>
+                {
+                    if (httpContext.Connection.LocalPort != mcpPort)
+                    {
+                        httpContext.Response.StatusCode = StatusCodes.Status404NotFound;
+                        return;
+                    }
+
+                    await mcpServer.HandleRequestAsync(httpContext, cancellationToken);
+                });
+            }
 
             // Drive EF Core migrations to completion BEFORE any hosted service
             // starts. The Generic Host invokes IHostedService.StartAsync in

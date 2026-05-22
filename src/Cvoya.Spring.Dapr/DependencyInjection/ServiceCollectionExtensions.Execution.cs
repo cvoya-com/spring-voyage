@@ -263,8 +263,11 @@ internal static class ServiceCollectionExtensionsExecution
 
         // In-process MCP server — options and singleton always registered so
         // endpoints that depend on IMcpServer resolve correctly during OpenAPI
-        // generation. The hosted-service registration (which binds a port and
-        // starts the health monitor) is gated by doc-gen mode. See #370.
+        // generation. ADR-0052 / Wave 3 (#2625): the MCP surface is served as a
+        // minimal-API route on the worker's existing Kestrel host — the route +
+        // Kestrel-endpoint wiring lives in WorkerComposition. McpServer is no
+        // longer an IHostedService and no longer owns a port listener; it owns
+        // the session store and the JSON-RPC dispatch only.
         services.AddOptions<McpServerOptions>().BindConfiguration(McpServerOptions.SectionName);
         services.TryAddSingleton<McpServer>();
         services.TryAddSingleton<IMcpServer>(sp => sp.GetRequiredService<McpServer>());
@@ -287,12 +290,6 @@ internal static class ServiceCollectionExtensionsExecution
                 // persistent-agent container and emits spring.container.healthy via
                 // System.Diagnostics.Metrics (BCL Meter, MeterName = "Cvoya.Spring.Dapr").
                 services.AddHostedService<ContainerHealthMetricsService>();
-                // ADR-0052 §2: the McpServer port listener (and its in-process
-                // session store) runs in exactly one host — the worker — so
-                // there is one session authority. The McpServer / IMcpServer
-                // DI singletons above stay registered on both hosts; only this
-                // hosted-service wrapper is execution-host-gated.
-                services.AddHostedService(sp => sp.GetRequiredService<McpServer>());
             }
         }
 

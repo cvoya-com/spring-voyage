@@ -3,9 +3,6 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Mcp;
 
-using System.Net;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
@@ -14,6 +11,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Mcp;
 
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -24,56 +22,36 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// End-to-end tests for <see cref="McpServer"/>. Boots the server on a real
-/// loopback HTTP listener and exercises it via <see cref="HttpClient"/>.
+/// End-to-end tests for <see cref="McpServer"/>. ADR-0052 / Wave 3 (#2625):
+/// the MCP surface is a minimal-API route on the worker's Kestrel host —
+/// these tests drive <see cref="McpServer.HandleRequestAsync"/> directly
+/// through an in-memory <see cref="Microsoft.AspNetCore.Http.DefaultHttpContext"/>
+/// (see <see cref="McpTestTransport"/>), exercising the same JSON-RPC dispatch
+/// the production route exercises without binding a socket.
 /// </summary>
-public class McpServerTests : IAsyncLifetime
+public class McpServerTests
 {
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly FakeSkillRegistry _registry = new();
-    private McpServer? _server;
-    private HttpClient? _client;
+    private readonly McpServer _server;
 
     public McpServerTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-    }
-
-    public async ValueTask InitializeAsync()
-    {
         _server = new McpServer(
             [_registry],
-            Options.Create(new McpServerOptions
-            {
-                // Loopback-only bind keeps the test hermetic — the
-                // production default is `+` (all interfaces) so the
-                // worker's MCP socket is reachable through the worker
-                // container's published port (closes #1199), but tests
-                // don't want listeners on outward-facing interfaces.
-                BindAddress = "127.0.0.1",
-                ContainerHost = "127.0.0.1",
-            }),
+            Options.Create(new McpServerOptions()),
             _loggerFactory);
-        await _server.StartAsync(CancellationToken.None);
-        _client = new HttpClient { BaseAddress = new Uri(_server.Endpoint!) };
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_server is not null)
-        {
-            await _server.StopAsync(CancellationToken.None);
-            _server.Dispose();
-        }
-        _client?.Dispose();
     }
 
     [Fact]
     public async Task MissingToken_ReturnsUnauthorized()
     {
-        var response = await PostAsync(token: null, new { jsonrpc = "2.0", id = 1, method = "initialize" });
+        var (statusCode, _) = await McpTestTransport.PostAsync(
+            _server, token: null, new { jsonrpc = "2.0", id = 1, method = "initialize" },
+            TestContext.Current.CancellationToken);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        statusCode.ShouldBe(StatusCodes.Status401Unauthorized);
     }
 
     [Fact]
@@ -85,9 +63,11 @@ public class McpServerTests : IAsyncLifetime
         // in canonical no-dash Guids here and assert against them.
         var agentId = Guid.NewGuid().ToString("N");
         var threadId = Guid.NewGuid().ToString("N");
-        var session = _server!.IssueSession(agentId, threadId, Address.AgentScheme);
+        var session = _server.IssueSession(agentId, threadId, Address.AgentScheme);
 
-        var json = await PostJsonAsync(session.Token, new { jsonrpc = "2.0", id = 1, method = "initialize" });
+        var json = await McpTestTransport.PostJsonAsync(
+            _server, session.Token, new { jsonrpc = "2.0", id = 1, method = "initialize" },
+            TestContext.Current.CancellationToken);
 
         var result = json.GetProperty("result");
         result.GetProperty("serverInfo").GetProperty("name").GetString().ShouldBe("spring-voyage-mcp");
@@ -101,21 +81,23 @@ public class McpServerTests : IAsyncLifetime
         // No IToolGrantResolver is registered in this fixture, so the
         // server returns the unfiltered registry surface — exactly the
         // shape exercised here.
-        var session = _server!.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
+        var session = _server.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
 
-        var json = await PostJsonAsync(session.Token, new { jsonrpc = "2.0", id = 1, method = "tools/list" });
+        var json = await McpTestTransport.PostJsonAsync(
+            _server, session.Token, new { jsonrpc = "2.0", id = 1, method = "tools/list" },
+            TestContext.Current.CancellationToken);
 
         var tools = json.GetProperty("result").GetProperty("tools").EnumerateArray().ToList();
-        tools.Count().ShouldBe(1);
+        tools.Count.ShouldBe(1);
         tools[0].GetProperty("name").GetString().ShouldBe("fake.tool");
     }
 
     [Fact]
     public async Task ToolsCall_RoutesToCorrectRegistryAndReturnsResult()
     {
-        var session = _server!.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
+        var session = _server.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
 
-        var json = await PostJsonAsync(session.Token, new
+        var json = await McpTestTransport.PostJsonAsync(_server, session.Token, new
         {
             jsonrpc = "2.0",
             id = 1,
@@ -125,7 +107,7 @@ public class McpServerTests : IAsyncLifetime
                 name = "fake.tool",
                 arguments = new { echo = "hello" }
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
         _registry.LastInvokedName.ShouldBe("fake.tool");
         var content = json.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
@@ -135,15 +117,15 @@ public class McpServerTests : IAsyncLifetime
     [Fact]
     public async Task ToolsCall_UnknownTool_ReturnsMethodNotFound()
     {
-        var session = _server!.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
+        var session = _server.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
 
-        var json = await PostJsonAsync(session.Token, new
+        var json = await McpTestTransport.PostJsonAsync(_server, session.Token, new
         {
             jsonrpc = "2.0",
             id = 1,
             method = "tools/call",
             @params = new { name = "nope", arguments = new { } }
-        });
+        }, TestContext.Current.CancellationToken);
 
         json.GetProperty("error").GetProperty("code").GetInt32().ShouldBe(-32601);
     }
@@ -151,14 +133,16 @@ public class McpServerTests : IAsyncLifetime
     [Fact]
     public async Task RevokedToken_ReturnsUnauthorized()
     {
-        var session = _server!.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
+        var session = _server.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", Address.AgentScheme);
         _server.RevokeSession(session.Token);
 
-        var response = await PostAsync(
+        var (statusCode, _) = await McpTestTransport.PostAsync(
+            _server,
             session.Token,
-            new { jsonrpc = "2.0", id = 1, method = "initialize" });
+            new { jsonrpc = "2.0", id = 1, method = "initialize" },
+            TestContext.Current.CancellationToken);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        statusCode.ShouldBe(StatusCodes.Status401Unauthorized);
     }
 
     [Fact]
@@ -168,7 +152,7 @@ public class McpServerTests : IAsyncLifetime
         // so the effective-grant gate can evaluate it. An opaque id like
         // "ada" is rejected at session-establishment time — no silent
         // fail-open path remains.
-        var act = () => _server!.IssueSession("ada", "conv-1", Address.AgentScheme);
+        var act = () => _server.IssueSession("ada", "conv-1", Address.AgentScheme);
 
         Should.Throw<ArgumentException>(act).ParamName.ShouldBe("agentId");
     }
@@ -180,7 +164,7 @@ public class McpServerTests : IAsyncLifetime
         // resolver can route the Address. Connector / human schemes are
         // not subjects and are rejected up-front rather than silently
         // bypassing the grant gate.
-        var act = () => _server!.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", "connector");
+        var act = () => _server.IssueSession(Guid.NewGuid().ToString("N"), "conv-1", "connector");
 
         Should.Throw<ArgumentException>(act).ParamName.ShouldBe("callerKind");
     }
@@ -200,37 +184,22 @@ public class McpServerTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task StopAsync_DuringActiveAcceptLoop_DoesNotLeakInvalidOperationException()
+    public void Endpoint_IsDerivedFromOptions()
     {
-        // Regression: HttpListener.GetContextAsync throws
-        // InvalidOperationException("Please call the Start() method...") if
-        // Stop() races past the IsListening check inside the accept loop. The
-        // loop must treat it as a shutdown signal, not propagate. Without the
-        // fix the StopAsync await observed the exception and bubbled it out
-        // of the fixture DisposeAsync, which is how CI saw it surface on
-        // `DuplicateToolRegistration_ThrowsAtConstruction` under parallel load.
-        var registry = new FakeSkillRegistry("fake.race");
+        // ADR-0052 §3: the container-facing endpoint is derived from
+        // configuration, not from a started listener. With the MCP surface
+        // now served as a Kestrel route, Endpoint is non-null from
+        // construction — it always equals McpServerOptions.ContainerEndpoint.
         var server = new McpServer(
-            [registry],
+            [new FakeSkillRegistry("fake.endpoint")],
             Options.Create(new McpServerOptions
             {
-                BindAddress = "127.0.0.1",
-                ContainerHost = "127.0.0.1",
+                ContainerHost = "host.docker.internal",
+                Port = 5050,
             }),
             _loggerFactory);
 
-        await server.StartAsync(CancellationToken.None);
-
-        // Hammer the start/stop boundary to make the race reproducible on
-        // machines that might otherwise never hit it.
-        for (var i = 0; i < 20; i++)
-        {
-            await server.StopAsync(CancellationToken.None);
-            await server.StartAsync(CancellationToken.None);
-        }
-
-        await server.StopAsync(CancellationToken.None);
-        server.Dispose();
+        server.Endpoint.ShouldBe("http://host.docker.internal:5050/mcp/");
     }
 
     [Fact]
@@ -251,76 +220,32 @@ public class McpServerTests : IAsyncLifetime
 
         var server = new McpServer(
             [throwingRegistry],
-            Options.Create(new McpServerOptions
-            {
-                BindAddress = "127.0.0.1",
-                ContainerHost = "127.0.0.1",
-            }),
+            Options.Create(new McpServerOptions()),
             _loggerFactory,
             scopeFactory: null,
             activityEventBus: recordingBus);
-        try
+
+        var session = server.IssueSession(agentGuid.ToString("N"), threadGuid.ToString("N"));
+
+        var json = await McpTestTransport.PostJsonAsync(server, session.Token, new
         {
-            await server.StartAsync(CancellationToken.None);
-            using var client = new HttpClient { BaseAddress = new Uri(server.Endpoint!) };
-            var session = server.IssueSession(agentGuid.ToString("N"), threadGuid.ToString("N"));
+            jsonrpc = "2.0",
+            id = 1,
+            method = "tools/call",
+            @params = new { name = "fake.throws", arguments = new { } }
+        }, TestContext.Current.CancellationToken);
 
-            var requestBody = JsonSerializer.Serialize(new
-            {
-                jsonrpc = "2.0",
-                id = 1,
-                method = "tools/call",
-                @params = new { name = "fake.throws", arguments = new { } }
-            });
-            using var request = new HttpRequestMessage(HttpMethod.Post, string.Empty)
-            {
-                Content = new StringContent(requestBody, Encoding.UTF8, "application/json"),
-            };
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.Token);
-            using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
-            response.EnsureSuccessStatusCode();
-            var content = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
-            var json = JsonDocument.Parse(content).RootElement;
+        json.GetProperty("result").GetProperty("isError").GetBoolean().ShouldBeTrue();
 
-            json.GetProperty("result").GetProperty("isError").GetBoolean().ShouldBeTrue();
-
-            recordingBus.Events.Count.ShouldBe(1);
-            var ev = recordingBus.Events[0];
-            ev.EventType.ShouldBe(ActivityEventType.ToolResult);
-            ev.Severity.ShouldBe(ActivitySeverity.Error);
-            ev.Source.Scheme.ShouldBe(Address.AgentScheme);
-            ev.Source.Id.ShouldBe(agentGuid);
-            ev.Summary.ShouldContain("fake.throws");
-            ev.Summary.ShouldContain("InstallationId must be configured");
-            ev.CorrelationId.ShouldBe(threadGuid.ToString("N"));
-        }
-        finally
-        {
-            await server.StopAsync(CancellationToken.None);
-            server.Dispose();
-        }
-    }
-
-    private async Task<HttpResponseMessage> PostAsync(string? token, object body)
-    {
-        var json = JsonSerializer.Serialize(body);
-        var request = new HttpRequestMessage(HttpMethod.Post, string.Empty)
-        {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
-        };
-        if (token is not null)
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        }
-        return await _client!.SendAsync(request);
-    }
-
-    private async Task<JsonElement> PostJsonAsync(string token, object body)
-    {
-        using var response = await PostAsync(token, body);
-        response.EnsureSuccessStatusCode();
-        var content = await response.Content.ReadAsStringAsync();
-        return JsonDocument.Parse(content).RootElement.Clone();
+        recordingBus.Events.Count.ShouldBe(1);
+        var ev = recordingBus.Events[0];
+        ev.EventType.ShouldBe(ActivityEventType.ToolResult);
+        ev.Severity.ShouldBe(ActivitySeverity.Error);
+        ev.Source.Scheme.ShouldBe(Address.AgentScheme);
+        ev.Source.Id.ShouldBe(agentGuid);
+        ev.Summary.ShouldContain("fake.throws");
+        ev.Summary.ShouldContain("InstallationId must be configured");
+        ev.CorrelationId.ShouldBe(threadGuid.ToString("N"));
     }
 
     private sealed class ThrowingSkillRegistry : ISkillRegistry
