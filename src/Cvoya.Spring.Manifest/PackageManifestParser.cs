@@ -794,8 +794,6 @@ public static class PackageManifestParser
 
         return new PackageExecutionDeclaration(
             Image: NullIfBlank(raw.Image),
-            Provider: NullIfBlank(raw.Provider),
-            Model: NullIfBlank(raw.Model),
             InheritUnits: inheritUnits);
     }
 

@@ -13819,25 +13819,11 @@
       "PackageExecutionSummary": {
         "required": [
           "image",
-          "provider",
-          "model",
           "inheritUnits"
         ],
         "type": "object",
         "properties": {
           "image": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "provider": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "model": {
             "type": [
               "null",
               "string"

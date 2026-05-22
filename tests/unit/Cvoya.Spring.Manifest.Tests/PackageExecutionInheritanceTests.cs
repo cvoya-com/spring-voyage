@@ -35,16 +35,12 @@ public class PackageExecutionInheritanceTests
             version: 1.0.0
             execution:
               image: ghcr.io/example/agent:latest
-              provider: anthropic
-              model: claude-opus-4-7
             """;
 
         var manifest = PackageManifestParser.ParseRaw(yaml);
 
         manifest.Execution.ShouldNotBeNull();
         manifest.Execution!.Image.ShouldBe("ghcr.io/example/agent:latest");
-        manifest.Execution.Provider.ShouldBe("anthropic");
-        manifest.Execution.Model.ShouldBe("claude-opus-4-7");
     }
 
     [Fact]
@@ -305,14 +301,14 @@ public class PackageExecutionInheritanceTests
     [Fact]
     public void PackageExecutionDeclaration_AppliesTo_NullInheritUnits_True()
     {
-        var decl = new PackageExecutionDeclaration("img", null, null, InheritUnits: null);
+        var decl = new PackageExecutionDeclaration("img", InheritUnits: null);
         decl.AppliesTo("any-unit").ShouldBeTrue();
     }
 
     [Fact]
     public void PackageExecutionDeclaration_AppliesTo_ListMember_True()
     {
-        var decl = new PackageExecutionDeclaration("img", null, null,
+        var decl = new PackageExecutionDeclaration("img",
             InheritUnits: new[] { "alpha", "beta" });
         decl.AppliesTo("alpha").ShouldBeTrue();
         decl.AppliesTo("BETA").ShouldBeTrue(); // case-insensitive
@@ -321,7 +317,7 @@ public class PackageExecutionInheritanceTests
     [Fact]
     public void PackageExecutionDeclaration_AppliesTo_NotMember_False()
     {
-        var decl = new PackageExecutionDeclaration("img", null, null,
+        var decl = new PackageExecutionDeclaration("img",
             InheritUnits: new[] { "alpha" });
         decl.AppliesTo("beta").ShouldBeFalse();
     }
