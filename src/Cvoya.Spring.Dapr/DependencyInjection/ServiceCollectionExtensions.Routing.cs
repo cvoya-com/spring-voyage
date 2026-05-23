@@ -109,6 +109,31 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvMessagingSkillRegistry>(
             sp => sp.GetRequiredService<SvMessagingSkillRegistry>()));
 
+        // Spring Voyage tool-discovery surface (ADR-0056 §6 / #2656). Exposes
+        // sv.tools.list_categories + sv.tools.list so a runtime can enumerate
+        // its category surface and pull per-category tool definitions on
+        // demand instead of paying for every schema on every turn. The
+        // registry resolves the registered ISkillRegistry set from a fresh
+        // scope on each invocation — registering it via the singleton
+        // ISkillRegistry collection would form a constructor-time DI cycle
+        // (the registry would need IEnumerable<ISkillRegistry> at build
+        // time and is itself a member of that collection).
+        services.TryAddSingleton<SvToolsDiscoverySkillRegistry>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvToolsDiscoverySkillRegistry>(
+            sp => sp.GetRequiredService<SvToolsDiscoverySkillRegistry>()));
+
+        // Spring Voyage progress-reporting surface (ADR-0056 §8 / #2656).
+        // sv.progress.report emits a RuntimeProgress activity (existing
+        // event type) so a long-running turn isn't silent until completion.
+        // Distinct from sv.runtime.report_progress (issue #2493) — the
+        // former routes through IOtlpIngestService for SDK-helper parity;
+        // this one writes the activity directly and surfaces the optional
+        // 0..1 'fraction' detail field the ADR calls out as a first-class
+        // argument.
+        services.TryAddSingleton<SvProgressSkillRegistry>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvProgressSkillRegistry>(
+            sp => sp.GetRequiredService<SvProgressSkillRegistry>()));
+
         // Routing
         services.AddSingleton<DirectoryCache>();
         services.TryAddSingleton<IDirectoryService, DirectoryService>();

@@ -81,11 +81,13 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
             new ToolDefinition(
                 SendTool,
                 SchemaDescription(LoadSchema(assembly, "sv.messaging.send.input.schema.json")),
-                LoadSchema(assembly, "sv.messaging.send.input.schema.json")),
+                LoadSchema(assembly, "sv.messaging.send.input.schema.json"),
+                ToolCategories.Messaging),
             new ToolDefinition(
                 MulticastTool,
                 SchemaDescription(LoadSchema(assembly, "sv.messaging.multicast.input.schema.json")),
-                LoadSchema(assembly, "sv.messaging.multicast.input.schema.json")),
+                LoadSchema(assembly, "sv.messaging.multicast.input.schema.json"),
+                ToolCategories.Messaging),
         };
     }
 

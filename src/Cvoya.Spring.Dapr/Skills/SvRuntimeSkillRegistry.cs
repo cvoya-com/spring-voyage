@@ -141,7 +141,8 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
                 "Use for meaningful narrative beats during work — starting a step, " +
                 "kicking off a tool call, hitting a blocker, finishing. The platform " +
                 "rate-limits per-(caller, kind) pair; excess events are dropped silently.",
-                ReportProgressArgSchema),
+                ReportProgressArgSchema,
+                ToolCategories.Observability),
             new ToolDefinition(
                 ReportDecisionTool,
                 "Record a structured routing/delegation decision so it is visible " +
@@ -152,7 +153,8 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
                 "'outcome' argument when the decision executed (you delivered the " +
                 "message); supply it when the decision could NOT be carried out so " +
                 "the reason is captured.",
-                ReportDecisionArgSchema),
+                ReportDecisionArgSchema,
+                ToolCategories.Observability),
         };
     }
 

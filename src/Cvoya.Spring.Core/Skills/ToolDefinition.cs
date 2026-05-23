@@ -20,6 +20,19 @@ public record ToolDefinition
 {
     /// <summary>Creates the tool definition, enforcing the canonical name pattern.</summary>
     public ToolDefinition(string Name, string Description, JsonElement InputSchema)
+        : this(Name, Description, InputSchema, Category: string.Empty)
+    {
+    }
+
+    /// <summary>
+    /// Creates the tool definition with an explicit
+    /// <see cref="Category"/> (ADR-0056 §6). Existing call sites that
+    /// pre-date the category surface keep using the three-argument
+    /// constructor and surface as uncategorised (<see cref="Category"/>
+    /// == <see cref="string.Empty"/>); the discovery tools treat
+    /// uncategorised entries as belonging to no category.
+    /// </summary>
+    public ToolDefinition(string Name, string Description, JsonElement InputSchema, string Category)
     {
         if (!ToolNaming.IsValid(Name))
         {
@@ -33,6 +46,7 @@ public record ToolDefinition
         this.Name = Name;
         this.Description = Description;
         this.InputSchema = InputSchema;
+        this.Category = Category ?? string.Empty;
     }
 
     /// <summary>The canonical tool name.</summary>
@@ -50,4 +64,15 @@ public record ToolDefinition
     /// never carries a duplicate copy that could drift from the id.
     /// </summary>
     public string Namespace => ToolNaming.GetNamespace(Name);
+
+    /// <summary>
+    /// Capability category (ADR-0056 §6) — a short stable token used by
+    /// the <c>sv.tools.list_categories</c> / <c>sv.tools.list</c>
+    /// discovery surface to group tools by purpose
+    /// (<c>messaging</c>, <c>directory</c>, <c>observability</c>,
+    /// <c>tools</c>, …). Empty when the tool's registry has not opted
+    /// into the category surface yet — those tools remain reachable
+    /// directly but are not enumerated by category-based discovery.
+    /// </summary>
+    public string Category { get; init; } = string.Empty;
 }
