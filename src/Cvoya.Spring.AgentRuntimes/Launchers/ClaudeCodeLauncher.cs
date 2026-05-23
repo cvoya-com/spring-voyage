@@ -306,9 +306,25 @@ public class ClaudeCodeLauncher(
             },
         };
 
+        // CLAUDE.md is Claude Code's auto-discovered project context file
+        // — the only system-prompt surface Claude Code reads at the
+        // workspace level. The Spring Voyage runtime guards
+        // (ResponseDiscipline, ConcurrentThreadsGuard) MUST appear here:
+        // SPRING_SYSTEM_PROMPT is set on the env but Claude Code's argv
+        // (`claude --print --dangerously-skip-permissions --mcp-config`)
+        // never passes it via `--system-prompt` / `--append-system-prompt`,
+        // so the env var is dead text for this runtime. Without the
+        // guards in CLAUDE.md, Claude can't know that stdout is a
+        // diagnostic trace post-ADR-0056 — and the resulting silent
+        // dispatches are the bug this change closes.
+        var concurrentThreads = context.Definition.Execution?.ConcurrentThreads ?? true;
+        var claudeMd = LauncherPromptFragments.Compose(
+            context.Definition.Instructions ?? string.Empty,
+            concurrentThreads);
+
         var files = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["CLAUDE.md"] = context.Definition.Instructions ?? string.Empty,
+            ["CLAUDE.md"] = claudeMd,
             [".mcp.json"] = SerializeMcpConfig(mcpConfig),
         };
 

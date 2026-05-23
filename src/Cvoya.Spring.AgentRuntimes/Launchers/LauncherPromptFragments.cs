@@ -52,9 +52,14 @@ internal static class LauncherPromptFragments
     /// </summary>
     public const string ResponseDiscipline =
         "## Spring Voyage runtime guard — response discipline\n\n" +
-        "You are a member on Spring Voyage. Every triggering message you receive MUST result in:\n\n" +
-        "1. A final reply A2A message addressed to the requester. Use your runtime's reply primitive " +
-        "(e.g. `Response(text=..., final=True)` from the SV Agent SDK, or your runtime's equivalent).\n" +
+        "You are a member on Spring Voyage. Per ADR-0056, every side effect you have on the outside world — " +
+        "including replying to whoever started this turn — happens through a platform tool call. " +
+        "Terminal output (stdout) is captured as a reasoning trace for diagnostics and is NOT delivered to anyone.\n\n" +
+        "Every triggering message you receive MUST result in:\n\n" +
+        "1. A final reply A2A message addressed to the requester, delivered by calling `sv.messaging.send`. " +
+        "Printing the reply to stdout is not a substitute — the platform stopped synthesising messages from " +
+        "terminal text, and a turn that produces only text and calls no tools is silent: the platform records " +
+        "`RuntimeCompletedSilent` and your reasoning trace is visible to operators, but no one receives your reply.\n" +
         "2. (For work expected to take more than ~10 seconds) Progress updates via `sv.progress.report` — " +
         "emit meaningful narrative beats: starting work, tool calls underway, intermediate results, blockers encountered.\n" +
         "3. An explicit completion message. Failure replies are required just as success replies are.\n\n" +
