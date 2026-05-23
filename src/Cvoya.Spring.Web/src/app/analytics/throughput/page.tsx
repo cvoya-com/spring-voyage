@@ -50,7 +50,7 @@ function n(v: number | string | undefined | null): number {
 }
 
 function entryTotal(e: ThroughputEntryResponse): number {
-  return n(e.messagesReceived) + n(e.messagesSent) + n(e.turns) + n(e.toolCalls);
+  return n(e.messagesArrived) + n(e.messagesSent) + n(e.turns) + n(e.toolCalls);
 }
 
 /**
@@ -97,7 +97,7 @@ function AnalyticsThroughputContent() {
     () =>
       sortedEntries.reduce(
         (acc, e) => ({
-          received: acc.received + n(e.messagesReceived),
+          received: acc.received + n(e.messagesArrived),
           sent: acc.sent + n(e.messagesSent),
           turns: acc.turns + n(e.turns),
           toolCalls: acc.toolCalls + n(e.toolCalls),
@@ -112,7 +112,7 @@ function AnalyticsThroughputContent() {
     () =>
       sortedEntries.map((e) => ({
         source: e.source,
-        received: n(e.messagesReceived),
+        received: n(e.messagesArrived),
         sent: n(e.messagesSent),
         turns: n(e.turns),
         toolCalls: n(e.toolCalls),
@@ -234,7 +234,7 @@ function AnalyticsThroughputContent() {
                       </span>
                     );
                   }
-                  if (col.key === "received") return <span className="tabular-nums">{n(entry.messagesReceived).toLocaleString()}</span>;
+                  if (col.key === "received") return <span className="tabular-nums">{n(entry.messagesArrived).toLocaleString()}</span>;
                   if (col.key === "sent") return <span className="tabular-nums">{n(entry.messagesSent).toLocaleString()}</span>;
                   if (col.key === "turns") return <span className="tabular-nums">{n(entry.turns).toLocaleString()}</span>;
                   if (col.key === "toolCalls") return <span className="tabular-nums">{n(entry.toolCalls).toLocaleString()}</span>;
