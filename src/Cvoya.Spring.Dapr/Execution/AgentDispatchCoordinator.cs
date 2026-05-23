@@ -8,27 +8,34 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Dapr.Routing;
 
 using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default singleton implementation of <see cref="IAgentDispatchCoordinator"/>.
 /// Owns the execution-dispatch concern extracted from <c>AgentActor</c>:
-/// invoking the <see cref="IExecutionDispatcher"/>, inspecting the response
-/// for a non-zero container exit code, recording the response on its
-/// originating thread, and signalling the per-thread dispatch exit so the
-/// actor's mailbox can drain remaining queued messages on the same thread
-/// or mark the channel idle.
+/// invoking the <see cref="IExecutionDispatcher"/>, observing the runtime's
+/// <see cref="RuntimeOutcome"/>, emitting the per-phase activity stream
+/// (<see cref="ActivityEventType.MessageDispatchedToRuntime"/>,
+/// <see cref="ActivityEventType.RuntimeStarted"/>,
+/// <see cref="ActivityEventType.RuntimeReasoning"/>, plus exactly one of
+/// <see cref="ActivityEventType.RuntimeCompleted"/> /
+/// <see cref="ActivityEventType.RuntimeFailed"/> /
+/// <see cref="ActivityEventType.RuntimeCompletedSilent"/> as the terminal),
+/// and signalling the per-thread dispatch exit so the actor's mailbox can
+/// drain remaining queued messages on the same thread or mark the channel
+/// idle.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Domain messaging is one-way
-/// (<see href="../../../docs/decisions/0048-event-vs-request-message-semantics.md">ADR-0048</see>):
-/// the dispatch response is <b>recorded</b> on the originating thread via
-/// <see cref="MessageRouter.PersistAsync"/> and is never routed back to
-/// <see cref="Message.From"/>. A unit/agent that wants to respond acts
-/// through its tools or sends a new one-way message.
+/// Per <see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+/// the coordinator no longer persists a synthesised dispatch response — the
+/// platform stops inferring intent from terminal text. Every observable
+/// effect a runtime has flows through platform tool calls; the messaging
+/// tools persist their own <c>spring.messages</c> rows and emit their own
+/// <see cref="ActivityEventType.MessageSent"/> activities. The coordinator's
+/// role narrows to <em>"invoke dispatcher, observe outcome, emit lifecycle
+/// activities, signal exit"</em>.
 /// </para>
 /// <para>
 /// The coordinator is stateless with respect to any individual agent — it
@@ -39,19 +46,16 @@ using Microsoft.Extensions.Logging;
 /// </remarks>
 public class AgentDispatchCoordinator(
     IExecutionDispatcher executionDispatcher,
-    MessageRouter messageRouter,
     ILogger<AgentDispatchCoordinator> logger) : IAgentDispatchCoordinator
 {
     /// <summary>
-    /// Reason string signalled through <c>onDispatchExit</c> when the
-    /// dispatcher returns a null response. Shared with
-    /// <see cref="Actors.RuntimeInvocationPath"/> so the lean path can
-    /// recognise this exit cause and surface a corresponding "no response"
-    /// activity row. Promoted to an internal constant so the coordinator
-    /// and consumers stay in lockstep — changing the literal in one place
-    /// would silently disable the consumer's recognition logic (#2222).
+    /// Reason string signalled through <c>onDispatchExit</c> on a clean
+    /// runtime termination (exit code 0). Includes both the
+    /// <see cref="ActivityEventType.RuntimeCompleted"/> and
+    /// <see cref="ActivityEventType.RuntimeCompletedSilent"/> cases — both
+    /// are clean exits from the actor's mailbox perspective.
     /// </summary>
-    internal const string DispatchNoResponseReason = "dispatch returned no response";
+    internal const string DispatchCompletedReason = "dispatch completed";
 
     /// <inheritdoc />
     public async Task RunDispatchAsync(
@@ -64,108 +68,140 @@ public class AgentDispatchCoordinator(
     {
         try
         {
-            var response = await executionDispatcher.DispatchAsync(message, context, cancellationToken);
-            if (response is null)
+            // Phase: mailbox hands the message to the dispatcher (ADR-0056 §7).
+            await emitActivity(
+                BuildEvent(
+                    agentId,
+                    message.ThreadId,
+                    ActivityEventType.MessageDispatchedToRuntime,
+                    ActivitySeverity.Info,
+                    "Message dispatched to runtime.",
+                    details: JsonSerializer.SerializeToElement(new
+                    {
+                        agentId,
+                        threadId = message.ThreadId,
+                        messageId = message.Id,
+                    })),
+                CancellationToken.None);
+
+            // Phase: runtime "started". The A2A dispatcher's launcher
+            // surface does not expose a discrete container-start hook the
+            // coordinator can subscribe to; the closest deterministic
+            // moment is right before the DispatchAsync call, which is
+            // when the dispatcher will (synchronously, from our vantage)
+            // begin spinning up or selecting the runtime container.
+            // Documented choice — promoting a real start hook is a future
+            // refinement, not load-bearing for this PR.
+            await emitActivity(
+                BuildEvent(
+                    agentId,
+                    message.ThreadId,
+                    ActivityEventType.RuntimeStarted,
+                    ActivitySeverity.Info,
+                    "Runtime started.",
+                    details: JsonSerializer.SerializeToElement(new
+                    {
+                        agentId,
+                        threadId = message.ThreadId,
+                    })),
+                CancellationToken.None);
+
+            var outcome = await executionDispatcher.DispatchAsync(message, context, cancellationToken);
+
+            // Reasoning trace (when present, regardless of exit code) lands
+            // BEFORE the terminal so consumers reading top-to-bottom see
+            // reasoning first, terminal last.
+            if (!string.IsNullOrEmpty(outcome.ReasoningTrace))
             {
-                logger.LogInformation(
-                    "Dispatcher returned no response for thread {ThreadId}; nothing to record.",
-                    message.ThreadId);
-
-                // A connector-origin turn that produced no recordable
-                // response is still a routing outcome (#2560): the unit
-                // processed the connector event and the turn ended with
-                // nothing to record. Emit the DecisionMade so the activity
-                // stream is not silent on a connector event the unit
-                // received. The neutral WorkflowStepCompleted "no response"
-                // row is still emitted by the dispatch-exit handler below.
-                await EmitConnectorRoutingDecisionAsync(
-                    agentId, message, RoutingDisposition.Processed, emitActivity);
-
-                // Even when the dispatcher returns nothing to record, the
-                // dispatch is over from the actor's perspective. Signal the
-                // per-thread exit so the mailbox can drain any messages
-                // appended during the dispatch (per-thread FIFO) or mark
-                // the channel idle.
-                await onDispatchExit(DispatchNoResponseReason);
-                return;
+                await emitActivity(
+                    BuildEvent(
+                        agentId,
+                        message.ThreadId,
+                        ActivityEventType.RuntimeReasoning,
+                        ActivitySeverity.Info,
+                        Summarise(outcome.ReasoningTrace!),
+                        details: JsonSerializer.SerializeToElement(new
+                        {
+                            agentId,
+                            threadId = message.ThreadId,
+                            trace = outcome.ReasoningTrace,
+                        })),
+                    CancellationToken.None);
             }
 
-            var dispatchExit = TryReadDispatchExit(response);
-            if (dispatchExit is { ExitCode: not 0 } failure)
+            var toolCallCount = TryReadToolCallCount(outcome);
+
+            if (outcome.ExitCode != 0)
             {
                 logger.LogWarning(
-                    "Dispatch for actor {ActorId} thread {ThreadId} exited with code {ExitCode}: {StdErrFirstLine}",
-                    agentId, message.ThreadId, failure.ExitCode, failure.StdErrFirstLine);
-
-                var details = JsonSerializer.SerializeToElement(new
-                {
-                    exitCode = failure.ExitCode,
-                    stderr = failure.StdErr,
-                    agentId,
-                    threadId = message.ThreadId,
-                });
+                    "Dispatch for actor {ActorId} thread {ThreadId} exited with code {ExitCode}.",
+                    agentId, message.ThreadId, outcome.ExitCode);
 
                 await emitActivity(
                     BuildEvent(
                         agentId,
                         message.ThreadId,
-                        ActivityEventType.ErrorOccurred,
+                        ActivityEventType.RuntimeFailed,
                         ActivitySeverity.Error,
-                        $"Container exit code {failure.ExitCode}: {failure.StdErrFirstLine}",
-                        details: details),
+                        $"Runtime failed with exit code {outcome.ExitCode}.",
+                        details: BuildTerminalDetails(agentId, message, outcome, toolCallCount)),
                     CancellationToken.None);
 
-                // Record the error response on the thread BEFORE signalling
-                // the exit so it is ordered correctly in the thread timeline.
-                // The error is also surfaced as the ErrorOccurred activity
-                // above; recording the response keeps the agent's stderr/exit
-                // payload on the durable thread record.
-                await RecordResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
-
                 // A connector-origin turn that failed is still a routing
-                // outcome the activity stream must carry (#2560) — emit the
-                // DecisionMade with the failed disposition so a thread query
-                // reconstructs the chain even when the runtime crashed.
+                // outcome the activity stream must carry (#2560).
                 await EmitConnectorRoutingDecisionAsync(
                     agentId, message, RoutingDisposition.Failed, emitActivity);
 
-                await onDispatchExit($"dispatch exit code {failure.ExitCode}");
+                await onDispatchExit($"dispatch exit code {outcome.ExitCode}");
                 return;
             }
 
-            await RecordResponseAsync(agentId, response, message.ThreadId, emitActivity, cancellationToken);
+            // Clean exit. ADR-0056 §5: distinguish "the runtime did
+            // something" from "the runtime did nothing".
+            if (toolCallCount == 0)
+            {
+                logger.LogInformation(
+                    "Dispatch for actor {ActorId} thread {ThreadId} exited cleanly with no tool calls (silent).",
+                    agentId, message.ThreadId);
+
+                await emitActivity(
+                    BuildEvent(
+                        agentId,
+                        message.ThreadId,
+                        ActivityEventType.RuntimeCompletedSilent,
+                        ActivitySeverity.Warning,
+                        "Runtime completed without invoking any tools.",
+                        details: BuildTerminalDetails(agentId, message, outcome, toolCallCount)),
+                    CancellationToken.None);
+            }
+            else
+            {
+                await emitActivity(
+                    BuildEvent(
+                        agentId,
+                        message.ThreadId,
+                        ActivityEventType.RuntimeCompleted,
+                        ActivitySeverity.Info,
+                        $"Runtime completed ({toolCallCount} tool call(s)).",
+                        details: BuildTerminalDetails(agentId, message, outcome, toolCallCount)),
+                    CancellationToken.None);
+            }
 
             // Record the routing outcome of a connector-origin event (#2560).
-            // The platform host cannot see what the unit's runtime decided
-            // semantically (delegate / no action) without a runtime signal —
-            // that distinction is design work deferred to #2572. What the host
-            // CAN record deterministically, after the runtime invocation
-            // returns, is that the connector event was processed and the turn
-            // reached its terminal: a DecisionMade event so the activity
-            // stream is no longer silent on the outcome — including the
-            // "no agent dispatched" case. When the runtime recorded a routing
-            // decision via sv.runtime.report_decision, that DecisionMade
-            // (carrying the target) is also on the same thread, so a single
-            // correlation query reconstructs the full chain.
             await EmitConnectorRoutingDecisionAsync(
                 agentId, message, RoutingDisposition.Processed, emitActivity);
 
-            // Per-thread dispatch is complete: the dispatcher returned a
-            // response and we recorded it on the originating thread (domain
-            // messaging is one-way — ADR-0048; the response is not routed
-            // back to a recipient). The actor's mailbox drains any messages
-            // appended during the dispatch (per-thread FIFO) or marks the
-            // channel idle. Other threads on the same agent are unaffected —
-            // concurrent threads run independently per ADR-0030 §44.
-            await onDispatchExit("dispatch completed");
+            // Per-thread dispatch is complete. The actor's mailbox drains
+            // any messages appended during the dispatch (per-thread FIFO)
+            // or marks the channel idle. Other threads on the same agent
+            // are unaffected — concurrent threads run independently per
+            // ADR-0030 §44.
+            await onDispatchExit(DispatchCompletedReason);
         }
         catch (OperationCanceledException)
         {
             // A cancelled dispatch leaves the channel mid-drain. Signal
-            // the exit so the mailbox doesn't sit Active-but-idle: the
-            // actor either drains the next queued message on the same
-            // thread or marks the channel idle. Other threads are
-            // unaffected (they have their own channels and dispatchers).
+            // the exit so the mailbox doesn't sit Active-but-idle.
             logger.LogInformation(
                 "Dispatch cancelled for actor {ActorId} thread {ThreadId}.",
                 agentId, message.ThreadId);
@@ -198,70 +234,91 @@ public class AgentDispatchCoordinator(
     }
 
     /// <summary>
-    /// Records the dispatch <paramref name="response"/> on its originating
-    /// thread. Domain messaging is one-way (ADR-0048): the response is
-    /// persisted to the thread timeline via
-    /// <see cref="MessageRouter.PersistAsync"/> and is never routed back to a
-    /// recipient. On success a neutral
-    /// <see cref="ActivityEventType.WorkflowStepCompleted"/> activity is
-    /// emitted so the dispatch terminal is visible in the activity feed; a
-    /// persistence failure is surfaced as
-    /// <see cref="ActivityEventType.ErrorOccurred"/> so the agent's output is
-    /// not silently lost.
+    /// Reads the dispatcher-reported tool-call count from the outcome's
+    /// diagnostics bag (<see cref="RuntimeOutcome.ToolCallCountKey"/>).
+    /// Defaults to <c>0</c> when the dispatcher does not report one — the
+    /// safer choice, because it surfaces the silent-completion case rather
+    /// than hiding it behind a "couldn't tell" flag.
     /// </summary>
-    private async Task RecordResponseAsync(
-        string agentId,
-        Message response,
-        string? threadId,
-        Func<ActivityEvent, CancellationToken, Task> emitActivity,
-        CancellationToken cancellationToken)
+    private static int TryReadToolCallCount(RuntimeOutcome outcome)
     {
-        try
+        if (outcome.Diagnostics is null)
         {
-            await messageRouter.PersistAsync(response, cancellationToken);
-
-            // Neutral terminal activity: the dispatch produced a response and
-            // it is recorded on the thread. Emitted with CancellationToken.None
-            // so it lands even if the dispatch token is cancelled.
-            await emitActivity(
-                BuildEvent(
-                    agentId,
-                    threadId,
-                    ActivityEventType.WorkflowStepCompleted,
-                    ActivitySeverity.Info,
-                    "Dispatch response recorded on thread.",
-                    details: JsonSerializer.SerializeToElement(new
-                    {
-                        agentId,
-                        threadId,
-                        messageId = response.Id,
-                    })),
-                CancellationToken.None);
+            return 0;
         }
-        catch (Exception recordEx)
+
+        if (!outcome.Diagnostics.TryGetValue(RuntimeOutcome.ToolCallCountKey, out var raw)
+            || raw is null)
         {
-            logger.LogWarning(recordEx,
-                "Failed to record dispatcher response for thread {ThreadId}.",
-                threadId);
-
-            // A response that could not be persisted would otherwise be
-            // invisible — surface it as an error activity so it is traceable
-            // in the portal, not just buried in container logs.
-            await emitActivity(
-                BuildEvent(
-                    agentId,
-                    threadId,
-                    ActivityEventType.ErrorOccurred,
-                    ActivitySeverity.Error,
-                    $"Failed to record dispatcher response: {recordEx.Message}",
-                    details: JsonSerializer.SerializeToElement(new
-                    {
-                        error = recordEx.Message,
-                        agentId,
-                        threadId,
-                    })),
-                CancellationToken.None);
+            return 0;
         }
+
+        return raw switch
+        {
+            int i => i,
+            long l => (int)l,
+            JsonElement el when el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var n) => n,
+            _ => int.TryParse(raw.ToString(), out var parsed) ? parsed : 0,
+        };
+    }
+
+    private static JsonElement BuildTerminalDetails(
+        string agentId,
+        Message message,
+        RuntimeOutcome outcome,
+        int toolCallCount)
+    {
+        var doc = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["agentId"] = agentId,
+            ["threadId"] = message.ThreadId,
+            ["exitCode"] = outcome.ExitCode,
+            ["durationMs"] = (long)outcome.Duration.TotalMilliseconds,
+            ["toolCallCount"] = toolCallCount,
+        };
+
+        // Add a short reasoning-trace summary on the terminal so operators
+        // see the first line of what the runtime produced without
+        // expanding the separate RuntimeReasoning row.
+        if (!string.IsNullOrEmpty(outcome.ReasoningTrace))
+        {
+            doc["reasoningTraceSummary"] = Summarise(outcome.ReasoningTrace!);
+        }
+
+        if (outcome.Diagnostics is not null)
+        {
+            foreach (var (key, value) in outcome.Diagnostics)
+            {
+                // Don't double-write the tool-call count or override the
+                // canonical keys above.
+                if (!doc.ContainsKey(key))
+                {
+                    doc[key] = value;
+                }
+            }
+        }
+
+        return JsonSerializer.SerializeToElement(doc);
+    }
+
+    /// <summary>
+    /// Maximum length of the reasoning-trace summary surfaced on the
+    /// <see cref="ActivityEventType.RuntimeReasoning"/> event's
+    /// <see cref="ActivityEvent.Summary"/> and on the terminal event's
+    /// <c>reasoningTraceSummary</c> detail. The full trace rides in the
+    /// reasoning event's <c>trace</c> detail when capture-level allows.
+    /// </summary>
+    private const int ReasoningSummaryMaxLength = 240;
+
+    private static string Summarise(string trace)
+    {
+        var trimmed = trace.Trim();
+        if (trimmed.Length <= ReasoningSummaryMaxLength)
+        {
+            return trimmed;
+        }
+
+        return string.Concat(trimmed.AsSpan(0, ReasoningSummaryMaxLength - 1), "…");
     }
 
     /// <summary>
@@ -299,21 +356,11 @@ public class AgentDispatchCoordinator(
     /// <para>
     /// The <see cref="ActivityEvent.CorrelationId"/> is the originating
     /// connector thread id, so this event, the unit's
-    /// <see cref="ActivityEventType.MessageReceived"/>, any
+    /// <see cref="ActivityEventType.MessageArrived"/>, any
     /// <see cref="ActivityEventType.DecisionMade"/> the runtime recorded via
     /// <c>sv.runtime.report_decision</c>, and the dispatched agent's
     /// own activity all share one correlation id — a single thread query
     /// reconstructs the full chain (#2560 acceptance criterion 3).
-    /// </para>
-    /// <para>
-    /// <see cref="ActivityEvent.Details"/> carries the decision, the
-    /// connector event type, and the external entity reference (e.g. a
-    /// GitHub issue number) resolved from the connector payload via
-    /// <see cref="ConnectorEventReference"/>. <c>dispatched_to</c> is
-    /// intentionally absent on the host-side event: the host cannot see the
-    /// runtime's delegation target — the runtime-callback
-    /// <c>DecisionMade</c> carries it instead, correlated by the same
-    /// thread id.
     /// </para>
     /// </remarks>
     private async Task EmitConnectorRoutingDecisionAsync(
@@ -363,43 +410,6 @@ public class AgentDispatchCoordinator(
 
     private static string DescribeDisposition(RoutingDisposition disposition)
         => disposition == RoutingDisposition.Failed ? "processing failed" : "processed";
-
-    private readonly record struct DispatchExit(int ExitCode, string? StdErr, string StdErrFirstLine);
-
-    private static DispatchExit? TryReadDispatchExit(Message response)
-    {
-        try
-        {
-            if (response.Payload.ValueKind != JsonValueKind.Object)
-            {
-                return null;
-            }
-
-            if (!response.Payload.TryGetProperty("ExitCode", out var exitProp) ||
-                exitProp.ValueKind != JsonValueKind.Number ||
-                !exitProp.TryGetInt32(out var exitCode))
-            {
-                return null;
-            }
-
-            string? stderr = null;
-            if (response.Payload.TryGetProperty("Error", out var errProp) &&
-                errProp.ValueKind == JsonValueKind.String)
-            {
-                stderr = errProp.GetString();
-            }
-
-            var firstLine = stderr is null
-                ? string.Empty
-                : stderr.Split('\n', 2)[0].TrimEnd('\r').Trim();
-
-            return new DispatchExit(exitCode, stderr, firstLine);
-        }
-        catch
-        {
-            return null;
-        }
-    }
 
     private static ActivityEvent BuildEvent(
         string agentId,

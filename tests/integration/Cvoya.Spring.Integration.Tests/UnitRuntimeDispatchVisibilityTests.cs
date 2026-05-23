@@ -98,7 +98,6 @@ public class UnitRuntimeDispatchVisibilityTests
 
         var coordinator = new AgentDispatchCoordinator(
             dispatcher,
-            router,
             Substitute.For<ILogger<AgentDispatchCoordinator>>());
 
         return new RuntimeInvocationPath(

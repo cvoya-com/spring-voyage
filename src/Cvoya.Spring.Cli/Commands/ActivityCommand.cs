@@ -155,7 +155,7 @@ public static class ActivityCommand
         };
         var typeOption = new Option<string?>("--type")
         {
-            Description = "Filter by event type (e.g. MessageReceived, StateChanged)",
+            Description = "Filter by event type (e.g. MessageArrived, StateChanged)",
         };
         var severityOption = new Option<string?>("--severity")
         {

@@ -184,7 +184,6 @@ public class AgentActorSeedExpertiseTests
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
             new AgentDispatchCoordinator(
                 Substitute.For<IExecutionDispatcher>(),
-                router,
                 Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             Substitute.For<IAgentDefinitionProvider>(),
             Array.Empty<ISkillRegistry>(),

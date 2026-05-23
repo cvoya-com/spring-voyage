@@ -13,19 +13,19 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for <see cref="MessageReceivedDetails"/> — the helper that
+/// Unit tests for <see cref="MessageArrivedDetails"/> — the helper that
 /// stamps the message envelope onto activity-event Details JSON and builds the
-/// non-leaky summary line emitted by every actor's <c>MessageReceived</c>
+/// non-leaky summary line emitted by every actor's <c>MessageArrived</c>
 /// projection (#1209, #1636).
 /// </summary>
-public class MessageReceivedDetailsTests
+public class MessageArrivedDetailsTests
 {
     [Fact]
     public void BuildSummary_StringPayload_ReturnsBodyVerbatim()
     {
         var msg = CreateMessage(JsonSerializer.SerializeToElement("Approve merge?"));
 
-        var summary = MessageReceivedDetails.BuildSummary(msg);
+        var summary = MessageArrivedDetails.BuildSummary(msg);
 
         summary.ShouldBe("Approve merge?");
     }
@@ -42,7 +42,7 @@ public class MessageReceivedDetailsTests
         });
         var msg = CreateMessage(payload);
 
-        var summary = MessageReceivedDetails.BuildSummary(msg);
+        var summary = MessageArrivedDetails.BuildSummary(msg);
 
         summary.ShouldBe("Looks good — shipping.");
     }
@@ -56,7 +56,7 @@ public class MessageReceivedDetailsTests
         var payload = JsonSerializer.SerializeToElement(new { Acknowledged = true });
         var msg = CreateMessage(payload, type: MessageType.HealthCheck);
 
-        var summary = MessageReceivedDetails.BuildSummary(msg);
+        var summary = MessageArrivedDetails.BuildSummary(msg);
 
         summary.ShouldBe("Health check received");
         summary.ShouldNotContain(msg.Id.ToString());
@@ -72,7 +72,7 @@ public class MessageReceivedDetailsTests
         var payload = JsonSerializer.SerializeToElement(new { Acknowledged = true });
         var msg = CreateMessage(payload);
 
-        var summary = MessageReceivedDetails.BuildSummary(msg);
+        var summary = MessageArrivedDetails.BuildSummary(msg);
 
         summary.ShouldBe("Message received");
         summary.ShouldNotContain(msg.Id.ToString());
@@ -86,7 +86,7 @@ public class MessageReceivedDetailsTests
         var longText = new string('x', 500);
         var msg = CreateMessage(JsonSerializer.SerializeToElement(longText));
 
-        var summary = MessageReceivedDetails.BuildSummary(msg);
+        var summary = MessageArrivedDetails.BuildSummary(msg);
 
         summary.Length.ShouldBeLessThanOrEqualTo(160);
         summary.ShouldEndWith("…");
@@ -111,7 +111,7 @@ public class MessageReceivedDetailsTests
         foreach (var payload in shapes)
         {
             var msg = CreateMessage(payload);
-            var summary = MessageReceivedDetails.BuildSummary(msg);
+            var summary = MessageArrivedDetails.BuildSummary(msg);
 
             summary.ShouldNotStartWith("Received Domain message");
             summary.ShouldNotContain(msg.Id.ToString());

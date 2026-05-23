@@ -99,7 +99,7 @@ wait_for_agent_reply() {
         local count
         if command -v jq >/dev/null 2>&1; then
             count="$(printf '%s' "${show_body}" \
-                | jq '[.events[]? | select(.eventType == "MessageReceived" and ((.summary // "") | test("from agent:")))] | length' \
+                | jq '[.events[]? | select(.eventType == "MessageArrived" and ((.summary // "") | test("from agent:")))] | length' \
                 2>/dev/null || echo 0)"
         else
             count="$(printf '%s' "${show_body}" | grep -c 'from agent:' || true)"
@@ -109,7 +109,7 @@ wait_for_agent_reply() {
         if (( count >= target_count )); then
             if command -v jq >/dev/null 2>&1; then
                 body="$(printf '%s' "${show_body}" \
-                    | jq -r '[.events[]? | select(.eventType == "MessageReceived" and ((.summary // "") | test("from agent:")))][-1] | (.body // "")' \
+                    | jq -r '[.events[]? | select(.eventType == "MessageArrived" and ((.summary // "") | test("from agent:")))][-1] | (.body // "")' \
                     2>/dev/null || true)"
             fi
             printf '%s' "${body}"

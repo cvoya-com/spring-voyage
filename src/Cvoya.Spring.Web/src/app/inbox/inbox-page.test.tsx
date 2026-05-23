@@ -10,7 +10,7 @@
 //   - thread row label uses display name derived from address path (#1482)
 //   - timeline (i) info button opens the address popover (#1482)
 //   - timeline/messages dropdown switches what events render (#1482)
-//   - user's own MessageReceived event renders the body text, not a placeholder (#1482)
+//   - user's own MessageArrived event renders the body text, not a placeholder (#1482)
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -416,7 +416,7 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
     });
   });
 
-  it("filters to only MessageReceived events under Messages mode", async () => {
+  it("filters to only MessageArrived events under Messages mode", async () => {
     const agentAddr = `agent:id:${ADA_ID}`;
     setupThread({
       summary: {
@@ -430,7 +430,7 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
       events: [
         {
           id: "e-msg",
-          eventType: "MessageReceived",
+          eventType: "MessageArrived",
           source: { id: ADA_ID, address: agentAddr, displayName: "ada" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",
@@ -453,7 +453,7 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
       </Wrapper>,
     );
     await waitFor(() => {
-      // MessageReceived event should be visible
+      // MessageArrived event should be visible
       expect(screen.getByTestId("inbox-event-e-msg")).toBeInTheDocument();
       // StateChanged event renders as a card (#1630) and should be hidden
       // under the "Messages" filter regardless of bubble vs card variant.
@@ -476,7 +476,7 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
       events: [
         {
           id: "e-msg",
-          eventType: "MessageReceived",
+          eventType: "MessageArrived",
           source: { id: ADA_ID, address: agentAddr, displayName: "ada" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",
@@ -524,7 +524,7 @@ describe("InboxPage — user's own message renders text, not placeholder (#1482)
     _markReadMutate.mockReset();
   });
 
-  it("renders the body text of a user MessageReceived event", async () => {
+  it("renders the body text of a user MessageArrived event", async () => {
     const agentAddr = `agent:id:${ADA_ID}`;
     setupThread({
       summary: {
@@ -538,7 +538,7 @@ describe("InboxPage — user's own message renders text, not placeholder (#1482)
       events: [
         {
           id: "e-human",
-          eventType: "MessageReceived",
+          eventType: "MessageArrived",
           source: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",

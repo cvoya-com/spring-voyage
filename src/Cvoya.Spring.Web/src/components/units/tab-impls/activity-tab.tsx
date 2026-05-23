@@ -96,7 +96,7 @@ const KNOWN_EVENT_KINDS = [
   "LlmTurn",
   "ToolCall",
   "ToolResult",
-  "MessageReceived",
+  "MessageArrived",
   "MessageSent",
   "DecisionMade",
   "ErrorOccurred",
@@ -447,7 +447,7 @@ function NoOtlpHint() {
       <span>
         This runtime does not emit OTLP telemetry —{" "}
         {OTLP_ONLY_EVENT_KINDS.join(" / ")} will stay empty. Filter by{" "}
-        MessageReceived and RuntimeProgress instead.
+        MessageArrived and RuntimeProgress instead.
       </span>
     </div>
   );

@@ -94,7 +94,7 @@ public class EfMessageWriter(
             RecipientScheme = message.To.Scheme,
             RecipientId = message.To.Id,
             MessageType = message.Type.ToString(),
-            Body = MessageReceivedDetails.TryExtractText(message.Payload),
+            Body = MessageArrivedDetails.TryExtractText(message.Payload),
             Payload = SerialisePayload(message.Payload),
             SentAt = message.Timestamp,
             RetractedAt = null,

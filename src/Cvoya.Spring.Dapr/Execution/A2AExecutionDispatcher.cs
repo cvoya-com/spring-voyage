@@ -37,7 +37,7 @@ using SvMessage = Cvoya.Spring.Core.Messaging.Message;
 ///   <item>Start the container in detached mode (<see cref="IContainerRuntime.StartAsync"/>).</item>
 ///   <item>Wait for the in-container A2A endpoint to become ready (<c>GET /.well-known/agent.json</c>).</item>
 ///   <item>Send the platform message via <see cref="SendA2AMessageAsync"/>.</item>
-///   <item>Map the A2A response back to a Spring Voyage <see cref="SvMessage"/>.</item>
+///   <item>Observe how the runtime terminated and return a <see cref="RuntimeOutcome"/>.</item>
 ///   <item><b>Ephemeral</b>: tear down the container; <b>persistent</b>: leave it running.</item>
 /// </list>
 /// This is the change that fixes the symptom in #1087 — ephemeral agents no
@@ -48,6 +48,15 @@ using SvMessage = Cvoya.Spring.Core.Messaging.Message;
 /// <see cref="IA2ATransportFactory"/> so auth, routing, and network-position
 /// decisions are encapsulated in the transport and not threaded inline here.
 /// This subsumes the "extract IAgentTransport" cleanup noted in #1277.
+/// </para>
+/// <para>
+/// ADR-0056: the dispatcher's contract is <em>"run the runtime; tell me how
+/// it terminated"</em>. Stdout, A2A task replies, and file-capture buffers
+/// are captured as a <see cref="RuntimeOutcome.ReasoningTrace"/> for
+/// diagnostics — they are never synthesised into messages routed back to
+/// the original sender. Every observable effect a runtime has on the
+/// outside world flows through platform tool calls (<c>sv.messaging.*</c>,
+/// <c>sv.task.*</c>, …).
 /// </para>
 /// </summary>
 public class A2AExecutionDispatcher(
@@ -130,17 +139,17 @@ public class A2AExecutionDispatcher(
     internal TimeSpan EffectiveReadinessTimeout = ReadinessTimeout;
 
     /// <inheritdoc />
-    public async Task<SvMessage?> DispatchAsync(
-        SvMessage message,
+    public async Task<RuntimeOutcome> DispatchAsync(
+        SvMessage inboundMessage,
         PromptAssemblyContext? context,
-        CancellationToken cancellationToken = default)
+        CancellationToken ct = default)
     {
         _logger.LogInformation(
             "Dispatching A2A execution for message {MessageId} to {Destination}",
-            message.Id, message.To);
+            inboundMessage.Id, inboundMessage.To);
 
-        var agentId = message.To.Path;
-        var definition = await agentDefinitionProvider.GetByIdAsync(agentId, cancellationToken)
+        var agentId = inboundMessage.To.Path;
+        var definition = await agentDefinitionProvider.GetByIdAsync(agentId, ct)
             ?? throw new SpringException($"No agent definition found for '{agentId}'.");
 
         if (definition.Execution is null)
@@ -152,8 +161,8 @@ public class A2AExecutionDispatcher(
 
         return definition.Execution.Hosting switch
         {
-            AgentHostingMode.Persistent => await DispatchPersistentAsync(message, definition, context, cancellationToken),
-            AgentHostingMode.Ephemeral => await DispatchEphemeralAsync(message, definition, context, cancellationToken),
+            AgentHostingMode.Persistent => await DispatchPersistentAsync(inboundMessage, definition, context, ct),
+            AgentHostingMode.Ephemeral => await DispatchEphemeralAsync(inboundMessage, definition, context, ct),
             // Pooled is reserved on the enum (PR 1 of #1087) so agent YAML
             // written against #362 doesn't break the parser before #362
             // lands. Reject explicitly here so the value can't silently fall
@@ -166,7 +175,7 @@ public class A2AExecutionDispatcher(
         };
     }
 
-    private async Task<SvMessage?> DispatchEphemeralAsync(
+    private async Task<RuntimeOutcome> DispatchEphemeralAsync(
         SvMessage message,
         AgentDefinition definition,
         PromptAssemblyContext? context,
@@ -373,6 +382,11 @@ public class A2AExecutionDispatcher(
         }
         finally
         {
+            // ADR-0056 §5: the tool-call count is read off the session
+            // BEFORE revocation so the dispatch coordinator can decide
+            // whether to emit RuntimeCompletedSilent. SendA2AMessageAsync
+            // already snapshotted it onto the outcome — revoking here is
+            // safe.
             mcpServer.RevokeSession(session.Token);
             if (lease.HasValue)
             {
@@ -603,7 +617,7 @@ public class A2AExecutionDispatcher(
         return profilePath;
     }
 
-    private async Task<SvMessage?> DispatchPersistentAsync(
+    private async Task<RuntimeOutcome> DispatchPersistentAsync(
         SvMessage message,
         AgentDefinition definition,
         PromptAssemblyContext? context,
@@ -729,10 +743,10 @@ public class A2AExecutionDispatcher(
         var session = mcpServer.IssueSession(
             agentId, message.ThreadId!, message.To.Scheme, message.Id);
 
-        SvMessage? response;
+        RuntimeOutcome outcome;
         try
         {
-            response = await SendA2AMessageAsync(
+            outcome = await SendA2AMessageAsync(
                 endpoint,
                 agentId,
                 containerId,
@@ -767,7 +781,7 @@ public class A2AExecutionDispatcher(
         // its own freshness signal even if the upstream actor turn was
         // cancelled after we got the response.
         await persistentAgentRegistry.RecordDispatchHeartbeatAsync(agentId, CancellationToken.None);
-        return response;
+        return outcome;
     }
 
     /// <summary>
@@ -965,7 +979,7 @@ public class A2AExecutionDispatcher(
     /// issue #1160.
     /// </para>
     /// </remarks>
-    internal async Task<SvMessage?> SendA2AMessageAsync(
+    internal async Task<RuntimeOutcome> SendA2AMessageAsync(
         Uri endpoint,
         string agentId,
         string? containerId,
@@ -974,6 +988,7 @@ public class A2AExecutionDispatcher(
         string mcpToken,
         CancellationToken cancellationToken)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         using var transport = _transportFactory.CreateTransport(containerId);
         using var httpClient = transport.CreateHttpClient(endpoint);
         var a2aClient = new A2AClient(endpoint, httpClient);
@@ -1055,7 +1070,12 @@ public class A2AExecutionDispatcher(
                 a2aClient, initialTask, agentId, containerId, cancellationToken);
         }
 
-        return MapA2AResponseToMessage(originalMessage, response);
+        sw.Stop();
+        // ADR-0056 §5: snapshot the tool-call count BEFORE the caller
+        // revokes the MCP session so the dispatch coordinator can decide
+        // RuntimeCompletedSilent without racing the revoke.
+        var toolCallCount = mcpServer.GetToolCallCount(mcpToken);
+        return MapA2AResponseToOutcome(response, sw.Elapsed, toolCallCount, agentId, containerId);
     }
 
     /// <summary>
@@ -1273,12 +1293,27 @@ public class A2AExecutionDispatcher(
     private string SerialiseTenantConfigJson(Guid tenantId)
         => _agentDefinitionSerializer.SerializeTenantConfigJson(tenantId);
 
-    internal static SvMessage? MapA2AResponseToMessage(
-        SvMessage originalMessage,
-        A2AResponse response)
+    /// <summary>
+    /// Translates an <see cref="A2AResponse"/> into a
+    /// <see cref="RuntimeOutcome"/>. Per
+    /// <see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+    /// the terminal text the runtime produced becomes the
+    /// <see cref="RuntimeOutcome.ReasoningTrace"/> — it is diagnostic only
+    /// and is never synthesised into a <see cref="SvMessage"/>. The host
+    /// stops inferring intent from terminal text; runtimes that want to
+    /// reply on the thread call <c>sv.messaging.send</c>.
+    /// </summary>
+    internal static RuntimeOutcome MapA2AResponseToOutcome(
+        A2AResponse response,
+        TimeSpan duration,
+        int toolCallCount,
+        string agentId,
+        string? containerId)
     {
-        string output;
+        string? reasoningTrace;
         int exitCode;
+        string? a2aTaskId = null;
+        string? a2aTaskState = null;
 
         // A2A v0.3 collapses the v1 PayloadCase oneof into a discriminator-based
         // class hierarchy: A2AResponse is the base, AgentTask / AgentMessage are
@@ -1287,48 +1322,48 @@ public class A2AExecutionDispatcher(
         {
             case AgentTask task:
                 exitCode = task.Status.State is TaskState.Completed ? 0 : 1;
-                output = ExtractTextFromTask(task);
+                reasoningTrace = NullIfEmpty(ExtractTextFromTask(task));
+                a2aTaskId = task.Id;
+                a2aTaskState = task.Status.State.ToString();
                 break;
 
             case AgentMessage msg:
                 exitCode = 0;
-                output = ExtractTextFromParts(msg.Parts);
+                reasoningTrace = NullIfEmpty(ExtractTextFromParts(msg.Parts));
                 break;
 
             default:
                 exitCode = 1;
-                output = "No response from A2A agent.";
+                reasoningTrace = null;
                 break;
         }
 
-        // AgentActor.TryReadDispatchExit reads `Error` from the payload to
-        // surface the failure text in the ErrorOccurred activity event when
-        // ExitCode != 0. Mirror the agent's text into Error so a Failed task
-        // doesn't render as a blank "Container exit code 1: " in the activity
-        // log — the message body is the only signal we have about why the
-        // agent's workflow failed (e.g. spring-voyages loop error, MCP timeout).
-        var payload = exitCode == 0
-            ? JsonSerializer.SerializeToElement(new
-            {
-                Output = output,
-                ExitCode = exitCode,
-            })
-            : JsonSerializer.SerializeToElement(new
-            {
-                Output = output,
-                ExitCode = exitCode,
-                Error = output,
-            });
+        var diagnostics = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [RuntimeOutcome.ToolCallCountKey] = toolCallCount,
+            ["agentId"] = agentId,
+        };
 
-        return new SvMessage(
-            Id: Guid.NewGuid(),
-            From: originalMessage.To,
-            To: originalMessage.From,
-            Type: MessageType.Domain,
-            ThreadId: originalMessage.ThreadId,
-            Payload: payload,
-            Timestamp: DateTimeOffset.UtcNow);
+        if (containerId is not null)
+        {
+            diagnostics["containerId"] = containerId;
+        }
+
+        if (a2aTaskId is not null)
+        {
+            diagnostics["a2aTaskId"] = a2aTaskId;
+        }
+
+        if (a2aTaskState is not null)
+        {
+            diagnostics["a2aTaskState"] = a2aTaskState;
+        }
+
+        return new RuntimeOutcome(exitCode, duration, reasoningTrace, diagnostics);
     }
+
+    private static string? NullIfEmpty(string? value)
+        => string.IsNullOrEmpty(value) ? null : value;
 
     private static string ExtractTextFromTask(AgentTask task)
     {

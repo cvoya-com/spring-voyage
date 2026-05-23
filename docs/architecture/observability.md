@@ -17,7 +17,7 @@ Every observable entity emits typed `ActivityEvent`s:
 ActivityEvent:
   timestamp      DateTimeOffset
   source         Address
-  type           MessageReceived | MessageSent | ThreadStarted | DecisionMade |
+  type           MessageArrived | MessageSent | ThreadStarted | DecisionMade |
                  ErrorOccurred | StateChanged | InitiativeTriggered |
                  ReflectionCompleted | CostIncurred | TokenDelta | ToolCall |
                  ToolResult | RuntimeSpan | RuntimeLog | LlmTurn | ...

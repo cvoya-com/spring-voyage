@@ -55,6 +55,25 @@ public interface IMcpServer
 
     /// <summary>Revokes a previously issued session.</summary>
     void RevokeSession(string token);
+
+    /// <summary>
+    /// Returns the number of <c>tools/call</c> invocations the runtime made
+    /// against the session identified by <paramref name="token"/>, or
+    /// <c>0</c> when the session is unknown / already revoked. The
+    /// dispatch coordinator reads this to decide whether to emit a
+    /// <c>RuntimeCompletedSilent</c> activity
+    /// (<see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see> §5):
+    /// a successful runtime that made zero tool calls produced no
+    /// observable effect on the outside world.
+    /// </summary>
+    /// <remarks>
+    /// Counts only calls the server actually dispatched to a tool handler
+    /// — rejections (unknown tool, ungranted, policy denial, malformed
+    /// arguments) do not increment the counter because they record no
+    /// outside-world effect. Implementations MUST be safe to call from a
+    /// dispatcher thread while the session is still serving requests.
+    /// </remarks>
+    int GetToolCallCount(string token);
 }
 
 /// <summary>

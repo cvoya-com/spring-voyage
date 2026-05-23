@@ -516,24 +516,21 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_EphemeralAgent_A2ARoundtrip_ReturnsResponseTextInPayload()
+    public async Task DispatchAsync_EphemeralAgent_A2ARoundtrip_CapturesReasoningTrace()
     {
+        // ADR-0056: the A2A task body is captured as the reasoning trace
+        // on the RuntimeOutcome — it is never synthesised into a Message
+        // routed back to the original sender.
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("the prompt");
         InstallA2AStub("hello from agent");
 
-        var result = await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+        var outcome = await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
-        result.ShouldNotBeNull();
-        result!.From.ShouldBe(message.To);
-        result.To.ShouldBe(message.From);
-        result.ThreadId.ShouldBe(message.ThreadId);
-        result.Type.ShouldBe(MessageType.Domain);
-
-        var payload = result.Payload.Deserialize<JsonElement>();
-        payload.GetProperty("Output").GetString().ShouldBe("hello from agent");
-        payload.GetProperty("ExitCode").GetInt32().ShouldBe(0);
+        outcome.ShouldNotBeNull();
+        outcome.ExitCode.ShouldBe(0);
+        outcome.ReasoningTrace.ShouldBe("hello from agent");
     }
 
     [Fact]
@@ -1108,12 +1105,11 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
-    public void MapA2AResponseToMessage_TaskCompleted_ReturnsSuccessPayload()
+    public void MapA2AResponseToOutcome_TaskCompleted_ReturnsSuccessOutcomeWithTrace()
     {
-        var originalMessage = CreateMessage();
         var response = new AgentTask
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = "task-1",
             Status = new AgentTaskStatus
             {
                 State = TaskState.Completed,
@@ -1125,38 +1121,38 @@ public class A2AExecutionDispatcherTests
             }],
         };
 
-        var result = A2AExecutionDispatcher.MapA2AResponseToMessage(originalMessage, response);
+        var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
+            response, TimeSpan.FromMilliseconds(50), toolCallCount: 3, agentId: "agent-1", containerId: "c-1");
 
-        result.ShouldNotBeNull();
-        var payload = result!.Payload.Deserialize<JsonElement>();
-        payload.GetProperty("Output").GetString().ShouldBe("agent output");
-        payload.GetProperty("ExitCode").GetInt32().ShouldBe(0);
+        outcome.ExitCode.ShouldBe(0);
+        outcome.ReasoningTrace.ShouldBe("agent output");
+        outcome.Diagnostics[RuntimeOutcome.ToolCallCountKey].ShouldBe(3);
+        outcome.Diagnostics["a2aTaskId"].ShouldBe("task-1");
+        outcome.Diagnostics["a2aTaskState"].ShouldBe("Completed");
     }
 
     [Fact]
-    public void MapA2AResponseToMessage_TaskFailed_ReturnsErrorPayload()
+    public void MapA2AResponseToOutcome_TaskFailed_ReturnsFailureOutcome()
     {
-        var originalMessage = CreateMessage();
         var response = new AgentTask
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = "task-1",
             Status = new AgentTaskStatus
             {
                 State = TaskState.Failed,
             },
         };
 
-        var result = A2AExecutionDispatcher.MapA2AResponseToMessage(originalMessage, response);
+        var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
+            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent-1", containerId: null);
 
-        result.ShouldNotBeNull();
-        var payload = result!.Payload.Deserialize<JsonElement>();
-        payload.GetProperty("ExitCode").GetInt32().ShouldBe(1);
+        outcome.ExitCode.ShouldBe(1);
+        outcome.Diagnostics["a2aTaskState"].ShouldBe("Failed");
     }
 
     [Fact]
-    public void MapA2AResponseToMessage_MessageResponse_ReturnsTextOutput()
+    public void MapA2AResponseToOutcome_MessageResponse_TraceCarriesText()
     {
-        var originalMessage = CreateMessage();
         var response = new AgentMessage
         {
             Role = MessageRole.Agent,
@@ -1164,32 +1160,32 @@ public class A2AExecutionDispatcherTests
             Parts = [new TextPart { Text = "direct reply" }],
         };
 
-        var result = A2AExecutionDispatcher.MapA2AResponseToMessage(originalMessage, response);
+        var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
+            response, TimeSpan.Zero, toolCallCount: 1, agentId: "agent-1", containerId: null);
 
-        result.ShouldNotBeNull();
-        var payload = result!.Payload.Deserialize<JsonElement>();
-        payload.GetProperty("Output").GetString().ShouldBe("direct reply");
-        payload.GetProperty("ExitCode").GetInt32().ShouldBe(0);
+        outcome.ExitCode.ShouldBe(0);
+        outcome.ReasoningTrace.ShouldBe("direct reply");
     }
 
     [Fact]
-    public void MapA2AResponseToMessage_PreservesMessageRouting()
+    public void MapA2AResponseToOutcome_NullTextRendersAsNullTrace()
     {
-        var originalMessage = CreateMessage();
-        var response = new AgentMessage
+        // ADR-0056: empty terminal text means the runtime had no
+        // reasoning to capture — the RuntimeReasoning event will be
+        // skipped entirely, never emitted with an empty body.
+        var response = new AgentTask
         {
-            Role = MessageRole.Agent,
-            MessageId = Guid.NewGuid().ToString(),
-            Parts = [new TextPart { Text = "ok" }],
+            Id = "task-1",
+            Status = new AgentTaskStatus
+            {
+                State = TaskState.Completed,
+            },
         };
 
-        var result = A2AExecutionDispatcher.MapA2AResponseToMessage(originalMessage, response);
+        var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
+            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent-1", containerId: null);
 
-        result.ShouldNotBeNull();
-        result!.From.ShouldBe(originalMessage.To);
-        result.To.ShouldBe(originalMessage.From);
-        result.ThreadId.ShouldBe(originalMessage.ThreadId);
-        result.Type.ShouldBe(MessageType.Domain);
+        outcome.ReasoningTrace.ShouldBeNull();
     }
 
     [Fact]
@@ -1355,14 +1351,13 @@ public class A2AExecutionDispatcherTests
 
         // Act: dispatch completes (no exception — timeout in the polling loop
         // is not fatal; the dispatcher returns the last-known non-terminal task
-        // mapped through MapA2AResponseToMessage).
+        // mapped through MapA2AResponseToOutcome).
         var result = await _dispatcher.DispatchAsync(
             message, context: null, TestContext.Current.CancellationToken);
 
         // Assert: the non-terminal task maps to ExitCode = 1.
         result.ShouldNotBeNull();
-        var payload = result!.Payload.Deserialize<System.Text.Json.JsonElement>();
-        payload.GetProperty("ExitCode").GetInt32().ShouldBe(1);
+        result.ExitCode.ShouldBe(1);
 
         // Assert: container teardown fires exactly once via the registry —
         // the finally block in DispatchEphemeralAsync always releases the

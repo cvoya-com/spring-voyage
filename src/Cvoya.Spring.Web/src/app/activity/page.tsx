@@ -84,7 +84,7 @@ const severityDot: Record<ActivitySeverity, string> = {
 };
 
 const eventTypes: ActivityEventType[] = [
-  "MessageReceived",
+  "MessageArrived",
   "MessageSent",
   "ThreadStarted",
   "DecisionMade",
@@ -155,7 +155,7 @@ function getEventPayload(
   event: any,
 ): { kind: "message"; body: string } | { kind: "json"; value: unknown } | null {
   // A `body` string field is the plaintext message content on
-  // MessageReceived / MessageSent events.
+  // MessageArrived / MessageSent events.
   if (typeof event.body === "string" && event.body.trim()) {
     return { kind: "message", body: event.body };
   }

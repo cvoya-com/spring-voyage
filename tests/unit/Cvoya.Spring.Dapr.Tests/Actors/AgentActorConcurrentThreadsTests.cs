@@ -77,12 +77,12 @@ public class AgentActorConcurrentThreadsTests
 
         public ConcurrentDictionary<string, TaskCompletionSource> StartedGates { get; } = new();
 
-        public async Task<Message?> DispatchAsync(
-            Message message,
+        public async Task<RuntimeOutcome> DispatchAsync(
+            Message inboundMessage,
             PromptAssemblyContext? context,
-            CancellationToken cancellationToken = default)
+            CancellationToken ct = default)
         {
-            var threadId = message.ThreadId ?? string.Empty;
+            var threadId = inboundMessage.ThreadId ?? string.Empty;
             var startedAt = DateTimeOffset.UtcNow;
 
             // Signal the test that the dispatch for this thread started.
@@ -96,12 +96,19 @@ public class AgentActorConcurrentThreadsTests
             }
             if (hold is not null)
             {
-                await hold.Task.WaitAsync(cancellationToken);
+                await hold.Task.WaitAsync(ct);
             }
 
             var endedAt = DateTimeOffset.UtcNow;
             _calls.Add((threadId, startedAt, endedAt));
-            return null;
+            return new RuntimeOutcome(
+                ExitCode: 0,
+                Duration: endedAt - startedAt,
+                ReasoningTrace: null,
+                Diagnostics: new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [RuntimeOutcome.ToolCallCountKey] = 1,
+                });
         }
     }
 
@@ -148,7 +155,7 @@ public class AgentActorConcurrentThreadsTests
             Substitute.For<IActivityEventBus>(),
             Substitute.For<IAgentObservationCoordinator>(),
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
-            new AgentDispatchCoordinator(dispatcher, router, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
+            new AgentDispatchCoordinator(dispatcher, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             definitionProvider,
             Array.Empty<ISkillRegistry>(),
             membershipRepository,

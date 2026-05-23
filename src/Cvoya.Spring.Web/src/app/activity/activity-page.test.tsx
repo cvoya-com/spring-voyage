@@ -47,7 +47,7 @@ const mockResult = {
     {
       id: "evt-2",
       source: "agent://ada",
-      eventType: "MessageReceived",
+      eventType: "MessageArrived",
       severity: "Warning",
       summary: "Slow response from model",
       correlationId: null,

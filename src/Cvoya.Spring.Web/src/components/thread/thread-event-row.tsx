@@ -91,7 +91,7 @@ interface ThreadEventRowProps {
   /**
    * Thread-level participants (#2089). Used to resolve raw
    * `scheme://<guid>` / `scheme:<guid>` addresses that a noisy LLM may
-   * leak into a `MessageReceived` body — they fold down to the
+   * leak into a `MessageArrived` body — they fold down to the
    * participant's display name in the rendered bubble. The event's own
    * `source` / `from` / `to` are always merged into the lookup, so the
    * sender's name resolves even on surfaces that don't pass the full
@@ -106,7 +106,7 @@ interface ThreadEventRowProps {
  * other role → left). Tool/lifecycle events start collapsed; text
  * messages stay expanded.
  *
- * For `MessageReceived` events the bubble represents the *sender* of the
+ * For `MessageArrived` events the bubble represents the *sender* of the
  * underlying message — i.e. `event.from` — not `event.source` (which is
  * the receiving actor that emitted the event). Without this distinction
  * a message from agent://qa-engineer to a human would render as a
@@ -131,11 +131,11 @@ export function ThreadEventRow({
   align = "auto",
   participants,
 }: ThreadEventRowProps) {
-  // Attribute MessageReceived bubbles to the sender (event.from) rather
+  // Attribute MessageArrived bubbles to the sender (event.from) rather
   // than the receiver-projected event.source.
-  const isMessageReceived = event.eventType === "MessageReceived";
+  const isMessageArrived = event.eventType === "MessageArrived";
   const attributed =
-    isMessageReceived && event.from ? event.from : event.source;
+    isMessageArrived && event.from ? event.from : event.source;
 
   // `attributed` may be a ParticipantRef object (address + displayName)
   // or a plain address string when served by an older API version.
@@ -154,7 +154,7 @@ export function ThreadEventRow({
   const [showMeta, setShowMeta] = useState(false);
 
   const timestamp = new Date(event.timestamp);
-  // Show the message body for all MessageReceived events so the thread
+  // Show the message body for all MessageArrived events so the thread
   // reads as a real conversation rather than a list of envelope summaries.
   // Raw `scheme://<guid>` addresses leaked into the body by a noisy LLM
   // (#2089) are folded down to participant display names via the shared
@@ -167,7 +167,7 @@ export function ThreadEventRow({
   // the bubble, and only the trailing prose flows through the bubble
   // (still address-resolved). Detection is shape-only and the storage
   // shape is unchanged; this is purely a render-time transform.
-  const rawBody = isMessageReceived && event.body ? event.body : null;
+  const rawBody = isMessageArrived && event.body ? event.body : null;
   const { structured, prose } = rawBody
     ? splitBodyIntoStructuredAndProse(rawBody)
     : { structured: null, prose: "" };

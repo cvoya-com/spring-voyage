@@ -81,7 +81,7 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
         // Recent activity.
         var recentItems = new List<ActivityQueryResult.Item>
         {
-            new(Guid.NewGuid(), "agent://agent-1", "MessageReceived", "Info", "Agent received message", null, null, DateTimeOffset.UtcNow),
+            new(Guid.NewGuid(), "agent://agent-1", "MessageArrived", "Info", "Agent received message", null, null, DateTimeOffset.UtcNow),
         };
         _factory.ActivityQueryService
             .QueryAsync(Arg.Any<ActivityQueryParameters>(), Arg.Any<CancellationToken>())

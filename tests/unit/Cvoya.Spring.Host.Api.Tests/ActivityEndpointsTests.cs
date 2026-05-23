@@ -259,7 +259,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             Id: Guid.NewGuid(),
             Timestamp: DateTimeOffset.UtcNow,
             Source: new Cvoya.Spring.Core.Messaging.Address("agent", Guid.NewGuid()),
-            EventType: ActivityEventType.MessageReceived,
+            EventType: ActivityEventType.MessageArrived,
             Severity: ActivitySeverity.Info,
             Summary: "matching",
             CorrelationId: threadId);
@@ -268,7 +268,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             Id: Guid.NewGuid(),
             Timestamp: DateTimeOffset.UtcNow,
             Source: new Cvoya.Spring.Core.Messaging.Address("agent", Guid.NewGuid()),
-            EventType: ActivityEventType.MessageReceived,
+            EventType: ActivityEventType.MessageArrived,
             Severity: ActivitySeverity.Info,
             Summary: "non-matching",
             CorrelationId: otherThread);

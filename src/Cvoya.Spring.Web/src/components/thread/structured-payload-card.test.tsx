@@ -1,7 +1,7 @@
 // Tests for `<StructuredPayloadCard>` (#2128).
 //
 // The card is the visual home for a JSON envelope peeled out of a
-// `MessageReceived` body when the body starts with a parseable JSON
+// `MessageArrived` body when the body starts with a parseable JSON
 // object. Behaviour: starts collapsed, click expands, expanded state
 // shows a pretty-printed JSON dump in a font-mono pre block.
 

@@ -51,7 +51,7 @@ public record ThreadDetail(
 /// <param name="EventType">The event type name.</param>
 /// <param name="Severity">The severity level.</param>
 /// <param name="Summary">Human-readable summary of the event.</param>
-/// <param name="MessageId">The message id this event corresponds to (for <c>MessageReceived</c> events), or <c>null</c>.</param>
+/// <param name="MessageId">The message id this event corresponds to (for <c>MessageArrived</c> events), or <c>null</c>.</param>
 /// <param name="From">The sender address (<c>scheme://path</c>) of the underlying message, or <c>null</c>.</param>
 /// <param name="To">The recipient address of the underlying message, or <c>null</c>.</param>
 /// <param name="Body">The rendered text body of the underlying message when extractable, or <c>null</c> for non-text payloads.</param>
@@ -69,12 +69,12 @@ public record ThreadEvent(
 
 /// <summary>
 /// One row in a human's inbox (<c>GET /api/v1/inbox</c>). A thread shows
-/// up here when the human has a <c>MessageReceived</c> on the thread and no
-/// non-human actor has observed a <c>MessageReceived</c> after that point —
+/// up here when the human has a <c>MessageArrived</c> on the thread and no
+/// non-human actor has observed a <c>MessageArrived</c> after that point —
 /// i.e. "an agent said something to me and I haven't replied yet". The
 /// predicate is intentionally tolerant of trailing observability events
 /// (state changes, cost emissions) on the same thread; only a follow-up
-/// <c>MessageReceived</c> from another participant clears the row (#1210).
+/// <c>MessageArrived</c> from another participant clears the row (#1210).
 /// Responding via <c>POST /api/v1/threads/{id}/messages</c> (or the
 /// CLI's <c>spring inbox respond</c>) removes the row by causing exactly that
 /// follow-up event.

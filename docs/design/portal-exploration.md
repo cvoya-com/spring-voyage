@@ -177,7 +177,7 @@ Humans participate in Spring Voyage as first-class actors (`human:<32-hex-no-das
 
 One is a task queue; the other is an archive. They share the Conversation primitive (each Inbox row links to its parent conversation), but treating them as the same page conflates a blocker list with a journal and we lose the "what do I need to do right now" clarity.
 
-**Smallest coherent v1:** Inbox page lists conversations where the latest event is a `MessageReceived` targeting the current `human:` address *and* no subsequent message from that human has shipped. Click → open the conversation with the reply box focused. Completion deletes the row.
+**Smallest coherent v1:** Inbox page lists conversations where the latest event is a `MessageArrived` targeting the current `human:` address *and* no subsequent message from that human has shipped. Click → open the conversation with the reply box focused. Completion deletes the row.
 
 **Hosted additions:** delegation ("assign this to another human in the tenant") and SLA badges ("waiting 4h"). Both layer cleanly once the base exists.
 
@@ -405,13 +405,13 @@ Key changes:
 - Messages render with role attribution, tool-call summaries, and outcomes. Tool I/O is collapsed by default; click to expand.
 - A conversation shows its **origin** — the GitHub issue, CLI invocation, connector event, or message that started it. The conversation can always link back.
 - The compose box is only rendered when the human has permission to send — checked via the permission service. In OSS (no auth), it is always available. In hosted, it respects role.
-- Conversations must support **real-time updates** via SSE or the streaming route handler proposed in §8 (the platform already emits `MessageSent` / `MessageReceived` activity events — we subscribe and patch the thread).
+- Conversations must support **real-time updates** via SSE or the streaming route handler proposed in §8 (the platform already emits `MessageSent` / `MessageArrived` activity events — we subscribe and patch the thread).
 
 **How this relates to the Activity log.** Reviewer question: should Conversations and Activity share a surface?
 
 *Decision: keep them as separate surfaces, but share the underlying event stream and link each Activity row to its conversation.*
 
-- **Activity** is the raw, chronologically-ordered stream of every event the platform emits (`MessageReceived`, `StateChanged`, `ToolCall`, `CostRecorded`, `ErrorOccurred`, …). It is a log — comprehensive, filterable, optimised for debugging and auditing. It spans agents, units, connectors, and cost events.
+- **Activity** is the raw, chronologically-ordered stream of every event the platform emits (`MessageArrived`, `StateChanged`, `ToolCall`, `CostRecorded`, `ErrorOccurred`, …). It is a log — comprehensive, filterable, optimised for debugging and auditing. It spans agents, units, connectors, and cost events.
 - **Conversations** is the narrative view of one specific event type — the message thread — rendered with role attribution, tool-call summaries, outcome, and reply affordance. It is a message log, not an event log, and is optimised for reading and responding.
 
 They share a source (both derive from the activity bus) but serve different jobs. Treating them as one page would force every conversation view to carry event types that have nothing to do with the message thread (cost ticks, policy evaluations, container-lifecycle events), and force every activity row to render the conversation prose inline. The alignment we should enforce instead is **cross-linking**: every activity row that belongs to a conversation links into the conversation view; every conversation's "origin" shows the activity row that kicked it off. The Unit/Agent detail page already splits these into separate tabs — keep that split at the top level too.

@@ -309,11 +309,10 @@ public class RuntimeInvocationPathTests
         var inbound = MakeMessage(MakeAgent("test-sender"), subject);
         var dispatcher = Substitute.For<IExecutionDispatcher>();
         dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns<Message?>(_ => throw new InvalidOperationException("simulated dispatch failure"));
+            .Returns<RuntimeOutcome>(_ => throw new InvalidOperationException("simulated dispatch failure"));
 
         var coordinator = new AgentDispatchCoordinator(
             dispatcher,
-            MakeRouter(),
             Substitute.For<ILogger<AgentDispatchCoordinator>>());
         var path = MakePath(dispatchCoordinator: coordinator);
         var publishedEvents = new List<ActivityEvent>();
@@ -328,29 +327,35 @@ public class RuntimeInvocationPathTests
                 return Task.CompletedTask;
             });
 
-        publishedEvents.Count.ShouldBe(1);
-        var published = publishedEvents[0];
-        published.Source.ShouldBe(subject);
-        published.EventType.ShouldBe(ActivityEventType.ErrorOccurred);
-        published.Severity.ShouldBe(ActivitySeverity.Error);
-        published.CorrelationId.ShouldBe(inbound.ThreadId);
-        published.Summary.ShouldContain("simulated dispatch failure");
-        published.Details.ShouldNotBeNull();
-        published.Details.Value.GetProperty("error").GetString().ShouldBe("simulated dispatch failure");
+        // Under ADR-0056 the coordinator emits the per-phase lifecycle
+        // events before invoking the dispatcher, so a dispatcher that
+        // throws still leaves the MessageDispatchedToRuntime + RuntimeStarted
+        // rows on the stream — followed by the ErrorOccurred row that
+        // surfaces the exception.
+        var error = publishedEvents.Where(e => e.EventType == ActivityEventType.ErrorOccurred).ShouldHaveSingleItem();
+        error.Source.ShouldBe(subject);
+        error.Severity.ShouldBe(ActivitySeverity.Error);
+        error.CorrelationId.ShouldBe(inbound.ThreadId);
+        error.Summary.ShouldContain("simulated dispatch failure");
+        error.Details.ShouldNotBeNull();
+        error.Details.Value.GetProperty("error").GetString().ShouldBe("simulated dispatch failure");
     }
 
     [Fact]
-    public async Task InvokeAsync_LeanOverload_DispatcherReturnsNull_PublishesNoResponseActivity()
+    public async Task InvokeAsync_LeanOverload_SilentDispatch_PublishesRuntimeCompletedSilent()
     {
+        // ADR-0056 §5: a silent runtime (clean exit, no tool calls)
+        // surfaces as RuntimeCompletedSilent on the lean path's activity
+        // stream. The legacy "Dispatch returned no response."
+        // WorkflowStepCompleted shim is gone.
         var subject = MakeUnit("test-unit");
         var inbound = MakeMessage(MakeAgent("test-sender"), subject);
         var dispatcher = Substitute.For<IExecutionDispatcher>();
         dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
+            .Returns(RuntimeOutcomes.Silent());
 
         var coordinator = new AgentDispatchCoordinator(
             dispatcher,
-            MakeRouter(),
             Substitute.For<ILogger<AgentDispatchCoordinator>>());
         var path = MakePath(dispatchCoordinator: coordinator);
         var publishedEvents = new List<ActivityEvent>();
@@ -365,15 +370,14 @@ public class RuntimeInvocationPathTests
                 return Task.CompletedTask;
             });
 
-        publishedEvents.Count.ShouldBe(1);
-        var published = publishedEvents[0];
-        published.Source.ShouldBe(subject);
-        published.EventType.ShouldBe(ActivityEventType.WorkflowStepCompleted);
-        published.Severity.ShouldBe(ActivitySeverity.Info);
-        published.CorrelationId.ShouldBe(inbound.ThreadId);
-        published.Summary.ShouldContain("no response");
-        published.Details.ShouldNotBeNull();
-        published.Details.Value.GetProperty("reason").GetString().ShouldBe("dispatch returned no response");
+        publishedEvents.ShouldContain(e =>
+            e.EventType == ActivityEventType.RuntimeCompletedSilent
+            && e.Source == subject
+            && e.CorrelationId == inbound.ThreadId);
+
+        publishedEvents.ShouldNotContain(e =>
+            e.EventType == ActivityEventType.WorkflowStepCompleted
+            && (e.Summary ?? string.Empty).Contains("no response"));
     }
 
     [Fact]
@@ -405,18 +409,10 @@ public class RuntimeInvocationPathTests
 
         var dispatcher = Substitute.For<IExecutionDispatcher>();
         dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns(new Message(
-                Guid.NewGuid(),
-                subject,
-                connectorFrom,
-                MessageType.Domain,
-                threadId,
-                JsonSerializer.SerializeToElement(new { Output = "no action needed", ExitCode = 0 }),
-                DateTimeOffset.UtcNow));
+            .Returns(RuntimeOutcomes.Success());
 
         var coordinator = new AgentDispatchCoordinator(
             dispatcher,
-            MakeRouter(),
             Substitute.For<ILogger<AgentDispatchCoordinator>>());
         var path = MakePath(dispatchCoordinator: coordinator);
         var publishedEvents = new List<ActivityEvent>();
@@ -440,7 +436,7 @@ public class RuntimeInvocationPathTests
             .GetProperty("connectorEventType").GetString().ShouldBe("github.unlabeled");
 
         // Acceptance criterion 3: the whole trail shares the connector
-        // thread id as correlation id — a dispatched agent's MessageReceived
+        // thread id as correlation id — a dispatched agent's MessageArrived
         // (correlationId = message.ThreadId) joins the same chain.
         publishedEvents.ShouldAllBe(e => e.CorrelationId == threadId);
     }

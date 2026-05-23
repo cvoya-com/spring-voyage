@@ -165,7 +165,7 @@ public class CostTrackerTests : IDisposable
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             new Address("agent", AgentTestId),
-            ActivityEventType.MessageReceived,
+            ActivityEventType.MessageArrived,
             ActivitySeverity.Info,
             "Not a cost event");
 

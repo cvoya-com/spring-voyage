@@ -206,7 +206,7 @@ describe("ActivityTab (Unit subject)", () => {
         {
           id: "evt-bare",
           source: "unit://eng-team",
-          eventType: "MessageReceived",
+          eventType: "MessageArrived",
           severity: "Info",
           summary: "Bare row",
           correlationId: null,

@@ -71,7 +71,7 @@ const FILTER_LABELS: Record<ConversationFilter, string> = {
 };
 
 function isMessageEvent(event: ThreadEvent): boolean {
-  return event.eventType === "MessageReceived";
+  return event.eventType === "MessageArrived";
 }
 
 interface FilterDropdownProps {

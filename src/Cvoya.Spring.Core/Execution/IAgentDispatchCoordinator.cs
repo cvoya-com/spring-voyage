@@ -9,12 +9,24 @@ using Cvoya.Spring.Core.Messaging;
 /// <summary>
 /// Seam that encapsulates the execution-dispatch concern extracted from
 /// <c>AgentActor</c>: invoking the <see cref="IExecutionDispatcher"/>,
-/// inspecting the response for a non-zero container exit code, routing the
-/// response message back to the caller, and signalling the per-thread
-/// dispatch exit so the actor's mailbox can drain remaining queued
-/// messages or mark the channel idle.
+/// observing the runtime's lifecycle outcome, emitting per-phase activity
+/// events (<see cref="ActivityEventType.MessageDispatchedToRuntime"/>,
+/// <see cref="ActivityEventType.RuntimeStarted"/>, and the terminal
+/// <see cref="ActivityEventType.RuntimeCompleted"/> /
+/// <see cref="ActivityEventType.RuntimeFailed"/> /
+/// <see cref="ActivityEventType.RuntimeCompletedSilent"/>), and signalling
+/// the per-thread dispatch exit so the actor's mailbox can drain remaining
+/// queued messages or mark the channel idle.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Per <see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+/// the coordinator no longer persists a dispatch "response" — there is no
+/// such thing. Every observable effect a runtime has flows through platform
+/// tool calls (the messaging tool persists its own row, etc.); the
+/// coordinator's role narrows to <em>"invoke dispatcher, observe outcome,
+/// emit lifecycle activities, signal exit"</em>.
+/// </para>
 /// <para>
 /// The interface lives in <c>Cvoya.Spring.Core</c> so the cloud host can
 /// substitute a tenant-aware coordinator (e.g. one that layers audit logging,
@@ -39,12 +51,12 @@ using Cvoya.Spring.Core.Messaging;
 public interface IAgentDispatchCoordinator
 {
     /// <summary>
-    /// Runs the execution dispatcher for a single agent turn, routes the
-    /// response, and signals the per-thread dispatch exit. The exit
-    /// callback runs on every termination path (success, cancel,
-    /// exception, or non-zero container exit) so the actor's mailbox can
-    /// drain any messages appended while the dispatcher was running, or
-    /// mark the channel idle when the queue is empty.
+    /// Runs the execution dispatcher for a single agent turn, emits the
+    /// per-phase lifecycle activities, and signals the per-thread dispatch
+    /// exit. The exit callback runs on every termination path (success,
+    /// cancel, exception, or non-zero container exit) so the actor's
+    /// mailbox can drain any messages appended while the dispatcher was
+    /// running, or mark the channel idle when the queue is empty.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -56,11 +68,16 @@ public interface IAgentDispatchCoordinator
     /// actor's own turn queue.
     /// </para>
     /// <para>
-    /// A non-zero container exit (see the <c>ExitCode</c> / <c>Error</c>
-    /// payload fields introduced by #1036) is treated as an abnormal
-    /// termination: the error is surfaced to the caller via
-    /// <paramref name="emitActivity"/> and the response is still routed
-    /// (best-effort) before the dispatch-exit callback runs.
+    /// The terminal activity is exactly one of
+    /// <see cref="ActivityEventType.RuntimeCompleted"/>,
+    /// <see cref="ActivityEventType.RuntimeFailed"/>, or
+    /// <see cref="ActivityEventType.RuntimeCompletedSilent"/>. The "silent"
+    /// flavour
+    /// (<see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+    /// §5) is emitted when the runtime exited cleanly but invoked no
+    /// platform tool calls — the platform tolerates this compliance gap
+    /// rather than auto-wrapping the terminal text into a synthesised
+    /// message.
     /// </para>
     /// </remarks>
     /// <param name="agentId">
@@ -78,7 +95,8 @@ public interface IAgentDispatchCoordinator
     /// </param>
     /// <param name="emitActivity">
     /// Delegate that publishes an <see cref="ActivityEvent"/> to the activity
-    /// bus. Called on error-occurred events (non-zero exit, dispatch exception).
+    /// bus. Called for the runtime-lifecycle events (started, terminal,
+    /// reasoning) plus any error rows on the cancel / exception paths.
     /// Passed as a delegate so the coordinator can remain a singleton even
     /// though the actor's own <c>EmitActivityEventAsync</c> captures
     /// per-instance fields.

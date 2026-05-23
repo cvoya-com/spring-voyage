@@ -88,7 +88,7 @@ response="$(e2e::cli --output json thread show "${thread_id}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "thread show succeeds"
-e2e::expect_contains "MessageReceived" "${body}" "thread show carries the MessageReceived event"
+e2e::expect_contains "MessageArrived" "${body}" "thread show carries the MessageArrived event"
 e2e::expect_contains "${thread_id}" "${body}" "thread show body references the thread id"
 
 # --- engagement list scoped to the unit -------------------------------------

@@ -73,14 +73,14 @@ describe("AnalyticsThroughputPage", () => {
       entries: [
         {
           source: "agent://ada",
-          messagesReceived: 10,
+          messagesArrived: 10,
           messagesSent: 8,
           turns: 4,
           toolCalls: 3,
         },
         {
           source: "unit://eng-team",
-          messagesReceived: 30,
+          messagesArrived: 30,
           messagesSent: 20,
           turns: 10,
           toolCalls: 5,
@@ -108,7 +108,7 @@ describe("AnalyticsThroughputPage", () => {
       entries: [
         {
           source: "agent://ada",
-          messagesReceived: 10,
+          messagesArrived: 10,
           messagesSent: 8,
           turns: 4,
           toolCalls: 3,
@@ -132,7 +132,7 @@ describe("AnalyticsThroughputPage", () => {
       entries: [
         {
           source: "agent://ada",
-          messagesReceived: 5,
+          messagesArrived: 5,
           messagesSent: 3,
           turns: 2,
           toolCalls: 1,

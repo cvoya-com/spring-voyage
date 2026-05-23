@@ -12,13 +12,13 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// <param name="Source">
 /// Wire-format source address (<c>agent://name</c>, <c>unit://name</c>).
 /// </param>
-/// <param name="MessagesReceived">Count of <c>MessageReceived</c> events.</param>
+/// <param name="MessagesArrived">Count of <c>MessageArrived</c> events.</param>
 /// <param name="MessagesSent">Count of <c>MessageSent</c> events.</param>
 /// <param name="Turns">Count of <c>ThreadStarted</c> events.</param>
 /// <param name="ToolCalls">Count of <c>DecisionMade</c> events (proxy for MCP tool calls).</param>
 public record ThroughputEntryResponse(
     string Source,
-    long MessagesReceived,
+    long MessagesArrived,
     long MessagesSent,
     long Turns,
     long ToolCalls);

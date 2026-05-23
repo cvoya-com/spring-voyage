@@ -567,14 +567,14 @@ public class UnitActorTests
     // --- Activity Event Emission Tests ---
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessage_EmitsMessageReceivedEvent()
+    public async Task ReceiveAsync_DomainMessage_EmitsMessageArrivedEvent()
     {
         var message = CreateMessage();
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.MessageReceived),
+            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.MessageArrived),
             Arg.Any<CancellationToken>());
     }
 
@@ -592,7 +592,7 @@ public class UnitActorTests
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.MessageReceived
+                e.EventType == ActivityEventType.MessageArrived
                 && e.Summary == "Plan the next sprint."),
             Arg.Any<CancellationToken>());
     }
@@ -609,7 +609,7 @@ public class UnitActorTests
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.MessageReceived
+                e.EventType == ActivityEventType.MessageArrived
                 && !e.Summary.StartsWith("Received ")
                 && !e.Summary.Contains(message.Id.ToString())
                 && !e.Summary.Contains(message.From.Path)),

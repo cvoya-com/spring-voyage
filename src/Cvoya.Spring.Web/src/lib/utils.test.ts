@@ -46,11 +46,11 @@ describe("formatCost", () => {
 });
 
 // #989: humanEventType maps raw identifiers to short user-friendly labels
-// so operators see "Message received" instead of "MessageReceived" in the
+// so operators see "Message received" instead of "MessageArrived" in the
 // activity feed, dashboard, and unit/agent Activity tabs.
 describe("humanEventType (#989)", () => {
   it("maps every known ActivityEventType to a readable label", () => {
-    expect(humanEventType("MessageReceived")).toBe("Message received");
+    expect(humanEventType("MessageArrived")).toBe("Message received");
     expect(humanEventType("MessageSent")).toBe("Message sent");
     expect(humanEventType("ThreadStarted")).toBe("Thread started");
     expect(humanEventType("DecisionMade")).toBe("Decision made");

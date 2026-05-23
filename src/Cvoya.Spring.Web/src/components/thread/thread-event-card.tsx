@@ -53,7 +53,7 @@ const EVENT_PRESENTATION: Record<
   string,
   { label: string; icon: typeof Info; tone: "neutral" | "info" | "warning" | "destructive" }
 > = {
-  MessageReceived: { label: "Message", icon: MessageSquare, tone: "info" },
+  MessageArrived: { label: "Message", icon: MessageSquare, tone: "info" },
   MessageSent: { label: "Message", icon: MessageSquare, tone: "info" },
   ThreadStarted: { label: "Engagement started", icon: ListTree, tone: "neutral" },
   DecisionMade: { label: "Tool call", icon: Wrench, tone: "warning" },
@@ -273,6 +273,6 @@ export function ThreadEventCard({
  */
 export function shouldRenderAsCard(event: ThreadEvent): boolean {
   return (
-    event.eventType !== "MessageReceived" && event.eventType !== "MessageSent"
+    event.eventType !== "MessageArrived" && event.eventType !== "MessageSent"
   );
 }

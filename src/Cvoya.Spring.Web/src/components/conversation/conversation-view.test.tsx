@@ -55,7 +55,7 @@ function makeDetail(events: ThreadDetail["events"]): ThreadDetail {
 
 const messageEvent = {
   id: "e-msg",
-  eventType: "MessageReceived",
+  eventType: "MessageArrived",
   source: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
   timestamp: "2026-04-30T10:00:00Z",
   severity: "Info",
@@ -337,10 +337,10 @@ describe("ConversationView — observer-view timeline layout", () => {
 });
 
 describe("ConversationView — message-vs-card dispatch in dialog mode", () => {
-  it("renders body-less MessageReceived events as bubbles (the platform now provides a usable summary upstream — #1641)", () => {
+  it("renders body-less MessageArrived events as bubbles (the platform now provides a usable summary upstream — #1641)", () => {
     const bodylessMessage = {
       id: "e-bare",
-      eventType: "MessageReceived",
+      eventType: "MessageArrived",
       source: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
       timestamp: "2026-04-30T10:02:00Z",
       severity: "Info",

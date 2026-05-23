@@ -267,10 +267,10 @@ public class UnitActor : Actor, IUnitActor
             // short non-leaky placeholder) — never the legacy "Received
             // {Type} message <uuid> from <address>" envelope, which leaks
             // GUIDs into every downstream surface.
-            await EmitActivityEventAsync(ActivityEventType.MessageReceived,
-                MessageReceivedDetails.BuildSummary(message),
+            await EmitActivityEventAsync(ActivityEventType.MessageArrived,
+                MessageArrivedDetails.BuildSummary(message),
                 ct,
-                details: MessageReceivedDetails.Build(message),
+                details: MessageArrivedDetails.Build(message),
                 correlationId: message.ThreadId);
 
             return message.Type switch

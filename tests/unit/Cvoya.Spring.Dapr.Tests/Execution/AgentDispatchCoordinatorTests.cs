@@ -6,12 +6,9 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
-using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Execution;
-using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
 using Microsoft.Extensions.Logging;
@@ -23,11 +20,16 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for the routing-decision activity <see cref="AgentDispatchCoordinator"/>
-/// emits after a connector-origin turn terminates (issue #2560). The
-/// coordinator records the routing <em>outcome</em> of a connector event —
-/// including the "no agent dispatched" case the activity stream was
-/// previously silent on — from the deterministic platform-host side.
+/// Unit tests for <see cref="AgentDispatchCoordinator"/>'s ADR-0056 §7
+/// activity stream — the per-phase emissions
+/// (<see cref="ActivityEventType.MessageDispatchedToRuntime"/>,
+/// <see cref="ActivityEventType.RuntimeStarted"/>, the terminal
+/// <see cref="ActivityEventType.RuntimeCompleted"/> /
+/// <see cref="ActivityEventType.RuntimeFailed"/> /
+/// <see cref="ActivityEventType.RuntimeCompletedSilent"/>, and the
+/// diagnostic <see cref="ActivityEventType.RuntimeReasoning"/>) plus the
+/// routing-decision activity (#2560) that connector-origin turns leave on
+/// the stream.
 /// </summary>
 public class AgentDispatchCoordinatorTests
 {
@@ -37,23 +39,9 @@ public class AgentDispatchCoordinatorTests
     private static readonly Address UnitTo =
         Address.For(Address.UnitScheme, TestSlugIds.HexFor("triage-unit"));
 
-    private static MessageRouter MakeRouter()
-    {
-        var loggerFactory = Substitute.For<ILoggerFactory>();
-        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-
-        return Substitute.For<MessageRouter>(
-            Substitute.For<IDirectoryService>(),
-            Substitute.For<IAgentProxyResolver>(),
-            Substitute.For<IPermissionService>(),
-            loggerFactory,
-            NullMessageWriterScopeFactory.Create());
-    }
-
     private static AgentDispatchCoordinator MakeCoordinator(IExecutionDispatcher dispatcher)
         => new(
             dispatcher,
-            MakeRouter(),
             Substitute.For<ILogger<AgentDispatchCoordinator>>());
 
     /// <summary>
@@ -87,16 +75,6 @@ public class AgentDispatchCoordinatorTests
             JsonSerializer.SerializeToElement(new { text = "hello" }),
             DateTimeOffset.UtcNow);
 
-    private static Message MakeDispatchResponse(int exitCode = 0)
-        => new(
-            Guid.NewGuid(),
-            UnitTo,
-            ConnectorFrom,
-            MessageType.Domain,
-            Guid.NewGuid().ToString(),
-            JsonSerializer.SerializeToElement(new { Output = "done", ExitCode = exitCode }),
-            DateTimeOffset.UtcNow);
-
     private static async Task<List<ActivityEvent>> RunAsync(
         AgentDispatchCoordinator coordinator,
         Message inbound)
@@ -111,16 +89,143 @@ public class AgentDispatchCoordinatorTests
         return emitted;
     }
 
+    // ------------------------------------------------------------------
+    // ADR-0056 §7 lifecycle emissions
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task RunDispatchAsync_SuccessfulTurnWithToolCalls_EmitsExpectedPhaseSequence()
+    {
+        var inbound = MakeAgentMessage();
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(RuntimeOutcomes.Success(toolCallCount: 2));
+
+        var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
+
+        // Phase order: dispatched-to-runtime → started → completed terminal.
+        // No reasoning event because the outcome reports a null trace.
+        emitted.Select(e => e.EventType).ShouldBe(new[]
+        {
+            ActivityEventType.MessageDispatchedToRuntime,
+            ActivityEventType.RuntimeStarted,
+            ActivityEventType.RuntimeCompleted,
+        });
+
+        var terminal = emitted[^1];
+        terminal.Details.ShouldNotBeNull();
+        terminal.Details!.Value.GetProperty("exitCode").GetInt32().ShouldBe(0);
+        terminal.Details!.Value.GetProperty("toolCallCount").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_SilentRuntime_EmitsRuntimeCompletedSilentAndNotRuntimeCompleted()
+    {
+        // ADR-0056 §5: a clean exit with zero tool calls is the
+        // compliance gap — surface it as RuntimeCompletedSilent so the
+        // silence is diagnosable, never auto-wrap into a synthesised
+        // message.
+        var inbound = MakeAgentMessage();
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(RuntimeOutcomes.Silent("I would have said hello but I forgot the tool exists."));
+
+        var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
+
+        emitted.ShouldContain(e => e.EventType == ActivityEventType.RuntimeCompletedSilent);
+        emitted.ShouldNotContain(e => e.EventType == ActivityEventType.RuntimeCompleted);
+        emitted.ShouldNotContain(e => e.EventType == ActivityEventType.RuntimeFailed);
+
+        // The reasoning trace surfaces as its own event when present.
+        emitted.ShouldContain(e => e.EventType == ActivityEventType.RuntimeReasoning);
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_NonZeroExit_EmitsRuntimeFailedNotErrorOccurred()
+    {
+        var inbound = MakeAgentMessage();
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(RuntimeOutcomes.Failure(exitCode: 137));
+
+        var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
+
+        var failed = emitted.Where(e => e.EventType == ActivityEventType.RuntimeFailed).ShouldHaveSingleItem();
+        failed.Severity.ShouldBe(ActivitySeverity.Error);
+        failed.Details.ShouldNotBeNull();
+        failed.Details!.Value.GetProperty("exitCode").GetInt32().ShouldBe(137);
+
+        // The legacy ErrorOccurred "Container exit code …" emission is gone.
+        emitted.ShouldNotContain(e =>
+            e.EventType == ActivityEventType.ErrorOccurred
+            && (e.Summary ?? string.Empty).Contains("Container exit code"));
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_NeverEmitsWorkflowStepCompletedDispatchResponseRecordedOnThread()
+    {
+        // Regression guard for the deleted synthesis row (ADR-0056 §9).
+        var inbound = MakeAgentMessage();
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(RuntimeOutcomes.Success());
+
+        var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
+
+        emitted.ShouldNotContain(e =>
+            e.EventType == ActivityEventType.WorkflowStepCompleted
+            && (e.Summary ?? string.Empty).Contains("Dispatch response recorded on thread"));
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_ReasoningTrace_EmittedBeforeTerminal()
+    {
+        // Activity-emit order (load-bearing per the implementation brief):
+        // reasoning lands before the terminal so consumers reading
+        // top-to-bottom see reasoning first, terminal last.
+        var inbound = MakeAgentMessage();
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(RuntimeOutcomes.Success(toolCallCount: 1, reasoningTrace: "thinking..."));
+
+        var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
+
+        var reasoningIdx = emitted.FindIndex(e => e.EventType == ActivityEventType.RuntimeReasoning);
+        var terminalIdx = emitted.FindIndex(e => e.EventType == ActivityEventType.RuntimeCompleted);
+        reasoningIdx.ShouldBeGreaterThan(-1);
+        terminalIdx.ShouldBeGreaterThan(reasoningIdx);
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_ExactlyOneTerminal_PerTurn()
+    {
+        // Invariant: exactly one of RuntimeCompleted / RuntimeFailed /
+        // RuntimeCompletedSilent per turn — never zero, never two.
+        var inbound = MakeAgentMessage();
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(RuntimeOutcomes.Success());
+
+        var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
+
+        var terminals = emitted.Count(e =>
+            e.EventType is ActivityEventType.RuntimeCompleted
+                or ActivityEventType.RuntimeFailed
+                or ActivityEventType.RuntimeCompletedSilent);
+        terminals.ShouldBe(1);
+    }
+
+    // ------------------------------------------------------------------
+    // Connector routing-decision behaviour (#2560) — preserved under ADR-0056
+    // ------------------------------------------------------------------
+
     [Fact]
     public async Task RunDispatchAsync_ConnectorEvent_NoDelegation_EmitsDecisionMadeNoOp()
     {
-        // #2560 acceptance criterion 2: a connector event the unit processed
-        // without dispatching an agent must still leave a DecisionMade row —
-        // the stream was previously silent on this "no action" outcome.
         var inbound = MakeConnectorMessage();
         var dispatcher = Substitute.For<IExecutionDispatcher>();
         dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns(MakeDispatchResponse());
+            .Returns(RuntimeOutcomes.Success());
 
         var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
 
@@ -144,7 +249,7 @@ public class AgentDispatchCoordinatorTests
         var inbound = MakeConnectorMessage();
         var dispatcher = Substitute.For<IExecutionDispatcher>();
         dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns(MakeDispatchResponse(exitCode: 1));
+            .Returns(RuntimeOutcomes.Failure(exitCode: 1));
 
         var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
 
@@ -158,14 +263,16 @@ public class AgentDispatchCoordinatorTests
     }
 
     [Fact]
-    public async Task RunDispatchAsync_ConnectorEvent_NoResponse_EmitsDecisionMade()
+    public async Task RunDispatchAsync_ConnectorEvent_SilentTurn_StillEmitsDecisionMade()
     {
-        // A connector turn the runtime ran but returned nothing recordable
-        // is still a routing outcome — the stream must not go silent.
+        // Under ADR-0056 a runtime that returns nothing observable is
+        // surfaced as RuntimeCompletedSilent, not the legacy "null
+        // response" branch. The connector routing-decision row must
+        // still land so the stream isn't silent on the outcome.
         var inbound = MakeConnectorMessage(action: "labeled");
         var dispatcher = Substitute.For<IExecutionDispatcher>();
         dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
+            .Returns(RuntimeOutcomes.Silent());
 
         var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
 
@@ -180,12 +287,10 @@ public class AgentDispatchCoordinatorTests
     [Fact]
     public async Task RunDispatchAsync_NonConnectorEvent_DoesNotEmitDecisionMade()
     {
-        // Agent-to-agent / human-originated turns are not connector routing
-        // decisions — emitting DecisionMade there would only add noise.
         var inbound = MakeAgentMessage();
         var dispatcher = Substitute.For<IExecutionDispatcher>();
         dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns(MakeDispatchResponse());
+            .Returns(RuntimeOutcomes.Success());
 
         var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
 
@@ -193,16 +298,12 @@ public class AgentDispatchCoordinatorTests
     }
 
     [Fact]
-    public async Task RunDispatchAsync_ConnectorEvent_DecisionMadeShareCorrelationIdWithRecordedResponse()
+    public async Task RunDispatchAsync_ConnectorEvent_AllEventsShareCorrelationId()
     {
-        // #2560 acceptance criterion 3: every downstream activity event must
-        // share the originating connector thread id so one query
-        // reconstructs the chain. The neutral terminal (WorkflowStepCompleted)
-        // and the DecisionMade both carry it.
         var inbound = MakeConnectorMessage();
         var dispatcher = Substitute.For<IExecutionDispatcher>();
         dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns(MakeDispatchResponse());
+            .Returns(RuntimeOutcomes.Success());
 
         var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
 

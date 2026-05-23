@@ -358,7 +358,7 @@ public class EngagementCommandTests
               "events": [
                 {"id":"{{Guid.NewGuid()}}","timestamp":"2026-04-01T09:55:00Z","source":"agent://ada","eventType":"ThreadStarted","severity":"Info","summary":"Started"},
                 {"id":"{{Guid.NewGuid()}}","timestamp":"2026-04-01T09:58:00Z","source":"agent://ada","eventType":"ErrorOccurred","severity":"Error","summary":"Dispatch failed: container exit 125"},
-                {"id":"{{Guid.NewGuid()}}","timestamp":"2026-04-01T10:00:00Z","source":"agent://ada","eventType":"MessageReceived","severity":"Info","summary":"Retry succeeded"}
+                {"id":"{{Guid.NewGuid()}}","timestamp":"2026-04-01T10:00:00Z","source":"agent://ada","eventType":"MessageArrived","severity":"Info","summary":"Retry succeeded"}
               ]
             }
             """);
@@ -403,7 +403,7 @@ public class EngagementCommandTests
                 "summary": "All good"
               },
               "events": [
-                {"id":"{{Guid.NewGuid()}}","timestamp":"2026-04-01T09:55:00Z","source":"agent://ada","eventType":"MessageReceived","severity":"Info","summary":"OK"}
+                {"id":"{{Guid.NewGuid()}}","timestamp":"2026-04-01T09:55:00Z","source":"agent://ada","eventType":"MessageArrived","severity":"Info","summary":"OK"}
               ]
             }
             """);
@@ -435,8 +435,8 @@ public class EngagementCommandTests
         var otherThread = "t-stream-other";
 
         var sseBody =
-            $"data: {{\"timestamp\":\"2026-04-01T10:00:00Z\",\"correlationId\":\"{threadId}\",\"eventType\":\"MessageReceived\",\"severity\":\"Info\",\"summary\":\"Hello\",\"source\":{{\"scheme\":\"agent\",\"path\":\"ada\"}}}}\n\n" +
-            $"data: {{\"timestamp\":\"2026-04-01T10:01:00Z\",\"correlationId\":\"{otherThread}\",\"eventType\":\"MessageReceived\",\"severity\":\"Info\",\"summary\":\"Other\",\"source\":{{\"scheme\":\"agent\",\"path\":\"bob\"}}}}\n\n";
+            $"data: {{\"timestamp\":\"2026-04-01T10:00:00Z\",\"correlationId\":\"{threadId}\",\"eventType\":\"MessageArrived\",\"severity\":\"Info\",\"summary\":\"Hello\",\"source\":{{\"scheme\":\"agent\",\"path\":\"ada\"}}}}\n\n" +
+            $"data: {{\"timestamp\":\"2026-04-01T10:01:00Z\",\"correlationId\":\"{otherThread}\",\"eventType\":\"MessageArrived\",\"severity\":\"Info\",\"summary\":\"Other\",\"source\":{{\"scheme\":\"agent\",\"path\":\"bob\"}}}}\n\n";
 
         var handler = new SseHttpMessageHandler(
             expectedPath: "/api/v1/tenant/activity/stream",

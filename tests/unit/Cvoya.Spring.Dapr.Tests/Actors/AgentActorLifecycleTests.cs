@@ -97,7 +97,7 @@ public class AgentActorLifecycleTests
             _activityEventBus,
             Substitute.For<IAgentObservationCoordinator>(),
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
-            new AgentDispatchCoordinator(_dispatcher, router, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
+            new AgentDispatchCoordinator(_dispatcher, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             _definitionProvider,
             Array.Empty<ISkillRegistry>(),
             _membershipRepository,

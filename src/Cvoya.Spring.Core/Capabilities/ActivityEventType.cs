@@ -10,7 +10,18 @@ using Cvoya.Spring.Core.Lifecycle;
 /// </summary>
 public enum ActivityEventType
 {
-    MessageReceived,
+    /// <summary>
+    /// Emitted when a message lands in the recipient's mailbox (a routing
+    /// event — the actor's <c>ReceiveAsync</c> path saw the envelope and
+    /// queued it). Renamed from <c>MessageReceived</c> per
+    /// <see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+    /// §7 to tighten the semantic to "mailbox arrival" — the runtime has not
+    /// necessarily been invoked yet; that is the separate
+    /// <see cref="MessageDispatchedToRuntime"/> event. The enum ordinal is
+    /// preserved (this is an in-place rename, not delete+append) per the
+    /// actor-remoting wire-format ordinal-stability rule called out below.
+    /// </summary>
+    MessageArrived,
     MessageSent,
     ThreadStarted,
     DecisionMade,
@@ -153,4 +164,93 @@ public enum ActivityEventType
     /// like. APPENDED per #956.
     /// </summary>
     LlmTurn,
+
+    /// <summary>
+    /// Emitted by the recipient when the mailbox hands an inbound
+    /// <see cref="Messaging.Message"/> to the execution dispatcher
+    /// (<see cref="Execution.IExecutionDispatcher.DispatchAsync"/>). Lands
+    /// after <see cref="MessageArrived"/> (mailbox accept) and before the
+    /// runtime-lifecycle events (<see cref="RuntimeStarted"/> etc.) so the
+    /// activity stream reads "arrived → dispatched-to-runtime → started → …
+    /// → terminal" in phase order. <see cref="ActivityEvent.Details"/>
+    /// carries <c>agentId</c>, <c>threadId</c>, and the inbound message id.
+    /// Added per
+    /// <see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+    /// §7. APPENDED per #956.
+    /// </summary>
+    MessageDispatchedToRuntime,
+
+    /// <summary>
+    /// Emitted by the recipient when the runtime container is observed to
+    /// start (or, when the launcher exposes no start hook, alongside the
+    /// dispatch call as the closest deterministic moment). Marks the
+    /// transition from "mailbox handed off the message" to "the runtime is
+    /// running". Paired with one of <see cref="RuntimeCompleted"/>,
+    /// <see cref="RuntimeFailed"/>, or <see cref="RuntimeCompletedSilent"/>
+    /// as the terminal. Added per
+    /// <see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+    /// §7. APPENDED per #956.
+    /// </summary>
+    RuntimeStarted,
+
+    /// <summary>
+    /// Emitted by the recipient when the runtime container exits with code
+    /// 0 <em>and</em> made at least one platform tool call during the turn
+    /// (i.e. it actually had an effect on the outside world). When the exit
+    /// is clean but no tool calls were made, the platform emits
+    /// <see cref="RuntimeCompletedSilent"/> instead so the stream is honest
+    /// about the silent-completion gap. <see cref="ActivityEvent.Details"/>
+    /// carries <c>exitCode</c>, <c>durationMs</c>, <c>toolCallCount</c>,
+    /// and any dispatcher-specific diagnostics from
+    /// <see cref="Execution.RuntimeOutcome.Diagnostics"/>. Added per
+    /// <see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+    /// §7. APPENDED per #956.
+    /// </summary>
+    RuntimeCompleted,
+
+    /// <summary>
+    /// Emitted by the recipient when the runtime container exits with a
+    /// non-zero code. Replaces the legacy
+    /// <see cref="ErrorOccurred"/> "Container exit code X" emission so the
+    /// activity stream uses a typed event for runtime failure rather than a
+    /// generic error row. <see cref="ActivityEvent.Details"/> carries
+    /// <c>exitCode</c>, <c>durationMs</c>, <c>toolCallCount</c>, and any
+    /// captured stderr / reasoning trace summary so operators can
+    /// diagnose without leaving the activity feed. Added per
+    /// <see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+    /// §7. APPENDED per #956.
+    /// </summary>
+    RuntimeFailed,
+
+    /// <summary>
+    /// Emitted by the recipient when the runtime container exited
+    /// successfully <em>without</em> invoking any platform tool calls — the
+    /// runtime produced only terminal text and therefore had no observable
+    /// effect on the outside world. Per
+    /// <see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+    /// §5 the platform <em>tolerates</em> this compliance gap rather than
+    /// auto-wrapping the terminal text into a synthesised message: the
+    /// activity makes the silence diagnosable (timestamp, duration, exit
+    /// code, reasoning-trace summary) and the fix is a runtime/prompt
+    /// improvement, not a host-side rescue. <see cref="ActivityEvent.Details"/>
+    /// mirrors <see cref="RuntimeCompleted"/> with
+    /// <c>toolCallCount = 0</c>. APPENDED per #956.
+    /// </summary>
+    RuntimeCompletedSilent,
+
+    /// <summary>
+    /// Emitted by the recipient carrying the runtime's captured terminal
+    /// text (stdout, A2A task reply, or file-capture buffer — whichever
+    /// <see cref="Execution.AgentResponseCapture"/> mode the launcher
+    /// selected). Diagnostic only — the reasoning trace is never routed as
+    /// a message; it lets humans debugging a turn see what the runtime
+    /// concluded before calling its tools. Volume is controlled by the
+    /// OTLP capture-level knob from
+    /// <see href="../../../docs/decisions/0054-one-mcp-server-one-execution-host.md">ADR-0054</see>
+    /// (default <c>summary</c>: trace truncated; <c>full</c>: trace
+    /// verbatim; <c>off</c>: event suppressed). Added per
+    /// <see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+    /// §7. APPENDED per #956.
+    /// </summary>
+    RuntimeReasoning,
 }

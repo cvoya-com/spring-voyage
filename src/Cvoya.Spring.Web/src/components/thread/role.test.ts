@@ -104,15 +104,15 @@ describe("isHumanAddress", () => {
 
 describe("roleFromEvent", () => {
   it("maps navigation-form scheme to role for message events", () => {
-    expect(roleFromEvent("human://savas", "MessageReceived")).toBe("human");
+    expect(roleFromEvent("human://savas", "MessageArrived")).toBe("human");
     expect(roleFromEvent("agent://ada", "MessageSent")).toBe("agent");
     expect(roleFromEvent("unit://eng", "ConversationStarted")).toBe("unit");
   });
 
   it("maps identity-form scheme to role for message events (#1490)", () => {
     const uuid = "1f9e3c2d-0000-0000-0000-000000000001";
-    expect(roleFromEvent(`agent:id:${uuid}`, "MessageReceived")).toBe("agent");
-    expect(roleFromEvent(`unit:id:${uuid}`, "MessageReceived")).toBe("unit");
+    expect(roleFromEvent(`agent:id:${uuid}`, "MessageArrived")).toBe("agent");
+    expect(roleFromEvent(`unit:id:${uuid}`, "MessageArrived")).toBe("unit");
   });
 
   it("treats DecisionMade as a tool call regardless of source form", () => {

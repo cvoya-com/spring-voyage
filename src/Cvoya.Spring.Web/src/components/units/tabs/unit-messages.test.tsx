@@ -155,7 +155,7 @@ describe("UnitMessagesTab — single 1:1 engagement timeline (#1459)", () => {
         events: [
           {
             id: "e-1",
-            eventType: "MessageReceived",
+            eventType: "MessageArrived",
             source: { address: "human://alice", displayName: "alice" },
             timestamp: "2026-04-30T10:00:00Z",
             severity: "Info",

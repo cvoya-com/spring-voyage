@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 /**
  * #989: Map a raw activity event-type identifier to a short,
  * user-friendly label. Raw identifiers (`ConversationStarted`,
- * `MessageReceived`, etc.) are fine for audit logs but bleed
+ * `MessageArrived`, etc.) are fine for audit logs but bleed
  * technical detail into the user-facing activity feed.
  *
  * The mapping covers every `ActivityEventType` value; an unknown
@@ -17,7 +17,7 @@ export function cn(...inputs: ClassValue[]) {
  */
 export function humanEventType(eventType: string): string {
   const MAP: Record<string, string> = {
-    MessageReceived: "Message received",
+    MessageArrived: "Message received",
     MessageSent: "Message sent",
     ThreadStarted: "Thread started",
     DecisionMade: "Decision made",

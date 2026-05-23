@@ -171,8 +171,8 @@ Bearer-token path. Scenarios that have no CLI counterpart stay on
 | units | unit-membership-roundtrip | fast | CLI (`spring unit members …`) | Full CLI coverage of #320. |
 | units | unit-create-and-start | fast | CLI (`spring unit start / status`) | Lifecycle path through `Running` (or `Starting`). |
 | units | unit-nested | fast | CLI (`spring unit members add --unit`) | #331 added the `--unit` flag so the scenario drops its HTTP fallback. |
-| messaging | agent-domain-message | fast | CLI + curl | #404: asserts `MessageReceived` persists after a Domain message to an agent, proving the router → actor → activity-bus path without an LLM. |
-| messaging | conversation-lifecycle | fast | CLI + curl | #404: verifies `MessageReceived` → `ThreadStarted` → `StateChanged (Idle→Active)` all fire when a fresh thread kicks off on an idle agent. |
+| messaging | agent-domain-message | fast | CLI + curl | #404: asserts `MessageArrived` persists after a Domain message to an agent, proving the router → actor → activity-bus path without an LLM. |
+| messaging | conversation-lifecycle | fast | CLI + curl | #404: verifies `MessageArrived` → `ThreadStarted` → `StateChanged (Idle→Active)` all fire when a fresh thread kicks off on an idle agent. |
 | policy | unit-policy-http-roundtrip | fast | CLI + curl | #404: GET empty → PUT (skill + model) → GET round-trip → PUT clear → GET empty; also asserts 404 for an unknown unit. |
 | cost | cost-api-shape | fast | CLI + curl | #404: fresh agent/unit return the full CostSummaryResponse with zero counters and a valid time window; explicit from/to override is honoured. |
 | activity | activity-query-filters | fast | curl | #404: asserts the four server-side filters on `/api/v1/activity` (source, eventType, severity, pageSize) actually narrow results — complements the SSE path until a cross-host event bridge lands. |

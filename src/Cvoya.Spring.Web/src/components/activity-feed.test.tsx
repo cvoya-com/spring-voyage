@@ -7,7 +7,7 @@ const mockEvent: ActivityEvent = {
   id: "abc-123",
   timestamp: new Date().toISOString(),
   source: { scheme: "agent", path: "test-agent" },
-  eventType: "MessageReceived",
+  eventType: "MessageArrived",
   severity: "Info",
   summary: "Test event happened",
 };

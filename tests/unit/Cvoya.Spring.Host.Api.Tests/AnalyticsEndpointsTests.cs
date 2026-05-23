@@ -60,7 +60,7 @@ public class AnalyticsEndpointsTests : IClassFixture<CustomWebApplicationFactory
         body.ShouldNotBeNull();
         body!.Entries.Count.ShouldBe(2);
         body.Entries[0].Source.ShouldBe("agent://ada");
-        body.Entries[0].MessagesReceived.ShouldBe(10);
+        body.Entries[0].MessagesArrived.ShouldBe(10);
     }
 
     [Fact]

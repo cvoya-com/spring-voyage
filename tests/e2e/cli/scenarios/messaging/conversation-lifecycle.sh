@@ -4,7 +4,7 @@
 #
 # When a Domain message with a fresh ThreadId arrives at an idle agent,
 # AgentActor.HandleDomainMessageAsync emits three activity events in order:
-#   1. MessageReceived  — from ReceiveAsync, before any state mutation.
+#   1. MessageArrived  — from ReceiveAsync, before any state mutation.
 #   2. ThreadStarted    — once the ThreadChannel is persisted.
 #   3. StateChanged     — "Idle → Active" once the dispatch task is armed.
 #
@@ -100,11 +100,11 @@ poll_for_event_type() {
     return 1
 }
 
-# 1. MessageReceived — happens first inside AgentActor.ReceiveAsync.
-if msg_body="$(poll_for_event_type MessageReceived)"; then
-    e2e::ok "thread lifecycle: MessageReceived event recorded"
+# 1. MessageArrived — happens first inside AgentActor.ReceiveAsync.
+if msg_body="$(poll_for_event_type MessageArrived)"; then
+    e2e::ok "thread lifecycle: MessageArrived event recorded"
 else
-    e2e::fail "MessageReceived never surfaced within 10s: ${msg_body:0:400}"
+    e2e::fail "MessageArrived never surfaced within 10s: ${msg_body:0:400}"
 fi
 
 # 2. ThreadStarted — happens once the ThreadChannel is persisted.

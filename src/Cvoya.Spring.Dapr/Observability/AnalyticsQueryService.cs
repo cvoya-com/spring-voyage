@@ -43,7 +43,7 @@ public class AnalyticsQueryService(SpringDbContext dbContext) : IAnalyticsQueryS
         // EF translates nameof(...) constants for enum-typed event strings
         // into plain equality filters, so we compute the string names once
         // rather than calling .ToString() inside the LINQ expression.
-        var receivedName = nameof(ActivityEventType.MessageReceived);
+        var receivedName = nameof(ActivityEventType.MessageArrived);
         var sentName = nameof(ActivityEventType.MessageSent);
         var turnName = nameof(ActivityEventType.ThreadStarted);
         var toolCallName = nameof(ActivityEventType.DecisionMade);

@@ -57,6 +57,15 @@ public class McpServer : IMcpServer
     private readonly IActivityEventBus? _activityEventBus;
     private readonly ConcurrentDictionary<string, McpSession> _sessions = new(StringComparer.Ordinal);
 
+    // ADR-0056 §5: per-session tool-call counter, read by the dispatch
+    // coordinator at turn end to decide whether to emit
+    // RuntimeCompletedSilent (zero dispatched tool calls means the runtime
+    // had no observable effect on the outside world). Incremented only
+    // when the server actually dispatches a tools/call to a handler —
+    // rejections (ungranted, policy-denied, unknown tool, malformed args)
+    // do not count because they record no outside-world effect.
+    private readonly ConcurrentDictionary<string, int> _toolCallCounts = new(StringComparer.Ordinal);
+
     /// <summary>
     /// Initializes the server with the set of registries to expose.
     /// </summary>
@@ -120,6 +129,7 @@ public class McpServer : IMcpServer
         var token = GenerateToken();
         var session = new McpSession(token, agentId, threadId, callerKind, subject, messageId);
         _sessions[token] = session;
+        _toolCallCounts[token] = 0;
         return session;
     }
 
@@ -164,7 +174,15 @@ public class McpServer : IMcpServer
     }
 
     /// <inheritdoc />
-    public void RevokeSession(string token) => _sessions.TryRemove(token, out _);
+    public void RevokeSession(string token)
+    {
+        _sessions.TryRemove(token, out _);
+        _toolCallCounts.TryRemove(token, out _);
+    }
+
+    /// <inheritdoc />
+    public int GetToolCallCount(string token)
+        => _toolCallCounts.TryGetValue(token, out var count) ? count : 0;
 
     /// <summary>
     /// Serves one MCP JSON-RPC request. Mapped as a minimal-API route on the
@@ -345,6 +363,15 @@ public class McpServer : IMcpServer
             });
             return;
         }
+
+        // ADR-0056 §5: bump the per-session tool-call counter now that
+        // both gates (effective grants + unit policy) have cleared and we
+        // are about to dispatch to a handler. Rejections do NOT count
+        // because they record no outside-world effect — the counter
+        // distinguishes "the runtime did something" from "the runtime
+        // tried something and was blocked". The dispatch coordinator
+        // reads this at turn end to decide RuntimeCompletedSilent.
+        _toolCallCounts.AddOrUpdate(session.Token, 1, (_, existing) => existing + 1);
 
         try
         {
