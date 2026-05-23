@@ -46,4 +46,19 @@ public static class AgentWorkspaceContract
 
     /// <summary>Env var name the D1 spec mandates for the workspace mount path.</summary>
     public const string WorkspacePathEnvVar = "SPRING_WORKSPACE_PATH";
+
+    /// <summary>
+    /// Env var name carrying the absolute URL of the worker bootstrap
+    /// endpoint the agent-sidecar pulls its configuration from
+    /// (ADR-0055 §9). Set by the launcher at container launch time.
+    /// </summary>
+    public const string BootstrapUrlEnvVar = "SPRING_BOOTSTRAP_URL";
+
+    /// <summary>
+    /// Env var name carrying the per-agent bootstrap bearer token
+    /// (ADR-0055 §8). Lifetime = agent lifetime — issued at agent
+    /// provision time, revoked at undeploy. Set by the launcher at
+    /// container launch time.
+    /// </summary>
+    public const string BootstrapTokenEnvVar = "SPRING_BOOTSTRAP_TOKEN";
 }

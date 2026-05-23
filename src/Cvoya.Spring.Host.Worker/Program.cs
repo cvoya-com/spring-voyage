@@ -135,6 +135,13 @@ public partial class Program
 
                     await mcpServer.HandleRequestAsync(httpContext, cancellationToken);
                 });
+
+                // ADR-0055 Wave 1: worker-hosted agent bootstrap pull
+                // endpoint. Restricted to the MCP Kestrel endpoint by the
+                // same local-port gate as /mcp/, so the bootstrap surface
+                // is reachable on the agent-facing network plane and
+                // segregated from the Dapr :8080 app channel.
+                app.MapBootstrapEndpoints(restrictToLocalPort: mcpPort);
             }
 
             // Drive EF Core migrations to completion BEFORE any hosted service

@@ -231,6 +231,7 @@ public class A2AExecutionDispatcherTests
             transportFactory,
             _connectorContext,
             _connectorPromptContext,
+            new AgentDefinitionSerializer(_runtimeCatalog),
             _loggerFactory);
     }
 

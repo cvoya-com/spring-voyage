@@ -22,8 +22,6 @@ using Cvoya.Spring.Dapr.Prompts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
 
 using SvMessage = Cvoya.Spring.Core.Messaging.Message;
 
@@ -69,14 +67,12 @@ public class A2AExecutionDispatcher(
     IA2ATransportFactory transportFactory,
     IConnectorRuntimeContextResolver connectorRuntimeContextResolver,
     IConnectorPromptContextResolver connectorPromptContextResolver,
+    IAgentDefinitionSerializer agentDefinitionSerializer,
     ILoggerFactory loggerFactory) : IExecutionDispatcher
 {
-    private static readonly ISerializer _yamlSerializer = new SerializerBuilder()
-        .WithNamingConvention(UnderscoredNamingConvention.Instance)
-        .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
-        .Build();
-
     private readonly ILogger _logger = loggerFactory.CreateLogger<A2AExecutionDispatcher>();
+    private readonly IAgentDefinitionSerializer _agentDefinitionSerializer = agentDefinitionSerializer
+        ?? throw new ArgumentNullException(nameof(agentDefinitionSerializer));
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
     private readonly IA2ATransportFactory _transportFactory = transportFactory
         ?? throw new ArgumentNullException(nameof(transportFactory));
@@ -1307,57 +1303,11 @@ public class A2AExecutionDispatcher(
         return (runtime.Launcher, launcher);
     }
 
-    /// <summary>
-    /// Serialises an <see cref="AgentDefinition"/> to YAML for the
-    /// <c>/spring/context/agent-definition.yaml</c> file (D1 spec § 2.2.2).
-    /// Uses underscore_case field names so the Python SDK's <c>yaml.safe_load</c>
-    /// round-trips cleanly with the spec's example payload.
-    /// </summary>
     private string SerialiseAgentDefinitionYaml(AgentDefinition definition)
-    {
-        // ADR-0038: emit the derived launcher strategy id so containers
-        // can see which in-container engine was selected for this turn.
-        // Sourced from the catalogue's `launcher` field on the runtime
-        // entry.
-        string? kind = null;
-        if (definition.Execution is not null)
-        {
-            var runtime = _runtimeCatalog.GetAgentRuntime(definition.Execution.Runtime);
-            kind = runtime?.Launcher;
-        }
+        => _agentDefinitionSerializer.SerializeAgentDefinitionYaml(definition);
 
-        var doc = new
-        {
-            agent_id = definition.AgentId,
-            name = definition.Name,
-            instructions = definition.Instructions,
-            execution = definition.Execution is null ? null : new
-            {
-                runtime = definition.Execution.Runtime,
-                kind = kind,
-                image = definition.Execution.Image,
-                hosting = definition.Execution.Hosting.ToString().ToLowerInvariant(),
-                model = definition.Execution.Model is null ? null : new
-                {
-                    provider = definition.Execution.Model.Provider,
-                    id = definition.Execution.Model.Id,
-                },
-                concurrent_threads = definition.Execution.ConcurrentThreads,
-            },
-        };
-        return _yamlSerializer.Serialize(doc);
-    }
-
-    /// <summary>
-    /// Serialises a minimal tenant-config JSON for the
-    /// <c>/spring/context/tenant-config.json</c> file (D1 spec § 2.2.2).
-    /// The OSS platform has no separate tenant-config blob; the tenant id
-    /// is the only tenant-level datum available at launch time.
-    /// </summary>
-    private static string SerialiseTenantConfigJson(Guid tenantId)
-    {
-        return JsonSerializer.Serialize(new { tenant_id = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(tenantId) });
-    }
+    private string SerialiseTenantConfigJson(Guid tenantId)
+        => _agentDefinitionSerializer.SerializeTenantConfigJson(tenantId);
 
     internal static SvMessage? MapA2AResponseToMessage(
         SvMessage originalMessage,
