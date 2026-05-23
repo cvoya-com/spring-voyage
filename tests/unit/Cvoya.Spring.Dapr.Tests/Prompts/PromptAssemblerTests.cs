@@ -6,7 +6,6 @@ namespace Cvoya.Spring.Dapr.Tests.Prompts;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Execution;
-using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Prompts;
 
@@ -25,7 +24,6 @@ public class PromptAssemblerTests
 {
     private readonly IPlatformPromptProvider _platformProvider = Substitute.For<IPlatformPromptProvider>();
     private readonly UnitContextBuilder _unitContextBuilder = new();
-    private readonly ThreadContextBuilder _threadContextBuilder = new();
     private readonly AgentInstructionsBuilder _agentInstructionsBuilder = new();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly PromptAssembler _assembler;
@@ -38,53 +36,35 @@ public class PromptAssemblerTests
         _assembler = new PromptAssembler(
             _platformProvider,
             _unitContextBuilder,
-            _threadContextBuilder,
             _agentInstructionsBuilder,
             _loggerFactory);
     }
 
-    private static Message CreateMessage(string text = "hello")
-    {
-        return new Message(
-            Guid.NewGuid(),
-            Address.For("agent", TestSlugIds.HexFor("sender")),
-            Address.For("agent", TestSlugIds.HexFor("receiver")),
-            MessageType.Domain,
-            "conv-1",
-            JsonSerializer.SerializeToElement(new { text }),
-            DateTimeOffset.UtcNow);
-    }
-
     /// <summary>
-    /// Verifies that all four layers are included in order when context is set.
+    /// Verifies that the three active layers (platform, unit context,
+    /// agent instructions) are included in order when context is set.
     /// </summary>
     [Fact]
-    public async Task AssembleAsync_IncludesAllFourLayersInOrder()
+    public async Task AssembleAsync_IncludesAllLayersInOrder()
     {
-        var message = CreateMessage();
         var context = new PromptAssemblyContext(
             Policies: JsonSerializer.SerializeToElement(new { maxRetries = 3 }),
             Skills: [new Skill("review", "Code review", [])],
-            PriorMessages: [CreateMessage("prior msg")],
-            LastCheckpoint: "checkpoint-1",
             AgentInstructions: "You are a code reviewer.");
 
-        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
         result.ShouldContain("## Platform Instructions");
         result.ShouldContain("## Unit Context");
-        result.ShouldContain("## Thread Context");
         result.ShouldContain("## Agent Instructions");
 
         // Verify ordering
         var platformIdx = result.IndexOf("## Platform Instructions", StringComparison.Ordinal);
         var unitIdx = result.IndexOf("## Unit Context", StringComparison.Ordinal);
-        var convIdx = result.IndexOf("## Thread Context", StringComparison.Ordinal);
         var agentIdx = result.IndexOf("## Agent Instructions", StringComparison.Ordinal);
 
         platformIdx.ShouldBeLessThan(unitIdx);
-        unitIdx.ShouldBeLessThan(convIdx);
-        convIdx.ShouldBeLessThan(agentIdx);
+        unitIdx.ShouldBeLessThan(agentIdx);
     }
 
     /// <summary>
@@ -93,19 +73,15 @@ public class PromptAssemblerTests
     [Fact]
     public async Task AssembleAsync_OmitsEmptyLayersGracefully()
     {
-        var message = CreateMessage();
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: [],
-            LastCheckpoint: null,
             AgentInstructions: null);
 
-        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
         result.ShouldContain("## Platform Instructions");
         result.ShouldNotContain("## Unit Context");
-        result.ShouldNotContain("## Thread Context");
         result.ShouldNotContain("## Agent Instructions");
     }
 
@@ -115,13 +91,10 @@ public class PromptAssemblerTests
     [Fact]
     public async Task AssembleAsync_NullContext_OnlyPlatformLayer()
     {
-        var message = CreateMessage();
-
-        var result = await _assembler.AssembleAsync(message, context: null, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(context: null, TestContext.Current.CancellationToken);
 
         result.ShouldContain("## Platform Instructions");
         result.ShouldNotContain("## Unit Context");
-        result.ShouldNotContain("## Thread Context");
         result.ShouldNotContain("## Agent Instructions");
     }
 
@@ -131,17 +104,14 @@ public class PromptAssemblerTests
     [Fact]
     public async Task AssembleAsync_IncludesSkillDescriptionsInUnitContext()
     {
-        var message = CreateMessage();
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: [new Skill("deploy", "Deploys services", [
                 new ToolDefinition("ops.run_deploy", "Runs deployment", JsonSerializer.SerializeToElement(new { }), string.Empty)
             ])],
-            PriorMessages: [],
-            LastCheckpoint: null,
             AgentInstructions: null);
 
-        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
         result.ShouldContain("## Unit Context");
         result.ShouldContain("deploy");
@@ -150,7 +120,7 @@ public class PromptAssemblerTests
     }
 
     /// <summary>
-    /// #2360: unit-equipped skill bundles render in Layer 2; agent-equipped
+    /// Unit-equipped skill bundles render in Layer 2; agent-equipped
     /// bundles render in Layer 4. The same SkillBundle going through the
     /// agent slot must land under "## Agent Instructions", not "## Unit
     /// Context", so member-agent inheritance (unit → Layer 2) does not
@@ -159,7 +129,6 @@ public class PromptAssemblerTests
     [Fact]
     public async Task AssembleAsync_UnitBundles_RenderInLayer2()
     {
-        var message = CreateMessage();
         var bundle = new SkillBundle(
             PackageName: "spring-voyage/software-engineering",
             SkillName: "triage-and-assign",
@@ -169,12 +138,10 @@ public class PromptAssemblerTests
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: [],
-            LastCheckpoint: null,
             AgentInstructions: null,
             SkillBundles: new[] { bundle });
 
-        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
         result.ShouldContain("## Unit Context");
         var unitIdx = result.IndexOf("## Unit Context", StringComparison.Ordinal);
@@ -186,7 +153,6 @@ public class PromptAssemblerTests
     [Fact]
     public async Task AssembleAsync_AgentBundles_RenderInLayer4()
     {
-        var message = CreateMessage();
         var bundle = new SkillBundle(
             PackageName: "spring-voyage/software-engineering",
             SkillName: "pr-review-cycle",
@@ -196,12 +162,10 @@ public class PromptAssemblerTests
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: [],
-            LastCheckpoint: null,
             AgentInstructions: null,
             AgentSkillBundles: new[] { bundle });
 
-        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
         result.ShouldContain("## Agent Instructions");
         var layer4Idx = result.IndexOf("## Agent Instructions", StringComparison.Ordinal);
@@ -215,7 +179,7 @@ public class PromptAssemblerTests
     }
 
     /// <summary>
-    /// #2442: the assembler renders an auto-injected "Connector context"
+    /// The assembler renders an auto-injected "Connector context"
     /// section between the platform layer and the unit-context layer
     /// when the per-invocation context carries connector prompt
     /// fragments. The section header is the canonical, stable text the
@@ -224,12 +188,9 @@ public class PromptAssemblerTests
     [Fact]
     public async Task AssembleAsync_ConnectorPromptFragments_RenderUnderPlatformSection()
     {
-        var message = CreateMessage();
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: [],
-            LastCheckpoint: null,
             AgentInstructions: "agent body",
             ConnectorPromptFragments: new[]
             {
@@ -237,7 +198,7 @@ public class PromptAssemblerTests
                 "### Other binding\nbody-b",
             });
 
-        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
         result.ShouldContain("## Connector context (auto-injected by platform)");
         result.ShouldContain("### GitHub binding — cvoya-com/spring-voyage");
@@ -255,15 +216,12 @@ public class PromptAssemblerTests
     [Fact]
     public async Task AssembleAsync_NoConnectorPromptFragments_OmitsConnectorSectionEntirely()
     {
-        var message = CreateMessage();
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: [],
-            LastCheckpoint: null,
             AgentInstructions: "agent body");
 
-        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
         result.ShouldNotContain("## Connector context");
     }
@@ -271,12 +229,9 @@ public class PromptAssemblerTests
     [Fact]
     public async Task AssembleAsync_NullAndBlankConnectorFragments_AreSkipped()
     {
-        var message = CreateMessage();
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: [],
-            LastCheckpoint: null,
             AgentInstructions: null,
             ConnectorPromptFragments: new[]
             {
@@ -285,7 +240,7 @@ public class PromptAssemblerTests
                 "   ",
             });
 
-        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
         result.ShouldContain("### Real fragment");
         // The whitespace-only entries do not produce any extra heading-
@@ -298,7 +253,6 @@ public class PromptAssemblerTests
     [Fact]
     public async Task AssembleAsync_UnitAndAgentBundles_RenderInDistinctLayers()
     {
-        var message = CreateMessage();
         var unitBundle = new SkillBundle(
             PackageName: "pkg-u",
             SkillName: "skill-u",
@@ -313,13 +267,11 @@ public class PromptAssemblerTests
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: [],
-            LastCheckpoint: null,
             AgentInstructions: "user-instructions",
             SkillBundles: new[] { unitBundle },
             AgentSkillBundles: new[] { agentBundle });
 
-        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
         var unitCtxIdx = result.IndexOf("## Unit Context", StringComparison.Ordinal);
         var agentCtxIdx = result.IndexOf("## Agent Instructions", StringComparison.Ordinal);

@@ -156,29 +156,17 @@ public sealed class EquippedSkillsLayer2InheritanceTests : IDisposable
         var assembler = new PromptAssembler(
             platformProvider,
             new UnitContextBuilder(),
-            new ThreadContextBuilder(),
             new AgentInstructionsBuilder(),
             NullLoggerFactory.Instance);
 
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: Array.Empty<Message>(),
-            LastCheckpoint: null,
             AgentInstructions: "You are the member agent.",
             SkillBundles: unitBundles,
             AgentSkillBundles: agentBundles);
 
-        var message = new Message(
-            Guid.NewGuid(),
-            Address.For("agent", GuidFormatter.Format(agentId)),
-            Address.For("agent", GuidFormatter.Format(agentId)),
-            MessageType.Domain,
-            "thread-1",
-            JsonSerializer.SerializeToElement(new { text = "kick off the work" }),
-            DateTimeOffset.UtcNow);
-
-        var assembled = await assembler.AssembleAsync(message, context, ct);
+        var assembled = await assembler.AssembleAsync(context, ct);
 
         // Acceptance: body present, AND it lands after the Unit Context
         // header but before the Agent Instructions header.

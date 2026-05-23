@@ -78,8 +78,11 @@ public class GeminiLauncherTests
         prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("Spring Voyage runtime guard — response discipline");
+        // After the silent-dispatch cutover the response-discipline
+        // contract lives in the platform-prompt layer. With
+        // concurrent_threads off the launcher returns the prompt body
+        // unchanged.
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
         _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
@@ -96,7 +99,11 @@ public class GeminiLauncherTests
             TestContext.Current.CancellationToken);
 
         contribution.Files.Keys.ShouldBe(new[] { "GEMINI.md", ".gemini/settings.json" }, ignoreOrder: true);
-        contribution.Files["GEMINI.md"].ShouldBe("Analyze thoroughly.");
+        // GEMINI.md must equal the AssembledSystemPrompt handed in by
+        // the bundle provider — NOT Definition.Instructions. After the
+        // silent-dispatch cutover the assembler produces the full
+        // multi-layer system prompt and the bundle writes that here.
+        contribution.Files["GEMINI.md"].ShouldBe(TestAssembledSystemPrompt);
 
         using var settings = JsonDocument.Parse(contribution.Files[".gemini/settings.json"]);
         var server = settings.RootElement.GetProperty("mcpServers").GetProperty("spring-voyage");
@@ -190,14 +197,13 @@ public class GeminiLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuardsToSystemPromptEnv()
+    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsConcurrentThreadsGuardToSystemPromptEnv()
     {
-        // #2096 / ADR-0041 + #2493: when concurrent_threads is on, the
-        // assembled prompt the model sees via SPRING_SYSTEM_PROMPT MUST
-        // start with the ResponseDiscipline guard (always-on) and
-        // additionally carry the ConcurrentThreadsGuard. The user's prompt
-        // body is preserved in full — the guards compose, they do not
-        // replace.
+        // ADR-0041: when concurrent_threads is on, the launcher prepends
+        // the ConcurrentThreadsGuard marker to the prompt body delivered
+        // via SPRING_SYSTEM_PROMPT. The user's prompt body is preserved
+        // as the tail. The universal response-discipline contract now
+        // lives in the platform-prompt layer.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nAnalyze thoroughly.",
             mcpToken: "gemini-secret-token") with
@@ -205,17 +211,15 @@ public class GeminiLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("concurrent_threads is on");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — concurrent_threads is on");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsFalse_StillPrependsResponseDisciplineGuard()
+    public async Task PrepareAsync_ConcurrentThreadsFalse_LeavesPromptUnchanged()
     {
-        // Issue #2493: the ResponseDiscipline guard is universal — every
-        // launched runtime sees it. The ConcurrentThreadsGuard remains
-        // gated on the flag.
+        // With concurrent_threads off the launcher returns the prompt
+        // body unchanged — no guard prepended.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nAnalyze thoroughly.",
             mcpToken: "gemini-secret-token") with
@@ -223,8 +227,7 @@ public class GeminiLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldNotContain("concurrent_threads is on");
     }
 
@@ -309,8 +312,11 @@ public class GeminiLauncherTests
             .ShouldBe(AgentWorkspaceContract.BuildMountPath(context.AgentId));
     }
 
+    private const string TestAssembledSystemPrompt = "ASSEMBLED SYSTEM PROMPT FOR TEST";
+
     private static AgentBootstrapContributionContext CreateBundleContext(
-        string? instructions = "Analyze thoroughly.")
+        string? instructions = "Analyze thoroughly.",
+        string assembledSystemPrompt = TestAssembledSystemPrompt)
     {
         var definition = new AgentDefinition(
             AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
@@ -322,6 +328,7 @@ public class GeminiLauncherTests
         return new AgentBootstrapContributionContext(
             AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
             Definition: definition,
-            McpEndpoint: BundleContextMcpEndpoint);
+            McpEndpoint: BundleContextMcpEndpoint,
+            AssembledSystemPrompt: assembledSystemPrompt);
     }
 }

@@ -186,8 +186,6 @@ public class RuntimeInvocationPath(
         return new PromptAssemblyContext(
             Policies: null,
             Skills: skills,
-            PriorMessages: Array.Empty<Message>(),
-            LastCheckpoint: null,
             AgentInstructions: definition?.Instructions,
             EffectiveMetadata: null,
             PendingAmendments: null);

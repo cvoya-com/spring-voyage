@@ -103,28 +103,16 @@ public class EquippedSkillsLayer4Tests : IDisposable
         var assembler = new PromptAssembler(
             platformProvider,
             new UnitContextBuilder(),
-            new ThreadContextBuilder(),
             new AgentInstructionsBuilder(),
             NullLoggerFactory.Instance);
 
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: Array.Empty<Message>(),
-            LastCheckpoint: null,
             AgentInstructions: "You are the synthetic agent.",
             AgentSkillBundles: bundles);
 
-        var message = new Message(
-            Guid.NewGuid(),
-            Address.For("agent", agentId),
-            Address.For("agent", agentId),
-            MessageType.Domain,
-            "thread-1",
-            JsonSerializer.SerializeToElement(new { text = "hi" }),
-            DateTimeOffset.UtcNow);
-
-        var assembled = await assembler.AssembleAsync(message, context, ct);
+        var assembled = await assembler.AssembleAsync(context, ct);
 
         // 5) The acceptance criterion: the assembled prompt carries the
         //    skill body in Layer 4. Two sub-assertions: (a) the body is

@@ -50,7 +50,19 @@ public record AgentBootstrapContribution(
 /// written by the sidecar from each turn's A2A
 /// <c>message/send</c> metadata (ADR-0055 §4 / ADR-0052 §4).
 /// </param>
+/// <param name="AssembledSystemPrompt">
+/// The per-agent system prompt produced by <see cref="IPromptAssembler"/>
+/// — platform contract (Layer 1) + unit context (Layer 2) + agent
+/// instructions and equipped skill bundles (Layer 4). The bundle
+/// provider invokes the assembler once per bundle build and hands the
+/// resulting string here; CLI launchers write it to their runtime's
+/// auto-discovered system-prompt file (<c>CLAUDE.md</c> for Claude
+/// Code, <c>AGENTS.md</c> for Codex, <c>GEMINI.md</c> for Gemini).
+/// Thread history (formerly Layer 3) is NOT in this string — each
+/// runtime's session-resume mechanism delivers it.
+/// </param>
 public record AgentBootstrapContributionContext(
     string AgentId,
     AgentDefinition Definition,
-    string McpEndpoint);
+    string McpEndpoint,
+    string AssembledSystemPrompt);

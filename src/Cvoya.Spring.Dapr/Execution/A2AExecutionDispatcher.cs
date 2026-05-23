@@ -215,7 +215,7 @@ public class A2AExecutionDispatcher(
             message.To, cancellationToken);
         var contextWithConnectorPrompts = WithConnectorPromptFragments(context, connectorPromptFragments);
 
-        var prompt = await promptAssembler.AssembleAsync(message, contextWithConnectorPrompts, cancellationToken);
+        var prompt = await promptAssembler.AssembleAsync(contextWithConnectorPrompts, cancellationToken);
         // Carry the receiver's scheme into the MCP session so platform
         // tools (#2231) can answer get_self()-style queries without a DB
         // lookup. message.To.Scheme is the authoritative caller-kind here.
@@ -298,6 +298,14 @@ public class A2AExecutionDispatcher(
         var specWithVolume = specWithConnectors with
         {
             ExtraVolumeMounts = MergeVolumeMounts(specWithConnectors.ExtraVolumeMounts, volumeMount),
+            // Default the container's working directory to the per-member
+            // workspace mount (the documented behaviour on
+            // AgentLaunchSpec.WorkingDirectory). The launcher's override
+            // wins when it sets one explicitly. CLI launchers that
+            // discover config files (e.g. Claude Code's `.mcp.json`)
+            // relative to CWD rely on this default.
+            WorkingDirectory = specWithConnectors.WorkingDirectory
+                ?? AgentWorkspaceContract.BuildMountPathNoSlash(agentId),
         };
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
@@ -376,7 +384,6 @@ public class A2AExecutionDispatcher(
                 agentId,
                 containerId,
                 message,
-                prompt,
                 session.Token,
                 cancellationToken);
         }
@@ -538,8 +545,6 @@ public class A2AExecutionDispatcher(
             return new PromptAssemblyContext(
                 Policies: null,
                 Skills: null,
-                PriorMessages: [],
-                LastCheckpoint: null,
                 AgentInstructions: null,
                 ConnectorPromptFragments: fragments);
         }
@@ -718,7 +723,7 @@ public class A2AExecutionDispatcher(
             message.To, cancellationToken);
         var contextWithConnectorPrompts = WithConnectorPromptFragments(context, connectorPromptFragments);
 
-        var prompt = await promptAssembler.AssembleAsync(message, contextWithConnectorPrompts, cancellationToken);
+        var prompt = await promptAssembler.AssembleAsync(contextWithConnectorPrompts, cancellationToken);
 
         // #2159: register this dispatch as in flight so the background health
         // timer doesn't probe (and possibly restart) the container while the
@@ -751,7 +756,6 @@ public class A2AExecutionDispatcher(
                 agentId,
                 containerId,
                 message,
-                prompt,
                 session.Token,
                 cancellationToken);
         }
@@ -891,6 +895,12 @@ public class A2AExecutionDispatcher(
         var specWithVolume = specWithConnectors with
         {
             ExtraVolumeMounts = MergeVolumeMounts(specWithConnectors.ExtraVolumeMounts, volumeMount),
+            // Default the container's working directory to the per-member
+            // workspace mount (the documented behaviour on
+            // AgentLaunchSpec.WorkingDirectory). The launcher's override
+            // wins when it sets one explicitly.
+            WorkingDirectory = specWithConnectors.WorkingDirectory
+                ?? AgentWorkspaceContract.BuildMountPathNoSlash(agentId),
         };
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
@@ -984,7 +994,6 @@ public class A2AExecutionDispatcher(
         string agentId,
         string? containerId,
         SvMessage originalMessage,
-        string prompt,
         string mcpToken,
         CancellationToken cancellationToken)
     {
@@ -995,13 +1004,15 @@ public class A2AExecutionDispatcher(
 
         // Map the inbound payload to the user-facing text via the shared
         // helper so all three payload shapes (bare string, { text: "…" },
-        // { Task: "…" }) are handled identically across ThreadContextBuilder
-        // and the A2A dispatcher. Falling back to the assembled system
-        // prompt — as the previous Task-only extraction did on a miss —
-        // leaked the system instructions into the user role and made the
-        // agent reply to itself on follow-up turns (#2230).
-        var extracted = MessagePayloadText.Extract(originalMessage.Payload);
-        var userMessage = string.IsNullOrEmpty(extracted) ? prompt : extracted;
+        // { Task: "…" }) are handled identically. An empty extraction
+        // results in an empty user-message text — the system prompt
+        // (delivered via the bootstrap bundle / runtime-native session
+        // resume) carries everything else the runtime needs. Falling
+        // back to the assembled system prompt — as the previous
+        // Task-only extraction did on a miss — leaked the system
+        // instructions into the user role and made the agent reply to
+        // itself on follow-up turns (#2230).
+        var userMessage = MessagePayloadText.Extract(originalMessage.Payload);
 
         // A2A v0.3 wire shape: MessageSendParams { message, configuration } —
         // the JSON-RPC method name is `message/send` (set by the SDK), which

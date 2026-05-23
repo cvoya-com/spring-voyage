@@ -96,13 +96,11 @@ public class SpringVoyageAgentLauncherTests
         prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
-        // Issue #2493: the launcher composes the always-on
-        // ResponseDiscipline guard with the user's prompt; SPRING_SYSTEM_PROMPT
-        // is the composed result. The user's original prompt body is the
-        // tail of the env value.
-        var composedPrompt = prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"];
-        composedPrompt.ShouldEndWith(context.Prompt);
-        composedPrompt.ShouldContain("Spring Voyage runtime guard — response discipline");
+        // After the silent-dispatch cutover the response-discipline
+        // contract lives in the platform-prompt layer. With
+        // concurrent_threads off the launcher returns the prompt body
+        // unchanged.
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
         _callbackSupport.AssertCallbackEnvironment(prep, context);
         // #1327: SPRING_MODEL and SPRING_LLM_PROVIDER are now D1-spec-declared (§ 2.2.1).
         prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("llama3.2:3b");
@@ -143,7 +141,8 @@ public class SpringVoyageAgentLauncherTests
             new AgentBootstrapContributionContext(
                 AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
                 Definition: definition,
-                McpEndpoint: "http://host.docker.internal:9999/mcp/"),
+                McpEndpoint: "http://host.docker.internal:9999/mcp/",
+                AssembledSystemPrompt: "ASSEMBLED SYSTEM PROMPT FOR TEST"),
             TestContext.Current.CancellationToken);
 
         contribution.Files.ShouldBeEmpty();
@@ -398,34 +397,33 @@ public class SpringVoyageAgentLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuards()
+    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsConcurrentThreadsGuard()
     {
-        // Issue #2493: the always-on ResponseDiscipline guard is now
-        // prepended by EVERY launcher (including the Spring Voyage Agent
-        // launcher used by the Python reference agent). When
-        // concurrent_threads is true, the ConcurrentThreadsGuard also
-        // composes in. Both precede the user's prompt body.
+        // ADR-0041: when concurrent_threads is on, the launcher prepends
+        // the ConcurrentThreadsGuard marker to the prompt body delivered
+        // via SPRING_SYSTEM_PROMPT. The user's prompt body is preserved
+        // as the tail. The universal response-discipline contract now
+        // lives in the platform-prompt layer.
         var context = CreateContext() with { ConcurrentThreads = true };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         var composed = prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"];
-        composed.ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        composed.ShouldContain("concurrent_threads is on");
+        composed.ShouldStartWith("## Spring Voyage runtime guard — concurrent_threads is on");
         composed.ShouldEndWith(context.Prompt);
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsFalse_StillPrependsResponseDiscipline()
+    public async Task PrepareAsync_ConcurrentThreadsFalse_LeavesPromptUnchanged()
     {
-        // Issue #2493: response discipline is universal, gating-independent.
+        // With concurrent_threads off the launcher returns the prompt
+        // body unchanged — no guard prepended.
         var context = CreateContext() with { ConcurrentThreads = false };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         var composed = prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"];
-        composed.ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        composed.ShouldEndWith(context.Prompt);
+        composed.ShouldBe(context.Prompt);
         composed.ShouldNotContain("concurrent_threads is on");
     }
 

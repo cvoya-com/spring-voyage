@@ -167,9 +167,14 @@ public class CodexLauncher(
             },
         };
 
+        // AGENTS.md is the Codex CLI's auto-discovered system-prompt
+        // file. The bundle provider has composed the per-agent system
+        // prompt (platform contract + unit context + agent
+        // instructions + equipped skill bundles) via IPromptAssembler
+        // and handed it in on AgentBootstrapContributionContext.
         var files = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["AGENTS.md"] = context.Definition.Instructions ?? string.Empty,
+            ["AGENTS.md"] = context.AssembledSystemPrompt,
             [McpConfigFileName] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true }),
         };
 

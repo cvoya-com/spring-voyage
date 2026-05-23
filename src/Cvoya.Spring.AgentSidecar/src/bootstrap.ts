@@ -142,16 +142,24 @@ export class BootstrapFetcher {
   }
 
   /**
-   * Runs the per-turn integrity check (ADR-0055 §6). Recomputes sha256
-   * of each platform-authoritative file on disk and compares against the
-   * cached values. On any mismatch, re-fetches the bundle with the
-   * cached etag — a 304 means the server confirms the cache, and we
-   * restore the diverged files from the cached bytes; a 200 replaces
-   * the cache and re-writes every file.
+   * Runs the per-turn refresh (ADR-0055 §6). Always issues an
+   * `If-None-Match` fetch — the worker's content-addressable etag
+   * makes the 304 path one HTTP roundtrip with an empty body, while
+   * the 200 path delivers server-side updates that disk-divergence
+   * alone would never surface (e.g. the operator edited the agent's
+   * `Instructions` between turns; the on-disk `CLAUDE.md` still
+   * matches the cached hash so a divergence-only check would silently
+   * keep using the stale bundle).
    *
-   * Best-effort. Failures during the integrity check are caller-visible
-   * via the returned warning, but the function does not throw — a stale
-   * file is preferable to taking down a turn.
+   * Result handling:
+   * - 304 — server confirms our cached bundle is current. Restore any
+   *   platform file that drifted on disk (e.g. the CLI rewrote
+   *   `CLAUDE.md` mid-turn) from the cached bytes.
+   * - 200 — server returned a fresh bundle. Replace the cache and
+   *   re-write every file.
+   * - fetch failure — best-effort: fall back to disk-only restoration
+   *   from the existing cache so a transient network blip doesn't
+   *   take down the turn.
    */
   async integrityCheckAndRefresh(): Promise<IntegrityCheckResult> {
     if (this.cache === null) {
@@ -162,47 +170,64 @@ export class BootstrapFetcher {
       return { checked: false, warning: "no bundle cached; skipping integrity check" };
     }
 
-    let diverged: string[];
-    try {
-      diverged = this.findDivergedPlatformFiles();
-    } catch (err) {
-      return {
-        checked: false,
-        warning: `integrity check could not read workspace files: ${(err as Error).message}`,
-      };
-    }
-
-    if (diverged.length === 0) {
-      return { checked: true, restored: [] };
-    }
-
     let refreshed: BootstrapBundle | null;
     try {
       refreshed = await this.doFetch(this.cache.etag);
     } catch (err) {
+      // Fetch failed — fall back to disk-only divergence restoration
+      // from the existing cache. Surface as a warning.
+      const restored = this.restoreDivergedFromCache();
       return {
         checked: true,
-        warning: `re-fetch failed (${(err as Error).message}); leaving on-disk divergence (${diverged.join(", ")})`,
+        restored,
+        warning: `bootstrap fetch failed (${(err as Error).message}); restored ${restored.length} diverged file(s) from cache`,
       };
     }
 
     if (refreshed === null) {
-      // 304 — bundle unchanged; restore from cache.
-      const restored: string[] = [];
-      for (const filePath of diverged) {
-        const cached = this.cache.files.get(filePath);
-        if (cached !== undefined) {
-          this.materializeOne(filePath, cached);
-          restored.push(filePath);
-        }
-      }
+      // 304 — bundle unchanged; restore any on-disk drift from cache.
+      const restored = this.restoreDivergedFromCache();
       return { checked: true, restored };
     }
 
-    // 200 — server returned a new bundle; replace cache + re-write all files.
+    // 200 — server returned a new bundle. This is the per-turn
+    // refresh path: an operator edited the agent definition, a
+    // connector contribution changed, etc. Replace the cache and
+    // re-write every file so the CLI spawn that follows sees the
+    // fresh content.
     this.materializeAll(refreshed);
     this.cache = this.toCached(refreshed, this.buildEtag(refreshed.version));
     return { checked: true, restored: Array.from(this.cache.files.keys()) };
+  }
+
+  /**
+   * Recomputes the platform-authoritative subset against disk and
+   * restores any diverged file from the in-memory cache. No HTTP
+   * calls. Returns the list of paths actually restored — empty when
+   * the disk already matches the cache.
+   */
+  private restoreDivergedFromCache(): string[] {
+    if (this.cache === null) {
+      return [];
+    }
+    let diverged: string[];
+    try {
+      diverged = this.findDivergedPlatformFiles();
+    } catch {
+      // findDivergedPlatformFiles only throws on workspace read
+      // failure; treat as "nothing to restore" rather than masking a
+      // 304 result.
+      return [];
+    }
+    const restored: string[] = [];
+    for (const filePath of diverged) {
+      const cached = this.cache.files.get(filePath);
+      if (cached !== undefined) {
+        this.materializeOne(filePath, cached);
+        restored.push(filePath);
+      }
+    }
+    return restored;
   }
 
   /**

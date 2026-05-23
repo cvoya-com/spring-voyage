@@ -123,7 +123,6 @@ internal static class ServiceCollectionExtensionsMessaging
 
         // Prompt
         services.AddSingleton<UnitContextBuilder>();
-        services.AddSingleton<ThreadContextBuilder>();
         services.AddSingleton<AgentInstructionsBuilder>();
 
         return services;

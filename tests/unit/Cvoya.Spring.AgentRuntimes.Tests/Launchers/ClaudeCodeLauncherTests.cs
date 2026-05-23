@@ -76,11 +76,11 @@ public class ClaudeCodeLauncherTests
         prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
-        // Issue #2493: every launcher prepends the always-on
-        // ResponseDiscipline fragment; the user's prompt is the tail of
-        // the assembled body.
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("Spring Voyage runtime guard — response discipline");
+        // After the silent-dispatch cutover the universal response-
+        // discipline contract lives in the platform-prompt layer
+        // (IPlatformPromptProvider). When concurrent_threads is off the
+        // launcher's Compose returns the prompt unchanged.
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
         _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
@@ -98,7 +98,13 @@ public class ClaudeCodeLauncherTests
             TestContext.Current.CancellationToken);
 
         contribution.Files.Keys.ShouldBe(new[] { "CLAUDE.md", ".mcp.json" }, ignoreOrder: true);
-        contribution.Files["CLAUDE.md"].ShouldBe("You are a helpful agent.");
+        // The bundle's CLAUDE.md must equal the AssembledSystemPrompt
+        // string handed in on the context — NOT Definition.Instructions.
+        // After the silent-dispatch cutover the bundle provider invokes
+        // IPromptAssembler once per bundle build and passes the full
+        // multi-layer system prompt here; writing Definition.Instructions
+        // raw would drop the platform contract.
+        contribution.Files["CLAUDE.md"].ShouldBe(TestAssembledSystemPrompt);
 
         var parsed = JsonDocument.Parse(contribution.Files[".mcp.json"]).RootElement;
         var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
@@ -113,12 +119,13 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task ContributeBundleAsync_NullInstructions_YieldsEmptyClaudeMd()
+    public async Task ContributeBundleAsync_EmptyAssembledPrompt_YieldsEmptyClaudeMd()
     {
-        // AgentDefinition.Instructions is nullable; the bundle must
-        // materialise an empty CLAUDE.md rather than throwing.
+        // The bundle provider always supplies AssembledSystemPrompt — but
+        // a synthetic empty prompt must materialise an empty CLAUDE.md
+        // rather than throwing.
         var contribution = await _launcher.ContributeBundleAsync(
-            CreateBundleContext(instructions: null),
+            CreateBundleContext(assembledSystemPrompt: string.Empty),
             TestContext.Current.CancellationToken);
 
         contribution.Files["CLAUDE.md"].ShouldBe(string.Empty);
@@ -170,21 +177,28 @@ public class ClaudeCodeLauncherTests
     [Fact]
     public async Task PrepareAsync_SetsSpringAgentArgv_AsJsonEncodedArrayOfStrings()
     {
-        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+        var context = CreateContext();
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         prep.EnvironmentVariables.ShouldContainKey("SPRING_AGENT_ARGV");
         var raw = prep.EnvironmentVariables["SPRING_AGENT_ARGV"];
 
         // The bridge does JSON.parse on this value (see
         // src/Cvoya.Spring.AgentSidecar/src/config.ts). Round-tripping it
-        // through JsonSerializer is the contract.
+        // through JsonSerializer is the contract. The argv carries
+        // --mcp-config so the CLI loads the platform MCP server
+        // independently of its spawn CWD.
         var argv = JsonSerializer.Deserialize<string[]>(raw);
         argv.ShouldNotBeNull();
+        var expectedMcpConfigPath =
+            $"{AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId)}/.mcp.json";
         argv.ShouldBe(new[]
         {
             "claude",
             "--print",
             "--dangerously-skip-permissions",
+            "--mcp-config",
+            expectedMcpConfigPath,
         });
     }
 
@@ -342,45 +356,45 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuardsToSystemPromptEnv()
+    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsConcurrentThreadsGuardToSystemPromptEnv()
     {
-        // #2096 / ADR-0041 + #2493: when concurrent_threads is on, the
-        // assembled prompt the model sees via SPRING_SYSTEM_PROMPT MUST
-        // start with the always-on ResponseDiscipline guard and
-        // additionally carry the ConcurrentThreadsGuard. The user's
-        // prompt body is preserved — the guards compose, they do not
-        // replace.
+        // ADR-0041: when concurrent_threads is on, the launcher prepends
+        // the ConcurrentThreadsGuard marker to the assembled prompt body
+        // delivered via SPRING_SYSTEM_PROMPT. The user's prompt body is
+        // preserved as the tail. The universal response-discipline
+        // contract now lives in the platform-prompt layer, so the
+        // launcher no longer prepends it here.
         var context = CreateContext() with { ConcurrentThreads = true };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("concurrent_threads is on");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — concurrent_threads is on");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsFalse_StillPrependsResponseDisciplineGuard()
+    public async Task PrepareAsync_ConcurrentThreadsFalse_LeavesPromptUnchanged()
     {
-        // Issue #2493: the ResponseDiscipline guard is universal — every
-        // launched runtime sees it. The ConcurrentThreadsGuard remains
-        // gated on the flag.
+        // With concurrent_threads off the launcher returns the prompt
+        // body unchanged — no guard prepended, no response-discipline
+        // text added (that moved to the platform-prompt layer).
         var context = CreateContext() with { ConcurrentThreads = false };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldNotContain("concurrent_threads is on");
     }
 
     private const string BundleContextMcpEndpoint = "http://host.docker.internal:9999/mcp/";
+    private const string TestAssembledSystemPrompt = "ASSEMBLED SYSTEM PROMPT FOR TEST";
 
     private static AgentLaunchContext CreateContext() =>
         LauncherCallbackTestSupport.CreateContext();
 
     private static AgentBootstrapContributionContext CreateBundleContext(
-        string? instructions = "You are a helpful agent.")
+        string? instructions = "You are a helpful agent.",
+        string assembledSystemPrompt = TestAssembledSystemPrompt)
     {
         var definition = new AgentDefinition(
             AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
@@ -392,7 +406,8 @@ public class ClaudeCodeLauncherTests
         return new AgentBootstrapContributionContext(
             AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
             Definition: definition,
-            McpEndpoint: BundleContextMcpEndpoint);
+            McpEndpoint: BundleContextMcpEndpoint,
+            AssembledSystemPrompt: assembledSystemPrompt);
     }
 
     private static JsonElement GetMcpServers(AgentBootstrapContribution contribution)

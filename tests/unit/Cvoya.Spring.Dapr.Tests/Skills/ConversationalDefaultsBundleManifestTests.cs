@@ -77,7 +77,7 @@ public class ConversationalDefaultsBundleManifestTests
     }
 
     [Fact]
-    public async Task Bundle_PromptOpensWithPlatformContractHeader()
+    public async Task Bundle_PromptPointsAtPlatformContractInLayer1()
     {
         var resolver = BuildResolverFromRepoPackages();
 
@@ -85,29 +85,15 @@ public class ConversationalDefaultsBundleManifestTests
             DefaultAgentSkillBundles.ConversationalDefaults,
             TestContext.Current.CancellationToken);
 
-        // ADR-0056 §8 "Platform-prompt authority": the bracketed
-        // upper-case marker must be present verbatim — it is what
-        // tells the runtime the fragment is contract, not advice.
-        // The prompt opens with it so model-trained instruction-
-        // following surfaces it first.
-        bundle.Prompt.TrimStart().ShouldStartWith("[PLATFORM CONTRACT — NON-NEGOTIABLE]");
-    }
-
-    [Fact]
-    public async Task Bundle_PromptDeclaresTerminalOutputIsDiagnosticOnly()
-    {
-        var resolver = BuildResolverFromRepoPackages();
-
-        var bundle = await resolver.ResolveAsync(
-            DefaultAgentSkillBundles.ConversationalDefaults,
-            TestContext.Current.CancellationToken);
-
-        // The "terminal output is diagnostic" clause is load-bearing
-        // per the issue acceptance — the runtime must not expect
-        // stdout to be delivered as a message in Wave 3.
-        bundle.Prompt.ShouldContain("terminal output");
-        bundle.Prompt.ShouldContain("diagnostics only");
-        bundle.Prompt.ShouldContain("tool call");
+        // The `[PLATFORM CONTRACT — NON-NEGOTIABLE]` header is now
+        // emitted once, in Layer 1 (PlatformPromptProvider). The
+        // bundle no longer carries a parallel copy; it points the
+        // runtime at the platform-layer instructions at the top of
+        // the assembled prompt and then enumerates the tools it
+        // grants.
+        bundle.Prompt.ShouldNotContain("[PLATFORM CONTRACT — NON-NEGOTIABLE]");
+        bundle.Prompt.ShouldContain("platform's response contract");
+        bundle.Prompt.ShouldContain("platform-layer instructions");
     }
 
     [Fact]

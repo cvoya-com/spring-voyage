@@ -6,11 +6,9 @@ namespace Cvoya.Spring.Integration.Tests;
 using System;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Core.Execution;
-using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Prompts;
@@ -18,21 +16,21 @@ using Cvoya.Spring.Dapr.Skills;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
-using NSubstitute;
-
 using Shouldly;
 
 using Xunit;
 
 /// <summary>
-/// Integration coverage for ADR-0056 Wave 2 (#2657) — the
+/// Integration coverage for the
 /// <c>sv.conversational.defaults</c> skill bundle. Exercises the bundle
 /// end-to-end against the in-tree package on disk: resolve through
 /// <see cref="FileSystemSkillBundleResolver"/>, equip via
 /// <see cref="IAgentSkillBundleStore"/>, and assemble through
 /// <see cref="PromptAssembler"/> to assert the
 /// <c>[PLATFORM CONTRACT — NON-NEGOTIABLE]</c> header lands verbatim in
-/// the agent's Layer 4 prompt section.
+/// the agent's Layer 1 (Platform Instructions) section — and is NOT
+/// duplicated in the conversational-defaults bundle text rendered in
+/// Layer 4.
 /// </summary>
 /// <remarks>
 /// This intentionally uses the same resolver + store + assembler stack
@@ -43,7 +41,7 @@ using Xunit;
 public class ConversationalDefaultsBundleIntegrationTests
 {
     [Fact]
-    public async Task EquippedOnAgent_AssembledPromptCarriesPlatformContractHeader()
+    public async Task EquippedOnAgent_AssembledPromptCarriesPlatformContractHeaderInLayer1()
     {
         var ct = TestContext.Current.CancellationToken;
 
@@ -63,56 +61,60 @@ public class ConversationalDefaultsBundleIntegrationTests
         var bundles = await agentStore.GetAsync(agentId, ct);
         bundles.Count.ShouldBe(1);
 
+        // Use the real PlatformPromptProvider so Layer 1 carries the
+        // production [PLATFORM CONTRACT — NON-NEGOTIABLE] block verbatim.
         var assembler = new PromptAssembler(
-            BuildPlatformPromptProvider(),
+            new PlatformPromptProvider(),
             new UnitContextBuilder(),
-            new ThreadContextBuilder(),
             new AgentInstructionsBuilder(),
             NullLoggerFactory.Instance);
 
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: Array.Empty<Message>(),
-            LastCheckpoint: null,
             AgentInstructions: "You are a helpful assistant.",
             AgentSkillBundles: bundles);
 
-        var message = new Message(
-            Guid.NewGuid(),
-            Address.For("agent", agentId),
-            Address.For("agent", agentId),
-            MessageType.Domain,
-            "thread-1",
-            JsonSerializer.SerializeToElement(new { text = "Hello" }),
-            DateTimeOffset.UtcNow);
-
-        var assembled = await assembler.AssembleAsync(message, context, ct);
+        var assembled = await assembler.AssembleAsync(context, ct);
 
         // (1) The bracketed-upper-case marker — the load-bearing
         //     authority signal — is in the assembled prompt verbatim.
         assembled.ShouldContain("[PLATFORM CONTRACT — NON-NEGOTIABLE]");
 
-        // (2) It lands inside Layer 4 (Agent Instructions), not before
-        //     it. Layer 4 is where the agent-equipped bundles render,
-        //     per EquippedBundleLoader's wiring.
+        // (2) The contract lands inside Layer 1 (Platform Instructions)
+        //     — not inside Layer 4. After the Wave 3 cutover the bundle
+        //     text no longer carries the contract; it is provided once
+        //     by the platform-prompt provider at the top of the prompt.
+        var layer1Idx = assembled.IndexOf("## Platform Instructions", StringComparison.Ordinal);
         var layer4Idx = assembled.IndexOf("## Agent Instructions", StringComparison.Ordinal);
         var contractIdx = assembled.IndexOf("[PLATFORM CONTRACT — NON-NEGOTIABLE]", StringComparison.Ordinal);
-        layer4Idx.ShouldBeGreaterThanOrEqualTo(0);
-        contractIdx.ShouldBeGreaterThan(layer4Idx);
+        layer1Idx.ShouldBeGreaterThanOrEqualTo(0);
+        layer4Idx.ShouldBeGreaterThan(layer1Idx);
+        contractIdx.ShouldBeGreaterThan(layer1Idx);
+        contractIdx.ShouldBeLessThan(layer4Idx);
 
-        // (3) The fundamental-core tool names appear inline so the
+        // (3) The bundle text (in Layer 4) starts by pointing back to
+        //     the platform-layer contract rather than duplicating it.
+        assembled.ShouldContain("The platform's response contract is in the platform-layer instructions");
+
+        // (4) There must be only one occurrence of the contract header
+        //     — the bundle no longer carries a parallel copy.
+        var firstHeader = assembled.IndexOf("[PLATFORM CONTRACT — NON-NEGOTIABLE]", StringComparison.Ordinal);
+        var secondHeader = assembled.IndexOf("[PLATFORM CONTRACT — NON-NEGOTIABLE]", firstHeader + 1, StringComparison.Ordinal);
+        secondHeader.ShouldBe(-1);
+
+        // (5) The fundamental-core tool names appear inline so the
         //     runtime doesn't have to discover them before replying.
         assembled.ShouldContain("sv.messaging.send");
         assembled.ShouldContain("sv.directory.list");
         assembled.ShouldContain("sv.progress.report");
         assembled.ShouldContain("sv.tools.list_categories");
 
-        // (4) The discovery-tool pointer is present so the runtime
+        // (6) The discovery-tool pointer is present so the runtime
         //     knows how to pull additional categories on demand.
         assembled.ShouldContain("sv.tools.list(");
 
-        // (5) The memory category is named so the runtime can pull its
+        // (7) The memory category is named so the runtime can pull its
         //     tools on demand without first calling
         //     sv.tools.list_categories.
         assembled.ShouldContain("memory");
@@ -171,14 +173,6 @@ public class ConversationalDefaultsBundleIntegrationTests
             NullLogger<FileSystemSkillBundleResolver>.Instance);
     }
 
-    private static IPlatformPromptProvider BuildPlatformPromptProvider()
-    {
-        var provider = Substitute.For<IPlatformPromptProvider>();
-        provider.GetPlatformPromptAsync(Arg.Any<CancellationToken>())
-            .Returns("Platform constraints go here.");
-        return provider;
-    }
-
     private static string ResolveRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
@@ -207,14 +201,14 @@ public class ConversationalDefaultsBundleIntegrationTests
         {
             if (_items.TryGetValue(key, out var bytes))
             {
-                return Task.FromResult(JsonSerializer.Deserialize<T>(bytes));
+                return Task.FromResult(System.Text.Json.JsonSerializer.Deserialize<T>(bytes));
             }
             return Task.FromResult<T?>(default);
         }
 
         public Task SetAsync<T>(string key, T value, CancellationToken ct = default)
         {
-            _items[key] = JsonSerializer.SerializeToUtf8Bytes(value);
+            _items[key] = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(value);
             return Task.CompletedTask;
         }
 

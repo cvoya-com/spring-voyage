@@ -78,8 +78,11 @@ public class CodexLauncherTests
         prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("Spring Voyage runtime guard — response discipline");
+        // After the silent-dispatch cutover the response-discipline
+        // contract lives in the platform-prompt layer. With
+        // concurrent_threads off the launcher returns the prompt body
+        // unchanged.
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
         _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
@@ -96,7 +99,11 @@ public class CodexLauncherTests
             TestContext.Current.CancellationToken);
 
         contribution.Files.Keys.ShouldBe(new[] { "AGENTS.md", ".mcp.json" }, ignoreOrder: true);
-        contribution.Files["AGENTS.md"].ShouldBe("Write clean code.");
+        // AGENTS.md must equal the AssembledSystemPrompt handed in by
+        // the bundle provider — NOT Definition.Instructions. After the
+        // silent-dispatch cutover the assembler produces the full
+        // multi-layer system prompt and the bundle writes that here.
+        contribution.Files["AGENTS.md"].ShouldBe(TestAssembledSystemPrompt);
 
         var parsed = JsonDocument.Parse(contribution.Files[".mcp.json"]).RootElement;
         var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
@@ -190,13 +197,13 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuardsToSystemPromptEnv()
+    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsConcurrentThreadsGuardToSystemPromptEnv()
     {
-        // #2096 / ADR-0041 + #2493: when concurrent_threads is on, the
-        // SPRING_SYSTEM_PROMPT env value MUST start with the
-        // ResponseDiscipline guard (always-on) and additionally carry the
-        // ConcurrentThreadsGuard. The user's prompt body is preserved — the
-        // guards compose, they do not replace.
+        // ADR-0041: when concurrent_threads is on, the launcher prepends
+        // the ConcurrentThreadsGuard marker to the prompt body delivered
+        // via SPRING_SYSTEM_PROMPT. The user's prompt body is preserved
+        // as the tail. The universal response-discipline contract now
+        // lives in the platform-prompt layer.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nWrite clean code.",
             mcpToken: "codex-secret-token") with
@@ -204,17 +211,15 @@ public class CodexLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("concurrent_threads is on");
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — concurrent_threads is on");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsFalse_StillPrependsResponseDisciplineGuard()
+    public async Task PrepareAsync_ConcurrentThreadsFalse_LeavesPromptUnchanged()
     {
-        // Issue #2493: the ResponseDiscipline guard is universal — every
-        // launched runtime sees it. The ConcurrentThreadsGuard remains
-        // gated on the flag.
+        // With concurrent_threads off the launcher returns the prompt
+        // body unchanged — no guard prepended.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nWrite clean code.",
             mcpToken: "codex-secret-token") with
@@ -222,13 +227,15 @@ public class CodexLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldNotContain("concurrent_threads is on");
     }
 
+    private const string TestAssembledSystemPrompt = "ASSEMBLED SYSTEM PROMPT FOR TEST";
+
     private static AgentBootstrapContributionContext CreateBundleContext(
-        string? instructions = "Write clean code.")
+        string? instructions = "Write clean code.",
+        string assembledSystemPrompt = TestAssembledSystemPrompt)
     {
         var definition = new AgentDefinition(
             AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
@@ -240,7 +247,8 @@ public class CodexLauncherTests
         return new AgentBootstrapContributionContext(
             AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
             Definition: definition,
-            McpEndpoint: BundleContextMcpEndpoint);
+            McpEndpoint: BundleContextMcpEndpoint,
+            AssembledSystemPrompt: assembledSystemPrompt);
     }
 
     private static JsonElement GetMcpServers(AgentBootstrapContribution contribution)

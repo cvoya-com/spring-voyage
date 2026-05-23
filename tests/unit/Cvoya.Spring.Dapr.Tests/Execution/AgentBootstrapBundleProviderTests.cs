@@ -7,11 +7,13 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Mcp;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 using NSubstitute;
@@ -25,22 +27,30 @@ using Xunit;
 /// scope: the launcher's per-runtime contribution + the agent-definition
 /// YAML + tenant-config JSON + the connector runtime-context contribution.
 /// The previously hardcoded <c>CLAUDE.md</c> file is now sourced from the
-/// launcher's <see cref="IAgentRuntimeLauncher.ContributeBundleAsync"/>.
+/// launcher's <see cref="IAgentRuntimeLauncher.ContributeBundleAsync"/>,
+/// which receives the assembler-built system prompt on the contribution
+/// context.
 /// </summary>
 public class AgentBootstrapBundleProviderTests
 {
     private const string AgentId = "11111111111111111111111111111111";
     private const string McpContainerHost = "host.docker.internal";
     private const int McpPort = 5050;
+    private const string AssembledPromptText = "ASSEMBLED SYSTEM PROMPT";
 
     private readonly IAgentDefinitionProvider _agentDefinitionProvider =
         Substitute.For<IAgentDefinitionProvider>();
     private readonly IRuntimeCatalog _runtimeCatalog = Substitute.For<IRuntimeCatalog>();
     private readonly IConnectorRuntimeContextResolver _connectorContextResolver =
         Substitute.For<IConnectorRuntimeContextResolver>();
+    private readonly IConnectorPromptContextResolver _connectorPromptContextResolver =
+        Substitute.For<IConnectorPromptContextResolver>();
+    private readonly IPromptAssembler _promptAssembler = Substitute.For<IPromptAssembler>();
+    private readonly IServiceScopeFactory _scopeFactory = Substitute.For<IServiceScopeFactory>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly TimeProvider _timeProvider = Substitute.For<TimeProvider>();
     private readonly StubLauncher _launcher = new();
+    private string _assembledPrompt = AssembledPromptText;
 
     private readonly AgentBootstrapBundleProvider _provider;
 
@@ -61,10 +71,31 @@ public class AgentBootstrapBundleProviderTests
             SystemPromptInjection: new SystemPromptInjection(SystemPromptInjectionKind.File, FilePath: "CLAUDE.md"),
             ModelProviders: Array.Empty<AgentRuntimeProviderEdge>()));
 
-        // Default: no connector contribution.
+        // Default: no connector contribution (both kinds).
         _connectorContextResolver
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(ConnectorRuntimeContextContribution.Empty);
+        _connectorPromptContextResolver
+            .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<string>());
+
+        // Stub the assembler so each test can pin / vary the resulting
+        // system prompt and assert it lands in the bundle's CLAUDE.md.
+        _promptAssembler
+            .AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(_ => _assembledPrompt);
+
+        // The scope factory + skill-registry sequence is exercised by
+        // EquippedBundleLoader, which the production provider invokes.
+        // For these unit tests we wire an empty service scope so the
+        // loader returns no bundles — the test focus is the file
+        // contribution composition, not equipped-bundle inheritance
+        // (which is covered by EquippedSkillsLayer2InheritanceTests and
+        // EquippedSkillsLayer4Tests).
+        var emptyServices = new ServiceCollection().BuildServiceProvider();
+        var scope = Substitute.For<IServiceScope>();
+        scope.ServiceProvider.Returns(emptyServices);
+        _scopeFactory.CreateScope().Returns(scope);
 
         _provider = new AgentBootstrapBundleProvider(
             _agentDefinitionProvider,
@@ -72,6 +103,10 @@ public class AgentBootstrapBundleProviderTests
             _runtimeCatalog,
             new[] { (IAgentRuntimeLauncher)_launcher },
             _connectorContextResolver,
+            _connectorPromptContextResolver,
+            _promptAssembler,
+            Array.Empty<ISkillRegistry>(),
+            _scopeFactory,
             Options.Create(new McpServerOptions
             {
                 ContainerHost = McpContainerHost,
@@ -110,23 +145,27 @@ public class AgentBootstrapBundleProviderTests
     }
 
     [Fact]
-    public async Task BuildAsync_LauncherContribution_CarriesAgentInstructions()
+    public async Task BuildAsync_LauncherContribution_CarriesAssembledSystemPrompt()
     {
+        // After the silent-dispatch cutover the provider invokes the
+        // assembler once per bundle build and passes the result to the
+        // launcher contribution. The bundle's CLAUDE.md is that string —
+        // NOT Definition.Instructions.
+        _assembledPrompt = "MULTI-LAYER ASSEMBLED PROMPT";
         StubAgent(instructions: "You are a helpful agent.");
 
         var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
         var claudeMd = bundle!.Files.First(f => f.Path == "CLAUDE.md");
-        claudeMd.Content.ShouldBe("You are a helpful agent.");
+        claudeMd.Content.ShouldBe("MULTI-LAYER ASSEMBLED PROMPT");
     }
 
     [Fact]
-    public async Task BuildAsync_LauncherContribution_HandlesNullInstructions()
+    public async Task BuildAsync_LauncherContribution_HandlesEmptyAssembledPrompt()
     {
-        // AgentDefinition.Instructions is nullable; the launcher's
-        // contribution must materialise an empty CLAUDE.md rather than
-        // throwing — verified at the provider level since the provider
-        // owns the launcher-selection seam.
+        // Defensive: a synthetic empty assembled prompt must materialise
+        // an empty CLAUDE.md rather than throwing.
+        _assembledPrompt = string.Empty;
         StubAgent(instructions: null);
 
         var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
@@ -183,12 +222,13 @@ public class AgentBootstrapBundleProviderTests
     }
 
     [Fact]
-    public async Task BuildAsync_Version_ChangesWhenInstructionsChange()
+    public async Task BuildAsync_Version_ChangesWhenAssembledPromptChanges()
     {
-        StubAgent(instructions: "version A");
+        StubAgent(instructions: "instructions");
+        _assembledPrompt = "version A";
         var bundleA = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
-        StubAgent(instructions: "version B");
+        _assembledPrompt = "version B";
         var bundleB = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
         bundleA!.Version.ShouldNotBe(bundleB!.Version);
@@ -269,9 +309,10 @@ public class AgentBootstrapBundleProviderTests
 
     /// <summary>
     /// Minimal launcher stub. Returns a bundle contribution mirroring the
-    /// production ClaudeCodeLauncher shape (CLAUDE.md + .mcp.json with the
-    /// instructions blob and an empty Authorization placeholder), without
-    /// pulling in the real launcher's credential-resolution dependencies.
+    /// production ClaudeCodeLauncher shape — CLAUDE.md is the
+    /// AssembledSystemPrompt the provider hands in (NOT
+    /// Definition.Instructions), .mcp.json carries an empty Authorization
+    /// placeholder.
     /// </summary>
     private sealed class StubLauncher : IAgentRuntimeLauncher
     {
@@ -289,7 +330,7 @@ public class AgentBootstrapBundleProviderTests
             => Task.FromResult(new AgentBootstrapContribution(
                 Files: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
-                    ["CLAUDE.md"] = context.Definition.Instructions ?? string.Empty,
+                    ["CLAUDE.md"] = context.AssembledSystemPrompt,
                     [".mcp.json"] = "{\"mcpServers\":{\"spring-voyage\":{\"url\":\""
                         + context.McpEndpoint
                         + "\",\"headers\":{\"Authorization\":\"Bearer \"}}}}",

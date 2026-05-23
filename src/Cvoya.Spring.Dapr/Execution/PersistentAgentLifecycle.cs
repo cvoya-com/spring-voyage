@@ -198,6 +198,17 @@ public class PersistentAgentLifecycle(
         var prepWithVolume = prepWithBootstrap with
         {
             ExtraVolumeMounts = MergeVolumeMounts(prepWithBootstrap.ExtraVolumeMounts, volumeMount),
+            // Default the container's working directory to the per-member
+            // workspace mount (the documented behaviour on
+            // AgentLaunchSpec.WorkingDirectory: "When null, the dispatcher
+            // uses the per-member workspace mount path"). The launcher's
+            // override wins when it sets one explicitly. Aligning CWD with
+            // the mount is load-bearing for CLI launchers that discover
+            // their config files (e.g. Claude Code's `.mcp.json`) relative
+            // to CWD — otherwise the image's WORKDIR wins and the config
+            // is invisible.
+            WorkingDirectory = prepWithBootstrap.WorkingDirectory
+                ?? AgentWorkspaceContract.BuildMountPathNoSlash(agentId),
         };
 
         // We pass the (possibly overridden) image into the ContainerConfig so

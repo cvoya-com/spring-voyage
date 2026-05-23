@@ -268,9 +268,14 @@ public class GeminiLauncher(
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        // GEMINI.md is the Gemini CLI's auto-discovered system-prompt
+        // file. The bundle provider has composed the per-agent system
+        // prompt (platform contract + unit context + agent
+        // instructions + equipped skill bundles) via IPromptAssembler
+        // and handed it in on AgentBootstrapContributionContext.
         var files = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["GEMINI.md"] = context.Definition.Instructions ?? string.Empty,
+            ["GEMINI.md"] = context.AssembledSystemPrompt,
             [GeminiSettingsPath] = JsonSerializer.Serialize(BuildGeminiSettings(context.McpEndpoint), JsonOptions),
         };
 

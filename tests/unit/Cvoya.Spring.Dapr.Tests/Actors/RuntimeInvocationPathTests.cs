@@ -176,8 +176,6 @@ public class RuntimeInvocationPathTests
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: [inbound],
-            LastCheckpoint: null,
             AgentInstructions: "instructions",
             EffectiveMetadata: null,
             PendingAmendments: null);
@@ -451,8 +449,6 @@ public class RuntimeInvocationPathTests
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: Array.Empty<Message>(),
-            LastCheckpoint: null,
             AgentInstructions: null);
 
         await path.InvokeAsync(

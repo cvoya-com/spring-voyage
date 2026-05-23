@@ -4082,7 +4082,7 @@ export interface components {
         ThroughputEntryResponse: {
             source: string;
             /** Format: int64 */
-            messagesReceived: number;
+            messagesArrived: number;
             /** Format: int64 */
             messagesSent: number;
             /** Format: int64 */

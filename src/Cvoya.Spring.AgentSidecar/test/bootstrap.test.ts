@@ -277,22 +277,60 @@ describe("BootstrapFetcher.integrityCheckAndRefresh", () => {
     return { fetcher, calls };
   }
 
-  it("no-ops when nothing on disk has diverged", async () => {
+  it("issues an If-None-Match per call; a 304 with no disk divergence is a no-op", async () => {
+    // Per-turn refresh: the bridge always asks the server. The
+    // content-addressable etag makes 304 the common case and one HTTP
+    // roundtrip is the cost of catching server-side bundle updates
+    // that divergence-only checks would miss.
     const bundle = buildBundle(
       [{ path: "CLAUDE.md", content: "x" }],
       ["CLAUDE.md"],
     );
-    const { fetcher, calls } = await freshFetcher(bundle);
+    const { fetcher, calls } = await freshFetcher(bundle, [{ status: 304 }]);
 
     const result = await fetcher.integrityCheckAndRefresh();
 
     assert.equal(result.checked, true);
     assert.deepEqual(result.restored, []);
-    // Only the initial fetch — no integrity-triggered request.
-    assert.equal(calls.length, 1);
+    // Two HTTP calls: initial + the per-turn If-None-Match check.
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].ifNoneMatch, `"${bundle.version}"`);
   });
 
-  it("re-fetches and restores from cache on 304 when a platform file diverges", async () => {
+  it("picks up a server-side bundle update on the next turn even when nothing on disk diverged", async () => {
+    // The bug this guards against: operator edits the agent's
+    // Instructions between turns. The on-disk CLAUDE.md still matches
+    // the cached hash (no disk drift), but the server's bundle has
+    // changed. A divergence-only check would never see this. The
+    // unconditional If-None-Match fetch surfaces the new bundle.
+    const v1 = buildBundle(
+      [{ path: "CLAUDE.md", content: "instructions v1" }],
+      ["CLAUDE.md"],
+      "sha256:" + "1".repeat(64),
+    );
+    const v2 = buildBundle(
+      [{ path: "CLAUDE.md", content: "instructions v2" }],
+      ["CLAUDE.md"],
+      "sha256:" + "2".repeat(64),
+    );
+    const { fetcher, calls } = await freshFetcher(v1, [{ status: 200, bundle: v2 }]);
+
+    // Disk is untouched — it still matches v1's cached hash.
+    const result = await fetcher.integrityCheckAndRefresh();
+
+    assert.equal(result.checked, true);
+    assert.deepEqual(result.restored, ["CLAUDE.md"]);
+    assert.equal(
+      fs.readFileSync(path.join(workdir, "CLAUDE.md"), "utf8"),
+      "instructions v2",
+    );
+    assert.equal(fetcher.cachedVersion, v2.version);
+    // The per-turn check carried v1's etag as the If-None-Match.
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].ifNoneMatch, `"${v1.version}"`);
+  });
+
+  it("restores from cache on 304 when a platform file diverges on disk", async () => {
     const bundle = buildBundle(
       [
         { path: "CLAUDE.md", content: "platform-content" },
@@ -310,7 +348,7 @@ describe("BootstrapFetcher.integrityCheckAndRefresh", () => {
     assert.equal(result.checked, true);
     assert.deepEqual(result.restored, ["CLAUDE.md"]);
     assert.equal(fs.readFileSync(path.join(workdir, "CLAUDE.md"), "utf8"), "platform-content");
-    // Two HTTP calls: initial + the If-None-Match re-fetch.
+    // Two HTTP calls: initial + the per-turn If-None-Match check.
     assert.equal(calls.length, 2);
     assert.equal(calls[1].ifNoneMatch, `"${bundle.version}"`);
   });
@@ -331,7 +369,8 @@ describe("BootstrapFetcher.integrityCheckAndRefresh", () => {
     );
     const { fetcher } = await freshFetcher(v1, [{ status: 200, bundle: v2 }]);
 
-    // Tamper to trigger a re-fetch; server responds with the new bundle.
+    // Tamper as well to exercise both the new-bundle path and the
+    // implicit restoration of any pre-existing drift.
     fs.writeFileSync(path.join(workdir, "CLAUDE.md"), "tampered", "utf8");
 
     const result = await fetcher.integrityCheckAndRefresh();
@@ -361,9 +400,11 @@ describe("BootstrapFetcher.integrityCheckAndRefresh", () => {
     assert.equal(fs.readFileSync(path.join(workdir, "CLAUDE.md"), "utf8"), "x");
   });
 
-  it("ignores divergence in non-platform files", async () => {
+  it("ignores divergence in non-platform files (server returns 304)", async () => {
     // .mcp.json (or any non-pinned file) the sidecar should NOT police —
-    // it lives in `files` but not in `platformFileHashes`.
+    // it lives in `files` but not in `platformFileHashes`. The per-turn
+    // refresh still runs (one HTTP call), but neither the divergent
+    // file nor the cache is touched.
     const bundle = buildBundle(
       [
         { path: "CLAUDE.md", content: "platform" },
@@ -371,7 +412,7 @@ describe("BootstrapFetcher.integrityCheckAndRefresh", () => {
       ],
       ["CLAUDE.md"],
     );
-    const { fetcher, calls } = await freshFetcher(bundle);
+    const { fetcher, calls } = await freshFetcher(bundle, [{ status: 304 }]);
 
     fs.writeFileSync(path.join(workdir, ".mcp.json"), '{"tampered":true}', "utf8");
 
@@ -379,8 +420,8 @@ describe("BootstrapFetcher.integrityCheckAndRefresh", () => {
 
     assert.equal(result.checked, true);
     assert.deepEqual(result.restored, []);
-    // No refresh fetch triggered.
-    assert.equal(calls.length, 1);
+    // Two HTTP calls: initial + per-turn check.
+    assert.equal(calls.length, 2);
     // The tampered non-platform file is left as-is.
     assert.equal(
       fs.readFileSync(path.join(workdir, ".mcp.json"), "utf8"),
@@ -388,7 +429,7 @@ describe("BootstrapFetcher.integrityCheckAndRefresh", () => {
     );
   });
 
-  it("surfaces a warning rather than throwing when the refresh fetch fails", async () => {
+  it("falls back to disk-only restoration with a warning when the fetch fails", async () => {
     const bundle = buildBundle(
       [{ path: "CLAUDE.md", content: "x" }],
       ["CLAUDE.md"],
@@ -399,7 +440,11 @@ describe("BootstrapFetcher.integrityCheckAndRefresh", () => {
     const result = await fetcher.integrityCheckAndRefresh();
 
     assert.equal(result.checked, true);
-    assert.ok(result.warning?.includes("re-fetch failed"));
+    assert.ok(result.warning?.includes("bootstrap fetch failed"));
+    // Disk drift still restored from the cached bytes — the warning
+    // surfaces the network problem but the turn is not derailed.
+    assert.deepEqual(result.restored, ["CLAUDE.md"]);
+    assert.equal(fs.readFileSync(path.join(workdir, "CLAUDE.md"), "utf8"), "x");
   });
 });
 
