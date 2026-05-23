@@ -68,16 +68,30 @@ runtime CLI reads.
 
 A runtime CLI like `claude` speaks stdin/stdout, not A2A. The platform bridges
 that with the **A2A sidecar** (`Cvoya.Spring.AgentSidecar`, TypeScript), bundled
-into every CLI-based agent image. It:
+into every CLI-based agent image. The same binary runs in two modes:
+
+**A2A bridge mode** (long-running, the image's ENTRYPOINT):
 
 - exposes an **A2A 0.3.x** endpoint (`message/send`, `tasks/get`,
   `tasks/cancel`) on the agent port (default `8999`);
 - on `message/send`, spawns the runtime CLI, pipes the prompt to stdin, captures
   stdout/stderr, and maps the result to an A2A task;
 - reads the **per-turn MCP token** from the A2A `message/send` metadata and
-  writes it into the runtime's MCP config (`.mcp.json` for `claude`/`codex`,
-  `.gemini/settings.json` for `gemini`) before spawning the CLI;
+  writes it to a workspace-resident token file
+  (`$SPRING_WORKSPACE_PATH/.spring-voyage-bridge/mcp-token`) before spawning
+  the CLI;
 - propagates cancellation (`SIGTERM` → `SIGKILL`).
+
+**MCP-server mode** (per-turn child, spawned by the CLI's `.mcp.json`,
+[ADR-0057](../decisions/0057-sidecar-local-mcp-server.md)):
+
+- speaks MCP JSON-RPC 2.0 over stdio (no HTTP);
+- reads the per-turn token from the workspace-resident token file at
+  startup and holds it in memory for the process lifetime;
+- proxies `initialize`, `tools/list`, `tools/call`, and other MCP
+  requests onto the worker's `POST /mcp/` route, injecting
+  `Authorization: Bearer <per-turn token>` on every call;
+- caches `tools/list` for the lifetime of the process (= one turn).
 
 ## Image conformance
 
@@ -95,24 +109,37 @@ The conformance probe is one step of the validation workflow (see
 
 ## The platform MCP surface in the container
 
-A launched runtime reaches the platform's `sv.*` tools over MCP. The launcher
-writes a one-server config naming the worker `McpServer`:
+A launched runtime reaches the platform's `sv.*` tools over MCP. Per
+[ADR-0057](../decisions/0057-sidecar-local-mcp-server.md) the MCP server the
+CLI dials is **sidecar-local** (stdio); the cross-network hop happens between
+the sidecar and the worker, not between the CLI and the worker. The launcher
+writes a one-server stdio config naming the sidecar binary as the MCP-server
+command:
 
 ```jsonc
 {
   "mcpServers": {
     "spring-voyage": {
-      "type": "http",
-      "url": "http://host.docker.internal:5050/mcp/",
-      "headers": { "Authorization": "Bearer <per-turn MCP session token>" }
+      "command": "node",
+      "args": ["/opt/spring-voyage/sidecar/dist/cli.js", "mcp"],
+      "env": {
+        "SPRING_MCP_PROXY_URL": "http://host.docker.internal:5050/mcp/",
+        "SPRING_WORKSPACE_PATH": "/workspace"
+      }
     }
   }
 }
 ```
 
-`tools/list` is grant-filtered server-side, so the runtime discovers exactly the
-`sv.*` tools its subject is entitled to. The tool catalogue and the single MCP
-server are described in [Messaging](messaging.md).
+There is **no** `Authorization` header in this config — the CLI never sees
+the per-turn token. Per turn, the long-running sidecar writes the token to
+the workspace-resident token file; the per-turn MCP-server-mode child (spawned
+by the CLI on each tool-use round) reads it from there and injects it on
+outbound proxy calls to the worker.
+
+`tools/list` is grant-filtered server-side (on the worker), so the runtime
+discovers exactly the `sv.*` tools its subject is entitled to. The tool
+catalogue and the single MCP server are described in [Messaging](messaging.md).
 
 ## The AgentSDK
 
@@ -135,9 +162,13 @@ platform's.
 An agent container carries two credential surfaces, kept distinct:
 
 - **The per-turn MCP session token** — issued by the worker `McpServer`,
-  delivered in the A2A `message/send`, written into the MCP config by the
-  sidecar, revoked at turn-end. It authenticates every `sv.*` tool call. See
-  [ADR-0054](../decisions/0054-one-mcp-server-one-execution-host.md).
+  delivered in the A2A `message/send`, written to the workspace-resident
+  MCP token file by the sidecar, revoked at turn-end. The per-turn
+  MCP-server-mode child reads it from the token file and authenticates every
+  `sv.*` tool call on the worker. The CLI itself never sees the token; the
+  trust boundary is platform↔sidecar only. See
+  [ADR-0054](../decisions/0054-one-mcp-server-one-execution-host.md) and
+  [ADR-0057](../decisions/0057-sidecar-local-mcp-server.md).
 - **The model-provider credential** — the API key or token the runtime CLI uses
   to call its LLM. Credentials are keyed `(tenant, provider, authMethod)` with
   unit→tenant inheritance ([ADR-0003](../decisions/0003-secret-inheritance-unit-to-tenant.md));

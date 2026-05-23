@@ -3,11 +3,24 @@
 // See LICENSE.md in the project root for full license terms.
 
 // Process entrypoint. tini (in the agent-base image) is PID 1; this file
-// is the long-running Node process tini supervises. Signal handling is
-// minimal: SIGTERM/SIGINT initiate a graceful HTTP close, then exit.
+// is the long-running Node process tini supervises in the default (A2A
+// bridge) mode. ADR-0057: the same binary, invoked with `mcp` as the
+// first non-Node argv, runs a stdio MCP server that proxies to the
+// worker — spawned per turn by the CLI's `.mcp.json`.
+//
+// Mode selection:
+//
+//   node cli.js                       → A2A bridge (default, long-running)
+//   node cli.js mcp                   → MCP-server (stdio, per-turn child)
+//
+// Signal handling for the bridge mode is minimal: SIGTERM/SIGINT
+// initiate a graceful HTTP close, then exit. The MCP-server mode exits
+// on stdin "end" — the CLI closes the pipe when its tool-use round
+// ends — so it does not register signal handlers itself.
 
 import { createBootstrapFetcherFromEnv } from "./bootstrap.js";
 import { loadConfigFromEnv } from "./config.js";
+import { runMcpServerMode } from "./mcp-server.js";
 import { createServer } from "./server.js";
 import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "./version.js";
 
@@ -25,6 +38,23 @@ function log(level: "info" | "warn" | "error", message: string, fields?: Record<
 }
 
 async function main(): Promise<void> {
+  // argv[0] = node, argv[1] = path to this script, argv[2..] = our args.
+  // ADR-0057: a single `mcp` token switches us into stdio-MCP-server
+  // mode. Everything else falls through to the long-running A2A bridge,
+  // which is the default entrypoint the agent-base image runs.
+  const mode = process.argv[2];
+  if (mode === "mcp") {
+    try {
+      await runMcpServerMode();
+    } catch (err) {
+      log("error", "MCP-server mode crashed", { error: (err as Error).message });
+      process.exit(1);
+    }
+    // runMcpServerMode resolves when stdin ends; exit cleanly so the CLI
+    // does not see a zombie child.
+    return;
+  }
+
   let config;
   try {
     config = loadConfigFromEnv();

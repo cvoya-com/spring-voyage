@@ -84,7 +84,7 @@ The built-in `Cvoya.Spring.Dapr.Execution.ClaudeCodeLauncher` is the canonical e
 
 - It leaves `AgentLaunchSpec.Argv` empty so the base image's ENTRYPOINT (the bridge) takes over.
 - It stamps `SPRING_AGENT_ARGV` with the CLI argv (`["claude","--print","--dangerously-skip-permissions"]`). Plain text output today; structured stream-json output is tracked in #2226.
-- It writes `CLAUDE.md` (the assembled prompt) and `.mcp.json` (the MCP endpoint + token) into the workspace.
+- It writes `CLAUDE.md` (the assembled prompt) and `.mcp.json` (the sidecar-local MCP-server-mode stdio command, per [ADR-0057](../../decisions/0057-sidecar-local-mcp-server.md)) into the workspace; the CLI never sees the per-turn MCP token, which the long-running sidecar writes to a workspace-resident token file and the per-turn MCP-server-mode child reads on startup.
 - It puts the same prompt on `AgentLaunchSpec.StdinPayload` so the bridge feeds it to `claude`'s stdin.
 
 A custom launcher pointed at your image would mirror that shape: leave `Argv` empty, set `SPRING_AGENT_ARGV` to whatever your CLI needs, and (optionally) set `StdinPayload` if your CLI consumes stdin.

@@ -55,8 +55,10 @@ public class ClaudeCodeLauncher(
     /// </summary>
     internal const string CredentialEnvVar = "CLAUDE_CODE_OAUTH_TOKEN";
 
-    // ADR-0051: a single platform MCP server serves every sv.* tool —
-    // sv.messaging.* included — under the MCP session token.
+    // ADR-0054: a single platform MCP server serves every sv.* tool —
+    // sv.messaging.* included. ADR-0057 §1: the CLI dials the sidecar's
+    // stdio MCP-server mode under this name; the sidecar proxies onto
+    // the worker's McpServer.
     internal const string SpringVoyageMcpServerName = "spring-voyage";
 
     /// <summary>
@@ -66,13 +68,21 @@ public class ClaudeCodeLauncher(
     internal const string McpConfigFileName = ".mcp.json";
 
     /// <summary>
-    /// ADR-0052 §4: env var the launcher sets to the absolute container path
-    /// of the MCP config file. The TypeScript agent-sidecar bridge reads this
-    /// to know which file's <c>spring-voyage</c> server block to rewrite with
-    /// the per-turn MCP session token delivered in each A2A <c>message/send</c>.
-    /// Read by <c>src/Cvoya.Spring.AgentSidecar/src/mcp-config.ts</c>.
+    /// Absolute container path of the sidecar binary the CLI spawns as a
+    /// stdio MCP server (ADR-0057 §1). The agent-base image installs the
+    /// compiled sidecar bundle under <c>/opt/spring-voyage/sidecar/dist/cli.js</c>;
+    /// the <c>.mcp.json</c> we write for Claude Code names this command
+    /// + the <c>mcp</c> argv token so each CLI tool-use round spawns a
+    /// per-turn stdio MCP server that proxies onto the worker.
     /// </summary>
-    internal const string McpConfigPathEnvVar = "SPRING_MCP_CONFIG";
+    internal const string SidecarBinaryPath = "/opt/spring-voyage/sidecar/dist/cli.js";
+
+    /// <summary>
+    /// argv[0] for the sidecar-MCP-server-mode spawn. The CLI invokes
+    /// <c>node /opt/.../cli.js mcp</c>; <c>node</c> is on PATH inside
+    /// the agent-base image (installed via nodesource).
+    /// </summary>
+    internal const string SidecarNodeBinary = "node";
 
     /// <summary>
     /// Bridge env var name carrying the CLI flag that *creates* a session
@@ -251,14 +261,12 @@ public class ClaudeCodeLauncher(
             // the session file survives container restart and can be
             // resumed by the next --resume <sid> invocation.
             [ClaudeConfigDirEnvVar] = $"{workspaceMountNoSlash}/{ClaudeConfigDirRelative}",
-            // ADR-0055 §5: per-member workspace mount path.
+            // ADR-0055 §5: per-member workspace mount path. ADR-0057 §3:
+            // the long-running A2A sidecar writes the per-turn MCP token
+            // to <SPRING_WORKSPACE_PATH>/.spring-voyage-bridge/mcp-token
+            // before each CLI spawn; the per-turn sidecar-MCP-server-mode
+            // child reads it from the same path.
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.BuildMountPath(context.AgentId),
-            // ADR-0052 §4: absolute container path of the .mcp.json the
-            // bridge rewrites with the per-turn MCP session token before
-            // every CLI spawn. The bundle's launcher contribution writes
-            // the file with an empty Authorization header; the bridge
-            // stamps the per-turn token from the A2A message/send metadata.
-            [McpConfigPathEnvVar] = mcpConfigPath,
         };
 
         // ADR-0051: OTLP-ingest env contract still stamped here.
@@ -287,20 +295,44 @@ public class ClaudeCodeLauncher(
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        // ADR-0057 §§1, 3: the CLI dials the sidecar's stdio MCP-server
+        // mode as a `command`-typed MCP server. Each tool-use round
+        // spawns `node /opt/.../cli.js mcp` as a child of the CLI; that
+        // child reads the per-turn MCP session token from
+        // <workspace>/.spring-voyage-bridge/mcp-token (written by the
+        // long-running A2A sidecar from A2A message/send metadata) and
+        // proxies tools/list, tools/call, and initialize onto the
+        // worker's POST /mcp/ route — passing
+        // <see cref="SpringVoyageMcpServerName"/>'s only client through
+        // the per-agent trust boundary. No HTTP transport, no
+        // Authorization header in this config — the CLI never sees the
+        // per-turn token.
+        //
+        // SPRING_MCP_PROXY_URL points the spawned MCP-server-mode child
+        // at the worker's MCP endpoint; the launcher knows the endpoint
+        // from <see cref="AgentBootstrapContributionContext.McpEndpoint"/>
+        // and stamps it on the env block of this stdio MCP server. The
+        // sidecar reads it at MCP-server startup.
         var mcpConfig = new
         {
             mcpServers = new Dictionary<string, object>
             {
                 [SpringVoyageMcpServerName] = new
                 {
-                    type = "http",
-                    url = context.McpEndpoint,
-                    headers = new Dictionary<string, string>
+                    command = SidecarNodeBinary,
+                    args = new[] { SidecarBinaryPath, "mcp" },
+                    env = new Dictionary<string, string>
                     {
-                        // Launch-time placeholder — the sidecar rewrites
-                        // this header with the per-turn MCP session token
-                        // before every CLI spawn (ADR-0052 §4 / #2615).
-                        ["Authorization"] = "Bearer ",
+                        ["SPRING_MCP_PROXY_URL"] = context.McpEndpoint,
+                        // The MCP-server-mode child reads the per-turn
+                        // token from this workspace path; passing it
+                        // explicitly avoids relying on the CLI to
+                        // propagate SPRING_WORKSPACE_PATH into the
+                        // spawn env (Claude Code does, but the
+                        // contract is clearer if the env is local to
+                        // this server entry).
+                        ["SPRING_WORKSPACE_PATH"] =
+                            AgentWorkspaceContract.BuildMountPath(context.AgentId),
                     },
                 },
             },
