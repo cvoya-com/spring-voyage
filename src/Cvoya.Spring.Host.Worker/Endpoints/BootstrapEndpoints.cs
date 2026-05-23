@@ -7,6 +7,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
 
 using Microsoft.AspNetCore.Mvc;
 
@@ -92,14 +93,23 @@ public static class BootstrapEndpoints
 
         var response = httpContext.Response;
 
-        if (string.IsNullOrWhiteSpace(agentId))
+        // ADR-0055 §8 / agentId contract: only canonical Guid wire form
+        // (32-char lowercase no-dash hex, GuidFormatter.Format) is accepted.
+        // Rejecting non-canonical input here means downstream surfaces —
+        // logging, DB lookup, auth lookup — never see attacker-controlled
+        // characters. Laundering the value through Guid+GuidFormatter.Format
+        // strips any CRLF / control-character payload before it reaches a
+        // log sink, addressing CodeQL cs/log-forging on this entry point.
+        if (string.IsNullOrWhiteSpace(agentId)
+            || !GuidFormatter.TryParse(agentId, out var parsedAgentId))
         {
             response.StatusCode = StatusCodes.Status400BadRequest;
             return;
         }
+        var safeAgentId = GuidFormatter.Format(parsedAgentId);
 
         var token = ExtractBearerToken(httpContext.Request.Headers.Authorization);
-        if (token is null || !authStore.Validate(agentId, token))
+        if (token is null || !authStore.Validate(safeAgentId, token))
         {
             // No body — bootstrap auth is opaque to the agent and to any
             // intermediary. 401 with no detail mirrors the MCP server's
@@ -109,7 +119,7 @@ public static class BootstrapEndpoints
             return;
         }
 
-        var bundle = await bundleProvider.BuildAsync(agentId, cancellationToken);
+        var bundle = await bundleProvider.BuildAsync(safeAgentId, cancellationToken);
         if (bundle is null)
         {
             response.StatusCode = StatusCodes.Status404NotFound;

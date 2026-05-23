@@ -148,6 +148,28 @@ public class BootstrapEndpointsTests
         ctx.Response.StatusCode.ShouldBe(StatusCodes.Status400BadRequest);
     }
 
+    [Theory]
+    [InlineData("not-a-guid")]
+    [InlineData("11111111111111111111111111111111\r\nLog-Injected: yes")]
+    [InlineData("../etc/passwd")]
+    [InlineData("11111111-1111-1111-1111-11111111111Z")]
+    public async Task Returns400ForNonCanonicalAgentId(string malformed)
+    {
+        // The endpoint launders agentId through GuidFormatter.TryParse before
+        // it reaches any log sink, auth store, or DB lookup. Anything that
+        // is not canonical Guid wire form fails fast with 400 and is never
+        // passed to the bundle provider — defends against cs/log-forging
+        // and tenant-isolation enumeration probes.
+        var store = new InMemoryAgentBootstrapAuthStore();
+        var provider = new StubBundleProvider(AgentId, SampleBundle("sha256:x"));
+        var ctx = NewContext(token: "ignored");
+
+        await BootstrapEndpoints.HandleAsync(ctx, malformed, store, provider, TestContext.Current.CancellationToken);
+
+        ctx.Response.StatusCode.ShouldBe(StatusCodes.Status400BadRequest);
+        provider.CallCount.ShouldBe(0);
+    }
+
     private static DefaultHttpContext NewContext(string? token, string? ifNoneMatch = null)
     {
         var ctx = new DefaultHttpContext();

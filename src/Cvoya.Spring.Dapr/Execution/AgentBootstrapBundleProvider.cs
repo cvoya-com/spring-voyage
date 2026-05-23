@@ -6,8 +6,6 @@ namespace Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Tenancy;
 
-using Microsoft.Extensions.Logging;
-
 /// <summary>
 /// Default <see cref="IAgentBootstrapBundleProvider"/>. Composes the static
 /// subset of an agent's bootstrap bundle (ADR-0055 §3) from the agent
@@ -36,8 +34,7 @@ public sealed class AgentBootstrapBundleProvider(
     IAgentDefinitionProvider agentDefinitionProvider,
     IAgentDefinitionSerializer agentDefinitionSerializer,
     ITenantContext tenantContext,
-    TimeProvider timeProvider,
-    ILoggerFactory loggerFactory) : IAgentBootstrapBundleProvider
+    TimeProvider timeProvider) : IAgentBootstrapBundleProvider
 {
     /// <summary>
     /// Workspace-relative path of the platform-authoritative system prompt
@@ -66,7 +63,6 @@ public sealed class AgentBootstrapBundleProvider(
         ?? throw new ArgumentNullException(nameof(tenantContext));
     private readonly TimeProvider _timeProvider = timeProvider
         ?? throw new ArgumentNullException(nameof(timeProvider));
-    private readonly ILogger _logger = loggerFactory.CreateLogger<AgentBootstrapBundleProvider>();
 
     /// <inheritdoc />
     public async Task<AgentBootstrapBundle?> BuildAsync(
@@ -78,9 +74,11 @@ public sealed class AgentBootstrapBundleProvider(
         var definition = await _agentDefinitionProvider.GetByIdAsync(agentId, cancellationToken);
         if (definition is null)
         {
-            _logger.LogDebug(
-                "Bootstrap bundle requested for unknown agent {AgentId}; returning null",
-                agentId);
+            // The agentId is HTTP-boundary input; the endpoint sanitises it
+            // upstream (GuidFormatter parse + reformat) but downstream log
+            // sinks should not receive it. The endpoint surfaces the 404 to
+            // the caller; nothing else needs to know which unknown agent
+            // was asked for.
             return null;
         }
 

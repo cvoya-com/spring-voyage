@@ -8,8 +8,6 @@ using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Execution;
 
-using Microsoft.Extensions.Logging;
-
 using NSubstitute;
 
 using Shouldly;
@@ -31,7 +29,6 @@ public class AgentBootstrapBundleProviderTests
     private readonly IRuntimeCatalog _runtimeCatalog = Substitute.For<IRuntimeCatalog>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly TimeProvider _timeProvider = Substitute.For<TimeProvider>();
-    private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
 
     private readonly AgentBootstrapBundleProvider _provider;
 
@@ -39,13 +36,11 @@ public class AgentBootstrapBundleProviderTests
     {
         _tenantContext.CurrentTenantId.Returns(Guid.Parse("22222222-2222-2222-2222-222222222222"));
         _timeProvider.GetUtcNow().Returns(new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero));
-        _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _provider = new AgentBootstrapBundleProvider(
             _agentDefinitionProvider,
             new AgentDefinitionSerializer(_runtimeCatalog),
             _tenantContext,
-            _timeProvider,
-            _loggerFactory);
+            _timeProvider);
     }
 
     [Fact]
