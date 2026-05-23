@@ -151,7 +151,18 @@ public partial class Program
                     // would NOT carry the `proxy:` user-agent prefix.
                     // The log line is debug-level so it stays out of
                     // production logs unless explicitly enabled.
-                    var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+                    //
+                    // Sanitise the user-agent before logging (CWE-117):
+                    // strip CR/LF so a malicious client cannot forge
+                    // extra log lines, and cap length so a huge header
+                    // cannot bloat the log sink.
+                    var userAgent = httpContext.Request.Headers.UserAgent.ToString()
+                        .Replace('\r', ' ')
+                        .Replace('\n', ' ');
+                    if (userAgent.Length > 256)
+                    {
+                        userAgent = userAgent[..256];
+                    }
                     var logger = loggerFactory.CreateLogger("Cvoya.Spring.Mcp.RouteAudit");
                     logger.LogDebug(
                         "MCP request {Method} from {RemoteIp} (user-agent: {UserAgent})",
