@@ -15,6 +15,7 @@ import fs from "node:fs";
 import http, { type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 import { A2AHandler, type JsonRpcRequest } from "./a2a.js";
+import type { BootstrapFetcher } from "./bootstrap.js";
 import type { BridgeConfig } from "./config.js";
 import { ThreadIdRegistry } from "./threads.js";
 import { BRIDGE_VERSION } from "./version.js";
@@ -45,7 +46,11 @@ export interface SidecarServer {
   close: () => Promise<void>;
 }
 
-export function createServer(config: BridgeConfig, env: NodeJS.ProcessEnv = process.env): SidecarServer {
+export function createServer(
+  config: BridgeConfig,
+  env: NodeJS.ProcessEnv = process.env,
+  bootstrapFetcher: BootstrapFetcher | null = null,
+): SidecarServer {
   const threadIdRegistry = new ThreadIdRegistry(env[WORKSPACE_PATH_ENV_VAR]);
   const handler = new A2AHandler({
     agentName: config.agentName,
@@ -55,6 +60,7 @@ export function createServer(config: BridgeConfig, env: NodeJS.ProcessEnv = proc
     spawnEnv: env,
     threadBinding: config.threadBinding,
     threadIdRegistry,
+    bootstrapFetcher,
   });
 
   const toolsManifestPath = env[TOOLS_MANIFEST_ENV_VAR];
