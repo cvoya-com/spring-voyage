@@ -389,18 +389,6 @@ public interface IContainerRuntime
 /// </param>
 /// <param name="ExtraHosts">Additional <c>host:IP</c> entries to add to the container's <c>/etc/hosts</c>. Used to expose the MCP server to Linux containers via <c>host.docker.internal:host-gateway</c>.</param>
 /// <param name="WorkingDirectory">Optional working directory inside the container.</param>
-/// <param name="Workspace">
-/// Optional per-invocation workspace materialised on the dispatcher host. When
-/// non-null, the dispatcher writes <see cref="ContainerWorkspace.Files"/> into
-/// a fresh per-invocation directory on its own filesystem, bind-mounts that
-/// directory at <see cref="ContainerWorkspace.MountPath"/> inside the
-/// container, and cleans the directory up when the run completes (or, for
-/// detached starts, when <c>StopAsync</c> is called for the resulting
-/// container id). This is the seam that fixes the "worker writes to its own
-/// /tmp, dispatcher tries to bind-mount a path that does not exist on the
-/// host" failure mode in containerised dispatcher deployments — see issue
-/// #1042.
-/// </param>
 /// <param name="Entrypoint">
 /// Override for the image's <c>ENTRYPOINT</c>. When non-null, the runtime
 /// passes <c>--entrypoint &lt;Entrypoint&gt;</c> to podman / docker so the
@@ -408,17 +396,6 @@ public interface IContainerRuntime
 /// entrypoint. Used by the validation probe (#1686) to invoke a one-shot
 /// tool (e.g. <c>claude --version</c>) on an image whose entrypoint is the
 /// long-running A2A bridge sidecar.
-/// </param>
-/// <param name="ContextWorkspace">
-/// Optional per-invocation context workspace materialised at
-/// <c>/spring/context/</c> inside the container (D1 spec § 2.2.2 — D3a).
-/// Carries structured bootstrap files (e.g. <c>agent-definition.yaml</c>,
-/// <c>tenant-config.json</c>) the agent SDK reads during
-/// <c>initialize(context)</c>. When non-null the dispatcher writes the files
-/// into a fresh per-invocation directory alongside the main workspace and
-/// bind-mounts it at <see cref="ContainerWorkspace.MountPath"/> (typically
-/// <c>/spring/context/</c>). Lifecycle (create / cleanup) mirrors
-/// <see cref="Workspace"/>.
 /// </param>
 public record ContainerConfig(
     string Image,
@@ -435,39 +412,8 @@ public record ContainerConfig(
     string? DaprSidecarComponentsPath = null,
     IReadOnlyList<string>? ExtraHosts = null,
     string? WorkingDirectory = null,
-    ContainerWorkspace? Workspace = null,
     string? ContainerName = null,
-    ContainerWorkspace? ContextWorkspace = null,
     string? Entrypoint = null);
-
-/// <summary>
-/// A per-invocation set of text files the dispatcher must materialise into a
-/// fresh directory on its own filesystem and bind-mount into the launched
-/// container at <see cref="MountPath"/>. Carried by
-/// <see cref="ContainerConfig.Workspace"/>.
-/// </summary>
-/// <remarks>
-/// <para>
-/// The worker no longer writes the agent's <c>CLAUDE.md</c> / <c>AGENTS.md</c>
-/// / <c>.mcp.json</c> files itself — those paths exist only on the worker
-/// container's private filesystem and are invisible to the host's container
-/// runtime. The launcher describes the desired workspace as a content map
-/// keyed by relative path; the dispatcher creates the per-invocation directory
-/// on its own filesystem (under <c>Dispatcher:WorkspaceRoot</c>), writes the
-/// files, and uses that host path as the bind-mount source. See issue #1042.
-/// </para>
-/// <para>
-/// Files are written verbatim — the dispatcher does not interpret content,
-/// re-encode, or apply templating. Relative paths may contain forward
-/// slashes; the dispatcher normalises directory separators before creating
-/// parent directories. Absolute paths and <c>..</c> traversals are rejected.
-/// </para>
-/// </remarks>
-/// <param name="MountPath">Absolute path inside the container where the dispatcher bind-mounts the materialised directory (e.g. <c>"/workspace"</c>).</param>
-/// <param name="Files">File contents keyed by path relative to the workspace root (e.g. <c>"CLAUDE.md"</c>, <c>".mcp.json"</c>, <c>"sub/dir/file.txt"</c>).</param>
-public record ContainerWorkspace(
-    string MountPath,
-    IReadOnlyDictionary<string, string> Files);
 
 /// <summary>
 /// Response shape returned by <see cref="IContainerRuntime.SendHttpJsonAsync"/>.

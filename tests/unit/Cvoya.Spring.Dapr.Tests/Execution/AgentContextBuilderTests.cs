@@ -18,8 +18,9 @@ using Xunit;
 
 /// <summary>
 /// Unit tests for <see cref="AgentContextBuilder"/> — D3a / Stage 3 of ADR-0029.
-/// Asserts that <see cref="IAgentContextBuilder.BuildAsync"/> emits the full D1-spec
-/// env-var set, the correct context-file names, and per-launch credential uniqueness.
+/// Asserts that <see cref="IAgentContextBuilder.BuildAsync"/> emits the full
+/// D1-spec env-var set, the ADR-0055 bootstrap env vars, and per-launch
+/// credential uniqueness.
 /// </summary>
 public class AgentContextBuilderTests
 {
@@ -27,6 +28,8 @@ public class AgentContextBuilderTests
     private const string ThreadId = "t-abc";
     private const string McpContainerHost = "host.docker.internal";
     private const int McpPort = 9999;
+    private const string BootstrapToken = "bootstrap-token-xyz";
+
     // ADR-0052 §3: the container-facing MCP endpoint is derived from
     // McpServerOptions (ContainerHost + Port), not the live listener.
     private const string McpEndpoint = "http://host.docker.internal:9999/mcp/";
@@ -39,6 +42,7 @@ public class AgentContextBuilderTests
             Port = McpPort,
         });
 
+    private readonly IAgentBootstrapAuthStore _bootstrapAuthStore;
     private readonly AgentContextBuilder _builder;
 
     public AgentContextBuilderTests()
@@ -59,10 +63,14 @@ public class AgentContextBuilderTests
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
 
+        _bootstrapAuthStore = Substitute.For<IAgentBootstrapAuthStore>();
+        _bootstrapAuthStore.Issue(Arg.Any<string>()).Returns(BootstrapToken);
+
         _builder = new AgentContextBuilder(
             McpOptions(),
             agentContextOptions,
             ollamaOptions,
+            _bootstrapAuthStore,
             loggerFactory);
     }
 
@@ -72,8 +80,6 @@ public class AgentContextBuilderTests
     private static AgentLaunchContext MakeLaunchContext(
         Guid? tenantId = null,
         string? unitId = null,
-        string? agentDefinitionYaml = null,
-        string? tenantConfigJson = null,
         bool concurrentThreads = true) =>
         new AgentLaunchContext(
             AgentId: AgentId,
@@ -83,8 +89,6 @@ public class AgentContextBuilderTests
             McpToken: McpToken,
             TenantId: tenantId ?? AcmeTenantId,
             UnitId: unitId,
-            AgentDefinitionYaml: agentDefinitionYaml,
-            TenantConfigJson: tenantConfigJson,
             ConcurrentThreads: concurrentThreads);
 
     [Fact]
@@ -137,6 +141,25 @@ public class AgentContextBuilderTests
     }
 
     [Fact]
+    public async Task BuildAsync_EmitsBootstrapUrlAndToken()
+    {
+        // ADR-0055 §8 / §9: the agent-sidecar pulls the bundle from a
+        // worker bootstrap endpoint authenticated by a per-agent bearer
+        // token. The builder stamps both env vars at container launch.
+        var ctx = MakeLaunchContext();
+
+        var result = await _builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
+
+        result.EnvironmentVariables.ShouldContainKey(AgentWorkspaceContract.BootstrapUrlEnvVar);
+        result.EnvironmentVariables[AgentWorkspaceContract.BootstrapUrlEnvVar]
+            .ShouldBe($"http://{McpContainerHost}:{McpPort}/v1/bootstrap/agents/{AgentId}");
+
+        result.EnvironmentVariables.ShouldContainKey(AgentWorkspaceContract.BootstrapTokenEnvVar);
+        result.EnvironmentVariables[AgentWorkspaceContract.BootstrapTokenEnvVar].ShouldBe(BootstrapToken);
+        _bootstrapAuthStore.Received(1).Issue(AgentId);
+    }
+
+    [Fact]
     public async Task BuildAsync_OmitsUnitId_WhenNotProvided()
     {
         var ctx = MakeLaunchContext(unitId: null);
@@ -166,42 +189,16 @@ public class AgentContextBuilderTests
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
 
-        var builder = new AgentContextBuilder(McpOptions(), agentContextOptions, ollamaOptions, loggerFactory);
+        var builder = new AgentContextBuilder(
+            McpOptions(),
+            agentContextOptions,
+            ollamaOptions,
+            _bootstrapAuthStore,
+            loggerFactory);
         var ctx = MakeLaunchContext();
         var result = await builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
 
         result.EnvironmentVariables["SPRING_LLM_PROVIDER_URL"].ShouldBe("http://spring-ollama:11434");
-    }
-
-    [Fact]
-    public async Task BuildAsync_EmitsAgentDefinitionContextFile_WhenProvided()
-    {
-        const string yaml = "agent_id: test-agent\nname: Test Agent";
-        var ctx = MakeLaunchContext(agentDefinitionYaml: yaml);
-        var result = await _builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
-
-        result.ContextFiles.ShouldContainKey("agent-definition.yaml");
-        result.ContextFiles["agent-definition.yaml"].ShouldBe(yaml);
-    }
-
-    [Fact]
-    public async Task BuildAsync_EmitsTenantConfigContextFile_WhenProvided()
-    {
-        const string json = "{\"name\":\"acme\"}";
-        var ctx = MakeLaunchContext(tenantConfigJson: json);
-        var result = await _builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
-
-        result.ContextFiles.ShouldContainKey("tenant-config.json");
-        result.ContextFiles["tenant-config.json"].ShouldBe(json);
-    }
-
-    [Fact]
-    public async Task BuildAsync_EmptyContextFiles_WhenNeitherYamlNorJsonProvided()
-    {
-        var ctx = MakeLaunchContext(agentDefinitionYaml: null, tenantConfigJson: null);
-        var result = await _builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
-
-        result.ContextFiles.ShouldBeEmpty();
     }
 
     [Fact]
@@ -276,7 +273,12 @@ public class AgentContextBuilderTests
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
 
-        var builder = new AgentContextBuilder(McpOptions(), agentContextOptions, ollamaOptions, loggerFactory);
+        var builder = new AgentContextBuilder(
+            McpOptions(),
+            agentContextOptions,
+            ollamaOptions,
+            _bootstrapAuthStore,
+            loggerFactory);
         var ctx = MakeLaunchContext();
         var result = await builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
 

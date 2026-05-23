@@ -19,7 +19,7 @@ using Microsoft.Extensions.Options;
 public class ProcessContainerRuntime(
     string binaryName,
     IOptions<ContainerRuntimeOptions> options,
-    ILoggerFactory loggerFactory) : IContainerRuntime, IWorkspaceVolumePopulator
+    ILoggerFactory loggerFactory) : IContainerRuntime
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<ProcessContainerRuntime>();
     private readonly ContainerRuntimeOptions _options = options.Value;
@@ -635,12 +635,12 @@ public class ProcessContainerRuntime(
     /// the volume does not exist.
     /// </summary>
     /// <remarks>
-    /// Used only by <see cref="GetVolumeMetricsAsync"/>, which needs a path to
-    /// hand to <c>du</c>. This path is meaningful only when the dispatcher
-    /// shares a filesystem with the runtime's volume storage — workspace
-    /// seeding deliberately does <i>not</i> use it (see
-    /// <see cref="TryPopulateVolumeAsync"/> and issue #2637) because that
-    /// assumption does not hold when the runtime lives in a VM.
+    /// Used only by <see cref="GetVolumeMetricsAsync"/>, which needs a path
+    /// to hand to <c>du</c>. The path is meaningful only when the dispatcher
+    /// shares a filesystem with the runtime's volume storage — but volume
+    /// content is no longer written from the dispatcher under ADR-0055 (the
+    /// agent-sidecar pulls it from the worker), so this resolver is only
+    /// reached on the metrics path.
     /// </remarks>
     private async Task<string?> ResolveVolumeMountpointAsync(string volumeName, CancellationToken ct = default)
     {
@@ -698,108 +698,6 @@ public class ProcessContainerRuntime(
         }
 
         return new VolumeMetrics(sizeBytes, LastWrite: null);
-    }
-
-    /// <inheritdoc />
-    public async Task<bool> TryPopulateVolumeAsync(
-        string volumeName, string stagingHostDir, string helperImage, CancellationToken ct = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(volumeName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(stagingHostDir);
-        ArgumentException.ThrowIfNullOrWhiteSpace(helperImage);
-
-        // A missing volume is reported as false — not an error — so the
-        // workspace materialiser can fall back to a per-invocation bind mount.
-        var (inspectExit, _, _) = await RunProcessAsync(
-            binaryName, ["volume", "inspect", volumeName], ct);
-        if (inspectExit != 0)
-        {
-            return false;
-        }
-
-        const string stageMount = "/spring-volume-stage";
-
-        // #2639 stopgap: a freshly-created named volume's root directory is
-        // owned root:root 0755. The in-container agent runs as a non-root uid,
-        // so it cannot create entries in its own workspace root (`.claude/`,
-        // `worktrees/`, the repo clone, …) — Claude Code then fails to create
-        // CLAUDE_CONFIG_DIR and returns an empty reply. Make the volume root
-        // world-writable (sticky, like /tmp) via a one-shot root helper so any
-        // agent uid can write it. `chmod` runs as --user 0 because the root is
-        // root-owned; the helper image's entrypoint is overridden to `sh`.
-        // The proper fix (#2637 pull model) lets the agent container be the
-        // volume's first mounter, so the image pre-populates the correct
-        // ownership and this stopgap is removed.
-        var (chmodExit, _, chmodErr) = await RunProcessAsync(
-            binaryName,
-            [
-                "run", "--rm", "--user", "0",
-                "--volume", $"{volumeName}:{stageMount}",
-                "--entrypoint", "sh", helperImage,
-                "-c", $"chmod 1777 {stageMount}",
-            ],
-            ct);
-        if (chmodExit != 0)
-        {
-            throw new InvalidOperationException(
-                $"Failed to make volume {volumeName} root writable by the agent uid "
-                + $"using image {helperImage}. Exit code: {chmodExit}. Stderr: {chmodErr}");
-        }
-
-        // Populate the volume by creating a throwaway container that mounts it,
-        // copying the staged files in with `cp`, then removing the container.
-        // `cp` transfers files over the runtime's own client connection, so it
-        // works whether or not the dispatcher process shares a filesystem with
-        // the runtime's volume storage — it does on a native-Linux host, but
-        // NOT when the runtime lives in a VM (`podman machine` on macOS), where
-        // the volume's backing directory does not exist on the dispatcher host
-        // at all. Writing into that directory directly was the #2608 bug this
-        // replaces; see issue #2637 for the follow-up pull-model proposal.
-        var helperName = "spring-wsstage-" + Guid.NewGuid().ToString("N");
-
-        var (createExit, _, createErr) = await RunProcessAsync(
-            binaryName,
-            ["create", "--name", helperName, "--volume", $"{volumeName}:{stageMount}", helperImage],
-            ct);
-        if (createExit != 0)
-        {
-            throw new InvalidOperationException(
-                $"Failed to create the staging container for volume {volumeName} "
-                + $"from image {helperImage}. Exit code: {createExit}. Stderr: {createErr}");
-        }
-
-        try
-        {
-            // `<dir>/.` copies the directory's *contents* into the destination,
-            // preserving the world-readable / world-writable modes the
-            // materialiser applied so the in-container agent (a different uid)
-            // can rewrite `.mcp.json` each turn.
-            var source = stagingHostDir.TrimEnd(Path.DirectorySeparatorChar)
-                + Path.DirectorySeparatorChar + ".";
-            var (cpExit, _, cpErr) = await RunProcessAsync(
-                binaryName,
-                ["cp", source, $"{helperName}:{stageMount}"],
-                ct);
-            if (cpExit != 0)
-            {
-                throw new InvalidOperationException(
-                    $"Failed to copy the staged workspace into volume {volumeName}. "
-                    + $"Exit code: {cpExit}. Stderr: {cpErr}");
-            }
-
-            return true;
-        }
-        finally
-        {
-            var (rmExit, _, rmErr) = await RunProcessAsync(
-                binaryName, ["rm", "-f", helperName], ct);
-            if (rmExit != 0)
-            {
-                _logger.LogWarning(
-                    "Failed to remove staging container {HelperName} (exit {Exit}): {Stderr}",
-                    helperName, rmExit, rmErr);
-            }
-        }
     }
 
     /// <inheritdoc />

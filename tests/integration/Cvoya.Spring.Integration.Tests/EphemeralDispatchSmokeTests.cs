@@ -74,7 +74,11 @@ public class EphemeralDispatchSmokeTests
         var dapr = Substitute.For<IDaprSidecarManager>();
         var clm = new ContainerLifecycleManager(
             runtime, dapr, Options.Create(new DaprSidecarOptions()), loggerFactory);
-        var volumeManager = new AgentVolumeManager(runtime, loggerFactory);
+        // ADR-0055 §8: AgentVolumeManager owns the per-agent bootstrap-token
+        // revocation seam on reclaim. The integration smoke does not exercise
+        // reclamation, so a substitute auth store is sufficient.
+        var bootstrapAuthStore = Substitute.For<IAgentBootstrapAuthStore>();
+        var volumeManager = new AgentVolumeManager(runtime, bootstrapAuthStore, loggerFactory);
         var registry = new EphemeralAgentRegistry(runtime, clm, volumeManager, loggerFactory);
 
         // Pull alpine:latest first so StartAsync below doesn't race the

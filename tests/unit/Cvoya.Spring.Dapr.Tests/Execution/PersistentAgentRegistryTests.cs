@@ -71,10 +71,7 @@ public class PersistentAgentRegistryTests : IDisposable
                 ci.ArgAt<string>(2),
                 Address.For(ci.ArgAt<string>(2), ci.ArgAt<string>(0))));
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
-            .Returns(new AgentLaunchSpec(
-                new Dictionary<string, string>(),
-                new Dictionary<string, string>(),
-                "/workspace"));
+            .Returns(new AgentLaunchSpec(new Dictionary<string, string>()));
         _agentProvider
             .GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((AgentDefinition?)null);
@@ -93,6 +90,7 @@ public class PersistentAgentRegistryTests : IDisposable
         services.AddSingleton(Options.Create(new Cvoya.Spring.Dapr.Mcp.McpServerOptions { Port = 5050 }));
         services.AddSingleton(_launcher);
         services.AddSingleton<IEnumerable<IAgentRuntimeLauncher>>(_ => new[] { _launcher });
+        services.AddSingleton(Substitute.For<IAgentBootstrapAuthStore>());
         services.AddSingleton<AgentVolumeManager>();
         services.AddSingleton<PersistentAgentRegistry>();
         services.AddSingleton<PersistentAgentLifecycle>();

@@ -174,9 +174,8 @@ public class SpringVoyageAgentLauncher(
             // enough headroom for a single LLM turn while still bounding
             // a hung sidecar.
             ["DAPR_API_TIMEOUT_SECONDS"] = "600",
-            // D3c: canonical path where the per-agent workspace volume is
-            // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
-            [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
+            // ADR-0055 §5: per-member workspace mount path.
+            [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.BuildMountPath(context.AgentId),
         };
 
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
@@ -209,19 +208,25 @@ public class SpringVoyageAgentLauncher(
         await ResolveProviderCredentialAsync(context, provider, envVars, cancellationToken);
 
         return new AgentLaunchSpec(
-            WorkspaceFiles: new Dictionary<string, string>(),
             EnvironmentVariables: envVars,
-            // Empty WorkspaceFiles → ContainerConfigBuilder emits no Workspace
-            // and the dispatcher creates no bind mount (#2608); the mount path
-            // is supplied for vocabulary consistency with the other launchers.
-            WorkspaceMountPath: AgentWorkspaceContract.WorkspaceMountPathNoSlash,
             // Non-empty argv: skip the agent-base bridge ENTRYPOINT and
             // hand control directly to the Python process that already
             // speaks A2A on :8999. BYOI conformance path 3.
-            Argv: DefaultSpringVoyageAgentArgv,
-            // Dapr Agent receives messages via A2A, not stdin.
-            StdinPayload: null);
+            Argv: DefaultSpringVoyageAgentArgv);
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The Spring Voyage agent is A2A-native — it does not consume any
+    /// in-workspace system-prompt or MCP-config files. Per-message context
+    /// arrives via the A2A wire; static prompt is delivered via
+    /// <c>SPRING_SYSTEM_PROMPT</c>. The bundle therefore carries no files
+    /// from this launcher.
+    /// </remarks>
+    public Task<AgentBootstrapContribution> ContributeBundleAsync(
+        AgentBootstrapContributionContext context,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(AgentBootstrapContribution.Empty);
 
     private async Task ResolveProviderCredentialAsync(
         AgentLaunchContext context,

@@ -222,115 +222,83 @@ public class GeminiLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN are
-        // removed — AgentContextBuilder now emits the D1-canonical equivalents
-        // (SPRING_AGENT_ID, SPRING_MCP_URL, SPRING_MCP_TOKEN) for every launcher.
-        // SPRING_THREAD_ID, SPRING_SYSTEM_PROMPT have no D1-spec equivalent and
-        // are retained here as launcher-specific vars.
         // ADR-0041 / #2096: when concurrent_threads is on, prepend the
-        // shared launcher guard to the assembled prompt so the model is
-        // told (in the system prompt) not to invoke long-running watchers,
-        // bind fixed ports, or mutate shared global state. Composes with
-        // the user's prompt — never replaces it.
+        // shared launcher guard to the assembled prompt.
         var prompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
+
+        var workspaceMount = AgentWorkspaceContract.BuildMountPath(context.AgentId);
+        var workspaceMountNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
 
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
             ["SPRING_SYSTEM_PROMPT"] = prompt,
-            // #2108: the bridge parses this back into argv via JSON.parse —
-            // see src/Cvoya.Spring.AgentSidecar/src/config.ts. Hand-rolling the
-            // encoding is forbidden (#1063 history); JsonSerializer gives
-            // us stable, double-quoted output. The bridge appends
-            // [--session-id|--resume, <thread.id>] to this vector per the
-            // ThreadIdArg* env vars below, then pipes the user's prompt
-            // into the spawned process's stdin. Until #2108 the launcher
-            // left this unset and the spawn vector became just
-            // [--session-id, <id>] with no command name — Gemini agent
-            // containers couldn't actually execute end-to-end.
             ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(DefaultGeminiArgv),
-            // D3c: canonical path where the per-agent workspace volume is
-            // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
-            [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
-            // ADR-0041 / #2094 / #2103: tell the bridge how to bind the
-            // platform thread.id (= A2A 0.3 contextId) onto Gemini's
-            // session identifier. First message on a thread →
-            // `--session-id <id>` (mints a new session keyed by the UUID);
-            // subsequent messages → `--resume <id>` (loads the existing
-            // session file). The bridge picks create vs resume from a
-            // marker file persisted under the workspace volume (see
-            // GEMINI_CLI_HOME below) so the answer survives container
-            // restart. Both flags verified against the gemini-cli source
-            // tree (`packages/cli/src/config/config.ts`) — see the const
-            // doc-comments on ThreadIdArgCreate / ThreadIdArgResume.
+            // ADR-0055 §5: per-member workspace mount path.
+            [AgentWorkspaceContract.WorkspacePathEnvVar] = workspaceMount,
+            // ADR-0041 / #2094 / #2103: thread-binding for Gemini CLI's
+            // --session-id / --resume.
             [ThreadIdArgCreateEnvVar] = ThreadIdArgCreate,
             [ThreadIdArgResumeEnvVar] = ThreadIdArgResume,
-            // ADR-0041 / #2103: anchor Gemini CLI's config and session
-            // storage on the per-agent workspace volume (D1 § 2.2.1,
-            // ADR-0029). gemini-cli's `homedir()` (paths.ts) returns
-            // GEMINI_CLI_HOME when set; the CLI then appends `.gemini/`
-            // and writes session files under
-            // `<home>/.gemini/tmp/<project-hash>/chats/<sid>.json`. Pointing
-            // GEMINI_CLI_HOME at the workspace mount makes those session
-            // files survive a container restart and lets the next
-            // `--resume <sid>` invocation pick them up. The workspace
-            // settings file the launcher writes
-            // (`<workspace>/.gemini/settings.json`) and the user-level
-            // settings file gemini-cli derives from this env var
-            // (`$GEMINI_CLI_HOME/.gemini/settings.json`) resolve to the
-            // same path; the CLI tolerates that — workspace and user
-            // settings are merged-or-equivalent on the same file.
-            [GeminiCliHomeEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
+            // ADR-0041 / #2103: anchor Gemini CLI's config / session storage
+            // on the per-member workspace volume.
+            [GeminiCliHomeEnvVar] = workspaceMount,
             // ADR-0052 §4: absolute container path of the Gemini settings
             // file the bridge rewrites with the per-turn MCP session token
-            // before every CLI spawn. The settings file carries the same
-            // `mcpServers.<name>.headers.Authorization` shape as `.mcp.json`.
-            [McpConfigPathEnvVar] = $"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/{GeminiSettingsPath}",
+            // before every CLI spawn.
+            [McpConfigPathEnvVar] = $"{workspaceMountNoSlash}/{GeminiSettingsPath}",
         };
 
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
-        var workspaceFiles = new Dictionary<string, string>
-        {
-            ["GEMINI.md"] = prompt,
-            [GeminiSettingsPath] = JsonSerializer.Serialize(BuildGeminiSettings(context), JsonOptions)
-        };
-
-        _logger.LogInformation(
-            "Prepared Gemini workspace request ({FileCount} files) for agent {AgentId} thread {ThreadId}",
-            workspaceFiles.Count, context.AgentId, context.ThreadId);
-
-        // #1714 step 2: inject the Google AI Studio API key into
-        // GOOGLE_API_KEY. Gemini's credential schema is a single accepted
-        // shape, so there is no shape-branching at the launcher.
+        // #1714 step 2: inject the Google AI Studio API key.
         await ResolveRuntimeCredentialAsync(context, envVars, cancellationToken);
 
-        return new AgentLaunchSpec(
-            WorkspaceFiles: workspaceFiles,
-            EnvironmentVariables: envVars,
-            WorkspaceMountPath: AgentWorkspaceContract.WorkspaceMountPath);
+        _logger.LogInformation(
+            "Prepared Gemini launch spec for agent {AgentId} thread {ThreadId}",
+            context.AgentId, context.ThreadId);
+
+        return new AgentLaunchSpec(EnvironmentVariables: envVars);
     }
 
-    private static object BuildGeminiSettings(AgentLaunchContext context)
+    /// <inheritdoc />
+    public Task<AgentBootstrapContribution> ContributeBundleAsync(
+        AgentBootstrapContributionContext context,
+        CancellationToken cancellationToken = default)
     {
-        // ADR-0051: one MCP server exposes every sv.* tool — sv.messaging.*
-        // included — under the MCP session token. tools/list is grant-filtered
-        // server-side, so the launcher no longer enumerates messaging tools.
+        ArgumentNullException.ThrowIfNull(context);
+
+        var files = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["GEMINI.md"] = context.Definition.Instructions ?? string.Empty,
+            [GeminiSettingsPath] = JsonSerializer.Serialize(BuildGeminiSettings(context.McpEndpoint), JsonOptions),
+        };
+
+        return Task.FromResult(new AgentBootstrapContribution(
+            Files: files,
+            PlatformFilePaths: new[] { "GEMINI.md", GeminiSettingsPath }));
+    }
+
+    private static object BuildGeminiSettings(string mcpEndpoint)
+    {
+        // ADR-0051: one MCP server exposes every sv.* tool. ADR-0052 §4:
+        // launch-time Authorization placeholder — the sidecar rewrites this
+        // header with the per-turn MCP session token before each CLI spawn.
         var mcpServers = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [SpringVoyageMcpServerName] = new
             {
-                httpUrl = context.McpEndpoint,
+                httpUrl = mcpEndpoint,
                 headers = new Dictionary<string, string>
                 {
-                    ["Authorization"] = $"Bearer {context.McpToken}"
-                }
-            }
+                    ["Authorization"] = "Bearer ",
+                },
+            },
         };
 
         return new
         {
-            mcpServers
+            mcpServers,
         };
     }
 

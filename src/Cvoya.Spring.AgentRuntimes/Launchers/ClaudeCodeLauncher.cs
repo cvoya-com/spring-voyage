@@ -198,115 +198,98 @@ public class ClaudeCodeLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        var mcpServers = new Dictionary<string, object>
-        {
-            [SpringVoyageMcpServerName] = new
-            {
-                type = "http",
-                url = context.McpEndpoint,
-                headers = new Dictionary<string, string>
-                {
-                    ["Authorization"] = $"Bearer {context.McpToken}"
-                }
-            }
-        };
-
-        var mcpConfig = new
-        {
-            mcpServers
-        };
-
         // ADR-0041 / #2096: when concurrent_threads is on, prepend the
         // shared launcher guard to the assembled prompt so the model is
         // told (in the system prompt) not to invoke long-running watchers,
-        // bind fixed ports, or mutate shared global state. Composes with
-        // the user's prompt — never replaces it.
+        // bind fixed ports, or mutate shared global state.
         var prompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
 
-        var workspaceFiles = new Dictionary<string, string>
-        {
-            ["CLAUDE.md"] = prompt,
-            [".mcp.json"] = SerializeMcpConfig(mcpConfig)
-        };
+        var workspaceMountNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
 
-        _logger.LogInformation(
-            "Prepared Claude Code workspace request ({FileCount} files) for agent {AgentId} thread {ThreadId}",
-            workspaceFiles.Count, context.AgentId, context.ThreadId);
-
-        // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN are
-        // removed — AgentContextBuilder now emits the D1-canonical equivalents
-        // (SPRING_AGENT_ID, SPRING_MCP_URL, SPRING_MCP_TOKEN) for every launcher.
-        // SPRING_THREAD_ID, SPRING_SYSTEM_PROMPT, SPRING_AGENT_ARGV have no
-        // D1-spec equivalent and are retained here as launcher-specific vars.
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
             ["SPRING_SYSTEM_PROMPT"] = prompt,
             // The bridge parses this back into argv via JSON.parse — see
-            // src/Cvoya.Spring.AgentSidecar/src/config.ts. Hand-rolling the
-            // encoding is forbidden (see issue text); JsonSerializer
-            // gives us stable, double-quoted output.
+            // src/Cvoya.Spring.AgentSidecar/src/config.ts.
             ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(DefaultClaudeArgv),
             // ADR-0041 / #2094: tell the bridge how to bind the platform
             // thread.id (= A2A 0.3 contextId) onto Claude Code's session
-            // identifier. First message on a thread → `--session-id <id>`
-            // (mints a session with the supplied UUID); subsequent messages
-            // → `--resume <id>` (loads the existing session file from disk).
-            // The bridge picks create vs resume from a marker file it
-            // persists to the workspace volume (see CLAUDE_CONFIG_DIR
-            // below) so the answer survives container restart. Both flags
-            // verified against `claude --help` (Claude Code 2.1.x).
+            // identifier.
             [ThreadIdArgCreateEnvVar] = ThreadIdArgCreate,
             [ThreadIdArgResumeEnvVar] = ThreadIdArgResume,
             // ADR-0041 / #2094: anchor Claude Code's session storage on the
-            // per-agent workspace volume (D1 § 2.2.1, ADR-0029). Claude
-            // writes session files at `<CLAUDE_CONFIG_DIR>/projects/<cwd-mangled>/<sid>.jsonl`;
-            // by pointing CLAUDE_CONFIG_DIR under SPRING_WORKSPACE_PATH the
-            // session file survives container restart and can be resumed
-            // by the next `--resume <sid>` invocation.
-            [ClaudeConfigDirEnvVar] = $"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/{ClaudeConfigDirRelative}",
-            // D3c: canonical path where the per-agent workspace volume is
-            // mounted. The dispatcher provisions the volume and adds the
-            // -v mount; the env var tells the in-container SDK where to find
-            // it (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
-            [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
-            // ADR-0052 §4: absolute container path of the `.mcp.json` the
+            // per-member workspace volume (ADR-0055 §5). Claude writes
+            // session files at
+            // <CLAUDE_CONFIG_DIR>/projects/<cwd-mangled>/<sid>.jsonl;
+            // pointing CLAUDE_CONFIG_DIR under SPRING_WORKSPACE_PATH means
+            // the session file survives container restart and can be
+            // resumed by the next --resume <sid> invocation.
+            [ClaudeConfigDirEnvVar] = $"{workspaceMountNoSlash}/{ClaudeConfigDirRelative}",
+            // ADR-0055 §5: per-member workspace mount path.
+            [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.BuildMountPath(context.AgentId),
+            // ADR-0052 §4: absolute container path of the .mcp.json the
             // bridge rewrites with the per-turn MCP session token before
-            // every CLI spawn. The launch-time Authorization header below
-            // carries the (empty) launch-time token; the bridge overwrites
-            // it per turn from the A2A message/send `mcpToken` metadata.
-            [McpConfigPathEnvVar] = $"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/{McpConfigFileName}",
+            // every CLI spawn. The bundle's launcher contribution writes
+            // the file with an empty Authorization header; the bridge
+            // stamps the per-turn token from the A2A message/send metadata.
+            [McpConfigPathEnvVar] = $"{workspaceMountNoSlash}/{McpConfigFileName}",
         };
 
-        // ADR-0051: the OTLP-ingest env contract (SPRING_CALLBACK_URL /
-        // SPRING_CALLBACK_TOKEN) is still stamped here. sv.messaging.* tools
-        // are served by the single platform MCP server above — there is no
-        // separate messaging MCP server to register.
+        // ADR-0051: OTLP-ingest env contract still stamped here.
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
         // #1714 step 2: inject the Claude OAuth token into
-        // CLAUDE_CODE_OAUTH_TOKEN. The Claude agent runtime is OAuth-only
-        // (the project does not run `claude --bare`) — API keys are
-        // rejected pre-flight with operator guidance pointing at
-        // `claude setup-token` or the Spring Voyage runtime. ANTHROPIC_API_KEY
-        // is NEVER injected by this launcher; that env var only flows out
-        // of the Spring Voyage launcher when `provider: anthropic`.
+        // CLAUDE_CODE_OAUTH_TOKEN. The Claude agent runtime is OAuth-only.
         await ResolveRuntimeCredentialAsync(context, envVars, cancellationToken);
 
+        _logger.LogInformation(
+            "Prepared Claude Code launch spec for agent {AgentId} thread {ThreadId}",
+            context.AgentId, context.ThreadId);
+
         return new AgentLaunchSpec(
-            WorkspaceFiles: workspaceFiles,
             EnvironmentVariables: envVars,
-            WorkspaceMountPath: AgentWorkspaceContract.WorkspaceMountPath,
             // Empty argv: defer to the agent-base image's ENTRYPOINT (the
             // TypeScript bridge), which reads SPRING_AGENT_ARGV and spawns
-            // the real CLI per `message/send`. BYOI conformance path 1.
-            Argv: Array.Empty<string>(),
-            // Same content as CLAUDE.md / SPRING_SYSTEM_PROMPT — the bridge
-            // (PR 5) will pipe this to `claude`'s stdin alongside the per-
-            // message user text. Populated here so PR 5 can wire it up
-            // without touching the launcher contract again. Carries the
-            // concurrent-threads guard prepend (#2096 / ADR-0041) when on.
-            StdinPayload: prompt);
+            // the real CLI per message/send. BYOI conformance path 1.
+            Argv: Array.Empty<string>());
+    }
+
+    /// <inheritdoc />
+    public Task<AgentBootstrapContribution> ContributeBundleAsync(
+        AgentBootstrapContributionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var mcpConfig = new
+        {
+            mcpServers = new Dictionary<string, object>
+            {
+                [SpringVoyageMcpServerName] = new
+                {
+                    type = "http",
+                    url = context.McpEndpoint,
+                    headers = new Dictionary<string, string>
+                    {
+                        // Launch-time placeholder — the sidecar rewrites
+                        // this header with the per-turn MCP session token
+                        // before every CLI spawn (ADR-0052 §4 / #2615).
+                        ["Authorization"] = "Bearer ",
+                    },
+                },
+            },
+        };
+
+        var files = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["CLAUDE.md"] = context.Definition.Instructions ?? string.Empty,
+            [".mcp.json"] = SerializeMcpConfig(mcpConfig),
+        };
+
+        return Task.FromResult(new AgentBootstrapContribution(
+            Files: files,
+            PlatformFilePaths: new[] { "CLAUDE.md", ".mcp.json" }));
     }
 
     private static string SerializeMcpConfig(object mcpConfig) =>

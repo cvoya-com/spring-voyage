@@ -194,7 +194,7 @@ public class PersistentAgentLifecycle(
         // container. Volume survives restarts; reclamation happens on
         // UndeployAsync (which delegates to PersistentAgentRegistry.UndeployAsync).
         var volumeName = await volumeManager.EnsureAsync(agentId, cancellationToken);
-        var volumeMount = AgentVolumeManager.BuildVolumeMount(volumeName);
+        var volumeMount = AgentVolumeManager.BuildVolumeMount(volumeName, agentId);
         var prepWithVolume = prepWithBootstrap with
         {
             ExtraVolumeMounts = MergeVolumeMounts(prepWithBootstrap.ExtraVolumeMounts, volumeMount),
@@ -414,25 +414,9 @@ public class PersistentAgentLifecycle(
             mergedEnv[kvp.Key] = kvp.Value;
         }
 
-        Dictionary<string, string> mergedContext;
-        if (spec.ContextFiles is { Count: > 0 })
-        {
-            mergedContext = new Dictionary<string, string>(spec.ContextFiles, StringComparer.Ordinal);
-        }
-        else
-        {
-            mergedContext = new Dictionary<string, string>(StringComparer.Ordinal);
-        }
-
-        foreach (var kvp in bootstrap.ContextFiles)
-        {
-            mergedContext[kvp.Key] = kvp.Value;
-        }
-
         return spec with
         {
             EnvironmentVariables = mergedEnv,
-            ContextFiles = mergedContext.Count > 0 ? mergedContext : null,
         };
     }
 

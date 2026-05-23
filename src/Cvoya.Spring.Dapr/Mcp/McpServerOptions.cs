@@ -45,4 +45,14 @@ public class McpServerOptions
     /// which is the only correct value when <see cref="Port"/> is <c>0</c>.
     /// </remarks>
     public string ContainerEndpoint => $"http://{ContainerHost}:{Port}/mcp/";
+
+    /// <summary>
+    /// Container-facing bootstrap endpoint URL for a given agent — the
+    /// path the agent-sidecar pulls its workspace bundle from (ADR-0055
+    /// §9). Same host + port as <see cref="ContainerEndpoint"/>; differs
+    /// only in path. The launcher stamps this on the container's
+    /// <c>SPRING_BOOTSTRAP_URL</c> at launch time.
+    /// </summary>
+    public string BuildBootstrapEndpoint(string agentId) =>
+        $"http://{ContainerHost}:{Port}/v1/bootstrap/agents/{agentId}";
 }

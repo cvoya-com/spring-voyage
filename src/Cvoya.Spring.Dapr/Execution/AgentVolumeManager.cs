@@ -14,9 +14,10 @@ using Microsoft.Extensions.Logging;
 /// Each agent receives exactly one named Podman volume. The volume is:
 /// <list type="bullet">
 ///   <item>Created (idempotent) before the agent's container is first started.</item>
-///   <item>Mounted at <see cref="WorkspaceMountPath"/> inside every container
-///         instance of that agent, using <c>SPRING_WORKSPACE_PATH</c> as the
-///         in-container env var.</item>
+///   <item>Mounted at the per-member path
+///         <c>/spring/members/&lt;agentId&gt;/</c> inside every container
+///         instance of that agent (ADR-0055 §5), surfaced to the agent
+///         process as the <c>SPRING_WORKSPACE_PATH</c> env var.</item>
 ///   <item>Persistent across container restarts — a crashed container's volume
 ///         survives so the next instance can resume from checkpoint files.</item>
 ///   <item>Reclaimed when the agent is deleted (persistent) or when an
@@ -40,18 +41,9 @@ using Microsoft.Extensions.Logging;
 /// </remarks>
 public class AgentVolumeManager(
     IContainerRuntime containerRuntime,
+    IAgentBootstrapAuthStore bootstrapAuthStore,
     ILoggerFactory loggerFactory) : IHostedService
 {
-    /// <summary>
-    /// Canonical mount path inside every agent container. Matches the
-    /// <c>SPRING_WORKSPACE_PATH</c> env var value the launchers set and the
-    /// recommended default from the D1 spec (§ 2.1 and § 3.1). Delegates
-    /// to <see cref="AgentWorkspaceContract.WorkspaceMountPath"/> in
-    /// <c>Cvoya.Spring.Core</c> so launcher projects can read the canonical
-    /// value without depending on Dapr (ADR-0038 Chunk 2a).
-    /// </summary>
-    public const string WorkspaceMountPath = AgentWorkspaceContract.WorkspaceMountPath;
-
     /// <summary>
     /// Env var name the D1 spec mandates for the workspace mount path.
     /// Delegates to <see cref="AgentWorkspaceContract.WorkspacePathEnvVar"/>.
@@ -121,6 +113,11 @@ public class AgentVolumeManager(
             volumeName, agentId);
 
         _volumesByAgentId.TryRemove(agentId, out _);
+
+        // ADR-0055 §8: bootstrap token lifetime = agent lifetime. Revoke on
+        // undeploy so a stale token cannot pull the bundle of a re-issued
+        // agent with the same id.
+        bootstrapAuthStore.Revoke(agentId);
 
         try
         {
@@ -287,11 +284,12 @@ public class AgentVolumeManager(
     }
 
     /// <summary>
-    /// Builds the volume-mount string for a container run command.
-    /// Format: <c>{volumeName}:{mountPath}</c>.
+    /// Builds the volume-mount string for a container run command using
+    /// the per-member path <c>/spring/members/&lt;agentId&gt;/</c>
+    /// (ADR-0055 §5). Format: <c>{volumeName}:/spring/members/{agentId}/</c>.
     /// </summary>
-    public static string BuildVolumeMount(string volumeName)
-        => $"{volumeName}:{WorkspaceMountPath}";
+    public static string BuildVolumeMount(string volumeName, string agentId)
+        => $"{volumeName}:{AgentWorkspaceContract.BuildMountPath(agentId)}";
 
     /// <summary>
     /// Event IDs for workspace volume management (range 2260–2279, within

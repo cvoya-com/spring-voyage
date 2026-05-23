@@ -23,13 +23,14 @@ using Xunit;
 public class AgentVolumeManagerTests
 {
     private readonly IContainerRuntime _runtime = Substitute.For<IContainerRuntime>();
+    private readonly IAgentBootstrapAuthStore _bootstrapAuthStore = Substitute.For<IAgentBootstrapAuthStore>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly AgentVolumeManager _manager;
 
     public AgentVolumeManagerTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _manager = new AgentVolumeManager(_runtime, _loggerFactory);
+        _manager = new AgentVolumeManager(_runtime, _bootstrapAuthStore, _loggerFactory);
     }
 
     // ── EnsureAsync ────────────────────────────────────────────────────────
@@ -70,6 +71,20 @@ public class AgentVolumeManagerTests
 
         await _runtime.Received(1).RemoveVolumeAsync(
             "spring-ws-agent-reclaim", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReclaimAsync_RevokesBootstrapToken()
+    {
+        // ADR-0055 §8: bootstrap-token lifetime = agent lifetime. Reclaim
+        // (called on undeploy / ephemeral completion) must revoke the
+        // token so a stale token cannot pull the bundle of a re-issued
+        // agent with the same id.
+        await _manager.EnsureAsync("agent-token", TestContext.Current.CancellationToken);
+
+        await _manager.ReclaimAsync("agent-token", TestContext.Current.CancellationToken);
+
+        _bootstrapAuthStore.Received(1).Revoke("agent-token");
     }
 
     [Fact]
@@ -136,28 +151,24 @@ public class AgentVolumeManagerTests
     // ── BuildVolumeMount ──────────────────────────────────────────────────
 
     [Fact]
-    public void BuildVolumeMount_ReturnsColonSeparatedNameAndPath()
+    public void BuildVolumeMount_ReturnsColonSeparatedNameAndPerMemberPath()
     {
-        var mount = AgentVolumeManager.BuildVolumeMount("spring-ws-abc");
+        // ADR-0055 §5: the mount path is per-member —
+        // /spring/members/<agentId>/.
+        var mount = AgentVolumeManager.BuildVolumeMount("spring-ws-abc", "agent-abc");
 
-        mount.ShouldBe($"spring-ws-abc:{AgentVolumeManager.WorkspaceMountPath}");
+        mount.ShouldBe("spring-ws-abc:/spring/members/agent-abc/");
     }
 
     [Fact]
     public void BuildVolumeMount_MountPathEndsWithSlash()
     {
-        var mount = AgentVolumeManager.BuildVolumeMount("vol");
+        var mount = AgentVolumeManager.BuildVolumeMount("vol", "any-agent");
 
         mount.ShouldEndWith("/");
     }
 
     // ── Constants ─────────────────────────────────────────────────────────
-
-    [Fact]
-    public void WorkspaceMountPath_IsSpringWorkspace()
-    {
-        AgentVolumeManager.WorkspaceMountPath.ShouldBe("/spring/workspace/");
-    }
 
     [Fact]
     public void WorkspacePathEnvVar_IsSpringWorkspacePath()
@@ -235,7 +246,7 @@ public class AgentVolumeManagerTests
     public async Task StopAsync_WhenNeverStarted_DoesNotThrow()
     {
         // Arrange — fresh manager, StartAsync never called.
-        var neverStarted = new AgentVolumeManager(_runtime, _loggerFactory);
+        var neverStarted = new AgentVolumeManager(_runtime, _bootstrapAuthStore, _loggerFactory);
 
         // Act + Assert
         await Should.NotThrowAsync(() => neverStarted.StopAsync(TestContext.Current.CancellationToken));

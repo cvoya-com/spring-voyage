@@ -202,154 +202,16 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
-    [Fact]
-    public async Task PostContainers_WithWorkspace_MaterialisesFilesAndAppendsBindMount()
-    {
-        _factory.ContainerRuntime.ClearSubstitute();
-
-        ContainerConfig? captured = null;
-        _factory.ContainerRuntime
-            .RunAsync(Arg.Do<ContainerConfig>(c => captured = c), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("ws-blocking", 0, "ok", string.Empty));
-
-        var client = CreateAuthorizedClient();
-
-        var response = await client.PostAsJsonAsync("/v1/containers", new
-        {
-            image = "claude-code:latest",
-            workspace = new
-            {
-                mountPath = "/workspace",
-                files = new Dictionary<string, string>
-                {
-                    ["CLAUDE.md"] = "system prompt body",
-                    [".mcp.json"] = "{\"mcpServers\":{}}",
-                    ["nested/dir/note.txt"] = "nested",
-                },
-            },
-            detached = false,
-        }, TestContext.Current.CancellationToken);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        captured.ShouldNotBeNull();
-        captured!.WorkingDirectory.ShouldBe("/workspace");
-        var bindMount = captured.VolumeMounts!.Single();
-        bindMount.ShouldEndWith(":/workspace");
-
-        var hostDir = bindMount[..bindMount.LastIndexOf(":/workspace", StringComparison.Ordinal)];
-        Directory.Exists(hostDir).ShouldBeFalse(
-            "blocking runs must clean the materialised dir up after the runtime returns");
-        // The dir was materialised inside the configured root before being deleted.
-        hostDir.ShouldStartWith(_factory.WorkspaceRoot);
-    }
-
-    [Fact]
-    public async Task PostContainers_WithEmptyWorkspaceAndNoExplicitWorkdir_LeavesWorkdirUnset()
-    {
-        // Regression for #1159 (dispatcher side): launchers like
-        // SpringVoyageAgentLauncher bind-mount an empty workspace to keep the launch
-        // shape uniform with file-bearing launchers, but ship images whose
-        // CMD is relative to the image WORKDIR (e.g. `python agent.py` from
-        // /app). If the dispatcher silently defaults workdir to the
-        // materialised mount path, the relative CMD lookup fails and the
-        // container exits immediately with "No such file or directory".
-        // The dispatcher must only override the workdir when the workspace
-        // actually carries files, mirroring the worker-side policy in
-        // ContainerConfigBuilder.Build.
-        _factory.ContainerRuntime.ClearSubstitute();
-
-        ContainerConfig? captured = null;
-        _factory.ContainerRuntime
-            .RunAsync(Arg.Do<ContainerConfig>(c => captured = c), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("ws-empty", 0, "ok", string.Empty));
-
-        var client = CreateAuthorizedClient();
-
-        var response = await client.PostAsJsonAsync("/v1/containers", new
-        {
-            image = "spring-voyage-agent:latest",
-            workspace = new
-            {
-                mountPath = "/workspace",
-                files = new Dictionary<string, string>(),
-            },
-            detached = false,
-        }, TestContext.Current.CancellationToken);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        captured.ShouldNotBeNull();
-        captured!.WorkingDirectory.ShouldBeNull(
-            "an empty workspace must not override the image's default WORKDIR");
-        captured.VolumeMounts.ShouldNotBeNull();
-        captured.VolumeMounts!.ShouldContain(m => m.EndsWith(":/workspace"));
-    }
-
-    [Fact]
-    public async Task PostContainers_WithWorkspace_RejectsTraversalPaths()
-    {
-        _factory.ContainerRuntime.ClearSubstitute();
-
-        var client = CreateAuthorizedClient();
-
-        var response = await client.PostAsJsonAsync("/v1/containers", new
-        {
-            image = "claude-code:latest",
-            workspace = new
-            {
-                mountPath = "/workspace",
-                files = new Dictionary<string, string>
-                {
-                    ["../../etc/passwd"] = "x",
-                },
-            },
-        }, TestContext.Current.CancellationToken);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        await _factory.ContainerRuntime.DidNotReceive().RunAsync(
-            Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task PostContainers_DetachedWithWorkspace_DefersCleanupUntilStop()
-    {
-        _factory.ContainerRuntime.ClearSubstitute();
-
-        ContainerConfig? captured = null;
-        _factory.ContainerRuntime
-            .StartAsync(Arg.Do<ContainerConfig>(c => captured = c), Arg.Any<CancellationToken>())
-            .Returns("persistent-ws-1");
-
-        var client = CreateAuthorizedClient();
-
-        var startResponse = await client.PostAsJsonAsync("/v1/containers", new
-        {
-            image = "agent:latest",
-            workspace = new
-            {
-                mountPath = "/workspace",
-                files = new Dictionary<string, string> { ["A.txt"] = "alpha" },
-            },
-            detached = true,
-        }, TestContext.Current.CancellationToken);
-
-        startResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        captured.ShouldNotBeNull();
-        var bindMount = captured!.VolumeMounts!.Single();
-        var hostDir = bindMount[..bindMount.LastIndexOf(":/workspace", StringComparison.Ordinal)];
-        Directory.Exists(hostDir).ShouldBeTrue(
-            "detached starts must keep the workspace until DELETE is called");
-        File.ReadAllText(Path.Combine(hostDir, "A.txt")).ShouldBe("alpha");
-
-        var deleteResponse = await client.DeleteAsync(
-            "/v1/containers/persistent-ws-1", TestContext.Current.CancellationToken);
-        deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
-
-        Directory.Exists(hostDir).ShouldBeFalse(
-            "DELETE should sweep the workspace tracked by the detached start");
-    }
+    // ADR-0055: the dispatcher no longer materialises workspace files.
+    // Removed:
+    //   PostContainers_WithWorkspace_MaterialisesFilesAndAppendsBindMount
+    //   PostContainers_WithEmptyWorkspaceAndNoExplicitWorkdir_LeavesWorkdirUnset
+    //   PostContainers_WithWorkspace_RejectsTraversalPaths
+    //   PostContainers_DetachedWithWorkspace_DefersCleanupUntilStop
+    // The agent-sidecar pulls the bundle from the worker and writes files
+    // under the per-member workspace volume; there is no `workspace` field
+    // on RunContainerRequest, no DispatcherOptions.WorkspaceRoot, and no
+    // ::/workspace bind mount the dispatcher manages.
 
     [Fact]
     public async Task PostContainerProbe_WithoutToken_Returns401()
@@ -534,35 +396,10 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
         body.GetProperty("bodyBase64").GetString().ShouldBe(string.Empty);
     }
 
-    [Fact]
-    public async Task PostContainers_WithWorkspace_PreservesExistingMounts()
-    {
-        _factory.ContainerRuntime.ClearSubstitute();
-
-        ContainerConfig? captured = null;
-        _factory.ContainerRuntime
-            .RunAsync(Arg.Do<ContainerConfig>(c => captured = c), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("ws-with-extra", 0, string.Empty, string.Empty));
-
-        var client = CreateAuthorizedClient();
-
-        var response = await client.PostAsJsonAsync("/v1/containers", new
-        {
-            image = "claude-code:latest",
-            mounts = new[] { "/var/run/secrets:/secrets:ro" },
-            workspace = new
-            {
-                mountPath = "/workspace",
-                files = new Dictionary<string, string> { ["CLAUDE.md"] = "x" },
-            },
-        }, TestContext.Current.CancellationToken);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        captured.ShouldNotBeNull();
-        captured!.VolumeMounts!.Count.ShouldBe(2);
-        captured.VolumeMounts.ShouldContain("/var/run/secrets:/secrets:ro");
-        captured.VolumeMounts.Last().ShouldEndWith(":/workspace");
-    }
+    // ADR-0055: PostContainers_WithWorkspace_PreservesExistingMounts removed;
+    // there is no `workspace` field on RunContainerRequest anymore — the
+    // per-member workspace volume is mounted via the regular `mounts`
+    // (VolumeMounts) field, which other tests cover.
 
     // ── WaitForExit tests (issue #2198) ────────────────────────────────────
 

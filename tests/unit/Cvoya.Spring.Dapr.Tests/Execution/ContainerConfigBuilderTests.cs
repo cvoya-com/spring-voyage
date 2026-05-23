@@ -25,9 +25,7 @@ public class ContainerConfigBuilderTests
         string? workingDirectory = null,
         IReadOnlyList<string>? extraVolumeMounts = null) =>
         new(
-            WorkspaceFiles: new Dictionary<string, string> { ["CLAUDE.md"] = "you are a..." },
             EnvironmentVariables: new Dictionary<string, string> { ["SPRING_SYSTEM_PROMPT"] = "p" },
-            WorkspaceMountPath: "/workspace",
             ExtraVolumeMounts: extraVolumeMounts,
             WorkingDirectory: workingDirectory,
             Argv: argv);
@@ -117,83 +115,40 @@ public class ContainerConfigBuilderTests
     }
 
     [Fact]
-    public void Build_NullWorkingDirectory_WithWorkspaceFiles_DefaultsToWorkspaceMountPath()
+    public void Build_NullWorkingDirectory_LeavesWorkdirNull()
     {
-        // MinimalSpec already sets a non-empty WorkspaceFiles map; the
-        // builder treats that as a signal that the launcher (e.g.
-        // ClaudeCodeLauncher) wrote files into the workspace and runs its
-        // tool from cwd, so the workdir must move to the mount path.
+        // ADR-0055: the launcher no longer carries WorkspaceFiles, so the
+        // builder never auto-overrides the workdir. The dispatcher
+        // supplies the per-member volume mount; the image's WORKDIR (or
+        // an explicit spec.WorkingDirectory) decides the cwd.
         var config = ContainerConfigBuilder.Build(Image, MinimalSpec(workingDirectory: null));
-
-        config.WorkingDirectory.ShouldBe("/workspace");
-    }
-
-    [Fact]
-    public void Build_NullWorkingDirectory_WithEmptyWorkspaceFiles_LeavesWorkdirNull()
-    {
-        // #1159: launchers like SpringVoyageAgentLauncher carry an empty workspace
-        // (their prompt arrives via env vars, not files) and ship images
-        // whose CMD is relative to a fixed image workdir (e.g. /app for
-        // `python agent.py`). Overriding workdir to /workspace breaks the
-        // relative CMD lookup and the container exits within ~40ms with
-        // `python: can't open file '/workspace/agent.py'`.
-        var spec = MinimalSpec(workingDirectory: null) with
-        {
-            WorkspaceFiles = new Dictionary<string, string>(),
-        };
-
-        var config = ContainerConfigBuilder.Build(Image, spec);
 
         config.WorkingDirectory.ShouldBeNull();
     }
 
     [Fact]
-    public void Build_ExplicitWorkingDirectory_AlwaysWins()
+    public void Build_ExplicitWorkingDirectory_IsHonouredVerbatim()
     {
-        // Whether or not the workspace is materialised, an explicit
-        // launcher-supplied WorkingDirectory must be honoured verbatim.
-        var withFiles = ContainerConfigBuilder.Build(
+        var config = ContainerConfigBuilder.Build(
             Image,
             MinimalSpec(workingDirectory: "/srv/work"));
-        withFiles.WorkingDirectory.ShouldBe("/srv/work");
 
-        var emptySpec = MinimalSpec(workingDirectory: "/srv/work") with
-        {
-            WorkspaceFiles = new Dictionary<string, string>(),
-        };
-        var withoutFiles = ContainerConfigBuilder.Build(Image, emptySpec);
-        withoutFiles.WorkingDirectory.ShouldBe("/srv/work");
+        config.WorkingDirectory.ShouldBe("/srv/work");
     }
 
     [Fact]
-    public void Build_BuildsWorkspaceFromSpec()
+    public void Build_DoesNotEmitWorkspaceField_AfterAdr0055()
     {
-        var spec = MinimalSpec();
+        // ADR-0055: the dispatcher does not materialise workspace files;
+        // the sidecar pulls the bundle and writes files under the
+        // per-member workspace volume. ContainerConfig no longer carries a
+        // Workspace field at all — the contract is enforced at compile
+        // time, this test pins the absence at runtime for the reviewer.
+        var config = ContainerConfigBuilder.Build(Image, MinimalSpec());
 
-        var config = ContainerConfigBuilder.Build(Image, spec);
-
-        config.Workspace.ShouldNotBeNull();
-        config.Workspace!.MountPath.ShouldBe(spec.WorkspaceMountPath);
-        config.Workspace.Files.ShouldBeSameAs(spec.WorkspaceFiles);
-    }
-
-    [Fact]
-    public void Build_EmptyWorkspaceFiles_EmitsNoWorkspace()
-    {
-        // #2608: a launcher that contributes no workspace files (e.g.
-        // SpringVoyageAgentLauncher, whose prompt arrives via env vars)
-        // must not trigger a /workspace bind mount. The builder emits no
-        // Workspace so the dispatcher materialises nothing and the
-        // container keeps a single workspace mount — its per-agent
-        // persistent volume. Mirrors the ContextWorkspace conditional.
-        var spec = MinimalSpec() with
-        {
-            WorkspaceFiles = new Dictionary<string, string>(),
-        };
-
-        var config = ContainerConfigBuilder.Build(Image, spec);
-
-        config.Workspace.ShouldBeNull();
+        typeof(ContainerConfig).GetProperty("Workspace").ShouldBeNull(
+            "ContainerConfig.Workspace is gone post-ADR-0055");
+        config.ShouldNotBeNull();
     }
 
     [Fact]
