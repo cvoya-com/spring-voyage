@@ -168,6 +168,93 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         memberships.ShouldBeEmpty();
     }
 
+    // ADR-0056 Wave 2 / #2657: a freshly-created agent picks up the
+    // platform's default skill-bundle list out of the box. The endpoint
+    // calls IAgentSkillBundleStore.AddAsync(actorId, conversational-
+    // defaults) right after the auto-start gate so the agent's Layer 4
+    // prompt carries the [PLATFORM CONTRACT — NON-NEGOTIABLE] fragment
+    // on the very next dispatch — no follow-up `spring agent skills add`.
+    [Fact]
+    public async Task CreateAgent_TopLevel_AttachesConversationalDefaultsBundle()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        _factory.DirectoryService.ClearReceivedCalls();
+        _factory.AgentSkillBundleStore.ClearReceivedCalls();
+        ArrangeAgentActorProxy();
+
+        var request = new CreateAgentRequest(
+            "Default-Bundle Agent", "Inherits the platform default bundle.", "frontend",
+            UnitIds: Array.Empty<Guid>());
+
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        // The endpoint must call AddAsync exactly once per entry in
+        // DefaultAgentSkillBundles.ForFreshAgent, using the canonical
+        // package/skill coordinates the FileSystemSkillBundleResolver
+        // expects on disk.
+        await _factory.AgentSkillBundleStore.Received(1).AddAsync(
+            Arg.Any<string>(),
+            Arg.Is<Cvoya.Spring.Core.Skills.SkillBundleReference>(r =>
+                r.Package == Cvoya.Spring.Core.Skills.DefaultAgentSkillBundles.ConversationalDefaults.Package &&
+                r.Skill == Cvoya.Spring.Core.Skills.DefaultAgentSkillBundles.ConversationalDefaults.Skill),
+            Arg.Any<CancellationToken>());
+    }
+
+    // The store substitute's default AddAsync returns null. A real
+    // store would resolve via ISkillBundleResolver; if the resolver
+    // throws (no packages tree configured, deployment suppressed the
+    // bundle, etc.) the endpoint must still 201 — the directory entry
+    // is already persisted and binding the default bundle is best-
+    // effort. This pins that contract so a future change can't quietly
+    // promote the warning to a hard failure.
+    [Fact]
+    public async Task CreateAgent_DefaultBundleResolveFails_StillReturns201()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        _factory.DirectoryService.ClearReceivedCalls();
+        _factory.AgentSkillBundleStore.ClearReceivedCalls();
+        ArrangeAgentActorProxy();
+
+        // Force the bundle store to throw on AddAsync. The endpoint
+        // catches every non-cancellation exception by design.
+        _factory.AgentSkillBundleStore
+            .AddAsync(
+                Arg.Any<string>(),
+                Arg.Any<Cvoya.Spring.Core.Skills.SkillBundleReference>(),
+                Arg.Any<CancellationToken>())
+            .Returns<Task<IReadOnlyList<Cvoya.Spring.Core.Skills.SkillBundle>>>(
+                _ => throw new Cvoya.Spring.Core.Skills.SkillBundlePackageNotFoundException(
+                    Cvoya.Spring.Core.Skills.DefaultAgentSkillBundles.ConversationalDefaults.Package,
+                    "(simulated test failure)"));
+
+        try
+        {
+            var request = new CreateAgentRequest(
+                "Bundle-Resolve-Fails", "Test that 201 is preserved.", "frontend",
+                UnitIds: Array.Empty<Guid>());
+
+            var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
+
+            response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        }
+        finally
+        {
+            // Reset the substitute's AddAsync behaviour so later tests
+            // in this fixture aren't poisoned by the failure injection.
+            _factory.AgentSkillBundleStore
+                .AddAsync(
+                    Arg.Any<string>(),
+                    Arg.Any<Cvoya.Spring.Core.Skills.SkillBundleReference>(),
+                    Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult<IReadOnlyList<Cvoya.Spring.Core.Skills.SkillBundle>>(
+                    Array.Empty<Cvoya.Spring.Core.Skills.SkillBundle>()));
+        }
+    }
+
     [Fact]
     public async Task CreateAgent_UnknownUnit_Returns404()
     {

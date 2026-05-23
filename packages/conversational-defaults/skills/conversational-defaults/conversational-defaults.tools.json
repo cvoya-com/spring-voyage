@@ -1,0 +1,37 @@
+[
+  {
+    "name": "sv.messaging.send",
+    "description": "Send a message on a thread (the reply path for whoever started this turn, or a fresh message to any addressable participant). Delivery is one-way: returns a delivery acknowledgement, not the recipient's reply.",
+    "parameters": { "type": "object" }
+  },
+  {
+    "name": "sv.messaging.multicast",
+    "description": "Deliver the same message to an explicit address list or a resolved scope (unit-members, siblings). One delivery acknowledgement per recipient.",
+    "parameters": { "type": "object" }
+  },
+  {
+    "name": "sv.directory.list",
+    "description": "Enumerate members of a unit, the caller's siblings, or peers matching a role / expertise filter. Each entry carries the info needed to act on it (address, role, expertise, advisory live status).",
+    "parameters": { "type": "object" }
+  },
+  {
+    "name": "sv.directory.lookup",
+    "description": "Resolve a known address (e.g. the sender of the inbound message) to its display name, role, expertise, and advisory live status.",
+    "parameters": { "type": "object" }
+  },
+  {
+    "name": "sv.progress.report",
+    "description": "Publish a narrative progress beat (with optional 0..1 fraction) so a long-running turn is not silent until completion. Recorded as a RuntimeProgress activity.",
+    "parameters": { "type": "object" }
+  },
+  {
+    "name": "sv.tools.list_categories",
+    "description": "Enumerate the capability categories available to this runtime. Each entry is { name, description }; pass the name back into sv.tools.list.",
+    "parameters": { "type": "object" }
+  },
+  {
+    "name": "sv.tools.list",
+    "description": "Return the full tool definitions in a named category (name + description + input_schema) plus category-level usage guidance. After calling this you have everything needed to invoke the tools in that category — there is no separate describe step.",
+    "parameters": { "type": "object" }
+  }
+]
