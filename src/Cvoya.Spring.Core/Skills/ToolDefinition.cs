@@ -16,10 +16,17 @@ using System.Text.Json;
 /// </param>
 /// <param name="Description">A description of what the tool does.</param>
 /// <param name="InputSchema">The JSON schema defining the tool's input parameters.</param>
+/// <param name="Category">
+/// Capability category (ADR-0056 §6) — a short stable token used by the
+/// <c>sv.tools.list_categories</c> / <c>sv.tools.list</c> discovery
+/// surface to group tools by purpose. See <see cref="ToolCategories"/>
+/// for the platform-stamped tokens. Pass <see cref="string.Empty"/> for
+/// third-party tools that do not slot into the SV taxonomy.
+/// </param>
 public record ToolDefinition
 {
     /// <summary>Creates the tool definition, enforcing the canonical name pattern.</summary>
-    public ToolDefinition(string Name, string Description, JsonElement InputSchema)
+    public ToolDefinition(string Name, string Description, JsonElement InputSchema, string Category)
     {
         if (!ToolNaming.IsValid(Name))
         {
@@ -33,6 +40,7 @@ public record ToolDefinition
         this.Name = Name;
         this.Description = Description;
         this.InputSchema = InputSchema;
+        this.Category = Category ?? string.Empty;
     }
 
     /// <summary>The canonical tool name.</summary>
@@ -50,4 +58,17 @@ public record ToolDefinition
     /// never carries a duplicate copy that could drift from the id.
     /// </summary>
     public string Namespace => ToolNaming.GetNamespace(Name);
+
+    /// <summary>
+    /// Capability category (ADR-0056 §6) — a short stable token used by
+    /// the <c>sv.tools.list_categories</c> / <c>sv.tools.list</c>
+    /// discovery surface to group tools by purpose
+    /// (<c>messaging</c>, <c>directory</c>, <c>observability</c>,
+    /// <c>tools</c>, …). Tools registered without a category
+    /// (<see cref="string.Empty"/>) are not enumerated by category-aware
+    /// discovery; this is the right choice for third-party tools that
+    /// don't slot into the SV taxonomy. They remain reachable directly
+    /// through the flat <c>tools/list</c> surface.
+    /// </summary>
+    public string Category { get; init; }
 }

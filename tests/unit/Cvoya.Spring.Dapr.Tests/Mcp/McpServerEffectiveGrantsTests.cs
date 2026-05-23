@@ -413,7 +413,7 @@ public class McpServerEffectiveGrantsTests
                 type = "object",
                 properties = new { echo = new { type = "string" } },
             });
-            return _tools.Select(t => new ToolDefinition(t.Name, $"desc({t.Name})", schema)).ToList();
+            return _tools.Select(t => new ToolDefinition(t.Name, $"desc({t.Name})", schema, string.Empty)).ToList();
         }
 
         public Task<JsonElement> InvokeAsync(

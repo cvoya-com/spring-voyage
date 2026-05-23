@@ -84,12 +84,12 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvMemorySkillRegistry>(
             sp => sp.GetRequiredService<SvMemorySkillRegistry>()));
 
-        // Spring Voyage runtime reflection tools (#2493). Exposes
-        // sv.runtime.report_progress so runtimes that use MCP (rather than the
-        // SDK helper) can publish RuntimeProgress events through the
-        // same activity-bus path. Singleton — depends only on the
-        // ingest service and tenant context, both of which are
-        // singleton-safe.
+        // Spring Voyage runtime reflection tools (#2493 / #2581). Exposes
+        // sv.runtime.report_decision so a runtime can annotate its
+        // routing/delegation choice on the activity stream. Progress
+        // reporting lives on SvProgressSkillRegistry (sv.progress.report),
+        // the canonical name per ADR-0056 §8. Singleton — depends only on
+        // the tenant context and the activity-event bus, both singleton-safe.
         services.TryAddSingleton<SvRuntimeSkillRegistry>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvRuntimeSkillRegistry>(
             sp => sp.GetRequiredService<SvRuntimeSkillRegistry>()));
@@ -108,6 +108,29 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddSingleton<SvMessagingSkillRegistry>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvMessagingSkillRegistry>(
             sp => sp.GetRequiredService<SvMessagingSkillRegistry>()));
+
+        // Spring Voyage tool-discovery surface (ADR-0056 §6 / #2656). Exposes
+        // sv.tools.list_categories + sv.tools.list so a runtime can enumerate
+        // its category surface and pull per-category tool definitions on
+        // demand instead of paying for every schema on every turn. The
+        // registry resolves the registered ISkillRegistry set from a fresh
+        // scope on each invocation — registering it via the singleton
+        // ISkillRegistry collection would form a constructor-time DI cycle
+        // (the registry would need IEnumerable<ISkillRegistry> at build
+        // time and is itself a member of that collection).
+        services.TryAddSingleton<SvToolsDiscoverySkillRegistry>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvToolsDiscoverySkillRegistry>(
+            sp => sp.GetRequiredService<SvToolsDiscoverySkillRegistry>()));
+
+        // Spring Voyage progress-reporting surface (ADR-0056 §8 / #2656).
+        // sv.progress.report is the canonical progress tool — emits a
+        // RuntimeProgress activity (existing event type) so a long-running
+        // turn isn't silent until completion. Writes the activity directly
+        // via IActivityEventBus and surfaces the optional 0..1 'fraction'
+        // detail field the ADR calls out as a first-class argument.
+        services.TryAddSingleton<SvProgressSkillRegistry>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvProgressSkillRegistry>(
+            sp => sp.GetRequiredService<SvProgressSkillRegistry>()));
 
         // Routing
         services.AddSingleton<DirectoryCache>();

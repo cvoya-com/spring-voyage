@@ -135,7 +135,7 @@ public class PromptAssemblerTests
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: [new Skill("deploy", "Deploys services", [
-                new ToolDefinition("ops.run_deploy", "Runs deployment", JsonSerializer.SerializeToElement(new { }))
+                new ToolDefinition("ops.run_deploy", "Runs deployment", JsonSerializer.SerializeToElement(new { }), string.Empty)
             ])],
             PriorMessages: [],
             LastCheckpoint: null,

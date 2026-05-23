@@ -156,36 +156,42 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
                 "are scoped to a thread and intended for working notes — pass " +
                 "kind='short_term' (defaults to long_term). Returns " +
                 "{ id, owner, kind, content, source, thread_id, created_at, updated_at }.",
-                MemoryAddSchema),
+                MemoryAddSchema,
+                ToolCategories.Memory),
             new ToolDefinition(
                 MemoryGetTool,
                 "Fetch a single memory entry by id. Returns null when no entry " +
                 "with that id is owned by the calling agent or unit.",
-                MemoryGetSchema),
+                MemoryGetSchema,
+                ToolCategories.Memory),
             new ToolDefinition(
                 MemoryListTool,
                 "List memory entries owned by the caller, most-recent first. " +
                 "Optional filter: kind ('long_term' / 'short_term'). " +
                 "Pagination via limit (default 50, max 200) and offset.",
-                MemoryListSchema),
+                MemoryListSchema,
+                ToolCategories.Memory),
             new ToolDefinition(
                 MemorySearchTool,
                 "Free-text search over the caller's memory entries. Backed by " +
                 "Postgres full-text search; results are ordered by relevance " +
                 "(highest first). Optional kind filter narrows the search " +
                 "scope. limit defaults to 50 (max 200).",
-                MemorySearchSchema),
+                MemorySearchSchema,
+                ToolCategories.Memory),
             new ToolDefinition(
                 MemoryUpdateTool,
                 "Mutate an existing memory entry. Pass `content` to replace the " +
                 "entry's text; omit it to leave the entry untouched.",
-                MemoryUpdateSchema),
+                MemoryUpdateSchema,
+                ToolCategories.Memory),
             new ToolDefinition(
                 MemoryDeleteTool,
                 "Delete a memory entry by id. Returns { deleted: true } on success " +
                 "and { deleted: false } when no entry with that id is owned by the " +
                 "caller.",
-                MemoryGetSchema),
+                MemoryGetSchema,
+                ToolCategories.Memory),
         };
     }
 

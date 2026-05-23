@@ -38,7 +38,8 @@ public class ExpertiseSkillRegistryTests
         var tool = new ToolDefinition(
             ExpertiseSkillNaming.GetSkillName(domain),
             domain.Description,
-            ExpertiseSkillNaming.ParseSchemaOrEmpty(domain.InputSchemaJson));
+            ExpertiseSkillNaming.ParseSchemaOrEmpty(domain.InputSchemaJson),
+            ToolCategories.Expertise);
         return new ExpertiseSkill(tool.Name, tool, target, new ExpertiseEntry(domain, target, new[] { target }));
     }
 

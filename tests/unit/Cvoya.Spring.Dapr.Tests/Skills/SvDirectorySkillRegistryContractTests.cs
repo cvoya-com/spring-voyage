@@ -60,14 +60,15 @@ public class SvDirectorySkillRegistryContractTests
         _loggerFactory);
 
     [Fact]
-    public void GetToolDefinitions_AdvertisesAllSixSvTools()
+    public void GetToolDefinitions_AdvertisesEveryDirectoryTool()
     {
         var registry = CreateRegistry();
         var tools = registry.GetToolDefinitions();
 
-        // #2491: sv.directory.get_status joins the surface alongside the original
-        // five tools. Order is stable so callers caching tool slots see
-        // the new tool appended after the navigation set.
+        // ADR-0056 §8: sv.directory.list / sv.directory.lookup join the
+        // surface alongside the existing navigation + status tools. Order
+        // is stable so callers caching tool slots see new tools appended
+        // after the navigation set.
         tools.Select(t => t.Name).ShouldBe(new[]
         {
             SvDirectorySkillRegistry.GetSelfTool,
@@ -76,7 +77,19 @@ public class SvDirectorySkillRegistryContractTests
             SvDirectorySkillRegistry.GetSiblingsTool,
             SvDirectorySkillRegistry.GetParentsTool,
             SvDirectorySkillRegistry.GetStatusTool,
+            SvDirectorySkillRegistry.ListTool,
+            SvDirectorySkillRegistry.LookupTool,
         });
+    }
+
+    [Fact]
+    public void GetToolDefinitions_EveryDirectoryToolCarriesTheDirectoryCategory()
+    {
+        var registry = CreateRegistry();
+        registry.GetToolDefinitions().ShouldAllBe(
+            t => t.Category == ToolCategories.Directory,
+            "the discovery surface (ADR-0056 §6 / #2656) consults ToolDefinition.Category to " +
+            "group tools; every sv.directory.* tool must self-classify under 'directory'.");
     }
 
     [Fact]

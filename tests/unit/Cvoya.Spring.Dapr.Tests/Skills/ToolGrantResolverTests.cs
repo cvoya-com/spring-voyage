@@ -310,7 +310,7 @@ public class ToolGrantResolverTests : IDisposable
         {
             var schema = JsonDocument.Parse("""{"type":"object"}""").RootElement.Clone();
             return toolNames
-                .Select(n => new ToolDefinition(n, $"desc({n})", schema))
+                .Select(n => new ToolDefinition(n, $"desc({n})", schema, string.Empty))
                 .ToList();
         }
 

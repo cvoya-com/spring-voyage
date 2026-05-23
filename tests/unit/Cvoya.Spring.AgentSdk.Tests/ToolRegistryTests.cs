@@ -31,7 +31,8 @@ public class ToolRegistryTests
             () => new ToolDefinition(
                 Name: "AcmeEcho",
                 Description: "bad id",
-                InputSchema: EmptyObject()));
+                InputSchema: EmptyObject(),
+                Category: string.Empty));
         ex.Message.ShouldContain(ToolNaming.Pattern.ToString());
     }
 
@@ -40,7 +41,7 @@ public class ToolRegistryTests
     {
         var registry = new ToolRegistry();
         var definition = new ToolDefinition(
-            "acme.echo", "echoes", EmptyObject());
+            "acme.echo", "echoes", EmptyObject(), string.Empty);
 
         registry.Register(definition, static (args, _) => Task.FromResult(args));
 
@@ -62,7 +63,7 @@ public class ToolRegistryTests
         var registry = new ToolRegistry();
         Should.Throw<ArgumentNullException>(() =>
             registry.Register(
-                new ToolDefinition("acme.echo", "x", EmptyObject()),
+                new ToolDefinition("acme.echo", "x", EmptyObject(), string.Empty),
                 null!));
     }
 
@@ -71,13 +72,13 @@ public class ToolRegistryTests
     {
         var registry = new ToolRegistry();
         registry.Register(
-            new ToolDefinition("acme.echo", "first", EmptyObject()),
+            new ToolDefinition("acme.echo", "first", EmptyObject(), string.Empty),
             static (args, _) => Task.FromResult(args));
         registry.Register(
-            new ToolDefinition("acme.timestamp", "second", EmptyObject()),
+            new ToolDefinition("acme.timestamp", "second", EmptyObject(), string.Empty),
             static (args, _) => Task.FromResult(args));
         registry.Register(
-            new ToolDefinition("widget.create_issue", "third", EmptyObject()),
+            new ToolDefinition("widget.create_issue", "third", EmptyObject(), string.Empty),
             static (args, _) => Task.FromResult(args));
 
         var listed = registry.List();
@@ -95,12 +96,12 @@ public class ToolRegistryTests
     {
         var registry = new ToolRegistry();
         registry.Register(
-            new ToolDefinition("acme.echo", "x", EmptyObject()),
+            new ToolDefinition("acme.echo", "x", EmptyObject(), string.Empty),
             static (args, _) => Task.FromResult(args));
 
         var snapshot = registry.List();
         registry.Register(
-            new ToolDefinition("acme.timestamp", "y", EmptyObject()),
+            new ToolDefinition("acme.timestamp", "y", EmptyObject(), string.Empty),
             static (args, _) => Task.FromResult(args));
 
         // Snapshot must remain a single-entry list — re-registering must
@@ -115,7 +116,7 @@ public class ToolRegistryTests
         var registry = new ToolRegistry();
         ToolHandler handler = static (args, _) => Task.FromResult(args);
         registry.Register(
-            new ToolDefinition("acme.echo", "x", EmptyObject()),
+            new ToolDefinition("acme.echo", "x", EmptyObject(), string.Empty),
             handler);
 
         registry.GetHandler("acme.echo").ShouldBeSameAs(handler);

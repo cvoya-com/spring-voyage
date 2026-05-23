@@ -110,6 +110,27 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     /// <summary>Tool name for <c>sv.directory.get_status</c> (#2491).</summary>
     public const string GetStatusTool = "sv.directory.get_status";
 
+    /// <summary>
+    /// Tool name for <c>sv.directory.list</c> — ADR-0056 §8 fundamental-core
+    /// directory tool. Convenience over <see cref="ListMembersTool"/> /
+    /// <see cref="GetSiblingsTool"/>: accepts a <c>scope</c> argument that
+    /// resolves against the calling agent / unit's position in the unit
+    /// graph (members of the caller's parent unit, siblings, or the
+    /// caller's own members), plus optional <c>role</c> / <c>expertise</c>
+    /// filters that narrow the result.
+    /// </summary>
+    public const string ListTool = "sv.directory.list";
+
+    /// <summary>
+    /// Tool name for <c>sv.directory.lookup</c> — ADR-0056 §8 fundamental-core
+    /// directory tool. Address-keyed single-entry lookup. Mirrors
+    /// <see cref="GetMemberTool"/> but accepts a canonical address string
+    /// (<c>scheme:&lt;hex&gt;</c>) rather than a bare uuid so a runtime can
+    /// feed back the sender of an inbound message without re-parsing it
+    /// out of its address.
+    /// </summary>
+    public const string LookupTool = "sv.directory.lookup";
+
     /// <summary>Default page size for list tools, mirroring DirectorySearchResponse.</summary>
     public const int DefaultLimit = 50;
 
@@ -154,6 +175,60 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             "uuid": { "type": "string", "description": "Stable Guid identifier." },
             "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
             "offset": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        }
+        """);
+
+    /// <summary>
+    /// Input schema for <c>sv.directory.list</c> — ADR-0056 §8 fundamental
+    /// core. All arguments are optional. <c>scope</c> defaults to
+    /// <c>unit_members</c>; <c>role</c> / <c>expertise</c> narrow the
+    /// resulting set by case-insensitive substring match against the
+    /// per-entry roles list and expertise-domain names; <c>limit</c> /
+    /// <c>offset</c> mirror the existing list-tool pagination contract.
+    /// </summary>
+    private static readonly JsonElement ListArgSchema = ParseSchema("""
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": ["unit_members", "siblings", "self_members"],
+              "description": "Which member set to resolve. 'unit_members' (default) returns the members of the caller's parent unit(s) when the caller is an agent, or the caller's own members when the caller is a unit. 'siblings' returns peers — entries sharing a parent with the caller, excluding the caller itself. 'self_members' is the unit-only equivalent of 'unit_members' that always returns the caller's own members (errors for agent callers).",
+              "default": "unit_members"
+            },
+            "role": {
+              "type": "string",
+              "description": "Optional case-insensitive substring filter on each entry's roles list. Entries with no matching role are excluded."
+            },
+            "expertise": {
+              "type": "string",
+              "description": "Optional case-insensitive substring filter on each entry's expertise-domain names. Entries with no matching domain are excluded."
+            },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
+            "offset": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        }
+        """);
+
+    /// <summary>
+    /// Input schema for <c>sv.directory.lookup</c>. The required
+    /// <c>address</c> string is the canonical Spring Voyage address form
+    /// (<c>scheme:&lt;32-hex&gt;</c>) — for example the
+    /// <c>From</c> field of the inbound message the runtime is
+    /// responding to.
+    /// </summary>
+    private static readonly JsonElement LookupArgSchema = ParseSchema("""
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["address"],
+          "properties": {
+            "address": {
+              "type": "string",
+              "description": "Canonical Spring Voyage address (scheme:32-hex-no-dash) — agent:..., unit:..., or human:... — to resolve."
+            }
           }
         }
         """);
@@ -216,12 +291,14 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "parent_uuids are the starting point for sv.directory.get_parents / sv.directory.list_members. " +
                 "live_status is an advisory snapshot of in-flight work — see sv.directory.get_status for " +
                 "details; the field is omitted on entries whose kind doesn't carry runtime state.",
-                EmptyObjectSchema),
+                EmptyObjectSchema,
+                ToolCategories.Directory),
             new ToolDefinition(
                 GetMemberTool,
                 "Returns metadata for a single agent or unit identified by uuid. Output shape " +
                 "matches sv.directory.get_self. " + TenantSentinelWarning,
-                UuidArgSchema),
+                UuidArgSchema,
+                ToolCategories.Directory),
             new ToolDefinition(
                 ListMembersTool,
                 "Returns the direct members of the unit identified by uuid: a flat list mixing " +
@@ -236,7 +313,8 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "and offset; total_count carries the unfiltered total. Agent and unit entries " +
                 "additionally carry an advisory live_status object — see sv.directory.get_status; the " +
                 "field is omitted entirely on human entries.",
-                UuidPagedArgSchema),
+                UuidPagedArgSchema,
+                ToolCategories.Directory),
             new ToolDefinition(
                 GetSiblingsTool,
                 "Returns entities that share at least one parent with the entity identified by " +
@@ -244,12 +322,14 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "the caller can filter by overlap with the target's parents to scope to a " +
                 "specific context (e.g. 'siblings under the unit that just messaged me'). " +
                 "Pagination via limit (default 50, max 200) and offset.",
-                UuidPagedArgSchema),
+                UuidPagedArgSchema,
+                ToolCategories.Directory),
             new ToolDefinition(
                 GetParentsTool,
                 "Returns the parents of the entity identified by uuid. For top-level units the " +
                 "list contains the tenant sentinel entry (kind='tenant'). " + TenantSentinelWarning,
-                UuidArgSchema),
+                UuidArgSchema,
+                ToolCategories.Directory),
             new ToolDefinition(
                 GetStatusTool,
                 "Returns the advisory runtime-status snapshot for a single agent or unit " +
@@ -261,7 +341,32 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "kind='human' (humans have no runtime). Snapshots are advisory — they reflect " +
                 "the state at the moment of the call and may be stale by the time you act on " +
                 "them; the actor mailbox is the ordering authority. " + TenantSentinelWarning,
-                UuidArgSchema),
+                UuidArgSchema,
+                ToolCategories.Directory),
+            new ToolDefinition(
+                ListTool,
+                "Resolve members of the caller's unit, the caller's siblings, or peers " +
+                "matching a role / expertise filter — ADR-0056 §8 fundamental-core surface. " +
+                "Defaults to scope='unit_members' (the members of the caller's parent unit " +
+                "when the caller is an agent; the caller's own members when the caller is a " +
+                "unit). Each entry carries enough to act on: address, kind, display_name, " +
+                "roles, expertise, parent_uuids, member_count (for unit entries), and an " +
+                "advisory live_status (agent / unit entries only). Use the returned address " +
+                "with sv.messaging.send to reach the entry. Pagination via limit (default 50, " +
+                "max 200) and offset; total_count carries the unfiltered total.",
+                ListArgSchema,
+                ToolCategories.Directory),
+            new ToolDefinition(
+                LookupTool,
+                "Resolve a known canonical address (scheme:32-hex) to a single directory " +
+                "entry — ADR-0056 §8 fundamental-core surface. Output shape matches one " +
+                "sv.directory.list entry: { address, uuid, kind, display_name, parent_uuids, " +
+                "description, expertise, roles, member_count?, live_status? }. Use this when " +
+                "you have an address (typically the sender of the inbound message) and need " +
+                "the entry's role / expertise / status before deciding how to respond. " +
+                TenantSentinelWarning,
+                LookupArgSchema,
+                ToolCategories.Directory),
         };
     }
 
@@ -300,9 +405,415 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 return await GetParentsAsync(arguments, context, cancellationToken);
             case GetStatusTool:
                 return await GetStatusAsync(arguments, context, cancellationToken);
+            case ListTool:
+                return await ListAsync(arguments, context, cancellationToken);
+            case LookupTool:
+                return await LookupAsync(arguments, context, cancellationToken);
             default:
                 throw new SkillNotFoundException(toolName);
         }
+    }
+
+    /// <summary>
+    /// Implements <c>sv.directory.list</c> (ADR-0056 §8). Resolves the
+    /// active scope against the caller's position in the unit graph,
+    /// builds <see cref="DirectoryEntry"/> projections for each member,
+    /// and applies optional <c>role</c> / <c>expertise</c> substring
+    /// filters before paginating. Authz is delegated to the same
+    /// per-target-unit enforcer the other list tools use — the caller
+    /// only sees members of units they may read.
+    /// </summary>
+    private async Task<JsonElement> ListAsync(
+        JsonElement args, ToolCallContext context, CancellationToken ct)
+    {
+        var scope = ParseListScope(args);
+        var roleFilter = TryGetStringArgument(args, "role");
+        var expertiseFilter = TryGetStringArgument(args, "expertise");
+        var (limit, offset) = ParsePaging(args);
+
+        var (callerUuid, callerKind) = ParseCaller(context);
+        var sourceUnitIds = await ResolveScopeUnitIdsAsync(callerUuid, callerKind, scope, context, ct);
+        var addresses = await CollectMembersAsync(sourceUnitIds, scope, callerUuid, ct);
+
+        // Per-membership role supplement mirrors what sv.directory.list_members
+        // does (ADR-0046 §8) so the per-membership roles list — which is
+        // what the role filter is meant to filter against — surfaces on
+        // every agent entry, regardless of which parent unit the entry
+        // was drawn from.
+        var rolesByAgentId = await BuildAgentRolesIndexAsync(sourceUnitIds, ct);
+
+        // Materialise every entry first so the filters can match on the
+        // rich shape (roles, expertise). Unit sizes in v0.1 keep this
+        // cheap; the same per-entry build cost as the existing
+        // sv.directory.list_members tool.
+        var built = new List<DirectoryEntry>(addresses.Count);
+        foreach (var address in addresses)
+        {
+            var entry = await BuildEntryAsync(address.Path, address.Scheme, ct);
+            if (string.Equals(address.Scheme, KindAgent, StringComparison.Ordinal)
+                && GuidFormatter.TryParse(address.Path, out var agentGuid)
+                && rolesByAgentId.TryGetValue(agentGuid, out var roles)
+                && roles.Count > 0)
+            {
+                entry = entry with { Roles = roles };
+            }
+            built.Add(entry);
+        }
+
+        var filtered = built
+            .Where(e => MatchesRole(e, roleFilter))
+            .Where(e => MatchesExpertise(e, expertiseFilter))
+            .ToList();
+
+        var page = filtered.Skip(offset).Take(limit).ToList();
+        return SerializePagedList("members", page, filtered.Count, limit, offset);
+    }
+
+    /// <summary>
+    /// Resolves the source units the scope draws members from. For
+    /// <see cref="ListScope.SelfMembers"/> and the unit-caller default
+    /// this is the caller's own unit; for the agent-caller default and
+    /// <see cref="ListScope.Siblings"/> it walks the caller's parents
+    /// (filtered through the directory-read enforcer). The tenant
+    /// sentinel is excluded — it has no members.
+    /// </summary>
+    private async Task<IReadOnlyList<Guid>> ResolveScopeUnitIdsAsync(
+        string callerUuid, string callerKind, ListScope scope,
+        ToolCallContext context, CancellationToken ct)
+    {
+        if (scope == ListScope.SelfMembers)
+        {
+            if (!string.Equals(callerKind, KindUnit, StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "scope='self_members' is only valid when the caller is a unit. " +
+                    "Use 'unit_members' for agent callers.");
+            }
+            if (!GuidFormatter.TryParse(callerUuid, out var selfGuid))
+            {
+                return Array.Empty<Guid>();
+            }
+            await EnsureDirectoryReadAllowedAsync(context, callerUuid, ct);
+            return new[] { selfGuid };
+        }
+
+        if (scope == ListScope.UnitMembers
+            && string.Equals(callerKind, KindUnit, StringComparison.Ordinal))
+        {
+            if (!GuidFormatter.TryParse(callerUuid, out var selfGuid))
+            {
+                return Array.Empty<Guid>();
+            }
+            await EnsureDirectoryReadAllowedAsync(context, callerUuid, ct);
+            return new[] { selfGuid };
+        }
+
+        var parentUuids = await ResolveParentUuidsAsync(callerUuid, callerKind, ct);
+        var tenantUuid = GuidFormatter.Format(_tenantContext.CurrentTenantId);
+        var result = new List<Guid>();
+        foreach (var parentUuid in parentUuids)
+        {
+            if (string.Equals(parentUuid, tenantUuid, StringComparison.Ordinal))
+            {
+                continue;
+            }
+            if (!GuidFormatter.TryParse(parentUuid, out var parentGuid))
+            {
+                continue;
+            }
+            if (!await IsDirectoryReadAllowedAsync(context, parentGuid, ct))
+            {
+                continue;
+            }
+            result.Add(parentGuid);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Collects the member address set from every source unit, deduping
+    /// across overlapping parents and excluding the caller for
+    /// <see cref="ListScope.Siblings"/>.
+    /// </summary>
+    private async Task<IReadOnlyList<Address>> CollectMembersAsync(
+        IReadOnlyList<Guid> sourceUnitIds, ListScope scope, string callerUuid, CancellationToken ct)
+    {
+        var resultByPath = new Dictionary<string, Address>(StringComparer.Ordinal);
+        foreach (var unitId in sourceUnitIds)
+        {
+            var members = await _memberGraphStore.GetMembersAsync(unitId, ct);
+            foreach (var member in members)
+            {
+                if (scope == ListScope.Siblings
+                    && string.Equals(member.Path, callerUuid, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                resultByPath[member.Path] = member;
+            }
+        }
+        return resultByPath.Values.ToList();
+    }
+
+    /// <summary>
+    /// Reads the per-membership <c>roles</c> list for every agent across
+    /// the supplied units, returning the union keyed by agent id. When a
+    /// single agent appears in more than one source unit, the role lists
+    /// are concatenated and deduped — the filter then matches across
+    /// the agent's combined membership set, which is what an operator
+    /// would expect "find members with role X" to mean.
+    /// </summary>
+    private async Task<Dictionary<Guid, IReadOnlyList<string>>> BuildAgentRolesIndexAsync(
+        IReadOnlyList<Guid> sourceUnitIds, CancellationToken ct)
+    {
+        var result = new Dictionary<Guid, IReadOnlyList<string>>();
+        if (sourceUnitIds.Count == 0)
+        {
+            return result;
+        }
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
+        var accumulator = new Dictionary<Guid, List<string>>();
+        foreach (var unitId in sourceUnitIds)
+        {
+            var memberships = await repo.ListByUnitAsync(unitId, ct);
+            foreach (var membership in memberships)
+            {
+                var roles = (membership.Roles ?? Array.Empty<string>())
+                    .Where(r => !string.IsNullOrWhiteSpace(r))
+                    .Select(r => r.Trim());
+                if (!accumulator.TryGetValue(membership.AgentId, out var bag))
+                {
+                    bag = new List<string>();
+                    accumulator[membership.AgentId] = bag;
+                }
+                foreach (var role in roles)
+                {
+                    if (!bag.Contains(role, StringComparer.Ordinal))
+                    {
+                        bag.Add(role);
+                    }
+                }
+            }
+        }
+        foreach (var (agentId, roles) in accumulator)
+        {
+            result[agentId] = roles;
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Implements <c>sv.directory.lookup</c> (ADR-0056 §8). Accepts a
+    /// canonical address string, parses out the scheme + uuid, and
+    /// delegates to the same per-kind build path
+    /// <see cref="GetMemberAsync"/> uses — the wire shape on success is
+    /// one <see cref="DirectoryEntry"/> with the inbound address stamped
+    /// alongside the existing uuid field for caller convenience.
+    /// </summary>
+    private async Task<JsonElement> LookupAsync(
+        JsonElement args, ToolCallContext context, CancellationToken ct)
+    {
+        var addressValue = RequireStringArgument(args, "address");
+        if (!Address.TryParse(addressValue, out var target) || target is null)
+        {
+            throw new ArgumentException(
+                $"Argument 'address' value '{addressValue}' is not a valid Spring Voyage address.");
+        }
+
+        var uuid = target.Path;
+        var (resolvedKind, displayNameOverride) = await ResolveLookupKindAsync(uuid, target.Scheme, ct);
+
+        if (string.Equals(resolvedKind, KindUnit, StringComparison.Ordinal))
+        {
+            await EnsureDirectoryReadAllowedAsync(context, uuid, ct);
+        }
+
+        var entry = await BuildEntryAsync(uuid, resolvedKind, ct, displayNameOverride);
+        return SerializeLookupEntry(target, entry);
+    }
+
+    private async Task<(string Kind, string? DisplayName)> ResolveLookupKindAsync(
+        string uuid, string scheme, CancellationToken ct)
+    {
+        // Humans never appear in AgentDefinitions / UnitDefinitions, so
+        // ResolveKindAsync would throw for a human:... address. Detect
+        // the human scheme here so the lookup succeeds with the entry
+        // shape the caller expects.
+        if (string.Equals(scheme, KindHuman, StringComparison.Ordinal))
+        {
+            return (KindHuman, null);
+        }
+
+        return await ResolveKindAsync(uuid, ct);
+    }
+
+    private static ListScope ParseListScope(JsonElement args)
+    {
+        var raw = TryGetStringArgument(args, "scope");
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return ListScope.UnitMembers;
+        }
+        return raw switch
+        {
+            "unit_members" => ListScope.UnitMembers,
+            "siblings" => ListScope.Siblings,
+            "self_members" => ListScope.SelfMembers,
+            _ => throw new ArgumentException(
+                $"Argument 'scope' value '{raw}' is not recognised. " +
+                "Use 'unit_members', 'siblings', or 'self_members'."),
+        };
+    }
+
+    private static bool MatchesRole(DirectoryEntry entry, string? roleFilter)
+    {
+        if (string.IsNullOrWhiteSpace(roleFilter))
+        {
+            return true;
+        }
+        if (entry.Roles is null || entry.Roles.Count == 0)
+        {
+            return false;
+        }
+        foreach (var role in entry.Roles)
+        {
+            if (!string.IsNullOrEmpty(role)
+                && role.Contains(roleFilter, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool MatchesExpertise(DirectoryEntry entry, string? expertiseFilter)
+    {
+        if (string.IsNullOrWhiteSpace(expertiseFilter))
+        {
+            return true;
+        }
+        foreach (var domain in entry.Expertise)
+        {
+            if (!string.IsNullOrEmpty(domain.Name)
+                && domain.Name.Contains(expertiseFilter, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static string RequireStringArgument(JsonElement args, string name)
+    {
+        if (args.ValueKind != JsonValueKind.Object ||
+            !args.TryGetProperty(name, out var prop) ||
+            prop.ValueKind != JsonValueKind.String)
+        {
+            throw new ArgumentException($"Missing required argument '{name}'.");
+        }
+        var raw = prop.GetString();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            throw new ArgumentException($"Argument '{name}' must be a non-empty string.");
+        }
+        return raw;
+    }
+
+    private static string? TryGetStringArgument(JsonElement args, string name)
+    {
+        if (args.ValueKind != JsonValueKind.Object ||
+            !args.TryGetProperty(name, out var prop) ||
+            prop.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+        var raw = prop.GetString();
+        return string.IsNullOrWhiteSpace(raw) ? null : raw;
+    }
+
+    /// <summary>
+    /// Renders one <see cref="DirectoryEntry"/> as the
+    /// <c>sv.directory.lookup</c> wire shape — the existing entry shape
+    /// plus a top-level <c>address</c> field carrying the canonical
+    /// address string the caller passed in, so a runtime that wants to
+    /// feed the address back into <c>sv.messaging.send</c> doesn't have
+    /// to reconstruct it from <c>kind</c> + <c>uuid</c>.
+    /// </summary>
+    private static JsonElement SerializeLookupEntry(Address address, DirectoryEntry entry)
+    {
+        using var stream = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("address", address.ToString());
+            writer.WriteString("uuid", entry.Uuid);
+            writer.WriteString("kind", entry.Kind);
+            writer.WriteString("display_name", entry.DisplayName);
+            writer.WritePropertyName("parent_uuids");
+            writer.WriteStartArray();
+            foreach (var parent in entry.ParentUuids)
+            {
+                writer.WriteStringValue(parent);
+            }
+            writer.WriteEndArray();
+            writer.WriteString("description", entry.Description);
+            writer.WritePropertyName("expertise");
+            writer.WriteStartArray();
+            foreach (var domain in entry.Expertise)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("name", domain.Name);
+                writer.WriteString("description", domain.Description ?? string.Empty);
+                if (domain.Level is { } level)
+                {
+                    writer.WriteString("level", level.ToString().ToLowerInvariant());
+                }
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            if (entry.MemberCount is { } count)
+            {
+                writer.WriteNumber("member_count", count);
+            }
+            else
+            {
+                writer.WriteNull("member_count");
+            }
+            if (entry.LiveStatus is { } report)
+            {
+                writer.WritePropertyName("live_status");
+                WriteLiveStatus(writer, report);
+            }
+            writer.WritePropertyName("roles");
+            writer.WriteStartArray();
+            if (entry.Roles is { } roles)
+            {
+                foreach (var role in roles)
+                {
+                    writer.WriteStringValue(role);
+                }
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Scope values accepted by <c>sv.directory.list</c> (ADR-0056 §8).
+    /// </summary>
+    private enum ListScope
+    {
+        /// <summary>Members of the caller's parent unit(s); for unit callers, the caller's own members.</summary>
+        UnitMembers,
+
+        /// <summary>Co-members of the caller's parent unit(s), excluding the caller.</summary>
+        Siblings,
+
+        /// <summary>Members of the caller itself (unit callers only).</summary>
+        SelfMembers,
     }
 
     private async Task<JsonElement> GetSelfAsync(ToolCallContext context, CancellationToken ct)

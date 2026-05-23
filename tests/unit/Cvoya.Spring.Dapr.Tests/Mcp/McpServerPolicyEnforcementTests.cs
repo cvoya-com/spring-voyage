@@ -155,7 +155,7 @@ public class McpServerPolicyEnforcementTests
                 type = "object",
                 properties = new { echo = new { type = "string" } },
             });
-            return [new ToolDefinition("fake.tool", "Fake echo tool.", schema)];
+            return [new ToolDefinition("fake.tool", "Fake echo tool.", schema, string.Empty)];
         }
 
         public Task<JsonElement> InvokeAsync(
