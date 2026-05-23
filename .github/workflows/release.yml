@@ -1025,7 +1025,7 @@ jobs:
           cp eng/deploy/Caddyfile              "${stage}/"
           cp eng/deploy/Caddyfile.multi-host   "${stage}/"
           cp eng/deploy/docker-compose.yml     "${stage}/"
-          cp eng/deploy/spring.env.example     "${stage}/"
+          cp eng/config/spring.env.example     "${stage}/"
           cp eng/deploy/scripts/dispatcher-smoke.sh        "${stage}/scripts/"
           cp eng/deploy/scripts/test-spring-voyage-host.sh "${stage}/scripts/"
 

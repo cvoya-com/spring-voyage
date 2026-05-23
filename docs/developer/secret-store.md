@@ -138,7 +138,7 @@ The runtime catalogue declares the edge auth method, the CLI and portal write th
 
 | Environment   | `SPRING_SECRETS_AES_KEY` | `ComponentNameFormat` |
 |---------------|--------------------------|-----------------------|
-| Local dev     | generated once per workstation, kept in `eng/deploy/spring.env` | unset (shared) |
+| Local dev     | generated once per workstation, kept in `eng/config/spring.env` | unset (shared) |
 | CI            | generated per run, set in the pipeline env | unset |
 | Staging/Prod  | sourced from vault / mounted secret file | `"statestore-{tenantId}"` when running multi-tenant |
 

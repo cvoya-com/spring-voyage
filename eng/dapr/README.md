@@ -76,14 +76,14 @@ will typically be the repo-mounted `dapr/components/production` directory.
 `dapr/components/production/secretstore.yaml` is `secretstores.local.env`.
 Credentials never appear in git or in container images — they come from the
 process environment of each sidecar. The Podman stack loads them from
-`eng/deploy/spring.env`:
+`eng/config/spring.env`:
 
 | Secret key                            | Purpose                                    |
 | ------------------------------------- | ------------------------------------------ |
 | `SPRING_POSTGRES_CONNECTION_STRING`   | Full Npgsql connection string to Postgres. |
 | `REDIS_PASSWORD`                      | Redis AUTH password (leave empty to skip). |
 
-Add new secrets to `eng/deploy/spring.env.example`, document them in
+Add new secrets to `eng/config/spring.env.example`, document them in
 `eng/deploy/README.md`, and reference them from the relevant component
 YAML via `secretKeyRef`. For cloud-grade secret management (Azure Key
 Vault, HashiCorp Vault, Kubernetes Secrets) swap `secretstore.yaml` for

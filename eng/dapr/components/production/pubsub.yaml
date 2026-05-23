@@ -5,7 +5,7 @@
 # the paired `secretstore` component via `secretKeyRef` so credentials never
 # ship in the image.
 #
-# Set `REDIS_PASSWORD` in `eng/deploy/spring.env`. Leave the variable empty
+# Set `REDIS_PASSWORD` in `eng/config/spring.env`. Leave the variable empty
 # if you run Redis without authentication (not recommended in production).
 apiVersion: dapr.io/v1alpha1
 kind: Component

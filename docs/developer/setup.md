@@ -109,7 +109,7 @@ for the full layout and commands:
 
 - `eng/dapr/components/local/` — localhost Redis + env-var secret store (used by `dapr run`).
 - `eng/dapr/components/production/` — Podman-hosted Postgres + Redis, secrets via
-  `secretstores.local.env` backed by `eng/deploy/spring.env`.
+  `secretstores.local.env` backed by `eng/config/spring.env`.
 - `eng/dapr/config/local.yaml`, `eng/dapr/config/production.yaml` — Dapr Configuration
   (tracing, features) for each profile.
 

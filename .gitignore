@@ -29,7 +29,7 @@ coverage/
 eng/dapr/secrets.json
 
 ## Deployment env file (not committed; keep spring.env.example only)
-eng/deploy/spring.env
+eng/config/spring.env
 
 ## Repo-local dispatcher publish output. `eng/deploy/spring-voyage-host.sh`
 ## publishes the spring-dispatcher binary here on `start`/`build` so that

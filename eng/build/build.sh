@@ -11,16 +11,17 @@
 #   ./build.sh clean          # remove local image refs and dispatcher publish output
 #   ./build.sh --ghcr-only    # skip localhost/... compatibility aliases
 #
-# Environment: optionally reads ./spring.env (or $SPRING_ENV_FILE) for image
-# tags such as SPRING_PLATFORM_IMAGE and SPRING_AGENT_TAG. The file is not
-# required for builds; defaults are used when it is absent.
+# Environment: optionally reads eng/config/spring.env (or $SPRING_ENV_FILE)
+# for image tags such as SPRING_PLATFORM_IMAGE and SPRING_AGENT_TAG. The
+# file is not required for builds; defaults are used when it is absent.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-ENV_FILE="${SPRING_ENV_FILE:-${SCRIPT_DIR}/spring.env}"
-HOST_SCRIPT="${SCRIPT_DIR}/spring-voyage-host.sh"
+CONFIG_DIR="${REPO_ROOT}/eng/config"
+ENV_FILE="${SPRING_ENV_FILE:-${CONFIG_DIR}/spring.env}"
+HOST_SCRIPT="${REPO_ROOT}/eng/deploy/spring-voyage-host.sh"
 
 log() { printf '[build] %s\n' "$*" >&2; }
 die() { printf '[build][error] %s\n' "$*" >&2; exit 1; }

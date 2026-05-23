@@ -9,16 +9,17 @@
 #
 # Quick start:
 #
-#   cd eng/deploy/
+#   cd eng/config/
 #   cp spring.env.example spring.env
 #   $EDITOR spring.env                 # fill in passwords + hostname
+#   cd ../deploy/
 #   ./spring-voyage-host.sh start      # host-process spring-dispatcher (#1063);
 #                                      # generates SPRING_DISPATCHER_WORKER_TOKEN
 #                                      # into ~/.spring-voyage/host/dispatcher.env
 #   set -a; . ~/.spring-voyage/host/dispatcher.env; set +a
-#   docker compose --env-file spring.env build
-#   docker compose --env-file spring.env up -d
-#   docker compose --env-file spring.env ps
+#   docker compose --env-file ../config/spring.env build
+#   docker compose --env-file ../config/spring.env up -d
+#   docker compose --env-file ../config/spring.env ps
 #
 # The `set -a; . dispatcher.env; set +a` step exports the bearer token
 # the dispatcher just generated into the shell's environment so the
@@ -80,7 +81,7 @@ services:
     image: ${POSTGRES_IMAGE:-docker.io/library/postgres:17}
     container_name: spring-postgres
     restart: unless-stopped
-    env_file: spring.env
+    env_file: ../config/spring.env
     volumes:
       - spring-postgres-data:/var/lib/postgresql/data
     networks: [spring-net, spring-tenant-default]
@@ -107,7 +108,7 @@ services:
         else
           exec redis-server --appendonly yes;
         fi
-    env_file: spring.env
+    env_file: ../config/spring.env
     volumes:
       - spring-redis-data:/data
     networks: [spring-net, spring-tenant-default]
@@ -153,7 +154,7 @@ services:
     image: ${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}
     container_name: spring-api-dapr
     restart: unless-stopped
-    env_file: spring.env
+    env_file: ../config/spring.env
     command:
       - ./daprd
       - --app-id=spring-api
@@ -186,7 +187,7 @@ services:
     image: ${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}
     container_name: spring-worker-dapr
     restart: unless-stopped
-    env_file: spring.env
+    env_file: ../config/spring.env
     command:
       - ./daprd
       - --app-id=spring-worker
@@ -235,7 +236,7 @@ services:
     image: ${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}
     container_name: spring-worker
     restart: unless-stopped
-    env_file: spring.env
+    env_file: ../config/spring.env
     environment:
       DAPR_APP_ID: spring-worker
       DAPR_HTTP_ENDPOINT: http://spring-worker-dapr:3500
@@ -289,7 +290,7 @@ services:
     image: ${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}
     container_name: spring-api
     restart: unless-stopped
-    env_file: spring.env
+    env_file: ../config/spring.env
     environment:
       DAPR_APP_ID: spring-api
       DAPR_HTTP_ENDPOINT: http://spring-api-dapr:3500
@@ -333,7 +334,7 @@ services:
     image: ${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}
     container_name: spring-web
     restart: unless-stopped
-    env_file: spring.env
+    env_file: ../config/spring.env
     environment:
       NEXT_PUBLIC_API_URL: http://spring-api:8080
     command: ["node", "/app/web/src/Cvoya.Spring.Web/server.js"]
@@ -355,7 +356,7 @@ services:
     image: ${CADDY_IMAGE:-docker.io/library/caddy:2}
     container_name: spring-caddy
     restart: unless-stopped
-    env_file: spring.env
+    env_file: ../config/spring.env
     ports:
       - "80:80"
       - "443:443"

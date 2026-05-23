@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Spring Voyage — self-host setup wizard.
 #
-# Creates eng/deploy/spring.env from spring.env.example and collects the
+# Creates eng/config/spring.env from spring.env.example and collects the
 # secrets every self-hosted deployment must supply.  Values that can be
 # derived automatically (AES key, OAuth redirect URI, Dapr components path)
 # are written without prompting.
 #
 # Usage:
-#   cd eng/deploy/
-#   ./setup.sh
+#   ./eng/deploy/setup.sh
 #
 # Re-running is safe: you are asked whether to overwrite an existing spring.env.
 
@@ -16,8 +15,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-ENV_EXAMPLE="${SCRIPT_DIR}/spring.env.example"
-ENV_FILE="${SCRIPT_DIR}/spring.env"
+CONFIG_DIR="${REPO_ROOT}/eng/config"
+ENV_EXAMPLE="${CONFIG_DIR}/spring.env.example"
+ENV_FILE="${CONFIG_DIR}/spring.env"
 
 # ---------------------------------------------------------------------------
 # Colour helpers (degrade gracefully when not a TTY)

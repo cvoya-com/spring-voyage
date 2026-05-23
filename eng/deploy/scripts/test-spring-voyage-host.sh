@@ -61,7 +61,7 @@ export SPRING_DISPATCHER_PORT="${TEST_PORT}"
 unset SPRING_DISPATCHER_WORKER_TOKEN
 unset SPRING_DISPATCHER_BIN
 # Empty SPRING_ENV_FILE so the host script doesn't accidentally pick
-# up a developer's local eng/deploy/spring.env.
+# up a developer's local eng/config/spring.env.
 export SPRING_ENV_FILE="${STATE_DIR}/empty.env"
 : >"${SPRING_ENV_FILE}"
 

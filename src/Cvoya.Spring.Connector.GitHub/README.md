@@ -96,7 +96,7 @@ Bound from the `GitHub` configuration section
 
 > **Env-file gotchas.** podman / docker `--env-file` keeps surrounding quotes literally and does not support multi-line values. Always write `GitHub__*` values UNQUOTED, and inline the PEM as one line with `\n` separators. See [Deployment guide § Tier-1 platform credentials](../../docs/guide/deployment.md#tier-1-platform-credentials--github-app-identity-env-only) for the full set of pitfalls.
 
-> **Where do these values come from?** Spring Voyage does not ship a shared App private key — each deployment registers its **own** GitHub App. The fastest path is `spring github-app register`, which drives GitHub's App-from-manifest flow and writes every value above into `eng/deploy/spring.env` for you. The manual github.com flow is also documented end-to-end. See [Register your GitHub App](../../docs/guide/github-app-setup.md) for both paths and the required permission / event matrices.
+> **Where do these values come from?** Spring Voyage does not ship a shared App private key — each deployment registers its **own** GitHub App. The fastest path is `spring github-app register`, which drives GitHub's App-from-manifest flow and writes every value above into `eng/config/spring.env` for you. The manual github.com flow is also documented end-to-end. See [Register your GitHub App](../../docs/guide/github-app-setup.md) for both paths and the required permission / event matrices.
 
 Missing `AppId` / `PrivateKeyPem` keep the connector registered but
 disabled — the credential requirement

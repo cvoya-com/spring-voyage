@@ -106,7 +106,7 @@ public sealed class GitHubAppConfigurationRequirement(
                 return ConfigurationRequirementStatus.Disabled(
                     reason: "GitHub App not configured on this deployment.",
                     suggestion:
-                        "Run `spring github-app register` to create one (see issue #631), or set GitHub__AppId / GitHub__PrivateKeyPem / GitHub__WebhookSecret manually in spring.env. See docs/guide/deployment.md.");
+                        "Run `spring github-app register` to create one (see issue #631), or set GitHub__AppId / GitHub__PrivateKeyPem / GitHub__WebhookSecret manually in eng/config/spring.env. See docs/guide/deployment.md.");
 
             case GitHubAppCredentialsValidator.Kind.LooksLikePath:
             case GitHubAppCredentialsValidator.Kind.Malformed:

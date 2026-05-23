@@ -22,17 +22,19 @@
 # Preconditions:
 #
 #   1. `openssl` and `curl` on PATH.
-#   2. `eng/deploy/spring.env` exists and contains `GitHub__WebhookSecret`
+#   2. `eng/config/spring.env` exists and contains `GitHub__WebhookSecret`
 #      (the same value the API verifies against). Written by setup.sh.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+CONFIG_DIR="${REPO_ROOT}/eng/config"
 
 PAYLOAD=""
 EVENT="issues"
 URL="${GH_WEBHOOK_URL:-http://localhost/api/v1/webhooks/github}"
-ENV_FILE="${GH_WEBHOOK_ENV_FILE:-${SCRIPT_DIR}/spring.env}"
+ENV_FILE="${GH_WEBHOOK_ENV_FILE:-${CONFIG_DIR}/spring.env}"
 DELIVERY=""
 
 log() { printf '[replay-github-webhook] %s\n' "$*" >&2; }
@@ -49,7 +51,7 @@ Optional:
   --event TYPE      X-GitHub-Event header value. Default: issues.
   --url URL         Local webhook endpoint. Default: http://localhost/api/v1/webhooks/github
                     (or $GH_WEBHOOK_URL).
-  --env PATH        Env file holding GitHub__WebhookSecret. Default: <script-dir>/spring.env
+  --env PATH        Env file holding GitHub__WebhookSecret. Default: <repo>/eng/config/spring.env
                     (or $GH_WEBHOOK_ENV_FILE).
   --delivery UUID   X-GitHub-Delivery header value. Default: a fresh uuid.
   -h, --help        Show this help and exit.

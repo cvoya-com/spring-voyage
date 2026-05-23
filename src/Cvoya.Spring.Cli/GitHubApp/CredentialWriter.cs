@@ -16,7 +16,7 @@ using Cvoya.Spring.Cli.Generated.Models;
 /// <summary>
 /// Writes the resolved App credentials to one of two persistence
 /// targets: <see cref="WriteEnvAsync"/> appends keys to
-/// <c>eng/deploy/spring.env</c> (default — zero runtime dependencies,
+/// <c>eng/config/spring.env</c> (default — zero runtime dependencies,
 /// survives <c>deploy.sh</c> restarts), or
 /// <see cref="WriteSecretsAsync"/> pipes each value through
 /// <c>spring secret --scope platform create</c> (#612) so they land in

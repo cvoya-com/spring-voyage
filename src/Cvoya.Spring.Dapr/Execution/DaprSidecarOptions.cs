@@ -34,7 +34,7 @@ public class DaprSidecarOptions
     /// <c>!!!!! Dapr Runtime Version 1.15.14 is not supported with Alpha2
     /// Dapr Chat Client</c> in the agent log when the loop's first LLM
     /// turn lands). The pinned value must stay aligned with
-    /// <c>eng/deploy/spring.env.example</c>'s <c>DAPR_IMAGE</c> (the
+    /// <c>eng/config/spring.env.example</c>'s <c>DAPR_IMAGE</c> (the
     /// static placement / scheduler / per-app sidecars) and with the
     /// Dapr SDK version pinned in <c>Directory.Packages.props</c> so the
     /// control plane, SDK, and per-launch sidecars all speak the same
@@ -96,7 +96,7 @@ public class DaprSidecarOptions
     /// <c>/dapr/...</c> only exists inside some container images, not on macOS/Linux
     /// hosts, and would make Podman fail with <c>statfs ... no such file</c>. The
     /// worker reads the value from <c>Dapr:Sidecar:DelegatedSpringVoyageAgentComponentsPath</c>
-    /// (typically via <c>eng/deploy/spring.env</c>) and forwards it to the dispatcher
+    /// (typically via <c>eng/config/spring.env</c>) and forwards it to the dispatcher
     /// as a bind-mount source. When unset, <see cref="ContainerLifecycleManager"/>
     /// falls back to <see cref="ComponentsPath"/> (may be insufficient for
     /// <c>spring-voyage-agent</c>).

@@ -25,7 +25,7 @@
 #         gh extension install cli/gh-webhook
 #   3. Repository admin permission on --repo (required by GitHub to
 #      register the temporary forwarding hook).
-#   4. `eng/deploy/spring.env` exists and contains `GitHub__WebhookSecret`
+#   4. `eng/config/spring.env` exists and contains `GitHub__WebhookSecret`
 #      (so `gh` signs forwarded payloads with the same secret the API
 #      verifies against). The deployment's setup.sh writes this value.
 #
@@ -40,10 +40,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+CONFIG_DIR="${REPO_ROOT}/eng/config"
 
 REPO=""
 URL="${GH_WEBHOOK_URL:-http://localhost/api/v1/webhooks/github}"
-ENV_FILE="${GH_WEBHOOK_ENV_FILE:-${SCRIPT_DIR}/spring.env}"
+ENV_FILE="${GH_WEBHOOK_ENV_FILE:-${CONFIG_DIR}/spring.env}"
 EVENTS="${GH_WEBHOOK_EVENTS:-}"
 
 log() { printf '[gh-webhook-forward] %s\n' "$*" >&2; }
@@ -61,7 +63,7 @@ Optional:
                           Default: http://localhost:8080/api/v1/webhooks/github
                           (or $GH_WEBHOOK_URL).
   --env PATH              Path to the env file holding GitHub__WebhookSecret.
-                          Default: <script-dir>/spring.env
+                          Default: <repo>/eng/config/spring.env
                           (or $GH_WEBHOOK_ENV_FILE).
   --events list           Comma-separated events to forward (e.g. "issues,pull_request").
                           Default: "*" (all events the App is subscribed to)

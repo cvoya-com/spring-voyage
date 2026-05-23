@@ -177,21 +177,21 @@ cd spring-voyage
 git checkout v1.0.0   # or `main` while tracking head
 
 # 2. Seed the environment file from the documented template.
-cd eng/deploy
-cp spring.env.example spring.env
+cp eng/config/spring.env.example eng/config/spring.env
 
 # 3. Edit secrets. At minimum change POSTGRES_PASSWORD and — if you expose
 #    the stack publicly — REDIS_PASSWORD, DEPLOY_HOSTNAME, and ACME_EMAIL.
-$EDITOR spring.env
+$EDITOR eng/config/spring.env
 
 # 4. Build the platform image (one image serves api, worker, and web).
-docker compose --env-file spring.env build
+cd eng/deploy
+docker compose --env-file ../config/spring.env build
 
 # 5. Start the stack.
-docker compose --env-file spring.env up -d
+docker compose --env-file ../config/spring.env up -d
 
 # 6. Verify.
-docker compose --env-file spring.env ps
+docker compose --env-file ../config/spring.env ps
 curl -fsS http://localhost/health
 ```
 
@@ -234,14 +234,14 @@ Port 8443 is not published to the host. It is accessible only from containers on
 Reference file: `eng/deploy/docker-compose.yml`. Run from the `eng/deploy/` directory so `../dapr/` bind mounts resolve.
 
 ```bash
-cd eng/deploy/
-cp spring.env.example spring.env && $EDITOR spring.env
+cp eng/config/spring.env.example eng/config/spring.env && $EDITOR eng/config/spring.env
 
-docker compose --env-file spring.env build    # build platform image
-docker compose --env-file spring.env up -d    # start stack
-docker compose --env-file spring.env ps       # status
-docker compose --env-file spring.env logs -f spring-api
-docker compose --env-file spring.env down     # stop (volumes preserved)
+cd eng/deploy/
+docker compose --env-file ../config/spring.env build    # build platform image
+docker compose --env-file ../config/spring.env up -d    # start stack
+docker compose --env-file ../config/spring.env ps       # status
+docker compose --env-file ../config/spring.env logs -f spring-api
+docker compose --env-file ../config/spring.env down     # stop (volumes preserved)
 ```
 
 Volumes persist across `down`/`up` cycles; `docker volume rm` clears them. To use a registry image, set `SPRING_PLATFORM_IMAGE` in `spring.env` and skip the `build` step.
@@ -251,9 +251,9 @@ Volumes persist across `down`/`up` cycles; `docker volume rm` clears them. To us
 `eng/deploy/deploy.sh` is the Podman-native driver (no compose shim).
 
 ```bash
-cd eng/deploy/
-cp spring.env.example spring.env && $EDITOR spring.env
+cp eng/config/spring.env.example eng/config/spring.env && $EDITOR eng/config/spring.env
 
+cd eng/deploy/
 ../build/build.sh              # build platform + agent images
 ../build/build.sh clean        # remove local Spring Voyage image refs
 ./deploy.sh up                 # create network, republish dispatcher, start stack
@@ -348,10 +348,10 @@ Two Caddyfile variants ship in `eng/deploy/`:
 
 ## Secrets bootstrap
 
-All secrets live in `eng/deploy/spring.env`. The file is **not** committed (only `spring.env.example` is). Restrict its permissions:
+All secrets live in `eng/config/spring.env`. The file is **not** committed (only `spring.env.example` is). Restrict its permissions:
 
 ```bash
-chmod 600 /opt/spring-voyage/eng/deploy/spring.env
+chmod 600 /opt/spring-voyage/eng/config/spring.env
 ```
 
 ### Mandatory variables
@@ -468,18 +468,18 @@ Treat every update as potentially breaking: read the release notes, test in stag
 
 **Registry flow:**
 ```bash
+sed -i 's/^SPRING_IMAGE_TAG=.*/SPRING_IMAGE_TAG=0.2.0/' eng/config/spring.env
 cd eng/deploy/
-sed -i 's/^SPRING_IMAGE_TAG=.*/SPRING_IMAGE_TAG=0.2.0/' spring.env
-docker compose --env-file spring.env pull
-docker compose --env-file spring.env up -d
+docker compose --env-file ../config/spring.env pull
+docker compose --env-file ../config/spring.env up -d
 ```
 
 **Source flow:**
 ```bash
 git fetch --tags && git checkout v0.2.0
 cd eng/deploy/
-docker compose --env-file spring.env build
-docker compose --env-file spring.env up -d
+docker compose --env-file ../config/spring.env build
+docker compose --env-file ../config/spring.env up -d
 ```
 
 `up -d` recreates only changed services. Migrations run automatically on `spring-worker` restart before `spring-api` comes up.

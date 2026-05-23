@@ -23,15 +23,18 @@ lives at [`src/Cvoya.Spring.AgentSidecar/`](../../src/Cvoya.Spring.AgentSidecar/
 | ------------------------ | ----------------------------------------------------------------- |
 | `deploy.sh`              | Local Podman deployment lifecycle (network, containers). Delegates the dispatcher lifecycle to `spring-voyage-host.sh`. |
 | `spring-voyage-host.sh`  | Manages host-process services (`spring-dispatcher`). Used directly when bouncing the dispatcher in isolation; called by `deploy.sh up/down`. |
-| `setup.sh`               | First-run setup: copies `spring.env.example` -> `spring.env`, generates `SPRING_SECRETS_AES_KEY`. |
+| `setup.sh`               | First-run setup: copies `eng/config/spring.env.example` -> `eng/config/spring.env`, generates `SPRING_SECRETS_AES_KEY`. |
 | `Caddyfile`              | Single-host path-routed Caddy config (default).                   |
 | `Caddyfile.multi-host`   | Per-service hostnames variant (web / API / webhook each FQDN).    |
 | `docker-compose.yml`     | Reference compose file for Docker operators (no installer support; Podman-first stack uses `deploy.sh`). |
 | `gh-webhook-forward.sh`  | Local-dev webhook forwarding via the operator's `gh` CLI (recommended). |
 | `relay.sh`               | Local-dev SSH reverse tunnel for webhook delivery to a laptop (no-`gh-auth` alternative). |
-| `spring.env.example`     | Documented env template. Copy to `spring.env` and fill in.        |
 | `scripts/dispatcher-smoke.sh` | Alpine echo round-trip; gate for #1063 regressions.          |
 | `scripts/test-spring-voyage-host.sh` | 8 idempotence cases for `spring-voyage-host.sh`.      |
+
+The deployment env template (`spring.env.example`) and the per-deployment
+`spring.env` it spawns live under [`eng/config/`](../config/) so every script
+that needs them (build, deploy, host, install) reads from one shared location.
 
 > `spring-dispatcher` is intentionally **not** packaged as a container image
 > in OSS. It runs as a long-lived host process owned by
@@ -182,19 +185,19 @@ user network with:
 
 ```bash
 cd eng/deploy/
-./deploy.sh init               # first-run only: copies spring.env.example -> spring.env
-                               #                 and provisions SPRING_SECRETS_AES_KEY (mode 0600).
-                               #                 Refuses to overwrite an existing key.
-$EDITOR spring.env             # deploy-time config: hostname, DB password, image tags,
-                               # GitHub__*, Anthropic / OpenAI / Google credentials, …
+./deploy.sh init                  # first-run only: copies eng/config/spring.env.example -> eng/config/spring.env
+                                  #                 and provisions SPRING_SECRETS_AES_KEY (mode 0600).
+                                  #                 Refuses to overwrite an existing key.
+$EDITOR ../config/spring.env      # deploy-time config: hostname, DB password, image tags,
+                                  # GitHub__*, Anthropic / OpenAI / Google credentials, …
 
-../build/build.sh              # build platform + agent images
-../build/build.sh clean        # remove local Spring Voyage image refs and dispatcher publish output
-./deploy.sh up                 # create network, republish dispatcher, start stack
-./deploy.sh status             # list running containers + host services
-./deploy.sh logs spring-api    # tail a single container service
-./deploy.sh down               # stop containers + host services (volumes preserved)
-./deploy.sh clean              # destructive reset: containers, volumes, networks, local images
+../build/build.sh                 # build platform + agent images
+../build/build.sh clean           # remove local Spring Voyage image refs and dispatcher publish output
+./deploy.sh up                    # create network, republish dispatcher, start stack
+./deploy.sh status                # list running containers + host services
+./deploy.sh logs spring-api       # tail a single container service
+./deploy.sh down                  # stop containers + host services (volumes preserved)
+./deploy.sh clean                 # destructive reset: containers, volumes, networks, local images
 ```
 
 The `SPRING_SECRETS_AES_KEY` provisioned by `init` is the only thing that
@@ -370,7 +373,7 @@ multi-process topology (spring-api / spring-worker share the same
 encrypted secret store, so an in-memory fallback silently corrupted
 every cross-process secret read). Configure a real key on every
 deployment, including local dev: `openssl rand -base64 32` ->
-`SPRING_SECRETS_AES_KEY` in `eng/deploy/spring.env`.
+`SPRING_SECRETS_AES_KEY` in `eng/config/spring.env`.
 
 **Optional** requirements (GitHub App credentials when you haven't run
 `spring github-app register` yet, Ollama when it's still warming up with
@@ -502,7 +505,7 @@ discovery, `gh-webhook` extension check, secret extraction):
 ./eng/deploy/gh-webhook-forward.sh --repo your-org/your-dev-repo
 ```
 
-By default it reads `GitHub__WebhookSecret` from `eng/deploy/spring.env`
+By default it reads `GitHub__WebhookSecret` from `eng/config/spring.env`
 and forwards to `http://localhost:8080/api/v1/webhooks/github`. Override
 either with `--env <path>` or `--url <url>`. See `--help` for the full
 flag list. Preconditions: `gh auth login` completed, **repository admin**
@@ -568,7 +571,7 @@ Never commit `spring.env`; it is in `.gitignore` implicitly because only
 `spring.env.example` is tracked. On shared hosts, restrict its permissions:
 
 ```bash
-chmod 600 eng/deploy/spring.env
+chmod 600 eng/config/spring.env
 ```
 
 The production profile under `eng/dapr/components/production/` uses
@@ -611,7 +614,7 @@ The verb drives GitHub's [App-from-manifest flow](https://docs.github.com/en/app
    one-time code.
 4. CLI exchanges the code via `POST /app-manifests/{code}/conversions`
    and receives the App ID, PEM, webhook secret, and OAuth client id/secret.
-5. Credentials land in `eng/deploy/spring.env` (default — `--write-env`)
+5. Credentials land in `eng/config/spring.env` (default — `--write-env`)
    or in the platform-secrets store (`--write-secrets`; uses
    `spring secret --scope platform create` from #612).
 6. The install URL is printed — visit it to install the App on the repos

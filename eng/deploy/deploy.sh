@@ -38,14 +38,15 @@
 #   ./deploy.sh status          # show container + host-service status
 #   ./deploy.sh ensure-user-net <uid>  # create per-user bridge network for agent isolation
 #
-# Environment: reads values from ./spring.env (or $SPRING_ENV_FILE).
-# See spring.env.example for all supported variables.
+# Environment: reads values from eng/config/spring.env (or $SPRING_ENV_FILE).
+# See eng/config/spring.env.example for all supported variables.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-ENV_FILE="${SPRING_ENV_FILE:-${SCRIPT_DIR}/spring.env}"
+CONFIG_DIR="${REPO_ROOT}/eng/config"
+ENV_FILE="${SPRING_ENV_FILE:-${CONFIG_DIR}/spring.env}"
 # Resolved env file passed to podman --env-file. Podman treats --env-file
 # values literally (no shell expansion), so we pre-process the source
 # spring.env with envsubst to expand ${VAR} references between keys — e.g.
@@ -440,7 +441,7 @@ parse_up_options() {
 # stored secret.
 cmd_init() {
     require openssl
-    local example_file="${SCRIPT_DIR}/spring.env.example"
+    local example_file="${CONFIG_DIR}/spring.env.example"
     if [[ ! -f "${example_file}" ]]; then
         die "spring.env.example not found at ${example_file}; cannot bootstrap."
     fi

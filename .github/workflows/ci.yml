@@ -100,7 +100,7 @@ jobs:
               - 'eng/deploy/scripts/**'
               - 'eng/deploy/deploy.sh'
               - 'eng/deploy/docker-compose.yml'
-              - 'eng/deploy/spring.env.example'
+              - 'eng/config/spring.env.example'
               - 'src/Cvoya.Spring.Dispatcher/**'
             agent_images:
               # build-agent-images.sh builds every Dockerfile.agent.* in

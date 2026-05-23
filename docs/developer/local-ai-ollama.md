@@ -20,13 +20,13 @@ This document covers why, how, and the trade-offs across deployment shapes.
 
 ```bash
 # 1. Enable Ollama in spring.env
-cat >> eng/deploy/spring.env <<EOF
+cat >> eng/config/spring.env <<EOF
 LanguageModel__Ollama__Enabled=true
 LanguageModel__Ollama__DefaultModel=llama3.2:3b
 EOF
 
 # 2. Start the stack — deploy.sh launches spring-ollama alongside the rest
-cd deployment && ./deploy.sh up
+cd eng/deploy && ./deploy.sh up
 
 # 3. Watch the model pull complete (first run only)
 ./deploy.sh logs spring-ollama
@@ -192,6 +192,6 @@ server; they use different endpoints (`/api/generate` vs `/v1/chat/completions`)
 ## Related
 
 - `eng/deploy/README.md` — container topology, ports, volumes.
-- `eng/deploy/spring.env.example` — full configuration reference.
+- `eng/config/spring.env.example` — full configuration reference.
 - `docs/architecture/components.md` — Dapr components, infrastructure dependencies.
 - `src/Cvoya.Spring.Dapr/Execution/OllamaProvider.cs` — reference implementation.

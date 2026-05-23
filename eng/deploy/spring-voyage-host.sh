@@ -31,7 +31,7 @@
 #   ./spring-voyage-host.sh logs [-f]           # cat or follow the log file
 #   ./spring-voyage-host.sh build               # publish (build) only
 #
-# Tunable knobs (env or spring.env):
+# Tunable knobs (env or eng/config/spring.env):
 #   SPRING_DISPATCHER_HOST           (default 0.0.0.0)
 #   SPRING_DISPATCHER_PORT           (default 8090)
 #   SPRING_DISPATCHER_WORKSPACE_ROOT (default ~/.spring-voyage/workspaces)
@@ -44,7 +44,7 @@
 #                                     directly — supports self-contained
 #                                     single-file publishes)
 #   SPRING_DISPATCHER_PUBLISH_DIR    (override publish output directory)
-#   SPRING_ENV_FILE                  (default ./spring.env, optional)
+#   SPRING_ENV_FILE                  (default eng/config/spring.env, optional)
 #
 # State files written under ${SPRING_HOST_STATE_DIR}:
 #   spring-dispatcher.pid   — PID of the running dispatcher
@@ -59,8 +59,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+CONFIG_DIR="${REPO_ROOT}/eng/config"
 
-ENV_FILE="${SPRING_ENV_FILE:-${SCRIPT_DIR}/spring.env}"
+ENV_FILE="${SPRING_ENV_FILE:-${CONFIG_DIR}/spring.env}"
 
 STATE_DIR="${SPRING_HOST_STATE_DIR:-${HOME}/.spring-voyage/host}"
 PID_FILE="${STATE_DIR}/spring-dispatcher.pid"

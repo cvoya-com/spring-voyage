@@ -41,7 +41,7 @@ Before installing the package, confirm all of the following:
   spring github-app register --name "Spring Voyage" --org cvoya-com
   ```
 
-  This opens a browser flow, writes the App credentials to `eng/deploy/spring.env`, and prints an install URL. Visit the install URL and install the App on `cvoya-com/spring-voyage` (or whatever repository the unit will work on) via the GitHub UI.
+  This opens a browser flow, writes the App credentials to `eng/config/spring.env`, and prints an install URL. Visit the install URL and install the App on `cvoya-com/spring-voyage` (or whatever repository the unit will work on) via the GitHub UI.
 
   After installation, note the **installation ID** from the GitHub UI — it appears in the URL of the App's installation settings page (`.../installations/<id>`). You will pass it to the package install below.
 
