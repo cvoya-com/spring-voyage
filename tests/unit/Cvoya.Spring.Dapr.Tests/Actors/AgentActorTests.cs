@@ -45,7 +45,6 @@ public class AgentActorTests
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IExecutionDispatcher _dispatcher = Substitute.For<IExecutionDispatcher>();
-    private readonly MessageRouter _router;
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
     private readonly IUnitPolicyEnforcer _unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>();
@@ -54,14 +53,8 @@ public class AgentActorTests
     public AgentActorTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _router = Substitute.For<MessageRouter>(
-            Substitute.For<IDirectoryService>(),
-            Substitute.For<IAgentProxyResolver>(),
-            Substitute.For<IPermissionService>(),
-            _loggerFactory,
-            NullMessageWriterScopeFactory.Create());
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
+            .Returns(RuntimeOutcomes.Silent());
 
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
@@ -77,7 +70,7 @@ public class AgentActorTests
             _activityEventBus,
             Substitute.For<IAgentObservationCoordinator>(),
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
-            new AgentDispatchCoordinator(_dispatcher, _router, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
+            new AgentDispatchCoordinator(_dispatcher, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             _definitionProvider,
             Array.Empty<ISkillRegistry>(),
             _membershipRepository,
@@ -478,31 +471,31 @@ public class AgentActorTests
     // --- Activity event emission ---
 
     [Fact]
-    public async Task ReceiveAsync_DomainMessage_EmitsMessageReceivedActivityEvent()
+    public async Task ReceiveAsync_DomainMessage_EmitsMessageArrivedActivityEvent()
     {
         var message = CreateMessage(threadId: "conv-activity");
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.MessageReceived),
+            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.MessageArrived),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ReceiveAsync_ControlMessage_EmitsMessageReceivedActivityEvent()
+    public async Task ReceiveAsync_ControlMessage_EmitsMessageArrivedActivityEvent()
     {
         var message = CreateMessage(type: MessageType.HealthCheck);
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.MessageReceived),
+            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.MessageArrived),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ReceiveAsync_MessageReceived_StampsEnvelopeAndBodyOnDetails()
+    public async Task ReceiveAsync_MessageArrived_StampsEnvelopeAndBodyOnDetails()
     {
         var threadId = "conv-1209";
         var payload = JsonSerializer.SerializeToElement("hello world");
@@ -512,7 +505,7 @@ public class AgentActorTests
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.MessageReceived
+                e.EventType == ActivityEventType.MessageArrived
                 && e.Details.HasValue
                 && e.Details.Value.GetProperty("messageId").GetString() == message.Id.ToString()
                 && e.Details.Value.GetProperty("from").GetString() == $"{message.From.Scheme}://{message.From.Path}"
@@ -532,7 +525,7 @@ public class AgentActorTests
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.MessageReceived
+                e.EventType == ActivityEventType.MessageArrived
                 && e.Summary == "Approve merge?"),
             Arg.Any<CancellationToken>());
     }
@@ -552,13 +545,13 @@ public class AgentActorTests
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.MessageReceived
+                e.EventType == ActivityEventType.MessageArrived
                 && e.Summary == "Looks good — shipping."),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ReceiveAsync_MessageReceived_SummaryNeverContainsLegacyEnvelopeTemplate()
+    public async Task ReceiveAsync_MessageArrived_SummaryNeverContainsLegacyEnvelopeTemplate()
     {
         var threadId = "conv-1636-no-envelope";
         var payload = JsonSerializer.SerializeToElement(new { Acknowledged = true });
@@ -568,7 +561,7 @@ public class AgentActorTests
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.MessageReceived
+                e.EventType == ActivityEventType.MessageArrived
                 && !e.Summary.StartsWith("Received ")
                 && !e.Summary.Contains(message.Id.ToString())
                 && !e.Summary.Contains(message.From.Path)),
@@ -650,27 +643,13 @@ public class AgentActorTests
     // --- Dispatch lifecycle ---
 
     [Fact]
-    public async Task RunDispatchAsync_NonZeroExitCode_EmitsErrorAndRecordsResponse()
+    public async Task RunDispatchAsync_NonZeroExitCode_EmitsRuntimeFailed()
     {
         var threadId = "conv-exit-125";
         var inbound = CreateMessage(threadId: threadId);
-        var failurePayload = JsonSerializer.SerializeToElement(new
-        {
-            Error = "container init: image not found\nlayer 1 missing",
-            Output = string.Empty,
-            ExitCode = 125,
-        });
-        var failureResponse = new Message(
-            Guid.NewGuid(),
-            Address.For("agent", TestSlugIds.HexFor("test-agent")),
-            inbound.From,
-            MessageType.Domain,
-            threadId,
-            failurePayload,
-            DateTimeOffset.UtcNow);
 
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns(failureResponse);
+            .Returns(RuntimeOutcomes.Failure(exitCode: 125));
 
         // First read returns no channel so the actor takes the create-and-dispatch
         // path. Subsequent reads (during OnDispatchExitAsync) return the
@@ -689,19 +668,16 @@ public class AgentActorTests
         await _actor.ReceiveAsync(inbound, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
+        // ADR-0056 §7: non-zero exit surfaces as a typed RuntimeFailed
+        // event, replacing the legacy ErrorOccurred "Container exit code"
+        // emission.
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.ErrorOccurred &&
+                e.EventType == ActivityEventType.RuntimeFailed &&
                 e.CorrelationId == threadId &&
-                e.Summary.Contains("125") &&
+                e.Severity == ActivitySeverity.Error &&
                 e.Details.HasValue &&
                 e.Details.Value.GetProperty("exitCode").GetInt32() == 125),
-            Arg.Any<CancellationToken>());
-
-        // The failure response is recorded on the originating thread
-        // (domain messaging is one-way — ADR-0048).
-        await _router.Received(1).PersistAsync(
-            Arg.Is<Message>(m => m.Id == failureResponse.Id),
             Arg.Any<CancellationToken>());
     }
 
@@ -710,18 +686,9 @@ public class AgentActorTests
     {
         var threadId = "conv-success";
         var inbound = CreateMessage(threadId: threadId);
-        var successPayload = JsonSerializer.SerializeToElement(new { Output = "ok" });
-        var successResponse = new Message(
-            Guid.NewGuid(),
-            Address.For("agent", TestSlugIds.HexFor("test-agent")),
-            inbound.From,
-            MessageType.Domain,
-            threadId,
-            successPayload,
-            DateTimeOffset.UtcNow);
 
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns(successResponse);
+            .Returns(RuntimeOutcomes.Success(toolCallCount: 1));
 
         var channel = new ThreadChannel
         {
@@ -743,10 +710,11 @@ public class AgentActorTests
         await _stateManager.Received().TryRemoveStateAsync(
             StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>());
 
-        // The reply is recorded on the originating thread
-        // (domain messaging is one-way — ADR-0048).
-        await _router.Received(1).PersistAsync(
-            Arg.Is<Message>(m => m.Id == successResponse.Id),
+        // ADR-0056 §7: the terminal is a typed RuntimeCompleted event;
+        // there is no "response recorded on thread" persistence (the
+        // dispatcher returns a RuntimeOutcome, not a Message).
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.RuntimeCompleted),
             Arg.Any<CancellationToken>());
     }
 
@@ -755,7 +723,7 @@ public class AgentActorTests
     {
         var threadId = "conv-cancelled";
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns<Message?>(_ => throw new OperationCanceledException("simulated worker timeout"));
+            .Returns<RuntimeOutcome>(_ => throw new OperationCanceledException("simulated worker timeout"));
 
         var inbound = CreateMessage(threadId: threadId);
         var channel = new ThreadChannel

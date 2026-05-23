@@ -125,13 +125,13 @@ while (( $(date +%s) < deadline )); do
         continue
     fi
 
-    # The agent's reply lands as a MessageReceived event whose summary text
+    # The agent's reply lands as a MessageArrived event whose summary text
     # carries "from agent:<...>" (the human inbox records the inbound
     # message; the routing-info string is what flags it as agent-authored).
     # Take that event's body — the LLM's actual text — as the agent reply.
     if command -v jq >/dev/null 2>&1; then
         agent_reply="$(printf '%s' "${show_body}" \
-            | jq -r '[.events[]? | select(.eventType == "MessageReceived" and ((.summary // "") | test("from agent:")))][-1] | (.body // "")' \
+            | jq -r '[.events[]? | select(.eventType == "MessageArrived" and ((.summary // "") | test("from agent:")))][-1] | (.body // "")' \
             2>/dev/null || true)"
     else
         # Fallback: scan for any "body" field that doesn't look like the

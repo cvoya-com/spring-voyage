@@ -152,10 +152,10 @@ public class AgentActor(
         Exception? caughtException = null;
         try
         {
-            await EmitActivityEventAsync(ActivityEventType.MessageReceived,
-                MessageReceivedDetails.BuildSummary(message),
+            await EmitActivityEventAsync(ActivityEventType.MessageArrived,
+                MessageArrivedDetails.BuildSummary(message),
                 cancellationToken,
-                details: MessageReceivedDetails.Build(message),
+                details: MessageArrivedDetails.Build(message),
                 correlationId: message.ThreadId);
 
             return message.Type switch

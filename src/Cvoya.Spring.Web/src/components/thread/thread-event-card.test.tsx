@@ -155,16 +155,16 @@ describe("shouldRenderAsCard", () => {
     );
   });
 
-  it("treats MessageReceived as a bubble (never a card)", () => {
+  it("treats MessageArrived as a bubble (never a card)", () => {
     expect(
       shouldRenderAsCard(
-        makeEvent({ eventType: "MessageReceived", body: "hi" }),
+        makeEvent({ eventType: "MessageArrived", body: "hi" }),
       ),
     ).toBe(false);
     // Body-less message events still take the bubble path — the
     // platform now guarantees a usable summary upstream (#1641).
     expect(
-      shouldRenderAsCard(makeEvent({ eventType: "MessageReceived" })),
+      shouldRenderAsCard(makeEvent({ eventType: "MessageArrived" })),
     ).toBe(false);
   });
 

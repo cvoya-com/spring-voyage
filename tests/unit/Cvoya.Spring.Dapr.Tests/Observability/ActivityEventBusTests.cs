@@ -17,7 +17,7 @@ using Xunit;
 public class ActivityEventBusTests
 {
     private static ActivityEvent CreateEvent(
-        ActivityEventType type = ActivityEventType.MessageReceived,
+        ActivityEventType type = ActivityEventType.MessageArrived,
         ActivitySeverity severity = ActivitySeverity.Info,
         string summary = "test event")
     {

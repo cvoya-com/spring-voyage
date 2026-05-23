@@ -8,7 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Messaging;
 
 /// <summary>
-/// Builds the <c>Details</c> JSON payload attached to <c>MessageReceived</c>
+/// Builds the <c>Details</c> JSON payload attached to <c>MessageArrived</c>
 /// activity events so the conversation surfaces (CLI <c>spring message show</c>,
 /// <c>spring conversation show</c> / <c>inbox show</c>, plus the portal
 /// thread view) can render the message body inline rather than only the
@@ -17,7 +17,7 @@ using Cvoya.Spring.Core.Messaging;
 /// <see cref="UnitActor"/>) emits the same field set so downstream readers
 /// can treat the payload as a stable schema (#1209).
 /// </summary>
-public static class MessageReceivedDetails
+public static class MessageArrivedDetails
 {
     /// <summary>JSON property name for the message id (a stringified <see cref="Guid"/>).</summary>
     public const string MessageIdProperty = "messageId";
@@ -130,7 +130,7 @@ public static class MessageReceivedDetails
 
     /// <summary>
     /// Builds the human-readable one-liner used for an
-    /// <see cref="Capabilities.ActivityEventType.MessageReceived"/> activity
+    /// <see cref="Capabilities.ActivityEventType.MessageArrived"/> activity
     /// event's <see cref="Capabilities.ActivityEvent.Summary"/> (#1636).
     /// <para>
     /// Production must NEVER emit the legacy

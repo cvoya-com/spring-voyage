@@ -3,7 +3,7 @@
  *
  * The row renders a chat-style bubble per activity event. When the
  * underlying activity event carries a message body — populated by the
- * activity-projection for every `MessageReceived` event — the bubble
+ * activity-projection for every `MessageArrived` event — the bubble
  * renders the body text rather than the envelope summary line. Older
  * events without a body fall back to the summary so legacy threads keep
  * rendering correctly.
@@ -21,7 +21,7 @@ function makeEvent(overrides: Partial<ThreadEvent> = {}): ThreadEvent {
     id: "00000000-0000-0000-0000-000000000001",
     timestamp: "2026-04-26T12:00:00Z",
     source: { id: "22222222-2222-2222-2222-222222222222", address: "agent://ada", displayName: "ada" },
-    eventType: "MessageReceived",
+    eventType: "MessageArrived",
     severity: "Info",
     summary: "human reply placeholder",
     ...overrides,
@@ -29,7 +29,7 @@ function makeEvent(overrides: Partial<ThreadEvent> = {}): ThreadEvent {
 }
 
 describe("ThreadEventRow", () => {
-  it("renders the body when the MessageReceived event carries one", () => {
+  it("renders the body when the MessageArrived event carries one", () => {
     render(
       <ThreadEventRow
         event={makeEvent({ body: "Hello, ada!" })}
@@ -49,7 +49,7 @@ describe("ThreadEventRow", () => {
     expect(screen.getByText("human reply placeholder")).toBeTruthy();
   });
 
-  it("ignores body on non-MessageReceived events", () => {
+  it("ignores body on non-MessageArrived events", () => {
     render(
       <ThreadEventRow
         event={makeEvent({
@@ -64,7 +64,7 @@ describe("ThreadEventRow", () => {
     expect(screen.queryByText("leaked body")).toBeNull();
   });
 
-  describe("MessageReceived attribution", () => {
+  describe("MessageArrived attribution", () => {
     // The receiving actor projects the event, so event.source is the
     // receiver and event.from is the sender. The bubble must be attributed
     // to the sender, otherwise an agent's reply renders as a human-sent
@@ -179,7 +179,7 @@ describe("ThreadEventRow", () => {
       expect(screen.getByText("State transition error")).toBeTruthy();
     });
 
-    it("renders normal MessageReceived events without role=alert", () => {
+    it("renders normal MessageArrived events without role=alert", () => {
       render(
         <ThreadEventRow
           event={makeEvent({ body: "Regular message" })}

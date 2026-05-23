@@ -854,7 +854,7 @@ export interface DashboardSummary {
  * text/event-stream wire format is not describable in OpenAPI.
  */
 export type ActivityEventType =
-  | "MessageReceived"
+  | "MessageArrived"
   | "MessageSent"
   | "ThreadStarted"
   | "DecisionMade"

@@ -85,7 +85,7 @@ public class ActivityEventMapperTests
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             new Address("agent", TestAgentId),
-            ActivityEventType.MessageReceived,
+            ActivityEventType.MessageArrived,
             ActivitySeverity.Info,
             "Message received",
             null,

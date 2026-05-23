@@ -39,7 +39,7 @@ public class MessageEntity : ITenantScopedEntity
     /// <summary>
     /// Stable Guid identity of the message (primary key). Matches the
     /// id assigned by the API layer / origin actor — the same id appears
-    /// on the corresponding <c>MessageReceived</c> activity event so
+    /// on the corresponding <c>MessageArrived</c> activity event so
     /// observers can join the two records.
     /// </summary>
     public Guid Id { get; set; }
@@ -84,7 +84,7 @@ public class MessageEntity : ITenantScopedEntity
     /// <summary>
     /// Extracted text body, when the payload is a JSON string or carries
     /// an <c>Output</c> string property (the two shapes
-    /// <c>MessageReceivedDetails.TryExtractText</c> recognises). Null for
+    /// <c>MessageArrivedDetails.TryExtractText</c> recognises). Null for
     /// structured / non-text payloads — readers fall back to
     /// <see cref="Payload"/>.
     /// </summary>

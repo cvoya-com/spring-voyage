@@ -96,19 +96,19 @@ public class BridgeWireContractTests
     }
 
     [Fact]
-    public void BridgeMessageSendCompleted_FlowsThroughDispatcherMapping_ProducesSuccessPayload()
+    public void BridgeMessageSendCompleted_FlowsThroughDispatcherMapping_ProducesSuccessOutcome()
     {
-        // Verify end-to-end: fixture → A2AResponse → MapA2AResponseToMessage
-        // → Spring Voyage SvMessage with ExitCode: 0 and the artifact text.
+        // Verify end-to-end: fixture → A2AResponse → MapA2AResponseToOutcome
+        // → RuntimeOutcome with ExitCode 0 and the artifact text on the
+        // ReasoningTrace (ADR-0056: no synthesised reply message).
         var fixture = LoadFixture("bridge-message-send-completed.json");
         var response = DeserializeResult(fixture);
-        var original = BuildOriginalMessage();
 
-        var mapped = A2AExecutionDispatcher.MapA2AResponseToMessage(original, response);
+        var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
+            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent", containerId: null);
 
-        mapped.ShouldNotBeNull();
-        mapped!.Payload.GetProperty("ExitCode").GetInt32().ShouldBe(0);
-        mapped.Payload.GetProperty("Output").GetString().ShouldBe("echo:hello-from-fixture");
+        outcome.ExitCode.ShouldBe(0);
+        outcome.ReasoningTrace.ShouldBe("echo:hello-from-fixture");
     }
 
     [Fact]
@@ -132,24 +132,22 @@ public class BridgeWireContractTests
     }
 
     [Fact]
-    public void BridgeMessageSendFailed_FlowsThroughDispatcherMapping_ProducesErrorPayload()
+    public void BridgeMessageSendFailed_FlowsThroughDispatcherMapping_ProducesFailureOutcome()
     {
-        // Verify end-to-end: failed fixture → A2AResponse → MapA2AResponseToMessage
-        // → Spring Voyage SvMessage with ExitCode: 1 and Error text from the
-        // status message and/or artifacts.
+        // Verify end-to-end: failed fixture → A2AResponse → MapA2AResponseToOutcome
+        // → RuntimeOutcome with ExitCode 1 and the failure text on the
+        // ReasoningTrace (ADR-0056: no synthesised error message).
         var fixture = LoadFixture("bridge-message-send-failed.json");
         var response = DeserializeResult(fixture);
-        var original = BuildOriginalMessage();
 
-        var mapped = A2AExecutionDispatcher.MapA2AResponseToMessage(original, response);
+        var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
+            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent", containerId: null);
 
-        mapped.ShouldNotBeNull();
-        mapped!.Payload.GetProperty("ExitCode").GetInt32().ShouldBe(1);
-        // MapA2AResponseToMessage tries artifacts first, then status.message.
-        // The fixture includes a "boom" artifact so Output comes from there.
-        var output = mapped.Payload.GetProperty("Output").GetString();
-        output.ShouldNotBeNullOrEmpty();
-        output.ShouldContain("boom");
+        outcome.ExitCode.ShouldBe(1);
+        // MapA2AResponseToOutcome tries artifacts first, then status.message.
+        // The fixture includes a "boom" artifact so the trace comes from there.
+        outcome.ReasoningTrace.ShouldNotBeNullOrEmpty();
+        outcome.ReasoningTrace!.ShouldContain("boom");
     }
 
     [Fact]

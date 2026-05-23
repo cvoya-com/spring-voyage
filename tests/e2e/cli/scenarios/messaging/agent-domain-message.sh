@@ -4,7 +4,7 @@
 #
 # Exercises the message plumbing end-to-end without an LLM backend: create an
 # agent, send a Domain message via POST /api/v1/tenant/messages, and assert the
-# receiver-side `MessageReceived` activity event lands in the activity query
+# receiver-side `MessageArrived` activity event lands in the activity query
 # store. This covers the wiring that every real agent-to-agent or
 # human-to-agent path depends on (message routing → actor dispatch →
 # activity-bus publish → persister).
@@ -12,7 +12,7 @@
 # The scenario deliberately DOES NOT require the dispatch to succeed.
 # Without `execution.tool` configured on the agent, the downstream dispatcher
 # emits `ErrorOccurred` and HTTP may surface a 502; that is fine. The
-# assertion is that the upstream MessageReceived event persisted.
+# assertion is that the upstream MessageArrived event persisted.
 #
 # The full dispatch round-trip (dispatcher → agent JSON-RPC over A2A → agent
 # response back into the timeline) is now guarded by the integration test
@@ -67,7 +67,7 @@ e2e::log "agent actor id: ${agent_id} (hex ${agent_id_hex})"
 # --- Send a Domain message ---------------------------------------------------
 # Driven through raw HTTP rather than `spring message send` because the
 # server may surface a 502 here (dispatch error without an execution tool)
-# and we want to assert on the persisted MessageReceived event regardless
+# and we want to assert on the persisted MessageArrived event regardless
 # of the dispatch tail. The actual JSON-RPC dispatch path is covered by
 # `A2ADispatchTransportContractTests` (#1465).
 #
@@ -91,16 +91,16 @@ else
     e2e::fail "unexpected message POST status — got ${status}"
 fi
 
-# --- Poll the activity query store for MessageReceived ------------------------
+# --- Poll the activity query store for MessageArrived ------------------------
 # Persister batches every second (ActivityEventPersister), so a single query
 # right after the send races. Retry up to ~10s with a short sleep.
 expected_source="agent:${agent_id_hex}"
 found=0
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
-    query_response="$(e2e::http GET "/api/v1/tenant/activity?source=${expected_source}&eventType=MessageReceived&limit=5")"
+    query_response="$(e2e::http GET "/api/v1/tenant/activity?source=${expected_source}&eventType=MessageArrived&limit=5")"
     query_status="${query_response##*$'\n'}"
     query_body="${query_response%$'\n'*}"
-    if [[ "${query_status}" == "200" ]] && [[ "${query_body}" == *"MessageReceived"* ]]; then
+    if [[ "${query_status}" == "200" ]] && [[ "${query_body}" == *"MessageArrived"* ]]; then
         found=1
         break
     fi
@@ -108,9 +108,9 @@ for attempt in 1 2 3 4 5 6 7 8 9 10; do
 done
 
 if (( found == 1 )); then
-    e2e::ok "activity query returns MessageReceived for source=${expected_source}"
+    e2e::ok "activity query returns MessageArrived for source=${expected_source}"
 else
-    e2e::fail "no MessageReceived event surfaced for source=${expected_source} within 10s: ${query_body:0:400}"
+    e2e::fail "no MessageArrived event surfaced for source=${expected_source} within 10s: ${query_body:0:400}"
 fi
 
 e2e::summary

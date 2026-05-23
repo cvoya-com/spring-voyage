@@ -323,14 +323,14 @@ public class ThreadQueryService(
     {
         var source = RenderAddress(message.SenderScheme, message.SenderId);
         var to = RenderAddress(message.RecipientScheme, message.RecipientId);
-        // Activity events surfaced "MessageReceived" to the timeline; we keep
+        // Activity events surfaced "MessageArrived" to the timeline; we keep
         // the same event-type label so the wire shape downstream consumers
         // already render against (CLI rows, portal bubbles) is unchanged.
         return new ThreadEvent(
             Id: message.Id,
             Timestamp: message.SentAt,
             Source: source,
-            EventType: "MessageReceived",
+            EventType: "MessageArrived",
             Severity: "Info",
             Summary: message.Body ?? string.Empty,
             MessageId: message.Id,

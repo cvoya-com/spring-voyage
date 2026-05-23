@@ -43,7 +43,7 @@ public class ActivityContractTests : IClassFixture<CustomWebApplicationFactory>
                     new ActivityQueryResult.Item(
                         Guid.NewGuid(),
                         "agent://contract-bot",
-                        "MessageReceived",
+                        "MessageArrived",
                         "Info",
                         "Contract test event",
                         "contract-thread-1",
@@ -64,7 +64,7 @@ public class ActivityContractTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task QueryActivity_NullCost_MatchesContract()
     {
-        // Non-cost events (e.g. MessageReceived) carry a null Cost — the
+        // Non-cost events (e.g. MessageArrived) carry a null Cost — the
         // openapi.json declares cost as optional/nullable (closes #1367).
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
@@ -76,7 +76,7 @@ public class ActivityContractTests : IClassFixture<CustomWebApplicationFactory>
                     new ActivityQueryResult.Item(
                         Guid.NewGuid(),
                         "agent://contract-bot",
-                        "MessageReceived",
+                        "MessageArrived",
                         "Info",
                         "Non-cost event",
                         "contract-thread-2",

@@ -312,24 +312,6 @@ public class MessageRouter : IMessageRouter
     }
 
     /// <summary>
-    /// Persists <paramref name="message"/> to the thread timeline without
-    /// delivering it to any recipient. Domain messaging is one-way
-    /// (<see href="../../../docs/decisions/0048-event-vs-request-message-semantics.md">ADR-0048</see>):
-    /// a dispatch response is recorded on its originating thread rather than
-    /// routed back to <see cref="Message.From"/>. <c>AgentDispatchCoordinator</c>
-    /// calls this for the runtime's response. No-op for messages outside
-    /// <see cref="IMessageWriter.ShouldWrite"/> — control / non-Domain
-    /// messages, or messages without a Guid-shaped thread id.
-    /// </summary>
-    public virtual async Task PersistAsync(Message message, CancellationToken cancellationToken = default)
-    {
-        if (IMessageWriter.ShouldWrite(message))
-        {
-            await PersistMessageAsync(message, cancellationToken);
-        }
-    }
-
-    /// <summary>
     /// Resolves an <see cref="IMessageWriter"/> for the current request scope
     /// and writes the message envelope. The router is registered as a
     /// singleton so it cannot inject the scoped <c>SpringDbContext</c>
@@ -340,8 +322,7 @@ public class MessageRouter : IMessageRouter
     /// Persistence is fail-fast: ADR-0040 makes the EF <c>messages</c> table
     /// authoritative for thread history, so a write failure must abort the
     /// dispatch rather than silently deliver an unrecorded message.
-    /// Exceptions propagate to the caller; endpoints surface them as 5xx,
-    /// dispatch coordinators clear the active thread on the way out.
+    /// Exceptions propagate to the caller; endpoints surface them as 5xx.
     /// </para>
     /// </summary>
     private async Task PersistMessageAsync(Message message, CancellationToken cancellationToken)

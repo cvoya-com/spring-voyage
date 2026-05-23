@@ -439,7 +439,7 @@ public class HumanActorTests : IDisposable
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.MessageReceived
+                e.EventType == ActivityEventType.MessageArrived
                 && e.Summary == "Approve merge?"),
             Arg.Any<CancellationToken>());
     }
@@ -461,7 +461,7 @@ public class HumanActorTests : IDisposable
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.MessageReceived
+                e.EventType == ActivityEventType.MessageArrived
                 && e.Summary == "Looks good — shipping."),
             Arg.Any<CancellationToken>());
     }
@@ -479,7 +479,7 @@ public class HumanActorTests : IDisposable
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.MessageReceived
+                e.EventType == ActivityEventType.MessageArrived
                 && !e.Summary.StartsWith("Received ")
                 && !e.Summary.Contains(message.Id.ToString())
                 && !e.Summary.Contains(message.From.Path)),

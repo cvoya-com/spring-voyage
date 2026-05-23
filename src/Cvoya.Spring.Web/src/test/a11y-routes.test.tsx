@@ -132,7 +132,7 @@ function makeDashboardSummary(
       {
         id: "evt-1",
         source: "agent://alpha/one",
-        eventType: "MessageReceived",
+        eventType: "MessageArrived",
         severity: "Info",
         summary: "Alpha agent received a message",
         timestamp: "2026-04-13T10:00:00Z",
@@ -423,7 +423,7 @@ describe("shell + primitive a11y", () => {
             id: "evt-1",
             timestamp: new Date().toISOString(),
             source: { scheme: "agent", path: "alpha/one" },
-            eventType: "MessageReceived",
+            eventType: "MessageArrived",
             severity: "Info",
             summary: "Hello there",
           },

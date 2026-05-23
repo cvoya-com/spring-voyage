@@ -174,7 +174,7 @@ export function MessageComposer({
           // with the real, server-resolved event.
           const syntheticEvent = {
             id: `optimistic-${Date.now()}`,
-            eventType: "MessageReceived",
+            eventType: "MessageArrived",
             source: {
               id: "00000000-0000-0000-0000-000000000000",
               address: "human://me",

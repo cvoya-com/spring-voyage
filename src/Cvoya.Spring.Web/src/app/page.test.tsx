@@ -302,7 +302,7 @@ describe("DashboardPage", () => {
           {
             id: "evt-1",
             source: "agent://unit-alpha/agent-1",
-            eventType: "MessageReceived",
+            eventType: "MessageArrived",
             severity: "Info",
             summary: "Agent received a message",
             timestamp: "2026-04-13T10:00:00Z",

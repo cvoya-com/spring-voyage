@@ -196,7 +196,7 @@ public class ClaudeCodeLauncherTests
         // Defaults are part of the wire contract — assert them so a
         // change is intentional and caught here rather than in PR 5.
         prep.A2APort.ShouldBe(8999);
-        prep.ResponseCapture.ShouldBe(AgentResponseCapture.A2A);
+        prep.ResponseCapture.ShouldBe(AgentResponseCapture.A2ATrace);
     }
 
     [Fact]

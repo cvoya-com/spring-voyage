@@ -232,7 +232,7 @@ describe("HumanMessagesTab — populated thread list", () => {
         events: [
           {
             id: "e-1",
-            eventType: "MessageReceived",
+            eventType: "MessageArrived",
             source: { address: `human:${HUMAN_ID}`, displayName: "Savas" },
             from: { address: `human:${HUMAN_ID}`, displayName: "Savas" },
             timestamp: "2026-04-30T10:00:00Z",

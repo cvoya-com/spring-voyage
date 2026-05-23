@@ -91,7 +91,7 @@ public static class AnalyticsEndpoints
         new(
             rollup.Entries
                 .Select(e => new ThroughputEntryResponse(
-                    e.Source, e.MessagesReceived, e.MessagesSent, e.Turns, e.ToolCalls))
+                    e.Source, e.MessagesArrived, e.MessagesSent, e.Turns, e.ToolCalls))
                 .ToList(),
             rollup.From,
             rollup.To);

@@ -266,7 +266,7 @@ public class LabelRoutingRoundtripSubscriberTests
         LabelRoutingRoundtripSubscriber.IsRoutedDelegateDecision(good)
             .ShouldBeTrue();
 
-        var nonDecision = good with { EventType = ActivityEventType.MessageReceived };
+        var nonDecision = good with { EventType = ActivityEventType.MessageArrived };
         LabelRoutingRoundtripSubscriber.IsRoutedDelegateDecision(nonDecision)
             .ShouldBeFalse();
 

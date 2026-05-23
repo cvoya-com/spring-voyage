@@ -251,7 +251,7 @@ public class SpringVoyageAgentLauncherTests
         var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
 
         prep.A2APort.ShouldBe(8999);
-        prep.ResponseCapture.ShouldBe(AgentResponseCapture.A2A);
+        prep.ResponseCapture.ShouldBe(AgentResponseCapture.A2ATrace);
     }
 
     [Fact]

@@ -8,7 +8,6 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
-using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
@@ -17,10 +16,8 @@ using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Agents;
-using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Initiative;
-using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
 using global::Dapr.Actors;
@@ -37,16 +34,19 @@ using Xunit;
 
 /// <summary>
 /// Tests that verify <see cref="AgentActor.HandleDomainMessageAsync"/> invokes
-/// <see cref="IExecutionDispatcher"/> and records its response on the
-/// originating thread via <see cref="MessageRouter.PersistAsync"/> for the
-/// end-to-end dispatch path (issue #133; domain messaging is one-way per
-/// ADR-0048 — the response is recorded, never routed back to a recipient).
+/// <see cref="IExecutionDispatcher"/> and emits the ADR-0056 §7 runtime
+/// lifecycle activities (MessageDispatchedToRuntime, RuntimeStarted, and one
+/// of the typed terminals — RuntimeCompleted / RuntimeFailed /
+/// RuntimeCompletedSilent). The dispatcher no longer returns a Message; the
+/// "dispatch response recorded on thread" persistence path is deleted
+/// (ADR-0056 §9). Runtimes that want to reply on the thread call
+/// <c>sv.messaging.send</c>; the messaging tool persists its own row and
+/// emits its own MessageSent activity.
 /// </summary>
 public class AgentActorDispatchTests
 {
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly IExecutionDispatcher _dispatcher = Substitute.For<IExecutionDispatcher>();
-    private readonly MessageRouter _router;
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly ISkillRegistry _skillRegistry = Substitute.For<ISkillRegistry>();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
@@ -57,13 +57,6 @@ public class AgentActorDispatchTests
     {
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-
-        _router = Substitute.For<MessageRouter>(
-            Substitute.For<IDirectoryService>(),
-            Substitute.For<IAgentProxyResolver>(),
-            Substitute.For<IPermissionService>(),
-            loggerFactory,
-            NullMessageWriterScopeFactory.Create());
 
         _skillRegistry.Name.Returns("github");
         _skillRegistry.GetToolDefinitions().Returns([
@@ -89,7 +82,7 @@ public class AgentActorDispatchTests
             _activityEventBus,
             Substitute.For<IAgentObservationCoordinator>(),
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
-            new AgentDispatchCoordinator(_dispatcher, _router, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
+            new AgentDispatchCoordinator(_dispatcher, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             _definitionProvider,
             [_skillRegistry],
             _membershipRepository,
@@ -124,7 +117,7 @@ public class AgentActorDispatchTests
         var message = CreateDomainMessage();
 
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
+            .Returns(RuntimeOutcomes.Silent());
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
@@ -140,169 +133,53 @@ public class AgentActorDispatchTests
     }
 
     [Fact]
-    public async Task DispatchResponse_IsRecordedViaMessageRouter()
+    public async Task SuccessfulDispatch_EmitsRuntimeCompletedActivity()
     {
         var message = CreateDomainMessage();
-        var response = new Message(
-            Guid.NewGuid(),
-            Address.For("agent", TestSlugIds.HexFor("test-agent")),
-            message.From,
-            MessageType.Domain,
-            message.ThreadId,
-            JsonSerializer.SerializeToElement(new { Output = "ok", ExitCode = 0 }),
-            DateTimeOffset.UtcNow);
-
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns(response);
+            .Returns(RuntimeOutcomes.Success(toolCallCount: 1));
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
-        // Domain messaging is one-way (ADR-0048): the response is recorded
-        // on the originating thread, never routed back to a recipient.
-        await _router.Received(1).PersistAsync(
-            Arg.Is<Message>(m => m.Id == response.Id),
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.RuntimeCompleted),
             Arg.Any<CancellationToken>());
-        await _router.DidNotReceive().RouteAsync(
-            Arg.Any<Message>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task RecordingFailure_EmitsErrorActivity()
+    public async Task SilentDispatch_EmitsRuntimeCompletedSilentActivity()
     {
+        // ADR-0056 §5: clean exit with no tool calls surfaces as
+        // RuntimeCompletedSilent — never auto-wrapped into a synthesised
+        // message.
         var message = CreateDomainMessage();
-        var response = new Message(
-            Guid.NewGuid(),
-            Address.For("agent", TestSlugIds.HexFor("test-agent")),
-            message.From,
-            MessageType.Domain,
-            message.ThreadId,
-            JsonSerializer.SerializeToElement(new { Output = "ok", ExitCode = 0 }),
-            DateTimeOffset.UtcNow);
-
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns(response);
-
-        // Persisting the response fails: the agent's output would otherwise
-        // be lost. The coordinator must surface this as an ErrorOccurred
-        // activity so the dropped response is traceable in the portal (#2549).
-        _router.PersistAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromException(
-                new InvalidOperationException("messages table unavailable")));
+            .Returns(RuntimeOutcomes.Silent());
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
-        await _activityEventBus.Received(1).PublishAsync(
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.RuntimeCompletedSilent),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task NonZeroExitDispatch_EmitsRuntimeFailedActivity()
+    {
+        var message = CreateDomainMessage();
+        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(RuntimeOutcomes.Failure(exitCode: 42));
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
+
+        await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.ErrorOccurred &&
-                e.Severity == ActivitySeverity.Error &&
-                e.Summary.Contains("Failed to record dispatcher response")),
+                e.EventType == ActivityEventType.RuntimeFailed
+                && e.Severity == ActivitySeverity.Error),
             Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task RecordingFailure_ErrorActivity_CarriesStructuredDetailsPayload()
-    {
-        var message = CreateDomainMessage();
-        var response = new Message(
-            Guid.NewGuid(),
-            Address.For("agent", TestSlugIds.HexFor("test-agent")),
-            message.From,
-            MessageType.Domain,
-            message.ThreadId,
-            JsonSerializer.SerializeToElement(new { Output = "ok", ExitCode = 0 }),
-            DateTimeOffset.UtcNow);
-
-        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns(response);
-
-        _router.PersistAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromException(
-                new InvalidOperationException("messages table unavailable")));
-
-        ActivityEvent? captured = null;
-        await _activityEventBus.PublishAsync(
-            Arg.Do<ActivityEvent>(e =>
-            {
-                if (e.EventType == ActivityEventType.ErrorOccurred)
-                {
-                    captured = e;
-                }
-            }),
-            Arg.Any<CancellationToken>());
-
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-        await _actor.PendingDispatchTask!;
-
-        // The dropped response is only traceable in the portal if the
-        // ErrorOccurred activity carries a structured Details payload — a
-        // bare summary string cannot be queried or correlated. The
-        // recording-failure path in AgentDispatchCoordinator serializes
-        // { error, agentId, threadId }.
-        captured.ShouldNotBeNull();
-        captured!.Details.ShouldNotBeNull();
-
-        var details = captured.Details!.Value;
-        details.ValueKind.ShouldBe(JsonValueKind.Object);
-
-        details.TryGetProperty("agentId", out var agentIdProp).ShouldBeTrue();
-        agentIdProp.GetString().ShouldBe(TestSlugIds.HexFor("test-agent"));
-
-        details.TryGetProperty("threadId", out var threadIdProp).ShouldBeTrue();
-        threadIdProp.GetString().ShouldBe(message.ThreadId);
-
-        // The persistence failure is surfaced through the `error` field —
-        // the structured error code/message for the dropped response.
-        details.TryGetProperty("error", out var errorProp).ShouldBeTrue();
-        errorProp.GetString().ShouldBe("messages table unavailable");
-    }
-
-    [Fact]
-    public async Task RecordingFailure_ErrorActivity_IsPublishedWithUncancellableToken()
-    {
-        var message = CreateDomainMessage();
-        var response = new Message(
-            Guid.NewGuid(),
-            Address.For("agent", TestSlugIds.HexFor("test-agent")),
-            message.From,
-            MessageType.Domain,
-            message.ThreadId,
-            JsonSerializer.SerializeToElement(new { Output = "ok", ExitCode = 0 }),
-            DateTimeOffset.UtcNow);
-
-        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns(response);
-
-        _router.PersistAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromException(
-                new InvalidOperationException("messages table unavailable")));
-
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-        await _actor.PendingDispatchTask!;
-
-        // The error activity must land even when the dispatch token is
-        // cancelled — otherwise a dropped response would itself be dropped.
-        // AgentDispatchCoordinator emits the recording-failure activity with
-        // CancellationToken.None, which AgentActor forwards verbatim to the
-        // activity event bus.
-        await _activityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ErrorOccurred),
-            CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task DispatcherReturnsNull_NothingRecorded()
-    {
-        var message = CreateDomainMessage();
-
-        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
-
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-        await _actor.PendingDispatchTask!;
-
-        await _router.DidNotReceive().PersistAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -311,7 +188,7 @@ public class AgentActorDispatchTests
         var message = CreateDomainMessage();
 
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns<Task<Message?>>(_ => throw new InvalidOperationException("dispatcher failed"));
+            .Returns<Task<RuntimeOutcome>>(_ => throw new InvalidOperationException("dispatcher failed"));
 
         // Actor turn must still return an ack even when the fire-and-forget dispatch task fails.
         var ack = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
@@ -329,7 +206,7 @@ public class AgentActorDispatchTests
         var message2 = CreateDomainMessage("conv-1");
 
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
+            .Returns(RuntimeOutcomes.Silent());
 
         await _actor.ReceiveAsync(message1, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
@@ -348,6 +225,26 @@ public class AgentActorDispatchTests
         await _dispatcher.Received(1).DispatchAsync(
             Arg.Any<Message>(),
             Arg.Any<PromptAssemblyContext?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchTerminal_DoesNotEmitDispatchResponseRecordedOnThread()
+    {
+        // Regression guard for the deleted synthesis row (ADR-0056 §9):
+        // the legacy WorkflowStepCompleted "Dispatch response recorded
+        // on thread." emission is gone on every terminal path.
+        var message = CreateDomainMessage();
+        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(RuntimeOutcomes.Success());
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
+
+        await _activityEventBus.DidNotReceive().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.WorkflowStepCompleted
+                && (e.Summary ?? string.Empty).Contains("Dispatch response recorded on thread")),
             Arg.Any<CancellationToken>());
     }
 

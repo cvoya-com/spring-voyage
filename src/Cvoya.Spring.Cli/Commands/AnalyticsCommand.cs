@@ -91,7 +91,7 @@ public static class AnalyticsCommand
 
     private sealed record ThroughputRow(
         string Source,
-        string MessagesReceived,
+        string MessagesArrived,
         string MessagesSent,
         string Turns,
         string ToolCalls);
@@ -99,7 +99,7 @@ public static class AnalyticsCommand
     private static readonly OutputFormatter.Column<ThroughputRow>[] ThroughputColumns =
     {
         new("source", r => r.Source),
-        new("received", r => r.MessagesReceived),
+        new("received", r => r.MessagesArrived),
         new("sent", r => r.MessagesSent),
         new("turns", r => r.Turns),
         new("toolCalls", r => r.ToolCalls),
@@ -461,7 +461,7 @@ public static class AnalyticsCommand
                 {
                     rows.Add(new ThroughputRow(
                         entry.Source ?? string.Empty,
-                        (entry.MessagesReceived ?? 0L).ToString(CultureInfo.InvariantCulture),
+                        (entry.MessagesArrived ?? 0L).ToString(CultureInfo.InvariantCulture),
                         (entry.MessagesSent ?? 0L).ToString(CultureInfo.InvariantCulture),
                         (entry.Turns ?? 0L).ToString(CultureInfo.InvariantCulture),
                         (entry.ToolCalls ?? 0L).ToString(CultureInfo.InvariantCulture)));

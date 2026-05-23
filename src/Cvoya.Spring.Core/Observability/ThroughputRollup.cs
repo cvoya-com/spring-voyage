@@ -12,13 +12,13 @@ namespace Cvoya.Spring.Core.Observability;
 /// Scripts filter by scheme prefix; the server emits whatever is present in
 /// the underlying activity stream so new schemes show up without a code change.
 /// </param>
-/// <param name="MessagesReceived">Count of <c>MessageReceived</c> events.</param>
+/// <param name="MessagesArrived">Count of <c>MessageArrived</c> events.</param>
 /// <param name="MessagesSent">Count of <c>MessageSent</c> events.</param>
 /// <param name="Turns">Count of <c>ThreadStarted</c> events (one per turn-initiating interaction).</param>
 /// <param name="ToolCalls">Count of <c>DecisionMade</c> events (a proxy for MCP tool-call decisions until a dedicated event type lands).</param>
 public record ThroughputEntry(
     string Source,
-    long MessagesReceived,
+    long MessagesArrived,
     long MessagesSent,
     long Turns,
     long ToolCalls);

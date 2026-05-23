@@ -15171,7 +15171,7 @@
       "ThroughputEntryResponse": {
         "required": [
           "source",
-          "messagesReceived",
+          "messagesArrived",
           "messagesSent",
           "turns",
           "toolCalls"
@@ -15181,7 +15181,7 @@
           "source": {
             "type": "string"
           },
-          "messagesReceived": {
+          "messagesArrived": {
             "type": "integer",
             "format": "int64"
           },

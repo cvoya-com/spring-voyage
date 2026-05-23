@@ -337,7 +337,7 @@ function normaliseGuid(value: string): string {
 }
 
 /**
- * Splits a `MessageReceived` body into its leading JSON envelope (when
+ * Splits a `MessageArrived` body into its leading JSON envelope (when
  * present) and the surrounding prose (#2128). A weak / noisy LLM may
  * emit a hallucinated tool-call result as a JSON object at the top of
  * its natural-language reply; rendering that verbatim in the chat

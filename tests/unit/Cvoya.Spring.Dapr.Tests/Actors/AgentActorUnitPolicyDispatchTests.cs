@@ -79,7 +79,7 @@ public class AgentActorUnitPolicyDispatchTests
             NullMessageWriterScopeFactory.Create());
 
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
+            .Returns(RuntimeOutcomes.Silent());
 
         // Actor ID is the stable UUID; definition lookup keyed by UUID string.
         _definitionProvider.GetByIdAsync(AgentAdaUuid.ToString(), Arg.Any<CancellationToken>())
@@ -112,7 +112,7 @@ public class AgentActorUnitPolicyDispatchTests
             _activityEventBus,
             Substitute.For<IAgentObservationCoordinator>(),
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
-            new AgentDispatchCoordinator(_dispatcher, _router, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
+            new AgentDispatchCoordinator(_dispatcher, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             _definitionProvider,
             Array.Empty<ISkillRegistry>(),
             _membershipRepository,

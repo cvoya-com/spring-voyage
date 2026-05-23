@@ -45,7 +45,7 @@ public class ActivityEventPersisterTests : IDisposable
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             Address.For("agent", TestSlugIds.HexFor("test")),
-            ActivityEventType.MessageReceived,
+            ActivityEventType.MessageArrived,
             ActivitySeverity.Info,
             summary);
     }

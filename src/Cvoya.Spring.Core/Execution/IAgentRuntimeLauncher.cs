@@ -213,10 +213,10 @@ public record AgentLaunchContext(
 /// the Spring agent-base bridge and <c>spring-voyages</c> both listen on.
 /// </param>
 /// <param name="ResponseCapture">
-/// How the dispatcher should capture the agent's response. Defaults to
-/// <see cref="AgentResponseCapture.A2A"/>; only A2A is wired today, the
-/// other values exist so a future launcher can opt into a different
-/// mechanism without bumping the launcher contract again.
+/// How the dispatcher should capture the runtime's reasoning trace.
+/// Defaults to <see cref="AgentResponseCapture.A2ATrace"/>; only that mode is
+/// wired today, the other values exist so a future launcher can opt into a
+/// different mechanism without bumping the launcher contract again.
 /// </param>
 public record AgentLaunchSpec(
     IReadOnlyDictionary<string, string> EnvironmentVariables,
@@ -225,13 +225,22 @@ public record AgentLaunchSpec(
     IReadOnlyList<string>? Argv = null,
     string? User = null,
     int A2APort = 8999,
-    AgentResponseCapture ResponseCapture = AgentResponseCapture.A2A);
+    AgentResponseCapture ResponseCapture = AgentResponseCapture.A2ATrace);
 
 /// <summary>
-/// How the dispatcher captures the agent's response from the container.
+/// How the dispatcher captures the runtime's reasoning trace from the
+/// container. Per
+/// <see href="../../../docs/decisions/0056-tool-only-side-effects.md">ADR-0056</see>
+/// §3 these modes select <em>how the reasoning trace is captured</em>, not
+/// how a response is delivered: every observable effect a runtime has on
+/// the outside world flows through platform tool calls, and the terminal
+/// text the modes here capture is diagnostic only. The captured bytes land
+/// in <see cref="RuntimeOutcome.ReasoningTrace"/> and surface as a
+/// <c>RuntimeReasoning</c> activity (capture-level controlled per
+/// <see href="../../../docs/decisions/0054-one-mcp-server-one-execution-host.md">ADR-0054</see>).
 /// </summary>
 /// <remarks>
-/// Only <see cref="A2A"/> is wired today (and is the default). The other
+/// Only <see cref="A2ATrace"/> is wired today (and is the default). The other
 /// values are reserved so a future launcher can opt into a different
 /// capture mechanism without forcing a contract change. See ADR 0025
 /// (introduced in PR 6 of the #1087 series).
@@ -239,21 +248,23 @@ public record AgentLaunchSpec(
 public enum AgentResponseCapture
 {
     /// <summary>
-    /// Capture the response via an A2A <c>message/send</c> roundtrip on the
-    /// in-container A2A endpoint (port <see cref="AgentLaunchSpec.A2APort"/>).
-    /// This is the default and the only path implemented today.
+    /// Capture the reasoning trace from an A2A <c>message/send</c>
+    /// roundtrip's task body on the in-container A2A endpoint (port
+    /// <see cref="AgentLaunchSpec.A2APort"/>). This is the default and the
+    /// only path implemented today.
     /// </summary>
-    A2A,
+    A2ATrace,
 
     /// <summary>
-    /// Capture the response by harvesting the container process's stdout
-    /// after it exits. Reserved; not implemented.
+    /// Capture the reasoning trace by harvesting the container process's
+    /// stdout after it exits. Reserved; not implemented.
     /// </summary>
-    Stdout,
+    StdoutTrace,
 
     /// <summary>
-    /// Capture the response by reading a well-known file from the bind-mounted
-    /// workspace after the container exits. Reserved; not implemented.
+    /// Capture the reasoning trace by reading a well-known file from the
+    /// bind-mounted workspace after the container exits. Reserved; not
+    /// implemented.
     /// </summary>
-    VolumeDrop
+    FileTrace,
 }

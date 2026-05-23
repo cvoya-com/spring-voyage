@@ -130,7 +130,7 @@ public class ThreadCommandTests
         var events = new List<ThreadEventResponse>
         {
             MakeEvent(
-                eventType: "MessageReceived",
+                eventType: "MessageArrived",
                 severity: "Info",
                 summary: "Received message",
                 from: new ParticipantRef { Address = "human://savasp", DisplayName = "savasp" },

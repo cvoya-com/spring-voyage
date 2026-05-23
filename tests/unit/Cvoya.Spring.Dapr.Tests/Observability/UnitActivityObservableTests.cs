@@ -58,8 +58,8 @@ public class UnitActivityObservableTests : IDisposable
         var observed = new List<ActivityEvent>();
         using var subscription = stream.Subscribe(observed.Add);
 
-        _bus.Publish(Evt(Address.For("agent", TestSlugIds.HexFor("agent-a")), ActivityEventType.MessageReceived));
-        _bus.Publish(Evt(Address.For("agent", TestSlugIds.HexFor("agent-c")), ActivityEventType.MessageReceived));
+        _bus.Publish(Evt(Address.For("agent", TestSlugIds.HexFor("agent-a")), ActivityEventType.MessageArrived));
+        _bus.Publish(Evt(Address.For("agent", TestSlugIds.HexFor("agent-c")), ActivityEventType.MessageArrived));
         _bus.Publish(Evt(Address.For("unit", TestSlugIds.HexFor("unit-1")), ActivityEventType.DecisionMade));
         _bus.Publish(Evt(Address.For("agent", TestSlugIds.HexFor("agent-b")), ActivityEventType.TokenDelta));
 
@@ -103,7 +103,7 @@ public class UnitActivityObservableTests : IDisposable
 
         _bus.Publish(Evt(Address.For("agent", TestSlugIds.HexFor("agent-z")), ActivityEventType.ToolCall));
         _bus.Publish(Evt(Address.For("unit", TestSlugIds.HexFor("unit-2")), ActivityEventType.StateChanged));
-        _bus.Publish(Evt(Address.For("agent", TestSlugIds.HexFor("agent-not-mine")), ActivityEventType.MessageReceived));
+        _bus.Publish(Evt(Address.For("agent", TestSlugIds.HexFor("agent-not-mine")), ActivityEventType.MessageArrived));
 
         observed.Count.ShouldBe(2);
         observed.ShouldContain(e => e.Source.Path == TestSlugIds.HexFor("agent-z"));
@@ -125,7 +125,7 @@ public class UnitActivityObservableTests : IDisposable
         var observed = new List<ActivityEvent>();
         using var subscription = stream.Subscribe(observed.Add);
 
-        _bus.Publish(Evt(Address.For("agent", TestSlugIds.HexFor("agent-x")), ActivityEventType.MessageReceived));
+        _bus.Publish(Evt(Address.For("agent", TestSlugIds.HexFor("agent-x")), ActivityEventType.MessageArrived));
 
         // Unit itself is always included in the member set, so an event
         // published from it would land here. No such event above → empty.

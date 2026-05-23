@@ -147,7 +147,7 @@ public static class ActorTestHost
             activityEventBus,
             observationCoordinator,
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
-            new AgentDispatchCoordinator(dispatcher, router, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
+            new AgentDispatchCoordinator(dispatcher, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             definitionProvider,
             Array.Empty<ISkillRegistry>(),
             membershipRepository,
@@ -173,7 +173,7 @@ public static class ActorTestHost
 
         return new AgentActorTestHarness(
             actor, stateManager, activityEventBus, membershipRepository,
-            reflectionRegistry, unitPolicyEnforcer);
+            reflectionRegistry, unitPolicyEnforcer, dispatcher);
     }
 
     /// <summary>
@@ -187,7 +187,8 @@ public static class ActorTestHost
         IActivityEventBus ActivityEventBus,
         IUnitMembershipRepository MembershipRepository,
         IReflectionActionHandlerRegistry ReflectionRegistry,
-        IUnitPolicyEnforcer UnitPolicyEnforcer);
+        IUnitPolicyEnforcer UnitPolicyEnforcer,
+        IExecutionDispatcher ExecutionDispatcher);
 
     /// <summary>
     /// Creates a <see cref="UnitActor"/> with a mocked state manager and runtime invocation path.

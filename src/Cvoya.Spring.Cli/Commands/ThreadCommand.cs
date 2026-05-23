@@ -121,7 +121,7 @@ public static class ThreadCommand
                 var events = detail.Events ?? new List<ThreadEventResponse>();
                 // #1209: render the message body inline for events that
                 // carry one (the activity-projection now stamps the
-                // sender / recipient / body on every MessageReceived
+                // sender / recipient / body on every MessageArrived
                 // event). The thread reads top-to-bottom oldest-first so
                 // operators can see *what* was said, not just that
                 // something was said.
@@ -198,7 +198,7 @@ public static class ThreadCommand
 
     /// <summary>
     /// Renders the ordered event timeline for a thread, inlining
-    /// the message body for every <c>MessageReceived</c> event that
+    /// the message body for every <c>MessageArrived</c> event that
     /// carries one (#1209). Error events (#1161) are prefixed with
     /// <c>!!</c> and written to stderr so the operator sees them
     /// immediately and scripted consumers can separate the error signal
@@ -229,7 +229,7 @@ public static class ThreadCommand
                 continue;
             }
 
-            if (string.Equals(evt.EventType, "MessageReceived", StringComparison.Ordinal)
+            if (string.Equals(evt.EventType, "MessageArrived", StringComparison.Ordinal)
                 && !string.IsNullOrEmpty(evt.Body))
             {
                 var fromRef = evt.From?.ParticipantRef;

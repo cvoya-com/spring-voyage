@@ -74,12 +74,6 @@ public class AgentMetadataTests
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
             new AgentDispatchCoordinator(
                 Substitute.For<IExecutionDispatcher>(),
-                Substitute.For<MessageRouter>(
-                    Substitute.For<Cvoya.Spring.Core.Directory.IDirectoryService>(),
-                    Substitute.For<Cvoya.Spring.Dapr.Routing.IAgentProxyResolver>(),
-                    Substitute.For<Cvoya.Spring.Dapr.Auth.IPermissionService>(),
-                    loggerFactory,
-                    NullMessageWriterScopeFactory.Create()),
                 Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             Substitute.For<IAgentDefinitionProvider>(),
             new List<ISkillRegistry>(),

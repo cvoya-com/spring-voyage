@@ -99,7 +99,7 @@ describe("useActivityStream", () => {
           id: "1",
           timestamp: "2026-01-01T00:00:00Z",
           source: { scheme: "agent", path: "agent-1" },
-          eventType: "MessageReceived",
+          eventType: "MessageArrived",
           severity: "Info",
           summary: "hello",
         }),
