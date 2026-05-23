@@ -2,6 +2,6 @@
 
 Read [`AGENTS.md`](AGENTS.md) and [`CONVENTIONS.md`](CONVENTIONS.md). Both are mandatory.
 
-## Active release: v0.1
+## Plans
 
-Plan-of-record: [`docs/plan/v0.1/README.md`](docs/plan/v0.1/README.md). Use **v0.1** in new artefacts; do not use "V2" / "V2.1".
+Release plans live under [`docs/plan/`](docs/plan/), one subdirectory per release. Each subdirectory contains a `README.md` with the plan-of-record for that release. When working on a task, find the current release directory and use its `README.md` as the authoritative plan.
