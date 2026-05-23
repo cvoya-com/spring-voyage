@@ -111,7 +111,6 @@ public class ConnectorPromptContextInheritanceTests : IDisposable
         var assembler = new PromptAssembler(
             new PlatformPromptProvider(),
             new UnitContextBuilder(),
-            new ThreadContextBuilder(),
             new AgentInstructionsBuilder(),
             NullLoggerFactory.Instance);
 
@@ -120,21 +119,10 @@ public class ConnectorPromptContextInheritanceTests : IDisposable
         var context = new PromptAssemblyContext(
             Policies: null,
             Skills: null,
-            PriorMessages: [],
-            LastCheckpoint: null,
             AgentInstructions: "agent body",
             ConnectorPromptFragments: fragments);
 
-        var message = new Message(
-            Guid.NewGuid(),
-            new Address(Address.AgentScheme, Guid.NewGuid()),
-            new Address(Address.UnitScheme, LeafUnit),
-            MessageType.Domain,
-            "thread-1",
-            JsonSerializer.SerializeToElement(new { text = "hello" }),
-            DateTimeOffset.UtcNow);
-
-        var prompt = await assembler.AssembleAsync(message, context, ct);
+        var prompt = await assembler.AssembleAsync(context, ct);
 
         prompt.ShouldContain("## Platform Instructions");
         prompt.ShouldContain("## Connector context (auto-injected by platform)");

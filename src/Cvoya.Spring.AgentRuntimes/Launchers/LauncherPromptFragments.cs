@@ -6,12 +6,11 @@ namespace Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core.Execution;
 
 /// <summary>
-/// Shared system-prompt fragments composed in by CLI-runtime launchers
+/// Shared launcher-side system-prompt fragment for the concurrency
+/// constraint that applies only to CLI-runtime launchers
 /// (<see cref="ClaudeCodeLauncher"/>, <see cref="CodexLauncher"/>,
-/// <see cref="GeminiLauncher"/>) before the user's prompt body. The
-/// fragments encode constraints the platform owns at the runtime layer
-/// — they are not optional guidance and they are not user-editable from
-/// the manifest.
+/// <see cref="GeminiLauncher"/>) when the agent opts into
+/// <c>concurrent_threads: true</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,41 +24,17 @@ using Cvoya.Spring.Core.Execution;
 /// catches the case where the model independently decides to invoke one.
 /// </para>
 /// <para>
-/// Issue #2493 added the <see cref="ResponseDiscipline"/> fragment,
-/// composed in by *every* launcher unconditionally (including the
-/// Spring Voyage Agent launcher used by the Python reference agent).
-/// Unlike <see cref="ConcurrentThreadsGuard"/>, response discipline is
-/// universal — every triggering message MUST result in a final reply
-/// regardless of whether the agent opts into concurrent threads.
+/// The pre-cutover <c>ResponseDiscipline</c> fragment that used to live
+/// here was superseded by the platform contract in
+/// <c>PlatformPromptProvider</c> (Layer 1 of the assembled prompt) —
+/// every agent, regardless of launcher or skill grants, sees that
+/// contract via the assembled system prompt that the bootstrap bundle
+/// delivers. Carrying a parallel fragment here would have been two
+/// sources of truth for the same constraint.
 /// </para>
 /// </remarks>
 internal static class LauncherPromptFragments
 {
-    /// <summary>
-    /// Always-on prompt fragment prepended by every launcher before the
-    /// user's assembled prompt body, independent of any flag (issue
-    /// #2493). The platform's "silent success" failure mode — an agent
-    /// performs work but never sends a final reply — is the direct
-    /// motivation. The fragment instructs the model to:
-    /// <list type="number">
-    /// <item><description>send a final reply A2A message for every triggering message;</description></item>
-    /// <item><description>emit progress updates via <c>sv.progress.report</c> for work expected to take more than ~10 seconds;</description></item>
-    /// <item><description>send an explicit completion message — including on failure.</description></item>
-    /// </list>
-    /// The fragment is wrapped in stable header / footer markers so
-    /// launcher tests can pin its presence without coupling to the
-    /// prose.
-    /// </summary>
-    public const string ResponseDiscipline =
-        "## Spring Voyage runtime guard — response discipline\n\n" +
-        "You are a member on Spring Voyage. Every triggering message you receive MUST result in:\n\n" +
-        "1. A final reply A2A message addressed to the requester. Use your runtime's reply primitive " +
-        "(e.g. `Response(text=..., final=True)` from the SV Agent SDK, or your runtime's equivalent).\n" +
-        "2. (For work expected to take more than ~10 seconds) Progress updates via `sv.progress.report` — " +
-        "emit meaningful narrative beats: starting work, tool calls underway, intermediate results, blockers encountered.\n" +
-        "3. An explicit completion message. Failure replies are required just as success replies are.\n\n" +
-        "Do NOT exit silently after performing work. Silent success is a regression.\n\n" +
-        "## End Spring Voyage runtime guard — response discipline\n\n";
     /// <summary>
     /// Marker prepended to the user's assembled prompt by every CLI-runtime
     /// launcher when the resolved agent / unit
@@ -98,22 +73,16 @@ internal static class LauncherPromptFragments
         "## End Spring Voyage runtime guard\n\n";
 
     /// <summary>
-    /// Composes the platform's system-prompt fragments with the user's
-    /// assembled prompt body. Order (issue #2493):
-    /// <list type="number">
-    /// <item><description><see cref="ResponseDiscipline"/> — always prepended.</description></item>
-    /// <item><description><see cref="ConcurrentThreadsGuard"/> — appended after when <paramref name="concurrentThreads"/> is <c>true</c>.</description></item>
-    /// <item><description>The user's prompt body — last.</description></item>
-    /// </list>
-    /// Both guards are prepended (not appended / substituted) so the
-    /// model sees them as platform-level instructions before the user's
-    /// narrative — model attention biases toward what comes first in
-    /// long contexts.
+    /// Composes the launcher-owned <see cref="ConcurrentThreadsGuard"/>
+    /// fragment with the user's assembled prompt body. The guard is
+    /// only prepended when <paramref name="concurrentThreads"/> is
+    /// <c>true</c>; otherwise the prompt is returned unchanged.
     /// </summary>
     /// <param name="prompt">
     /// The assembled prompt from <see cref="AgentLaunchContext.Prompt"/>.
-    /// May be <c>null</c> or empty — the guards still emit, so callers
-    /// who need them to fire on a sparse prompt get them.
+    /// May be <c>null</c> or empty — the guard still emits when
+    /// concurrent threads are on, so callers who need it to fire on a
+    /// sparse prompt get it.
     /// </param>
     /// <param name="concurrentThreads">
     /// The resolved <see cref="AgentLaunchContext.ConcurrentThreads"/>
@@ -122,12 +91,10 @@ internal static class LauncherPromptFragments
     public static string Compose(string prompt, bool concurrentThreads)
     {
         var body = prompt ?? string.Empty;
-        // Order: ResponseDiscipline first (universal), then
-        // ConcurrentThreadsGuard (conditional), then the user's prompt.
         if (concurrentThreads)
         {
-            return ResponseDiscipline + ConcurrentThreadsGuard + body;
+            return ConcurrentThreadsGuard + body;
         }
-        return ResponseDiscipline + body;
+        return body;
     }
 }

@@ -322,7 +322,7 @@ public class A2AExecutionDispatcherTests
     public async Task DispatchAsync_EphemeralAgent_StartsContainerInDetachedMode()
     {
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("assembled prompt");
         InstallA2AStub();
 
@@ -346,7 +346,7 @@ public class A2AExecutionDispatcherTests
         // what the shared ContainerConfigBuilder would produce from the
         // launcher's spec — no inline duplication of the construction.
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
         InstallA2AStub();
 
@@ -369,7 +369,7 @@ public class A2AExecutionDispatcherTests
     public async Task DispatchAsync_EphemeralAgent_UsesImageFromAgentDefinition()
     {
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("assembled prompt");
         InstallA2AStub();
 
@@ -398,7 +398,7 @@ public class A2AExecutionDispatcherTests
                     Runtime: "claude",
                     Image: Image,
                     Model: new Cvoya.Spring.Core.Catalog.Model("openai", "gpt-4o-mini"))));
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
         InstallA2AStub();
 
@@ -416,7 +416,7 @@ public class A2AExecutionDispatcherTests
     {
         var message = CreateMessage();
         var threadId = Guid.Parse(message.ThreadId!);
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("the prompt");
         InstallA2AStub();
 
@@ -444,7 +444,7 @@ public class A2AExecutionDispatcherTests
     public async Task DispatchAsync_EphemeralAgent_RevokesSessionAndStopsContainer_OnSuccess()
     {
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
         InstallA2AStub();
 
@@ -461,7 +461,7 @@ public class A2AExecutionDispatcherTests
     public async Task DispatchAsync_EphemeralAgent_RevokesSessionAndStopsContainer_OnFailure()
     {
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
         // No A2A stub — readiness probe will fail. Container was started so
         // it must still be torn down.
@@ -485,7 +485,7 @@ public class A2AExecutionDispatcherTests
     public async Task DispatchAsync_EphemeralAgent_StartFails_StillRevokesSession()
     {
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
         _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .ThrowsAsyncForAnyArgs(new InvalidOperationException("runtime boom"));
@@ -505,7 +505,7 @@ public class A2AExecutionDispatcherTests
         // and issues a plain HTTP GET from its own process, so the probe
         // works for any base image (Alpine, distroless, BYOI).
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
         InstallA2AStub();
 
@@ -524,7 +524,7 @@ public class A2AExecutionDispatcherTests
         // on the RuntimeOutcome — it is never synthesised into a Message
         // routed back to the original sender.
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("the prompt");
         InstallA2AStub("hello from agent");
 
@@ -544,7 +544,7 @@ public class A2AExecutionDispatcherTests
         // `--session-id`, etc.) accept them as valid session identifiers.
         var threadGuid = Guid.Parse("eeeeeeee-1111-2222-3333-444444444444");
         var message = CreateMessage(threadId: GuidFormatter.Format(threadGuid));
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("the prompt");
         var recorder = InstallA2AStub();
 
@@ -564,7 +564,7 @@ public class A2AExecutionDispatcherTests
         // rewrites the `spring-voyage` MCP server block's Authorization
         // header in `.mcp.json` before spawning the CLI.
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("the prompt");
         var recorder = InstallA2AStub();
 
@@ -594,7 +594,7 @@ public class A2AExecutionDispatcherTests
                 "My Agent",
                 "instructions",
                 new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
-        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
         await _persistentRegistry.RegisterAsync(
@@ -639,7 +639,7 @@ public class A2AExecutionDispatcherTests
                 "My Agent",
                 "instructions",
                 new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
-        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
         await _persistentRegistry.RegisterAsync(
@@ -682,7 +682,7 @@ public class A2AExecutionDispatcherTests
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", "instructions",
                 new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
         // StartAsync returns a container id, but the readiness probe fails
@@ -723,7 +723,7 @@ public class A2AExecutionDispatcherTests
                 "My Agent",
                 "instructions",
                 new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
-        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
         await _persistentRegistry.RegisterAsync(
@@ -771,7 +771,7 @@ public class A2AExecutionDispatcherTests
                 "My Agent",
                 "instructions",
                 new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
-        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
         await _persistentRegistry.RegisterAsync(
@@ -823,7 +823,7 @@ public class A2AExecutionDispatcherTests
                 "My Agent",
                 "instructions",
                 new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
-        _promptAssembler.AssembleAsync(Arg.Any<SvMessage>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
         await _persistentRegistry.RegisterAsync(
@@ -906,7 +906,7 @@ public class A2AExecutionDispatcherTests
                 Name: "My Agent",
                 Instructions: null,
                 Execution: new AgentExecutionConfig(Runtime: "claude", Image: Image)));
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
         InstallA2AStub();
 
@@ -945,7 +945,7 @@ public class A2AExecutionDispatcherTests
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", "instructions",
                 new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
         // StartAsync returns a container ID, but readiness probe will fail (no real server)
@@ -974,7 +974,7 @@ public class A2AExecutionDispatcherTests
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", "instructions",
                 new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
         _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Returns("spring-persistent-cc");
@@ -1000,7 +1000,7 @@ public class A2AExecutionDispatcherTests
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", null,
                 new AgentExecutionConfig(Runtime: "claude", Image: null)));
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
         var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
@@ -1020,7 +1020,7 @@ public class A2AExecutionDispatcherTests
             .Returns(new AgentDefinition(
                 AgentId, "My Agent", "instructions",
                 new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Pooled)));
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
         var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
@@ -1034,7 +1034,7 @@ public class A2AExecutionDispatcherTests
         var message = CreateMessage();
         var expectedPrompt = "the assembled prompt";
 
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(expectedPrompt);
         InstallA2AStub();
 
@@ -1064,7 +1064,7 @@ public class A2AExecutionDispatcherTests
         // way out (with CancellationToken.None so the teardown itself is
         // not cancelled by the same token that triggered the cancel).
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
 
         // Both legs of the A2A roundtrip now go through IContainerRuntime
@@ -1207,7 +1207,7 @@ public class A2AExecutionDispatcherTests
                 Execution: new AgentExecutionConfig(Runtime: "claude", Image: Image)));
 
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
         InstallA2AStub();
 
@@ -1222,7 +1222,7 @@ public class A2AExecutionDispatcherTests
         // the AgentLaunchContext so AgentContextBuilder can write the
         // /spring/context/ files.
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
         _tenantContext.CurrentTenantId.Returns(AcmeTenantGuid);
         InstallA2AStub();
@@ -1245,7 +1245,7 @@ public class A2AExecutionDispatcherTests
         // #1321: the serialised YAML must include the core agent definition
         // fields so the in-container SDK can read them from agent-definition.yaml.
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
         InstallA2AStub();
 
@@ -1274,7 +1274,7 @@ public class A2AExecutionDispatcherTests
         // internal timeout is shortened to 10 ms so the test completes in
         // well under a second without relying on real wall-clock sleep.
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
         _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
@@ -1314,7 +1314,7 @@ public class A2AExecutionDispatcherTests
         // polling loop's internal CancelAfter fires before the first
         // TaskPollInterval delay (500 ms) elapses.
         var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
 
         _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
@@ -1381,7 +1381,7 @@ public class A2AExecutionDispatcherTests
     {
         var message = CreateMessage(
             payload: JsonSerializer.SerializeToElement("can you list the agents that you have in your unit?"));
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("## Platform Instructions\nyou are an agent...");
         var recorder = InstallA2AStub();
 
@@ -1403,7 +1403,7 @@ public class A2AExecutionDispatcherTests
     {
         var message = CreateMessage(
             payload: JsonSerializer.SerializeToElement(new { text = "wrapped via text" }));
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("system prompt body");
         var recorder = InstallA2AStub();
 
@@ -1423,7 +1423,7 @@ public class A2AExecutionDispatcherTests
     {
         var message = CreateMessage(
             payload: JsonSerializer.SerializeToElement(new { Task = "wrapped via Task" }));
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("system prompt body");
         var recorder = InstallA2AStub();
 

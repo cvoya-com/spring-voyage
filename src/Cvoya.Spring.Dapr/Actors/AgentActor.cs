@@ -631,21 +631,6 @@ public class AgentActor(
             ? pendingAmendments.Value
             : null;
 
-        var priorMessages = channel.Messages.ToList();
-
-        // Pre-resolve sender display names for prior messages (#2129) so the
-        // singleton ThreadContextBuilder can fold raw scheme:<guid> sender
-        // prefixes down to human-readable names without depending on a
-        // scoped resolver. Built here because the actor has access to the
-        // root container's IServiceScopeFactory; the scope is short-lived
-        // and bounded to this turn's context build. When the scope factory
-        // is unavailable (test composition without DI) we fall through to
-        // null — ThreadContextBuilder degrades gracefully to the bare
-        // scheme literal.
-        var senderDisplayNames = await ResolvePriorMessageSenderDisplayNamesAsync(
-            priorMessages,
-            cancellationToken);
-
         // Skill-bundle equipage (#2360 + #2363). The agent store feeds
         // Layer 4 keyed by this actor's id. The unit store feeds Layer 2
         // and is read twice — once keyed by the actor's own id (the
@@ -661,14 +646,11 @@ public class AgentActor(
         return new PromptAssemblyContext(
             Policies: null,
             Skills: skills,
-            PriorMessages: priorMessages,
-            LastCheckpoint: null,
             AgentInstructions: definition?.Instructions,
             EffectiveMetadata: effective,
             SkillBundles: unitBundles,
             AgentSkillBundles: agentBundles,
-            PendingAmendments: amendments,
-            PriorMessageSenderDisplayNames: senderDisplayNames);
+            PendingAmendments: amendments);
     }
 
     /// <summary>
@@ -684,67 +666,6 @@ public class AgentActor(
     private Task<(IReadOnlyList<SkillBundle>? Unit, IReadOnlyList<SkillBundle>? Agent)> LoadEquippedBundlesAsync(
         CancellationToken cancellationToken) =>
         EquippedBundleLoader.LoadAsync(scopeFactory, Id.GetId(), cancellationToken);
-
-    /// <summary>
-    /// Builds an <see cref="Address"/> → display-name map for the distinct
-    /// senders of <paramref name="priorMessages"/>. Returns <c>null</c>
-    /// when the prior-message list is empty or no scope factory is wired
-    /// (test compositions); ThreadContextBuilder treats <c>null</c> as
-    /// "fall back to the scheme literal", which is the same behaviour as
-    /// per-address resolution failure (#2129 fallback contract).
-    /// </summary>
-    private async Task<IReadOnlyDictionary<Address, string>?> ResolvePriorMessageSenderDisplayNamesAsync(
-        IReadOnlyList<Message> priorMessages,
-        CancellationToken cancellationToken)
-    {
-        if (priorMessages.Count == 0 || scopeFactory is null)
-        {
-            return null;
-        }
-
-        var distinctSenders = priorMessages
-            .Select(m => m.From)
-            .Distinct()
-            .ToList();
-
-        if (distinctSenders.Count == 0)
-        {
-            return null;
-        }
-
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var resolver = scope.ServiceProvider
-            .GetService<IParticipantDisplayNameResolver>();
-
-        if (resolver is null)
-        {
-            return null;
-        }
-
-        var map = new Dictionary<Address, string>(distinctSenders.Count);
-        foreach (var sender in distinctSenders)
-        {
-            try
-            {
-                var displayName = await resolver.ResolveAsync(
-                    sender.ToString(),
-                    cancellationToken);
-                if (!string.IsNullOrWhiteSpace(displayName))
-                {
-                    map[sender] = displayName;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(
-                    ex,
-                    "Failed to resolve display name for prior-message sender {Sender}; falling back to scheme literal.",
-                    sender);
-            }
-        }
-
-        return map.Count > 0 ? map : null;
-    }
 
     /// <summary>
     /// Resolves the effective per-turn metadata for <paramref name="message"/>.

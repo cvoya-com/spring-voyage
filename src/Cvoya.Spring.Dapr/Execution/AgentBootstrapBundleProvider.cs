@@ -6,10 +6,13 @@ namespace Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Mcp;
+using Cvoya.Spring.Dapr.Skills;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 /// <summary>
@@ -39,6 +42,10 @@ public sealed class AgentBootstrapBundleProvider(
     IRuntimeCatalog runtimeCatalog,
     IEnumerable<IAgentRuntimeLauncher> launchers,
     IConnectorRuntimeContextResolver connectorContextResolver,
+    IConnectorPromptContextResolver connectorPromptContextResolver,
+    IPromptAssembler promptAssembler,
+    IEnumerable<ISkillRegistry> skillRegistries,
+    IServiceScopeFactory scopeFactory,
     IOptions<McpServerOptions> mcpServerOptions,
     ITenantContext tenantContext,
     TimeProvider timeProvider) : IAgentBootstrapBundleProvider
@@ -65,6 +72,14 @@ public sealed class AgentBootstrapBundleProvider(
         launchers.ToDictionary(l => l.Kind, StringComparer.OrdinalIgnoreCase);
     private readonly IConnectorRuntimeContextResolver _connectorContextResolver = connectorContextResolver
         ?? throw new ArgumentNullException(nameof(connectorContextResolver));
+    private readonly IConnectorPromptContextResolver _connectorPromptContextResolver = connectorPromptContextResolver
+        ?? throw new ArgumentNullException(nameof(connectorPromptContextResolver));
+    private readonly IPromptAssembler _promptAssembler = promptAssembler
+        ?? throw new ArgumentNullException(nameof(promptAssembler));
+    private readonly IReadOnlyList<ISkillRegistry> _skillRegistries = skillRegistries?.ToList()
+        ?? throw new ArgumentNullException(nameof(skillRegistries));
+    private readonly IServiceScopeFactory _scopeFactory = scopeFactory
+        ?? throw new ArgumentNullException(nameof(scopeFactory));
     private readonly McpServerOptions _mcpServerOptions = mcpServerOptions.Value;
     private readonly ITenantContext _tenantContext = tenantContext
         ?? throw new ArgumentNullException(nameof(tenantContext));
@@ -96,6 +111,38 @@ public sealed class AgentBootstrapBundleProvider(
 
         var platformFilePaths = new HashSet<string>(StringComparer.Ordinal);
 
+        // Compose the per-agent system prompt (platform contract +
+        // unit context + agent instructions + equipped skill bundles)
+        // via the same assembler the dispatch path uses, then hand it
+        // to the launcher contribution so each CLI runtime materialises
+        // it into the file its CLI auto-discovers (CLAUDE.md / AGENTS.md
+        // / GEMINI.md). Without this, the launcher contribution would
+        // ship only Definition.Instructions and the agent would never
+        // see the platform contract from Layer 1 — silent-dispatch
+        // territory.
+        var subjectAddress = new Address("agent", Guid.Parse(agentId));
+        var connectorPromptFragments = await _connectorPromptContextResolver
+            .ResolveAsync(subjectAddress, cancellationToken);
+        var (unitBundles, agentBundles) = await EquippedBundleLoader.LoadAsync(
+            _scopeFactory, agentId, cancellationToken);
+        var skills = _skillRegistries
+            .Select(r => new Skill(
+                Name: r.Name,
+                Description: $"Tools exposed by the {r.Name} connector.",
+                Tools: r.GetToolDefinitions()))
+            .ToList();
+        var assemblyContext = new PromptAssemblyContext(
+            Policies: null,
+            Skills: skills,
+            AgentInstructions: definition.Instructions,
+            EffectiveMetadata: null,
+            SkillBundles: unitBundles,
+            AgentSkillBundles: agentBundles,
+            PendingAmendments: null,
+            ConnectorPromptFragments: connectorPromptFragments);
+        var assembledSystemPrompt = await _promptAssembler.AssembleAsync(
+            assemblyContext, cancellationToken);
+
         // Launcher contribution — the per-runtime system-prompt file and
         // MCP config (or nothing, for the A2A-native spring-voyage agent).
         var launcher = ResolveLauncher(definition, agentId);
@@ -104,7 +151,8 @@ public sealed class AgentBootstrapBundleProvider(
             var ctx = new AgentBootstrapContributionContext(
                 AgentId: agentId,
                 Definition: definition,
-                McpEndpoint: _mcpServerOptions.ContainerEndpoint);
+                McpEndpoint: _mcpServerOptions.ContainerEndpoint,
+                AssembledSystemPrompt: assembledSystemPrompt);
             var contribution = await launcher.ContributeBundleAsync(ctx, cancellationToken);
             foreach (var kvp in contribution.Files)
             {
@@ -121,7 +169,7 @@ public sealed class AgentBootstrapBundleProvider(
         // dispatch path (A2AExecutionDispatcher); only file contributions
         // are folded into the bundle here.
         var connectorContext = await _connectorContextResolver.ResolveAsync(
-            new Address("agent", Guid.Parse(agentId)), cancellationToken);
+            subjectAddress, cancellationToken);
         foreach (var kvp in connectorContext.ContextFiles)
         {
             files[kvp.Key] = kvp.Value;

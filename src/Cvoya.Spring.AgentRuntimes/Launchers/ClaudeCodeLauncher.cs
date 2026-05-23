@@ -306,9 +306,18 @@ public class ClaudeCodeLauncher(
             },
         };
 
+        // CLAUDE.md is Claude Code's auto-discovered project context file
+        // — the only system-prompt surface the CLI reads at the
+        // workspace level. The bundle provider has already composed the
+        // per-agent system prompt (platform contract + unit context +
+        // agent instructions + equipped skill bundles) via
+        // IPromptAssembler and handed it in on
+        // AgentBootstrapContributionContext.AssembledSystemPrompt;
+        // writing Definition.Instructions raw here would drop the
+        // platform contract and leave the CLI silently dispatching.
         var files = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["CLAUDE.md"] = context.Definition.Instructions ?? string.Empty,
+            ["CLAUDE.md"] = context.AssembledSystemPrompt,
             [".mcp.json"] = SerializeMcpConfig(mcpConfig),
         };
 
