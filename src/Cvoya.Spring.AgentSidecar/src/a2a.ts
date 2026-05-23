@@ -35,12 +35,15 @@ import { randomUUID } from "node:crypto";
 import type { BootstrapFetcher } from "./bootstrap.js";
 import { runAgentBridge } from "./bridge.js";
 import type { ThreadBindingConfig } from "./config.js";
-import { MCP_CONFIG_ENV_VAR, rewriteMcpToken } from "./mcp-config.js";
+import { resolveMcpTokenPath, writeMcpToken } from "./mcp-token-store.js";
 import { ThreadIdRegistry } from "./threads.js";
 import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "./version.js";
 
-// ADR-0052 §4: the worker-side dispatcher delivers the per-turn MCP
-// session token in the A2A `message/send` metadata under this field.
+// ADR-0054 §5 / ADR-0057 §3: the worker-side dispatcher delivers the
+// per-turn MCP session token in the A2A `message/send` metadata under
+// this field. The long-running sidecar writes it to the workspace-
+// resident MCP token file before spawning the CLI; the CLI's per-turn
+// sidecar-MCP-server-mode child reads it from there.
 const MCP_TOKEN_FIELD = "mcpToken";
 
 // Per-member workspace mount path, stamped by the dispatcher (see
@@ -328,27 +331,35 @@ export class A2AHandler {
   }
 
   /**
-   * ADR-0052 §4 / #2615: rewrites the `spring-voyage` MCP server's
-   * `Authorization` header in the launcher-written MCP config with the
-   * current turn's per-turn MCP session token, so each exec dials the
-   * worker-side McpServer with a token it actually issued for this turn.
+   * ADR-0057 §3: writes the current turn's MCP session token to the
+   * workspace-resident token file. The next CLI spawn launches a
+   * sidecar-MCP-server-mode child (via `.mcp.json`'s stdio command);
+   * that child reads this file at startup and holds the token in
+   * memory for its lifetime (= this turn).
    *
    * No-ops silently when:
-   *   - `SPRING_MCP_CONFIG` is unset (agent launched without an MCP
-   *     config — e.g. the A2A-native Spring Voyage agent);
-   *   - the message carried no `mcpToken` (the launch-time token in the
-   *     config is left as-is).
+   *   - `SPRING_WORKSPACE_PATH` is unset (the bridge has no place to
+   *     write the file — the agent was launched without the per-agent
+   *     workspace mount);
+   *   - the message carried no `mcpToken` (the previous turn's token,
+   *     if any, is left in place; the MCP-server-mode child will use
+   *     it and the worker will reject it as expired).
    *
-   * A rewrite failure is logged as a warning but never fails the turn:
-   * a stale (or empty) token still lets the CLI start; it just loses the
-   * platform MCP tools.
+   * A write failure is logged as a warning but never fails the turn:
+   * the MCP-server-mode child will surface a 401 from the worker as a
+   * tool error, which the model can retry or work around.
    */
-  private rewriteMcpToken(mcpToken: string | undefined): void {
-    const configPath = this.deps.spawnEnv[MCP_CONFIG_ENV_VAR];
-    if (!configPath || configPath.length === 0 || !mcpToken) {
+  private writeMcpToken(mcpToken: string | undefined): void {
+    if (!mcpToken) {
       return;
     }
-    const result = rewriteMcpToken(configPath, mcpToken);
+    const tokenPath = resolveMcpTokenPath(
+      this.deps.spawnEnv[WORKSPACE_PATH_ENV_VAR],
+    );
+    if (tokenPath === null) {
+      return;
+    }
+    const result = writeMcpToken(tokenPath, mcpToken);
     if (result.warning) {
       process.stderr.write(
         `${JSON.stringify({
@@ -356,7 +367,7 @@ export class A2AHandler {
           level: "warn",
           component: "spring-voyage-agent-sidecar",
           bridgeVersion: BRIDGE_VERSION,
-          message: "per-turn MCP token rewrite failed",
+          message: "per-turn MCP token write failed",
           detail: result.warning,
         })}\n`,
       );
@@ -456,14 +467,14 @@ export class A2AHandler {
     // below then stamps the per-turn token on top.
     await this.runBootstrapIntegrityCheck();
 
-    // ADR-0052 §4 / #2615: rewrite the `spring-voyage` MCP server's
-    // Authorization header in the launcher-written MCP config with the
-    // per-turn MCP session token delivered in this turn's message/send
-    // metadata. A launch-time-sticky token is wrong for a long-lived
-    // persistent container — the session is per-turn and revoked at turn
-    // end. The CLI re-reads its MCP config on every process start, so
-    // rewriting it here is picked up by the spawn below.
-    this.rewriteMcpToken(this.extractMcpToken(req.params));
+    // ADR-0057 §3: write the per-turn MCP session token (delivered in
+    // this turn's A2A message/send metadata) to the workspace-resident
+    // token file. The CLI's `.mcp.json` points at the sidecar binary
+    // in MCP-server mode; that per-turn child process reads the token
+    // at startup and holds it for its lifetime. Writing here before
+    // the spawn below guarantees the child sees the current turn's
+    // token, not the previous turn's.
+    this.writeMcpToken(this.extractMcpToken(req.params));
 
     // ADR-0041 / #2094: `params.message.contextId` is the platform
     // thread.id. When the launcher declared a thread-binding (e.g.

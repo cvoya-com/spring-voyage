@@ -61,17 +61,6 @@ public class GeminiLauncher(
     internal const string GeminiSettingsPath = ".gemini/settings.json";
 
     /// <summary>
-    /// ADR-0052 §4: env var the launcher sets to the absolute container path
-    /// of the MCP config file. The TypeScript agent-sidecar bridge reads this
-    /// to know which file's <c>spring-voyage</c> server block to rewrite with
-    /// the per-turn MCP session token delivered in each A2A <c>message/send</c>.
-    /// Gemini's <c>.gemini/settings.json</c> carries the same
-    /// <c>mcpServers.&lt;name&gt;.headers.Authorization</c> shape the bridge
-    /// rewrites. Read by <c>src/Cvoya.Spring.AgentSidecar/src/mcp-config.ts</c>.
-    /// </summary>
-    internal const string McpConfigPathEnvVar = "SPRING_MCP_CONFIG";
-
-    /// <summary>
     /// Bridge env var name carrying the CLI flag that *creates* a session
     /// with a supplied id (ADR-0041 / #2094 / #2103). Read by
     /// `src/Cvoya.Spring.AgentSidecar/src/config.ts:parseThreadBinding`. Kept as
@@ -227,14 +216,17 @@ public class GeminiLauncher(
         var prompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
 
         var workspaceMount = AgentWorkspaceContract.BuildMountPath(context.AgentId);
-        var workspaceMountNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
 
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
             ["SPRING_SYSTEM_PROMPT"] = prompt,
             ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(DefaultGeminiArgv),
-            // ADR-0055 §5: per-member workspace mount path.
+            // ADR-0055 §5: per-member workspace mount path. ADR-0057 §3:
+            // the long-running A2A sidecar writes the per-turn MCP token
+            // to <SPRING_WORKSPACE_PATH>/.spring-voyage-bridge/mcp-token
+            // before each CLI spawn; the per-turn sidecar-MCP-server-mode
+            // child reads it from the same path.
             [AgentWorkspaceContract.WorkspacePathEnvVar] = workspaceMount,
             // ADR-0041 / #2094 / #2103: thread-binding for Gemini CLI's
             // --session-id / --resume.
@@ -243,10 +235,6 @@ public class GeminiLauncher(
             // ADR-0041 / #2103: anchor Gemini CLI's config / session storage
             // on the per-member workspace volume.
             [GeminiCliHomeEnvVar] = workspaceMount,
-            // ADR-0052 §4: absolute container path of the Gemini settings
-            // file the bridge rewrites with the per-turn MCP session token
-            // before every CLI spawn.
-            [McpConfigPathEnvVar] = $"{workspaceMountNoSlash}/{GeminiSettingsPath}",
         };
 
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
@@ -273,10 +261,12 @@ public class GeminiLauncher(
         // prompt (platform contract + unit context + agent
         // instructions + equipped skill bundles) via IPromptAssembler
         // and handed it in on AgentBootstrapContributionContext.
+        var workspaceMount = AgentWorkspaceContract.BuildMountPath(context.AgentId);
         var files = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["GEMINI.md"] = context.AssembledSystemPrompt,
-            [GeminiSettingsPath] = JsonSerializer.Serialize(BuildGeminiSettings(context.McpEndpoint), JsonOptions),
+            [GeminiSettingsPath] = JsonSerializer.Serialize(
+                BuildGeminiSettings(context.McpEndpoint, workspaceMount), JsonOptions),
         };
 
         return Task.FromResult(new AgentBootstrapContribution(
@@ -284,19 +274,26 @@ public class GeminiLauncher(
             PlatformFilePaths: new[] { "GEMINI.md", GeminiSettingsPath }));
     }
 
-    private static object BuildGeminiSettings(string mcpEndpoint)
+    private static object BuildGeminiSettings(string mcpEndpoint, string workspaceMount)
     {
-        // ADR-0051: one MCP server exposes every sv.* tool. ADR-0052 §4:
-        // launch-time Authorization placeholder — the sidecar rewrites this
-        // header with the per-turn MCP session token before each CLI spawn.
+        // ADR-0057 §§1, 3: the Gemini CLI dials the sidecar's stdio
+        // MCP-server mode as a `command`-typed MCP server. Each
+        // tool-use round spawns `node /opt/.../cli.js mcp` as a child
+        // of the CLI; that child reads the per-turn MCP session token
+        // from <workspace>/.spring-voyage-bridge/mcp-token (written by
+        // the long-running A2A sidecar) and proxies onto the worker's
+        // POST /mcp/. No HTTP transport, no Authorization header — the
+        // CLI never sees the per-turn token.
         var mcpServers = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [SpringVoyageMcpServerName] = new
             {
-                httpUrl = mcpEndpoint,
-                headers = new Dictionary<string, string>
+                command = ClaudeCodeLauncher.SidecarNodeBinary,
+                args = new[] { ClaudeCodeLauncher.SidecarBinaryPath, "mcp" },
+                env = new Dictionary<string, string>
                 {
-                    ["Authorization"] = "Bearer ",
+                    ["SPRING_MCP_PROXY_URL"] = mcpEndpoint,
+                    ["SPRING_WORKSPACE_PATH"] = workspaceMount,
                 },
             },
         };

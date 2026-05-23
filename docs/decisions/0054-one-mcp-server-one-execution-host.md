@@ -26,6 +26,8 @@ The root cause was a missing host-role distinction. The dispatch path for a turn
 
 There is exactly one `McpServer` instance, in the worker, with one in-process session store. It is served as a route (`POST /mcp/`) on a dedicated Kestrel endpoint (the MCP port, default `5050`), kept off the Dapr app-channel port so the MCP surface and the actor surface stay separated. A shared/remote session store was rejected: it would let two instances validate any token, but it preserves the two-instance shape this consolidation removes.
 
+> **Amended by [ADR-0057](0057-sidecar-local-mcp-server.md):** the worker still hosts exactly one `McpServer`, but the *client* of that server is now the per-agent sidecar (stdio MCP-server-mode child of the agent's CLI), not the CLI itself. The worker's `POST /mcp/` route is reached only by sidecars (and the sidecar-less workflow-driven `spring-voyage-agent` runtime via the AgentSDK) — never by a CLI's HTTP-MCP transport. The "one MCP server per CLI" principle stands; the server the CLI dials happens to be a sidecar-local stdio proxy onto this one. ADR-0057 §4 records why `.well-known/oauth-*` discovery metadata is not built on this route.
+
 ### 3. Every platform MCP tool is named `sv.<area>.<verb>`
 
 `sv.` marks a platform tool; `<area>` groups tools a model reaches for together; `<verb>` is the action. The areas:

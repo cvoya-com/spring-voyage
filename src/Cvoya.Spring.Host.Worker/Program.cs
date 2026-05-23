@@ -114,17 +114,28 @@ public partial class Program
             // and are not exposed on the public ingress.
             app.MapExecutionHostEndpoints();
 
-            // MCP JSON-RPC route (ADR-0052 / #2625). Restricted to the MCP
+            // MCP JSON-RPC route (ADR-0054 / #2625). Restricted to the MCP
             // Kestrel endpoint via the connection's local port — a request that
             // arrives on the Dapr :8080 endpoint is rejected so the MCP surface
             // and the Dapr surface stay cleanly separated. The handler reads the
             // request body + Authorization header from HttpContext and delegates
             // to the existing McpServer session store / JSON-RPC dispatch.
+            //
+            // ADR-0057 §4: this route is now a *platform-internal* API — the
+            // only expected clients are the agent-sidecar's MCP-server-mode
+            // child (proxying for a CLI runtime like claude / codex / gemini)
+            // and the workflow-driven spring-voyage-agent runtime (BYOI
+            // path 3, sidecar-less, calls via the AgentSDK). There is
+            // intentionally no RFC-9728 / RFC-8414 OAuth-discovery metadata
+            // exposed here: CLIs no longer dial this endpoint at all, so
+            // the discovery surface they probe (#2666) is unreachable from
+            // the network plane the CLI runs on.
             if (mcpPort > 0)
             {
                 app.MapPost("/mcp/", async (
                     HttpContext httpContext,
                     McpServer mcpServer,
+                    ILoggerFactory loggerFactory,
                     CancellationToken cancellationToken) =>
                 {
                     if (httpContext.Connection.LocalPort != mcpPort)
@@ -132,6 +143,21 @@ public partial class Program
                         httpContext.Response.StatusCode = StatusCodes.Status404NotFound;
                         return;
                     }
+
+                    // ADR-0057 §4: audit signal. Log the request's
+                    // user-agent so operators can spot a misconfigured
+                    // caller — a CLI dialling this directly would not
+                    // identify as `spring-voyage-agent-sidecar` and
+                    // would NOT carry the `proxy:` user-agent prefix.
+                    // The log line is debug-level so it stays out of
+                    // production logs unless explicitly enabled.
+                    var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+                    var logger = loggerFactory.CreateLogger("Cvoya.Spring.Mcp.RouteAudit");
+                    logger.LogDebug(
+                        "MCP request {Method} from {RemoteIp} (user-agent: {UserAgent})",
+                        httpContext.Request.Method,
+                        httpContext.Connection.RemoteIpAddress,
+                        string.IsNullOrEmpty(userAgent) ? "<none>" : userAgent);
 
                     await mcpServer.HandleRequestAsync(httpContext, cancellationToken);
                 });

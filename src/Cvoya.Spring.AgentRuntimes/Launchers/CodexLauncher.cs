@@ -58,19 +58,17 @@ public class CodexLauncher(
 
     /// <summary>
     /// Workspace-relative file name of the MCP config the Codex CLI reads
-    /// its <c>spring-voyage</c> server definition from. ADR-0051: a single
-    /// platform MCP server serves every sv.* tool.
+    /// its <c>spring-voyage</c> server definition from. ADR-0054: a single
+    /// platform MCP server serves every sv.* tool. ADR-0057 §1: the CLI
+    /// dials the sidecar's stdio MCP-server mode under this server name.
     /// </summary>
     internal const string McpConfigFileName = ".mcp.json";
 
     /// <summary>
-    /// ADR-0052 §4: env var the launcher sets to the absolute container path
-    /// of the MCP config file. The TypeScript agent-sidecar bridge reads this
-    /// to know which file's <c>spring-voyage</c> server block to rewrite with
-    /// the per-turn MCP session token delivered in each A2A <c>message/send</c>.
-    /// Read by <c>src/Cvoya.Spring.AgentSidecar/src/mcp-config.ts</c>.
+    /// MCP server entry name — ADR-0054's single <c>spring-voyage</c>
+    /// platform MCP server, now sidecar-local per ADR-0057.
     /// </summary>
-    internal const string McpConfigPathEnvVar = "SPRING_MCP_CONFIG";
+    internal const string SpringVoyageMcpServerName = "spring-voyage";
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<CodexLauncher>();
 
@@ -115,18 +113,16 @@ public class CodexLauncher(
         // shared launcher guard to the assembled prompt.
         var prompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
 
-        var workspaceMountNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
-
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
             ["SPRING_SYSTEM_PROMPT"] = prompt,
-            // ADR-0055 §5: per-member workspace mount path.
+            // ADR-0055 §5: per-member workspace mount path. ADR-0057 §3:
+            // the long-running A2A sidecar writes the per-turn MCP token
+            // to <SPRING_WORKSPACE_PATH>/.spring-voyage-bridge/mcp-token
+            // before each CLI spawn; the per-turn sidecar-MCP-server-mode
+            // child reads it from the same path.
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.BuildMountPath(context.AgentId),
-            // ADR-0052 §4: absolute container path of the .mcp.json the
-            // bridge rewrites with the per-turn MCP session token before
-            // every CLI spawn.
-            [McpConfigPathEnvVar] = $"{workspaceMountNoSlash}/{McpConfigFileName}",
         };
 
         // ADR-0051: OTLP-ingest env contract stamped here.
@@ -149,19 +145,26 @@ public class CodexLauncher(
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        // ADR-0057 §§1, 3: the Codex CLI dials the sidecar's stdio
+        // MCP-server mode as a `command`-typed MCP server. See
+        // ClaudeCodeLauncher.ContributeBundleAsync for the full
+        // rationale; identical shape, only the server-name reuse and
+        // the sidecar binary path are shared. No HTTP transport, no
+        // Authorization header — the CLI never sees the per-turn
+        // token.
         var mcpConfig = new
         {
             mcpServers = new Dictionary<string, object>(StringComparer.Ordinal)
             {
-                ["spring-voyage"] = new
+                [SpringVoyageMcpServerName] = new
                 {
-                    type = "http",
-                    url = context.McpEndpoint,
-                    headers = new Dictionary<string, string>
+                    command = ClaudeCodeLauncher.SidecarNodeBinary,
+                    args = new[] { ClaudeCodeLauncher.SidecarBinaryPath, "mcp" },
+                    env = new Dictionary<string, string>
                     {
-                        // Launch-time placeholder — sidecar rewrites with
-                        // the per-turn MCP session token (ADR-0052 §4).
-                        ["Authorization"] = "Bearer ",
+                        ["SPRING_MCP_PROXY_URL"] = context.McpEndpoint,
+                        ["SPRING_WORKSPACE_PATH"] =
+                            AgentWorkspaceContract.BuildMountPath(context.AgentId),
                     },
                 },
             },

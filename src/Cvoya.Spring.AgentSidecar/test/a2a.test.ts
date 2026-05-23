@@ -9,6 +9,7 @@ import { describe, it } from "node:test";
 
 import { A2AHandler } from "../src/a2a.ts";
 import type { ThreadBindingConfig } from "../src/config.ts";
+import { MCP_TOKEN_FILE } from "../src/mcp-token-store.ts";
 import { BRIDGE_STATE_DIR, SEEN_THREADS_FILE, ThreadIdRegistry } from "../src/threads.ts";
 import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "../src/version.ts";
 
@@ -150,32 +151,19 @@ describe("A2AHandler.handle", () => {
     }
   });
 
-  // ADR-0052 §4 / #2615: the bridge rewrites the spring-voyage MCP token in
-  // the launcher-written MCP config before each exec, so a persistent
-  // container always dials the worker-side McpServer with a token it
-  // actually issued for that turn.
-  it("rewrites the spring-voyage token in the MCP config before each exec", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sv-a2a-mcp-"));
+  // ADR-0057 §3: the bridge writes the per-turn MCP session token to a
+  // workspace-resident file before each exec. The CLI's `.mcp.json`
+  // points at the sidecar binary in MCP-server mode; that per-turn
+  // child reads the token at startup and proxies it to the worker on
+  // every tool call.
+  it("writes the per-turn MCP token to the workspace-resident store before each exec", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "sv-a2a-mcp-token-"));
     try {
-      const configPath = path.join(dir, ".mcp.json");
-      fs.writeFileSync(
-        configPath,
-        JSON.stringify({
-          mcpServers: {
-            "spring-voyage": {
-              type: "http",
-              url: "http://mcp",
-              headers: { Authorization: "Bearer launch-time-empty-token" },
-            },
-          },
-        }),
-      );
-
       const handler = makeHandler(
         [PROCESS_NODE, "-e", "process.stdout.write('ok')"],
         {
           PATH: process.env.PATH,
-          SPRING_MCP_CONFIG: configPath,
+          SPRING_WORKSPACE_PATH: ws,
         },
       );
 
@@ -188,37 +176,33 @@ describe("A2AHandler.handle", () => {
             parts: [{ text: "ping" }],
           },
         },
-        id: "mcp-rewrite",
+        id: "mcp-token-write",
       });
 
-      const rewritten = JSON.parse(fs.readFileSync(configPath, "utf8"));
-      assert.equal(
-        rewritten.mcpServers["spring-voyage"].headers.Authorization,
-        "Bearer fresh-per-turn-token",
-      );
+      const tokenPath = path.join(ws, BRIDGE_STATE_DIR, MCP_TOKEN_FILE);
+      assert.ok(fs.existsSync(tokenPath), `expected token file at ${tokenPath}`);
+      assert.equal(fs.readFileSync(tokenPath, "utf8"), "fresh-per-turn-token");
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(ws, { recursive: true, force: true });
     }
   });
 
-  it("leaves the MCP config untouched when a message carries no mcpToken", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sv-a2a-mcp-"));
+  it("leaves the token file untouched when a message carries no mcpToken", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "sv-a2a-mcp-token-"));
     try {
-      const configPath = path.join(dir, ".mcp.json");
-      const original = JSON.stringify({
-        mcpServers: {
-          "spring-voyage": {
-            type: "http",
-            url: "http://mcp",
-            headers: { Authorization: "Bearer launch-token" },
-          },
-        },
-      });
-      fs.writeFileSync(configPath, original);
+      // Seed a prior-turn token so we can confirm "no overwrite without a
+      // new token" — a missing `mcpToken` on the next turn must NOT clear
+      // the stale token, because doing so would degrade gracefully to a
+      // 401 on the next tool call rather than reusing the (possibly still
+      // valid) previous turn's token.
+      const tokenDir = path.join(ws, BRIDGE_STATE_DIR);
+      fs.mkdirSync(tokenDir, { recursive: true });
+      const tokenPath = path.join(tokenDir, MCP_TOKEN_FILE);
+      fs.writeFileSync(tokenPath, "prior-turn-token");
 
       const handler = makeHandler(
         [PROCESS_NODE, "-e", "process.stdout.write('ok')"],
-        { PATH: process.env.PATH, SPRING_MCP_CONFIG: configPath },
+        { PATH: process.env.PATH, SPRING_WORKSPACE_PATH: ws },
       );
 
       await handler.handle({
@@ -228,14 +212,9 @@ describe("A2AHandler.handle", () => {
         id: "mcp-no-token",
       });
 
-      // No per-turn token → the launch-time token is left as-is.
-      assert.equal(
-        JSON.parse(fs.readFileSync(configPath, "utf8")).mcpServers["spring-voyage"]
-          .headers.Authorization,
-        "Bearer launch-token",
-      );
+      assert.equal(fs.readFileSync(tokenPath, "utf8"), "prior-turn-token");
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(ws, { recursive: true, force: true });
     }
   });
 

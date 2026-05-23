@@ -93,24 +93,36 @@ public class CodexLauncherTests
     public async Task ContributeBundleAsync_ReturnsAgentsMdAndMcpJsonFiles()
     {
         // ADR-0055 §3: launcher-owned in-workspace files live in the
-        // bootstrap contribution, not on the launch spec.
+        // bootstrap contribution, not on the launch spec. ADR-0057 §1:
+        // the `.mcp.json` MCP server entry is `command`-typed (stdio),
+        // not `http`-typed — the CLI spawns the sidecar binary in
+        // MCP-server mode per turn rather than dialling the worker
+        // across the network.
         var contribution = await _launcher.ContributeBundleAsync(
             CreateBundleContext(),
             TestContext.Current.CancellationToken);
 
         contribution.Files.Keys.ShouldBe(new[] { "AGENTS.md", ".mcp.json" }, ignoreOrder: true);
-        // AGENTS.md must equal the AssembledSystemPrompt handed in by
-        // the bundle provider — NOT Definition.Instructions. After the
-        // silent-dispatch cutover the assembler produces the full
-        // multi-layer system prompt and the bundle writes that here.
         contribution.Files["AGENTS.md"].ShouldBe(TestAssembledSystemPrompt);
 
         var parsed = JsonDocument.Parse(contribution.Files[".mcp.json"]).RootElement;
         var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
-        server.GetProperty("url").GetString().ShouldBe(BundleContextMcpEndpoint);
-        // ADR-0052 §4 / ADR-0055: empty Authorization placeholder.
-        server.GetProperty("headers").GetProperty("Authorization").GetString()
-            .ShouldBe("Bearer ");
+
+        server.GetProperty("command").GetString().ShouldBe("node");
+        var args = server.GetProperty("args").EnumerateArray().Select(a => a.GetString()).ToArray();
+        args.ShouldBe(new[] { "/opt/spring-voyage/sidecar/dist/cli.js", "mcp" });
+
+        var env = server.GetProperty("env");
+        env.GetProperty("SPRING_MCP_PROXY_URL").GetString().ShouldBe(BundleContextMcpEndpoint);
+        env.GetProperty("SPRING_WORKSPACE_PATH").GetString()
+            .ShouldBe(AgentWorkspaceContract.BuildMountPath(
+                LauncherCallbackTestSupport.DefaultAgentAddress.Path));
+
+        // ADR-0057 §3: no Authorization header / remote URL — the CLI
+        // never sees the per-turn token; only the spawned
+        // MCP-server-mode child holds it.
+        server.TryGetProperty("headers", out _).ShouldBeFalse();
+        server.TryGetProperty("url", out _).ShouldBeFalse();
 
         contribution.PlatformFilePaths.ShouldBe(new[] { "AGENTS.md", ".mcp.json" }, ignoreOrder: true);
     }
@@ -144,17 +156,19 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_SetsSpringMcpConfigPath_UnderPerMemberMount()
+    public async Task PrepareAsync_DoesNotSetSpringMcpConfigEnvVar()
     {
-        // ADR-0052 §4: SPRING_MCP_CONFIG points the bridge at the .mcp.json
-        // it rewrites per turn with the delivered MCP session token.
+        // ADR-0057 §3: the `.mcp.json` Authorization-header rewrite path
+        // is gone, so the launcher no longer needs to point the sidecar
+        // at the file via SPRING_MCP_CONFIG — the per-turn token now
+        // rides through the workspace-resident token store, not the
+        // CLI's MCP config file.
         var context = LauncherCallbackTestSupport.CreateContext();
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         prep.EnvironmentVariables.ShouldNotContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
-        prep.EnvironmentVariables["SPRING_MCP_CONFIG"].ShouldBe(
-            $"{AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId)}/.mcp.json");
+        prep.EnvironmentVariables.ShouldNotContainKey("SPRING_MCP_CONFIG");
     }
 
     [Fact]

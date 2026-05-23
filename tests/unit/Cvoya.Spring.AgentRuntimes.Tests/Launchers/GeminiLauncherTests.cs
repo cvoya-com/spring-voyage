@@ -93,24 +93,35 @@ public class GeminiLauncherTests
     public async Task ContributeBundleAsync_ReturnsGeminiMdAndSettingsFiles()
     {
         // ADR-0055 §3: launcher-owned in-workspace files live in the
-        // bootstrap contribution, not on the launch spec.
+        // bootstrap contribution, not on the launch spec. ADR-0057 §1:
+        // the `.gemini/settings.json` MCP server entry is `command`-typed
+        // (stdio), not `httpUrl`-typed — the CLI spawns the sidecar
+        // binary in MCP-server mode per turn rather than dialling the
+        // worker across the network.
         var contribution = await _launcher.ContributeBundleAsync(
             CreateBundleContext(),
             TestContext.Current.CancellationToken);
 
         contribution.Files.Keys.ShouldBe(new[] { "GEMINI.md", ".gemini/settings.json" }, ignoreOrder: true);
-        // GEMINI.md must equal the AssembledSystemPrompt handed in by
-        // the bundle provider — NOT Definition.Instructions. After the
-        // silent-dispatch cutover the assembler produces the full
-        // multi-layer system prompt and the bundle writes that here.
         contribution.Files["GEMINI.md"].ShouldBe(TestAssembledSystemPrompt);
 
         using var settings = JsonDocument.Parse(contribution.Files[".gemini/settings.json"]);
         var server = settings.RootElement.GetProperty("mcpServers").GetProperty("spring-voyage");
-        server.GetProperty("httpUrl").GetString().ShouldBe(BundleContextMcpEndpoint);
-        // ADR-0052 §4 / ADR-0055: empty Authorization placeholder.
-        server.GetProperty("headers").GetProperty("Authorization").GetString()
-            .ShouldBe("Bearer ");
+
+        // ADR-0057 §1: stdio MCP server.
+        server.GetProperty("command").GetString().ShouldBe("node");
+        var args = server.GetProperty("args").EnumerateArray().Select(a => a.GetString()).ToArray();
+        args.ShouldBe(new[] { "/opt/spring-voyage/sidecar/dist/cli.js", "mcp" });
+
+        var env = server.GetProperty("env");
+        env.GetProperty("SPRING_MCP_PROXY_URL").GetString().ShouldBe(BundleContextMcpEndpoint);
+        env.GetProperty("SPRING_WORKSPACE_PATH").GetString()
+            .ShouldBe(AgentWorkspaceContract.BuildMountPath(
+                LauncherCallbackTestSupport.DefaultAgentAddress.Path));
+
+        // ADR-0057 §3: no Authorization header / remote URL.
+        server.TryGetProperty("headers", out _).ShouldBeFalse();
+        server.TryGetProperty("httpUrl", out _).ShouldBeFalse();
 
         contribution.PlatformFilePaths.ShouldBe(new[] { "GEMINI.md", ".gemini/settings.json" }, ignoreOrder: true);
     }
@@ -131,19 +142,19 @@ public class GeminiLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_SetsSpringMcpConfigPath_UnderPerMemberMount()
+    public async Task PrepareAsync_DoesNotSetSpringMcpConfigEnvVar()
     {
+        // ADR-0057 §3: the launcher no longer points the sidecar at the
+        // Gemini settings file via SPRING_MCP_CONFIG — the per-turn
+        // token rides through the workspace-resident token store, not
+        // the CLI's MCP config file.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nAnalyze thoroughly.",
             mcpToken: "gemini-secret-token");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        // ADR-0052 §4: SPRING_MCP_CONFIG points the bridge at the Gemini
-        // settings file it rewrites per turn with the delivered MCP
-        // session token (same mcpServers.<name>.headers shape as .mcp.json).
-        prep.EnvironmentVariables["SPRING_MCP_CONFIG"]
-            .ShouldBe($"{AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId)}/.gemini/settings.json");
+        prep.EnvironmentVariables.ShouldNotContainKey("SPRING_MCP_CONFIG");
     }
 
     [Fact]
