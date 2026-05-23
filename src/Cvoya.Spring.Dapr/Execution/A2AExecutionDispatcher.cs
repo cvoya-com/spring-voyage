@@ -285,7 +285,7 @@ public class A2AExecutionDispatcher(
         // reclamation, per ADR-0029 § "Durable state: a per-agent persistent
         // volume".
         var volumeName = await volumeManager.EnsureAsync(agentId, cancellationToken);
-        var volumeMount = AgentVolumeManager.BuildVolumeMount(volumeName);
+        var volumeMount = AgentVolumeManager.BuildVolumeMount(volumeName, agentId);
         var specWithVolume = specWithConnectors with
         {
             ExtraVolumeMounts = MergeVolumeMounts(specWithConnectors.ExtraVolumeMounts, volumeMount),
@@ -422,53 +422,40 @@ public class A2AExecutionDispatcher(
     {
         // Merge env vars: start with launcher values, overlay bootstrap values
         // so D1-canonical names always reflect what the builder computed.
+        // ADR-0055: context files no longer flow through this merge — they
+        // ride the agent bootstrap bundle the sidecar pulls from the worker.
         var mergedEnv = new Dictionary<string, string>(spec.EnvironmentVariables, StringComparer.Ordinal);
         foreach (var kvp in bootstrap.EnvironmentVariables)
         {
             mergedEnv[kvp.Key] = kvp.Value;
         }
 
-        // Merge context files: start with any files the launcher may have put
-        // in ContextFiles (unusual but allowed), then add bootstrap files. On
-        // collision bootstrap wins for the same reason as env vars.
-        Dictionary<string, string> mergedContext;
-        if (spec.ContextFiles is { Count: > 0 })
-        {
-            mergedContext = new Dictionary<string, string>(spec.ContextFiles, StringComparer.Ordinal);
-        }
-        else
-        {
-            mergedContext = new Dictionary<string, string>(StringComparer.Ordinal);
-        }
-
-        foreach (var kvp in bootstrap.ContextFiles)
-        {
-            mergedContext[kvp.Key] = kvp.Value;
-        }
-
         return spec with
         {
             EnvironmentVariables = mergedEnv,
-            ContextFiles = mergedContext.Count > 0 ? mergedContext : null,
         };
     }
 
     /// <summary>
     /// Merges the connector runtime-context contribution (#2380) into the
     /// launcher spec on top of the bootstrap-merged values. Fails fast when
-    /// a contributed env-var key or context-file sub-path already exists in
-    /// the spec — connector contributions are reserved-namespace by contract
-    /// (<c>SPRING_CONNECTOR_*</c> / <c>connectors/&lt;slug&gt;/</c>), so any
-    /// collision at this stage is a platform-bootstrap conflict and a real
-    /// wiring bug.
+    /// a contributed env-var key already exists in the spec — connector
+    /// contributions are reserved to the <c>SPRING_CONNECTOR_*</c>
+    /// namespace, so any collision at this stage is a platform-bootstrap
+    /// conflict and a real wiring bug.
     /// </summary>
+    /// <remarks>
+    /// Per ADR-0055 the connector's per-binding context files are now part
+    /// of the bootstrap bundle, written by the sidecar under the
+    /// <c>connectors/&lt;slug&gt;/</c> sub-path of the workspace mount. This
+    /// merge handles only the env-var contribution.
+    /// </remarks>
     internal static AgentLaunchSpec MergeConnectorContext(
         AgentLaunchSpec spec,
         ConnectorRuntimeContextContribution connectorContext)
     {
         if (connectorContext is null
-            || (connectorContext.EnvironmentVariables.Count == 0
-                && connectorContext.ContextFiles.Count == 0))
+            || connectorContext.EnvironmentVariables.Count == 0)
         {
             return spec;
         }
@@ -486,32 +473,9 @@ public class A2AExecutionDispatcher(
             mergedEnv[kvp.Key] = kvp.Value;
         }
 
-        Dictionary<string, string> mergedContext;
-        if (spec.ContextFiles is { Count: > 0 })
-        {
-            mergedContext = new Dictionary<string, string>(spec.ContextFiles, StringComparer.Ordinal);
-        }
-        else
-        {
-            mergedContext = new Dictionary<string, string>(StringComparer.Ordinal);
-        }
-
-        foreach (var kvp in connectorContext.ContextFiles)
-        {
-            if (mergedContext.ContainsKey(kvp.Key))
-            {
-                throw new SpringException(
-                    $"Connector context file '{kvp.Key}' collides with a platform-bootstrap file already " +
-                    "present on the launch spec. Connector contributions are reserved to the " +
-                    "connectors/<slug>/* sub-path; a collision here indicates a wiring bug.");
-            }
-            mergedContext[kvp.Key] = kvp.Value;
-        }
-
         return spec with
         {
             EnvironmentVariables = mergedEnv,
-            ContextFiles = mergedContext.Count > 0 ? mergedContext : null,
         };
     }
 
@@ -909,7 +873,7 @@ public class A2AExecutionDispatcher(
         // container. For persistent agents the volume survives restarts —
         // reclamation only happens on explicit undeploy (UndeployAsync).
         var volumeName = await volumeManager.EnsureAsync(agentId, cancellationToken);
-        var volumeMount = AgentVolumeManager.BuildVolumeMount(volumeName);
+        var volumeMount = AgentVolumeManager.BuildVolumeMount(volumeName, agentId);
         var specWithVolume = specWithConnectors with
         {
             ExtraVolumeMounts = MergeVolumeMounts(specWithConnectors.ExtraVolumeMounts, volumeMount),

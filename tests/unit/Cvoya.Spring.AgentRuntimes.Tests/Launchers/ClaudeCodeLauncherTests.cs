@@ -59,36 +59,13 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ReturnsWorkspaceFilesAndEnvVars()
+    public async Task PrepareAsync_ReturnsEnvVars()
     {
-        // The launcher must not write to the local filesystem — workspace
-        // materialisation lives in the dispatcher (issue #1042). An earlier
-        // revision snapshot Path.GetTempPath() before/after PrepareAsync
-        // to assert that, but the assertion races with any parallel test
-        // (in any assembly) that writes under /tmp, producing a recurring
-        // CI flake (#1082). The contract is now enforced by code review
-        // on the launcher implementation, which is pure-functional
-        // dictionary construction.
+        // ADR-0055: the launcher emits env vars only; the workspace files
+        // (CLAUDE.md / .mcp.json) move to ContributeBundleAsync.
         var context = CreateContext();
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        // #2608: the workspace mount is the per-agent persistent volume —
-        // there is no separate /workspace bind mount. Launcher files land in
-        // the single workspace mount at AgentWorkspaceContract.WorkspaceMountPath.
-        prep.WorkspaceMountPath.ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
-        prep.WorkspaceFiles.Keys.ShouldBe(new[] { "CLAUDE.md", ".mcp.json" }, ignoreOrder: true);
-        // Issue #2493: every launcher prepends the always-on
-        // ResponseDiscipline fragment; the user's prompt is the tail of
-        // the assembled body.
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldEndWith(context.Prompt);
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldContain("Spring Voyage runtime guard — response discipline");
-
-        var parsed = JsonDocument.Parse(prep.WorkspaceFiles[".mcp.json"]).RootElement;
-        var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
-        server.GetProperty("url").GetString().ShouldBe(context.McpEndpoint);
-        server.GetProperty("headers").GetProperty("Authorization").GetString()
-            .ShouldBe("Bearer top-secret-token");
 
         // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN removed —
         // AgentContextBuilder emits the D1-canonical names for all launchers.
@@ -99,33 +76,81 @@ public class ClaudeCodeLauncherTests
         prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
+        // Issue #2493: every launcher prepends the always-on
+        // ResponseDiscipline fragment; the user's prompt is the tail of
+        // the assembled body.
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("Spring Voyage runtime guard — response discipline");
         _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
         prep.WorkingDirectory.ShouldBeNull(
-            "leaving WorkingDirectory unset lets the dispatcher default to WorkspaceMountPath");
+            "leaving WorkingDirectory unset lets the dispatcher default to the per-member workspace mount");
     }
 
     [Fact]
-    public async Task PrepareAsync_WritesOnlyTheSinglePlatformMcpServer()
+    public async Task ContributeBundleAsync_ReturnsClaudeMdAndMcpJsonFiles()
+    {
+        // ADR-0055 §3: launcher-owned in-workspace files live in the
+        // bootstrap contribution, not on the launch spec.
+        var contribution = await _launcher.ContributeBundleAsync(
+            CreateBundleContext(),
+            TestContext.Current.CancellationToken);
+
+        contribution.Files.Keys.ShouldBe(new[] { "CLAUDE.md", ".mcp.json" }, ignoreOrder: true);
+        contribution.Files["CLAUDE.md"].ShouldBe("You are a helpful agent.");
+
+        var parsed = JsonDocument.Parse(contribution.Files[".mcp.json"]).RootElement;
+        var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
+        server.GetProperty("url").GetString().ShouldBe(BundleContextMcpEndpoint);
+        // ADR-0052 §4 / ADR-0055: the bundle writes an empty Authorization
+        // placeholder — the sidecar rewrites it per turn from the A2A
+        // message metadata.
+        server.GetProperty("headers").GetProperty("Authorization").GetString()
+            .ShouldBe("Bearer ");
+
+        contribution.PlatformFilePaths.ShouldBe(new[] { "CLAUDE.md", ".mcp.json" }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task ContributeBundleAsync_NullInstructions_YieldsEmptyClaudeMd()
+    {
+        // AgentDefinition.Instructions is nullable; the bundle must
+        // materialise an empty CLAUDE.md rather than throwing.
+        var contribution = await _launcher.ContributeBundleAsync(
+            CreateBundleContext(instructions: null),
+            TestContext.Current.CancellationToken);
+
+        contribution.Files["CLAUDE.md"].ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public async Task ContributeBundleAsync_WritesOnlyTheSinglePlatformMcpServer()
     {
         // ADR-0051: one MCP server serves every sv.* tool — sv.messaging.*
-        // included. The launcher no longer writes a second messaging server.
+        // included. The bundle no longer writes a second messaging server.
+        var contribution = await _launcher.ContributeBundleAsync(
+            CreateBundleContext(),
+            TestContext.Current.CancellationToken);
+
+        var servers = GetMcpServers(contribution);
+        servers.EnumerateObject().Select(property => property.Name)
+            .ShouldBe(new[] { "spring-voyage" });
+    }
+
+    [Fact]
+    public async Task PrepareAsync_SetsSpringMcpConfigPath_UnderPerMemberMount()
+    {
+        // ADR-0052 §4: the dead SPRING_ORCHESTRATION_MCP_CONFIG env var is
+        // gone; SPRING_MCP_CONFIG points the bridge at the `.mcp.json` it
+        // rewrites per turn with the delivered MCP session token.
         var context = CreateContext();
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        var servers = GetMcpServers(prep);
-        servers.EnumerateObject().Select(property => property.Name)
-            .ShouldBe(new[] { "spring-voyage" });
-        // ADR-0052 §4: the dead SPRING_ORCHESTRATION_MCP_CONFIG env var is
-        // gone; SPRING_MCP_CONFIG points the bridge at the `.mcp.json` it
-        // rewrites per turn with the delivered MCP session token.
         prep.EnvironmentVariables.ShouldNotContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
         prep.EnvironmentVariables["SPRING_MCP_CONFIG"].ShouldBe(
-            $"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/.mcp.json");
+            $"{AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId)}/.mcp.json");
     }
 
     [Fact]
@@ -164,23 +189,6 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_SetsStdinPayload_ToTheAssembledPrompt()
-    {
-        var context = CreateContext();
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        // The bridge will pipe this on `claude`'s stdin (PR 5). It must
-        // carry the same composed prompt body the launcher exposes via
-        // CLAUDE.md and SPRING_SYSTEM_PROMPT — including the always-on
-        // ResponseDiscipline guard (issue #2493). The user's prompt body
-        // is the tail.
-        prep.StdinPayload.ShouldEndWith(context.Prompt);
-        prep.StdinPayload.ShouldContain("Spring Voyage runtime guard — response discipline");
-        prep.StdinPayload.ShouldNotBeNullOrWhiteSpace();
-    }
-
-    [Fact]
     public async Task PrepareAsync_DefaultsA2APortAndResponseCapture()
     {
         var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
@@ -192,13 +200,14 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_SetsSpringWorkspacePath_ToCanonicalMountPath()
+    public async Task PrepareAsync_SetsSpringWorkspacePath_ToPerMemberMountPath()
     {
-        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+        var context = CreateContext();
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         prep.EnvironmentVariables.ShouldContainKey(AgentWorkspaceContract.WorkspacePathEnvVar);
         prep.EnvironmentVariables[AgentWorkspaceContract.WorkspacePathEnvVar]
-            .ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
+            .ShouldBe(AgentWorkspaceContract.BuildMountPath(context.AgentId));
     }
 
     [Fact]
@@ -333,27 +342,21 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuardsToCLAUDEmd_AndStdin()
+    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuardsToSystemPromptEnv()
     {
         // #2096 / ADR-0041 + #2493: when concurrent_threads is on, the
-        // assembled prompt the model sees (CLAUDE.md, SPRING_SYSTEM_PROMPT,
-        // StdinPayload) MUST start with the always-on ResponseDiscipline
-        // guard and additionally carry the ConcurrentThreadsGuard. The
-        // user's prompt body is preserved — the guards compose, they do
-        // not replace.
+        // assembled prompt the model sees via SPRING_SYSTEM_PROMPT MUST
+        // start with the always-on ResponseDiscipline guard and
+        // additionally carry the ConcurrentThreadsGuard. The user's
+        // prompt body is preserved — the guards compose, they do not
+        // replace.
         var context = CreateContext() with { ConcurrentThreads = true };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldContain("concurrent_threads is on");
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldContain(context.Prompt);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("concurrent_threads is on");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
-        prep.StdinPayload.ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.StdinPayload.ShouldContain("concurrent_threads is on");
-        prep.StdinPayload.ShouldContain(context.Prompt);
     }
 
     [Fact]
@@ -366,23 +369,35 @@ public class ClaudeCodeLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldEndWith(context.Prompt);
-        prep.WorkspaceFiles["CLAUDE.md"].ShouldNotContain("concurrent_threads is on");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldNotContain("concurrent_threads is on");
-        prep.StdinPayload.ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.StdinPayload.ShouldEndWith(context.Prompt);
-        prep.StdinPayload.ShouldNotContain("concurrent_threads is on");
     }
+
+    private const string BundleContextMcpEndpoint = "http://host.docker.internal:9999/mcp/";
 
     private static AgentLaunchContext CreateContext() =>
         LauncherCallbackTestSupport.CreateContext();
 
-    private static JsonElement GetMcpServers(AgentLaunchSpec prep)
+    private static AgentBootstrapContributionContext CreateBundleContext(
+        string? instructions = "You are a helpful agent.")
     {
-        using var parsed = JsonDocument.Parse(prep.WorkspaceFiles[".mcp.json"]);
+        var definition = new AgentDefinition(
+            AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
+            Name: "Test Agent",
+            Instructions: instructions,
+            Execution: new AgentExecutionConfig(
+                Runtime: "claude",
+                Image: "ghcr.io/test/claude:latest"));
+        return new AgentBootstrapContributionContext(
+            AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
+            Definition: definition,
+            McpEndpoint: BundleContextMcpEndpoint);
+    }
+
+    private static JsonElement GetMcpServers(AgentBootstrapContribution contribution)
+    {
+        using var parsed = JsonDocument.Parse(contribution.Files[".mcp.json"]);
         return parsed.RootElement.GetProperty("mcpServers").Clone();
     }
 }

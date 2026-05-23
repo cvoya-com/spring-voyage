@@ -25,6 +25,7 @@ using Xunit;
 public class GeminiLauncherTests
 {
     private const string DefaultApiKey = "test-google-key";
+    private const string BundleContextMcpEndpoint = "http://host.docker.internal:9999/mcp/";
 
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILlmCredentialResolver _credentialResolver;
@@ -58,37 +59,15 @@ public class GeminiLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ReturnsWorkspaceFilesAndEnvVars()
+    public async Task PrepareAsync_ReturnsEnvVars()
     {
-        // Note: an earlier revision also snapshot Path.GetTempPath() before
-        // and after PrepareAsync to assert "doesn't touch the local
-        // filesystem" (the launcher contract — see issue #1042). That
-        // assertion races with any other parallel test (in any assembly)
-        // that writes under /tmp, producing a recurring CI flake (#1082).
-        // The contract is now enforced by code review on the launcher
-        // implementation, which is pure-functional dictionary
-        // construction.
+        // ADR-0055: the launcher emits env vars only; the workspace files
+        // (GEMINI.md / .gemini/settings.json) move to ContributeBundleAsync.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nAnalyze thoroughly.",
             mcpToken: "gemini-secret-token");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        // #2608: the workspace mount is the per-agent persistent volume — no
-        // separate /workspace bind mount. Launcher files land in the single
-        // workspace mount at AgentWorkspaceContract.WorkspaceMountPath.
-        prep.WorkspaceMountPath.ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
-        prep.WorkspaceFiles.Keys.ShouldBe(new[] { "GEMINI.md", ".gemini/settings.json" }, ignoreOrder: true);
-        // Issue #2493: every launcher prepends the always-on
-        // ResponseDiscipline fragment; the user's prompt is the tail.
-        prep.WorkspaceFiles["GEMINI.md"].ShouldEndWith(context.Prompt);
-        prep.WorkspaceFiles["GEMINI.md"].ShouldContain("Spring Voyage runtime guard — response discipline");
-
-        using var settings = ParseGeminiSettings(prep);
-        var server = settings.RootElement.GetProperty("mcpServers").GetProperty("spring-voyage");
-        server.GetProperty("httpUrl").GetString().ShouldBe(context.McpEndpoint);
-        server.GetProperty("headers").GetProperty("Authorization").GetString()
-            .ShouldBe("Bearer gemini-secret-token");
 
         // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN removed —
         // AgentContextBuilder emits the D1-canonical names for all launchers.
@@ -108,29 +87,60 @@ public class GeminiLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WritesOnlyTheSinglePlatformMcpServer()
+    public async Task ContributeBundleAsync_ReturnsGeminiMdAndSettingsFiles()
+    {
+        // ADR-0055 §3: launcher-owned in-workspace files live in the
+        // bootstrap contribution, not on the launch spec.
+        var contribution = await _launcher.ContributeBundleAsync(
+            CreateBundleContext(),
+            TestContext.Current.CancellationToken);
+
+        contribution.Files.Keys.ShouldBe(new[] { "GEMINI.md", ".gemini/settings.json" }, ignoreOrder: true);
+        contribution.Files["GEMINI.md"].ShouldBe("Analyze thoroughly.");
+
+        using var settings = JsonDocument.Parse(contribution.Files[".gemini/settings.json"]);
+        var server = settings.RootElement.GetProperty("mcpServers").GetProperty("spring-voyage");
+        server.GetProperty("httpUrl").GetString().ShouldBe(BundleContextMcpEndpoint);
+        // ADR-0052 §4 / ADR-0055: empty Authorization placeholder.
+        server.GetProperty("headers").GetProperty("Authorization").GetString()
+            .ShouldBe("Bearer ");
+
+        contribution.PlatformFilePaths.ShouldBe(new[] { "GEMINI.md", ".gemini/settings.json" }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task ContributeBundleAsync_WritesOnlyTheSinglePlatformMcpServer()
     {
         // ADR-0051: one MCP server serves every sv.* tool — sv.messaging.*
-        // included. The launcher no longer writes a second messaging server.
+        // included. The bundle no longer writes a second messaging server.
+        var contribution = await _launcher.ContributeBundleAsync(
+            CreateBundleContext(),
+            TestContext.Current.CancellationToken);
+
+        using var settings = JsonDocument.Parse(contribution.Files[".gemini/settings.json"]);
+        var servers = settings.RootElement.GetProperty("mcpServers");
+        servers.EnumerateObject().Select(property => property.Name)
+            .ShouldBe(new[] { "spring-voyage" });
+    }
+
+    [Fact]
+    public async Task PrepareAsync_SetsSpringMcpConfigPath_UnderPerMemberMount()
+    {
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nAnalyze thoroughly.",
             mcpToken: "gemini-secret-token");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        using var settings = ParseGeminiSettings(prep);
-        var servers = settings.RootElement.GetProperty("mcpServers");
-        servers.EnumerateObject().Select(property => property.Name)
-            .ShouldBe(new[] { "spring-voyage" });
         // ADR-0052 §4: SPRING_MCP_CONFIG points the bridge at the Gemini
         // settings file it rewrites per turn with the delivered MCP
         // session token (same mcpServers.<name>.headers shape as .mcp.json).
         prep.EnvironmentVariables["SPRING_MCP_CONFIG"]
-            .ShouldBe($"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/.gemini/settings.json");
+            .ShouldBe($"{AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId)}/.gemini/settings.json");
     }
 
     [Fact]
-    public async Task PrepareAsync_SetsSpringWorkspacePath_ToCanonicalMountPath()
+    public async Task PrepareAsync_SetsSpringWorkspacePath_ToPerMemberMountPath()
     {
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "Be helpful.",
@@ -140,7 +150,7 @@ public class GeminiLauncherTests
 
         prep.EnvironmentVariables.ShouldContainKey(AgentWorkspaceContract.WorkspacePathEnvVar);
         prep.EnvironmentVariables[AgentWorkspaceContract.WorkspacePathEnvVar]
-            .ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
+            .ShouldBe(AgentWorkspaceContract.BuildMountPath(context.AgentId));
     }
 
     [Fact]
@@ -180,11 +190,11 @@ public class GeminiLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuardsToGEMINImd_AndSystemPromptEnv()
+    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuardsToSystemPromptEnv()
     {
         // #2096 / ADR-0041 + #2493: when concurrent_threads is on, the
-        // assembled prompt the model sees (GEMINI.md, SPRING_SYSTEM_PROMPT)
-        // MUST start with the ResponseDiscipline guard (always-on) and
+        // assembled prompt the model sees via SPRING_SYSTEM_PROMPT MUST
+        // start with the ResponseDiscipline guard (always-on) and
         // additionally carry the ConcurrentThreadsGuard. The user's prompt
         // body is preserved in full — the guards compose, they do not
         // replace.
@@ -195,9 +205,6 @@ public class GeminiLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceFiles["GEMINI.md"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.WorkspaceFiles["GEMINI.md"].ShouldContain("concurrent_threads is on");
-        prep.WorkspaceFiles["GEMINI.md"].ShouldContain(context.Prompt);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("concurrent_threads is on");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
@@ -216,9 +223,6 @@ public class GeminiLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceFiles["GEMINI.md"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.WorkspaceFiles["GEMINI.md"].ShouldEndWith(context.Prompt);
-        prep.WorkspaceFiles["GEMINI.md"].ShouldNotContain("concurrent_threads is on");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldNotContain("concurrent_threads is on");
@@ -288,7 +292,7 @@ public class GeminiLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_PointsGeminiCliHome_AtWorkspaceMountPath()
+    public async Task PrepareAsync_PointsGeminiCliHome_AtPerMemberWorkspaceMount()
     {
         // ADR-0041 / #2103: GEMINI_CLI_HOME relocates Gemini's config and
         // session-storage root. gemini-cli appends `.gemini/` to it and
@@ -296,16 +300,28 @@ public class GeminiLauncherTests
         // `<home>/.gemini/tmp/<project-hash>/chats/<sid>.json`. Anchoring
         // it on the per-agent workspace volume is what makes session files
         // survive container restart so the next `--resume <sid>` finds them.
-        var prep = await _launcher.PrepareAsync(
-            LauncherCallbackTestSupport.CreateContext(
-                prompt: "Be helpful.",
-                mcpToken: "gemini-secret-token"),
-            TestContext.Current.CancellationToken);
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "Be helpful.",
+            mcpToken: "gemini-secret-token");
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         prep.EnvironmentVariables["GEMINI_CLI_HOME"]
-            .ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
+            .ShouldBe(AgentWorkspaceContract.BuildMountPath(context.AgentId));
     }
 
-    private static JsonDocument ParseGeminiSettings(AgentLaunchSpec prep) =>
-        JsonDocument.Parse(prep.WorkspaceFiles[".gemini/settings.json"]);
+    private static AgentBootstrapContributionContext CreateBundleContext(
+        string? instructions = "Analyze thoroughly.")
+    {
+        var definition = new AgentDefinition(
+            AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
+            Name: "Test Agent",
+            Instructions: instructions,
+            Execution: new AgentExecutionConfig(
+                Runtime: "gemini",
+                Image: "ghcr.io/test/gemini:latest"));
+        return new AgentBootstrapContributionContext(
+            AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
+            Definition: definition,
+            McpEndpoint: BundleContextMcpEndpoint);
+    }
 }

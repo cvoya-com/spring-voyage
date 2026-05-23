@@ -38,6 +38,7 @@ public class ContainerHealthMetricsServiceTests
         services.AddSingleton(Options.Create(new DaprSidecarOptions()));
         services.AddSingleton<ContainerLifecycleManager>();
         services.AddSingleton<AgentVolumeManager>();
+        services.AddSingleton(Substitute.For<IAgentBootstrapAuthStore>());
         services.AddSingleton(Substitute.For<IAgentDefinitionProvider>());
         services.AddSingleton(Substitute.For<IMcpServer>());
         var launcher = Substitute.For<IAgentRuntimeLauncher>();

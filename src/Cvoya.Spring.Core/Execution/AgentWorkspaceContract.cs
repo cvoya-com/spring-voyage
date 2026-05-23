@@ -4,46 +4,26 @@
 namespace Cvoya.Spring.Core.Execution;
 
 /// <summary>
-/// Shared constants describing the per-agent workspace mount the dispatcher
+/// Shared constants describing the per-agent workspace mount the platform
 /// provisions on every agent container launch (D1 spec § 2.2.1, ADR-0029).
 /// </summary>
 /// <remarks>
 /// <para>
-/// The values live in <c>Cvoya.Spring.Core</c> so launcher implementations
-/// (which depend on Core only) can emit the canonical env-var name and
-/// mount path without taking a dependency on the Dapr-side
-/// <c>AgentVolumeManager</c> that owns the container-runtime side. This is
-/// the seam ADR-0038 Chunk 2a opens so the per-runtime launcher classes
-/// can move into <c>Cvoya.Spring.AgentRuntimes</c> without dragging
-/// Dapr-specific implementation types behind them.
+/// Per ADR-0055 §5 the workspace mount path is always per-member —
+/// <c>/spring/members/&lt;memberId&gt;/</c> — including the single-member
+/// "standalone" case. Use <see cref="BuildMountPath"/> at every call site;
+/// there is no global "the workspace path" constant.
 /// </para>
 /// <para>
-/// The Dapr-side <c>AgentVolumeManager</c> re-exports these constants so
-/// existing call sites continue to compile.
+/// Launcher implementations depend on <c>Cvoya.Spring.Core</c> only and
+/// emit the canonical env-var names from this class without taking a
+/// dependency on the Dapr-side <c>AgentVolumeManager</c> that owns the
+/// container-runtime side. This is the seam ADR-0038 Chunk 2a opened so
+/// the per-runtime launchers can live in <c>Cvoya.Spring.AgentRuntimes</c>.
 /// </para>
 /// </remarks>
 public static class AgentWorkspaceContract
 {
-    /// <summary>
-    /// Canonical mount path inside every agent container. Matches the
-    /// <c>SPRING_WORKSPACE_PATH</c> env var value the launchers set and the
-    /// recommended default from the D1 spec (§ 2.1 and § 3.1).
-    /// </summary>
-    /// <remarks>
-    /// Carries a trailing slash. When composing a path to a workspace-relative
-    /// file (e.g. <c>.mcp.json</c>) use <see cref="WorkspaceMountPathNoSlash"/>
-    /// so the join does not produce a doubled separator.
-    /// </remarks>
-    public const string WorkspaceMountPath = "/spring/workspace/";
-
-    /// <summary>
-    /// <see cref="WorkspaceMountPath"/> without its trailing slash. Use this as
-    /// the base when building an absolute container path to a file inside the
-    /// workspace — <c>$"{WorkspaceMountPathNoSlash}/{file}"</c> — so the result
-    /// is not <c>/spring/workspace//file</c>.
-    /// </summary>
-    public const string WorkspaceMountPathNoSlash = "/spring/workspace";
-
     /// <summary>Env var name the D1 spec mandates for the workspace mount path.</summary>
     public const string WorkspacePathEnvVar = "SPRING_WORKSPACE_PATH";
 
@@ -61,4 +41,28 @@ public static class AgentWorkspaceContract
     /// container launch time.
     /// </summary>
     public const string BootstrapTokenEnvVar = "SPRING_BOOTSTRAP_TOKEN";
+
+    /// <summary>
+    /// In-container mount path for the per-member workspace volume
+    /// (ADR-0055 §5). Includes a trailing slash. Use
+    /// <see cref="BuildMountPathNoSlash"/> when composing a path to a
+    /// workspace-relative file so the join does not produce a doubled
+    /// separator.
+    /// </summary>
+    public static string BuildMountPath(string memberId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(memberId);
+        return $"/spring/members/{memberId}/";
+    }
+
+    /// <summary>
+    /// <see cref="BuildMountPath"/> without its trailing slash. Compose a
+    /// path to a workspace-relative file as
+    /// <c>$"{BuildMountPathNoSlash(memberId)}/{file}"</c>.
+    /// </summary>
+    public static string BuildMountPathNoSlash(string memberId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(memberId);
+        return $"/spring/members/{memberId}";
+    }
 }

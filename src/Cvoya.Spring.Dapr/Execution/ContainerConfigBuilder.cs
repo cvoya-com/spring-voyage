@@ -122,40 +122,11 @@ public static class ContainerConfigBuilder
             // overlay swaps this for a tenant-id-aware lookup.
             NetworkName: TenantNetworkName,
             ExtraHosts: BuildExtraHosts(extraHosts),
-            // The fallback to WorkspaceMountPath only fires when the launcher
-            // actually populated a workspace (i.e. WorkspaceFiles is non-empty).
-            // Launchers like ClaudeCodeLauncher write CLAUDE.md / .mcp.json into
-            // the workspace and run their tool from cwd, so they need the workdir
-            // override; launchers like SpringVoyageAgentLauncher carry an empty workspace
-            // (their prompt arrives via env vars) and ship images whose CMD is
-            // relative to a fixed image workdir (e.g. /app for python agent.py).
-            // Overriding their workdir to /workspace would break the relative
-            // CMD lookup and the container would exit immediately. See #1159.
-            WorkingDirectory: spec.WorkingDirectory
-                ?? (spec.WorkspaceFiles.Count > 0 ? spec.WorkspaceMountPath : null),
-            // #2608: emit the Workspace only when the launcher contributes at
-            // least one workspace file — mirroring the ContextWorkspace
-            // conditional below. When a launcher carries no workspace files
-            // (e.g. SpringVoyageAgentLauncher, whose prompt arrives via env
-            // vars) no Workspace is emitted, so the dispatcher creates no
-            // bind mount and the container is left with a single workspace
-            // mount: its per-agent persistent volume. Without this guard the
-            // dispatcher materialises an empty directory and bind-mounts it
-            // at /workspace, leaving that container with two workspace mounts.
-            Workspace: spec.WorkspaceFiles.Count > 0
-                ? new ContainerWorkspace(
-                    MountPath: spec.WorkspaceMountPath,
-                    Files: spec.WorkspaceFiles)
-                : null,
-            // D3a: context files — agent-definition.yaml, tenant-config.json —
-            // materialised at /spring/context/ per D1 spec § 2.2.2. Only emit
-            // the ContextWorkspace when the launcher provides at least one file;
-            // an empty mount adds overhead without benefit.
-            ContextWorkspace: spec.ContextFiles is { Count: > 0 }
-                ? new ContainerWorkspace(
-                    MountPath: spec.ContextMountPath,
-                    Files: spec.ContextFiles)
-                : null);
+            // ADR-0055 §5: per-member workspace mount is supplied via the
+            // dispatcher's volume mount; the launcher's WorkingDirectory
+            // override is honoured verbatim when set, otherwise the
+            // container runs in the image's WORKDIR.
+            WorkingDirectory: spec.WorkingDirectory);
     }
 
     private static IReadOnlyDictionary<string, string> MergeEnvironment(

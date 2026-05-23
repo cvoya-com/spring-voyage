@@ -66,7 +66,6 @@ public static class ContainersEndpoints
     internal static async Task<IResult> RunOrStartAsync(
         [FromBody] RunContainerRequest request,
         IContainerRuntime runtime,
-        IWorkspaceMaterializer workspaceMaterializer,
         ILoggerFactory loggerFactory,
         HttpContext httpContext,
         CancellationToken cancellationToken)
@@ -85,92 +84,10 @@ public static class ContainersEndpoints
             });
         }
 
-        // Materialise the workspace BEFORE building the config so the bind-mount
-        // spec and effective working directory both reference the dispatcher-host
-        // path the agent container will actually see (issue #1042).
-        //
-        // #2608: pass the requested volume mounts so the materializer can
-        // detect when the workspace mount path coincides with the per-agent
-        // persistent volume — in which case it writes the launcher files
-        // directly into that volume instead of synthesising a second
-        // (per-invocation bind) workspace mount.
-        MaterializedWorkspace? materialized = null;
-        if (request.Workspace is { } workspaceRequest)
-        {
-            try
-            {
-                materialized = await workspaceMaterializer.MaterializeAsync(
-                    workspaceRequest, request.Mounts, request.Image, cancellationToken);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
-            {
-                logger.LogWarning(
-                    EventIds.DispatcherRejected,
-                    ex,
-                    "Rejected container run: workspace request is invalid");
-                return Results.BadRequest(new DispatcherErrorResponse
-                {
-                    Code = "workspace_invalid",
-                    Message = ex.Message,
-                });
-            }
-        }
-
-        // D3a: materialise the context workspace (/spring/context/) when the
-        // request carries one. Lifecycle is identical to the main workspace —
-        // cleanup on run completion or on DELETE for detached starts. Errors
-        // from a bad context-workspace request must clean up any already-
-        // materialised main workspace to avoid host directory leaks.
-        MaterializedWorkspace? materializedContext = null;
-        if (request.ContextWorkspace is { } contextWorkspaceRequest)
-        {
-            try
-            {
-                // #2608 leaves the context workspace (/spring/context/)
-                // untouched — it is a distinct concern (agent-definition YAML /
-                // tenant-config JSON) and never coincides with the per-agent
-                // workspace volume. Passing no volume mounts keeps it on the
-                // per-invocation bind-mount path, where the helper image is
-                // unused.
-                materializedContext = await workspaceMaterializer.MaterializeAsync(
-                    contextWorkspaceRequest, requestedVolumeMounts: null, request.Image, cancellationToken);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
-            {
-                // Clean up the main workspace if we already created it.
-                if (materialized is not null)
-                {
-                    workspaceMaterializer.Cleanup(materialized);
-                }
-
-                logger.LogWarning(
-                    EventIds.DispatcherRejected,
-                    ex,
-                    "Rejected container run: context workspace request is invalid");
-                return Results.BadRequest(new DispatcherErrorResponse
-                {
-                    Code = "context_workspace_invalid",
-                    Message = ex.Message,
-                });
-            }
-        }
-
-        var mounts = BuildEffectiveMounts(request.Mounts, materialized, materializedContext);
-        // Only default the workdir to the materialised mount path when the
-        // workspace actually contains files. Launchers like SpringVoyageAgentLauncher
-        // bind-mount an empty workspace just to keep the launch shape uniform
-        // — they ship images whose CMD is relative to a fixed image WORKDIR
-        // (e.g. `python agent.py` from /app). Silently overriding workdir to
-        // /workspace in that case makes the relative CMD lookup fail and the
-        // container exits immediately with "No such file or directory". This
-        // mirrors the worker-side policy in ContainerConfigBuilder.Build —
-        // see the long comment there for the rationale (#1159).
-        var workdir = request.WorkingDirectory
-            ?? (materialized is not null
-                && request.Workspace is { Files.Count: > 0 }
-                    ? materialized.MountPath
-                    : null);
-
+        // Per ADR-0055 the dispatcher no longer materialises workspace files —
+        // the agent-sidecar pulls them from the worker bootstrap endpoint on
+        // start. Mounts come straight from the request; the worker provisioned
+        // the per-member workspace volume before issuing this call.
         var config = new ContainerConfig(
             Image: request.Image,
             // Prefer the new list-typed CommandArgs. Fall back to splitting
@@ -185,7 +102,7 @@ public static class ContainersEndpoints
             EnvironmentVariables: request.Env is null
                 ? null
                 : new Dictionary<string, string>(request.Env),
-            VolumeMounts: mounts,
+            VolumeMounts: request.Mounts,
             Timeout: request.TimeoutSeconds is { } ts ? TimeSpan.FromSeconds(ts) : null,
             NetworkName: request.NetworkName,
             AdditionalNetworks: request.AdditionalNetworks,
@@ -193,7 +110,7 @@ public static class ContainersEndpoints
                 ? null
                 : new Dictionary<string, string>(request.Labels),
             ExtraHosts: request.ExtraHosts,
-            WorkingDirectory: workdir,
+            WorkingDirectory: request.WorkingDirectory,
             ContainerName: request.ContainerName,
             Entrypoint: request.Entrypoint);
 
@@ -202,104 +119,22 @@ public static class ContainersEndpoints
             logger.LogInformation(
                 EventIds.ContainerStartRequested,
                 "Starting detached container image={Image}", request.Image);
-
-            try
-            {
-                var id = await runtime.StartAsync(config, cancellationToken);
-                if (materialized is not null)
-                {
-                    // Detached starts: defer cleanup until DELETE /v1/containers/{id}.
-                    workspaceMaterializer.TrackForContainer(id, materialized);
-                }
-                if (materializedContext is not null)
-                {
-                    // D3a: also track the context workspace for deferred cleanup.
-                    workspaceMaterializer.TrackForContainer(id, materializedContext);
-                }
-                return Results.Ok(new RunContainerResponse { Id = id });
-            }
-            catch
-            {
-                // The runtime never owned the workspaces, so a start failure means
-                // we leak the host dirs unless we sweep them here.
-                if (materialized is not null)
-                {
-                    workspaceMaterializer.Cleanup(materialized);
-                }
-                if (materializedContext is not null)
-                {
-                    workspaceMaterializer.Cleanup(materializedContext);
-                }
-                throw;
-            }
+            var id = await runtime.StartAsync(config, cancellationToken);
+            return Results.Ok(new RunContainerResponse { Id = id });
         }
 
         logger.LogInformation(
             EventIds.ContainerRunRequested,
             "Running container image={Image}", request.Image);
 
-        try
+        var result = await runtime.RunAsync(config, cancellationToken);
+        return Results.Ok(new RunContainerResponse
         {
-            var result = await runtime.RunAsync(config, cancellationToken);
-            return Results.Ok(new RunContainerResponse
-            {
-                Id = result.ContainerId,
-                ExitCode = result.ExitCode,
-                StandardOutput = result.StandardOutput,
-                StandardError = result.StandardError,
-            });
-        }
-        finally
-        {
-            // Blocking runs always clean up — success or failure. Cleanup is
-            // logged by the materialiser so operators can audit the lifecycle.
-            if (materialized is not null)
-            {
-                workspaceMaterializer.Cleanup(materialized);
-            }
-            // D3a: clean up context workspace on the same lifecycle as the main workspace.
-            if (materializedContext is not null)
-            {
-                workspaceMaterializer.Cleanup(materializedContext);
-            }
-        }
-    }
-
-    private static IReadOnlyList<string>? BuildEffectiveMounts(
-        IReadOnlyList<string>? requested,
-        MaterializedWorkspace? materialized,
-        MaterializedWorkspace? materializedContext = null)
-    {
-        // #2608: a materialised workspace whose MountSpec is null was written
-        // straight into a named volume the caller already mounts — there is
-        // nothing to append for it. Only a bind-mount fallback carries a
-        // MountSpec that must be added to the container's mount list.
-        var materializedSpec = materialized?.MountSpec;
-        var contextSpec = materializedContext?.MountSpec;
-
-        if (materializedSpec is null && contextSpec is null)
-        {
-            return requested;
-        }
-
-        var capacity = (requested?.Count ?? 0)
-            + (materializedSpec is not null ? 1 : 0)
-            + (contextSpec is not null ? 1 : 0);
-        var mounts = new List<string>(capacity);
-        if (requested is { Count: > 0 })
-        {
-            mounts.AddRange(requested);
-        }
-        if (materializedSpec is not null)
-        {
-            mounts.Add(materializedSpec);
-        }
-        // D3a: append the /spring/context/ bind-mount after the main workspace.
-        if (contextSpec is not null)
-        {
-            mounts.Add(contextSpec);
-        }
-        return mounts;
+            Id = result.ContainerId,
+            ExitCode = result.ExitCode,
+            StandardOutput = result.StandardOutput,
+            StandardError = result.StandardError,
+        });
     }
 
     /// <summary>
@@ -606,7 +441,6 @@ public static class ContainersEndpoints
     internal static async Task<IResult> StopAsync(
         string id,
         IContainerRuntime runtime,
-        IWorkspaceMaterializer workspaceMaterializer,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -624,17 +458,7 @@ public static class ContainersEndpoints
         logger.LogInformation(
             EventIds.ContainerStopRequested,
             "Stopping container id={ContainerId}", id);
-
-        try
-        {
-            await runtime.StopAsync(id, cancellationToken);
-        }
-        finally
-        {
-            // Detached starts deferred workspace cleanup to this call —
-            // if no workspace was tracked for this id this is a no-op.
-            workspaceMaterializer.CleanupForContainer(id);
-        }
+        await runtime.StopAsync(id, cancellationToken);
         return Results.NoContent();
     }
 }

@@ -16,18 +16,15 @@ using Xunit;
 /// Tests for the static <see cref="A2AExecutionDispatcher.MergeConnectorContext"/>
 /// helper (#2380) — the seam that merges the connector-context contribution
 /// onto a bootstrap-merged launch spec and fails fast on any collision with
-/// platform-bootstrap names.
+/// platform-bootstrap names. Under ADR-0055 the connector's per-binding
+/// context files ride the agent-bootstrap bundle directly (the bundle
+/// provider folds them in), so this merge handles only the env-var portion.
 /// </summary>
 public class A2ADispatcherConnectorContextMergeTests
 {
     private static AgentLaunchSpec MakeSpec(
-        Dictionary<string, string>? env = null,
-        Dictionary<string, string>? contextFiles = null) =>
-        new(
-            WorkspaceFiles: new Dictionary<string, string>(),
-            EnvironmentVariables: env ?? new Dictionary<string, string>(),
-            WorkspaceMountPath: "/workspace",
-            ContextFiles: contextFiles);
+        Dictionary<string, string>? env = null) =>
+        new(EnvironmentVariables: env ?? new Dictionary<string, string>());
 
     [Fact]
     public void MergeConnectorContext_EmptyContribution_ReturnsSpecUnchanged()
@@ -40,22 +37,22 @@ public class A2ADispatcherConnectorContextMergeTests
     }
 
     [Fact]
-    public void MergeConnectorContext_AddsEnvVarsAndFiles()
+    public void MergeConnectorContext_AddsEnvVars()
     {
         var spec = MakeSpec(
-            env: new Dictionary<string, string> { ["SPRING_TENANT_ID"] = "x" },
-            contextFiles: new Dictionary<string, string> { ["agent-definition.yaml"] = "agent:" });
+            env: new Dictionary<string, string> { ["SPRING_TENANT_ID"] = "x" });
         var contribution = new ConnectorRuntimeContextContribution(
             new Dictionary<string, string> { ["SPRING_CONNECTOR_GITHUB_OWNER"] = "alice" },
+            // Files are ignored by MergeConnectorContext under ADR-0055 —
+            // they ride the bundle. We supply some here to verify the merge
+            // does not accidentally re-introduce a launcher-side context-
+            // files surface.
             new Dictionary<string, string> { ["connectors/github/binding.json"] = "{}" });
 
         var result = A2AExecutionDispatcher.MergeConnectorContext(spec, contribution);
 
         result.EnvironmentVariables.ShouldContainKeyAndValue("SPRING_TENANT_ID", "x");
         result.EnvironmentVariables.ShouldContainKeyAndValue("SPRING_CONNECTOR_GITHUB_OWNER", "alice");
-        result.ContextFiles.ShouldNotBeNull();
-        result.ContextFiles!.ShouldContainKey("agent-definition.yaml");
-        result.ContextFiles.ShouldContainKey("connectors/github/binding.json");
     }
 
     [Fact]
@@ -72,34 +69,5 @@ public class A2ADispatcherConnectorContextMergeTests
             A2AExecutionDispatcher.MergeConnectorContext(spec, contribution));
 
         ex.Message.ShouldContain("SPRING_TENANT_ID");
-    }
-
-    [Fact]
-    public void MergeConnectorContext_FileCollidesWithBootstrap_Throws()
-    {
-        var spec = MakeSpec(
-            contextFiles: new Dictionary<string, string> { ["tenant-config.json"] = "{}" });
-        var contribution = new ConnectorRuntimeContextContribution(
-            new Dictionary<string, string>(),
-            new Dictionary<string, string> { ["tenant-config.json"] = "evil" });
-
-        var ex = Should.Throw<SpringException>(() =>
-            A2AExecutionDispatcher.MergeConnectorContext(spec, contribution));
-
-        ex.Message.ShouldContain("tenant-config.json");
-    }
-
-    [Fact]
-    public void MergeConnectorContext_LauncherSpecWithoutContextFiles_PopulatesFromContribution()
-    {
-        var spec = MakeSpec(); // no context files
-        var contribution = new ConnectorRuntimeContextContribution(
-            new Dictionary<string, string> { ["SPRING_CONNECTOR_GITHUB_OWNER"] = "alice" },
-            new Dictionary<string, string> { ["connectors/github/binding.json"] = "{}" });
-
-        var result = A2AExecutionDispatcher.MergeConnectorContext(spec, contribution);
-
-        result.ContextFiles.ShouldNotBeNull();
-        result.ContextFiles!["connectors/github/binding.json"].ShouldBe("{}");
     }
 }

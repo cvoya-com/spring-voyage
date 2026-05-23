@@ -49,13 +49,32 @@ public interface IAgentRuntimeLauncher
 
     /// <summary>
     /// Builds the container-launch contract for one invocation. The returned
-    /// <see cref="AgentLaunchSpec"/> describes the argv to run inside the
-    /// container, the workspace the dispatcher must materialise (file contents
-    /// keyed by relative path), the mount path inside the container, any extra
-    /// env vars or volume mounts, and how the dispatcher should capture the
-    /// agent's response. Launchers MUST NOT write to the local filesystem.
+    /// <see cref="AgentLaunchSpec"/> describes the argv to run, the env vars
+    /// to set, any extra volume mounts, and how the dispatcher should
+    /// capture the agent's response. Under ADR-0055 the launcher no longer
+    /// emits in-workspace files here — those move to
+    /// <see cref="ContributeBundleAsync"/>. Launchers MUST NOT write to
+    /// the local filesystem.
     /// </summary>
     Task<AgentLaunchSpec> PrepareAsync(AgentLaunchContext context, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Builds the launcher's contribution to the agent's bootstrap bundle
+    /// (ADR-0055 §3). The agent-sidecar pulls the assembled bundle from the
+    /// worker on container start and writes every file under the per-member
+    /// workspace mount; the platform-authoritative subset is pinned per-turn
+    /// via the sidecar's integrity check.
+    /// </summary>
+    /// <remarks>
+    /// This is the one-and-only home for the launcher's in-workspace files
+    /// (the runtime's system-prompt file and MCP config file). The method
+    /// takes no per-turn / per-message context — the bundle is launch-time
+    /// and re-pulled on integrity-check mismatch; per-turn data rides the
+    /// A2A wire (ADR-0055 §4).
+    /// </remarks>
+    Task<AgentBootstrapContribution> ContributeBundleAsync(
+        AgentBootstrapContributionContext context,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Builds the declarative list of in-container probe commands the
@@ -158,51 +177,22 @@ public record AgentLaunchContext(
     Guid? MessageId = null);
 
 /// <summary>
-/// Output of <see cref="IAgentRuntimeLauncher.PrepareAsync"/>. Pure data — no
-/// on-disk state. The dispatcher materialises <see cref="WorkspaceFiles"/>
-/// into a fresh per-invocation directory on its own filesystem and bind-mounts
-/// it at <see cref="WorkspaceMountPath"/> inside the container.
+/// Output of <see cref="IAgentRuntimeLauncher.PrepareAsync"/>. Pure data —
+/// env vars, argv, and container-launch options. Per ADR-0055 the launcher
+/// no longer emits in-workspace files here; the agent's
+/// <c>CLAUDE.md</c> / <c>.mcp.json</c> / etc. ride the bundle returned by
+/// <see cref="IAgentRuntimeLauncher.ContributeBundleAsync"/> and are
+/// materialised by the agent-sidecar after pulling the bundle.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Replaces the legacy <c>AgentLaunchPrep</c> record. The new fields
-/// (<see cref="Argv"/>, <see cref="User"/>, <see cref="StdinPayload"/>,
-/// <see cref="A2APort"/>, <see cref="ResponseCapture"/>) all default to
-/// behaviour-preserving values so the rename is wire- and code-equivalent
-/// for callers that only set the original four fields. Subsequent PRs in
-/// the #1087 series flow these new fields end-to-end through the dispatcher
-/// and the A2A bridge so ephemeral agent dispatch can stop
-/// <c>sleep infinity</c>-ing and actually invoke the agent tool.
-/// </para>
-/// </remarks>
-/// <param name="WorkspaceFiles">
-/// File contents keyed by path relative to the workspace root
-/// (e.g. <c>"CLAUDE.md"</c>, <c>".mcp.json"</c>). Empty when the agent does
-/// not need a workspace materialised.
-/// </param>
 /// <param name="EnvironmentVariables">Env vars the dispatcher must add to the container (on top of its own baseline).</param>
-/// <param name="WorkspaceMountPath">
-/// Absolute path inside the container where the dispatcher must bind-mount
-/// the materialised workspace (e.g. <c>"/workspace"</c>). Required whenever
-/// <see cref="WorkspaceFiles"/> is non-empty.
-/// </param>
-/// <param name="ExtraVolumeMounts">Additional volume-mount specs (beyond the workspace mount).</param>
-/// <param name="ContextFiles">
-/// Files to materialise at <see cref="ContextMountPath"/> inside the container
-/// (D1 spec § 2.2.2 — <c>/spring/context/</c>). Keys are filenames relative
-/// to <see cref="ContextMountPath"/> (e.g. <c>agent-definition.yaml</c>,
-/// <c>tenant-config.json</c>). The dispatcher creates a fresh per-invocation
-/// directory, writes these files, and bind-mounts it at
-/// <see cref="ContextMountPath"/>. <c>null</c> or empty means no context mount.
-/// </param>
-/// <param name="ContextMountPath">
-/// Absolute path inside the container where the dispatcher bind-mounts the
-/// context files directory. Must match the canonical path <c>/spring/context/</c>
-/// per D1 spec § 2.2.2. Only used when <see cref="ContextFiles"/> is non-empty.
+/// <param name="ExtraVolumeMounts">
+/// Additional volume-mount specs beyond the per-member workspace mount the
+/// dispatcher provisions itself (the per-agent volume at
+/// <see cref="AgentWorkspaceContract.BuildMountPath"/>).
 /// </param>
 /// <param name="WorkingDirectory">
 /// Optional working directory inside the container. When <c>null</c>, the
-/// dispatcher uses <see cref="WorkspaceMountPath"/>.
+/// dispatcher uses the per-member workspace mount path.
 /// </param>
 /// <param name="Argv">
 /// Optional argv vector the dispatcher should set as the container's
@@ -215,11 +205,6 @@ public record AgentLaunchContext(
 /// <param name="User">
 /// Optional in-container user (uid[:gid] or username). When <c>null</c>,
 /// the runtime uses the image's configured user.
-/// </param>
-/// <param name="StdinPayload">
-/// Optional UTF-8 payload the dispatcher's bridge feeds on the agent
-/// process's stdin. Used by launchers (e.g. <c>claude-code</c>) that pass
-/// the prompt body via stdin rather than as a file or env var.
 /// </param>
 /// <param name="A2APort">
 /// TCP port the in-container A2A endpoint listens on. The dispatcher uses
@@ -234,16 +219,11 @@ public record AgentLaunchContext(
 /// mechanism without bumping the launcher contract again.
 /// </param>
 public record AgentLaunchSpec(
-    IReadOnlyDictionary<string, string> WorkspaceFiles,
     IReadOnlyDictionary<string, string> EnvironmentVariables,
-    string WorkspaceMountPath,
     IReadOnlyList<string>? ExtraVolumeMounts = null,
-    IReadOnlyDictionary<string, string>? ContextFiles = null,
-    string ContextMountPath = "/spring/context/",
     string? WorkingDirectory = null,
     IReadOnlyList<string>? Argv = null,
     string? User = null,
-    string? StdinPayload = null,
     int A2APort = 8999,
     AgentResponseCapture ResponseCapture = AgentResponseCapture.A2A);
 

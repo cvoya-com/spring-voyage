@@ -26,16 +26,12 @@ public class DispatcherWebApplicationFactory : WebApplicationFactory<Program>
     /// arguments it was invoked with.
     /// </summary>
     /// <remarks>
-    /// The double also implements <see cref="IWorkspaceVolumePopulator"/> — in
-    /// production the dispatcher binds the populator to the same singleton as the
-    /// container runtime (a <c>ProcessContainerRuntime</c> implements both), so
-    /// the test double must satisfy both interfaces for the DI cast to succeed
-    /// (#2608). By default the substituted populator returns <c>false</c> for any
-    /// volume, so endpoint tests stay on the bind-mount fallback path unless a
-    /// test arranges otherwise.
+    /// ADR-0055 removed <c>IWorkspaceVolumePopulator</c> — the dispatcher no
+    /// longer materialises workspace files. The container-runtime double is
+    /// now a plain <see cref="IContainerRuntime"/>.
     /// </remarks>
     public IContainerRuntime ContainerRuntime { get; } =
-        Substitute.For<IContainerRuntime, IWorkspaceVolumePopulator>();
+        Substitute.For<IContainerRuntime>();
 
     /// <summary>Default bearer token pre-seeded on the host for authenticated tests.</summary>
     public const string ValidToken = "test-token-worker-1";
@@ -43,23 +39,10 @@ public class DispatcherWebApplicationFactory : WebApplicationFactory<Program>
     /// <summary>Tenant id the <see cref="ValidToken"/> is scoped to.</summary>
     public const string ValidTenantId = "tenant-test";
 
-    /// <summary>
-    /// Per-fixture workspace root the dispatcher is configured to use. Lives
-    /// under <see cref="Path.GetTempPath"/> so the workspace materialiser can
-    /// write through the real filesystem during integration tests without
-    /// requiring the production default
-    /// (<c>~/.spring-voyage/workspaces</c>) to exist on the host.
-    /// </summary>
-    public string WorkspaceRoot { get; } =
-        Path.Combine(Path.GetTempPath(), "spring-dispatcher-tests-" + Guid.NewGuid().ToString("N"));
-
     /// <inheritdoc />
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        Directory.CreateDirectory(WorkspaceRoot);
-
         builder.UseSetting($"{DispatcherOptions.SectionName}:Tokens:{ValidToken}:TenantId", ValidTenantId);
-        builder.UseSetting($"{DispatcherOptions.SectionName}:WorkspaceRoot", WorkspaceRoot);
 
         builder.ConfigureServices(services =>
         {
@@ -87,27 +70,6 @@ public class DispatcherWebApplicationFactory : WebApplicationFactory<Program>
             }
             services.AddSingleton<IContainerRuntimeBinaryProbe>(new StubContainerRuntimeBinaryProbe());
         });
-    }
-
-    /// <inheritdoc />
-    protected override void Dispose(bool disposing)
-    {
-        base.Dispose(disposing);
-        if (disposing)
-        {
-            try
-            {
-                if (Directory.Exists(WorkspaceRoot))
-                {
-                    Directory.Delete(WorkspaceRoot, recursive: true);
-                }
-            }
-            catch
-            {
-                // Best-effort cleanup — leaking a temp dir on test teardown is
-                // not worth failing the build over.
-            }
-        }
     }
 
     private sealed class StubContainerRuntimeBinaryProbe : IContainerRuntimeBinaryProbe

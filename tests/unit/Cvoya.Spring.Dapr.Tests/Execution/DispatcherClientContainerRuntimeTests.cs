@@ -144,46 +144,10 @@ public class DispatcherClientContainerRuntimeTests
                 TestContext.Current.CancellationToken));
     }
 
-    [Fact]
-    public async Task RunAsync_SerialisesWorkspaceField_WhenContainerConfigCarriesOne()
-    {
-        // Issue #1042: ContainerConfig.Workspace must round-trip into the wire
-        // body so the dispatcher service has the file map it needs to
-        // materialise the workspace on its host filesystem.
-        HttpRequestMessage? captured = null;
-        var handler = new FakeHandler(async (req, _) =>
-        {
-            captured = req;
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = JsonContent.Create(new { id = "ws-1", exitCode = 0, stdout = "", stderr = "" }),
-            };
-        });
-
-        var runtime = CreateRuntime(handler);
-
-        var config = new ContainerConfig(
-            Image: "claude-code:latest",
-            WorkingDirectory: "/workspace",
-            Workspace: new ContainerWorkspace(
-                MountPath: "/workspace",
-                Files: new Dictionary<string, string>
-                {
-                    ["CLAUDE.md"] = "system prompt",
-                    [".mcp.json"] = "{}",
-                }));
-
-        await runtime.RunAsync(config, TestContext.Current.CancellationToken);
-
-        captured.ShouldNotBeNull();
-        var body = await captured!.Content!.ReadAsStringAsync(TestContext.Current.CancellationToken);
-        using var parsed = JsonDocument.Parse(body);
-        var workspace = parsed.RootElement.GetProperty("workspace");
-        workspace.GetProperty("mountPath").GetString().ShouldBe("/workspace");
-        var files = workspace.GetProperty("files");
-        files.GetProperty("CLAUDE.md").GetString().ShouldBe("system prompt");
-        files.GetProperty(".mcp.json").GetString().ShouldBe("{}");
-    }
+    // ADR-0055: ContainerConfig.Workspace and ContainerWorkspace are deleted.
+    // RunAsync_SerialisesWorkspaceField_WhenContainerConfigCarriesOne is removed —
+    // the agent-sidecar pulls the bundle directly; the dispatcher API no
+    // longer carries a `workspace` field on its wire body.
 
     [Fact]
     public async Task RunAsync_SerialisesAdditionalNetworks_WhenContainerConfigCarriesThem()

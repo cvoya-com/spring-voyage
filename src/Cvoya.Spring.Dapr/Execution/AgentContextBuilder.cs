@@ -58,21 +58,9 @@ public class AgentContextBuilder(
     IOptions<McpServerOptions> mcpServerOptions,
     IOptions<AgentContextOptions> agentContextOptions,
     IOptions<OllamaOptions> ollamaOptions,
+    IAgentBootstrapAuthStore bootstrapAuthStore,
     ILoggerFactory loggerFactory) : IAgentContextBuilder
 {
-    /// <summary>
-    /// Canonical mount directory for structured context files inside the
-    /// container (D1 spec § 2.2.2). Relative path prefix used when building
-    /// the <see cref="AgentBootstrapContext.ContextFiles"/> dictionary.
-    /// </summary>
-    public const string ContextMountPath = "/spring/context/";
-
-    /// <summary>Filename for the agent-definition file (YAML).</summary>
-    public const string AgentDefinitionFileName = "agent-definition.yaml";
-
-    /// <summary>Filename for the tenant-config file (JSON).</summary>
-    public const string TenantConfigFileName = "tenant-config.json";
-
     // Canonical env var names per D1 spec § 2.2.1.
     internal const string EnvTenantId = "SPRING_TENANT_ID";
     internal const string EnvUnitId = "SPRING_UNIT_ID";
@@ -86,12 +74,16 @@ public class AgentContextBuilder(
     internal const string EnvMcpToken = "SPRING_MCP_TOKEN";
     internal const string EnvTelemetryUrl = "SPRING_TELEMETRY_URL";
     internal const string EnvTelemetryToken = "SPRING_TELEMETRY_TOKEN";
-    internal const string EnvWorkspacePath = AgentVolumeManager.WorkspacePathEnvVar;
+    internal const string EnvWorkspacePath = AgentWorkspaceContract.WorkspacePathEnvVar;
+    internal const string EnvBootstrapUrl = AgentWorkspaceContract.BootstrapUrlEnvVar;
+    internal const string EnvBootstrapToken = AgentWorkspaceContract.BootstrapTokenEnvVar;
     internal const string EnvConcurrentThreads = "SPRING_CONCURRENT_THREADS";
 
     private readonly McpServerOptions _mcpServerOptions = mcpServerOptions.Value;
     private readonly AgentContextOptions _agentContextOptions = agentContextOptions.Value;
     private readonly OllamaOptions _ollamaOptions = ollamaOptions.Value;
+    private readonly IAgentBootstrapAuthStore _bootstrapAuthStore = bootstrapAuthStore
+        ?? throw new ArgumentNullException(nameof(bootstrapAuthStore));
     private readonly ILogger _logger = loggerFactory.CreateLogger<AgentContextBuilder>();
 
     /// <inheritdoc />
@@ -128,8 +120,14 @@ public class AgentContextBuilder(
             [EnvMcpUrl] = mcpUrl,
             [EnvMcpToken] = launchContext.McpToken,
 
-            // Workspace mount path (from AgentVolumeManager — D3c).
-            [EnvWorkspacePath] = AgentVolumeManager.WorkspaceMountPath,
+            // ADR-0055 §5: per-member workspace mount path.
+            [EnvWorkspacePath] = AgentWorkspaceContract.BuildMountPath(launchContext.AgentId),
+
+            // ADR-0055 §8/§9: worker bootstrap endpoint URL + per-agent
+            // bearer token. The sidecar's bootstrap client pulls the
+            // bundle from this URL on container start.
+            [EnvBootstrapUrl] = _mcpServerOptions.BuildBootstrapEndpoint(launchContext.AgentId),
+            [EnvBootstrapToken] = _bootstrapAuthStore.Issue(launchContext.AgentId),
 
             // Concurrent-threads policy.
             [EnvConcurrentThreads] = launchContext.ConcurrentThreads ? "true" : "false",
@@ -174,30 +172,20 @@ public class AgentContextBuilder(
             envVars[EnvTelemetryToken] = _agentContextOptions.TelemetryToken;
         }
 
-        // Build the mounted-file set for /spring/context/.
-        var contextFiles = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        if (!string.IsNullOrEmpty(launchContext.AgentDefinitionYaml))
-        {
-            contextFiles[AgentDefinitionFileName] = launchContext.AgentDefinitionYaml;
-        }
-
-        if (!string.IsNullOrEmpty(launchContext.TenantConfigJson))
-        {
-            contextFiles[TenantConfigFileName] = launchContext.TenantConfigJson;
-        }
-
+        // ADR-0055: the agent-definition YAML and tenant-config JSON used
+        // to ride here under ContextFiles. They now live in the agent
+        // bootstrap bundle the sidecar pulls, written under the per-member
+        // workspace mount. This builder owns env vars only.
         _logger.LogInformation(
-            "Built IAgentContext bootstrap for agent {AgentId} (tenant={TenantId} unit={UnitId} " +
-            "thread={ThreadId} concurrent_threads={ConcurrentThreads} context_files={ContextFileCount})",
+            "Built IAgentContext env-var set for agent {AgentId} (tenant={TenantId} unit={UnitId} " +
+            "thread={ThreadId} concurrent_threads={ConcurrentThreads})",
             launchContext.AgentId,
             launchContext.TenantId,
             launchContext.UnitId ?? "(none)",
             launchContext.ThreadId ?? "(none)",
-            launchContext.ConcurrentThreads,
-            contextFiles.Count);
+            launchContext.ConcurrentThreads);
 
-        return Task.FromResult(new AgentBootstrapContext(envVars, contextFiles));
+        return Task.FromResult(new AgentBootstrapContext(envVars));
     }
 
     /// <summary>

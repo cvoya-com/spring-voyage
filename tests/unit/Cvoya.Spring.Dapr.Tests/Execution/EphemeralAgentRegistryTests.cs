@@ -36,7 +36,8 @@ public class EphemeralAgentRegistryTests
         var dapr = Substitute.For<IDaprSidecarManager>();
         var clm = new ContainerLifecycleManager(
             _runtime, dapr, Options.Create(new DaprSidecarOptions()), _loggerFactory);
-        var volumeManager = new AgentVolumeManager(_runtime, _loggerFactory);
+        var bootstrapAuthStore = Substitute.For<IAgentBootstrapAuthStore>();
+        var volumeManager = new AgentVolumeManager(_runtime, bootstrapAuthStore, _loggerFactory);
         _registry = new EphemeralAgentRegistry(_runtime, clm, volumeManager, _loggerFactory);
     }
 

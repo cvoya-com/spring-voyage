@@ -47,30 +47,16 @@ public partial class Program
         // The dispatcher is the one place where the process container runtime lives.
         // Workers never hold a ProcessContainerRuntime binding — they bind a
         // DispatcherClientContainerRuntime instead (registered in the Dapr DI layer).
+        // Per ADR-0055 the dispatcher no longer materialises workspace files — the
+        // agent-sidecar pulls them from the worker bootstrap endpoint and writes them
+        // into the per-member volume itself.
         builder.Services.AddSingleton<IContainerRuntime, PodmanRuntime>();
-
-        // #2608: the workspace materialiser populates the per-agent persistent
-        // volume with launcher files before container start. ProcessContainerRuntime
-        // (the PodmanRuntime base) implements IWorkspaceVolumePopulator — bind it to
-        // the same singleton so the populate goes through the runtime that owns the
-        // volume. This capability is dispatcher-local: the worker-side proxy runtime
-        // never materialises workspaces and so does not implement the populator.
-        builder.Services.AddSingleton<IWorkspaceVolumePopulator>(
-            sp => (IWorkspaceVolumePopulator)sp.GetRequiredService<IContainerRuntime>());
-
-        // Workspace materialiser: per-invocation agent workspaces are populated here
-        // on the dispatcher host — written into the per-agent persistent volume when
-        // the workspace mount coincides with it, or into a per-invocation bind-mount
-        // directory otherwise. Lives in the dispatcher (not the worker) so the host's
-        // container runtime sees the files. See issues #1042 and #2608.
-        builder.Services.AddSingleton<IWorkspaceMaterializer, WorkspaceMaterializer>();
 
         // Startup probe: the configured container runtime binary must resolve on PATH
         // before the dispatcher accepts requests. Without this, a misconfigured image
         // (e.g. one that ships `podman-remote` but not `podman`) comes up healthy and
         // then 500s on every dispatch with "No such file or directory". See #984.
         builder.Services.TryAddSingleton<IContainerRuntimeBinaryProbe, ContainerRuntimeBinaryProbe>();
-        builder.Services.TryAddSingleton<IWorkspaceRootProbe, WorkspaceRootProbe>();
         // Cwd probe — keeps the dispatcher from silently starting in a deleted
         // working directory (e.g. a git worktree that was removed while the
         // dispatcher was still running). See issue #1674.
@@ -84,8 +70,6 @@ public partial class Program
         // reads ContainerRuntime:RuntimeType, so it owns validating it.
         builder.Services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IConfigurationRequirement, ContainerRuntimeConfigurationRequirement>());
-        builder.Services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IConfigurationRequirement, WorkspaceRootConfigurationRequirement>());
         // Cwd fail-fast — mandatory tier-1 requirement that aborts boot when the
         // dispatcher's working directory is unreachable (#1674). Paired with the
         // error-translation path in ProcessContainerRuntime.RunProcessAsync so a

@@ -111,77 +111,71 @@ public class CodexLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN are
-        // removed — AgentContextBuilder now emits the D1-canonical equivalents
-        // (SPRING_AGENT_ID, SPRING_MCP_URL, SPRING_MCP_TOKEN) for every launcher.
-        // SPRING_THREAD_ID, SPRING_SYSTEM_PROMPT have no D1-spec equivalent and
-        // are retained here as launcher-specific vars.
         // ADR-0041 / #2096: when concurrent_threads is on, prepend the
-        // shared launcher guard to the assembled prompt so the model is
-        // told (in the system prompt) not to invoke long-running watchers,
-        // bind fixed ports, or mutate shared global state. Composes with
-        // the user's prompt — never replaces it.
+        // shared launcher guard to the assembled prompt.
         var prompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
+
+        var workspaceMountNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
 
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
             ["SPRING_SYSTEM_PROMPT"] = prompt,
-            // D3c: canonical path where the per-agent workspace volume is
-            // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).
-            [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.WorkspaceMountPath,
-            // ADR-0052 §4: absolute container path of the `.mcp.json` the
+            // ADR-0055 §5: per-member workspace mount path.
+            [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.BuildMountPath(context.AgentId),
+            // ADR-0052 §4: absolute container path of the .mcp.json the
             // bridge rewrites with the per-turn MCP session token before
             // every CLI spawn.
-            [McpConfigPathEnvVar] = $"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/{McpConfigFileName}",
+            [McpConfigPathEnvVar] = $"{workspaceMountNoSlash}/{McpConfigFileName}",
         };
 
-        // ADR-0051: the OTLP-ingest env contract (SPRING_CALLBACK_URL /
-        // SPRING_CALLBACK_TOKEN) is still stamped here. sv.messaging.* tools
-        // are served by the single platform MCP server below — there is no
-        // separate messaging MCP server to register.
+        // ADR-0051: OTLP-ingest env contract stamped here.
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
-        // ADR-0051: one MCP server exposes every sv.* tool — sv.messaging.*
-        // included — under the MCP session token.
-        var mcpServers = new Dictionary<string, object>(StringComparer.Ordinal)
-        {
-            ["spring-voyage"] = new
-            {
-                type = "http",
-                url = context.McpEndpoint,
-                headers = new Dictionary<string, string>
-                {
-                    ["Authorization"] = $"Bearer {context.McpToken}"
-                }
-            }
-        };
+        // #1714 step 2: inject the OpenAI API key into OPENAI_API_KEY.
+        await ResolveRuntimeCredentialAsync(context, envVars, cancellationToken);
+
+        _logger.LogInformation(
+            "Prepared Codex launch spec for agent {AgentId} thread {ThreadId}",
+            context.AgentId, context.ThreadId);
+
+        return new AgentLaunchSpec(EnvironmentVariables: envVars);
+    }
+
+    /// <inheritdoc />
+    public Task<AgentBootstrapContribution> ContributeBundleAsync(
+        AgentBootstrapContributionContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
 
         var mcpConfig = new
         {
-            mcpServers
+            mcpServers = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["spring-voyage"] = new
+                {
+                    type = "http",
+                    url = context.McpEndpoint,
+                    headers = new Dictionary<string, string>
+                    {
+                        // Launch-time placeholder — sidecar rewrites with
+                        // the per-turn MCP session token (ADR-0052 §4).
+                        ["Authorization"] = "Bearer ",
+                    },
+                },
+            },
         };
 
-        var workspaceFiles = new Dictionary<string, string>
+        var files = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["AGENTS.md"] = prompt,
-            [McpConfigFileName] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true })
+            ["AGENTS.md"] = context.Definition.Instructions ?? string.Empty,
+            [McpConfigFileName] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true }),
         };
 
-        _logger.LogInformation(
-            "Prepared Codex workspace request ({FileCount} files) for agent {AgentId} thread {ThreadId}",
-            workspaceFiles.Count, context.AgentId, context.ThreadId);
-
-        // #1714 step 2: inject the OpenAI API key into OPENAI_API_KEY.
-        // Codex uses the OpenAI Platform API; its credential schema is
-        // a single accepted shape (sk-… API keys) so there is no
-        // shape-branching at the launcher.
-        await ResolveRuntimeCredentialAsync(context, envVars, cancellationToken);
-
-        return new AgentLaunchSpec(
-            WorkspaceFiles: workspaceFiles,
-            EnvironmentVariables: envVars,
-            WorkspaceMountPath: AgentWorkspaceContract.WorkspaceMountPath);
+        return Task.FromResult(new AgentBootstrapContribution(
+            Files: files,
+            PlatformFilePaths: new[] { "AGENTS.md", McpConfigFileName }));
     }
 
     private async Task ResolveRuntimeCredentialAsync(

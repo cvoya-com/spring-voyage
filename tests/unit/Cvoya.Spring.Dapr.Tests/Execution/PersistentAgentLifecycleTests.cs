@@ -86,6 +86,7 @@ public class PersistentAgentLifecycleTests
         services.AddSingleton(Options.Create(daprOptions));
         services.AddSingleton<ContainerLifecycleManager>();
         services.AddSingleton<AgentVolumeManager>();
+        services.AddSingleton(Substitute.For<IAgentBootstrapAuthStore>());
         services.AddSingleton(_agentProvider);
         // ADR-0052 §3: the deploy path no longer issues an MCP session — it
         // resolves the container-facing endpoint from McpServerOptions and
@@ -102,9 +103,7 @@ public class PersistentAgentLifecycleTests
         var agentContextBuilder = Substitute.For<IAgentContextBuilder>();
         agentContextBuilder
             .BuildAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
-            .Returns(new AgentBootstrapContext(
-                new Dictionary<string, string>(),
-                new Dictionary<string, string>()));
+            .Returns(new AgentBootstrapContext(new Dictionary<string, string>()));
         services.AddSingleton(agentContextBuilder);
         services.AddSingleton<PersistentAgentRegistry>();
         services.AddSingleton<PersistentAgentLifecycle>();

@@ -126,18 +126,28 @@ public class SpringVoyageAgentLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ProvidesEmptyWorkspace()
+    public async Task ContributeBundleAsync_ReturnsEmptyContribution()
     {
-        // The Dapr Agent receives its prompt via SPRING_SYSTEM_PROMPT — so it
-        // carries no workspace files. #2608: with an empty WorkspaceFiles map
-        // ContainerConfigBuilder emits no Workspace and the dispatcher creates
-        // no /workspace bind mount; the container's single workspace mount is
-        // its per-agent persistent volume. The mount path is still the
-        // canonical contract value so all four launchers speak one vocabulary.
-        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+        // ADR-0055: the Dapr Agent is A2A-native — it does not consume any
+        // in-workspace system-prompt or MCP-config files. The bundle
+        // contribution is therefore empty.
+        var definition = new AgentDefinition(
+            AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
+            Name: "Test",
+            Instructions: "x",
+            Execution: new AgentExecutionConfig(
+                Runtime: "spring-voyage",
+                Image: "ghcr.io/test/spring-voyage:latest"));
 
-        prep.WorkspaceFiles.ShouldBeEmpty();
-        prep.WorkspaceMountPath.ShouldBe(AgentWorkspaceContract.WorkspaceMountPathNoSlash);
+        var contribution = await _launcher.ContributeBundleAsync(
+            new AgentBootstrapContributionContext(
+                AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
+                Definition: definition,
+                McpEndpoint: "http://host.docker.internal:9999/mcp/"),
+            TestContext.Current.CancellationToken);
+
+        contribution.Files.ShouldBeEmpty();
+        contribution.PlatformFilePaths.ShouldBeEmpty();
     }
 
     [Fact]
@@ -145,15 +155,13 @@ public class SpringVoyageAgentLauncherTests
     {
         // #1159: the Dapr Agent image's CMD is `python agent.py` relative
         // to its image WORKDIR (/app). The launcher must NOT set a
-        // WorkingDirectory — combined with WorkspaceFiles being empty,
-        // ContainerConfigBuilder will then leave the container workdir
-        // unset and the image default applies. If either of those two
-        // signals flips, `python: can't open file '/workspace/agent.py'`
-        // returns and the container exits within ~40ms.
+        // WorkingDirectory — ContainerConfigBuilder then leaves the
+        // container workdir unset and the image default applies. If that
+        // flips, `python: can't open file '/workspace/agent.py'` returns
+        // and the container exits within ~40ms.
         var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
 
         prep.WorkingDirectory.ShouldBeNull();
-        prep.WorkspaceFiles.ShouldBeEmpty();
     }
 
     /// <summary>
@@ -238,15 +246,6 @@ public class SpringVoyageAgentLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_LeavesStdinPayloadNull()
-    {
-        // dapr-agent reads requests over A2A, never via stdin.
-        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
-
-        prep.StdinPayload.ShouldBeNull();
-    }
-
-    [Fact]
     public async Task PrepareAsync_DefaultsA2APortAndResponseCapture()
     {
         var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
@@ -256,13 +255,14 @@ public class SpringVoyageAgentLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_SetsSpringWorkspacePath_ToCanonicalMountPath()
+    public async Task PrepareAsync_SetsSpringWorkspacePath_ToPerMemberMountPath()
     {
-        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+        var context = CreateContext();
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         prep.EnvironmentVariables.ShouldContainKey(AgentWorkspaceContract.WorkspacePathEnvVar);
         prep.EnvironmentVariables[AgentWorkspaceContract.WorkspacePathEnvVar]
-            .ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
+            .ShouldBe(AgentWorkspaceContract.BuildMountPath(context.AgentId));
     }
 
     [Fact]

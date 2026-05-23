@@ -88,9 +88,7 @@ public class A2AExecutionDispatcherTests
     private const string ContainerId = "spring-ephemeral-abc";
 
     private static readonly AgentLaunchSpec DefaultSpec = new(
-        WorkspaceFiles: new Dictionary<string, string> { ["CLAUDE.md"] = "prepared" },
-        EnvironmentVariables: new Dictionary<string, string> { ["SPRING_SYSTEM_PROMPT"] = "prepared" },
-        WorkspaceMountPath: "/workspace");
+        EnvironmentVariables: new Dictionary<string, string> { ["SPRING_SYSTEM_PROMPT"] = "prepared" });
 
     public A2AExecutionDispatcherTests()
     {
@@ -100,7 +98,8 @@ public class A2AExecutionDispatcherTests
         var daprOptions = new DaprSidecarOptions();
         var clmEph = new ContainerLifecycleManager(
             _containerRuntime, daprEph, Options.Create(daprOptions), _loggerFactory);
-        var volumeManager = new AgentVolumeManager(_containerRuntime, _loggerFactory);
+        var bootstrapAuthStore = Substitute.For<IAgentBootstrapAuthStore>();
+        var volumeManager = new AgentVolumeManager(_containerRuntime, bootstrapAuthStore, _loggerFactory);
         _ephemeralRegistry = new EphemeralAgentRegistry(
             _containerRuntime, clmEph, volumeManager, _loggerFactory);
 
@@ -112,6 +111,7 @@ public class A2AExecutionDispatcherTests
         persistentServices.AddSingleton(Options.Create(daprOptions));
         persistentServices.AddSingleton<ContainerLifecycleManager>();
         persistentServices.AddSingleton<AgentVolumeManager>();
+        persistentServices.AddSingleton(Substitute.For<IAgentBootstrapAuthStore>());
         persistentServices.AddSingleton(Substitute.For<IAgentDefinitionProvider>());
         persistentServices.AddSingleton(Substitute.For<IMcpServer>());
         // ADR-0052 §3: PersistentAgentLifecycle resolves the container-facing
@@ -155,10 +155,9 @@ public class A2AExecutionDispatcherTests
                     ["SPRING_LLM_PROVIDER_URL"] = "http://ollama:11434",
                     ["SPRING_LLM_PROVIDER_TOKEN"] = "test-llm-token",
                     ["SPRING_BUCKET2_TOKEN"] = "test-bucket2-token",
-                    ["SPRING_WORKSPACE_PATH"] = "/spring/workspace/",
+                    ["SPRING_WORKSPACE_PATH"] = AgentWorkspaceContract.BuildMountPath(AgentId),
                     ["SPRING_CONCURRENT_THREADS"] = "true",
-                },
-                ContextFiles: new Dictionary<string, string>()));
+                }));
 
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
         // The dispatcher calls IssueSession(agentId, threadId, scheme,
@@ -206,7 +205,8 @@ public class A2AExecutionDispatcherTests
         var daprD = Substitute.For<IDaprSidecarManager>();
         var clmD = new ContainerLifecycleManager(
             _containerRuntime, daprD, Options.Create(daprOptions), _loggerFactory);
-        var volumeManagerForDispatcher = new AgentVolumeManager(_containerRuntime, _loggerFactory);
+        var volumeManagerForDispatcher = new AgentVolumeManager(
+            _containerRuntime, Substitute.For<IAgentBootstrapAuthStore>(), _loggerFactory);
 
         // D2 / Stage 2 of ADR-0029: supply the transport factory that the
         // dispatcher now requires. The factory wraps _containerRuntime so
@@ -352,13 +352,13 @@ public class A2AExecutionDispatcherTests
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
+        // ADR-0055: ContainerConfig no longer carries Workspace/ContextWorkspace —
+        // the agent-sidecar pulls the bundle. Pin only the image and the
+        // builder-honoured WorkingDirectory.
         var expected = ContainerConfigBuilder.Build(Image, DefaultSpec);
         await _containerRuntime.Received(1).StartAsync(
             Arg.Is<ContainerConfig>(c =>
                 c.Image == expected.Image &&
-                c.Workspace != null &&
-                c.Workspace.MountPath == expected.Workspace!.MountPath &&
-                c.Workspace.Files.ContainsKey("CLAUDE.md") &&
                 c.WorkingDirectory == expected.WorkingDirectory),
             Arg.Any<CancellationToken>());
     }
@@ -986,12 +986,10 @@ public class A2AExecutionDispatcherTests
         try { await _dispatcher.DispatchAsync(message, context: null, cts.Token); }
         catch { /* readiness probe will fail; assertion on the StartAsync call is what we want */ }
 
+        // ADR-0055: ContainerConfig no longer carries Workspace; pin only the image.
         var expected = ContainerConfigBuilder.Build(Image, DefaultSpec);
         await _containerRuntime.Received(1).StartAsync(
-            Arg.Is<ContainerConfig>(c =>
-                c.Image == expected.Image &&
-                c.Workspace != null &&
-                c.Workspace.MountPath == expected.Workspace!.MountPath),
+            Arg.Is<ContainerConfig>(c => c.Image == expected.Image),
             Arg.Any<CancellationToken>());
     }
 
@@ -1043,12 +1041,10 @@ public class A2AExecutionDispatcherTests
 
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(ci => new AgentLaunchSpec(
-                WorkspaceFiles: new Dictionary<string, string>(),
                 EnvironmentVariables: new Dictionary<string, string>
                 {
                     ["SPRING_SYSTEM_PROMPT"] = ci.ArgAt<AgentLaunchContext>(0).Prompt
-                },
-                WorkspaceMountPath: "/workspace"));
+                }));
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
@@ -1258,9 +1254,7 @@ public class A2AExecutionDispatcherTests
         AgentLaunchContext? capturedCtx = null;
         _launcher.PrepareAsync(Arg.Do<AgentLaunchContext>(ctx => capturedCtx = ctx), Arg.Any<CancellationToken>())
             .Returns(new AgentLaunchSpec(
-                WorkspaceFiles: new Dictionary<string, string>(),
-                EnvironmentVariables: new Dictionary<string, string>(),
-                WorkspaceMountPath: "/workspace"));
+                EnvironmentVariables: new Dictionary<string, string>()));
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 

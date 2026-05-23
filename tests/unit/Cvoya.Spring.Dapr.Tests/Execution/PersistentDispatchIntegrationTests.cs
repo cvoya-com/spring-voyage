@@ -81,9 +81,7 @@ public class PersistentDispatchIntegrationTests
         _runtimeCatalog.GetAgentRuntime("claude").Returns(claudeRuntime);
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(new AgentLaunchSpec(
-                WorkspaceFiles: new Dictionary<string, string>(),
-                EnvironmentVariables: new Dictionary<string, string>(),
-                WorkspaceMountPath: "/workspace"));
+                EnvironmentVariables: new Dictionary<string, string>()));
 
         // D3a: return a minimal bootstrap bundle.
         _agentContextBuilder.BuildAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
@@ -92,8 +90,7 @@ public class PersistentDispatchIntegrationTests
                 {
                     ["SPRING_TENANT_ID"] = Cvoya.Spring.Core.Tenancy.OssTenantIds.DefaultNoDash,
                     ["SPRING_AGENT_ID"] = AgentId,
-                },
-                ContextFiles: new Dictionary<string, string>()));
+                }));
 
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
         // Production dispatch threads message.To.Scheme and the inbound
@@ -138,6 +135,7 @@ public class PersistentDispatchIntegrationTests
         persistentServices.AddSingleton(Options.Create(daprOptions));
         persistentServices.AddSingleton<ContainerLifecycleManager>();
         persistentServices.AddSingleton<AgentVolumeManager>();
+        persistentServices.AddSingleton(Substitute.For<IAgentBootstrapAuthStore>());
         persistentServices.AddSingleton(Substitute.For<IAgentDefinitionProvider>());
         persistentServices.AddSingleton(_mcpServer);
         // ADR-0052 §3: PersistentAgentLifecycle resolves the container-facing
@@ -163,7 +161,8 @@ public class PersistentDispatchIntegrationTests
         var daprD = Substitute.For<IDaprSidecarManager>();
         var clmD = new ContainerLifecycleManager(
             _containerRuntime, daprD, Options.Create(daprOptions), _loggerFactory);
-        var volumeManager = new AgentVolumeManager(_containerRuntime, _loggerFactory);
+        var bootstrapAuthStoreForDispatcher = Substitute.For<IAgentBootstrapAuthStore>();
+        var volumeManager = new AgentVolumeManager(_containerRuntime, bootstrapAuthStoreForDispatcher, _loggerFactory);
 
         var transportFactory = new DispatcherProxyA2ATransportFactory(_containerRuntime);
 

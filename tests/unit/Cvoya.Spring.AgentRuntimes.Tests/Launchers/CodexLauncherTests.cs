@@ -25,6 +25,7 @@ using Xunit;
 public class CodexLauncherTests
 {
     private const string DefaultApiKey = "sk-test-codex-key";
+    private const string BundleContextMcpEndpoint = "http://host.docker.internal:9999/mcp/";
 
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILlmCredentialResolver _credentialResolver;
@@ -58,37 +59,15 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ReturnsWorkspaceFilesAndEnvVars()
+    public async Task PrepareAsync_ReturnsEnvVars()
     {
-        // Note: an earlier revision also snapshot Path.GetTempPath() before
-        // and after PrepareAsync to assert "doesn't touch the local
-        // filesystem" (the launcher contract — see issue #1042). That
-        // assertion races with any other parallel test (in any assembly)
-        // that writes under /tmp, producing a recurring CI flake (#1082).
-        // The contract is now enforced by code review on the launcher
-        // implementation, which is pure-functional dictionary
-        // construction.
+        // ADR-0055: the launcher emits env vars only; the workspace files
+        // (AGENTS.md / .mcp.json) move to ContributeBundleAsync.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nWrite clean code.",
             mcpToken: "codex-secret-token");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        // #2608: the workspace mount is the per-agent persistent volume — no
-        // separate /workspace bind mount. Launcher files land in the single
-        // workspace mount at AgentWorkspaceContract.WorkspaceMountPath.
-        prep.WorkspaceMountPath.ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
-        prep.WorkspaceFiles.Keys.ShouldBe(new[] { "AGENTS.md", ".mcp.json" }, ignoreOrder: true);
-        // Issue #2493: every launcher prepends the always-on
-        // ResponseDiscipline fragment; the user's prompt is the tail.
-        prep.WorkspaceFiles["AGENTS.md"].ShouldEndWith(context.Prompt);
-        prep.WorkspaceFiles["AGENTS.md"].ShouldContain("Spring Voyage runtime guard — response discipline");
-
-        var parsed = JsonDocument.Parse(prep.WorkspaceFiles[".mcp.json"]).RootElement;
-        var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
-        server.GetProperty("url").GetString().ShouldBe(context.McpEndpoint);
-        server.GetProperty("headers").GetProperty("Authorization").GetString()
-            .ShouldBe("Bearer codex-secret-token");
 
         // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN removed —
         // AgentContextBuilder emits the D1-canonical names for all launchers.
@@ -108,7 +87,29 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_SetsSpringWorkspacePath_ToCanonicalMountPath()
+    public async Task ContributeBundleAsync_ReturnsAgentsMdAndMcpJsonFiles()
+    {
+        // ADR-0055 §3: launcher-owned in-workspace files live in the
+        // bootstrap contribution, not on the launch spec.
+        var contribution = await _launcher.ContributeBundleAsync(
+            CreateBundleContext(),
+            TestContext.Current.CancellationToken);
+
+        contribution.Files.Keys.ShouldBe(new[] { "AGENTS.md", ".mcp.json" }, ignoreOrder: true);
+        contribution.Files["AGENTS.md"].ShouldBe("Write clean code.");
+
+        var parsed = JsonDocument.Parse(contribution.Files[".mcp.json"]).RootElement;
+        var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
+        server.GetProperty("url").GetString().ShouldBe(BundleContextMcpEndpoint);
+        // ADR-0052 §4 / ADR-0055: empty Authorization placeholder.
+        server.GetProperty("headers").GetProperty("Authorization").GetString()
+            .ShouldBe("Bearer ");
+
+        contribution.PlatformFilePaths.ShouldBe(new[] { "AGENTS.md", ".mcp.json" }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_SetsSpringWorkspacePath_ToPerMemberMountPath()
     {
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "Be helpful.",
@@ -118,27 +119,35 @@ public class CodexLauncherTests
 
         prep.EnvironmentVariables.ShouldContainKey(AgentWorkspaceContract.WorkspacePathEnvVar);
         prep.EnvironmentVariables[AgentWorkspaceContract.WorkspacePathEnvVar]
-            .ShouldBe(AgentWorkspaceContract.WorkspaceMountPath);
+            .ShouldBe(AgentWorkspaceContract.BuildMountPath(context.AgentId));
     }
 
     [Fact]
-    public async Task PrepareAsync_WritesOnlyTheSinglePlatformMcpServer()
+    public async Task ContributeBundleAsync_WritesOnlyTheSinglePlatformMcpServer()
     {
         // ADR-0051: one MCP server serves every sv.* tool — sv.messaging.*
-        // included. The launcher no longer writes a second messaging server.
+        // included. The bundle no longer writes a second messaging server.
+        var contribution = await _launcher.ContributeBundleAsync(
+            CreateBundleContext(),
+            TestContext.Current.CancellationToken);
+
+        var mcpServers = GetMcpServers(contribution);
+        mcpServers.EnumerateObject().Select(property => property.Name)
+            .ShouldBe(new[] { "spring-voyage" });
+    }
+
+    [Fact]
+    public async Task PrepareAsync_SetsSpringMcpConfigPath_UnderPerMemberMount()
+    {
+        // ADR-0052 §4: SPRING_MCP_CONFIG points the bridge at the .mcp.json
+        // it rewrites per turn with the delivered MCP session token.
         var context = LauncherCallbackTestSupport.CreateContext();
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        var mcpServers = GetMcpServers(prep);
-        mcpServers.EnumerateObject().Select(property => property.Name)
-            .ShouldBe(new[] { "spring-voyage" });
-        // ADR-0052 §4: the dead SPRING_ORCHESTRATION_MCP_CONFIG env var is
-        // gone; SPRING_MCP_CONFIG points the bridge at the `.mcp.json` it
-        // rewrites per turn with the delivered MCP session token.
         prep.EnvironmentVariables.ShouldNotContainKey("SPRING_ORCHESTRATION_MCP_CONFIG");
         prep.EnvironmentVariables["SPRING_MCP_CONFIG"].ShouldBe(
-            $"{AgentWorkspaceContract.WorkspaceMountPathNoSlash}/.mcp.json");
+            $"{AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId)}/.mcp.json");
     }
 
     [Fact]
@@ -181,13 +190,13 @@ public class CodexLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuardsToAGENTSmd_AndSystemPromptEnv()
+    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsBothGuardsToSystemPromptEnv()
     {
         // #2096 / ADR-0041 + #2493: when concurrent_threads is on, the
-        // assembled prompt the model sees (AGENTS.md, SPRING_SYSTEM_PROMPT)
-        // MUST start with the ResponseDiscipline guard (always-on) and
-        // additionally carry the ConcurrentThreadsGuard. The user's prompt
-        // body is preserved — the guards compose, they do not replace.
+        // SPRING_SYSTEM_PROMPT env value MUST start with the
+        // ResponseDiscipline guard (always-on) and additionally carry the
+        // ConcurrentThreadsGuard. The user's prompt body is preserved — the
+        // guards compose, they do not replace.
         var context = LauncherCallbackTestSupport.CreateContext(
             prompt: "## Platform Instructions\nWrite clean code.",
             mcpToken: "codex-secret-token") with
@@ -195,9 +204,6 @@ public class CodexLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceFiles["AGENTS.md"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.WorkspaceFiles["AGENTS.md"].ShouldContain("concurrent_threads is on");
-        prep.WorkspaceFiles["AGENTS.md"].ShouldContain(context.Prompt);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain("concurrent_threads is on");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
@@ -216,18 +222,30 @@ public class CodexLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.WorkspaceFiles["AGENTS.md"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
-        prep.WorkspaceFiles["AGENTS.md"].ShouldEndWith(context.Prompt);
-        prep.WorkspaceFiles["AGENTS.md"].ShouldNotContain("concurrent_threads is on");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — response discipline");
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldEndWith(context.Prompt);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldNotContain("concurrent_threads is on");
     }
 
-    private static JsonElement GetMcpServers(AgentLaunchSpec prep)
+    private static AgentBootstrapContributionContext CreateBundleContext(
+        string? instructions = "Write clean code.")
     {
-        using var parsed = JsonDocument.Parse(prep.WorkspaceFiles[".mcp.json"]);
+        var definition = new AgentDefinition(
+            AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
+            Name: "Test Agent",
+            Instructions: instructions,
+            Execution: new AgentExecutionConfig(
+                Runtime: "codex",
+                Image: "ghcr.io/test/codex:latest"));
+        return new AgentBootstrapContributionContext(
+            AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
+            Definition: definition,
+            McpEndpoint: BundleContextMcpEndpoint);
+    }
 
+    private static JsonElement GetMcpServers(AgentBootstrapContribution contribution)
+    {
+        using var parsed = JsonDocument.Parse(contribution.Files[".mcp.json"]);
         return parsed.RootElement.GetProperty("mcpServers").Clone();
     }
 }

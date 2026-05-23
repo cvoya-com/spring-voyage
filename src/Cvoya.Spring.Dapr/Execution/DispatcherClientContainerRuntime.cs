@@ -588,26 +588,6 @@ public class DispatcherClientContainerRuntime(
             ContainerName = config.ContainerName,
             Entrypoint = config.Entrypoint,
             Detached = detached,
-            Workspace = config.Workspace is { } ws
-                ? new DispatcherWorkspace
-                {
-                    MountPath = ws.MountPath,
-                    Files = ws.Files is IDictionary<string, string> mutable
-                        ? mutable
-                        : new Dictionary<string, string>(ws.Files),
-                }
-                : null,
-            // D3a: context workspace — agent-definition.yaml + tenant-config.json
-            // at /spring/context/ per D1 spec § 2.2.2.
-            ContextWorkspace = config.ContextWorkspace is { } cw
-                ? new DispatcherWorkspace
-                {
-                    MountPath = cw.MountPath,
-                    Files = cw.Files is IDictionary<string, string> mutableCw
-                        ? mutableCw
-                        : new Dictionary<string, string>(cw.Files),
-                }
-                : null,
         };
     }
 
@@ -668,22 +648,6 @@ public class DispatcherClientContainerRuntime(
         public bool Detached { get; init; }
 
         /// <summary>
-        /// Per-invocation workspace the dispatcher must materialise on its own
-        /// host filesystem and bind-mount into the container. <c>null</c>
-        /// means the worker is asking for a plain run with no workspace.
-        /// </summary>
-        public DispatcherWorkspace? Workspace { get; init; }
-
-        /// <summary>
-        /// D3a: per-invocation context workspace materialised at
-        /// <c>/spring/context/</c> inside the container (D1 spec § 2.2.2).
-        /// Carries <c>agent-definition.yaml</c> and <c>tenant-config.json</c>.
-        /// <c>null</c> means no context mount.
-        /// </summary>
-        [JsonPropertyName("contextWorkspace")]
-        public DispatcherWorkspace? ContextWorkspace { get; init; }
-
-        /// <summary>
         /// Override for the image's <c>ENTRYPOINT</c> (#1686). When non-null
         /// the dispatcher emits <c>--entrypoint</c> to the container runtime.
         /// Mirrors <c>RunContainerRequest.Entrypoint</c>; null means inherit
@@ -691,19 +655,6 @@ public class DispatcherClientContainerRuntime(
         /// </summary>
         [JsonPropertyName("entrypoint")]
         public string? Entrypoint { get; init; }
-    }
-
-    /// <summary>
-    /// Wire shape for the optional <c>workspace</c> field on
-    /// <see cref="DispatcherRunRequest"/>. The dispatcher creates a fresh
-    /// per-invocation directory, writes <see cref="Files"/> into it, and
-    /// bind-mounts that directory at <see cref="MountPath"/> inside the
-    /// container — see issue #1042.
-    /// </summary>
-    internal record DispatcherWorkspace
-    {
-        public required string MountPath { get; init; }
-        public required IDictionary<string, string> Files { get; init; }
     }
 
     /// <summary>
