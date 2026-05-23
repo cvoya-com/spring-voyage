@@ -163,10 +163,19 @@ public partial class Program
                     {
                         userAgent = userAgent[..256];
                     }
+
+                    var method = httpContext.Request.Method
+                        .Replace('\r', ' ')
+                        .Replace('\n', ' ');
+                    if (method.Length > 32)
+                    {
+                        method = method[..32];
+                    }
+
                     var logger = loggerFactory.CreateLogger("Cvoya.Spring.Mcp.RouteAudit");
                     logger.LogDebug(
                         "MCP request {Method} from {RemoteIp} (user-agent: {UserAgent})",
-                        httpContext.Request.Method,
+                        string.IsNullOrEmpty(method) ? "<none>" : method,
                         httpContext.Connection.RemoteIpAddress,
                         string.IsNullOrEmpty(userAgent) ? "<none>" : userAgent);
 
