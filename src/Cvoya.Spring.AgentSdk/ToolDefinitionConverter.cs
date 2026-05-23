@@ -71,7 +71,10 @@ internal sealed class ToolDefinitionConverter : JsonConverter<ToolDefinition>
                 "ToolDefinition wire payload must include name, description, and inputSchema.");
         }
 
-        return new ToolDefinition(name, description, inputSchema.Value);
+        // The wire shape carries no category — SDK-side tools deserialised
+        // from a remote agent's payload surface as uncategorised (empty
+        // string) and are not enumerated by category-aware discovery.
+        return new ToolDefinition(name, description, inputSchema.Value, string.Empty);
     }
 
     public override void Write(

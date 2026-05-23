@@ -109,7 +109,8 @@ public class ExpertiseSkillCatalog(
                 var tool = new ToolDefinition(
                     skillName,
                     expertise.Domain.Description ?? string.Empty,
-                    ExpertiseSkillNaming.ParseSchemaOrEmpty(expertise.Domain.InputSchemaJson));
+                    ExpertiseSkillNaming.ParseSchemaOrEmpty(expertise.Domain.InputSchemaJson),
+                    ToolCategories.Expertise);
 
                 var key = skillName + "|" + expertise.Origin.Scheme + "://" + expertise.Origin.Path;
                 if (!result.ContainsKey(key))

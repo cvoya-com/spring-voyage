@@ -45,7 +45,7 @@ public class UnitContextBuilderTests
         var skills = new List<Skill>
         {
             new("code-review", "Reviews pull requests", [
-                new ToolDefinition("review.analyze", "Analyzes code changes", JsonSerializer.SerializeToElement(new { }))
+                new ToolDefinition("review.analyze", "Analyzes code changes", JsonSerializer.SerializeToElement(new { }), string.Empty)
             ])
         };
 
@@ -128,7 +128,7 @@ public class UnitContextBuilderTests
         var skills = new List<Skill>
         {
             new("github", "Tools from GitHub",
-                new[] { new ToolDefinition("github.list_issues", "list issues", emptySchema) }),
+                new[] { new ToolDefinition("github.list_issues", "list issues", emptySchema, string.Empty) }),
         };
         var bundles = new List<SkillBundle>
         {

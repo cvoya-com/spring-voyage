@@ -22,13 +22,14 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Coverage for <see cref="SvRuntimeSkillRegistry"/> (#2493). Pins:
-/// the tool surface, the no-context rejection, the caller-scoping
-/// behaviour, and the activity-bus emit path.
+/// Coverage for <see cref="SvRuntimeSkillRegistry"/>. Pins: the tool
+/// surface, the no-context rejection, and the caller-scoping behaviour
+/// for <c>sv.runtime.report_decision</c> (#2581). Progress reporting
+/// lives on <see cref="SvProgressSkillRegistry"/> and is covered by
+/// <see cref="SvProgressSkillRegistryTests"/>.
 /// </summary>
 public class SvRuntimeSkillRegistryTests
 {
-    private readonly IOtlpIngestService _ingest = Substitute.For<IOtlpIngestService>();
     private readonly ITenantContext _tenant = Substitute.For<ITenantContext>();
     private readonly IActivityEventBus _activityBus = Substitute.For<IActivityEventBus>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
@@ -38,13 +39,11 @@ public class SvRuntimeSkillRegistryTests
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _tenant.CurrentTenantId.Returns(_tenantId);
-        _ingest.IngestAsync(Arg.Any<IReadOnlyList<OtlpEventIngest>>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new OtlpIngestResult(0, 0, 0, 0)));
         _activityBus.PublishAsync(Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
     }
 
-    private SvRuntimeSkillRegistry CreateRegistry() => new(_ingest, _tenant, _activityBus, _loggerFactory);
+    private SvRuntimeSkillRegistry CreateRegistry() => new(_tenant, _activityBus, _loggerFactory);
 
     private static ToolCallContext AgentContext(Guid callerId) =>
         new(
@@ -53,17 +52,11 @@ public class SvRuntimeSkillRegistryTests
             ThreadId: Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void GetToolDefinitions_AdvertisesReportProgressAndReportDecision()
+    public void GetToolDefinitions_AdvertisesReportDecisionOnly()
     {
         var registry = CreateRegistry();
         registry.GetToolDefinitions().Select(t => t.Name)
-            .ShouldBe(
-                new[]
-                {
-                    SvRuntimeSkillRegistry.ReportProgressTool,
-                    SvRuntimeSkillRegistry.ReportDecisionTool,
-                },
-                ignoreOrder: true);
+            .ShouldBe(new[] { SvRuntimeSkillRegistry.ReportDecisionTool });
     }
 
     [Fact]
@@ -76,10 +69,10 @@ public class SvRuntimeSkillRegistryTests
     public async Task NoContextOverload_AlwaysThrows()
     {
         var registry = CreateRegistry();
-        var args = JsonDocument.Parse("""{ "text": "hello" }""").RootElement;
+        var args = JsonDocument.Parse("""{ "targets": ["agent://ada"] }""").RootElement;
         await Should.ThrowAsync<SpringException>(async () =>
             await registry.InvokeAsync(
-                SvRuntimeSkillRegistry.ReportProgressTool, args, TestContext.Current.CancellationToken));
+                SvRuntimeSkillRegistry.ReportDecisionTool, args, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -92,62 +85,7 @@ public class SvRuntimeSkillRegistryTests
             await registry.InvokeAsync("sv.not_a_tool", args, ctx, TestContext.Current.CancellationToken));
     }
 
-    [Fact]
-    public async Task ReportProgress_MissingText_Throws()
-    {
-        var registry = CreateRegistry();
-        var args = JsonDocument.Parse("""{}""").RootElement;
-        var ctx = AgentContext(Guid.NewGuid());
-
-        await Should.ThrowAsync<ArgumentException>(async () =>
-            await registry.InvokeAsync(
-                SvRuntimeSkillRegistry.ReportProgressTool, args, ctx, TestContext.Current.CancellationToken));
-    }
-
-    [Fact]
-    public async Task ReportProgress_PublishesActivityEvent()
-    {
-        var registry = CreateRegistry();
-        var callerId = Guid.NewGuid();
-        var args = JsonDocument.Parse("""{ "text": "starting work on issue #123", "kind": "milestone" }""").RootElement;
-        var ctx = AgentContext(callerId);
-
-        var result = await registry.InvokeAsync(
-            SvRuntimeSkillRegistry.ReportProgressTool, args, ctx, TestContext.Current.CancellationToken);
-
-        result.GetProperty("ok").GetBoolean().ShouldBeTrue();
-
-        // The ingest service receives a single Progress event for the
-        // caller, with the supplied text + kind on the details payload.
-        await _ingest.Received(1).IngestAsync(
-            Arg.Is<IReadOnlyList<OtlpEventIngest>>(events =>
-                events.Count == 1
-                && events[0].Kind == OtlpEventKind.Progress
-                && events[0].TenantId == _tenantId
-                && events[0].Subject.Id == callerId
-                && events[0].Summary.Contains("starting work on issue #123")),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task ReportProgress_TransportFailure_DoesNotRaiseToCaller()
-    {
-        // A broken ingest path must NOT block the agent — best-effort
-        // emission. The tool returns ok=true regardless.
-        _ingest.IngestAsync(Arg.Any<IReadOnlyList<OtlpEventIngest>>(), Arg.Any<CancellationToken>())
-            .Returns<Task<OtlpIngestResult>>(_ => throw new InvalidOperationException("bus down"));
-
-        var registry = CreateRegistry();
-        var ctx = AgentContext(Guid.NewGuid());
-        var args = JsonDocument.Parse("""{ "text": "hello" }""").RootElement;
-
-        var result = await registry.InvokeAsync(
-            SvRuntimeSkillRegistry.ReportProgressTool, args, ctx, TestContext.Current.CancellationToken);
-
-        result.GetProperty("ok").GetBoolean().ShouldBeTrue();
-    }
-
-    // ---- #2581: sv.report_decision -------------------------------------
+    // ---- #2581: sv.runtime.report_decision ----------------------------
 
     [Fact]
     public async Task ReportDecision_PublishesDecisionMadeActivity()

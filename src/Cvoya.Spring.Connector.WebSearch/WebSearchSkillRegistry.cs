@@ -99,7 +99,12 @@ public class WebSearchSkillRegistry : ISkillRegistry
     }
 
     private static ToolDefinition ToolDef(string name, string description, object schema)
-        => new(name, description, JsonSerializer.SerializeToElement(schema));
+        // Connector tools are outside the SV category taxonomy — they
+        // surface through the flat tools/list path. Pass an empty
+        // category; connector packages are free to declare their own
+        // category tokens if they want category-aware discovery to
+        // surface them.
+        => new(name, description, JsonSerializer.SerializeToElement(schema), string.Empty);
 
     private static string? GetString(JsonElement args, string name)
     {

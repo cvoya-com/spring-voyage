@@ -309,7 +309,7 @@ public class DefaultSkillBundleValidatorTests
         public string Name { get; } = name;
 
         public IReadOnlyList<ToolDefinition> GetToolDefinitions() =>
-            toolNames.Select(n => new ToolDefinition(n, $"desc {n}", EmptySchema)).ToList();
+            toolNames.Select(n => new ToolDefinition(n, $"desc {n}", EmptySchema, string.Empty)).ToList();
 
         public Task<JsonElement> InvokeAsync(string toolName, JsonElement arguments, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

@@ -33,8 +33,8 @@ public sealed class ToolsEndpointExtensionsTests
     public async Task MapToolsEndpoint_ReturnsRegisteredToolsAsJson()
     {
         var registry = BuildRegistryWith(
-            new ToolDefinition("acme.echo", "Echo input.", BuildSchema()),
-            new ToolDefinition("acme.timestamp", "Now.", BuildSchema()));
+            new ToolDefinition("acme.echo", "Echo input.", BuildSchema(), string.Empty),
+            new ToolDefinition("acme.timestamp", "Now.", BuildSchema(), string.Empty));
 
         await using var host = await StartHostAsync(registry);
 
@@ -68,7 +68,7 @@ public sealed class ToolsEndpointExtensionsTests
     [Fact]
     public async Task MapToolsEndpoint_CustomPath_Honored()
     {
-        var registry = BuildRegistryWith(new ToolDefinition("acme.echo", "Echo.", BuildSchema()));
+        var registry = BuildRegistryWith(new ToolDefinition("acme.echo", "Echo.", BuildSchema(), string.Empty));
         await using var host = await StartHostAsync(registry, pattern: "/custom/tools");
 
         using var client = new HttpClient();
@@ -82,7 +82,7 @@ public sealed class ToolsEndpointExtensionsTests
     [Fact]
     public void SerializeTools_ProducesUtf8JsonBytes()
     {
-        var registry = BuildRegistryWith(new ToolDefinition("acme.echo", "Echo.", BuildSchema()));
+        var registry = BuildRegistryWith(new ToolDefinition("acme.echo", "Echo.", BuildSchema(), string.Empty));
         var bytes = ToolsEndpointExtensions.SerializeTools(registry);
 
         var json = JsonDocument.Parse(bytes);

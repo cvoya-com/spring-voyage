@@ -84,12 +84,12 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvMemorySkillRegistry>(
             sp => sp.GetRequiredService<SvMemorySkillRegistry>()));
 
-        // Spring Voyage runtime reflection tools (#2493). Exposes
-        // sv.runtime.report_progress so runtimes that use MCP (rather than the
-        // SDK helper) can publish RuntimeProgress events through the
-        // same activity-bus path. Singleton — depends only on the
-        // ingest service and tenant context, both of which are
-        // singleton-safe.
+        // Spring Voyage runtime reflection tools (#2493 / #2581). Exposes
+        // sv.runtime.report_decision so a runtime can annotate its
+        // routing/delegation choice on the activity stream. Progress
+        // reporting lives on SvProgressSkillRegistry (sv.progress.report),
+        // the canonical name per ADR-0056 §8. Singleton — depends only on
+        // the tenant context and the activity-event bus, both singleton-safe.
         services.TryAddSingleton<SvRuntimeSkillRegistry>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvRuntimeSkillRegistry>(
             sp => sp.GetRequiredService<SvRuntimeSkillRegistry>()));
@@ -123,13 +123,11 @@ internal static class ServiceCollectionExtensionsRouting
             sp => sp.GetRequiredService<SvToolsDiscoverySkillRegistry>()));
 
         // Spring Voyage progress-reporting surface (ADR-0056 §8 / #2656).
-        // sv.progress.report emits a RuntimeProgress activity (existing
-        // event type) so a long-running turn isn't silent until completion.
-        // Distinct from sv.runtime.report_progress (issue #2493) — the
-        // former routes through IOtlpIngestService for SDK-helper parity;
-        // this one writes the activity directly and surfaces the optional
-        // 0..1 'fraction' detail field the ADR calls out as a first-class
-        // argument.
+        // sv.progress.report is the canonical progress tool — emits a
+        // RuntimeProgress activity (existing event type) so a long-running
+        // turn isn't silent until completion. Writes the activity directly
+        // via IActivityEventBus and surfaces the optional 0..1 'fraction'
+        // detail field the ADR calls out as a first-class argument.
         services.TryAddSingleton<SvProgressSkillRegistry>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvProgressSkillRegistry>(
             sp => sp.GetRequiredService<SvProgressSkillRegistry>()));

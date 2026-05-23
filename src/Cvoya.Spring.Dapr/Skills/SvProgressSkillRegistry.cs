@@ -22,14 +22,10 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Distinct from <c>sv.runtime.report_progress</c> (issue #2493) — the
-/// older tool routes through <c>IOtlpIngestService</c> for parity with
-/// the SDK helper's OTLP path; this one writes the activity event
+/// Writes the <see cref="ActivityEventType.RuntimeProgress"/> activity
 /// directly via <see cref="IActivityEventBus"/> so the wire shape stays
 /// minimal (no OTLP wrapping) and the optional 0..1 <c>fraction</c>
-/// argument the ADR calls out is surfaced as a first-class detail
-/// field. Both produce <see cref="ActivityEventType.RuntimeProgress"/>
-/// — consumers don't need to distinguish.
+/// argument the ADR calls out is surfaced as a first-class detail field.
 /// </para>
 /// <para>
 /// Authz follows the same pattern as the other <c>sv.*</c> tools — the

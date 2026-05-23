@@ -24,14 +24,16 @@ public static class AcmeTools
             new ToolDefinition(
                 Name: "acme.echo",
                 Description: "Echoes the input string back.",
-                InputSchema: ParseSchema(EchoInputSchema)),
+                InputSchema: ParseSchema(EchoInputSchema),
+                Category: string.Empty),
             handler: static (args, _) => Task.FromResult(args));
 
         registry.Register(
             new ToolDefinition(
                 Name: "acme.timestamp",
                 Description: "Returns the current UTC timestamp.",
-                InputSchema: ParseSchema(TimestampInputSchema)),
+                InputSchema: ParseSchema(TimestampInputSchema),
+                Category: string.Empty),
             handler: static (_, _) =>
             {
                 var element = JsonSerializer.SerializeToElement(new

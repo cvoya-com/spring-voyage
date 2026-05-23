@@ -264,7 +264,7 @@ public class McpServerTests
         public IReadOnlyList<ToolDefinition> GetToolDefinitions()
         {
             var schema = JsonSerializer.SerializeToElement(new { type = "object" });
-            return [new ToolDefinition(_toolName, "Always-throwing fake tool.", schema)];
+            return [new ToolDefinition(_toolName, "Always-throwing fake tool.", schema, string.Empty)];
         }
 
         public Task<JsonElement> InvokeAsync(string toolName, JsonElement arguments, CancellationToken cancellationToken = default)
@@ -317,7 +317,7 @@ public class McpServerTests
                 type = "object",
                 properties = new { echo = new { type = "string" } }
             });
-            return [new ToolDefinition(_toolName, "Fake echo tool.", schema)];
+            return [new ToolDefinition(_toolName, "Fake echo tool.", schema, string.Empty)];
         }
 
         public Task<JsonElement> InvokeAsync(string toolName, JsonElement arguments, CancellationToken cancellationToken = default)

@@ -121,7 +121,7 @@ public sealed class AgentToolsIntrospectionTests : IDisposable
         // Re-deploy with a different registry (only one tool now).
         var mutated = new ToolRegistry();
         mutated.Register(
-            new ToolDefinition("acme.echo", "echo only", JsonDocument.Parse("{}").RootElement.Clone()),
+            new ToolDefinition("acme.echo", "echo only", JsonDocument.Parse("{}").RootElement.Clone(), string.Empty),
             static (args, _) => Task.FromResult(args));
         using (var second = StartListener(out var secondEndpoint, mutated))
         {

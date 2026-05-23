@@ -67,7 +67,7 @@ public class AgentActorDispatchTests
 
         _skillRegistry.Name.Returns("github");
         _skillRegistry.GetToolDefinitions().Returns([
-            new ToolDefinition("github.comment", "comment", JsonSerializer.SerializeToElement(new { }))
+            new ToolDefinition("github.comment", "comment", JsonSerializer.SerializeToElement(new { }), string.Empty)
         ]);
 
         _definitionProvider.GetByIdAsync(TestSlugIds.HexFor("test-agent"), Arg.Any<CancellationToken>())

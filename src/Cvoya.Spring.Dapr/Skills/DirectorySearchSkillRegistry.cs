@@ -66,7 +66,8 @@ public class DirectorySearchSkillRegistry : ISkillRegistry
                 "Search the expertise directory by free-text query or structured filters. " +
                 "Returns a ranked list of hits — each hit carries the capability slug that can " +
                 "then be invoked as 'sv.expertise.{slug}'.",
-                InputSchema),
+                InputSchema,
+                ToolCategories.Directory),
         };
     }
 

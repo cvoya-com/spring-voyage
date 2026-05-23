@@ -231,7 +231,12 @@ public sealed class HttpAgentToolsIntrospector : IAgentToolsIntrospector
                 inputSchema = JsonDocument.Parse("{}").RootElement.Clone();
             }
 
-            tools.Add(new ToolDefinition(name, description, inputSchema));
+            // Third-party tools discovered from a remote agent's /tools
+            // endpoint genuinely have no SV category. Pass an empty
+            // category — they remain reachable through the flat
+            // tools/list surface but are not enumerated by the
+            // category-aware discovery tools.
+            tools.Add(new ToolDefinition(name, description, inputSchema, string.Empty));
         }
         return tools;
     }

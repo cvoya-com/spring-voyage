@@ -127,7 +127,7 @@ public class SvToolsDiscoverySkillRegistryTests
         var fake = new FakeSkillRegistry(
             new ToolDefinition("messaging.send_demo", "demo", EmptyObjectSchema(), ToolCategories.Messaging),
             new ToolDefinition("directory.lookup_demo", "demo", EmptyObjectSchema(), ToolCategories.Directory),
-            new ToolDefinition("uncategorised.tool_demo", "demo", EmptyObjectSchema()));
+            new ToolDefinition("uncategorised.tool_demo", "demo", EmptyObjectSchema(), string.Empty));
         var discovery = new SvToolsDiscoverySkillRegistryHarness();
         var sp = BuildServiceProvider(new ISkillRegistry[] { fake, discovery });
 

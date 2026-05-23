@@ -26,7 +26,7 @@ public static class ToolCategories
     /// <summary>Resolve members, siblings, peers by address / role / expertise (<c>sv.directory.*</c>).</summary>
     public const string Directory = "directory";
 
-    /// <summary>Mid-turn progress signals (<c>sv.progress.*</c>, <c>sv.runtime.report_progress</c>).</summary>
+    /// <summary>Mid-turn progress / decision signals (<c>sv.progress.*</c>, <c>sv.runtime.report_decision</c>).</summary>
     public const string Observability = "observability";
 
     /// <summary>The discovery surface itself (<c>sv.tools.*</c>).</summary>
@@ -34,4 +34,7 @@ public static class ToolCategories
 
     /// <summary>Cross-thread state — goals, notes, learned facts (<c>sv.memory.*</c>).</summary>
     public const string Memory = "memory";
+
+    /// <summary>Capability-typed expertise tools (<c>sv.expertise.{slug}</c>).</summary>
+    public const string Expertise = "expertise";
 }

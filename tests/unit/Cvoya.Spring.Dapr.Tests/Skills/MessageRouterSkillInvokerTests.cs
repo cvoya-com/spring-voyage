@@ -61,7 +61,8 @@ public class MessageRouterSkillInvokerTests
         var tool = new ToolDefinition(
             ExpertiseSkillNaming.GetSkillName(domain),
             domain.Description,
-            ExpertiseSkillNaming.ParseSchemaOrEmpty(domain.InputSchemaJson));
+            ExpertiseSkillNaming.ParseSchemaOrEmpty(domain.InputSchemaJson),
+            ToolCategories.Expertise);
         var entry = new ExpertiseEntry(domain, target, new[] { target });
         return new ExpertiseSkill(tool.Name, tool, target, entry);
     }
