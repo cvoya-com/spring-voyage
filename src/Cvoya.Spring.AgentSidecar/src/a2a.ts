@@ -43,6 +43,15 @@ import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "./version.js";
 // session token in the A2A `message/send` metadata under this field.
 const MCP_TOKEN_FIELD = "mcpToken";
 
+// Per-member workspace mount path, stamped by the dispatcher (see
+// AgentWorkspaceContract.WorkspacePathEnvVar). The bridge spawns the CLI
+// in this directory so config files materialised at the workspace root
+// (e.g. Claude Code's `.mcp.json`, CLAUDE.md) are discovered relative to
+// the spawn CWD. When unset, spawn falls back to the bridge's own CWD
+// (the image's WORKDIR), which is wrong for any launcher that relies on
+// CWD-relative config discovery.
+const WORKSPACE_PATH_ENV_VAR = "SPRING_WORKSPACE_PATH";
+
 /**
  * A2A `TaskState` values, in the kebab-case-lower wire form required by the
  * .NET A2A V0_3 SDK's `KebabCaseLowerJsonStringEnumConverter`. These map
@@ -463,6 +472,7 @@ export class A2AHandler {
     // launcher-supplied argv unchanged.
     const threadId = this.extractContextId(req.params);
     const argv = this.composeArgv(threadId, this.deps.threadBinding);
+    const spawnCwd = spawnEnv[WORKSPACE_PATH_ENV_VAR];
 
     let result;
     try {
@@ -470,6 +480,7 @@ export class A2AHandler {
         argv,
         stdin: userText,
         env: spawnEnv,
+        cwd: spawnCwd,
         signal: abort.signal,
         cancelGraceMs: this.deps.cancelGraceMs,
         onStderrLine: (line) => {
@@ -518,6 +529,7 @@ export class A2AHandler {
           argv: retryArgv,
           stdin: userText,
           env: spawnEnv,
+          cwd: spawnCwd,
           signal: abort.signal,
           cancelGraceMs: this.deps.cancelGraceMs,
           onStderrLine: (line) => {

@@ -115,6 +115,41 @@ describe("A2AHandler.handle", () => {
     assert.equal(task["x-spring-voyage-bridge-version"], BRIDGE_VERSION);
   });
 
+  // Bug regression: the dispatcher sets the container's working directory to
+  // the per-member workspace mount (AgentWorkspaceContract); the bridge
+  // honours the same path on every CLI spawn so CWD-relative config
+  // discovery (e.g. Claude Code's `.mcp.json`) sees the workspace files.
+  // Without this the CLI was launched in the image's WORKDIR and saw no
+  // MCP tools — which surfaced as a silent dispatch.
+  it("spawns the CLI with cwd taken from SPRING_WORKSPACE_PATH", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "sv-a2a-cwd-"));
+    try {
+      const handler = makeHandler(
+        [PROCESS_NODE, "-e", "process.stdout.write(process.cwd())"],
+        {
+          PATH: process.env.PATH,
+          SPRING_WORKSPACE_PATH: workspaceDir,
+        },
+      );
+
+      const res = await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { parts: [{ text: "" }] } },
+        id: "cwd-1",
+      });
+
+      const task = res.result as Record<string, unknown>;
+      const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+      // macOS reports temp dirs under /private/var; fs.realpath aligns the
+      // expected path with what the child process actually sees.
+      const expected = fs.realpathSync(workspaceDir);
+      assert.equal(artifacts[0]?.parts[0]?.text, expected);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   // ADR-0052 §4 / #2615: the bridge rewrites the spring-voyage MCP token in
   // the launcher-written MCP config before each exec, so a persistent
   // container always dials the worker-side McpServer with a token it

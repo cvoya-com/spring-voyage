@@ -170,21 +170,28 @@ public class ClaudeCodeLauncherTests
     [Fact]
     public async Task PrepareAsync_SetsSpringAgentArgv_AsJsonEncodedArrayOfStrings()
     {
-        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+        var context = CreateContext();
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         prep.EnvironmentVariables.ShouldContainKey("SPRING_AGENT_ARGV");
         var raw = prep.EnvironmentVariables["SPRING_AGENT_ARGV"];
 
         // The bridge does JSON.parse on this value (see
         // src/Cvoya.Spring.AgentSidecar/src/config.ts). Round-tripping it
-        // through JsonSerializer is the contract.
+        // through JsonSerializer is the contract. The argv carries
+        // --mcp-config so the CLI loads the platform MCP server
+        // independently of its spawn CWD.
         var argv = JsonSerializer.Deserialize<string[]>(raw);
         argv.ShouldNotBeNull();
+        var expectedMcpConfigPath =
+            $"{AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId)}/.mcp.json";
         argv.ShouldBe(new[]
         {
             "claude",
             "--print",
             "--dangerously-skip-permissions",
+            "--mcp-config",
+            expectedMcpConfigPath,
         });
     }
 

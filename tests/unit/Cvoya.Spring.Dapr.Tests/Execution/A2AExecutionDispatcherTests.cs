@@ -354,12 +354,14 @@ public class A2AExecutionDispatcherTests
 
         // ADR-0055: ContainerConfig no longer carries Workspace/ContextWorkspace —
         // the agent-sidecar pulls the bundle. Pin only the image and the
-        // builder-honoured WorkingDirectory.
-        var expected = ContainerConfigBuilder.Build(Image, DefaultSpec);
+        // dispatcher-defaulted WorkingDirectory (per-member workspace mount
+        // path), which the launcher's null WorkingDirectory invites it to
+        // supply (AgentLaunchSpec.WorkingDirectory docstring).
+        var expectedWorkingDirectory = AgentWorkspaceContract.BuildMountPathNoSlash(AgentId);
         await _containerRuntime.Received(1).StartAsync(
             Arg.Is<ContainerConfig>(c =>
-                c.Image == expected.Image &&
-                c.WorkingDirectory == expected.WorkingDirectory),
+                c.Image == Image &&
+                c.WorkingDirectory == expectedWorkingDirectory),
             Arg.Any<CancellationToken>());
     }
 

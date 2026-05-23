@@ -151,13 +151,35 @@ public class ClaudeCodeLauncher(
     /// agent-base bridge on every <c>message/send</c>, with the user's prompt
     /// fed via stdin.
     /// </para>
+    /// <para>
+    /// <b>Why <c>--mcp-config</c> is passed explicitly:</b> Claude Code
+    /// discovers project-scoped MCP servers from <c>.mcp.json</c> relative
+    /// to the CLI's working directory. The dispatcher now sets the
+    /// container's WORKDIR to the per-member workspace mount, but
+    /// pinning the path on argv makes the wiring robust against any
+    /// future CWD drift (and against runtimes that re-exec from a
+    /// different directory). Without this, the CLI starts with zero MCP
+    /// tools — the bug that motivated this flag.
+    /// </para>
     /// </remarks>
-    internal static readonly string[] DefaultClaudeArgv =
+    internal static readonly string[] BaseClaudeArgv =
     [
         "claude",
         "--print",
         "--dangerously-skip-permissions"
     ];
+
+    /// <summary>
+    /// Builds the argv vector exec'd by the bridge on every
+    /// <c>message/send</c>: <see cref="BaseClaudeArgv"/> followed by
+    /// <c>--mcp-config &lt;path&gt;</c> so the CLI loads the
+    /// platform's <c>spring-voyage</c> MCP server regardless of CWD.
+    /// </summary>
+    internal static string[] BuildClaudeArgv(string mcpConfigPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mcpConfigPath);
+        return [.. BaseClaudeArgv, "--mcp-config", mcpConfigPath];
+    }
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<ClaudeCodeLauncher>();
 
@@ -205,14 +227,17 @@ public class ClaudeCodeLauncher(
         var prompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
 
         var workspaceMountNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
+        var mcpConfigPath = $"{workspaceMountNoSlash}/{McpConfigFileName}";
 
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
             ["SPRING_SYSTEM_PROMPT"] = prompt,
             // The bridge parses this back into argv via JSON.parse — see
-            // src/Cvoya.Spring.AgentSidecar/src/config.ts.
-            ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(DefaultClaudeArgv),
+            // src/Cvoya.Spring.AgentSidecar/src/config.ts. The argv carries
+            // `--mcp-config <path>` so the CLI always loads the platform
+            // MCP server, regardless of the bridge's spawn CWD.
+            ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(BuildClaudeArgv(mcpConfigPath)),
             // ADR-0041 / #2094: tell the bridge how to bind the platform
             // thread.id (= A2A 0.3 contextId) onto Claude Code's session
             // identifier.
@@ -233,7 +258,7 @@ public class ClaudeCodeLauncher(
             // every CLI spawn. The bundle's launcher contribution writes
             // the file with an empty Authorization header; the bridge
             // stamps the per-turn token from the A2A message/send metadata.
-            [McpConfigPathEnvVar] = $"{workspaceMountNoSlash}/{McpConfigFileName}",
+            [McpConfigPathEnvVar] = mcpConfigPath,
         };
 
         // ADR-0051: OTLP-ingest env contract still stamped here.

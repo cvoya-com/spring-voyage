@@ -298,6 +298,14 @@ public class A2AExecutionDispatcher(
         var specWithVolume = specWithConnectors with
         {
             ExtraVolumeMounts = MergeVolumeMounts(specWithConnectors.ExtraVolumeMounts, volumeMount),
+            // Default the container's working directory to the per-member
+            // workspace mount (the documented behaviour on
+            // AgentLaunchSpec.WorkingDirectory). The launcher's override
+            // wins when it sets one explicitly. CLI launchers that
+            // discover config files (e.g. Claude Code's `.mcp.json`)
+            // relative to CWD rely on this default.
+            WorkingDirectory = specWithConnectors.WorkingDirectory
+                ?? AgentWorkspaceContract.BuildMountPathNoSlash(agentId),
         };
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
@@ -891,6 +899,12 @@ public class A2AExecutionDispatcher(
         var specWithVolume = specWithConnectors with
         {
             ExtraVolumeMounts = MergeVolumeMounts(specWithConnectors.ExtraVolumeMounts, volumeMount),
+            // Default the container's working directory to the per-member
+            // workspace mount (the documented behaviour on
+            // AgentLaunchSpec.WorkingDirectory). The launcher's override
+            // wins when it sets one explicitly.
+            WorkingDirectory = specWithConnectors.WorkingDirectory
+                ?? AgentWorkspaceContract.BuildMountPathNoSlash(agentId),
         };
 
         var baseConfig = ContainerConfigBuilder.Build(definition.Execution.Image, specWithVolume);
