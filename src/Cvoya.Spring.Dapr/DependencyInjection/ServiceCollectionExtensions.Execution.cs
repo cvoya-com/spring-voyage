@@ -297,6 +297,15 @@ internal static class ServiceCollectionExtensionsExecution
             services.TryAddSingleton<IA2ATransportFactory, DispatcherProxyA2ATransportFactory>();
             services.TryAddSingleton<IAgentContextBuilder, AgentContextBuilder>();
 
+            // ADR-0055 Wave 1: worker-hosted bootstrap endpoint surface
+            // (additive). The bundle provider is registered here on the
+            // execution host; the endpoint route lives in Host.Worker. The
+            // auth store is a single in-memory authority — same scale-out
+            // caveat as the MCP session store (ADR-0054 §Revisit).
+            services.TryAddSingleton<IAgentDefinitionSerializer, AgentDefinitionSerializer>();
+            services.TryAddSingleton<IAgentBootstrapAuthStore, InMemoryAgentBootstrapAuthStore>();
+            services.TryAddSingleton<IAgentBootstrapBundleProvider, AgentBootstrapBundleProvider>();
+
             services.TryAddSingleton<IExecutionDispatcher, A2AExecutionDispatcher>();
             services.TryAddSingleton<IAgentDispatchCoordinator, AgentDispatchCoordinator>();
             services.TryAddSingleton<AgentVolumeManager>();

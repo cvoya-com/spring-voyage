@@ -184,6 +184,7 @@ public class PersistentDispatchIntegrationTests
             transportFactory,
             _connectorContext,
             _connectorPromptContext,
+            new AgentDefinitionSerializer(_runtimeCatalog),
             _loggerFactory);
     }
 
