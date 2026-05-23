@@ -66,6 +66,7 @@ For open design questions not yet decided, see
 | [0054](0054-one-mcp-server-one-execution-host.md) | **Re-baseline** — one platform MCP server, one execution host | Accepted |
 | [0055](0055-pull-based-agent-bootstrap.md) | Pull-based agent bootstrap and workspace delivery | Proposed |
 | [0056](0056-tool-only-side-effects.md) | Tool calls are the only side-effect channel; stdout is reasoning trace | Approved |
+| [0057](0057-sidecar-local-mcp-server.md) | Agent-runtime MCP surface is sidecar-local (amends [0054](0054-one-mcp-server-one-execution-host.md) §2) | Proposed |
 
 Archived records are listed in [`archive/README.md`](archive/README.md).
 
