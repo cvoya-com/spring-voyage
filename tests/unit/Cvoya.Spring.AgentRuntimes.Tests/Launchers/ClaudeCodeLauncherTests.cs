@@ -92,20 +92,13 @@ public class ClaudeCodeLauncherTests
     public async Task ContributeBundleAsync_ReturnsClaudeMdAndMcpJsonFiles()
     {
         // ADR-0055 §3: launcher-owned in-workspace files live in the
-        // bootstrap contribution, not on the launch spec. Per the silent-
-        // dispatch fix, CLAUDE.md must include the ResponseDiscipline
-        // guard (Claude Code auto-reads CLAUDE.md from CWD; nothing
-        // passes SPRING_SYSTEM_PROMPT to the CLI), so the agent sees the
-        // ADR-0056 contract that stdout is diagnostic only.
+        // bootstrap contribution, not on the launch spec.
         var contribution = await _launcher.ContributeBundleAsync(
             CreateBundleContext(),
             TestContext.Current.CancellationToken);
 
         contribution.Files.Keys.ShouldBe(new[] { "CLAUDE.md", ".mcp.json" }, ignoreOrder: true);
-        var claudeMd = contribution.Files["CLAUDE.md"];
-        claudeMd.ShouldContain("Spring Voyage runtime guard — response discipline");
-        claudeMd.ShouldContain("sv.messaging.send");
-        claudeMd.ShouldEndWith("You are a helpful agent.");
+        contribution.Files["CLAUDE.md"].ShouldBe("You are a helpful agent.");
 
         var parsed = JsonDocument.Parse(contribution.Files[".mcp.json"]).RootElement;
         var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
@@ -120,20 +113,15 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task ContributeBundleAsync_NullInstructions_YieldsGuardOnlyClaudeMd()
+    public async Task ContributeBundleAsync_NullInstructions_YieldsEmptyClaudeMd()
     {
-        // AgentDefinition.Instructions is nullable; the bundle still
-        // materialises CLAUDE.md — now seeded with the platform guards
-        // even when the author's instructions are absent. Without this,
-        // a sparsely-configured agent would launch with no
-        // response-discipline context and silently dispatch.
+        // AgentDefinition.Instructions is nullable; the bundle must
+        // materialise an empty CLAUDE.md rather than throwing.
         var contribution = await _launcher.ContributeBundleAsync(
             CreateBundleContext(instructions: null),
             TestContext.Current.CancellationToken);
 
-        var claudeMd = contribution.Files["CLAUDE.md"];
-        claudeMd.ShouldContain("Spring Voyage runtime guard — response discipline");
-        claudeMd.ShouldContain("sv.messaging.send");
+        contribution.Files["CLAUDE.md"].ShouldBe(string.Empty);
     }
 
     [Fact]

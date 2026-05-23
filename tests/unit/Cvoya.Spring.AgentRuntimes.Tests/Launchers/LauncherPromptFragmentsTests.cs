@@ -69,18 +69,12 @@ public class LauncherPromptFragmentsTests
     [Fact]
     public void ResponseDiscipline_CarriesTheLoadBearingClauses()
     {
-        // Issue #2493: every launched runtime sees these requirements. Pin
-        // them so a reword has to be deliberate. Post-ADR-0056 the
-        // fragment must also name `sv.messaging.send` as THE reply
-        // primitive — generic "your runtime's reply primitive" is
-        // ambiguous for CLI runtimes whose stdout is no longer delivered.
+        // Issue #2493: every launched runtime sees these three numbered
+        // requirements. Pin them so a reword has to be deliberate.
         var guard = ResponseDiscipline;
 
         guard.ShouldContain("Spring Voyage runtime guard — response discipline");
         guard.ShouldContain("final reply A2A message");
-        guard.ShouldContain("sv.messaging.send");
-        guard.ShouldContain("not delivered", Case.Insensitive);
-        guard.ShouldContain("RuntimeCompletedSilent");
         guard.ShouldContain("sv.progress.report");
         guard.ShouldContain("Silent success is a regression");
         guard.ShouldContain("End Spring Voyage runtime guard — response discipline");
