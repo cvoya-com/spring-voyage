@@ -1521,6 +1521,8 @@ public static class AgentEndpoints
         ITenantContext tenantContext,
         SpringDbContext db,
         Services.IArtefactAutoStartGate autoStartGate,
+        IAgentSkillBundleStore agentSkillBundleStore,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         CreateAgentRequest? request;
@@ -1737,6 +1739,23 @@ public static class AgentEndpoints
             entry.DisplayName,
             cancellationToken);
 
+        // ADR-0056 §8 / #2657: a fresh agent created without explicit
+        // skill bundles inherits the platform's default bundle list so
+        // it ships conversational out of the box — the fundamental-core
+        // tool grants + the [PLATFORM CONTRACT — NON-NEGOTIABLE]
+        // platform-layer prompt fragment. The `--from-package` install
+        // path goes through PackageInstallService and never reaches this
+        // endpoint, so the binding here is unambiguously the "bare agent
+        // create" case. Best-effort: a missing bundle on disk (test
+        // environments that don't ship the packages tree, deployments
+        // that suppress the default bundle) logs a warning and lets the
+        // create succeed.
+        await TryAddDefaultAgentSkillBundlesAsync(
+            agentSkillBundleStore,
+            actorId,
+            loggerFactory.CreateLogger("AgentEndpoints.DefaultBundles"),
+            cancellationToken);
+
         var primaryUnitGuid = resolvedUnits.Count > 0
             ? resolvedUnits[0].Entry.ActorId
             : (Guid?)null;
@@ -1745,6 +1764,68 @@ public static class AgentEndpoints
             new AgentMetadata(ParentUnit: primaryUnit),
             parentUnitId: primaryUnitGuid);
         return Results.Created($"/api/v1/tenant/agents/{actorId}", response);
+    }
+
+    /// <summary>
+    /// Best-effort attempt to attach <see cref="DefaultAgentSkillBundles.ForFreshAgent"/>
+    /// onto a freshly-created agent (ADR-0056 §8 / #2657). Each reference
+    /// is added through <see cref="IAgentSkillBundleStore.AddAsync"/>
+    /// which re-resolves the bundle through the registered
+    /// <see cref="ISkillBundleResolver"/> — a missing bundle on disk
+    /// (no packages tree configured, or the conversational-defaults
+    /// package was intentionally suppressed) raises a
+    /// <see cref="SkillBundlePackageNotFoundException"/> /
+    /// <see cref="SkillBundleNotFoundException"/> we swallow with a
+    /// warning so agent creation itself stays successful. Bundle binding
+    /// is additive prompt-layer setup, not a precondition for the agent
+    /// row to be valid.
+    /// </summary>
+    private static async Task TryAddDefaultAgentSkillBundlesAsync(
+        IAgentSkillBundleStore agentSkillBundleStore,
+        string actorId,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        foreach (var reference in DefaultAgentSkillBundles.ForFreshAgent)
+        {
+            try
+            {
+                await agentSkillBundleStore.AddAsync(actorId, reference, cancellationToken)
+                    .ConfigureAwait(false);
+                logger.LogDebug(
+                    "Agent '{AgentId}': default skill bundle '{Package}/{Skill}' attached.",
+                    actorId, reference.Package, reference.Skill);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (SkillBundlePackageNotFoundException ex)
+            {
+                logger.LogWarning(ex,
+                    "Agent '{AgentId}': default skill bundle '{Package}/{Skill}' could not be attached " +
+                    "because the package is not visible on disk; the agent will start without it.",
+                    actorId, reference.Package, reference.Skill);
+            }
+            catch (SkillBundleNotFoundException ex)
+            {
+                logger.LogWarning(ex,
+                    "Agent '{AgentId}': default skill bundle '{Package}/{Skill}' could not be attached " +
+                    "because the bundle is not visible on disk; the agent will start without it.",
+                    actorId, reference.Package, reference.Skill);
+            }
+            catch (Exception ex)
+            {
+                // Any other failure (state-store write fault, etc.) must
+                // not block the 201 — the directory entry and membership
+                // rows are already persisted. Logged at Warning so the
+                // operator can investigate without losing the create.
+                logger.LogWarning(ex,
+                    "Agent '{AgentId}': default skill bundle '{Package}/{Skill}' attach failed; " +
+                    "the agent will start without it.",
+                    actorId, reference.Package, reference.Skill);
+            }
+        }
     }
 
     private static async Task<IResult> DeleteAgentAsync(

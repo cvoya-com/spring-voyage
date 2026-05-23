@@ -1,0 +1,4 @@
+apiVersion: spring.voyage/v1
+kind: Skill
+name: conversational-defaults
+description: sv.conversational.defaults — fundamental-core tool grants and the [PLATFORM CONTRACT — NON-NEGOTIABLE] platform-layer prompt fragment (ADR-0056 §8).

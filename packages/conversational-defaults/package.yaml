@@ -1,0 +1,27 @@
+apiVersion: spring.voyage/v1
+kind: Package
+name: conversational-defaults
+description: Default tool grants and platform-layer prompt fragment for conversational agents (ADR-0056).
+version: 1.0.0
+readme: README.md
+
+# ADR-0056 Wave 2 — the `sv.conversational.defaults` skill bundle.
+#
+# This package ships exactly one skill (`conversational-defaults`) that
+# packages the fundamental-core tool grants and the
+# `[PLATFORM CONTRACT — NON-NEGOTIABLE]` platform-layer prompt fragment
+# documented in ADR-0056 §8 ("Default skill bundle: a fundamental core
+# plus discoverable categories"). The skill is referenced as
+# `spring-voyage/conversational-defaults:conversational-defaults` from
+# the default agent template wiring.
+#
+# This package intentionally declares NO `requires:` block: every tool
+# named by the bundle is a platform `sv.*` tool, implicitly granted to
+# every subject by `ToolGrantResolver`'s platform tier. The bundle's
+# `.tools.json` is a formal declaration of intent so the strict skill-
+# bundle validator (`DefaultSkillBundleValidator`, #2346) confirms each
+# tool's namespace is registered at install time, not at runtime.
+#
+# ADR-0043 §1 / §3: directory layout is the manifest — no `content:`
+# block. The package ships exactly the artefacts discovered under
+# `skills/`.
