@@ -32,6 +32,7 @@
 
 import { randomUUID } from "node:crypto";
 
+import type { BootstrapFetcher } from "./bootstrap.js";
 import { runAgentBridge } from "./bridge.js";
 import type { ThreadBindingConfig } from "./config.js";
 import { MCP_CONFIG_ENV_VAR, rewriteMcpToken } from "./mcp-config.js";
@@ -128,6 +129,14 @@ export interface A2AHandlerDeps {
   // Inject explicitly to share state across handler instances or to
   // pin a workspace location.
   threadIdRegistry?: ThreadIdRegistry;
+  // ADR-0055 §6: pre-spawn integrity check for the platform-authoritative
+  // workspace files. When set, the handler runs
+  // `integrityCheckAndRefresh()` before every CLI spawn — alongside the
+  // existing per-turn MCP-token rewrite — so a turn that mutated
+  // `CLAUDE.md` or `.mcp.json` is re-baselined before the next exec.
+  // Null when the launcher did not stamp SPRING_BOOTSTRAP_URL (the
+  // pre-pull behaviour, dormant in Wave 2).
+  bootstrapFetcher?: BootstrapFetcher | null;
 }
 
 interface ActiveTask {
@@ -345,6 +354,61 @@ export class A2AHandler {
     }
   }
 
+  /**
+   * ADR-0055 §6: runs the bootstrap integrity check before each CLI
+   * spawn. No-op when the sidecar was started without a fetcher (the
+   * pre-pull path, dormant in Wave 2 until launchers stamp the env
+   * vars). Failures are logged but never throw — a stale platform file
+   * is preferable to taking down a turn.
+   */
+  private async runBootstrapIntegrityCheck(): Promise<void> {
+    const fetcher = this.deps.bootstrapFetcher;
+    if (!fetcher) {
+      return;
+    }
+    let result;
+    try {
+      result = await fetcher.integrityCheckAndRefresh();
+    } catch (err) {
+      process.stderr.write(
+        `${JSON.stringify({
+          ts: new Date().toISOString(),
+          level: "warn",
+          component: "spring-voyage-agent-sidecar",
+          bridgeVersion: BRIDGE_VERSION,
+          message: "bootstrap integrity check threw",
+          detail: (err as Error).message,
+        })}\n`,
+      );
+      return;
+    }
+    if (result.warning) {
+      process.stderr.write(
+        `${JSON.stringify({
+          ts: new Date().toISOString(),
+          level: "warn",
+          component: "spring-voyage-agent-sidecar",
+          bridgeVersion: BRIDGE_VERSION,
+          message: "bootstrap integrity check warning",
+          detail: result.warning,
+        })}\n`,
+      );
+      return;
+    }
+    if (result.restored && result.restored.length > 0) {
+      process.stderr.write(
+        `${JSON.stringify({
+          ts: new Date().toISOString(),
+          level: "info",
+          component: "spring-voyage-agent-sidecar",
+          bridgeVersion: BRIDGE_VERSION,
+          message: "bootstrap integrity check restored files",
+          restored: result.restored,
+        })}\n`,
+      );
+    }
+  }
+
   private async handleSendMessage(
     req: JsonRpcRequest,
     id: string | number | null,
@@ -374,6 +438,14 @@ export class A2AHandler {
     const userText = this.extractText(req.params);
     const spawnEnv = this.deps.spawnEnv;
     const stderrLines: string[] = [];
+
+    // ADR-0055 §6: pre-spawn integrity check on the platform-authoritative
+    // workspace files. Any divergence triggers a refresh from the cached
+    // bundle (or a re-fetch when the worker indicates the bundle changed).
+    // Runs before the MCP-token rewrite because a refresh may rewrite
+    // `.mcp.json` as part of restoring the bundle — the token rewrite
+    // below then stamps the per-turn token on top.
+    await this.runBootstrapIntegrityCheck();
 
     // ADR-0052 §4 / #2615: rewrite the `spring-voyage` MCP server's
     // Authorization header in the launcher-written MCP config with the
