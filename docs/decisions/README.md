@@ -64,6 +64,7 @@ For open design questions not yet decided, see
 | [0047](0047-platform-user-human-split.md) | TenantUser / human split; connector identity on the tenant user | Accepted |
 | [0053](0053-units-are-agents-and-one-way-delivery.md) | **Re-baseline** — units are agents; the platform delivers one-way messages | Accepted |
 | [0054](0054-one-mcp-server-one-execution-host.md) | **Re-baseline** — one platform MCP server, one execution host | Accepted |
+| [0055](0055-pull-based-agent-bootstrap.md) | Pull-based agent bootstrap and workspace delivery | Proposed |
 
 Archived records are listed in [`archive/README.md`](archive/README.md).
 
