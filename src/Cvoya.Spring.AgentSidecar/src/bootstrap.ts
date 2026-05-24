@@ -11,10 +11,10 @@
 // from the cached bytes; a 200 replaces the cache and re-writes
 // everything.
 //
-// The fetcher is dormant in Wave 2: the env vars are not stamped on
-// container launch yet (Wave 3 wires the launchers). When the URL is
-// unset, `createBootstrapFetcherFromEnv` returns `null` and the
-// sidecar runs exactly as it does today.
+// The fetcher is active when the launcher stamps `SPRING_BOOTSTRAP_URL`.
+// When the env var is absent (e.g. tests, A2A-native runtimes with no
+// workspace, alternate launchers), `createBootstrapFetcherFromEnv`
+// returns `null` and the sidecar skips the pull/integrity-check path.
 
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
