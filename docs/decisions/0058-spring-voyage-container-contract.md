@@ -185,45 +185,42 @@ The workspace root carries three classes of platform-owned entries:
    amendment; ad-hoc additions are not.
 
 2. **Spring-namespaced platform files**, under `.spring/` at the workspace
-   root, are the namespace for **new** platform-managed files where the
+   root, are the namespace for every platform-managed file where the
    platform chooses the name:
    - Workspace-relative path: `$SPRING_WORKSPACE_PATH/.spring/`
      = `/spring/members/<memberId>/.spring/`.
-   - Owner: the platform (sidecar writes; integrity check pins).
-   - Examples (current and proposed):
-     - The platform's assembled system prompt, when it stops being written
-       to Claude Code's auto-discovered `CLAUDE.md` (proposed in
-       [#2672](https://github.com/cvoya-com/spring-voyage/issues/2672)). The
-       path becomes `.spring/system-prompt.md`.
-     - The sidecar's per-turn MCP token file (currently at
-       `$SPRING_WORKSPACE_PATH/.spring-voyage-bridge/mcp-token`,
-       written by `mcp-token-store.ts`) is the long-running platform's
-       working directory. A v0.2 migration to `.spring/bridge/mcp-token`
-       is in scope as a tracked follow-up but **not** in scope for this
-       ADR; the current path is grandfathered.
+   - Owner: the platform (sidecar writes; integrity check pins where
+     applicable).
+   - Current and proposed entries:
+     - `.spring/bridge/` — the long-running sidecar's working directory.
+       Holds `mcp-token` (per-turn MCP session token, written by
+       `mcp-token-store.ts` and read by the per-turn
+       sidecar-MCP-server-mode child per [ADR-0057 §3](0057-sidecar-local-mcp-server.md))
+       and `seen-threads` (thread-id seen-list, written by `threads.ts`).
+       The sidecar currently writes these under
+       `$SPRING_WORKSPACE_PATH/.spring-voyage-bridge/`; tracked
+       implementation work is in §7 below.
+     - `.spring/system-prompt.md` — the platform's assembled system prompt,
+       when it stops being written to Claude Code's auto-discovered
+       `CLAUDE.md` (proposed in
+       [#2672](https://github.com/cvoya-com/spring-voyage/issues/2672)).
 
    The `.spring/` namespace exists so platform-managed files do not collide
    with anything in §2.4's repo layer (which lives in arbitrary subpaths of
    the workspace) and stay legible in operator inspection of an agent's
    workspace volume.
 
-3. **Sidecar working directory** (legacy path, in scope to migrate but
-   not in this ADR):
-   - `$SPRING_WORKSPACE_PATH/.spring-voyage-bridge/` — currently used by
-     the sidecar for the per-turn MCP token (`mcp-token`) and the
-     thread-id seen-list (`seen-threads`). Folds into `.spring/bridge/` in
-     v0.2.
-
 #### 2.3 The workspace-resident token file
 
 The per-turn MCP session token (§1's `SPRING_MCP_TOKEN`) is written to a
 known workspace path by the long-running A2A sidecar before each CLI spawn,
 and read from that path by the per-turn sidecar-MCP-server-mode child
-([ADR-0057 §3](0057-sidecar-local-mcp-server.md)). The current path is
-`$SPRING_WORKSPACE_PATH/.spring-voyage-bridge/mcp-token`; under §2.2's v0.2
-migration it becomes `$SPRING_WORKSPACE_PATH/.spring/bridge/mcp-token`. The
-contract is "the sidecar's two processes agree on the path"; the path itself
-is internal to the sidecar.
+([ADR-0057 §3](0057-sidecar-local-mcp-server.md)). The contract path is
+`$SPRING_WORKSPACE_PATH/.spring/bridge/mcp-token`. The sidecar's current
+implementation writes to the legacy `.spring-voyage-bridge/` path; the
+rename is tracked by §7's required code alignment. The contract is "the
+sidecar's two processes agree on the path"; the path itself is internal to
+the sidecar.
 
 #### 2.4 Layering rule — platform layer vs repo layer
 
@@ -410,6 +407,25 @@ in the same PR, in addition to its own decision content. The amendment
 is a one-line row update with a back-link to the originating ADR — the
 canonical contract continues to read top-to-bottom from this document.
 
+### 7. Required code alignment
+
+This ADR is mostly a catalogue of decisions already in code. One
+implementation surface diverges from the contract this ADR establishes
+and lands as a separate v0.1 PR following ADR acceptance:
+
+- **Sidecar working directory rename** — `.spring-voyage-bridge/` →
+  `.spring/bridge/` ([#2702](https://github.com/cvoya-com/spring-voyage/issues/2702)).
+  `src/Cvoya.Spring.AgentSidecar/src/threads.ts` exports
+  `BRIDGE_STATE_DIR = ".spring-voyage-bridge"`; the rename is a one-line
+  constant change plus comment updates in `mcp-token-store.ts` and the
+  three CLI launcher `.cs` files. Lands before v0.1 cut so no clean-deploy
+  is required for the rename specifically.
+
+No other production code change is required by this ADR. Items declared
+in §1–§5 that are proposed (e.g. `.spring/system-prompt.md` per #2672) or
+in flight (e.g. `SPRING_SYSTEM_PROMPT` removal from CLI launchers per #2668)
+are tracked on their own issues and ship under their own PRs.
+
 ## Consequences
 
 - **One canonical statement.** Every container-contract item is enumerated
@@ -438,9 +454,11 @@ canonical contract continues to read top-to-bottom from this document.
   "the producer is gone, what's the consumer?" a question the ADR has
   to answer before the removal lands. The dead `SPRING_SYSTEM_PROMPT` is
   the canonical case this prevents from recurring.
-- **No new abstractions, no new code.** This ADR ships as a document
-  change. The implementations it catalogues stay as they are; the only
-  code-adjacent change is the ADR-0055 status-quo update.
+- **No new abstractions; one targeted code rename.** This ADR ships as a
+  document change. The implementations it catalogues stay as they are
+  except for the sidecar working-directory rename tracked in §7
+  ([#2702](https://github.com/cvoya-com/spring-voyage/issues/2702)) and
+  the ADR-0055 status-quo update.
 
 ## Not abstracted
 
@@ -472,10 +490,6 @@ canonical contract continues to read top-to-bottom from this document.
   socket the platform calls into). The current contract is "one inbound
   endpoint" and §4.1 makes that explicit; a second port is the trigger to
   amend §4.1 with a justification.
-- A non-`SPRING_*`, non-upstream env-var prefix the platform wants to
-  stamp (e.g. a `SV_*` re-prefix to align with the OSS-naming convention
-  the operator surface uses). The current decision is `SPRING_*`; a
-  prefix change is an ADR amendment, not a launcher-by-launcher edit.
 - A container-supervised process that is not the long-running sidecar
   or a per-turn CLI child (e.g. a long-running connector daemon). §3's
   table marks `supervisord` as "not present"; a daemon-shape addition

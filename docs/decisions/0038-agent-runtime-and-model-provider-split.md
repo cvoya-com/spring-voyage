@@ -13,7 +13,7 @@
 - **Date:** 2026-05-06
 - **Umbrella:** [#1761](https://github.com/cvoya-com/spring-voyage/issues/1761) — AgentRuntime and ModelProvider split — multi-PR initiative (ADR-0038).
 - **Related code:** see "Surface affected" below — the change touches Core domain, Manifest, Host.Api, AgentRuntimes projects, ModelProviders (new), Cli, Web, Dapr components, and docs.
-- **Related ADRs:** [0021](0021-spring-voyage-is-not-an-agent-runtime.md), [0029](0029-tenant-execution-boundary.md), [0036](0036-single-identity-model.md), [0037](0037-package-schema-decomposition.md). Builds on the vocabulary alignment delivered in #1758.
+- **Related ADRs:** [0021](0021-spring-voyage-is-not-an-agent-runtime.md), [0029](0029-tenant-execution-boundary.md), [0036](0036-single-identity-model.md), [0037](0037-package-schema-decomposition.md), [0058](0058-spring-voyage-container-contract.md) — the canonical container contract that consolidates every platform-managed artefact inside the agent instance; the per-edge credential env vars this ADR's `runtime-catalog.yaml` derives (`CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`) are catalogued there in §1. Builds on the vocabulary alignment delivered in #1758.
 
 ## Context
 
