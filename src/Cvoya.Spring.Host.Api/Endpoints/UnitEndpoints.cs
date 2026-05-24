@@ -2149,7 +2149,26 @@ public static class UnitEndpoints
         return new AgentExecutionConfig(
             Runtime: shape.Runtime ?? string.Empty,
             Image: shape.Image,
-            Model: shape.Model);
+            Model: shape.Model,
+            // #2691 / #2692: include the agent's declared system_prompt_mode
+            // so the inheritance resolver can intersect it against the
+            // parent set. A blank / unknown wire literal lands as null —
+            // the slot becomes a candidate for inheritance.
+            SystemPromptMode: ParseSystemPromptMode(shape.SystemPromptMode));
+
+        static Cvoya.Spring.Core.Catalog.SystemPromptMode? ParseSystemPromptMode(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+            return value.Trim().ToLowerInvariant() switch
+            {
+                "append" => Cvoya.Spring.Core.Catalog.SystemPromptMode.Append,
+                "replace" => Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace,
+                _ => null,
+            };
+        }
     }
 
     /// <summary>
@@ -2434,7 +2453,12 @@ public static class UnitEndpoints
         var childOwnConfig = new AgentExecutionConfig(
             Runtime: childOwnDefaults?.Runtime ?? string.Empty,
             Image: childOwnDefaults?.Image,
-            Model: childOwnDefaults?.Model);
+            Model: childOwnDefaults?.Model,
+            // #2691 / #2692: include the child's declared
+            // system_prompt_mode so the inheritance resolver intersects it
+            // against the remaining parent set (same rule as the other
+            // inheritable slots).
+            SystemPromptMode: childOwnDefaults?.SystemPromptMode);
 
         var resolution = inheritanceResolver.ResolveAgentConfig(
             childOwnConfig,

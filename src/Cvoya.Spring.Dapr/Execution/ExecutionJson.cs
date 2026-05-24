@@ -8,6 +8,8 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Catalog;
 
+using CoreSystemPromptMode = Cvoya.Spring.Core.Catalog.SystemPromptMode;
+
 /// <summary>
 /// Read/write helpers for the canonical persisted <c>execution:</c> JSON
 /// block (ADR-0038 amendment, #2634). The block carries exactly
@@ -70,5 +72,45 @@ internal static class ExecutionJson
         }
         var value = prop.GetString();
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    /// <summary>
+    /// Reads the <c>system_prompt_mode</c> slot from an <c>execution</c>
+    /// JSON element (#2691 / #2667). Returns <c>null</c> when the key is
+    /// absent, blank, or carries an unknown literal — the resolved-cascade
+    /// layer falls back to <see cref="CoreSystemPromptMode.Append"/> in
+    /// those cases. Wire form is the lower-case enum literal
+    /// (<c>"append"</c> / <c>"replace"</c>).
+    /// </summary>
+    internal static CoreSystemPromptMode? ReadSystemPromptMode(JsonElement exec)
+    {
+        var raw = GetStringOrNull(exec, "system_prompt_mode");
+        if (raw is null)
+        {
+            return null;
+        }
+
+        return raw.ToLowerInvariant() switch
+        {
+            "append" => CoreSystemPromptMode.Append,
+            "replace" => CoreSystemPromptMode.Replace,
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Writes the <c>system_prompt_mode</c> slot into the supplied block
+    /// dictionary when <paramref name="mode"/> is non-null. Wire form is
+    /// the lower-case enum literal so the persisted JSON matches the OpenAPI
+    /// and YAML surfaces.
+    /// </summary>
+    internal static void WriteSystemPromptMode(IDictionary<string, object?> block, CoreSystemPromptMode? mode)
+    {
+        if (mode is null)
+        {
+            return;
+        }
+
+        block["system_prompt_mode"] = mode.Value.ToString().ToLowerInvariant();
     }
 }

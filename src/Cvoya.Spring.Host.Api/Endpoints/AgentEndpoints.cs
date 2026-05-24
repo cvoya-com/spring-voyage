@@ -342,6 +342,17 @@ public static class AgentEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        // #2692: same strict-literal validation for system_prompt_mode —
+        // unknown values are rejected at the API boundary rather than
+        // silently coerced.
+        var normalisedSystemPromptMode = NormaliseSystemPromptModeForWire(request.SystemPromptMode);
+        if (normalisedSystemPromptMode.Error is { } systemPromptModeError)
+        {
+            return Results.Problem(
+                detail: systemPromptModeError,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         // ADR-0038: map the new wire shape onto the internal store shape.
         // ADR-0039 §7/G8 drops the container-runtime slot; the host
         // process owns that platform setting.
@@ -351,7 +362,8 @@ public static class AgentEndpoints
                 ? null
                 : new Cvoya.Spring.Core.Catalog.Model(request.Model.Provider, request.Model.Id),
             Hosting: normalisedHosting.Value,
-            Runtime: request.Runtime);
+            Runtime: request.Runtime,
+            SystemPromptMode: normalisedSystemPromptMode.Value);
 
         if (shape.IsEmpty)
         {
@@ -425,7 +437,8 @@ public static class AgentEndpoints
             Image: PickNonBlank(patch.Image, existing.Image),
             Model: patch.Model ?? existing.Model,
             Hosting: PickNonBlank(patch.Hosting, existing.Hosting),
-            Runtime: PickNonBlank(patch.Runtime, existing.Runtime));
+            Runtime: PickNonBlank(patch.Runtime, existing.Runtime),
+            SystemPromptMode: PickNonBlank(patch.SystemPromptMode, existing.SystemPromptMode));
 
         static string? PickNonBlank(string? incoming, string? fallback)
         {
@@ -458,7 +471,14 @@ public static class AgentEndpoints
             Runtime: shape.Runtime ?? string.Empty,
             Image: shape.Image,
             Hosting: ParseHostingMode(shape.Hosting),
-            Model: shape.Model);
+            Model: shape.Model,
+            // #2691: project the system_prompt_mode wire literal onto the
+            // typed enum so the inheritance resolver can intersect it
+            // against parent unit values. A blank or unknown literal lands
+            // as null — the resolver treats null as "candidate for
+            // inheritance from the parent set", same as every other
+            // optional slot.
+            SystemPromptMode: ParseSystemPromptMode(shape.SystemPromptMode));
 
     /// <summary>
     /// Issue #2436: validates and normalises a wire-supplied hosting
@@ -481,6 +501,55 @@ public static class AgentEndpoints
         return (null,
             $"hosting: unknown literal '{trimmed}'. " +
             $"Expected one of: persistent, ephemeral, pooled (case-insensitive). Issue #2436.");
+    }
+
+    /// <summary>
+    /// #2692 / #2691 / #2667: validates and normalises a wire-supplied
+    /// <c>system_prompt_mode</c> literal before it lands on the persisted
+    /// shape. Returns the canonical lower-case form when the literal is
+    /// known (<c>append</c> / <c>replace</c>), or a structured error
+    /// message when it is not. Blank input is accepted (no change). Used
+    /// by both the agent and unit execution PUT paths and the agent
+    /// metadata PATCH path so the four entry points share one validator.
+    /// </summary>
+    internal static (string? Value, string? Error) NormaliseSystemPromptModeForWire(string? systemPromptMode)
+    {
+        if (string.IsNullOrWhiteSpace(systemPromptMode))
+        {
+            return (null, null);
+        }
+        var trimmed = systemPromptMode.Trim();
+        var lower = trimmed.ToLowerInvariant();
+        if (lower is "append" or "replace")
+        {
+            return (lower, null);
+        }
+        return (null,
+            $"systemPromptMode: unknown literal '{trimmed}'. " +
+            $"Expected one of: append, replace (case-insensitive). Issue #2691.");
+    }
+
+    /// <summary>
+    /// Maps a normalised <c>system_prompt_mode</c> literal onto the
+    /// <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode"/> enum. Blank
+    /// input lands on <c>null</c> so the inheritance resolver can treat
+    /// the slot as a candidate for inheritance from the parent unit. The
+    /// caller is responsible for having run
+    /// <see cref="NormaliseSystemPromptModeForWire"/> first when the value
+    /// arrived on the wire.
+    /// </summary>
+    private static Cvoya.Spring.Core.Catalog.SystemPromptMode? ParseSystemPromptMode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "append" => Cvoya.Spring.Core.Catalog.SystemPromptMode.Append,
+            "replace" => Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace,
+            _ => null,
+        };
     }
 
     /// <summary>
@@ -583,7 +652,9 @@ public static class AgentEndpoints
 
         // ADR-0038: project the canonical store shape onto the wire
         // form — `runtime` (catalogue id), structured `model: {provider, id}`,
-        // and `hosting`.
+        // and `hosting`. #2692: also include `system_prompt_mode` (the raw
+        // agent-own declaration, before inheritance — same level as the
+        // other shape fields).
         var model = shape.Model is null
             ? null
             : new AiModelDto(shape.Model.Provider, shape.Model.Id);
@@ -593,7 +664,8 @@ public static class AgentEndpoints
             Runtime: shape.Runtime,
             Model: model,
             Hosting: shape.Hosting,
-            ConcurrentThreads: concurrentThreads);
+            ConcurrentThreads: concurrentThreads,
+            SystemPromptMode: shape.SystemPromptMode);
     }
 
     private static async Task<IResult> DeployPersistentAgentAsync(
@@ -1235,6 +1307,18 @@ public static class AgentEndpoints
             id,
             cancellationToken);
 
+        // #2692: read the (resolved, declared) system_prompt_mode pair so
+        // the portal can render "explicitly set" vs "inherited" without a
+        // second round-trip. Fail-open (null) — a transient store / provider
+        // outage shouldn't blank the otherwise-complete response.
+        var (resolvedSystemPromptMode, declaredSystemPromptMode) = await TryReadSystemPromptModePairAsync(
+            scopeFactory,
+            agentDefinitionProvider,
+            entry.ActorId,
+            loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.AgentEndpoints"),
+            id,
+            cancellationToken);
+
         var agentResponse = ToAgentResponse(
             entry,
             metadata,
@@ -1245,7 +1329,9 @@ public static class AgentEndpoints
             parentUnitId: parentUnitGuid,
             instructions: instructions,
             effectiveTools: effectiveTools,
-            executionImage: executionImage);
+            executionImage: executionImage,
+            systemPromptMode: resolvedSystemPromptMode,
+            declaredSystemPromptMode: declaredSystemPromptMode);
         if (!result.IsSuccess)
         {
             return Results.Ok(new AgentDetailResponse(agentResponse, null, deployment));
@@ -1269,6 +1355,7 @@ public static class AgentEndpoints
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitMembershipRepository membershipRepository,
         [FromServices] IServiceScopeFactory scopeFactory,
+        [FromServices] IAgentDefinitionProvider agentDefinitionProvider,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -1285,12 +1372,17 @@ public static class AgentEndpoints
 
         UpdateAgentMetadataRequest? request;
         AgentInstructionsPatch instructionsPatch;
+        AgentSystemPromptModePatch systemPromptModePatch;
         try
         {
             using var document = await JsonDocument.ParseAsync(
                 httpContext.Request.Body, cancellationToken: cancellationToken);
             request = document.RootElement.Deserialize<UpdateAgentMetadataRequest>(jsonOptions);
             instructionsPatch = ReadAgentInstructionsPatch(document.RootElement);
+            // #2692: same tri-state shape as `instructions` — absent =
+            // leave alone, explicit JSON null = clear, string = replace
+            // (after literal validation below).
+            systemPromptModePatch = ReadAgentSystemPromptModePatch(document.RootElement);
         }
         catch (JsonException ex)
         {
@@ -1311,6 +1403,24 @@ public static class AgentEndpoints
             {
                 return displayNameProblem;
             }
+        }
+
+        // #2692: validate `systemPromptMode` BEFORE we touch any state so a
+        // bad literal short-circuits with a clean 400 (mirrors the
+        // displayName precedent above). The patch carries a non-null
+        // string only when the caller sent a literal — explicit JSON null
+        // (clear semantics) skips this check.
+        string? normalisedSystemPromptModeValue = null;
+        if (systemPromptModePatch.IsPresent && systemPromptModePatch.Value is { } literal)
+        {
+            var normalised = NormaliseSystemPromptModeForWire(literal);
+            if (normalised.Error is { } systemPromptModeError)
+            {
+                return Results.Problem(
+                    detail: systemPromptModeError,
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+            normalisedSystemPromptModeValue = normalised.Value;
         }
 
         var address = Address.For("agent", id);
@@ -1357,6 +1467,17 @@ public static class AgentEndpoints
                 scopeFactory, entry.ActorId, logger, id, instructionsPatch.Value, cancellationToken);
         }
 
+        // #2692: same read-modify-write for the `system_prompt_mode` slot on
+        // the persisted `execution` block. The validated literal landed on
+        // `normalisedSystemPromptModeValue` above (or null for the clear
+        // case). When the patch is absent we skip entirely so the existing
+        // value is left unchanged.
+        if (systemPromptModePatch.IsPresent)
+        {
+            await ApplyAgentSystemPromptModePatchAsync(
+                scopeFactory, entry.ActorId, logger, id, normalisedSystemPromptModeValue, cancellationToken);
+        }
+
         var updated = await proxy.GetMetadataAsync(cancellationToken);
         // #2250: carry the membership-derived primary unit Guid through so
         // the patched response shape matches the GET path.
@@ -1364,7 +1485,23 @@ public static class AgentEndpoints
         Guid? parentUnitGuid = memberships.Count > 0 ? memberships[0].UnitId : null;
         var instructions = await TryReadAgentInstructionsAsync(
             scopeFactory, entry.ActorId, logger, id, cancellationToken);
-        return Results.Ok(ToAgentResponse(entry, updated, parentUnitId: parentUnitGuid, instructions: instructions));
+        // #2692: surface the declared + resolved system_prompt_mode on the
+        // PATCH response so a Kiota caller that PATCHes and then renders the
+        // resulting AgentResponse sees the same shape the GET path emits.
+        var (resolvedMode, declaredMode) = await TryReadSystemPromptModePairAsync(
+            scopeFactory,
+            agentDefinitionProvider,
+            entry.ActorId,
+            logger,
+            id,
+            cancellationToken);
+        return Results.Ok(ToAgentResponse(
+            entry,
+            updated,
+            parentUnitId: parentUnitGuid,
+            instructions: instructions,
+            systemPromptMode: resolvedMode,
+            declaredSystemPromptMode: declaredMode));
     }
 
     /// <summary>
@@ -1373,6 +1510,19 @@ public static class AgentEndpoints
     private readonly record struct AgentInstructionsPatch(bool IsPresent, string? Value)
     {
         public static AgentInstructionsPatch Absent => new(false, null);
+    }
+
+    /// <summary>
+    /// Tri-state for the optional <c>systemPromptMode</c> slot on PATCH
+    /// bodies (#2692). Same shape as <see cref="AgentInstructionsPatch"/>:
+    /// absent = leave unchanged; explicit JSON null = clear (fall through
+    /// to the parent unit / platform default); string = replace (after
+    /// the endpoint validates the literal via
+    /// <see cref="NormaliseSystemPromptModeForWire"/>).
+    /// </summary>
+    private readonly record struct AgentSystemPromptModePatch(bool IsPresent, string? Value)
+    {
+        public static AgentSystemPromptModePatch Absent => new(false, null);
     }
 
     /// <summary>
@@ -1403,6 +1553,41 @@ public static class AgentEndpoints
         }
 
         return AgentInstructionsPatch.Absent;
+    }
+
+    /// <summary>
+    /// Inspects the raw PATCH body for the <c>systemPromptMode</c> property
+    /// (#2692) and projects it to the tri-state used by the endpoint
+    /// (set / clear / leave-alone). Mirrors
+    /// <see cref="ReadAgentInstructionsPatch"/> — absent property means
+    /// "leave the persisted value alone"; explicit JSON null clears the
+    /// slot so the cascade falls back to the parent unit / platform
+    /// default; a string lands on the persisted block once the literal
+    /// passes <see cref="NormaliseSystemPromptModeForWire"/>.
+    /// </summary>
+    private static AgentSystemPromptModePatch ReadAgentSystemPromptModePatch(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return AgentSystemPromptModePatch.Absent;
+        }
+
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (!string.Equals(prop.Name, "systemPromptMode", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return prop.Value.ValueKind switch
+            {
+                JsonValueKind.Null => new AgentSystemPromptModePatch(true, null),
+                JsonValueKind.String => new AgentSystemPromptModePatch(true, prop.Value.GetString()),
+                _ => AgentSystemPromptModePatch.Absent,
+            };
+        }
+
+        return AgentSystemPromptModePatch.Absent;
     }
 
     /// <summary>
@@ -1464,6 +1649,98 @@ public static class AgentEndpoints
         {
             logger.LogWarning(ex,
                 "Agent '{AgentId}': failed to apply instructions patch on AgentDefinition.",
+                agentId);
+        }
+    }
+
+    /// <summary>
+    /// Applies the <c>systemPromptMode</c> tri-state to the agent's
+    /// persisted <c>AgentDefinitions.Definition</c> column's
+    /// <c>execution.system_prompt_mode</c> slot (#2692). <c>null</c>
+    /// removes the key; a (validated lower-case) string replaces it.
+    /// Every sibling property on the document and the execution block is
+    /// preserved.
+    /// </summary>
+    private static async Task ApplyAgentSystemPromptModePatchAsync(
+        IServiceScopeFactory scopeFactory,
+        Guid agentActorId,
+        Microsoft.Extensions.Logging.ILogger logger,
+        string agentId,
+        string? value,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            var entity = await db.AgentDefinitions
+                .FirstOrDefaultAsync(a => a.Id == agentActorId && a.DeletedAt == null, cancellationToken);
+
+            if (entity is null)
+            {
+                logger.LogWarning(
+                    "Agent '{AgentId}': no AgentDefinition row found while applying systemPromptMode patch; skipping.",
+                    agentId);
+                return;
+            }
+
+            // Copy every top-level property, replacing only `execution`
+            // when we touch it. The execution sub-block is rebuilt the
+            // same way: every sibling key is preserved verbatim;
+            // system_prompt_mode is removed when clearing, replaced when
+            // setting. Mirrors the read-modify-write shape used for the
+            // `instructions` patch above.
+            var payload = new Dictionary<string, object?>(StringComparer.Ordinal);
+            Dictionary<string, object?> executionBlock = new(StringComparer.Ordinal);
+            var executionHadValue = false;
+
+            if (entity.Definition is { ValueKind: JsonValueKind.Object } existing)
+            {
+                foreach (var prop in existing.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "execution", StringComparison.OrdinalIgnoreCase)
+                        && prop.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        executionHadValue = true;
+                        foreach (var execProp in prop.Value.EnumerateObject())
+                        {
+                            if (string.Equals(execProp.Name, "system_prompt_mode", StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
+                            executionBlock[execProp.Name] = execProp.Value;
+                        }
+                    }
+                    else
+                    {
+                        payload[prop.Name] = prop.Value;
+                    }
+                }
+            }
+
+            if (value is not null)
+            {
+                executionBlock["system_prompt_mode"] = value;
+            }
+
+            if (executionHadValue || executionBlock.Count > 0)
+            {
+                payload["execution"] = executionBlock;
+            }
+
+            entity.Definition = JsonSerializer.SerializeToElement(payload);
+            entity.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Agent '{AgentId}': failed to apply systemPromptMode patch on AgentDefinition.",
                 agentId);
         }
     }
@@ -1967,7 +2244,9 @@ public static class AgentEndpoints
         Guid? parentUnitId = null,
         string? instructions = null,
         IReadOnlyList<EffectiveToolResponse>? effectiveTools = null,
-        string? executionImage = null) =>
+        string? executionImage = null,
+        string? systemPromptMode = null,
+        string? declaredSystemPromptMode = null) =>
         new(
             entry.ActorId,
             // #2114: Name carries the canonical 32-char no-dash hex form
@@ -2018,7 +2297,14 @@ public static class AgentEndpoints
             // provenance string. Null when neither the agent nor its
             // parent unit declares an image, or when the list-path caller
             // did not resolve it.
-            ExecutionImage: executionImage);
+            ExecutionImage: executionImage,
+            // #2692: resolved + declared system_prompt_mode pair. The
+            // portal renders the (declared, resolved) pair as "explicitly
+            // set" vs "inherited"; the list-path caller leaves both null
+            // and the single-subject GET / PATCH paths populate them via
+            // TryReadSystemPromptModePairAsync.
+            SystemPromptMode: systemPromptMode,
+            DeclaredSystemPromptMode: declaredSystemPromptMode);
 
     /// <summary>
     /// Best-effort resolution of the subject's effective tool set via
@@ -2101,6 +2387,100 @@ public static class AgentEndpoints
                 subjectId);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Reads the agent's <c>(resolved, declared)</c>
+    /// <c>system_prompt_mode</c> pair for the <see cref="AgentResponse"/>
+    /// surface (#2692). The <i>resolved</i> value is the cascade output
+    /// (<see cref="IAgentDefinitionProvider"/> applies the agent → unit
+    /// merge; the final fallback to <c>append</c> is applied here so the
+    /// portal can render the effective value without re-deriving it). The
+    /// <i>declared</i> value is the raw slot from
+    /// <c>AgentDefinitions.Definition.execution.system_prompt_mode</c>;
+    /// <c>null</c> when the agent did not declare its own value. Both
+    /// values are returned in the lower-case wire form.
+    /// </summary>
+    /// <returns>
+    /// A tuple <c>(Resolved, Declared)</c>. <c>Resolved</c> is
+    /// <c>null</c> only when the agent has no execution block at all
+    /// (the dispatcher has nothing to merge against — the wire layer
+    /// renders that as "no value" so the portal can show the field as
+    /// not-yet-configured rather than presuming the platform fallback).
+    /// </returns>
+    internal static async Task<(string? Resolved, string? Declared)> TryReadSystemPromptModePairAsync(
+        IServiceScopeFactory scopeFactory,
+        IAgentDefinitionProvider agentDefinitionProvider,
+        Guid agentActorId,
+        Microsoft.Extensions.Logging.ILogger logger,
+        string agentId,
+        CancellationToken cancellationToken)
+    {
+        string? declared = null;
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            var entity = await db.AgentDefinitions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Id == agentActorId && a.DeletedAt == null, cancellationToken);
+
+            if (entity?.Definition is { ValueKind: JsonValueKind.Object } definition
+                && definition.TryGetProperty("execution", out var exec)
+                && exec.ValueKind == JsonValueKind.Object
+                && exec.TryGetProperty("system_prompt_mode", out var prop)
+                && prop.ValueKind == JsonValueKind.String)
+            {
+                var raw = prop.GetString();
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    var lower = raw.Trim().ToLowerInvariant();
+                    if (lower is "append" or "replace")
+                    {
+                        declared = lower;
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Agent '{AgentId}': failed to read declared system_prompt_mode from AgentDefinition.",
+                agentId);
+        }
+
+        string? resolved = null;
+        try
+        {
+            var actorIdString = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(agentActorId);
+            var definition = await agentDefinitionProvider.GetByIdAsync(actorIdString, cancellationToken);
+            if (definition?.Execution is { } execution)
+            {
+                // The provider's Merge has already applied the agent →
+                // unit cascade; the final fallback to Append lands here
+                // so a non-null execution block always surfaces a
+                // concrete resolved value to the wire.
+                resolved = (execution.SystemPromptMode
+                    ?? Cvoya.Spring.Core.Catalog.SystemPromptMode.Append).ToString().ToLowerInvariant();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Agent '{AgentId}': failed to resolve effective system_prompt_mode via definition provider.",
+                agentId);
+        }
+
+        return (resolved, declared);
     }
 
     /// <summary>
@@ -2245,12 +2625,14 @@ public static class AgentEndpoints
         var runtime = ReadStringOrNull(exec, "runtime");
         var image = ReadStringOrNull(exec, "image");
         var hosting = ParseHostingMode(ReadStringOrNull(exec, "hosting"));
+        var systemPromptMode = ParseSystemPromptMode(ReadStringOrNull(exec, "system_prompt_mode"));
 
         return new AgentExecutionConfig(
             Runtime: runtime ?? string.Empty,
             Image: image,
             Hosting: hosting,
-            Model: ReadModel(exec));
+            Model: ReadModel(exec),
+            SystemPromptMode: systemPromptMode);
     }
 
     private static string? ReadStringOrNull(JsonElement obj, string name)

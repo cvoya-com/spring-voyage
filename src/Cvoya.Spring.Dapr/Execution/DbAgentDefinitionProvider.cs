@@ -334,7 +334,14 @@ public class DbAgentDefinitionProvider(
             // Hosting mode is agent-owned. Default (Persistent) when the
             // agent has no execution block at all (#2085).
             Hosting: agent?.Hosting ?? AgentHostingMode.Persistent,
-            Model: agent?.Model ?? unit.Model);
+            Model: agent?.Model ?? unit.Model,
+            ConcurrentThreads: agent?.ConcurrentThreads ?? true,
+            // #2691 / #2667: agent → unit cascade for system_prompt_mode.
+            // The launcher-context layer applies the final fallback to
+            // Append; here we just project null when neither agent nor
+            // unit declared a value, so callers that care can distinguish
+            // "agent declared X explicitly" from "no one declared anything".
+            SystemPromptMode: agent?.SystemPromptMode ?? unit.SystemPromptMode);
     }
 
     private static string? FirstNonBlank(string? first, string? second)
@@ -347,7 +354,8 @@ public class DbAgentDefinitionProvider(
     private static AgentExecutionConfig? ExtractExecution(JsonElement definition)
     {
         // The one canonical persisted shape (ADR-0038 amendment, #2634):
-        // top-level `execution: { runtime, model{provider, id}, image, hosting }`.
+        // top-level `execution: { runtime, model{provider, id}, image, hosting,
+        // system_prompt_mode? }`. system_prompt_mode is #2691 / #2667.
         if (definition.TryGetProperty("execution", out var exec) &&
             exec.ValueKind == JsonValueKind.Object)
         {
@@ -355,10 +363,16 @@ public class DbAgentDefinitionProvider(
             var image = GetStringOrNull(exec, "image");
             var hosting = ParseHosting(GetStringOrNull(exec, "hosting"));
             var model = ExecutionJson.ReadModel(exec);
+            var systemPromptMode = ExecutionJson.ReadSystemPromptMode(exec);
 
             if (runtime is not null)
             {
-                return new AgentExecutionConfig(runtime, image, hosting, model);
+                return new AgentExecutionConfig(
+                    runtime,
+                    image,
+                    hosting,
+                    model,
+                    SystemPromptMode: systemPromptMode);
             }
         }
 

@@ -86,7 +86,8 @@ public class DbAgentExecutionStore(
             Image: PickTrimmed(shape.Image, existing.Image),
             Model: shape.Model ?? existing.Model,
             Hosting: PickTrimmed(shape.Hosting, existing.Hosting),
-            Runtime: PickTrimmed(shape.Runtime, existing.Runtime));
+            Runtime: PickTrimmed(shape.Runtime, existing.Runtime),
+            SystemPromptMode: PickTrimmed(shape.SystemPromptMode, existing.SystemPromptMode));
 
         await PersistAsync(db, entity, merged, cancellationToken);
     }
@@ -148,6 +149,10 @@ public class DbAgentExecutionStore(
             if (!string.IsNullOrWhiteSpace(shape.Runtime)) block["runtime"] = shape.Runtime!.Trim();
             if (!string.IsNullOrWhiteSpace(shape.Hosting)) block["hosting"] = shape.Hosting!.Trim();
             ExecutionJson.WriteModel(block, shape.Model);
+            if (!string.IsNullOrWhiteSpace(shape.SystemPromptMode))
+            {
+                block["system_prompt_mode"] = shape.SystemPromptMode!.Trim().ToLowerInvariant();
+            }
             payload["execution"] = block;
         }
 
@@ -172,7 +177,8 @@ public class DbAgentExecutionStore(
             Image: GetStringOrNull(exec, "image"),
             Model: ExecutionJson.ReadModel(exec),
             Hosting: GetStringOrNull(exec, "hosting"),
-            Runtime: GetStringOrNull(exec, "runtime"));
+            Runtime: GetStringOrNull(exec, "runtime"),
+            SystemPromptMode: GetStringOrNull(exec, "system_prompt_mode"));
 
         return shape.IsEmpty ? null : shape;
     }

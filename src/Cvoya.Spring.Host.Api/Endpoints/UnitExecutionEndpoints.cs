@@ -121,17 +121,32 @@ public static class UnitExecutionEndpoints
 
         request ??= new UnitExecutionResponse();
 
+        // #2692: validate the system_prompt_mode literal at the API
+        // boundary so unknown values are rejected with a clean 400
+        // before they hit the store. Mirrors the agent-execution PUT
+        // shape (NormaliseSystemPromptModeForWire lives on AgentEndpoints
+        // so the agent and unit paths share the validator).
+        var normalisedSystemPromptMode = AgentEndpoints.NormaliseSystemPromptModeForWire(request.SystemPromptMode);
+        if (normalisedSystemPromptMode.Error is { } systemPromptModeError)
+        {
+            return Results.Problem(
+                detail: systemPromptModeError,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         // ADR-0038: the wire shape and the store shape are the one
         // canonical execution shape — `runtime` (agent-runtime catalogue
         // id), structured `model: {provider, id}`, and `image`. ADR-0039
         // §7 removed the per-config container-runtime selector; host
-        // configuration owns docker/podman selection.
+        // configuration owns docker/podman selection. #2692 adds
+        // `system_prompt_mode` to the unit defaults.
         var defaults = new UnitExecutionDefaults(
             Image: request.Image,
             Model: request.Model is null
                 ? null
                 : new Cvoya.Spring.Core.Catalog.Model(request.Model.Provider, request.Model.Id),
-            Runtime: request.Runtime);
+            Runtime: request.Runtime,
+            SystemPromptMode: ParseSystemPromptMode(normalisedSystemPromptMode.Value));
 
         if (defaults.IsEmpty)
         {
@@ -179,7 +194,9 @@ public static class UnitExecutionEndpoints
 
         // ADR-0038: project the canonical store shape onto the wire
         // shape — `runtime` (catalogue id) and structured
-        // `model: {provider, id}`.
+        // `model: {provider, id}`. #2692: include `system_prompt_mode` as
+        // the lower-case enum literal so the OpenAPI surface matches the
+        // YAML and JSON forms.
         var model = defaults.Model is null
             ? null
             : new AiModelDto(defaults.Model.Provider, defaults.Model.Id);
@@ -187,6 +204,29 @@ public static class UnitExecutionEndpoints
         return new UnitExecutionResponse(
             Image: defaults.Image,
             Runtime: defaults.Runtime,
-            Model: model);
+            Model: model,
+            SystemPromptMode: defaults.SystemPromptMode?.ToString().ToLowerInvariant());
+    }
+
+    /// <summary>
+    /// Maps a normalised wire literal onto the typed
+    /// <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode"/> enum. The
+    /// caller is responsible for having run
+    /// <see cref="AgentEndpoints.NormaliseSystemPromptModeForWire"/>
+    /// first; blank / unknown input lands on <c>null</c> so the store
+    /// treats the slot as a candidate for inheritance.
+    /// </summary>
+    private static Cvoya.Spring.Core.Catalog.SystemPromptMode? ParseSystemPromptMode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "append" => Cvoya.Spring.Core.Catalog.SystemPromptMode.Append,
+            "replace" => Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace,
+            _ => null,
+        };
     }
 }

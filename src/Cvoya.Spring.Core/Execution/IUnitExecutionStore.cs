@@ -86,14 +86,24 @@ public interface IUnitExecutionStore
 /// <c>spring-voyage</c>). The validation scheduler reads this slot when
 /// composing the workflow input.
 /// </param>
+/// <param name="SystemPromptMode">
+/// Default system-prompt mode (<see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Append"/>
+/// or <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace"/>) for
+/// member agents that do not declare their own (#2691 / #2667). <c>null</c>
+/// means "no unit-level default"; the cascade falls through to
+/// <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Append"/> at the
+/// resolved-launch-context layer.
+/// </param>
 public record UnitExecutionDefaults(
     string? Image = null,
     Cvoya.Spring.Core.Catalog.Model? Model = null,
-    string? Runtime = null)
+    string? Runtime = null,
+    Cvoya.Spring.Core.Catalog.SystemPromptMode? SystemPromptMode = null)
 {
     /// <summary>True when every field is null / whitespace.</summary>
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
         && Model is null
-        && string.IsNullOrWhiteSpace(Runtime);
+        && string.IsNullOrWhiteSpace(Runtime)
+        && SystemPromptMode is null;
 }

@@ -106,4 +106,61 @@ public class DbAgentDefinitionProviderMergeTests
         merged.ShouldNotBeNull();
         merged!.Hosting.ShouldBe(AgentHostingMode.Persistent);
     }
+
+    // ── #2691 / #2667: system_prompt_mode dispatch-time cascade ────────────
+
+    [Fact]
+    public void Merge_SystemPromptMode_AgentReplaceWinsOverUnitAppend()
+    {
+        var agent = new AgentExecutionConfig(
+            Runtime: "claude-code",
+            Image: "x",
+            SystemPromptMode: SystemPromptMode.Replace);
+        var unit = new UnitExecutionDefaults(
+            Runtime: "claude-code",
+            SystemPromptMode: SystemPromptMode.Append);
+
+        var merged = DbAgentDefinitionProvider.Merge(agent, unit);
+
+        merged.ShouldNotBeNull();
+        merged!.SystemPromptMode.ShouldBe(SystemPromptMode.Replace);
+    }
+
+    [Fact]
+    public void Merge_SystemPromptMode_InheritsFromUnitWhenAgentUnset()
+    {
+        var agent = new AgentExecutionConfig(
+            Runtime: "claude-code",
+            Image: "x",
+            SystemPromptMode: null);
+        var unit = new UnitExecutionDefaults(
+            Runtime: "claude-code",
+            SystemPromptMode: SystemPromptMode.Replace);
+
+        var merged = DbAgentDefinitionProvider.Merge(agent, unit);
+
+        merged.ShouldNotBeNull();
+        merged!.SystemPromptMode.ShouldBe(SystemPromptMode.Replace);
+    }
+
+    [Fact]
+    public void Merge_SystemPromptMode_NullEverywhereStaysNull()
+    {
+        // The final fallback to Append happens in the launch-context layer,
+        // not the dispatch-time merge — Merge surfaces null so callers can
+        // distinguish "explicitly declared Append" from "no one declared
+        // anything" if they care to.
+        var agent = new AgentExecutionConfig(
+            Runtime: "claude-code",
+            Image: "x",
+            SystemPromptMode: null);
+        var unit = new UnitExecutionDefaults(
+            Runtime: "claude-code",
+            SystemPromptMode: null);
+
+        var merged = DbAgentDefinitionProvider.Merge(agent, unit);
+
+        merged.ShouldNotBeNull();
+        merged!.SystemPromptMode.ShouldBeNull();
+    }
 }

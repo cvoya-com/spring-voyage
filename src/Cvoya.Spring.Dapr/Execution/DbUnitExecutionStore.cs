@@ -109,7 +109,8 @@ public class DbUnitExecutionStore(
         var merged = new UnitExecutionDefaults(
             Image: PickTrimmed(defaults.Image, existing.Image),
             Model: defaults.Model ?? existing.Model,
-            Runtime: PickTrimmed(defaults.Runtime, existing.Runtime));
+            Runtime: PickTrimmed(defaults.Runtime, existing.Runtime),
+            SystemPromptMode: defaults.SystemPromptMode ?? existing.SystemPromptMode);
 
         await PersistAsync(db, entity, merged, cancellationToken);
     }
@@ -170,6 +171,7 @@ public class DbUnitExecutionStore(
             if (!string.IsNullOrWhiteSpace(defaults.Image)) block["image"] = defaults.Image!.Trim();
             if (!string.IsNullOrWhiteSpace(defaults.Runtime)) block["runtime"] = defaults.Runtime!.Trim();
             ExecutionJson.WriteModel(block, defaults.Model);
+            ExecutionJson.WriteSystemPromptMode(block, defaults.SystemPromptMode);
             payload["execution"] = block;
         }
 
@@ -200,8 +202,9 @@ public class DbUnitExecutionStore(
         var image = GetStringOrNull(exec, "image");
         var runtime = GetStringOrNull(exec, "runtime");
         var model = ExecutionJson.ReadModel(exec);
+        var systemPromptMode = ExecutionJson.ReadSystemPromptMode(exec);
 
-        var shaped = new UnitExecutionDefaults(image, model, runtime);
+        var shaped = new UnitExecutionDefaults(image, model, runtime, systemPromptMode);
         return shaped.IsEmpty ? null : shaped;
     }
 

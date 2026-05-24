@@ -55,10 +55,19 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// intrinsic to the model; there is no separate top-level
 /// <c>provider</c> slot.
 /// </param>
+/// <param name="SystemPromptMode">
+/// How the platform-assembled system prompt combines with the runtime's
+/// own default system prompt (#2692 / #2691 / #2667). Wire form is the
+/// lower-case enum literal — exactly one of <c>"append"</c> or
+/// <c>"replace"</c>. <c>null</c> on PUT means "leave the persisted value
+/// alone"; <c>null</c> on the GET response means "no unit-level default
+/// declared". Validation rejects any other literal with a 400.
+/// </param>
 public record UnitExecutionResponse(
     string? Image = null,
     string? Runtime = null,
-    AiModelDto? Model = null);
+    AiModelDto? Model = null,
+    string? SystemPromptMode = null);
 
 /// <summary>
 /// Wire-level representation of an agent's <c>execution:</c> block on
@@ -96,12 +105,22 @@ public record UnitExecutionResponse(
 /// the <c>--definition</c> / <c>--definition-file</c> paths on agent
 /// create. Tracked for first-class wire-write support under #2090.
 /// </param>
+/// <param name="SystemPromptMode">
+/// How the platform-assembled system prompt combines with the runtime's
+/// own default (#2692 / #2691 / #2667). Wire form is the lower-case enum
+/// literal — exactly one of <c>"append"</c> or <c>"replace"</c>.
+/// <c>null</c> on PUT means "leave the persisted value alone"; <c>null</c>
+/// on the GET response means "no agent-level declaration — the dispatcher
+/// will inherit from the parent unit's default". Validation rejects any
+/// other literal with a 400.
+/// </param>
 public record AgentExecutionResponse(
     string? Image = null,
     string? Runtime = null,
     AiModelDto? Model = null,
     string? Hosting = null,
-    bool? ConcurrentThreads = null);
+    bool? ConcurrentThreads = null,
+    string? SystemPromptMode = null);
 
 /// <summary>
 /// Structured <c>{provider, id}</c> model selector under ADR-0038.

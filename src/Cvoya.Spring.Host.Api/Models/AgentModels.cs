@@ -123,6 +123,23 @@ public record CreateAgentRequest(
 /// Surfaced so the portal's Tools sub-tab Image section (#2348) can
 /// render the tag rather than the digest-suffixed provenance string.
 /// </param>
+/// <param name="SystemPromptMode">
+/// The <b>resolved</b> system-prompt mode (#2692 / #2691 / #2667). Lower-case
+/// enum literal — <c>"append"</c> or <c>"replace"</c>. Comes from the
+/// agent → unit → <c>append</c> cascade applied by the dispatcher's
+/// definition provider, so the portal can render the effective value
+/// without re-running the merge. <c>null</c> only when the agent has no
+/// execution block at all (the cascade has nothing to resolve against).
+/// </param>
+/// <param name="DeclaredSystemPromptMode">
+/// The <b>raw declared</b> system-prompt mode from the agent's own
+/// execution block, before the inheritance cascade. Lower-case enum
+/// literal or <c>null</c> when the agent did not declare its own value
+/// (in which case the resolved <see cref="SystemPromptMode"/> reflects
+/// the parent unit's default, or the platform fallback). The portal uses
+/// the (declared, resolved) pair to distinguish "explicitly set" from
+/// "inherited" without a second round-trip.
+/// </param>
 public record AgentResponse(
     Guid Id,
     string Name,
@@ -142,7 +159,9 @@ public record AgentResponse(
     string? LifecycleError = null,
     string? Instructions = null,
     IReadOnlyList<EffectiveToolResponse>? EffectiveTools = null,
-    string? ExecutionImage = null);
+    string? ExecutionImage = null,
+    string? SystemPromptMode = null,
+    string? DeclaredSystemPromptMode = null);
 
 /// <summary>
 /// Request body for <c>PATCH /api/v1/agents/{id}</c>. All fields optional;
@@ -170,6 +189,15 @@ public record AgentResponse(
 /// <c>Instructions = null</c>; callers that send an explicit
 /// <c>"instructions": null</c> on the wire get the clear semantics.
 /// </para>
+/// <para>
+/// <see cref="SystemPromptMode"/> (#2692 / #2691 / #2667) uses the same
+/// tri-state shape as <see cref="Instructions"/>: omitting the property
+/// leaves the agent's persisted <c>execution.system_prompt_mode</c> slot
+/// alone; an explicit JSON <c>null</c> clears it (so the cascade falls
+/// back to the parent unit / platform default); a string replaces it.
+/// Accepted literals are <c>"append"</c> and <c>"replace"</c>
+/// (case-insensitive); other values are rejected with a 400.
+/// </para>
 /// </remarks>
 public record UpdateAgentMetadataRequest(
     string? DisplayName = null,
@@ -179,7 +207,8 @@ public record UpdateAgentMetadataRequest(
     string? Specialty = null,
     bool? Enabled = null,
     AgentExecutionMode? ExecutionMode = null,
-    string? Instructions = null);
+    string? Instructions = null,
+    string? SystemPromptMode = null);
 
 /// <summary>
 /// Response body for <c>GET /api/v1/agents/{id}</c> when the StatusQuery to

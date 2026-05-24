@@ -86,6 +86,15 @@ public sealed class AgentDefinitionSerializer(IRuntimeCatalog runtimeCatalog) : 
                     id = definition.Execution.Model.Id,
                 },
                 concurrent_threads = definition.Execution.ConcurrentThreads,
+                // #2691: emit the resolved system-prompt mode as the lower-case
+                // wire literal so launchers reading the per-context YAML and the
+                // Python SDK see the same shape that lands on the OpenAPI surface.
+                // OmitNull on the underlying YamlSerializer (above) strips the
+                // key when the field is null, so existing agents/units that
+                // never declared the field continue to emit the canonical
+                // pre-#2691 YAML.
+                system_prompt_mode = definition.Execution.SystemPromptMode?
+                    .ToString().ToLowerInvariant(),
             },
         };
         return YamlSerializer.Serialize(doc);

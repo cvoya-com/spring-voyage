@@ -2988,6 +2988,7 @@ export interface components {
             model?: null | components["schemas"]["AiModelDto"];
             hosting?: null | string;
             concurrentThreads?: null | boolean;
+            systemPromptMode?: null | string;
         };
         AgentLifecycleResponse: {
             /** Format: uuid */
@@ -3016,6 +3017,8 @@ export interface components {
             instructions?: null | string;
             effectiveTools?: null | components["schemas"]["EffectiveToolResponse"][];
             executionImage?: null | string;
+            systemPromptMode?: null | string;
+            declaredSystemPromptMode?: null | string;
         };
         AgentRuntimeStatusResponse: {
             status: string;
@@ -4179,6 +4182,7 @@ export interface components {
             image?: null | string;
             runtime?: null | string;
             model?: null | components["schemas"]["AiModelDto"];
+            systemPromptMode?: null | string;
         };
         UnitGitHubConfigRequest: {
             repo: string;
@@ -4330,6 +4334,7 @@ export interface components {
             enabled?: null | boolean;
             executionMode?: null | components["schemas"]["AgentExecutionMode"];
             instructions?: null | string;
+            systemPromptMode?: null | string;
         };
         UpdateHumanRequest: {
             displayName?: null | string;
