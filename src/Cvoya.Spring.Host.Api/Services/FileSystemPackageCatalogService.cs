@@ -77,25 +77,25 @@ public class FileSystemPackageCatalogService(
     }
 
     /// <inheritdoc />
-    public Task<PackageDetail?> GetPackageAsync(
+    public async Task<PackageDetail?> GetPackageAsync(
         string name,
         CancellationToken cancellationToken)
     {
         var root = options.Root;
         if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
         {
-            return Task.FromResult<PackageDetail?>(null);
+            return null;
         }
 
         if (ContainsTraversal(name))
         {
-            return Task.FromResult<PackageDetail?>(null);
+            return null;
         }
 
         var packageDir = Path.Combine(root, name);
         if (!Directory.Exists(packageDir))
         {
-            return Task.FromResult<PackageDetail?>(null);
+            return null;
         }
 
         var discovered = TryWalk(packageDir, cancellationToken);
@@ -107,9 +107,9 @@ public class FileSystemPackageCatalogService(
 
         var connectorDeclarations = ReadConnectorDeclarations(discovered);
         var version = ReadVersion(packageDir);
-        var execution = ReadPackageExecution(packageDir);
+        var execution = await ReadPackageExecutionAsync(packageDir);
 
-        var detail = new PackageDetail(
+        return new PackageDetail(
             Name: name,
             Description: TryReadReadmeSummary(packageDir),
             Readme: TryReadReadmeFull(packageDir),
@@ -121,8 +121,6 @@ public class FileSystemPackageCatalogService(
             ConnectorDeclarations: connectorDeclarations,
             Content: BuildContentSummary(discovered, packageDir),
             Execution: execution);
-
-        return Task.FromResult<PackageDetail?>(detail);
     }
 
     /// <summary>
@@ -151,7 +149,7 @@ public class FileSystemPackageCatalogService(
     /// <summary>
     /// Reads the package manifest's <c>execution:</c> block.
     /// </summary>
-    private PackageExecutionSummary? ReadPackageExecution(string packageDir)
+    private async Task<PackageExecutionSummary?> ReadPackageExecutionAsync(string packageDir)
     {
         var manifestPath = FindManifestPath(packageDir);
         if (manifestPath is null) return null;
@@ -159,8 +157,8 @@ public class FileSystemPackageCatalogService(
         try
         {
             var yaml = File.ReadAllText(manifestPath);
-            var resolved = PackageManifestParser.ParseAndResolveAsync(
-                yaml, packageDir).GetAwaiter().GetResult();
+            var resolved = await PackageManifestParser.ParseAndResolveAsync(
+                yaml, packageDir);
             var exec = resolved.Execution;
             if (exec is null)
             {

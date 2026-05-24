@@ -295,33 +295,47 @@ public static class ActivityEndpoints
     {
         var cache = new System.Collections.Concurrent.ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
 
-        return source.Where(evt =>
+        return source.SelectMany(evt =>
         {
             if (!evt.Source.Scheme.Equals("unit", StringComparison.OrdinalIgnoreCase))
             {
-                return true;
+                return Observable.Return(evt);
             }
 
-            return cache.GetOrAdd(evt.Source.Path, unitPath =>
+            // Fast path: permission already resolved for this unit path in this session.
+            if (cache.TryGetValue(evt.Source.Path, out var cached))
             {
-                try
+                return cached ? Observable.Return(evt) : Observable.Empty<ActivityEvent>();
+            }
+
+            // Slow path: first event from this unit path — resolve asynchronously so
+            // the event-publisher thread is not blocked. Two concurrent first-events
+            // for the same path may both call ResolveEffectivePermissionAsync; TryAdd
+            // is idempotent and both yield the same deterministic result.
+            return Observable.FromAsync(async () =>
                 {
-                    // Hierarchy-aware (#414): resolve the effective permission
-                    // so a Viewer on an ancestor unit can observe events from
-                    // descendant units without a direct grant on each one.
-                    var permission = permissionService
-                        .ResolveEffectivePermissionAsync(humanId, unitPath, CancellationToken.None)
-                        .GetAwaiter().GetResult();
-                    return permission.HasValue && permission.Value >= PermissionLevel.Viewer;
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex,
-                        "Permission lookup failed for human {HumanId} on unit {UnitId}; denying.",
-                        humanId, unitPath);
-                    return false;
-                }
-            });
+                    try
+                    {
+                        // Hierarchy-aware (#414): resolve the effective permission
+                        // so a Viewer on an ancestor unit can observe events from
+                        // descendant units without a direct grant on each one.
+                        var permission = await permissionService
+                            .ResolveEffectivePermissionAsync(humanId, evt.Source.Path, CancellationToken.None);
+                        var allowed = permission.HasValue && permission.Value >= PermissionLevel.Viewer;
+                        cache.TryAdd(evt.Source.Path, allowed);
+                        return allowed;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex,
+                            "Permission lookup failed for human {HumanId} on unit {UnitId}; denying.",
+                            humanId, evt.Source.Path);
+                        cache.TryAdd(evt.Source.Path, false);
+                        return false;
+                    }
+                })
+                .Where(allowed => allowed)
+                .Select(_ => evt);
         });
     }
 }

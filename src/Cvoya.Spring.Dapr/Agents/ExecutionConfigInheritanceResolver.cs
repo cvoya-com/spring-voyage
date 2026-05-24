@@ -90,7 +90,7 @@ public class ExecutionConfigInheritanceResolver(
     }
 
     /// <inheritdoc />
-    public InheritanceResolution ResolveAgentConfig(
+    public async Task<InheritanceResolution> ResolveAgentConfigAsync(
         AgentExecutionConfig agentOwn,
         IReadOnlyList<Guid> parentUnitIds,
         Guid tenantId,
@@ -112,13 +112,7 @@ public class ExecutionConfigInheritanceResolver(
                 new Dictionary<string, IReadOnlyList<ParentValue>>());
         }
 
-        // Load each parent unit's persisted execution defaults. The store
-        // is async; the resolver interface is synchronous (A3, ADR-0039 §6
-        // signature). ASP.NET Core has no SynchronizationContext, so the
-        // sync-over-async wait does not deadlock. If a future caller runs
-        // on a context that does (e.g. a UI thread), revisit by making the
-        // interface async — out of scope for A5.
-        var parentDefaults = LoadParentDefaults(parentUnitIds, ct);
+        var parentDefaults = await LoadParentDefaultsAsync(parentUnitIds, ct);
 
         // Intersect per inheritable field. Hosting is agent-owned and is
         // never inherited from a parent.
@@ -187,7 +181,7 @@ public class ExecutionConfigInheritanceResolver(
     /// <c>null</c> defaults entry so the per-field intersection still sees
     /// the parent slot but treats every field as unset.
     /// </summary>
-    private List<ParentDefaults> LoadParentDefaults(
+    private async Task<List<ParentDefaults>> LoadParentDefaultsAsync(
         IReadOnlyList<Guid> parentUnitIds,
         CancellationToken ct)
     {
@@ -195,11 +189,10 @@ public class ExecutionConfigInheritanceResolver(
         foreach (var unitId in parentUnitIds)
         {
             var formatted = GuidFormatter.Format(unitId);
-            // Sync-over-async: see comment in ResolveAgentConfig.
             UnitExecutionDefaults? defaults;
             try
             {
-                defaults = unitExecutionStore.GetAsync(formatted, ct).GetAwaiter().GetResult();
+                defaults = await unitExecutionStore.GetAsync(formatted, ct);
             }
             catch (Exception ex)
             {

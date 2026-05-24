@@ -62,7 +62,7 @@ public interface IExecutionConfigInheritanceResolver
     /// <see cref="InheritanceResolution.ConflictingFields"/> before using
     /// <see cref="InheritanceResolution.Effective"/>.
     /// </returns>
-    InheritanceResolution ResolveAgentConfig(
+    Task<InheritanceResolution> ResolveAgentConfigAsync(
         AgentExecutionConfig agentOwn,
         IReadOnlyList<Guid> parentUnitIds,
         Guid tenantId,

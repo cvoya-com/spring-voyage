@@ -53,7 +53,7 @@ public class ExecutionConfigInheritanceResolverTests
     // ── Branch 1: zero parents ──────────────────────────────────────────────
 
     [Fact]
-    public void ResolveAgentConfig_ZeroParents_ReturnsAgentOwnWithNoConflicts()
+    public async Task ResolveAgentConfig_ZeroParents_ReturnsAgentOwnWithNoConflicts()
     {
         var agentOwn = new AgentExecutionConfig(
             Runtime: "claude",
@@ -61,7 +61,7 @@ public class ExecutionConfigInheritanceResolverTests
             Hosting: AgentHostingMode.Persistent,
             Model: new Model("anthropic", "claude-sonnet"));
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: Array.Empty<Guid>(),
             tenantId: _tenantId,
@@ -74,7 +74,7 @@ public class ExecutionConfigInheritanceResolverTests
     // ── Branch 2: one parent ───────────────────────────────────────────────
 
     [Fact]
-    public void ResolveAgentConfig_OneParent_InheritsMissingFieldsFromParent()
+    public async Task ResolveAgentConfig_OneParent_InheritsMissingFieldsFromParent()
     {
         var parentId = Guid.NewGuid();
         StubParent(parentId, new UnitExecutionDefaults(
@@ -90,7 +90,7 @@ public class ExecutionConfigInheritanceResolverTests
             Hosting: AgentHostingMode.Persistent,
             Model: null);
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: new[] { parentId },
             tenantId: _tenantId,
@@ -104,7 +104,7 @@ public class ExecutionConfigInheritanceResolverTests
     }
 
     [Fact]
-    public void ResolveAgentConfig_OneParent_AgentValueWinsOverParent()
+    public async Task ResolveAgentConfig_OneParent_AgentValueWinsOverParent()
     {
         var parentId = Guid.NewGuid();
         StubParent(parentId, new UnitExecutionDefaults(
@@ -118,7 +118,7 @@ public class ExecutionConfigInheritanceResolverTests
             Hosting: AgentHostingMode.Ephemeral,
             Model: new Model("anthropic", "claude-sonnet"));
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: new[] { parentId },
             tenantId: _tenantId,
@@ -133,7 +133,7 @@ public class ExecutionConfigInheritanceResolverTests
     // ── Branch 3: N parents identical ──────────────────────────────────────
 
     [Fact]
-    public void ResolveAgentConfig_MultipleParentsIdentical_InheritsCommonValue()
+    public async Task ResolveAgentConfig_MultipleParentsIdentical_InheritsCommonValue()
     {
         var parentA = Guid.NewGuid();
         var parentB = Guid.NewGuid();
@@ -151,7 +151,7 @@ public class ExecutionConfigInheritanceResolverTests
             Hosting: AgentHostingMode.Ephemeral,
             Model: null);
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: new[] { parentA, parentB },
             tenantId: _tenantId,
@@ -166,7 +166,7 @@ public class ExecutionConfigInheritanceResolverTests
     // ── Branch 4: N parents diverging ──────────────────────────────────────
 
     [Fact]
-    public void ResolveAgentConfig_MultipleParentsDiverging_ReportsConflictWithParentValues()
+    public async Task ResolveAgentConfig_MultipleParentsDiverging_ReportsConflictWithParentValues()
     {
         var parentA = Guid.NewGuid();
         var parentB = Guid.NewGuid();
@@ -180,7 +180,7 @@ public class ExecutionConfigInheritanceResolverTests
             Image: null,
             Hosting: AgentHostingMode.Ephemeral);
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: new[] { parentA, parentB },
             tenantId: _tenantId,
@@ -200,7 +200,7 @@ public class ExecutionConfigInheritanceResolverTests
     }
 
     [Fact]
-    public void ResolveAgentConfig_DivergingField_AgentExplicitValueSuppressesConflict()
+    public async Task ResolveAgentConfig_DivergingField_AgentExplicitValueSuppressesConflict()
     {
         var parentA = Guid.NewGuid();
         var parentB = Guid.NewGuid();
@@ -214,7 +214,7 @@ public class ExecutionConfigInheritanceResolverTests
             Image: "agent-img",
             Hosting: AgentHostingMode.Ephemeral);
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: new[] { parentA, parentB },
             tenantId: _tenantId,
@@ -226,7 +226,7 @@ public class ExecutionConfigInheritanceResolverTests
     }
 
     [Fact]
-    public void ResolveAgentConfig_HostingIsNeverInheritedFromParents()
+    public async Task ResolveAgentConfig_HostingIsNeverInheritedFromParents()
     {
         var parentId = Guid.NewGuid();
         StubParent(parentId, new UnitExecutionDefaults(Runtime: "claude"));
@@ -236,7 +236,7 @@ public class ExecutionConfigInheritanceResolverTests
             Image: null,
             Hosting: AgentHostingMode.Persistent);
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: new[] { parentId },
             tenantId: _tenantId,
@@ -247,7 +247,7 @@ public class ExecutionConfigInheritanceResolverTests
     }
 
     [Fact]
-    public void ResolveAgentConfig_ParentReturnsNullDefaults_TreatedAsEmpty()
+    public async Task ResolveAgentConfig_ParentReturnsNullDefaults_TreatedAsEmpty()
     {
         var parentId = Guid.NewGuid();
         // No stub — Returns(default) yields a Task with null result.
@@ -259,7 +259,7 @@ public class ExecutionConfigInheritanceResolverTests
             Image: "agent-img",
             Hosting: AgentHostingMode.Ephemeral);
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: new[] { parentId },
             tenantId: _tenantId,
@@ -273,7 +273,7 @@ public class ExecutionConfigInheritanceResolverTests
     // ── #2691 / #2692: system_prompt_mode cascade ──────────────────────────
 
     [Fact]
-    public void ResolveAgentConfig_SystemPromptMode_AgentReplaceWinsOverUnitAppend()
+    public async Task ResolveAgentConfig_SystemPromptMode_AgentReplaceWinsOverUnitAppend()
     {
         var parentId = Guid.NewGuid();
         StubParent(parentId, new UnitExecutionDefaults(
@@ -285,7 +285,7 @@ public class ExecutionConfigInheritanceResolverTests
             Image: null,
             SystemPromptMode: SystemPromptMode.Replace);
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: new[] { parentId },
             tenantId: _tenantId,
@@ -296,7 +296,7 @@ public class ExecutionConfigInheritanceResolverTests
     }
 
     [Fact]
-    public void ResolveAgentConfig_SystemPromptMode_InheritsFromUnitWhenAgentUnset()
+    public async Task ResolveAgentConfig_SystemPromptMode_InheritsFromUnitWhenAgentUnset()
     {
         var parentId = Guid.NewGuid();
         StubParent(parentId, new UnitExecutionDefaults(
@@ -308,7 +308,7 @@ public class ExecutionConfigInheritanceResolverTests
             Image: null,
             SystemPromptMode: null);
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: new[] { parentId },
             tenantId: _tenantId,
@@ -319,7 +319,7 @@ public class ExecutionConfigInheritanceResolverTests
     }
 
     [Fact]
-    public void ResolveAgentConfig_SystemPromptMode_NullEverywhereStaysNull()
+    public async Task ResolveAgentConfig_SystemPromptMode_NullEverywhereStaysNull()
     {
         // Zero-parents branch always returns agentOwn verbatim per the
         // resolver's tenant-default-fallthrough gap — explicit one-parent
@@ -332,7 +332,7 @@ public class ExecutionConfigInheritanceResolverTests
             Image: null,
             SystemPromptMode: null);
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: new[] { parentId },
             tenantId: _tenantId,
@@ -345,7 +345,7 @@ public class ExecutionConfigInheritanceResolverTests
     }
 
     [Fact]
-    public void ResolveAgentConfig_SystemPromptMode_DivergingParentsReportConflictWithWireLiteral()
+    public async Task ResolveAgentConfig_SystemPromptMode_DivergingParentsReportConflictWithWireLiteral()
     {
         var parentA = Guid.NewGuid();
         var parentB = Guid.NewGuid();
@@ -361,7 +361,7 @@ public class ExecutionConfigInheritanceResolverTests
             Image: null,
             SystemPromptMode: null);
 
-        var result = _resolver.ResolveAgentConfig(
+        var result = await _resolver.ResolveAgentConfigAsync(
             agentOwn,
             parentUnitIds: new[] { parentA, parentB },
             tenantId: _tenantId,

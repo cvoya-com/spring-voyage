@@ -234,6 +234,9 @@ internal sealed class LlmHttpMessageHandler(ILlmDispatcher dispatcher) : HttpMes
 
         public override void Flush() { }
 
+        // Synchronous Stream.Read contract bridge — callers of this stream should
+        // use ReadAsync; this override exists for completeness and does not block
+        // in practice because the enumerator's underlying transport is async.
         public override int Read(byte[] buffer, int offset, int count)
             => ReadAsync(buffer, offset, count, CancellationToken.None).GetAwaiter().GetResult();
 
