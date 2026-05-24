@@ -1,15 +1,11 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.AgentRuntimes.Launchers;
-
-using Cvoya.Spring.Core.Execution;
+namespace Cvoya.Spring.Core.Execution;
 
 /// <summary>
-/// Shared launcher-side system-prompt fragment for the concurrency
-/// constraint that applies only to CLI-runtime launchers
-/// (<see cref="ClaudeCodeLauncher"/>, <see cref="CodexLauncher"/>,
-/// <see cref="GeminiLauncher"/>) when the agent opts into
+/// Shared system-prompt fragment for the concurrency constraint that
+/// applies only to CLI-runtime agents when the agent opts into
 /// <c>concurrent_threads: true</c>.
 /// </summary>
 /// <remarks>
@@ -24,6 +20,18 @@ using Cvoya.Spring.Core.Execution;
 /// catches the case where the model independently decides to invoke one.
 /// </para>
 /// <para>
+/// The fragment lives in <see cref="Cvoya.Spring.Core.Execution"/> rather
+/// than the launcher project because both consumers cross assembly
+/// boundaries: the CLI-runtime path now delivers the guard via the
+/// <see cref="IAgentBootstrapBundleProvider"/>'s assembled-prompt
+/// composition (the launcher's auto-discovered system-prompt file —
+/// <c>CLAUDE.md</c> / <c>AGENTS.md</c> / <c>GEMINI.md</c>), and the
+/// Spring Voyage agent path delivers it via the launcher's
+/// <c>SPRING_SYSTEM_PROMPT</c> env var. Keeping the guard string in a
+/// single Core-level class is the single source of truth both consumers
+/// can reach.
+/// </para>
+/// <para>
 /// The pre-cutover <c>ResponseDiscipline</c> fragment that used to live
 /// here was superseded by the platform contract in
 /// <c>PlatformPromptProvider</c> (Layer 1 of the assembled prompt) —
@@ -33,14 +41,15 @@ using Cvoya.Spring.Core.Execution;
 /// sources of truth for the same constraint.
 /// </para>
 /// </remarks>
-internal static class LauncherPromptFragments
+public static class LauncherPromptFragments
 {
     /// <summary>
     /// Marker prepended to the user's assembled prompt by every CLI-runtime
-    /// launcher when the resolved agent / unit
-    /// <see cref="AgentLaunchContext.ConcurrentThreads"/> flag is
-    /// <c>true</c>. Single source of truth so ClaudeCodeLauncher,
-    /// CodexLauncher, and GeminiLauncher all emit the same text.
+    /// system-prompt delivery path when the resolved agent / unit
+    /// <c>concurrent_threads</c> flag is <c>true</c>. Single source of
+    /// truth so the bootstrap-bundle path (Claude / Codex / Gemini) and
+    /// the Spring Voyage launcher's <c>SPRING_SYSTEM_PROMPT</c> path all
+    /// emit the same text.
     /// </summary>
     /// <remarks>
     /// The fragment is wrapped in a stable header / footer so launcher
@@ -73,20 +82,18 @@ internal static class LauncherPromptFragments
         "## End Spring Voyage runtime guard\n\n";
 
     /// <summary>
-    /// Composes the launcher-owned <see cref="ConcurrentThreadsGuard"/>
-    /// fragment with the user's assembled prompt body. The guard is
-    /// only prepended when <paramref name="concurrentThreads"/> is
-    /// <c>true</c>; otherwise the prompt is returned unchanged.
+    /// Composes the <see cref="ConcurrentThreadsGuard"/> fragment with the
+    /// user's assembled prompt body. The guard is only prepended when
+    /// <paramref name="concurrentThreads"/> is <c>true</c>; otherwise the
+    /// prompt is returned unchanged.
     /// </summary>
     /// <param name="prompt">
-    /// The assembled prompt from <see cref="AgentLaunchContext.Prompt"/>.
-    /// May be <c>null</c> or empty — the guard still emits when
-    /// concurrent threads are on, so callers who need it to fire on a
-    /// sparse prompt get it.
+    /// The assembled prompt body. May be <c>null</c> or empty — the guard
+    /// still emits when concurrent threads are on, so callers who need
+    /// it to fire on a sparse prompt get it.
     /// </param>
     /// <param name="concurrentThreads">
-    /// The resolved <see cref="AgentLaunchContext.ConcurrentThreads"/>
-    /// value. Pass straight from the launch context.
+    /// The resolved agent / unit <c>concurrent_threads</c> policy value.
     /// </param>
     public static string Compose(string prompt, bool concurrentThreads)
     {

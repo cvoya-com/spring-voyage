@@ -78,11 +78,11 @@ public class CodexLauncherTests
         prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
-        // After the silent-dispatch cutover the response-discipline
-        // contract lives in the platform-prompt layer. With
-        // concurrent_threads off the launcher returns the prompt body
-        // unchanged.
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        // #2668: the Codex CLI never reads SPRING_SYSTEM_PROMPT — the
+        // system prompt is delivered via AGENTS.md from
+        // ContributeBundleAsync.
+        prep.EnvironmentVariables.ContainsKey("SPRING_SYSTEM_PROMPT").ShouldBeFalse(
+            "Codex consumes its system prompt from AGENTS.md (the bundle path), not SPRING_SYSTEM_PROMPT");
         _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
@@ -210,40 +210,13 @@ public class CodexLauncherTests
         ex.Data[SpringException.IssueSourceDataKey].ShouldBe("credential");
     }
 
-    [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsConcurrentThreadsGuardToSystemPromptEnv()
-    {
-        // ADR-0041: when concurrent_threads is on, the launcher prepends
-        // the ConcurrentThreadsGuard marker to the prompt body delivered
-        // via SPRING_SYSTEM_PROMPT. The user's prompt body is preserved
-        // as the tail. The universal response-discipline contract now
-        // lives in the platform-prompt layer.
-        var context = LauncherCallbackTestSupport.CreateContext(
-            prompt: "## Platform Instructions\nWrite clean code.",
-            mcpToken: "codex-secret-token") with
-        { ConcurrentThreads = true };
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — concurrent_threads is on");
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
-    }
-
-    [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsFalse_LeavesPromptUnchanged()
-    {
-        // With concurrent_threads off the launcher returns the prompt
-        // body unchanged — no guard prepended.
-        var context = LauncherCallbackTestSupport.CreateContext(
-            prompt: "## Platform Instructions\nWrite clean code.",
-            mcpToken: "codex-secret-token") with
-        { ConcurrentThreads = false };
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldNotContain("concurrent_threads is on");
-    }
+    // #2668: the launcher-level ConcurrentThreadsGuard tests moved with
+    // the guard fold. The Codex CLI never reads SPRING_SYSTEM_PROMPT —
+    // the guard now travels via AGENTS.md, which
+    // AgentBootstrapBundleProvider composes by calling
+    // LauncherPromptFragments.Compose against the assembled prompt before
+    // handing it to ContributeBundleAsync. The guard's delivery is
+    // therefore covered by AgentBootstrapBundleProviderTests.
 
     private const string TestAssembledSystemPrompt = "ASSEMBLED SYSTEM PROMPT FOR TEST";
 

@@ -230,11 +230,13 @@ public class ClaudeCodeLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        // ADR-0041 / #2096: when concurrent_threads is on, prepend the
-        // shared launcher guard to the assembled prompt so the model is
-        // told (in the system prompt) not to invoke long-running watchers,
-        // bind fixed ports, or mutate shared global state.
-        var prompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
+        // #2668: the Claude Code CLI never reads SPRING_SYSTEM_PROMPT —
+        // the system prompt is delivered exclusively via CLAUDE.md written
+        // by ContributeBundleAsync, and the assembled-prompt path inside
+        // AgentBootstrapBundleProvider already folds in the
+        // ConcurrentThreadsGuard fragment (ADR-0041 / #2096) so the model
+        // still sees the concurrency contract. Nothing the launcher could
+        // stamp here would reach the CLI.
 
         var workspaceMountNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
         var mcpConfigPath = $"{workspaceMountNoSlash}/{McpConfigFileName}";
@@ -242,7 +244,6 @@ public class ClaudeCodeLauncher(
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
-            ["SPRING_SYSTEM_PROMPT"] = prompt,
             // The bridge parses this back into argv via JSON.parse — see
             // src/Cvoya.Spring.AgentSidecar/src/config.ts. The argv carries
             // `--mcp-config <path>` so the CLI always loads the platform

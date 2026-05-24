@@ -275,6 +275,44 @@ public class AgentBootstrapBundleProviderTests
     }
 
     [Fact]
+    public async Task BuildAsync_ConcurrentThreadsTrue_FoldsGuardIntoAssembledSystemPrompt()
+    {
+        // #2668: the CLI launchers no longer prepend the
+        // ConcurrentThreadsGuard to SPRING_SYSTEM_PROMPT (the env var
+        // the CLIs never read). The guard now travels via the
+        // launcher's system-prompt file (CLAUDE.md / AGENTS.md /
+        // GEMINI.md), and the bundle provider folds it into
+        // AssembledSystemPrompt before the launcher's
+        // ContributeBundleAsync receives it.
+        _assembledPrompt = "USER ASSEMBLED PROMPT";
+        StubAgent(instructions: "x", concurrentThreads: true);
+
+        var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
+
+        var claudeMd = bundle!.Files.First(f => f.Path == "CLAUDE.md");
+        claudeMd.Content.ShouldStartWith("## Spring Voyage runtime guard — concurrent_threads is on");
+        claudeMd.Content.ShouldContain("USER ASSEMBLED PROMPT");
+        claudeMd.Content.IndexOf("concurrent_threads is on", StringComparison.Ordinal)
+            .ShouldBeLessThan(claudeMd.Content.IndexOf("USER ASSEMBLED PROMPT", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task BuildAsync_ConcurrentThreadsFalse_LeavesAssembledSystemPromptUnchanged()
+    {
+        // Mirror of the guard-on test: when concurrent_threads is
+        // explicitly off the guard is NOT folded in. The bundle's
+        // CLAUDE.md is the assembler's output verbatim.
+        _assembledPrompt = "USER ASSEMBLED PROMPT";
+        StubAgent(instructions: "x", concurrentThreads: false);
+
+        var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
+
+        var claudeMd = bundle!.Files.First(f => f.Path == "CLAUDE.md");
+        claudeMd.Content.ShouldBe("USER ASSEMBLED PROMPT");
+        claudeMd.Content.ShouldNotContain("concurrent_threads is on");
+    }
+
+    [Fact]
     public async Task BuildAsync_MergesConnectorContextFiles()
     {
         // ADR-0055: connector per-binding files now ride the bundle rather
@@ -295,7 +333,12 @@ public class AgentBootstrapBundleProviderTests
         bundle!.Files.ShouldContain(f => f.Path == "connectors/github/binding.json");
     }
 
-    private void StubAgent(string? instructions)
+    // Default ConcurrentThreads to false in the test fixture so the
+    // baseline-coverage tests (file presence, sorted ordering,
+    // version determinism, etc.) see the assembler output verbatim
+    // without the guard prepended. Tests that exercise the guard
+    // fold path (#2668) opt into concurrentThreads: true explicitly.
+    private void StubAgent(string? instructions, bool concurrentThreads = false)
     {
         _agentDefinitionProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
@@ -304,7 +347,8 @@ public class AgentBootstrapBundleProviderTests
                 Instructions: instructions,
                 Execution: new AgentExecutionConfig(
                     Runtime: "claude-code",
-                    Image: "ghcr.io/example/test-agent:latest")));
+                    Image: "ghcr.io/example/test-agent:latest",
+                    ConcurrentThreads: concurrentThreads)));
     }
 
     /// <summary>

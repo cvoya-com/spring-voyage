@@ -625,17 +625,6 @@ public partial class Program
             // Environment.Exit branch below.
             throw;
         }
-        catch (ObjectDisposedException ex) when (ex.ObjectName == "IServiceProvider")
-        {
-            // WebApplicationFactory<Program>'s DeferredHost wraps the real host
-            // and races the test fixture's host.Dispose() against this Main's
-            // WaitForShutdownAsync — the latter resolves IHostApplicationLifetime
-            // from the (now-disposed) wrapped host's service provider. This is
-            // a test-harness teardown race, not a startup failure; swallow it so
-            // the test process keeps the assertion exit code intact. In a real
-            // deployment the host owns its own service provider for the full
-            // lifetime, so this branch is unreachable.
-        }
         catch (Exception ex)
         {
             Console.Error.WriteLine("FATAL: Host.Api failed to start. Exiting with code 1 so the container orchestrator can restart the process.");

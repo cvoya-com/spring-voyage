@@ -76,11 +76,12 @@ public class ClaudeCodeLauncherTests
         prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
-        // After the silent-dispatch cutover the universal response-
-        // discipline contract lives in the platform-prompt layer
-        // (IPlatformPromptProvider). When concurrent_threads is off the
-        // launcher's Compose returns the prompt unchanged.
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        // #2668: the Claude Code CLI never reads SPRING_SYSTEM_PROMPT —
+        // the system prompt is delivered via CLAUDE.md from
+        // ContributeBundleAsync. The launcher therefore no longer stamps
+        // the env var.
+        prep.EnvironmentVariables.ContainsKey("SPRING_SYSTEM_PROMPT").ShouldBeFalse(
+            "Claude Code consumes its system prompt from CLAUDE.md (the bundle path), not SPRING_SYSTEM_PROMPT");
         _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
@@ -373,36 +374,13 @@ public class ClaudeCodeLauncherTests
             () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
     }
 
-    [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsConcurrentThreadsGuardToSystemPromptEnv()
-    {
-        // ADR-0041: when concurrent_threads is on, the launcher prepends
-        // the ConcurrentThreadsGuard marker to the assembled prompt body
-        // delivered via SPRING_SYSTEM_PROMPT. The user's prompt body is
-        // preserved as the tail. The universal response-discipline
-        // contract now lives in the platform-prompt layer, so the
-        // launcher no longer prepends it here.
-        var context = CreateContext() with { ConcurrentThreads = true };
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldStartWith("## Spring Voyage runtime guard — concurrent_threads is on");
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldContain(context.Prompt);
-    }
-
-    [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsFalse_LeavesPromptUnchanged()
-    {
-        // With concurrent_threads off the launcher returns the prompt
-        // body unchanged — no guard prepended, no response-discipline
-        // text added (that moved to the platform-prompt layer).
-        var context = CreateContext() with { ConcurrentThreads = false };
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldNotContain("concurrent_threads is on");
-    }
+    // #2668: the launcher-level ConcurrentThreadsGuard tests moved with
+    // the guard fold. The Claude Code CLI never reads SPRING_SYSTEM_PROMPT
+    // — the guard now travels via CLAUDE.md, which AgentBootstrapBundleProvider
+    // composes by calling LauncherPromptFragments.Compose against the
+    // assembled prompt before handing it to ContributeBundleAsync. The
+    // guard's delivery is therefore covered by
+    // AgentBootstrapBundleProviderTests.
 
     private const string BundleContextMcpEndpoint = "http://host.docker.internal:9999/mcp/";
     private const string TestAssembledSystemPrompt = "ASSEMBLED SYSTEM PROMPT FOR TEST";

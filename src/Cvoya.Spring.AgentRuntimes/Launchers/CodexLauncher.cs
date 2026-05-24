@@ -109,14 +109,16 @@ public class CodexLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        // ADR-0041 / #2096: when concurrent_threads is on, prepend the
-        // shared launcher guard to the assembled prompt.
-        var prompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
+        // #2668: the Codex CLI never reads SPRING_SYSTEM_PROMPT — the
+        // system prompt is delivered exclusively via AGENTS.md written by
+        // ContributeBundleAsync, and the assembled-prompt path inside
+        // AgentBootstrapBundleProvider already folds in the
+        // ConcurrentThreadsGuard fragment (ADR-0041 / #2096) so the model
+        // still sees the concurrency contract.
 
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
-            ["SPRING_SYSTEM_PROMPT"] = prompt,
             // ADR-0055 §5: per-member workspace mount path. ADR-0057 §3:
             // the long-running A2A sidecar writes the per-turn MCP token
             // to <SPRING_WORKSPACE_PATH>/.spring-voyage-bridge/mcp-token
