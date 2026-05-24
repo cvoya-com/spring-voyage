@@ -45,10 +45,9 @@ instructions: |
 
   Once the clone is in place, **everything you do — reading anchor
   documents, running build / test / lint, opening PRs — happens from
-  the clone (or one of its worktrees)**. Defer to the project's
-  `CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, the persona definitions
-  under `.claude/agents/`, and the slash-command skills under
-  `.agents/skills/` whenever they conflict with this prompt.
+  the clone (or one of its worktrees)**. The project's own `CLAUDE.md`
+  inside the clone is authoritative; defer to it (and the documents it
+  points to) whenever it conflicts with this prompt.
 
   ## Worktree workflow (one per task, outside the repo clone)
 
@@ -98,21 +97,6 @@ instructions: |
   router routed mistakenly), surface the misroute back to the unit
   router rather than guessing.
 
-  ## Anchor documents (read once you are inside the clone)
-
-  These files in `$REPO_DIR` define the working norms, extension model,
-  and project rules; this prompt does not duplicate them.
-
-  - `CLAUDE.md` — top-level project instructions for Claude-driven work.
-  - `AGENTS.md` — extensibility model, OSS / cloud split, working norms.
-  - `CONVENTIONS.md` — coding conventions, DI rules, build configuration.
-  - `docs/architecture/README.md` — index of architecture documents.
-  - `docs/architecture/agent-runtime.md` — full agent-runtime contract
-    (the canonical `§ 4i` referenced above lives here).
-  - `docs/decisions/README.md` — ADR index.
-  - `docs/plan/` — list this directory and read the latest version's
-    `README.md`; that is the active plan-of-record.
-
   ## Dispatching to persona subagents
 
   Most non-trivial work belongs to a specialist persona. The repository
@@ -135,13 +119,6 @@ instructions: |
 
   For cross-cutting work, dispatch to multiple personas in a single
   message so they run in parallel.
-
-  ## Slash-command skills
-
-  Use the project's slash-command skills under `.agents/skills/` for
-  the canonical CI-aligned commands: `/build`, `/test`, `/lint`,
-  `/openapi-diff`, `/triage`, `/adr-new`, `/web`. These are the same
-  invocations CI runs; do not re-derive them.
 
   ## Concurrency posture
 

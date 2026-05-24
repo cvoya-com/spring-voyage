@@ -26,17 +26,27 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why only one tool.</b> Issues #2384 / #2383 locked in a deliberate
-/// architectural choice: agents bound to a GitHub unit reach the upstream
-/// API by running <c>gh</c> / <c>git</c> inside their container against
-/// the credentials and identity env-vars stamped by
-/// <see cref="GitHubConnectorRuntimeContextContributor"/>. There is no
+/// <b>Two narrow tools, never three without re-opening the design.</b>
+/// Issues #2384 / #2383 locked in the rule that agents bound to a GitHub
+/// unit reach the upstream API by running <c>gh</c> / <c>git</c> inside
+/// their container against the credentials and identity env-vars stamped
+/// by <see cref="GitHubConnectorRuntimeContextContributor"/> — no
 /// <c>github.create_issue</c>, no <c>github.review_pr</c>, no shadow
-/// shape that competes with the CLI. The token-fetch tool is the
-/// narrowest possible exception: a read of platform-managed state the
-/// model otherwise has to <em>fabricate a URL</em> to reach (#2704).
-/// Adding any other <c>github.*</c> tool here re-opens the design
-/// decision the regression test
+/// shape that competes with the CLI. Two narrow structural exceptions
+/// land here because each reads <em>connector-emitted state</em> the
+/// model otherwise has to fabricate:
+/// <list type="bullet">
+///   <item><description><c>github.get_installation_token</c> (#2704) — a read of
+///     platform-managed credential state; the model previously
+///     hallucinated an HTTP URL to fetch the token.</description></item>
+///   <item><description><c>github.describe_inbound_contract</c> (#2676) — a read
+///     of the connector-emitted inbound-message envelope and intent
+///     vocabulary; the OSS unit YAML previously re-pasted these as
+///     ~4 KB of prompt text so every other GitHub-bound package would
+///     have had to copy the same content.</description></item>
+/// </list>
+/// Neither tool calls the GitHub API. Adding any third <c>github.*</c>
+/// tool re-opens the design decision the regression test
 /// <c>GitHubConnectorDoesNotRegisterMcpToolsTests</c> protects.
 /// </para>
 /// <para>
@@ -64,6 +74,16 @@ public sealed class GitHubSkillRegistry : ISkillRegistry
     /// <summary>Tool name for <c>github.get_installation_token</c>.</summary>
     public const string GetInstallationTokenTool = "github.get_installation_token";
 
+    /// <summary>Tool name for <c>github.describe_inbound_contract</c> (#2676).</summary>
+    public const string DescribeInboundContractTool = "github.describe_inbound_contract";
+
+    /// <summary>
+    /// Category token surfaced by the platform's <c>sv.tools.list_categories</c>
+    /// discovery surface for connector-emitted documentation tools owned
+    /// by this connector.
+    /// </summary>
+    public const string ConnectorCategory = "connector:github";
+
     private static readonly JsonElement GetInstallationTokenSchema = ParseSchema("""
         {
           "type": "object",
@@ -71,6 +91,17 @@ public sealed class GitHubSkillRegistry : ISkillRegistry
           "properties": {}
         }
         """);
+
+    private static readonly JsonElement DescribeInboundContractSchema = ParseSchema("""
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+        """);
+
+    private static readonly JsonElement InboundContractDocument =
+        GitHubIntentVocabulary.BuildContractDocument();
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly GitHubBindingAuthResolver _authResolver;
@@ -95,11 +126,10 @@ public sealed class GitHubSkillRegistry : ISkillRegistry
 
         _tools = new[]
         {
-            // Connector tools sit outside the SV category taxonomy; the
-            // platform `sv.tools.list(category)` surface enumerates by
-            // category and connector tools surface through the flat
-            // tools/list path. Pass an empty category — matches the
-            // ArxivSkillRegistry precedent.
+            // The token-fetch tool stays outside the platform category
+            // taxonomy because callers reach it directly by name once the
+            // grant pipeline (#2335) surfaces it; category-based discovery
+            // would just add a step. Matches the original #2704 shape.
             new ToolDefinition(
                 GetInstallationTokenTool,
                 "Return the outbound bearer token your unit's GitHub binding is currently " +
@@ -114,6 +144,23 @@ public sealed class GitHubSkillRegistry : ISkillRegistry
                 "runtimes that prefer a single dispatch shape.",
                 GetInstallationTokenSchema,
                 string.Empty),
+            // #2676: the inbound-contract tool sits in the connector's own
+            // category so the platform's sv.tools.list_categories discovery
+            // surface advertises it without operator action. Callers see
+            // it under 'connector:github' and reach the contract document
+            // via sv.tools.list('connector:github') → describe_inbound_contract.
+            new ToolDefinition(
+                DescribeInboundContractTool,
+                "Return the canonical inbound webhook envelope shape and the intent " +
+                "vocabulary this connector emits. Input-less and idempotent; the contract " +
+                "is stable for the connector's lifetime — call once when you first encounter " +
+                "a message whose payload 'source' is 'github' and cache the result for the " +
+                "turn. The response is a JSON object { envelope: { fields: [{ name, " +
+                "description }] }, intents: [{ token, description, github_actions }] } — " +
+                "switch on payload.intent rather than payload.action so a single arm covers " +
+                "every webhook variant that maps to the same intent.",
+                DescribeInboundContractSchema,
+                ConnectorCategory),
         };
     }
 
@@ -124,11 +171,21 @@ public sealed class GitHubSkillRegistry : ISkillRegistry
     public IReadOnlyList<ToolDefinition> GetToolDefinitions() => _tools;
 
     /// <inheritdoc />
-    public Task<JsonElement> InvokeAsync(string toolName, JsonElement arguments, CancellationToken cancellationToken = default) =>
+    public Task<JsonElement> InvokeAsync(string toolName, JsonElement arguments, CancellationToken cancellationToken = default)
+    {
+        // The inbound-contract tool depends only on the connector-emitted
+        // vocabulary — no caller binding, no per-call resolution — so it is
+        // safe to serve via the context-less overload as well.
+        if (string.Equals(toolName, DescribeInboundContractTool, StringComparison.Ordinal))
+        {
+            return Task.FromResult(InboundContractDocument);
+        }
+
         throw new SpringException(
             $"Tool '{toolName}' on the {Name} registry requires caller context. " +
             "It is reachable only through the caller-aware ISkillRegistry.InvokeAsync overload " +
             "(invoked by the MCP server with the active session's identity).");
+    }
 
     /// <inheritdoc />
     public Task<JsonElement> InvokeAsync(
@@ -140,6 +197,7 @@ public sealed class GitHubSkillRegistry : ISkillRegistry
         return toolName switch
         {
             GetInstallationTokenTool => GetInstallationTokenAsync(context, cancellationToken),
+            DescribeInboundContractTool => Task.FromResult(InboundContractDocument),
             _ => throw new SkillNotFoundException(toolName),
         };
     }

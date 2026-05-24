@@ -308,6 +308,13 @@ public class GitHubConnectorRuntimeContextContributor(
             value as $GITHUB_TOKEN plus the credential kind and expiry. **Do not** try to
             fetch the token by constructing an HTTP URL against the platform: no such
             endpoint exists, and the env-var / tool are the only two ways to get it.
+
+            When you receive a message whose payload `source` is `github`, the connector
+            translated an inbound webhook into that message. The envelope shape and the
+            canonical intent vocabulary are published by the tool
+            `github.describe_inbound_contract` — input-less, idempotent, stable across the
+            connector's lifetime. Call it once on the first github-source turn and switch
+            on the resulting `intent` rather than on the raw `action`.
             """;
     }
 

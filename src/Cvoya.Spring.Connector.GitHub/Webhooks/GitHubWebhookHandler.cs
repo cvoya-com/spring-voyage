@@ -614,51 +614,34 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     private Message? TranslateIssueEvent(JsonElement payload)
     {
         var action = payload.GetProperty("action").GetString();
-
-        // Intent vocabulary aligns with v1's coordinator dispatch so downstream
-        // units can switch on a single string rather than (event, action) pairs.
-        return action switch
+        var intent = GitHubIntentVocabulary.MapAction("issues", action);
+        if (intent is null)
         {
-            "opened" => CreateMessage(payload, "issue.opened", BuildIssuePayload(payload, "work_assignment", action)),
-            "labeled" => CreateMessage(payload, "issue.labeled", BuildIssuePayload(payload, "label_change", action)),
-            "unlabeled" => CreateMessage(payload, "issue.unlabeled", BuildIssuePayload(payload, "label_change", action)),
-            "assigned" => CreateMessage(payload, "issue.assigned", BuildIssuePayload(payload, "assignment", action)),
-            "unassigned" => CreateMessage(payload, "issue.unassigned", BuildIssuePayload(payload, "assignment", action)),
-            "edited" => CreateMessage(payload, "issue.edited", BuildIssuePayload(payload, "edit", action)),
-            "closed" => CreateMessage(payload, "issue.closed", BuildIssuePayload(payload, "lifecycle", action)),
-            "reopened" => CreateMessage(payload, "issue.reopened", BuildIssuePayload(payload, "lifecycle", action)),
-            _ => null
-        };
+            return null;
+        }
+        return CreateMessage(payload, $"issue.{action}", BuildIssuePayload(payload, intent, action));
     }
 
     private Message? TranslatePullRequestEvent(JsonElement payload)
     {
         var action = payload.GetProperty("action").GetString();
-
-        return action switch
+        var intent = GitHubIntentVocabulary.MapAction("pull_request", action);
+        if (intent is null)
         {
-            "opened" => CreateMessage(payload, "pull_request.opened", BuildPullRequestPayload(payload, "review_request", action)),
-            "review_submitted" => CreateMessage(payload, "pull_request.review_submitted", BuildPullRequestPayload(payload, "review_result", action)),
-            "synchronize" => CreateMessage(payload, "pull_request.synchronize", BuildPullRequestPayload(payload, "code_change", action)),
-            "ready_for_review" => CreateMessage(payload, "pull_request.ready_for_review", BuildPullRequestPayload(payload, "review_request", action)),
-            "converted_to_draft" => CreateMessage(payload, "pull_request.converted_to_draft", BuildPullRequestPayload(payload, "lifecycle", action)),
-            "closed" => CreateMessage(payload, "pull_request.closed", BuildPullRequestPayload(payload, "lifecycle", action)),
-            "edited" => CreateMessage(payload, "pull_request.edited", BuildPullRequestPayload(payload, "edit", action)),
-            _ => null
-        };
+            return null;
+        }
+        return CreateMessage(payload, $"pull_request.{action}", BuildPullRequestPayload(payload, intent, action));
     }
 
     private Message? TranslateIssueCommentEvent(JsonElement payload)
     {
         var action = payload.GetProperty("action").GetString();
-
-        return action switch
+        var intent = GitHubIntentVocabulary.MapAction("issue_comment", action);
+        if (intent is null)
         {
-            "created" => CreateMessage(payload, "issue_comment.created", BuildCommentPayload(payload, "feedback", action)),
-            "edited" => CreateMessage(payload, "issue_comment.edited", BuildCommentPayload(payload, "feedback", action)),
-            "deleted" => CreateMessage(payload, "issue_comment.deleted", BuildCommentPayload(payload, "feedback", action)),
-            _ => null
-        };
+            return null;
+        }
+        return CreateMessage(payload, $"issue_comment.{action}", BuildCommentPayload(payload, intent, action));
     }
 
     private Message CreateMessage(JsonElement webhookPayload, string eventName, JsonElement domainPayload)
@@ -843,60 +826,56 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     private Message? TranslatePullRequestReviewEvent(JsonElement payload)
     {
         var action = payload.GetProperty("action").GetString();
-        return action switch
+        var intent = GitHubIntentVocabulary.MapAction("pull_request_review", action);
+        if (intent is null)
         {
-            "submitted" => CreateMessage(payload, "pull_request_review.submitted", BuildPullRequestReviewPayload(payload, "review_result", action)),
-            "edited" => CreateMessage(payload, "pull_request_review.edited", BuildPullRequestReviewPayload(payload, "review_result", action)),
-            "dismissed" => CreateMessage(payload, "pull_request_review.dismissed", BuildPullRequestReviewPayload(payload, "review_result", action)),
-            _ => null,
-        };
+            return null;
+        }
+        return CreateMessage(payload, $"pull_request_review.{action}", BuildPullRequestReviewPayload(payload, intent, action));
     }
 
     private Message? TranslatePullRequestReviewCommentEvent(JsonElement payload)
     {
         var action = payload.GetProperty("action").GetString();
-        return action switch
+        var intent = GitHubIntentVocabulary.MapAction("pull_request_review_comment", action);
+        if (intent is null)
         {
-            "created" => CreateMessage(payload, "pull_request_review_comment.created", BuildPullRequestReviewCommentPayload(payload, "feedback", action)),
-            "edited" => CreateMessage(payload, "pull_request_review_comment.edited", BuildPullRequestReviewCommentPayload(payload, "feedback", action)),
-            "deleted" => CreateMessage(payload, "pull_request_review_comment.deleted", BuildPullRequestReviewCommentPayload(payload, "feedback", action)),
-            _ => null,
-        };
+            return null;
+        }
+        return CreateMessage(payload, $"pull_request_review_comment.{action}", BuildPullRequestReviewCommentPayload(payload, intent, action));
     }
 
     private Message? TranslatePullRequestReviewThreadEvent(JsonElement payload)
     {
         var action = payload.GetProperty("action").GetString();
-        return action switch
+        var intent = GitHubIntentVocabulary.MapAction("pull_request_review_thread", action);
+        if (intent is null)
         {
-            "resolved" => CreateMessage(payload, "pull_request_review_thread.resolved", BuildPullRequestReviewThreadPayload(payload, "review_thread", action)),
-            "unresolved" => CreateMessage(payload, "pull_request_review_thread.unresolved", BuildPullRequestReviewThreadPayload(payload, "review_thread", action)),
-            _ => null,
-        };
+            return null;
+        }
+        return CreateMessage(payload, $"pull_request_review_thread.{action}", BuildPullRequestReviewThreadPayload(payload, intent, action));
     }
 
     private Message? TranslateInstallationEvent(JsonElement payload)
     {
         var action = payload.GetProperty("action").GetString();
-        return action switch
+        var intent = GitHubIntentVocabulary.MapAction("installation", action);
+        if (intent is null)
         {
-            "created" => CreateMessage(payload, "installation.created", BuildInstallationPayload(payload, "installation_lifecycle", action)),
-            "deleted" => CreateMessage(payload, "installation.deleted", BuildInstallationPayload(payload, "installation_lifecycle", action)),
-            "suspend" => CreateMessage(payload, "installation.suspend", BuildInstallationPayload(payload, "installation_lifecycle", action)),
-            "unsuspend" => CreateMessage(payload, "installation.unsuspend", BuildInstallationPayload(payload, "installation_lifecycle", action)),
-            _ => null,
-        };
+            return null;
+        }
+        return CreateMessage(payload, $"installation.{action}", BuildInstallationPayload(payload, intent, action));
     }
 
     private Message? TranslateInstallationRepositoriesEvent(JsonElement payload)
     {
         var action = payload.GetProperty("action").GetString();
-        return action switch
+        var intent = GitHubIntentVocabulary.MapAction("installation_repositories", action);
+        if (intent is null)
         {
-            "added" => CreateMessage(payload, "installation_repositories.added", BuildInstallationRepositoriesPayload(payload, "installation_repositories", action)),
-            "removed" => CreateMessage(payload, "installation_repositories.removed", BuildInstallationRepositoriesPayload(payload, "installation_repositories", action)),
-            _ => null,
-        };
+            return null;
+        }
+        return CreateMessage(payload, $"installation_repositories.{action}", BuildInstallationRepositoriesPayload(payload, intent, action));
     }
 
     private static JsonElement BuildPullRequestReviewPayload(JsonElement payload, string intent, string? action)
@@ -1102,35 +1081,27 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
 
     private Message? TranslateProjectsV2Event(JsonElement payload)
     {
-        var action = payload.GetProperty("action").GetString();
         // Projects v2 events fire at the org level (organization:<login> hook scope).
         // We translate the common lifecycle actions; unknown actions fall through to
         // null so the endpoint still acks without manufacturing a synthetic message.
-        return action switch
+        var action = payload.GetProperty("action").GetString();
+        var intent = GitHubIntentVocabulary.MapAction("projects_v2", action);
+        if (intent is null)
         {
-            "created" => CreateMessage(payload, "projects_v2.created", BuildProjectsV2Payload(payload, "project_lifecycle", action)),
-            "edited" => CreateMessage(payload, "projects_v2.edited", BuildProjectsV2Payload(payload, "project_lifecycle", action)),
-            "closed" => CreateMessage(payload, "projects_v2.closed", BuildProjectsV2Payload(payload, "project_lifecycle", action)),
-            "reopened" => CreateMessage(payload, "projects_v2.reopened", BuildProjectsV2Payload(payload, "project_lifecycle", action)),
-            "deleted" => CreateMessage(payload, "projects_v2.deleted", BuildProjectsV2Payload(payload, "project_lifecycle", action)),
-            _ => null,
-        };
+            return null;
+        }
+        return CreateMessage(payload, $"projects_v2.{action}", BuildProjectsV2Payload(payload, intent, action));
     }
 
     private Message? TranslateProjectsV2ItemEvent(JsonElement payload)
     {
         var action = payload.GetProperty("action").GetString();
-        return action switch
+        var intent = GitHubIntentVocabulary.MapAction("projects_v2_item", action);
+        if (intent is null)
         {
-            "created" => CreateMessage(payload, "projects_v2_item.created", BuildProjectsV2ItemPayload(payload, "project_item_lifecycle", action)),
-            "edited" => CreateMessage(payload, "projects_v2_item.edited", BuildProjectsV2ItemPayload(payload, "project_item_change", action)),
-            "archived" => CreateMessage(payload, "projects_v2_item.archived", BuildProjectsV2ItemPayload(payload, "project_item_lifecycle", action)),
-            "restored" => CreateMessage(payload, "projects_v2_item.restored", BuildProjectsV2ItemPayload(payload, "project_item_lifecycle", action)),
-            "deleted" => CreateMessage(payload, "projects_v2_item.deleted", BuildProjectsV2ItemPayload(payload, "project_item_lifecycle", action)),
-            "converted" => CreateMessage(payload, "projects_v2_item.converted", BuildProjectsV2ItemPayload(payload, "project_item_lifecycle", action)),
-            "reordered" => CreateMessage(payload, "projects_v2_item.reordered", BuildProjectsV2ItemPayload(payload, "project_item_change", action)),
-            _ => null,
-        };
+            return null;
+        }
+        return CreateMessage(payload, $"projects_v2_item.{action}", BuildProjectsV2ItemPayload(payload, intent, action));
     }
 
     private static JsonElement BuildProjectsV2Payload(JsonElement payload, string intent, string? action)
