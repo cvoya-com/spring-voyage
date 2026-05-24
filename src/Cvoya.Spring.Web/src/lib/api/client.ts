@@ -1095,13 +1095,17 @@ export const api = {
   // CONVENTIONS.md § ui-cli-parity.
   listThreads: async (filters?: ThreadListFilters) => {
     // The OpenAPI binder uses TitleCase property names (Unit, Agent,
-    // Participant, Limit) for [AsParameters] queries. Translate
-    // the camelCase shape we expose to call sites.
-    const query: Record<string, string | number> = {};
+    // Participant, Limit, Archived) for [AsParameters] queries.
+    // Translate the camelCase shape we expose to call sites.
+    const query: Record<string, string | number | boolean> = {};
     if (filters?.unit) query.Unit = filters.unit;
     if (filters?.agent) query.Agent = filters.agent;
     if (filters?.participant) query.Participant = filters.participant;
     if (filters?.limit !== undefined) query.Limit = filters.limit;
+    // #2732: omitted / false → exclude archived (server default).
+    // Only forward when explicitly true to keep the active-list call
+    // URL identical to the pre-archive shape.
+    if (filters?.archived === true) query.Archived = true;
     return unwrap(
       await fetchClient.GET("/api/v1/tenant/threads", {
         params: { query: query as never },

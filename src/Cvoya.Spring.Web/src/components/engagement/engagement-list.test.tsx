@@ -3,7 +3,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
-import type { ThreadSummary } from "@/lib/api/types";
+import type { ThreadSummary, ThreadListFilters } from "@/lib/api/types";
 
 // ── mocks ──────────────────────────────────────────────────────────────────
 
@@ -19,12 +19,27 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+// `useThreads` is called twice per <EngagementList> render: once for the
+// active slice (no `archived` flag) and once for the archived slice
+// (`archived: true`). The mock dispatches to two separate `vi.fn` handles
+// so tests can wire each slice independently — and the existing tests
+// (which only stub the active slice) keep working since the archived
+// slice falls back to the "idle empty" reply.
 const mockUseThreads = vi.fn();
+const mockUseArchivedThreads = vi.fn();
 const mockUseInbox = vi.fn();
 const mockUseCurrentUser = vi.fn();
 
+function dispatchUseThreads(...args: unknown[]) {
+  const filters = args[0] as ThreadListFilters | undefined;
+  if (filters?.archived === true) {
+    return mockUseArchivedThreads(...args);
+  }
+  return mockUseThreads(...args);
+}
+
 vi.mock("@/lib/api/queries", () => ({
-  useThreads: (...args: unknown[]) => mockUseThreads(...args),
+  useThreads: (...args: unknown[]) => dispatchUseThreads(...args),
   useInbox: (...args: unknown[]) => mockUseInbox(...args),
   useCurrentUser: (...args: unknown[]) => mockUseCurrentUser(...args),
 }));
@@ -77,6 +92,14 @@ describe("EngagementList", () => {
       data: CURRENT_USER,
       isPending: false,
       error: null,
+    });
+    // Default the archived slice to "idle empty". Individual tests
+    // exercising the archived section override this explicitly.
+    mockUseArchivedThreads.mockReturnValue({
+      data: [],
+      isPending: false,
+      error: null,
+      isFetching: false,
     });
   });
 
@@ -526,6 +549,333 @@ describe("EngagementList", () => {
         expect.objectContaining({}),
         expect.any(Object),
       );
+    });
+
+    // #2732: the archived slice mirrors the active slice's scope so the
+    // archived list is restricted to the same unit / agent. The active
+    // call must *not* carry `archived: true` (server default omits
+    // archived; we keep the URL identical to the pre-archive shape).
+    it("fetches the archived slice with the same scope and archived=true", () => {
+      mockUseThreads.mockReturnValue(idleQuery());
+      render(<EngagementList slice="unit" unit="eng-team" />);
+      expect(mockUseArchivedThreads).toHaveBeenCalledWith(
+        expect.objectContaining({ unit: "eng-team", archived: true }),
+        expect.any(Object),
+      );
+      // The active call does not opt into the archived flag — that
+      // would invert the response.
+      expect(mockUseThreads).not.toHaveBeenCalledWith(
+        expect.objectContaining({ archived: true }),
+        expect.any(Object),
+      );
+    });
+  });
+
+  // ── archived section (#2732) ─────────────────────────────────────────────
+
+  describe("archived section", () => {
+    function makeArchived(overrides: Partial<ThreadSummary> = {}) {
+      return makeThread({ isArchived: true, ...overrides });
+    }
+
+    it("does not render the archived section when archived count is 0", () => {
+      mockUseThreads.mockReturnValue({
+        data: [makeThread()],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+      // archived defaults to [] via beforeEach
+      render(<EngagementList slice="mine" />);
+      expect(
+        screen.queryByTestId("engagement-archived-section"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("engagement-archived-toggle"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("renders the archived header with the count when archived threads exist", () => {
+      mockUseThreads.mockReturnValue({
+        data: [makeThread({ id: "thread-live" })],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+      mockUseArchivedThreads.mockReturnValue({
+        data: [
+          makeArchived({ id: "thread-arc-a" }),
+          makeArchived({ id: "thread-arc-b" }),
+        ],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      const toggle = screen.getByTestId("engagement-archived-toggle");
+      expect(toggle).toBeInTheDocument();
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      // ARIA label conveys count for screen readers as a real text node.
+      expect(toggle).toHaveAttribute("aria-label", "Archived, 2 items");
+      expect(
+        screen.getByTestId("engagement-archived-count"),
+      ).toHaveTextContent("(2)");
+    });
+
+    it("uses the singular ARIA-label form when archived count is 1", () => {
+      mockUseThreads.mockReturnValue({
+        data: [makeThread()],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+      mockUseArchivedThreads.mockReturnValue({
+        data: [makeArchived({ id: "thread-arc-solo" })],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      expect(
+        screen.getByTestId("engagement-archived-toggle"),
+      ).toHaveAttribute("aria-label", "Archived, 1 item");
+    });
+
+    it("starts collapsed and expands on click", () => {
+      mockUseThreads.mockReturnValue({
+        data: [makeThread()],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+      mockUseArchivedThreads.mockReturnValue({
+        data: [makeArchived({ id: "thread-arc-a" })],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      // Collapsed by default — archived card not in DOM.
+      expect(
+        screen.queryByTestId("engagement-card-thread-arc-a"),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId("engagement-archived-toggle"));
+
+      const toggle = screen.getByTestId("engagement-archived-toggle");
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      // aria-controls points to the panel that just rendered.
+      expect(toggle).toHaveAttribute(
+        "aria-controls",
+        "engagement-archived-list",
+      );
+      expect(screen.getByTestId("engagement-archived-list")).toHaveAttribute(
+        "id",
+        "engagement-archived-list",
+      );
+      expect(
+        screen.getByTestId("engagement-card-thread-arc-a"),
+      ).toBeInTheDocument();
+    });
+
+    it("renders the archived section even when the active list is empty", () => {
+      mockUseThreads.mockReturnValue({
+        data: [],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+      mockUseArchivedThreads.mockReturnValue({
+        data: [makeArchived({ id: "thread-arc-solo" })],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      // The "No engagements" empty-state must not render when archived
+      // threads are available — that would be a confusing dead-end.
+      expect(
+        screen.queryByTestId("engagement-list-empty"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByTestId("engagement-archived-section"),
+      ).toBeInTheDocument();
+    });
+
+    it("renders the empty state when BOTH active and archived are empty", () => {
+      mockUseThreads.mockReturnValue({
+        data: [],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+      mockUseArchivedThreads.mockReturnValue({
+        data: [],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      expect(
+        screen.getByTestId("engagement-list-empty"),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("engagement-archived-section"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("renders the active list immediately when the archived query is still loading", () => {
+      mockUseThreads.mockReturnValue({
+        data: [makeThread({ id: "thread-live" })],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+      mockUseArchivedThreads.mockReturnValue({
+        // archived still loading — must not block the active list.
+        data: undefined,
+        isPending: true,
+        error: null,
+        isFetching: true,
+      });
+
+      render(<EngagementList slice="mine" />);
+      expect(
+        screen.getByTestId("engagement-card-thread-live"),
+      ).toBeInTheDocument();
+      // No archived section yet — we don't render a header while the
+      // count is unknown (0).
+      expect(
+        screen.queryByTestId("engagement-archived-section"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("does not block the active list when the archived query errors", () => {
+      mockUseThreads.mockReturnValue({
+        data: [makeThread({ id: "thread-live" })],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+      mockUseArchivedThreads.mockReturnValue({
+        data: undefined,
+        isPending: false,
+        error: new Error("archived fetch failed"),
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      expect(
+        screen.getByTestId("engagement-card-thread-live"),
+      ).toBeInTheDocument();
+      // The archived error is silent — the active list is the
+      // critical path. Failure surface (#2732 follow-up) is out of
+      // scope for the v0.1 archived UX.
+      expect(
+        screen.queryByTestId("engagement-archived-section"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("applies the visibility filter independently to the archived section", () => {
+      mockUseThreads.mockReturnValue({
+        data: [],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+      mockUseArchivedThreads.mockReturnValue({
+        data: [
+          // Participated archived thread (human is in the list).
+          makeArchived({
+            id: "thread-arc-mine",
+            participants: [
+              {
+                id: "11111111-1111-1111-1111-111111111111",
+                address: "human://savas",
+                displayName: "savas",
+              },
+              {
+                id: "22222222-2222-2222-2222-222222222222",
+                address: "agent://ada",
+                displayName: "ada",
+              },
+            ],
+          }),
+          // Observer-only archived thread (A2A pair, no human).
+          makeArchived({
+            id: "thread-arc-a2a",
+            participants: [
+              {
+                id: "22222222-2222-2222-2222-222222222222",
+                address: "agent://ada",
+                displayName: "ada",
+              },
+              {
+                id: "33333333-3333-3333-3333-333333333333",
+                address: "agent://bob",
+                displayName: "bob",
+              },
+            ],
+          }),
+        ],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      // Both visible under "All". Header shows (2). Expand to verify.
+      expect(
+        screen.getByTestId("engagement-archived-count"),
+      ).toHaveTextContent("(2)");
+      fireEvent.click(screen.getByTestId("engagement-archived-toggle"));
+      expect(
+        screen.getByTestId("engagement-card-thread-arc-mine"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId("engagement-card-thread-arc-a2a"),
+      ).toBeInTheDocument();
+
+      // Switch to participant-only. The header count drops to 1 and
+      // the observer-only archived thread disappears.
+      fireEvent.click(screen.getByTestId("engagement-filter-trigger"));
+      fireEvent.click(
+        screen.getByTestId("engagement-filter-option-participant"),
+      );
+      expect(
+        screen.getByTestId("engagement-archived-count"),
+      ).toHaveTextContent("(1)");
+      expect(
+        screen.getByTestId("engagement-card-thread-arc-mine"),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("engagement-card-thread-arc-a2a"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("muted styling — archived list container carries opacity-70", () => {
+      mockUseThreads.mockReturnValue({
+        data: [makeThread()],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+      mockUseArchivedThreads.mockReturnValue({
+        data: [makeArchived({ id: "thread-arc-a" })],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      fireEvent.click(screen.getByTestId("engagement-archived-toggle"));
+      const panel = screen.getByTestId("engagement-archived-list");
+      expect(panel.className).toContain("opacity-70");
     });
   });
 });

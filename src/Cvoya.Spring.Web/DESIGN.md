@@ -899,6 +899,18 @@ Do not use `text-voyage` / `--color-voyage` tokens for any management-portal sur
 
 **Empty / loading / error states.** Empty: `<Card>` with centered `MessagesSquare h-10 w-10 text-muted-foreground` hero. Loading: three `<Skeleton className="h-28 w-full rounded-lg" />` items. Error: `role="alert"` destructive banner with `AlertCircle` icon.
 
+**Archived section (#2732).** An engagement is auto-archived when every non-human participant on it is soft-deleted — the user has nothing actionable left, so the thread is moved out of the live list to avoid clutter. The list component issues **two parallel `useThreads(...)` calls** scoped to the same slice (`unit` / `agent` / mine): the default call (no `archived` flag) returns the live threads; a second call with `archived: true` returns the archived threads. The two queries are independent — either can fail or load without blocking the other. The visibility filter (`all` / `participant` / `observer`) is applied to both lists symmetrically.
+
+The archived list renders below the active list inside a `<section aria-label="Archived engagements">`, separated by a `border-t border-border/60` divider (page variant) and prefixed with a collapsible header that is a real `<button>` carrying `aria-expanded` and `aria-controls`. The header shows a chevron (`ChevronRight` collapsed, `ChevronDown` expanded), a low-contrast `Archive` lucide icon, the `Archived` label in `text-[11px] uppercase tracking-wider`, and the count as a real text node — `(N)`. The button's `aria-label` is `"Archived, N items"` (or `"Archived, 1 item"`) so screen readers read the count as part of the label. When N=0 the entire section is omitted (no empty header, no chevron). The expanded panel id (`engagement-archived-list`) matches `aria-controls`.
+
+Expand/collapse state is session-scoped via `useState` only — no `localStorage`, no URL param. Archived threads are not actionable by default; the expand state should not carry across sessions.
+
+The expanded archived list reuses the same `<EngagementCard>` rendering as the active list (whole-card link, status icons, pending-question cross-match against the inbox) but the panel container carries `opacity-70` so the section reads as visually muted next to the active list. Cards remain focusable + clickable; the routes they link to (`/engagement/<id>`) work unchanged — surfacing the archived state on the detail page is a v0.2 follow-up.
+
+When the active list is empty *and* the archived list is non-empty, the "No engagements" empty state is **not** rendered — the archived section becomes the only visible content. The empty state only appears when both lists are empty.
+
+Test hooks: `data-testid="engagement-archived-section"` (the `<section>`), `data-testid="engagement-archived-toggle"` (the `<button>`), `data-testid="engagement-archived-count"` (the `(N)` span), `data-testid="engagement-archived-list"` (the expanded panel root).
+
 ### 16.6 Engagement detail (E2.5 + E2.6)
 
 `src/components/engagement/engagement-detail.tsx` is the client-side detail shell. Three regions stacked vertically:
