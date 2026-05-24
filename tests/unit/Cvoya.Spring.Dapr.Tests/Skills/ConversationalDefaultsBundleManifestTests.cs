@@ -17,18 +17,20 @@ using Xunit;
 /// <summary>
 /// On-disk verification that the in-tree
 /// <c>packages/conversational-defaults/</c> bundle (ADR-0056 Wave 2 /
-/// #2657) ships the contract every consumer depends on:
+/// #2657; reshaped by #2670) holds to its post-#2670 contract:
 /// <list type="bullet">
-///   <item>the fundamental-core tool grants (ADR-0056 §8),</item>
-///   <item>the <c>[PLATFORM CONTRACT — NON-NEGOTIABLE]</c> header
-///   verbatim, and</item>
-///   <item>the inline pointer to <c>sv.tools.list(&lt;category&gt;)</c>
-///   for everything else.</item>
+///   <item>does not duplicate the platform-generated tooling
+///   instructions (the always-on platform-tool catalog now lives in
+///   Layer 1 — the bundle must not re-name those tools),</item>
+///   <item>still points the runtime at the platform-layer contract
+///   for the response model, and</item>
+///   <item>still surfaces the package-specific <c>memory</c> grant
+///   alongside the discovery pointer for it.</item>
 /// </list>
 /// The test pins the on-disk shape rather than re-deriving it from a
-/// constant so a refactor that accidentally drops the header or one of
-/// the grants breaks here instead of silently flowing into every
-/// agent's prompt budget.
+/// constant so a refactor that accidentally re-adds the duplication or
+/// drops the package-specific guidance breaks here instead of silently
+/// flowing into every agent's prompt budget.
 /// </summary>
 public class ConversationalDefaultsBundleManifestTests
 {
@@ -45,8 +47,17 @@ public class ConversationalDefaultsBundleManifestTests
         bundle.SkillName.ShouldBe("conversational-defaults");
     }
 
+    /// <summary>
+    /// #2670: the bundle no longer re-grants the fundamental-core
+    /// tools. <c>ToolGrantResolver.EnumeratePlatformTools</c> grants
+    /// every <c>sv.*</c> registry tool with
+    /// <see cref="ToolProvenance.Platform"/>; surfacing the same names
+    /// through the bundle's <c>RequiredTools</c> list would double up
+    /// the rendered Required-tools sub-section and duplicate the
+    /// Layer 1 catalog.
+    /// </summary>
     [Fact]
-    public async Task Bundle_GrantsExactFundamentalCoreToolSet()
+    public async Task Bundle_RequiredToolsListIsEmpty_AfterPlatformCatalogMovedToLayer1()
     {
         var resolver = BuildResolverFromRepoPackages();
 
@@ -54,26 +65,8 @@ public class ConversationalDefaultsBundleManifestTests
             DefaultAgentSkillBundles.ConversationalDefaults,
             TestContext.Current.CancellationToken);
 
-        // ADR-0056 §8 fundamental-core list — every name and nothing
-        // extra. This is the load-bearing contract: a future change
-        // that adds or drops a tool here must update the ADR first.
-        var expected = new[]
-        {
-            "sv.messaging.send",
-            "sv.messaging.multicast",
-            "sv.directory.list",
-            "sv.directory.lookup",
-            "sv.progress.report",
-            "sv.tools.list_categories",
-            "sv.tools.list",
-        };
-
-        var actual = bundle.RequiredTools.Select(t => t.Name).ToArray();
-        actual.ShouldBe(expected, ignoreOrder: true);
-
-        // None of the core grants are advertised as optional —
-        // missing any of them would silently degrade the runtime.
-        bundle.RequiredTools.ShouldAllBe(t => !t.Optional);
+        bundle.RequiredTools.ShouldBeEmpty(
+            "The conversational-defaults bundle is prompt-only after #2670; the platform-tool catalog lives in Layer 1.");
     }
 
     [Fact]
@@ -85,19 +78,24 @@ public class ConversationalDefaultsBundleManifestTests
             DefaultAgentSkillBundles.ConversationalDefaults,
             TestContext.Current.CancellationToken);
 
-        // The `[PLATFORM CONTRACT — NON-NEGOTIABLE]` header is now
+        // The `[PLATFORM CONTRACT — NON-NEGOTIABLE]` header is
         // emitted once, in Layer 1 (PlatformPromptProvider). The
-        // bundle no longer carries a parallel copy; it points the
+        // bundle must not carry a parallel copy; it points the
         // runtime at the platform-layer instructions at the top of
-        // the assembled prompt and then enumerates the tools it
-        // grants.
+        // the assembled prompt.
         bundle.Prompt.ShouldNotContain("[PLATFORM CONTRACT — NON-NEGOTIABLE]");
         bundle.Prompt.ShouldContain("platform's response contract");
         bundle.Prompt.ShouldContain("platform-layer instructions");
     }
 
+    /// <summary>
+    /// #2670 anti-regression: the bundle must not duplicate the
+    /// platform-generated tooling instructions. Naming the
+    /// fundamental-core tools inline here would re-introduce the
+    /// duplication this issue fixed.
+    /// </summary>
     [Fact]
-    public async Task Bundle_PromptNamesFundamentalCoreToolsInline()
+    public async Task Bundle_PromptDoesNotReNameFundamentalCoreTools()
     {
         var resolver = BuildResolverFromRepoPackages();
 
@@ -105,20 +103,37 @@ public class ConversationalDefaultsBundleManifestTests
             DefaultAgentSkillBundles.ConversationalDefaults,
             TestContext.Current.CancellationToken);
 
-        // Inline naming is load-bearing per ADR-0056 §8 — the runtime
-        // sees the core surface in the prompt rather than having to
-        // call sv.tools.list_categories before it can reply.
-        bundle.Prompt.ShouldContain("sv.messaging.send");
-        bundle.Prompt.ShouldContain("sv.messaging.multicast");
-        bundle.Prompt.ShouldContain("sv.directory.list");
-        bundle.Prompt.ShouldContain("sv.directory.lookup");
-        bundle.Prompt.ShouldContain("sv.progress.report");
-        bundle.Prompt.ShouldContain("sv.tools.list_categories");
-        bundle.Prompt.ShouldContain("sv.tools.list");
+        // ADR-0056 §8 fundamental-core list — every name. Layer 1
+        // (PlatformPromptProvider) owns the catalog; the bundle is
+        // package-specific guidance and must not re-name the core
+        // surface. (sv.tools.list is excluded from the prefix
+        // sweep because the discovery pointer "sv.tools.list(memory)"
+        // is the bundle's own package-specific contribution.)
+        var coreTools = new[]
+        {
+            "sv.messaging.send",
+            "sv.messaging.multicast",
+            "sv.directory.list",
+            "sv.directory.lookup",
+            "sv.progress.report",
+            "sv.tools.list_categories",
+        };
+        foreach (var name in coreTools)
+        {
+            bundle.Prompt.ShouldNotContain(name,
+                customMessage: $"#2670: the conversational-defaults bundle must not duplicate the platform-generated naming of {name}.");
+        }
     }
 
+    /// <summary>
+    /// The bundle's only bundle-specific contribution after #2670 is
+    /// the <c>memory</c> category grant. It must surface the
+    /// category by name and point at <c>sv.tools.list(memory)</c>
+    /// for the on-demand definitions, so the runtime can pull memory
+    /// tools without first calling <c>sv.tools.list_categories</c>.
+    /// </summary>
     [Fact]
-    public async Task Bundle_PromptPointsAtDiscoveryToolForAdditionalCategories()
+    public async Task Bundle_PromptSurfacesMemoryCategoryAndDiscoveryPointer()
     {
         var resolver = BuildResolverFromRepoPackages();
 
@@ -126,28 +141,8 @@ public class ConversationalDefaultsBundleManifestTests
             DefaultAgentSkillBundles.ConversationalDefaults,
             TestContext.Current.CancellationToken);
 
-        // The discovery-tool pointer is what makes the
-        // category-on-demand model work — without it the runtime
-        // has no instruction to call sv.tools.list when it needs a
-        // tool outside the fundamental core.
-        bundle.Prompt.ShouldContain("sv.tools.list(");
-    }
-
-    [Fact]
-    public async Task Bundle_PromptSurfacesMemoryCategoryByName()
-    {
-        var resolver = BuildResolverFromRepoPackages();
-
-        var bundle = await resolver.ResolveAsync(
-            DefaultAgentSkillBundles.ConversationalDefaults,
-            TestContext.Current.CancellationToken);
-
-        // ADR-0056 §8 "Memory" candidate ruling: the bundle grants
-        // the memory category visibly so the runtime can pull its
-        // tools on demand. The prompt names it so the runtime knows
-        // a `memory` category exists without first calling
-        // sv.tools.list_categories.
         bundle.Prompt.ShouldContain("memory");
+        bundle.Prompt.ShouldContain("sv.tools.list(memory)");
     }
 
     /// <summary>

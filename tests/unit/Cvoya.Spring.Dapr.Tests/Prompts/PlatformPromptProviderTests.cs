@@ -91,4 +91,56 @@ public class PlatformPromptProviderTests
         result.ShouldContain("sv.messaging.send");
         result.ShouldContain("RuntimeCompletedSilent");
     }
+
+    /// <summary>
+    /// Pins the #2670 acceptance: the always-available platform-tool
+    /// catalog is named in Layer 1 itself, so an agent reading the
+    /// prompt cold sees every fundamental-core tool by name with a
+    /// one-line purpose — no skill bundle is required to surface it,
+    /// and no downstream layer should duplicate it.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_NamesEveryFundamentalCoreToolWithOneLinePurpose()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        // The catalog heading is the load-bearing signal that anything
+        // following it is the always-available core.
+        result.ShouldContain("Platform-tool catalog (always available");
+
+        // ADR-0056 §8 fundamental-core list — every name and nothing
+        // extra. Renaming or dropping a tool here must update the ADR
+        // first.
+        var expected = new[]
+        {
+            "sv.messaging.send",
+            "sv.messaging.multicast",
+            "sv.directory.list",
+            "sv.directory.lookup",
+            "sv.progress.report",
+            "sv.tools.list_categories",
+            "sv.tools.list",
+        };
+        foreach (var name in expected)
+        {
+            result.ShouldContain(name, customMessage: $"core-tool {name} must be named in Layer 1.");
+        }
+    }
+
+    /// <summary>
+    /// Pins the discovery pointer so a runtime that needs a tool
+    /// outside the catalog knows how to find one without hallucinating.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_PointsAtCategoryDiscovery()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("sv.tools.list_categories");
+        result.ShouldContain("sv.tools.list(<category>)");
+    }
 }

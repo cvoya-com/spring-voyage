@@ -74,11 +74,13 @@ public class PromptAssembler(
             }
 
 
-            // Layer 2: Unit context — policies, connector-skills,
-            // unit-equipped skill bundles.
+            // Layer 2: Unit context — policies and unit-equipped skill
+            // bundles. The per-registry skill listing was removed in
+            // #2670: the always-available platform-tool catalog lives in
+            // Layer 1 above, and connector context rides the connector-
+            // context section just above this one.
             var unitContext = unitContextBuilder.Build(
                 context.Policies,
-                context.Skills,
                 context.SkillBundles);
 
             if (!string.IsNullOrWhiteSpace(unitContext))

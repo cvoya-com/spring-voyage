@@ -6,7 +6,6 @@ namespace Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Skills;
 
 /// <summary>
 /// Default <see cref="IRuntimeInvocationPath"/> implementation. Owns the
@@ -19,8 +18,8 @@ using Cvoya.Spring.Core.Skills;
 /// <para>
 /// The class is registered as a singleton: it is stateless across
 /// subjects and captures no Dapr actor types. All subject-specific state
-/// (definition, skills, platform messaging and directory tools) resolves through injected
-/// seams keyed on the subject's address.
+/// (definition) resolves through injected seams keyed on the subject's
+/// address.
 /// </para>
 /// <para>
 /// Two call shapes are provided so the same pipeline serves both halves
@@ -33,11 +32,12 @@ using Cvoya.Spring.Core.Skills;
 ///     the lean public surface declared by
 ///     <see cref="IRuntimeInvocationPath"/>. Builds a minimal
 ///     <see cref="PromptAssemblyContext"/> from the
-///     <see cref="IAgentDefinitionProvider"/> and the
-///     <see cref="ISkillRegistry"/> enumeration alone.
-///     This is the surface task C2 wires <c>UnitActor</c> through —
-///     units have no per-mailbox prior-message buffer, so the lean shape
-///     is sufficient for them.
+///     <see cref="IAgentDefinitionProvider"/> alone — the always-on
+///     platform-tool catalog rides Layer 1 (<see cref="IPlatformPromptProvider"/>)
+///     since #2670, so the lean shape no longer needs to enumerate skill
+///     registries here. This is the surface task C2 wires
+///     <c>UnitActor</c> through — units have no per-mailbox prior-message
+///     buffer, so the lean shape is sufficient for them.
 ///     </description>
 ///   </item>
 ///   <item>
@@ -60,10 +60,8 @@ using Cvoya.Spring.Core.Skills;
 /// </remarks>
 public class RuntimeInvocationPath(
     IAgentDefinitionProvider agentDefinitionProvider,
-    IEnumerable<ISkillRegistry> skillRegistries,
     IAgentDispatchCoordinator dispatchCoordinator) : IRuntimeInvocationPath
 {
-    private readonly IReadOnlyList<ISkillRegistry> _skillRegistries = skillRegistries.ToList();
 
     /// <inheritdoc />
     public async Task InvokeAsync(
@@ -157,35 +155,24 @@ public class RuntimeInvocationPath(
     /// <summary>
     /// Builds a minimal <see cref="PromptAssemblyContext"/> for the lean
     /// <see cref="InvokeAsync(Address, Message, CancellationToken)"/>
-    /// path: agent instructions from <see cref="IAgentDefinitionProvider"/>
-    /// and skills from the registered <see cref="ISkillRegistry"/> set —
-    /// messaging tools (<c>sv.messaging.*</c>) ride the same registry set
-    /// since ADR-0051. Per-mailbox prior
-    /// messages, pending amendments, and effective per-membership
-    /// metadata are intentionally absent — those are caller-side
-    /// concerns the rich overload is designed to carry.
+    /// path: agent instructions from <see cref="IAgentDefinitionProvider"/>.
+    /// Per-mailbox prior messages, pending amendments, and effective
+    /// per-membership metadata are intentionally absent — those are
+    /// caller-side concerns the rich overload is designed to carry.
+    /// The always-on platform-tool catalog (<c>sv.messaging.*</c>,
+    /// <c>sv.directory.*</c>, <c>sv.progress.*</c>, <c>sv.tools.*</c>)
+    /// is rendered in Layer 1 by
+    /// <see cref="IPlatformPromptProvider"/> since #2670, so no skill-
+    /// registry projection is required here.
     /// </summary>
     private async Task<PromptAssemblyContext> BuildContextAsync(
         Address subject, Message inbound, CancellationToken ct)
     {
         var definition = await agentDefinitionProvider.GetByIdAsync(subject.Path, ct);
-
-        var skills = _skillRegistries
-            .Select(r => new Skill(
-                Name: r.Name,
-                Description: $"Tools exposed by the {r.Name} connector.",
-                Tools: r.GetToolDefinitions()))
-            .ToList();
-
-        // ADR-0051: sv.messaging.send / sv.messaging.multicast are served by
-        // the single platform MCP server as SvMessagingSkillRegistry — they
-        // surface through the ISkillRegistry enumeration above like every
-        // other sv.* tool, so no separate messaging-tool resolution is needed.
         _ = inbound;
 
         return new PromptAssemblyContext(
             Policies: null,
-            Skills: skills,
             AgentInstructions: definition?.Instructions,
             EffectiveMetadata: null,
             PendingAmendments: null);

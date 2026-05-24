@@ -48,7 +48,6 @@ public class AgentActorDispatchTests
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly IExecutionDispatcher _dispatcher = Substitute.For<IExecutionDispatcher>();
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
-    private readonly ISkillRegistry _skillRegistry = Substitute.For<ISkillRegistry>();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly AgentActor _actor;
@@ -57,11 +56,6 @@ public class AgentActorDispatchTests
     {
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-
-        _skillRegistry.Name.Returns("github");
-        _skillRegistry.GetToolDefinitions().Returns([
-            new ToolDefinition("github.comment", "comment", JsonSerializer.SerializeToElement(new { }), string.Empty)
-        ]);
 
         _definitionProvider.GetByIdAsync(TestSlugIds.HexFor("test-agent"), Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(TestSlugIds.HexFor("test-agent"), "Test", "Agent instructions", null));
@@ -84,7 +78,6 @@ public class AgentActorDispatchTests
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
             new AgentDispatchCoordinator(_dispatcher, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             _definitionProvider,
-            [_skillRegistry],
             _membershipRepository,
             unitPolicyEnforcer,
             Substitute.For<IAgentInitiativeEvaluator>(),
@@ -126,8 +119,6 @@ public class AgentActorDispatchTests
             Arg.Is<Message>(m => m.Id == message.Id),
             Arg.Is<PromptAssemblyContext?>(ctx =>
                 ctx != null &&
-                ctx.Skills != null && ctx.Skills.Count == 1 &&
-                ctx.Skills[0].Name == "github" &&
                 ctx.AgentInstructions == "Agent instructions"),
             Arg.Any<CancellationToken>());
     }

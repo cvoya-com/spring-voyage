@@ -108,7 +108,6 @@ public class EquippedSkillsLayer4Tests : IDisposable
 
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: "You are the synthetic agent.",
             AgentSkillBundles: bundles);
 

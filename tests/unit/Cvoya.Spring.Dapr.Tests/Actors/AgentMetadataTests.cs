@@ -76,7 +76,6 @@ public class AgentMetadataTests
                 Substitute.For<IExecutionDispatcher>(),
                 Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             Substitute.For<IAgentDefinitionProvider>(),
-            new List<ISkillRegistry>(),
             membershipRepository,
             unitPolicyEnforcer,
             Substitute.For<IAgentInitiativeEvaluator>(),

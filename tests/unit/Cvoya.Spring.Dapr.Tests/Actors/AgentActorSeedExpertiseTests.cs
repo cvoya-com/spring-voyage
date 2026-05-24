@@ -186,7 +186,6 @@ public class AgentActorSeedExpertiseTests
                 Substitute.For<IExecutionDispatcher>(),
                 Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             Substitute.For<IAgentDefinitionProvider>(),
-            Array.Empty<ISkillRegistry>(),
             membership,
             policyEnforcer,
             Substitute.For<IAgentInitiativeEvaluator>(),

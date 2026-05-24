@@ -6,7 +6,6 @@ namespace Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Mcp;
@@ -44,7 +43,6 @@ public sealed class AgentBootstrapBundleProvider(
     IConnectorRuntimeContextResolver connectorContextResolver,
     IConnectorPromptContextResolver connectorPromptContextResolver,
     IPromptAssembler promptAssembler,
-    IEnumerable<ISkillRegistry> skillRegistries,
     IServiceScopeFactory scopeFactory,
     IOptions<McpServerOptions> mcpServerOptions,
     ITenantContext tenantContext,
@@ -76,8 +74,6 @@ public sealed class AgentBootstrapBundleProvider(
         ?? throw new ArgumentNullException(nameof(connectorPromptContextResolver));
     private readonly IPromptAssembler _promptAssembler = promptAssembler
         ?? throw new ArgumentNullException(nameof(promptAssembler));
-    private readonly IReadOnlyList<ISkillRegistry> _skillRegistries = skillRegistries?.ToList()
-        ?? throw new ArgumentNullException(nameof(skillRegistries));
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory
         ?? throw new ArgumentNullException(nameof(scopeFactory));
     private readonly McpServerOptions _mcpServerOptions = mcpServerOptions.Value;
@@ -125,15 +121,8 @@ public sealed class AgentBootstrapBundleProvider(
             .ResolveAsync(subjectAddress, cancellationToken);
         var (unitBundles, agentBundles) = await EquippedBundleLoader.LoadAsync(
             _scopeFactory, agentId, cancellationToken);
-        var skills = _skillRegistries
-            .Select(r => new Skill(
-                Name: r.Name,
-                Description: $"Tools exposed by the {r.Name} connector.",
-                Tools: r.GetToolDefinitions()))
-            .ToList();
         var assemblyContext = new PromptAssemblyContext(
             Policies: null,
-            Skills: skills,
             AgentInstructions: definition.Instructions,
             EffectiveMetadata: null,
             SkillBundles: unitBundles,

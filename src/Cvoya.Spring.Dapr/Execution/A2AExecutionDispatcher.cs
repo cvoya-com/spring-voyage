@@ -544,7 +544,6 @@ public class A2AExecutionDispatcher(
         {
             return new PromptAssemblyContext(
                 Policies: null,
-                Skills: null,
                 AgentInstructions: null,
                 ConnectorPromptFragments: fragments);
         }

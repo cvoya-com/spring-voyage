@@ -9,12 +9,14 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Skills;
 
 /// <summary>
-/// Builds the unit context layer (Layer 2) from unit state — policies,
-/// skill descriptions, and package-level skill bundles. The peer-directory
-/// rendering that used to live here was removed in #2231 once the
-/// runtime gained the <c>sv.*</c> directory tools — composition is now
-/// queried on demand via <c>sv.directory.list_members</c> rather than baked into
-/// every system prompt.
+/// Builds the unit context layer (Layer 2) from unit state — policies
+/// and package-level skill bundles. The peer-directory rendering that
+/// used to live here was removed in #2231 (composition is now queried
+/// on demand via <c>sv.directory.*</c>); the per-registry skill listing
+/// was removed in #2670 (the platform-tool catalog is rendered once in
+/// Layer 1 by <see cref="PlatformPromptProvider"/>, and connector
+/// instructions ride <c>IConnectorPromptContextResolver</c> via the
+/// platform-layer connector-context section).
 /// </summary>
 public class UnitContextBuilder
 {
@@ -22,18 +24,15 @@ public class UnitContextBuilder
     /// Builds the unit context string from the provided unit state.
     /// </summary>
     /// <param name="policies">Optional unit policies as a JSON element.</param>
-    /// <param name="skills">Optional skills available to the agent.</param>
     /// <param name="skillBundles">
     /// Optional package-level skill bundles resolved from the unit manifest
-    /// (see #167). Rendered after the connector-skills section so the final
-    /// layer-2 ordering is policies → available skills → skill bundles.
-    /// Concatenation order within the section follows the declaration order
-    /// in the manifest.
+    /// (see #167). Rendered after policies so the final layer-2 ordering
+    /// is policies → skill bundles. Concatenation order within the
+    /// section follows the declaration order in the manifest.
     /// </param>
     /// <returns>The formatted unit context string, or an empty string if all inputs are empty.</returns>
     public string Build(
         JsonElement? policies,
-        IReadOnlyList<Skill>? skills,
         IReadOnlyList<SkillBundle>? skillBundles = null)
     {
         var builder = new StringBuilder();
@@ -42,22 +41,6 @@ public class UnitContextBuilder
         {
             builder.AppendLine("### Policies");
             builder.AppendLine(policies.Value.ToString());
-            builder.AppendLine();
-        }
-
-        if (skills is { Count: > 0 })
-        {
-            builder.AppendLine("### Available Skills");
-            foreach (var skill in skills)
-            {
-                builder.AppendLine($"- **{skill.Name}**: {skill.Description}");
-
-                foreach (var tool in skill.Tools)
-                {
-                    builder.AppendLine($"  - Tool: {tool.Name} — {tool.Description}");
-                }
-            }
-
             builder.AppendLine();
         }
 
