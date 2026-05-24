@@ -65,13 +65,13 @@ public class AgentBootstrapBundleHasherTests
 
         var hashesA = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["CLAUDE.md"] = "sha256:aaaa",
+            [".spring/system-prompt.md"] = "sha256:aaaa",
             [".mcp.json"] = "sha256:bbbb",
         };
         var hashesB = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [".mcp.json"] = "sha256:bbbb",
-            ["CLAUDE.md"] = "sha256:aaaa",
+            [".spring/system-prompt.md"] = "sha256:aaaa",
         };
 
         var hashA = AgentBootstrapBundleHasher.Compute(files, hashesA);
@@ -111,7 +111,7 @@ public class AgentBootstrapBundleHasherTests
         var baseline = SampleHashes();
         var changed = new Dictionary<string, string>(baseline, StringComparer.Ordinal)
         {
-            ["CLAUDE.md"] = "sha256:different",
+            [".spring/system-prompt.md"] = "sha256:different",
         };
 
         AgentBootstrapBundleHasher.Compute(files, baseline)
@@ -137,14 +137,14 @@ public class AgentBootstrapBundleHasherTests
 
     private static List<AgentBootstrapFile> SampleFiles() => new()
     {
-        new("CLAUDE.md", "sha256:aaaa", "You are an agent."),
+        new(".spring/system-prompt.md", "sha256:aaaa", "You are an agent."),
         new(".mcp.json", "sha256:bbbb", "{\"mcpServers\":{}}"),
         new("context/tenant-config.json", "sha256:cccc", "{\"tenant_id\":\"t\"}"),
     };
 
     private static Dictionary<string, string> SampleHashes() => new(StringComparer.Ordinal)
     {
-        ["CLAUDE.md"] = "sha256:aaaa",
+        [".spring/system-prompt.md"] = "sha256:aaaa",
         [".mcp.json"] = "sha256:bbbb",
     };
 }
