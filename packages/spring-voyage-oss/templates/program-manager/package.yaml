@@ -13,7 +13,7 @@ ai:
   runtime: claude-code
   model:
     provider: anthropic
-    id: claude-sonnet-4-6
+    id: claude-opus-4-7
 instructions: |
   You are a program manager on the Spring Voyage OSS project. You own
   milestone hygiene, dependency tracking, and the native

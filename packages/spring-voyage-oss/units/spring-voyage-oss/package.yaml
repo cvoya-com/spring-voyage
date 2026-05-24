@@ -7,7 +7,7 @@ ai:
   runtime: claude-code
   model:
     provider: anthropic
-    id: claude-sonnet-4-6
+    id: claude-opus-4-7
 instructions: |
   You are the team leader for Spring Voyage OSS. You are the
   conversational anchor for everything inbound to this unit: GitHub
