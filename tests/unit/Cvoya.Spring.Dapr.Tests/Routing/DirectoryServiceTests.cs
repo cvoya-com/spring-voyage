@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Routing;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
@@ -796,6 +798,51 @@ public class DirectoryServiceTests : IDisposable
         var listed = await service.ListAllAsync(ct);
         listed.ShouldNotContain(e => e.ActorId == parentId);
         listed.ShouldNotContain(e => e.ActorId == subId);
+    }
+
+    /// <summary>
+    /// #2706: when a unit is deleted its connector binding row must be
+    /// hard-deleted so that subsequent GitHub/Slack webhook deliveries do
+    /// not attempt to route messages to the deleted unit.
+    /// </summary>
+    [Fact]
+    public async Task UnregisterAsync_unit_removes_connector_binding_row()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        var service = CreateServiceWithActorFactory(proxyFactory);
+
+        var unitId = Guid.NewGuid();
+        var unitAddress = new Address("unit", unitId);
+        await service.RegisterAsync(
+            new DirectoryEntry(unitAddress, unitId, "Bound Unit", "", null, DateTimeOffset.UtcNow), ct);
+
+        StubUnitMembers(proxyFactory, unitId, Array.Empty<Address>());
+
+        // Seed a connector binding for the unit.
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.UnitConnectorBindings.Add(new UnitConnectorBindingEntity
+            {
+                Id = Guid.NewGuid(),
+                UnitId = unitId,
+                ConnectorType = Guid.NewGuid(),
+                Config = JsonSerializer.SerializeToElement(new { }),
+                BoundAt = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        await service.UnregisterAsync(unitAddress, ct);
+
+        // The connector binding row must be gone (hard-deleted, not soft-deleted).
+        using var verifyScope = _serviceProvider.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var bindingRow = await verifyDb.UnitConnectorBindings
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(b => b.UnitId == unitId, ct);
+        bindingRow.ShouldBeNull();
     }
 
     private DirectoryService CreateServiceWithActorFactory(IActorProxyFactory proxyFactory)

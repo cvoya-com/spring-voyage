@@ -385,6 +385,19 @@ public class DirectoryService(
             db.SecretRegistryEntries.RemoveRange(secretRows);
         }
 
+        // #2706: delete the connector binding row if any. The endpoint-level
+        // DispatchConnectorStopAsync already ran (via /stop or ForceDeleteUnitAsync)
+        // before the cascade reaches here, revoking the external webhook. Removing
+        // the row stops GitHub/Slack deliveries from being routed to this unit
+        // after deletion and prevents the "No directory entry found" warnings that
+        // follow a missed revocation.
+        var bindingRow = await db.UnitConnectorBindings
+            .FirstOrDefaultAsync(b => b.UnitId == unitId, cancellationToken);
+        if (bindingRow is not null)
+        {
+            db.UnitConnectorBindings.Remove(bindingRow);
+        }
+
         // Ref-count each affected agent. An agent is soft-deleted iff every
         // other unit it's attached to is already deleted.
         foreach (var membership in memberships)

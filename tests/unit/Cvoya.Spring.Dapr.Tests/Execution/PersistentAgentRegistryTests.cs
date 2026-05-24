@@ -712,6 +712,37 @@ public class PersistentAgentRegistryTests : IDisposable
         await _registry.RecordDispatchHeartbeatAsync(Agent1Id, Ct);
     }
 
+    [Fact]
+    public async Task TryRestartAsync_DefinitionNotFoundInDurableStorage_RemovesOrphanRow()
+    {
+        // #2706: when TryRestartAsync cannot locate the agent definition
+        // (neither in the local cache nor via IAgentDefinitionProvider),
+        // the runtime row is an orphan left behind by a delete-cascade
+        // gap (pre-#2713) or a crash mid-delete. Leaving the row alive
+        // causes the health timer to probe → fail → hit threshold →
+        // log the warning in a loop every ~15s. The correct behaviour
+        // is to remove the orphan row so the timer stops and the portal
+        // chip reflects accurate state.
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(false));
+
+        // Register WITHOUT a definition so the local cache is empty.
+        // _agentProvider.GetByIdAsync already returns null by default
+        // (wired in the constructor), so both resolution paths fail.
+        await _registry.RegisterAsync(Agent1Id, new Uri("http://localhost:8999/"), "container-1",
+            definition: null, cancellationToken: Ct);
+
+        for (var i = 0; i < PersistentAgentRegistry.UnhealthyThreshold; i++)
+        {
+            await _registry.RunHealthChecksAsync();
+        }
+
+        // The orphan row must be gone — not left in an infinite retry loop.
+        var entry = await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct);
+        entry.ShouldBeNull();
+    }
+
     /// <summary>
     /// Test HTTP message handler that returns a configured status code.
     /// </summary>
