@@ -44,6 +44,8 @@ public class AgentBootstrapBundleProviderTests
         Substitute.For<IConnectorRuntimeContextResolver>();
     private readonly IConnectorPromptContextResolver _connectorPromptContextResolver =
         Substitute.For<IConnectorPromptContextResolver>();
+    private readonly IIdentityPromptContextResolver _identityPromptContextResolver =
+        Substitute.For<IIdentityPromptContextResolver>();
     private readonly IPromptAssembler _promptAssembler = Substitute.For<IPromptAssembler>();
     private readonly IServiceScopeFactory _scopeFactory = Substitute.For<IServiceScopeFactory>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
@@ -77,6 +79,9 @@ public class AgentBootstrapBundleProviderTests
         _connectorPromptContextResolver
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<string>());
+        _identityPromptContextResolver
+            .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns((string?)null);
 
         // Stub the assembler so each test can pin / vary the resulting
         // system prompt and assert it lands in the bundle's CLAUDE.md.
@@ -103,6 +108,7 @@ public class AgentBootstrapBundleProviderTests
             new[] { (IAgentRuntimeLauncher)_launcher },
             _connectorContextResolver,
             _connectorPromptContextResolver,
+            _identityPromptContextResolver,
             _promptAssembler,
             _scopeFactory,
             Options.Create(new McpServerOptions
@@ -378,6 +384,8 @@ public class AgentBootstrapBundleProviderTests
                         + "\",\"headers\":{\"Authorization\":\"Bearer \"}}}}",
                 },
                 PlatformFilePaths: new[] { "CLAUDE.md", ".mcp.json" }));
+
+        public string? GetWorkspacePromptFragment() => null;
 
         public IReadOnlyList<Cvoya.Spring.Core.ModelProviders.ProbeStep> GetProbeSteps(
             Cvoya.Spring.Core.ModelProviders.ModelProviderInstallConfig config,

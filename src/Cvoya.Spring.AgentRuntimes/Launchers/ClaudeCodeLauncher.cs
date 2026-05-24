@@ -290,6 +290,20 @@ public class ClaudeCodeLauncher(
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// #2682: runtime-true prose only — names env vars and CLI surface
+    /// the launcher itself wires up (workspace mount, MCP discovery
+    /// file, session-storage env var) and stays author-agnostic (no
+    /// reference to the project clone, GitHub env vars, or per-task
+    /// worktree conventions). Per ADR-0058 §2.2.1, the CLI auto-discovery
+    /// files live at the workspace root.
+    /// </remarks>
+    public string? GetWorkspacePromptFragment() =>
+        """
+        You are running inside a Debian-based container supervised by the Spring Voyage agent sidecar. The Claude Code CLI (`claude`) is your runtime; the standard image bundles `dotnet`, `gh`, `git`, `node`, and `python3` for general-purpose tooling. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns and container restarts — anything you clone or write under it stays available next turn. The CLI auto-discovers its system prompt from `CLAUDE.md` at the workspace root and its MCP server set from `.mcp.json` (also at the workspace root); per-thread session state lives under `$CLAUDE_CONFIG_DIR`.
+        """;
+
+    /// <inheritdoc />
     public Task<AgentBootstrapContribution> ContributeBundleAsync(
         AgentBootstrapContributionContext context,
         CancellationToken cancellationToken = default)

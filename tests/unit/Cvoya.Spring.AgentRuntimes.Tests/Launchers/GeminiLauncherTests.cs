@@ -298,6 +298,25 @@ public class GeminiLauncherTests
 
     private const string TestAssembledSystemPrompt = "ASSEMBLED SYSTEM PROMPT FOR TEST";
 
+    /// <summary>
+    /// #2682: the launcher contributes runtime-true workspace prose
+    /// naming the Gemini CLI surface and workspace env vars.
+    /// </summary>
+    [Fact]
+    public void GetWorkspacePromptFragment_NamesGeminiRuntimeAndWorkspaceEnvVars()
+    {
+        var fragment = _launcher.GetWorkspacePromptFragment();
+
+        fragment.ShouldNotBeNullOrWhiteSpace();
+        fragment!.ShouldContain("Gemini CLI");
+        fragment.ShouldContain("`gemini`");
+        fragment.ShouldContain("$SPRING_WORKSPACE_PATH");
+        fragment.ShouldContain("GEMINI.md");
+        fragment.ShouldContain(".gemini/settings.json");
+        fragment.ShouldContain("$GEMINI_CLI_HOME");
+        fragment.ShouldNotContain("worktree");
+    }
+
     private static AgentBootstrapContributionContext CreateBundleContext(
         string? instructions = "Analyze thoroughly.",
         string assembledSystemPrompt = TestAssembledSystemPrompt)

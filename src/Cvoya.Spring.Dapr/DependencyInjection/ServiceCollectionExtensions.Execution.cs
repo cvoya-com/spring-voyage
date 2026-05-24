@@ -98,6 +98,12 @@ internal static class ServiceCollectionExtensionsExecution
         services.AddSingleton<IPromptAssembler, PromptAssembler>();
         services.AddSingleton<IPlatformPromptProvider, PlatformPromptProvider>();
 
+        // OSS-default identity-prompt resolver (#2680). TryAdd so a
+        // private-cloud overlay can register a richer resolver (one that
+        // walks the unit-membership graph, surfaces expertise tags,
+        // etc.) before AddCvoyaSpringDapr() without forking the default.
+        services.TryAddSingleton<IIdentityPromptContextResolver, DefaultIdentityPromptContextResolver>();
+
         // Agent observation / initiative-dispatch coordinator (#1276).
         // Singleton: stateless across agents; uses per-call delegates for all
         // state access. TryAdd so the private cloud repo can layer a

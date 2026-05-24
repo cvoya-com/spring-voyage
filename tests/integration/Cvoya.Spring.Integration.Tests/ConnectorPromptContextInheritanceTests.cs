@@ -127,7 +127,7 @@ public class ConnectorPromptContextInheritanceTests : IDisposable
         prompt.ShouldContain("## Connector context (auto-injected by platform)");
         prompt.ShouldContain("### GitHub binding — cvoya-com/spring-voyage");
         prompt.ShouldContain("Your container has env-vars set.");
-        prompt.ShouldContain("## Agent Instructions");
+        prompt.ShouldContain("## Role-specific instructions");
     }
 
     private sealed class StubPromptContributor(Guid connectorTypeId, string fragment)

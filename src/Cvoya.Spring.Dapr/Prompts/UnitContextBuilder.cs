@@ -9,14 +9,15 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Skills;
 
 /// <summary>
-/// Builds the unit context layer (Layer 2) from unit state — policies
-/// and package-level skill bundles. The peer-directory rendering that
-/// used to live here was removed in #2231 (composition is now queried
-/// on demand via <c>sv.directory.*</c>); the per-registry skill listing
+/// Builds the unit-context section from unit state — policies and
+/// package-level skill bundles. The peer-directory rendering that used
+/// to live here was removed in #2231 (composition is now queried on
+/// demand via <c>sv.directory.*</c>); the per-registry skill listing
 /// was removed in #2670 (the platform-tool catalog is rendered once in
-/// Layer 1 by <see cref="PlatformPromptProvider"/>, and connector
-/// instructions ride <c>IConnectorPromptContextResolver</c> via the
-/// platform-layer connector-context section).
+/// the platform-instructions section by
+/// <see cref="PlatformPromptProvider"/>, and connector instructions
+/// ride <c>IConnectorPromptContextResolver</c> via the
+/// platform-instructions connector-context subsection).
 /// </summary>
 public class UnitContextBuilder
 {
@@ -26,7 +27,7 @@ public class UnitContextBuilder
     /// <param name="policies">Optional unit policies as a JSON element.</param>
     /// <param name="skillBundles">
     /// Optional package-level skill bundles resolved from the unit manifest
-    /// (see #167). Rendered after policies so the final layer-2 ordering
+    /// (see #167). Rendered after policies so the final section ordering
     /// is policies → skill bundles. Concatenation order within the
     /// section follows the declaration order in the manifest.
     /// </param>

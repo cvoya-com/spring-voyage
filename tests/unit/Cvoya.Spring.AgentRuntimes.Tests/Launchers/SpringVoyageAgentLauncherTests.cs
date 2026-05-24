@@ -427,6 +427,18 @@ public class SpringVoyageAgentLauncherTests
         composed.ShouldNotContain("concurrent_threads is on");
     }
 
+    /// <summary>
+    /// #2682: the A2A-native Spring Voyage agent has no container /
+    /// workspace concept, so the launcher returns null and the prompt
+    /// assembler omits the <c>## Container and workspace</c> section
+    /// entirely for runtimes that dispatch through this launcher.
+    /// </summary>
+    [Fact]
+    public void GetWorkspacePromptFragment_ReturnsNull()
+    {
+        _launcher.GetWorkspacePromptFragment().ShouldBeNull();
+    }
+
     private static AgentLaunchContext MakeContext(string provider, string model) =>
         LauncherCallbackTestSupport.CreateContext(
             prompt: "## System\nYou are a helpful assistant.",

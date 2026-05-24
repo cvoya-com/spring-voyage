@@ -174,7 +174,7 @@ public sealed class EquippedSkillsLayer2InheritanceTests : IDisposable
 
         var layer2Idx = assembled.IndexOf("## Unit Context", StringComparison.Ordinal);
         var bodyIdx = assembled.IndexOf("Team Policy", StringComparison.Ordinal);
-        var layer4Idx = assembled.IndexOf("## Agent Instructions", StringComparison.Ordinal);
+        var layer4Idx = assembled.IndexOf("## Role-specific instructions", StringComparison.Ordinal);
 
         layer2Idx.ShouldBeGreaterThanOrEqualTo(0,
             "unit context section must be present when bundles are inherited");

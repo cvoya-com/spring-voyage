@@ -120,7 +120,7 @@ public class EquippedSkillsLayer4Tests : IDisposable
         assembled.ShouldContain("Synthetic skill prompt");
         assembled.ShouldContain("You are the synthetic agent.");
 
-        var layer4Idx = assembled.IndexOf("## Agent Instructions", StringComparison.Ordinal);
+        var layer4Idx = assembled.IndexOf("## Role-specific instructions", StringComparison.Ordinal);
         var bodyIdx = assembled.IndexOf("Synthetic skill prompt", StringComparison.Ordinal);
         layer4Idx.ShouldBeGreaterThanOrEqualTo(0,
             "agent instructions section must be present when bundles are equipped");

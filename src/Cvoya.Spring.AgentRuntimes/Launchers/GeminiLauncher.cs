@@ -252,6 +252,19 @@ public class GeminiLauncher(
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// #2682: runtime-true prose only — names env vars and CLI surface
+    /// the launcher itself wires up (workspace mount, MCP discovery
+    /// file, session-storage env var) and stays author-agnostic (no
+    /// reference to the project clone, GitHub env vars, or per-task
+    /// worktree conventions).
+    /// </remarks>
+    public string? GetWorkspacePromptFragment() =>
+        """
+        You are running inside a Debian-based container supervised by the Spring Voyage agent sidecar. The Google Gemini CLI (`gemini`) is your runtime; the standard image bundles `dotnet`, `gh`, `git`, `node`, and `python3` for general-purpose tooling. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns and container restarts — anything you clone or write under it stays available next turn. The CLI auto-discovers its system prompt from `GEMINI.md` at the workspace root and its MCP server set from `.gemini/settings.json`; per-thread session state lives under `$GEMINI_CLI_HOME/.gemini/`.
+        """;
+
+    /// <inheritdoc />
     public Task<AgentBootstrapContribution> ContributeBundleAsync(
         AgentBootstrapContributionContext context,
         CancellationToken cancellationToken = default)
