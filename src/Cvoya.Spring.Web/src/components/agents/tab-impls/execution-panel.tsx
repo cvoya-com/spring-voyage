@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import {
+  useAgent,
   useAgentExecution,
   useModelProviderModels,
   useModelProviders,
@@ -33,6 +34,11 @@ import type {
   AgentExecutionResponse,
   UnitExecutionResponse,
 } from "@/lib/api/types";
+import {
+  SystemPromptModeControl,
+  type SystemPromptMode,
+  type SystemPromptModeOrigin,
+} from "@/components/execution/system-prompt-mode-control";
 import {
   HOSTING_MODES,
   RUNTIME_LIST,
@@ -77,7 +83,12 @@ function isEmpty(block: AgentExecutionResponse): boolean {
     !block.image &&
     !block.runtime &&
     !block.model &&
-    !block.hosting
+    !block.hosting &&
+    // #2694: a declared system_prompt_mode counts as a real override
+    // — the panel's Configured / Inherits badge and the Clear-all
+    // button gate on `isEmpty`, and a unit-overriding agent that
+    // only carries the prompt-mode slot is still configured.
+    !block.systemPromptMode
   );
 }
 
@@ -102,6 +113,13 @@ export function AgentExecutionPanel({
   const unitExecutionQuery = useUnitExecution(parentUnitId ?? "", {
     enabled: Boolean(parentUnitId),
   });
+  // #2694: the system_prompt_mode toggle needs the post-cascade
+  // `systemPromptMode` (effective) and the raw `declaredSystemPromptMode`
+  // (set-here vs inherited) from AgentResponse — both surfaced by
+  // GET /tenant/agents/{id}. The execution endpoint alone only carries
+  // the agent's own declared block, which is enough to drive "set
+  // here" but not "default vs inherited from unit".
+  const agentDetailQuery = useAgent(agentId);
   const installedProvidersQuery = useModelProviders();
   const installedProviders = useMemo(
     () => installedProvidersQuery.data ?? [],
@@ -203,11 +221,57 @@ export function AgentExecutionPanel({
     },
     onSuccess: (cleared) => {
       queryClient.setQueryData(queryKeys.agents.execution(agentId), cleared);
+      // #2694: clearing the whole execution block also wipes the
+      // agent's declared systemPromptMode, so the cascade indicator in
+      // the toggle row needs a fresh AgentResponse to drop back to the
+      // unit / default tier.
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.agents.detail(agentId),
+      });
       toast({ title: "Execution block cleared" });
     },
     onError: (err) => {
       toast({
         title: "Clear failed",
+        description: formatTranslatedError(err),
+        variant: "destructive",
+      });
+    },
+  });
+
+  // #2694: system_prompt_mode is persisted independently of the
+  // image / runtime / model / hosting form. Setting goes through the
+  // agent-metadata PATCH so the tri-state contract (absent / null /
+  // string) survives — PUT to /execution can only set, never clear,
+  // per the PickNonBlank semantics on the partial-update path.
+  const systemPromptModeMutation = useMutation({
+    mutationFn: async (next: SystemPromptMode | null): Promise<void> => {
+      await api.updateAgentMetadata(agentId, { systemPromptMode: next });
+    },
+    onSuccess: (_void, next) => {
+      // AgentResponse carries both the resolved `systemPromptMode` and
+      // the raw `declaredSystemPromptMode`. Refetch the agent detail
+      // so the cascade indicator and the selected option flip in lock-
+      // step with the persisted state.
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.agents.detail(agentId),
+      });
+      // The /execution endpoint also surfaces system_prompt_mode on
+      // the agent's own block; keep it consistent for any sibling
+      // consumer that reads from this cache slot.
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.agents.execution(agentId),
+      });
+      toast({
+        title:
+          next === null
+            ? "System prompt mode override cleared"
+            : `System prompt mode set to ${next}`,
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: "Save failed",
         description: formatTranslatedError(err),
         variant: "destructive",
       });
@@ -512,6 +576,26 @@ export function AgentExecutionPanel({
           />
         </FieldRow>
 
+        {/* System prompt mode (#2694 / #2692 / #2667). Independent
+            persistence — set goes through PATCH `updateAgentMetadata`,
+            clear sends explicit JSON null on the same surface. Cascade:
+            agent's declared value wins; unit default fills in; built-in
+            `append` is the final fallback. */}
+        <SystemPromptModeRow
+          declared={resolveDeclaredMode(
+            agentDetailQuery.data?.agent.declaredSystemPromptMode ?? null,
+          )}
+          unitDefault={resolveUnitMode(unitDefaults?.systemPromptMode ?? null)}
+          resolved={resolveResolvedMode(
+            agentDetailQuery.data?.agent.systemPromptMode ?? null,
+          )}
+          busy={
+            systemPromptModeMutation.isPending || agentDetailQuery.isPending
+          }
+          onChange={(next) => systemPromptModeMutation.mutate(next)}
+          onClear={() => systemPromptModeMutation.mutate(null)}
+        />
+
         <div className="flex items-center justify-end gap-2 pt-2">
           {dirty && (
             <span className="text-xs text-muted-foreground">
@@ -778,4 +862,82 @@ function CredentialStatusBanner({
       </div>
     </div>
   );
+}
+
+/**
+ * #2694: the cascade row that wraps the shared {@link SystemPromptModeControl}.
+ *
+ * - **declared** — the agent's own block value (raw,
+ *   {@link AgentResponse.declaredSystemPromptMode}). Drives the
+ *   "Set here" indicator and gates the Clear-override action.
+ * - **unitDefault** — the owning unit's `execution:` block value.
+ *   When the agent didn't declare, the unit fills in.
+ * - **resolved** — the post-cascade value the API server hands to the
+ *   dispatcher ({@link AgentResponse.systemPromptMode}). When neither
+ *   the agent nor the unit declared a value the platform default
+ *   (`append`) wins.
+ *
+ * Origin is computed from the declared / unit-default pair rather than
+ * surface-coupling the resolver — keeps the indicator coherent even if
+ * the API resolver evolves.
+ */
+interface SystemPromptModeRowProps {
+  declared: SystemPromptMode | null;
+  unitDefault: SystemPromptMode | null;
+  resolved: SystemPromptMode | null;
+  busy: boolean;
+  onChange: (next: SystemPromptMode) => void;
+  onClear: () => void;
+}
+
+function SystemPromptModeRow({
+  declared,
+  unitDefault,
+  resolved,
+  busy,
+  onChange,
+  onClear,
+}: SystemPromptModeRowProps) {
+  const effective: SystemPromptMode = resolved ?? declared ?? unitDefault ?? "append";
+  const origin: SystemPromptModeOrigin = declared
+    ? "agent"
+    : unitDefault
+      ? "unit"
+      : "default";
+  return (
+    <SystemPromptModeControl
+      effective={effective}
+      origin={origin}
+      onChange={onChange}
+      onClear={onClear}
+      busy={busy}
+      surface="agent"
+      testIdPrefix="agent-system-prompt-mode"
+    />
+  );
+}
+
+/**
+ * Normalise the raw wire value (`null | "append" | "replace"` plus
+ * defensive handling of any unexpected literal) onto the typed enum.
+ * Unknown literals fall through to `null` so the cascade resolves the
+ * field downstream rather than crashing the panel.
+ */
+function resolveDeclaredMode(value: string | null): SystemPromptMode | null {
+  return normaliseMode(value);
+}
+
+function resolveUnitMode(value: string | null): SystemPromptMode | null {
+  return normaliseMode(value);
+}
+
+function resolveResolvedMode(value: string | null): SystemPromptMode | null {
+  return normaliseMode(value);
+}
+
+function normaliseMode(value: string | null): SystemPromptMode | null {
+  if (value === "append" || value === "replace") {
+    return value;
+  }
+  return null;
 }

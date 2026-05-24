@@ -84,9 +84,24 @@ const KB = 1024;
 //   Total uncompressed: ~3156 KB → cap 3180 KB
 //   Total gzipped:      ~ 898 KB → cap  900 KB (unchanged; still within)
 //   Largest chunk (uncompressed): 356 KB → cap 450 KB (unchanged)
+//
+// Updated 2026-05-24 when the system_prompt_mode toggle landed on the
+// agent + unit execution panels — new `SystemPromptModeControl`
+// component (radio-group + cascade pill + help text) plus the
+// per-panel wiring (mode state, PATCH/PUT mutations, clear-override
+// affordance) in both `execution-panel.tsx` (agent) and
+// `execution-tab.tsx` (unit). No new dependencies; growth is the new
+// component's own footprint plus the duplicated wiring across both
+// surfaces. Gzipped total measured 900 KB locally / 902 KB in CI
+// (environment variance puts headroom at effectively zero); bumping
+// to 925 KB gives a real cushion so the next small PR doesn't re-fire
+// the same alarm.
+//   Total uncompressed: ~3166 KB → cap 3220 KB
+//   Total gzipped:      ~ 900 KB → cap  925 KB
+//   Largest chunk (uncompressed): 356 KB → cap 450 KB (unchanged)
 const BUDGETS = {
-  totalUncompressedKb: 3180,
-  totalGzippedKb: 900,
+  totalUncompressedKb: 3220,
+  totalGzippedKb: 925,
   maxChunkUncompressedKb: 450,
 };
 

@@ -53,6 +53,11 @@ import {
   runtimeCredentialDescriptor,
   type RuntimeCredentialDescriptor,
 } from "@/lib/runtime-credentials";
+import {
+  SystemPromptModeControl,
+  type SystemPromptMode,
+  type SystemPromptModeOrigin,
+} from "@/components/execution/system-prompt-mode-control";
 
 /**
  * Unit Execution tab (ADR-0038).
@@ -103,7 +108,16 @@ const HOSTING_LABELS = new Map<HostingMode, string>(
 );
 
 function isEmpty(block: UnitExecutionResponse): boolean {
-  return !block.image && !block.runtime && !block.model;
+  return (
+    !block.image &&
+    !block.runtime &&
+    !block.model &&
+    // #2694: a declared system_prompt_mode default counts as a real
+    // unit-level configuration — the Configured / Unset badge and
+    // the Clear-all button gate on `isEmpty`. Mirrors the agent
+    // panel.
+    !block.systemPromptMode
+  );
 }
 
 function isHostingMode(value: string | null | undefined): value is HostingMode {
@@ -285,6 +299,31 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
     onError: (err) => {
       toast({
         title: "Clear failed",
+        description: formatTranslatedError(err),
+        variant: "destructive",
+      });
+    },
+  });
+
+  // #2694: system_prompt_mode rides the standard PUT — partial-update
+  // semantics merge the field over whatever's already persisted, so
+  // toggling between append / replace doesn't disturb image / runtime /
+  // model. The platform default of `append` is the implicit fallback;
+  // there's no per-field clear path on the unit surface (UPDATE has
+  // no tri-state for this slot today).
+  const systemPromptModeMutation = useMutation({
+    mutationFn: async (
+      next: SystemPromptMode,
+    ): Promise<UnitExecutionResponse> => {
+      return await api.setUnitExecution(unitId, { systemPromptMode: next });
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.units.execution(unitId), updated);
+      toast({ title: `System prompt mode set to ${updated.systemPromptMode}` });
+    },
+    onError: (err) => {
+      toast({
+        title: "Save failed",
         description: formatTranslatedError(err),
         variant: "destructive",
       });
@@ -547,6 +586,16 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
               credential={credentialDescriptor}
             />
           )}
+
+          {/* System prompt mode (#2694 / #2691 / #2667). Lives on the
+              same execution-defaults block; persists independently of
+              the image / runtime / model form via a PUT with only the
+              `systemPromptMode` slot. Default is `append`. */}
+          <UnitSystemPromptModeRow
+            persisted={normaliseUnitMode(persisted?.systemPromptMode ?? null)}
+            busy={systemPromptModeMutation.isPending}
+            onChange={(next) => systemPromptModeMutation.mutate(next)}
+          />
 
           <div className="flex items-center justify-end gap-2 pt-2">
             {dirty && (
@@ -864,4 +913,51 @@ function CredentialStatusBanner({
       </div>
     </div>
   );
+}
+
+/**
+ * #2694: unit-side wrapper around the shared
+ * {@link SystemPromptModeControl}. The unit slot has no upstream
+ * cascade (it *is* the tier the agent inherits from), so the
+ * indicator is binary: either the unit declared a value or the
+ * built-in `append` default fills in.
+ */
+interface UnitSystemPromptModeRowProps {
+  persisted: SystemPromptMode | null;
+  busy: boolean;
+  onChange: (next: SystemPromptMode) => void;
+}
+
+function UnitSystemPromptModeRow({
+  persisted,
+  busy,
+  onChange,
+}: UnitSystemPromptModeRowProps) {
+  const effective: SystemPromptMode = persisted ?? "append";
+  const origin: SystemPromptModeOrigin = persisted ? "unit" : "default";
+  return (
+    <SystemPromptModeControl
+      effective={effective}
+      origin={origin}
+      onChange={onChange}
+      busy={busy}
+      surface="unit"
+      testIdPrefix="unit-system-prompt-mode"
+    />
+  );
+}
+
+/**
+ * Defensive normaliser — accepts the wire literal verbatim and
+ * down-grades unknown values to `null` so the cascade falls back to
+ * the platform default. Mirrors the server-side
+ * <c>NormaliseSystemPromptModeForWire</c> validator: anything other
+ * than `append` / `replace` shouldn't reach the client, but if it
+ * does we don't want the toggle to crash the panel.
+ */
+function normaliseUnitMode(value: string | null): SystemPromptMode | null {
+  if (value === "append" || value === "replace") {
+    return value;
+  }
+  return null;
 }

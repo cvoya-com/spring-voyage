@@ -803,7 +803,11 @@ export interface paths {
         get: operations["GetHuman"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a human and cascade-remove every unit-membership row and ACL grant.
+         * @description Removes the human's row from `humans`, every `unit_membership_humans` row that names this human (so the human disappears from every parent unit's members), and every `unit_human_permissions` row (so stale grants do not survive the delete). Returns 204 on success, 404 when the id is not found in the current tenant, 400 when the id is empty.
+         */
+        delete: operations["DeleteHuman"];
         options?: never;
         head?: never;
         /**
@@ -6806,6 +6810,44 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HumanResponse"];
                 };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    DeleteHuman: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                humanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Bad Request */
             400: {
