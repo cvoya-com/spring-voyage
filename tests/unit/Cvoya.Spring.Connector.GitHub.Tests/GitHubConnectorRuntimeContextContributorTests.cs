@@ -255,6 +255,11 @@ public class GitHubConnectorRuntimeContextContributorTests
         fragment.ShouldContain("$SPRING_CONNECTOR_GITHUB_TOKEN");
         fragment.ShouldContain("$GITHUB_TOKEN");
         fragment.ShouldContain("gh issue list --repo");
+        // #2704: the fragment must name the canonical tool-call alternative
+        // and explicitly disclaim the HTTP-URL fetch shape the engineer
+        // hallucinated.
+        fragment.ShouldContain("github.get_installation_token");
+        fragment.ShouldContain("no such");
         // Tokens never appear verbatim in the prompt fragment — only the
         // env-var names do.
         fragment.ShouldNotContain("ghs_");
@@ -322,7 +327,12 @@ public class GitHubConnectorRuntimeContextContributorTests
             "Use `gh` and `git` against the bound repo:\n\n" +
             "  REPO=\"$SPRING_CONNECTOR_GITHUB_OWNER/$SPRING_CONNECTOR_GITHUB_REPO\"\n" +
             "  gh issue list --repo \"$REPO\" --milestone v0.1 --state open\n\n" +
-            "`gh` and `git` will pick up $GITHUB_TOKEN automatically — no `gh auth login` needed.";
+            "`gh` and `git` will pick up $GITHUB_TOKEN automatically — no `gh auth login` needed.\n\n" +
+            "If you need the token from a tool-call shape (e.g. a non-CLI HTTP client),\n" +
+            "call the platform tool `github.get_installation_token` — it returns the same\n" +
+            "value as $GITHUB_TOKEN plus the credential kind and expiry. **Do not** try to\n" +
+            "fetch the token by constructing an HTTP URL against the platform: no such\n" +
+            "endpoint exists, and the env-var / tool are the only two ways to get it.";
 
         // Normalise CRLF on Windows so the snapshot test is platform-agnostic.
         fragment.Replace("\r\n", "\n").ShouldBe(expected);

@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Net;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -162,8 +163,7 @@ public class ForwardingOtlpIngestServiceDecorator(
         IReadOnlyList<OtlpEventIngest> events,
         CancellationToken cancellationToken)
     {
-        var endpoint = config.Endpoint.TrimEnd('/');
-        var url = $"{endpoint}{path}";
+        var url = UrlPath.Combine(config.Endpoint, path);
 
         // Apply redaction to each event's Details payload before
         // building the wire envelope. The local-persist path applies

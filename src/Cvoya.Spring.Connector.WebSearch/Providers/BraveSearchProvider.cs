@@ -6,6 +6,8 @@ namespace Cvoya.Spring.Connector.WebSearch.Providers;
 using System.Net.Http;
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Net;
+
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -67,10 +69,11 @@ internal sealed class BraveSearchProvider : IWebSearchProvider
         }
 
         var cap = Math.Clamp(request.Limit, 1, 50);
-        var url = $"{_options.Brave.BaseUrl.TrimEnd('/')}/web/search"
-            + $"?q={Uri.EscapeDataString(request.Query)}"
-            + $"&count={cap}"
-            + $"&safesearch={(request.Safesearch ? "strict" : "off")}";
+        var url = UrlPath.Combine(
+            _options.Brave.BaseUrl,
+            $"/web/search?q={Uri.EscapeDataString(request.Query)}"
+                + $"&count={cap}"
+                + $"&safesearch={(request.Safesearch ? "strict" : "off")}");
 
         _logger.LogInformation("Issuing Brave search for query={QueryLength}chars limit={Limit}", request.Query.Length, cap);
 

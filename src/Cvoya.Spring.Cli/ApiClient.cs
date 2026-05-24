@@ -36,6 +36,11 @@ public class SpringApiClient
     public SpringApiClient(HttpClient httpClient, string baseUrl)
     {
         _httpClient = httpClient;
+        // Normalise once on store — every `$"{_baseUrl}/api/v1/..."` concat
+        // below produces exactly one slash at the boundary because the
+        // stored value never carries a trailing slash. Equivalent to
+        // calling UrlPath.Combine at each concat site (#2707), with one
+        // round of normalisation per client instead of one per request.
         _baseUrl = baseUrl.TrimEnd('/');
         var adapter = new HttpClientRequestAdapter(
             new AnonymousAuthenticationProvider(),

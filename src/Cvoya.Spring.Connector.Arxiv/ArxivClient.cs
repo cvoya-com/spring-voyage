@@ -8,6 +8,8 @@ using System.Net.Http;
 using System.Text;
 using System.Xml.Linq;
 
+using Cvoya.Spring.Core.Net;
+
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -50,7 +52,9 @@ internal sealed class ArxivClient : IArxivClient
     {
         var searchQuery = BuildSearchQuery(query, categories, yearFrom, yearTo);
         var cap = Math.Clamp(maxResults, 1, 100);
-        var url = $"{_options.BaseUrl.TrimEnd('/')}/query?search_query={Uri.EscapeDataString(searchQuery)}&start=0&max_results={cap}&sortBy=relevance&sortOrder=descending";
+        var url = UrlPath.Combine(
+            _options.BaseUrl,
+            $"/query?search_query={Uri.EscapeDataString(searchQuery)}&start=0&max_results={cap}&sortBy=relevance&sortOrder=descending");
         return await FetchAsync(url, cancellationToken);
     }
 
@@ -58,7 +62,9 @@ internal sealed class ArxivClient : IArxivClient
     public async Task<ArxivEntry?> GetByIdAsync(string id, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        var url = $"{_options.BaseUrl.TrimEnd('/')}/query?id_list={Uri.EscapeDataString(id)}&max_results=1";
+        var url = UrlPath.Combine(
+            _options.BaseUrl,
+            $"/query?id_list={Uri.EscapeDataString(id)}&max_results=1");
         var entries = await FetchAsync(url, cancellationToken);
         return entries.Count == 0 ? null : entries[0];
     }
