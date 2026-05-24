@@ -27,6 +27,17 @@ set -uo pipefail
 
 BUDGET="${TEST_BUDGET_SECONDS:-900}"
 
+# Sentinel file the watchdog writes to when it has tripped the
+# budget. The parent reads it after `wait` to distinguish a
+# watchdog-killed test (forced non-zero exit) from a normal test
+# exit — the test runner may exit 0 even after SIGTERM (it catches
+# the signal and unwinds cleanly), so the child exit code alone is
+# not a reliable failure signal in the budget-exceeded case. A file
+# rather than a shell variable because the watchdog runs in a
+# sub-shell and cannot mutate the parent's env.
+WATCHDOG_TRIGGER_FILE="$(mktemp -t dotnet-test-watchdog-trigger-XXXXXX)"
+trap 'rm -f "$WATCHDOG_TRIGGER_FILE"' EXIT
+
 # --- helpers -----------------------------------------------------
 
 capture_diagnostics() {
@@ -48,7 +59,7 @@ capture_diagnostics() {
 
   if command -v dotnet-stack >/dev/null 2>&1; then
     # testhost == the per-assembly child process MTP launches.
-    # Plain `dotnet exec` covers the in-process MTP runner too.
+    # Plain `dotnet ... test` covers the in-process MTP runner too.
     for pid in $(pgrep -f 'testhost|dotnet.*test' || true); do
       # Skip the watchdog itself.
       [ "$pid" = "$$" ] && continue
@@ -88,6 +99,7 @@ TEST_PID=$!
   if kill -0 "$TEST_PID" 2>/dev/null; then
     echo
     echo "::error::dotnet test exceeded ${BUDGET}s budget — likely the #2604 Dapr.Tests hang. Capturing diagnostics."
+    echo "tripped" > "$WATCHDOG_TRIGGER_FILE"
     capture_diagnostics "wall-clock budget ${BUDGET}s exceeded"
     kill_test_tree "$TEST_PID"
   fi
@@ -100,5 +112,13 @@ TEST_EXIT=$?
 # Test finished within budget — silence the watchdog.
 kill "$WATCHDOG_PID" 2>/dev/null || true
 wait "$WATCHDOG_PID" 2>/dev/null || true
+
+# Exit 124 (GNU `timeout` convention) when the watchdog tripped, so
+# the CI step fails unambiguously regardless of the runner's own
+# unwound exit code.
+if [ -s "$WATCHDOG_TRIGGER_FILE" ]; then
+  echo "Watchdog: budget exceeded; exiting 124 (test runner exited ${TEST_EXIT})."
+  exit 124
+fi
 
 exit "$TEST_EXIT"
