@@ -873,6 +873,22 @@ public class GitHubConnectorType : IConnectorType
 
             return Results.Ok(ordered);
         }
+        catch (Octokit.AuthorizationException ex)
+            when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            // App JWT was rejected by GitHub — this is a credential/config
+            // problem, not a per-user OAuth problem. Surface it distinctly so
+            // the portal can render the connector's disabled state.
+            _logger.LogError(ex,
+                "list-repositories: App JWT rejected by GitHub (Bad credentials). " +
+                "Verify GitHub__AppId={AppId} and GitHub__PrivateKeyPem in spring.env.",
+                _options.Value.AppId);
+            return Results.Problem(
+                title: "GitHub App credentials rejected",
+                detail: "The GitHub App JWT was rejected by GitHub. Verify GitHub__AppId and GitHub__PrivateKeyPem match the registered App.",
+                statusCode: StatusCodes.Status502BadGateway,
+                extensions: new Dictionary<string, object?> { ["disabled"] = true, ["reason"] = "App credentials rejected by GitHub" });
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to aggregate GitHub repositories");
