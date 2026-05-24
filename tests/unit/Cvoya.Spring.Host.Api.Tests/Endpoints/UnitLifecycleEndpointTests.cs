@@ -294,6 +294,62 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     }
 
     [Fact]
+    public async Task StopUnit_UndeploysUnitAsAgentRouter()
+    {
+        // #2708: a unit-as-agent (ADR-0039) runs its own router runtime
+        // under the unit's id. The members cascade does not enumerate this
+        // runtime — it is not in the unit's members collection — so /stop
+        // must call UndeployAsync against the unit's own id to drop the
+        // router container + workspace volume (which still holds the
+        // agent's live credentials). The gateway is idempotent: a no-op
+        // for ephemeral units, so this fires unconditionally.
+        var ct = TestContext.Current.CancellationToken;
+
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.TransitionAsync(LifecycleStatus.Stopping, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopping, null));
+        proxy.TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopped, null));
+
+        ArrangeResolved(proxy);
+        _factory.ExecutionHostGateway.ClearReceivedCalls();
+
+        var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/stop", content: null, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        await _factory.ExecutionHostGateway.Received(1)
+            .UndeployAsync(ActorId, Arg.Any<CancellationToken>());
+        await proxy.Received(1).TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StopUnit_UnitAsAgentRouterUndeployThrows_StillTransitionsToStopped()
+    {
+        // The router-teardown step is best-effort, same shape as the
+        // members teardown (#2397) — a hard failure is logged and
+        // swallowed so the unit still reaches Stopped. The operator's
+        // recovery path is /force-delete for leaked containers (#2708).
+        var ct = TestContext.Current.CancellationToken;
+
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.TransitionAsync(LifecycleStatus.Stopping, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopping, null));
+        proxy.TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, LifecycleStatus.Stopped, null));
+
+        ArrangeResolved(proxy);
+        _factory.ExecutionHostGateway.ClearReceivedCalls();
+        _factory.ExecutionHostGateway
+            .UndeployAsync(ActorId, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("worker offline"));
+
+        var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/stop", content: null, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        await proxy.Received(1).TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task StopUnit_AlreadyStopped_Returns409()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -324,6 +380,17 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         _factory.ActorProxyFactory.ClearReceivedCalls();
         _factory.StubConnectorType.ClearReceivedCalls();
         _factory.ConnectorConfigStore.ClearReceivedCalls();
+        _factory.ExecutionHostGateway.ClearReceivedCalls();
+
+        // #2708: reset the unit-as-agent router undeploy stub to success
+        // — the partial-failure test below overrides it and the
+        // arrangement would otherwise leak across tests (xUnit
+        // IClassFixture shares the factory).
+        _factory.ExecutionHostGateway
+            .UndeployAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+                Cvoya.Spring.Dapr.Execution.PersistentAgentDeploymentState.NotRunning(
+                    callInfo.ArgAt<string>(0)));
 
         var entry = new DirectoryEntry(
             new Address("unit", ActorId_Guid),

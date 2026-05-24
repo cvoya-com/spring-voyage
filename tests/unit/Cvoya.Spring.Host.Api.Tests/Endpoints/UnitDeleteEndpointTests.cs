@@ -178,6 +178,57 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
+    public async Task DeleteUnit_Force_UndeploysUnitAsAgentRouterAndReturns204()
+    {
+        // #2708: a unit-as-agent (ADR-0039) runs its own router runtime
+        // under the unit's id. The members cascade does not enumerate
+        // this runtime — it is not in the unit's members collection — so
+        // force-delete must call UndeployAsync against the unit's own id
+        // to drop the router container + workspace volume (which still
+        // holds the agent's live credentials). The gateway is idempotent:
+        // a no-op for ephemeral units, so this fires unconditionally.
+        var ct = TestContext.Current.CancellationToken;
+        ArrangeUnit(LifecycleStatus.Error);
+
+        var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}?force=true", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        await _factory.ExecutionHostGateway.Received(1)
+            .UndeployAsync(ActorId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteUnit_Force_UnitAsAgentRouterUndeployFails_RecordsFailureAndStillUnregisters()
+    {
+        // The router-teardown step is best-effort: a failure is logged
+        // and recorded as a "persistent-agent-router" entry in
+        // teardownFailures but does not block directory unregister —
+        // matching the existing container-step failure behavior (#147).
+        var ct = TestContext.Current.CancellationToken;
+        ArrangeUnit(LifecycleStatus.Error);
+
+        _factory.ExecutionHostGateway
+            .UndeployAsync(ActorId, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("worker offline"));
+
+        var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}?force=true", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("forceDeleted").GetBoolean().ShouldBeTrue();
+        doc.RootElement.GetProperty("teardownFailures")
+            .EnumerateArray()
+            .Select(e => e.GetString())
+            .ShouldContain("persistent-agent-router");
+
+        await _factory.DirectoryService.Received(1).UnregisterAsync(
+            Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task DeleteUnit_Force_PersistentAgentMembers_UndeploysEachAndReturns204()
     {
         // #2397: force-delete must iterate the unit's members and undeploy
@@ -298,6 +349,16 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         _factory.ExecutionHostGateway
             .StopUnitContainerAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
+
+        // #2708: same reset for the unit-as-agent router undeploy stub —
+        // the partial-failure test below overrides it and the arrangement
+        // would otherwise leak across tests (xUnit IClassFixture shares
+        // the factory).
+        _factory.ExecutionHostGateway
+            .UndeployAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+                Cvoya.Spring.Dapr.Execution.PersistentAgentDeploymentState.NotRunning(
+                    callInfo.ArgAt<string>(0)));
 
         var entry = new DirectoryEntry(
             new Address("unit", ActorId_Guid),

@@ -23,6 +23,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 using Shouldly;
 
@@ -1195,5 +1196,75 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             .GetAsync(actorIdString, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<AgentExecutionShape?>(
                 new AgentExecutionShape(Hosting: hosting)));
+    }
+
+    [Fact]
+    public async Task DeleteAgent_UndeploysPersistentRuntimeBeforeUnregister()
+    {
+        // #2649: DELETE /agents/{id} must drop any persistent runtime
+        // (container + per-agent workspace volume that still holds the
+        // agent's live credentials) before unregistering the directory
+        // entry. The gateway is idempotent: a no-op for ephemeral agents
+        // or for persistent agents that were never deployed, so this
+        // fires unconditionally.
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        var actorIdString = agentId.ToString("N");
+
+        _factory.DirectoryService.ClearReceivedCalls();
+        _factory.ExecutionHostGateway.ClearReceivedCalls();
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId), Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(
+                new Address("agent", agentId),
+                agentId,
+                "Agent",
+                "Some agent",
+                null,
+                DateTimeOffset.UtcNow));
+
+        var response = await _client.DeleteAsync($"/api/v1/tenant/agents/{actorIdString}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        await _factory.ExecutionHostGateway.Received(1)
+            .UndeployAsync(actorIdString, Arg.Any<CancellationToken>());
+        await _factory.DirectoryService.Received(1).UnregisterAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteAgent_UndeployFails_StillUnregisters()
+    {
+        // The undeploy step is best-effort, mirroring the unit
+        // teardown pattern (#2397/#2708) — a worker failure is logged
+        // and swallowed so the agent still disappears from the
+        // directory. The operator's recovery path for a leaked
+        // container is the runtime's own cleanup tools.
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        var actorIdString = agentId.ToString("N");
+
+        _factory.DirectoryService.ClearReceivedCalls();
+        _factory.ExecutionHostGateway.ClearReceivedCalls();
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId), Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(
+                new Address("agent", agentId),
+                agentId,
+                "Agent",
+                "Some agent",
+                null,
+                DateTimeOffset.UtcNow));
+        _factory.ExecutionHostGateway
+            .UndeployAsync(actorIdString, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("worker offline"));
+
+        var response = await _client.DeleteAsync($"/api/v1/tenant/agents/{actorIdString}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        await _factory.DirectoryService.Received(1).UnregisterAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId),
+            Arg.Any<CancellationToken>());
     }
 }

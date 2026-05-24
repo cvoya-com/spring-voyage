@@ -115,9 +115,9 @@ public static class AgentEndpoints
         // Persistent-agent lifecycle surface (#396). Distinct from ephemeral
         // dispatch — `deploy` stands up the long-lived container, `undeploy`
         // tears it down, `scale` changes replica count (reserved), and `logs`
-        // streams the container tail. `delete` above still removes the agent
-        // record itself; a persistent agent should be undeployed first so the
-        // dangling container is cleaned up.
+        // streams the container tail. `delete` above also undeploys any
+        // tracked persistent runtime before unregistering the agent (#2649),
+        // so operators do not need to call `undeploy` first.
         group.MapPost("/{id}/deploy", DeployPersistentAgentAsync)
             .WithName("DeployPersistentAgent")
             .WithSummary("Deploy (or reconcile) a persistent agent's backing container")
@@ -1832,14 +1832,38 @@ public static class AgentEndpoints
         string id,
         IDirectoryService directoryService,
         IUnitMembershipRepository membershipRepository,
+        IExecutionHostGateway executionGateway,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.AgentEndpoints");
         var address = Address.For("agent", id);
         var entry = await directoryService.ResolveAsync(address, cancellationToken);
 
         if (entry is null)
         {
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+
+        // #2649: undeploy any persistent-agent runtime before unregistering
+        // so the per-agent container + workspace volume (which still holds
+        // the agent's live credentials) do not survive delete. The gateway
+        // is idempotent: a no-op for ephemeral agents or for persistent
+        // agents that were never deployed. Best-effort — a failure here is
+        // logged but does not block the directory unregister, mirroring the
+        // pattern in /force-delete; the operator's recovery path for a
+        // leaked container is the runtime's own cleanup tools.
+        try
+        {
+            await executionGateway.UndeployAsync(actorId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Delete-agent: persistent-runtime teardown failed for agent {AgentId}; continuing with delete.",
+                id);
         }
 
         // Per #744 the last-membership guard lives on DeleteAsync — the
