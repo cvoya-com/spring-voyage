@@ -220,6 +220,42 @@ public class ConnectorPromptContextResolverTests
         result.ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// #2743 — A unit acting as its own agent (ADR-0017) has a direct
+    /// connector binding ("self-binding"). The subject address uses the
+    /// <c>agent://</c> scheme with the unit's id. Units are not in
+    /// <c>unit_memberships</c>, so <c>ListByAgentAsync</c> returns empty;
+    /// the walker must fall back to the subject id itself to find the
+    /// self-binding.
+    /// </summary>
+    [Fact]
+    public async Task ResolveAsync_UnitAsAgentSubject_SelfBinding_ReturnsFragment()
+    {
+        _bindingStore.GetAsync(Unit1, Arg.Any<CancellationToken>())
+            .Returns(new UnitConnectorBinding(ConnectorAId, JsonSerializer.SerializeToElement(new { })));
+        _hierarchyResolver.GetParentsAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
+        var membershipRepo = Substitute.For<IUnitMembershipRepository>();
+        membershipRepo.ListByAgentAsync(Unit1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<UnitMembership>());
+
+        var contributor = new StubPromptContributor(ConnectorAId, "### unit-as-agent hint");
+        var resolver = BuildResolver(
+            connectorTypes: [new FakeConnectorType(ConnectorAId, "connector-a")],
+            contributors: [contributor],
+            membershipRepo: membershipRepo);
+
+        var result = await resolver.ResolveAsync(
+            new Address(Address.AgentScheme, Unit1), TestContext.Current.CancellationToken);
+
+        result.ShouldBe(new[] { "### unit-as-agent hint" });
+        contributor.LastSubject.ShouldNotBeNull();
+        contributor.LastSubject!.Scheme.ShouldBe(Address.AgentScheme);
+        contributor.LastSubject.Id.ShouldBe(Unit1);
+        contributor.LastBindingOwnerUnitId.ShouldBe(Unit1);
+    }
+
     [Fact]
     public async Task ResolveAsync_BindingForConnectorWithoutContributor_SkippedSilently()
     {
@@ -249,9 +285,14 @@ public class ConnectorPromptContextResolverTests
 
     private ConnectorPromptContextResolver BuildResolver(
         IEnumerable<IConnectorType> connectorTypes,
-        IEnumerable<IConnectorPromptContextContributor> contributors)
+        IEnumerable<IConnectorPromptContextContributor> contributors,
+        IUnitMembershipRepository? membershipRepo = null)
     {
         var services = new ServiceCollection();
+        if (membershipRepo is not null)
+        {
+            services.AddSingleton(membershipRepo);
+        }
         var walker = new ConnectorBindingWalker(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             _bindingStore,

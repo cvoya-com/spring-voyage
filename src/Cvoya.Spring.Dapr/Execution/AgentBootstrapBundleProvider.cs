@@ -98,6 +98,13 @@ public sealed class AgentBootstrapBundleProvider(
         // platform contract from the platform-instructions layer —
         // silent-dispatch territory.
         var subjectAddress = new Address("agent", Guid.Parse(agentId));
+        // #2703: the connector prompt fragment is load-bearing for OSS validation —
+        // it carries the GitHub binding identity (owner/repo/env-var names) the
+        // agent needs to operate against the bound repository. A missing fragment
+        // (e.g. because the binding walk dropped the unit's self-binding for a
+        // unit-as-agent subject — see #2743 fix in ConnectorBindingWalker) leaves
+        // the agent without the connector context section and silently breaks the
+        // OSS dogfooding path.
         var connectorPromptFragments = await _connectorPromptContextResolver
             .ResolveAsync(subjectAddress, cancellationToken);
         var (unitBundles, agentBundles) = await EquippedBundleLoader.LoadAsync(
