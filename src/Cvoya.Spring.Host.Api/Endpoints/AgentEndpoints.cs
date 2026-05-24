@@ -405,7 +405,7 @@ public static class AgentEndpoints
         var merged = MergePatchedShape(existing, shape);
         var memberships = await membershipRepository.ListByAgentAsync(entry.ActorId, cancellationToken);
         var parentUnitIds = memberships.Select(m => m.UnitId).ToList();
-        var resolution = inheritanceResolver.ResolveAgentConfig(
+        var resolution = await inheritanceResolver.ResolveAgentConfigAsync(
             agentOwn: ShapeToConfig(merged),
             parentUnitIds: parentUnitIds,
             tenantId: tenantContext.CurrentTenantId,
@@ -1910,7 +1910,7 @@ public static class AgentEndpoints
         var parentUnitIds = resolvedUnits
             .Select(u => u.Entry.ActorId)
             .ToList();
-        var resolution = inheritanceResolver.ResolveAgentConfig(
+        var resolution = await inheritanceResolver.ResolveAgentConfigAsync(
             agentOwnExecution,
             parentUnitIds,
             tenantContext.CurrentTenantId,

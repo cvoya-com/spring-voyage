@@ -2169,7 +2169,7 @@ public static class UnitEndpoints
             cancellationToken);
         var agentOwn = ToAgentExecutionConfig(ownShape);
 
-        var resolution = inheritanceResolver.ResolveAgentConfig(
+        var resolution = await inheritanceResolver.ResolveAgentConfigAsync(
             agentOwn,
             parentSet,
             tenantContext.CurrentTenantId,
@@ -2444,7 +2444,7 @@ public static class UnitEndpoints
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(childEntry.ActorId),
             cancellationToken);
 
-        return CheckSubunitInheritanceParentSet(
+        return await CheckSubunitInheritanceParentSetAsync(
             childOwnDefaults,
             parentIds,
             inheritanceResolver,
@@ -2493,7 +2493,7 @@ public static class UnitEndpoints
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(childUnitId),
             cancellationToken);
 
-        return CheckSubunitInheritanceParentSet(
+        return await CheckSubunitInheritanceParentSetAsync(
             childOwnDefaults,
             remainingParentIds,
             inheritanceResolver,
@@ -2502,7 +2502,7 @@ public static class UnitEndpoints
             "Sub-unit unassignment would leave the child unit inheriting an inconsistent execution config across its remaining parents.");
     }
 
-    private static IResult? CheckSubunitInheritanceParentSet(
+    private static async Task<IResult?> CheckSubunitInheritanceParentSetAsync(
         UnitExecutionDefaults? childOwnDefaults,
         IReadOnlyList<Guid> parentIds,
         IExecutionConfigInheritanceResolver inheritanceResolver,
@@ -2520,7 +2520,7 @@ public static class UnitEndpoints
             // inheritable slots).
             SystemPromptMode: childOwnDefaults?.SystemPromptMode);
 
-        var resolution = inheritanceResolver.ResolveAgentConfig(
+        var resolution = await inheritanceResolver.ResolveAgentConfigAsync(
             childOwnConfig,
             parentIds,
             tenantContext.CurrentTenantId,
