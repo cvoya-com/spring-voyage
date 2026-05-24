@@ -302,6 +302,12 @@ public class GitHubConnectorRuntimeContextContributor(
               gh issue list --repo "$REPO" --milestone v0.1 --state open
 
             `gh` and `git` will pick up $GITHUB_TOKEN automatically — no `gh auth login` needed.
+
+            If you need the token from a tool-call shape (e.g. a non-CLI HTTP client),
+            call the platform tool `github.get_installation_token` — it returns the same
+            value as $GITHUB_TOKEN plus the credential kind and expiry. **Do not** try to
+            fetch the token by constructing an HTTP URL against the platform: no such
+            endpoint exists, and the env-var / tool are the only two ways to get it.
             """;
     }
 

@@ -11,6 +11,7 @@ using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Configuration;
+using Cvoya.Spring.Core.Skills;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -237,13 +238,19 @@ public static class ServiceCollectionExtensions
         // token and calls GET /repos/{owner}/{repo}/collaborators.
         services.TryAddSingleton<IGitHubCollaboratorsClient, GitHubCollaboratorsClient>();
 
-        // No platform MCP skill registry is registered for GitHub
-        // (issues #2384 / #2383): agents run gh / git directly inside their
-        // container using the credentials injected by
-        // GitHubConnectorRuntimeContextContributor (#2380). The
-        // connector retains only auth, webhooks, lifecycle, and runtime-
-        // context contribution — no github.* tools surface from
-        // tools/list.
+        // Connector-tier ISkillRegistry exposing the single, narrow
+        // github.get_installation_token tool (#2704). The wider design
+        // decision from #2384 / #2383 still stands — agents run gh / git
+        // directly inside their container against the credentials
+        // GitHubConnectorRuntimeContextContributor (#2380) stamps as env
+        // vars. The token-fetch tool is the narrowest possible exception:
+        // a read of platform-managed state the model otherwise has to
+        // fabricate an HTTP URL to reach. The regression test
+        // GitHubConnectorDoesNotRegisterMcpToolsTests enforces that no
+        // other github.* tool joins the platform MCP surface — operate
+        // through the in-container CLI.
+        services.TryAddSingleton<GitHubSkillRegistry>();
+        services.AddSingleton<ISkillRegistry>(sp => sp.GetRequiredService<GitHubSkillRegistry>());
 
         // Register the connector via the platform-generic IConnectorType
         // abstraction. Host.Api iterates every registered IConnectorType at
