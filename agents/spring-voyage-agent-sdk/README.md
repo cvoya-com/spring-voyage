@@ -27,7 +27,8 @@ Implement these three async callables and hand them to `run()`:
 
 ## Context shape (`IAgentContext`)
 
-Delivered to `initialize` from env vars and `/spring/context/` files.
+Delivered to `initialize` from env vars and one workspace file
+(`.spring/system-prompt.md`).
 
 | Field | Env var | Required |
 |---|---|---|

@@ -47,11 +47,14 @@ using Microsoft.Extensions.Options;
 /// D1 spec. Operators must set <c>AgentContext:Bucket2Url</c> in production.
 /// </para>
 /// <para>
-/// <b>Mounted files:</b> the agent definition YAML and tenant-config JSON are
-/// delivered as workspace files under the canonical mount path
-/// <c>/spring/context/</c> per D1 spec § 2.2.2. The launcher merges these
-/// into its <see cref="AgentLaunchSpec.WorkspaceFiles"/> with the appropriate
-/// sub-path prefix.
+/// <b>Mounted files:</b> this builder emits the env-var channel only. The
+/// platform-assembled system prompt is written to
+/// <c>$SPRING_WORKSPACE_PATH/.spring/system-prompt.md</c> by the launcher
+/// (D1 spec § 2.2.2); connector contributions land under
+/// <c>$SPRING_WORKSPACE_PATH/.spring/connectors/&lt;slug&gt;/</c> (ADR-0055,
+/// ADR-0058); and <c>.mcp.json</c> lives at the workspace root by external-CLI
+/// convention. No structured agent-definition / tenant-config files are
+/// mounted today — the actionable fields ride on the env-var channel above.
 /// </para>
 /// </remarks>
 public class AgentContextBuilder(

@@ -355,7 +355,7 @@ The platform **MUST** deliver the agent's assembled system prompt as a file unde
 
 The system prompt is the platform's composed instructions for the agent — platform contract, identity, role-specific instructions, equipped skill bundles, and connector context — assembled by the platform's prompt assembler. CLI-based runtimes consume it directly (e.g. Claude reads `.spring/system-prompt.md`; other launchers MAY mirror it at a runtime-specific path). Custom-built SDKs SHOULD use it as the system message they send to their LLM.
 
-The structured agent metadata that earlier spec revisions exposed at `/spring/context/agent-definition.yaml` and `/spring/context/tenant-config.json` is no longer delivered as a separate file: the actionable fields (`agent_id`, `tenant_id`, `unit_id`, etc.) ride on the env-var channel (§ 2.2.1); the instructions and policy text are folded into the assembled system prompt.
+The structured agent metadata that earlier spec revisions delivered as separate mounted files is no longer mounted: the actionable fields (`agent_id`, `tenant_id`, `unit_id`, etc.) ride on the env-var channel (§ 2.2.1); the instructions and policy text are folded into the assembled system prompt.
 
 The file **MUST** be readable to the container's UID. The platform's bootstrap mechanism (ADR-0055) re-pulls it on every turn so an operator-edited agent definition takes effect at next-turn cadence without a container restart.
 
@@ -379,7 +379,7 @@ Normative requirements:
 
 Lifetime guidance (informative): operators **SHOULD** set published token TTLs to at least **24 hours** to give a typical persistent-agent restart cycle ample headroom. The platform's restart path (§ "Failure recovery" in ADR-0029) re-mints on every restart, so token TTL only constrains how long a container can run **without** a restart before the platform must force one.
 
-Future evolution (informative): a follow-up revision **MAY** add a mounted-files + credential-refresher mechanism that allows zero-downtime rotation for long-running containers. That mechanism would be additive to this section: the env-var channel of § 2.2.1 stays as the canonical credential-delivery surface; a refresher would write fresh credentials into a new path under `/spring/context/credentials/` that the SDK MAY re-read on demand. SDKs that consume only the env-var channel remain conforming. See [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md) for the design rationale and the path to that evolution.
+Future evolution (informative): a follow-up revision **MAY** add a mounted-files + credential-refresher mechanism that allows zero-downtime rotation for long-running containers. That mechanism would be additive to this section: the env-var channel of § 2.2.1 stays as the canonical credential-delivery surface; a refresher would write fresh credentials into a new file under the platform-owned `.spring/` namespace of the workspace mount that the SDK MAY re-read on demand. SDKs that consume only the env-var channel remain conforming. See [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md) for the design rationale and the path to that evolution.
 
 ### 2.3 Conformance — `IAgentContext`
 
@@ -615,7 +615,7 @@ A conformance test suite (a future deliverable, not in scope for this spec) exer
 **`IAgentContext`**
 
 - [ ] Every required env var (§ 2.2.1) is read at the top of `initialize`.
-- [ ] Required mounted files (§ 2.2.2) are present at `/spring/context/`.
+- [ ] Required mounted files (§ 2.2.2) are present under the workspace mount at the canonical path (`$SPRING_WORKSPACE_PATH/.spring/system-prompt.md`).
 - [ ] Credentials are agent-scoped — testable by attempting to use one agent's token to access another's threads (§ 4.5).
 - [ ] Every container launch (including supervisor-driven restarts) sees freshly minted scoped credentials; the prior launch's tokens are never replayed (§ 2.2.3).
 - [ ] The SDK does not cache credentials across container launches (§ 2.2.3).
@@ -661,3 +661,4 @@ The following surfaces are deliberately not specified by this document. Each has
 | v0.1.2 | 2026-04-29 | § 2.1 static metadata: add `thread_id` field (optional; present when launch originates from a known dispatch thread, absent on supervisor-driven restarts). § 2.2.1 env-var table: add `SPRING_THREAD_ID` (optional). Closes #1300 (propagation) and closes #1347 (D3d implementation: `IAgentContextBuilder.RefreshForRestartAsync`, `SupervisorState` identity fields, `ContainerSupervisorActor.RestartAsync` re-mint). |
 | v0.1.3 | 2026-04-29 | § 2.1: add "LLM selection (Dapr-agent-specific)" subsection — `model`, `llm_provider`, `llm_component` fields (all optional, Dapr-agent only). § 2.2.1 env-var table: add `SPRING_MODEL`, `SPRING_LLM_PROVIDER`, `SPRING_LLM_COMPONENT` (all optional, Dapr-agent only). These were already emitted by `SpringVoyageAgentLauncher`; this revision makes them normative so they can be safely removed from launcher-specific code if they migrate into `AgentContextBuilder`. Closes #1327. |
 | v0.1.4 | 2026-05-07 | § 2.1: align `model` / `llm_component` descriptions with [ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md) — Dapr component files now follow the `llm-{provider.id}` naming convention; the launcher resolves `SPRING_LLM_COMPONENT` to `llm-anthropic` / `llm-openai` / `llm-google` / `llm-ollama`. Example `agent_definition` updated to the structured `(runtime, model)` shape (`ai.runtime` + `ai.model.{provider, id}`). |
+| v0.1.5 | 2026-05-24 | § 2.2.2 / § 2.2.3 (future evolution) / § 5 conformance: drop residual references to the legacy `/spring/context/` mount removed in #2733. The mounted-files contract is now anchored on `$SPRING_WORKSPACE_PATH/.spring/system-prompt.md`; any future credential-refresher mechanism would write under the platform-owned `.spring/` namespace rather than the retired mount. No normative change; cleanup only. |

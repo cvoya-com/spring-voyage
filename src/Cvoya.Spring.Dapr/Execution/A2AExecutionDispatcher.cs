@@ -863,7 +863,7 @@ public class A2AExecutionDispatcher(
             SystemPromptMode: definition.Execution.SystemPromptMode
                 ?? Cvoya.Spring.Core.Catalog.SystemPromptMode.Append);
 
-        // D3a: assemble the IAgentContext bootstrap bundle (env vars + /spring/context/ files).
+        // D3a: assemble the IAgentContext bootstrap bundle (env vars).
         var bootstrapContext = await _agentContextBuilder.BuildAsync(launchContext, cancellationToken);
 
         // #2380: resolve connector runtime contributions for the dispatch
