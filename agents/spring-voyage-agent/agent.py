@@ -42,7 +42,9 @@ deployments:
                           Missing values raise at ``initialize()``.
   SPRING_SYSTEM_PROMPT  — System prompt assembled by the platform
                           (optional; falls back to
-                          agent_definition.instructions if unset).
+                          ``context.system_prompt`` — i.e. the
+                          ``.spring/system-prompt.md`` file under the
+                          workspace mount — if unset).
   SPRING_AGENT_MAX_STEPS — Maximum tool-call rounds before forcing the
                           loop to terminate (default: 12). Guards
                           against runaway loops without imposing a wall
@@ -184,11 +186,12 @@ async def initialize(context: IAgentContext) -> None:
 
     tools_by_name = {_resolve_tool_name(t, f"tool-{i}"): t for i, t in enumerate(tools)}
 
-    # Resolve system prompt: explicit env var wins; fall back to
-    # agent_definition.instructions from the mounted context file.
+    # Resolve system prompt: explicit env var wins; fall back to the
+    # platform-assembled system prompt from .spring/system-prompt.md
+    # (spec §2.2.2) the SDK loads into context.system_prompt.
     system_prompt = os.environ.get("SPRING_SYSTEM_PROMPT", "")
     if not system_prompt:
-        system_prompt = context.agent_definition.get("instructions", "") or "You are a helpful AI assistant."
+        system_prompt = context.system_prompt or "You are a helpful AI assistant."
 
     logger.info(
         "Dapr Agent initialized (workflow-free per ADR 0029 Stage 0): provider=%s, model=%s, component=%s, tools=%d",

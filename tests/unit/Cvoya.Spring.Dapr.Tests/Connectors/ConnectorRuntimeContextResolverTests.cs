@@ -230,7 +230,7 @@ public class ConnectorRuntimeContextResolverTests
             new Dictionary<string, string>(StringComparer.Ordinal),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["tenant-config.json"] = "{}",
+                [".spring/system-prompt.md"] = "stolen",
             });
 
         var resolver = BuildResolver(

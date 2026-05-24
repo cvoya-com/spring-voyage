@@ -20,7 +20,6 @@ using Microsoft.Extensions.Options;
 /// <list type="bullet">
 ///   <item>the launcher's per-runtime contribution (system-prompt file +
 ///   MCP config — selected by <see cref="AgentExecutionConfig.Runtime"/>),</item>
-///   <item>the agent-definition YAML + tenant-config JSON (D1 spec § 2.2.2),</item>
 ///   <item>the merged connector runtime-context contribution (per-binding
 ///   files under <c>connectors/&lt;slug&gt;/</c>).</item>
 /// </list>
@@ -37,7 +36,6 @@ using Microsoft.Extensions.Options;
 /// </remarks>
 public sealed class AgentBootstrapBundleProvider(
     IAgentDefinitionProvider agentDefinitionProvider,
-    IAgentDefinitionSerializer agentDefinitionSerializer,
     IRuntimeCatalog runtimeCatalog,
     IEnumerable<IAgentRuntimeLauncher> launchers,
     IConnectorRuntimeContextResolver connectorContextResolver,
@@ -46,25 +44,10 @@ public sealed class AgentBootstrapBundleProvider(
     IPromptAssembler promptAssembler,
     IServiceScopeFactory scopeFactory,
     IOptions<McpServerOptions> mcpServerOptions,
-    ITenantContext tenantContext,
     TimeProvider timeProvider) : IAgentBootstrapBundleProvider
 {
-    /// <summary>
-    /// Workspace-relative path of the agent-definition YAML mirroring the
-    /// D1 spec <c>/spring/context/agent-definition.yaml</c> file.
-    /// </summary>
-    internal const string AgentDefinitionPath = "context/agent-definition.yaml";
-
-    /// <summary>
-    /// Workspace-relative path of the tenant-config JSON mirroring the
-    /// D1 spec <c>/spring/context/tenant-config.json</c> file.
-    /// </summary>
-    internal const string TenantConfigPath = "context/tenant-config.json";
-
     private readonly IAgentDefinitionProvider _agentDefinitionProvider = agentDefinitionProvider
         ?? throw new ArgumentNullException(nameof(agentDefinitionProvider));
-    private readonly IAgentDefinitionSerializer _agentDefinitionSerializer = agentDefinitionSerializer
-        ?? throw new ArgumentNullException(nameof(agentDefinitionSerializer));
     private readonly IRuntimeCatalog _runtimeCatalog = runtimeCatalog
         ?? throw new ArgumentNullException(nameof(runtimeCatalog));
     private readonly Dictionary<string, IAgentRuntimeLauncher> _launchersByKind =
@@ -80,8 +63,6 @@ public sealed class AgentBootstrapBundleProvider(
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory
         ?? throw new ArgumentNullException(nameof(scopeFactory));
     private readonly McpServerOptions _mcpServerOptions = mcpServerOptions.Value;
-    private readonly ITenantContext _tenantContext = tenantContext
-        ?? throw new ArgumentNullException(nameof(tenantContext));
     private readonly TimeProvider _timeProvider = timeProvider
         ?? throw new ArgumentNullException(nameof(timeProvider));
 
@@ -100,13 +81,7 @@ public sealed class AgentBootstrapBundleProvider(
             return null;
         }
 
-        var tenantId = _tenantContext.CurrentTenantId;
-
-        var files = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            [AgentDefinitionPath] = _agentDefinitionSerializer.SerializeAgentDefinitionYaml(definition),
-            [TenantConfigPath] = _agentDefinitionSerializer.SerializeTenantConfigJson(tenantId),
-        };
+        var files = new Dictionary<string, string>(StringComparer.Ordinal);
 
         var platformFilePaths = new HashSet<string>(StringComparer.Ordinal);
 

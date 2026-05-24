@@ -51,7 +51,6 @@ public class AgentBootstrapBundleProviderTests
         Substitute.For<IIdentityPromptContextResolver>();
     private readonly IPromptAssembler _promptAssembler = Substitute.For<IPromptAssembler>();
     private readonly IServiceScopeFactory _scopeFactory = Substitute.For<IServiceScopeFactory>();
-    private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly TimeProvider _timeProvider = Substitute.For<TimeProvider>();
     private readonly StubLauncher _launcher = new();
     private string _assembledPrompt = AssembledPromptText;
@@ -60,7 +59,6 @@ public class AgentBootstrapBundleProviderTests
 
     public AgentBootstrapBundleProviderTests()
     {
-        _tenantContext.CurrentTenantId.Returns(Guid.Parse("22222222-2222-2222-2222-222222222222"));
         _timeProvider.GetUtcNow().Returns(new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero));
 
         // The catalogue maps the runtime id ("claude-code") to the
@@ -106,7 +104,6 @@ public class AgentBootstrapBundleProviderTests
 
         _provider = new AgentBootstrapBundleProvider(
             _agentDefinitionProvider,
-            new AgentDefinitionSerializer(_runtimeCatalog),
             _runtimeCatalog,
             new[] { (IAgentRuntimeLauncher)_launcher },
             _connectorContextResolver,
@@ -119,7 +116,6 @@ public class AgentBootstrapBundleProviderTests
                 ContainerHost = McpContainerHost,
                 Port = McpPort,
             }),
-            _tenantContext,
             _timeProvider);
     }
 
@@ -142,12 +138,9 @@ public class AgentBootstrapBundleProviderTests
         var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
         bundle.ShouldNotBeNull();
-        // The bundle must carry the agent-definition YAML and tenant-config
-        // JSON the in-container SDK reads under /context/, plus whatever
-        // the launcher contributes for its runtime.
-        bundle!.Files.ShouldContain(f => f.Path == AgentBootstrapBundleProvider.AgentDefinitionPath);
-        bundle.Files.ShouldContain(f => f.Path == AgentBootstrapBundleProvider.TenantConfigPath);
-        bundle.Files.ShouldContain(f => f.Path == ".spring/system-prompt.md");
+        // The bundle must carry whatever the launcher contributes for its
+        // runtime — the assembled system prompt and the MCP config file.
+        bundle!.Files.ShouldContain(f => f.Path == ".spring/system-prompt.md");
         bundle.Files.ShouldContain(f => f.Path == ".mcp.json");
     }
 
@@ -254,19 +247,6 @@ public class AgentBootstrapBundleProviderTests
         var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
         bundle!.IssuedAt.ShouldBe(t);
-    }
-
-    [Fact]
-    public async Task BuildAsync_TenantConfig_CarriesCurrentTenantId()
-    {
-        var tenantId = Guid.Parse("33333333-3333-3333-3333-333333333333");
-        _tenantContext.CurrentTenantId.Returns(tenantId);
-        StubAgent(instructions: "x");
-
-        var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
-
-        var tenantConfig = bundle!.Files.First(f => f.Path == AgentBootstrapBundleProvider.TenantConfigPath);
-        tenantConfig.Content.ShouldContain(tenantId.ToString("N"));
     }
 
     [Fact]

@@ -45,9 +45,11 @@ Delivered to `initialize` from env vars and `/spring/context/` files.
 | `workspace_path` | `SPRING_WORKSPACE_PATH` | yes |
 | `concurrent_threads` | `SPRING_CONCURRENT_THREADS` | yes |
 
-Structured files (agent definition, tenant config) are loaded from
-`/spring/context/agent-definition.yaml` (or `.json`) and
-`/spring/context/tenant-config.json`.
+The platform-assembled system prompt (instructions, identity, equipped
+skills, connector context) is loaded from
+`$SPRING_WORKSPACE_PATH/.spring/system-prompt.md` and exposed as
+`context.system_prompt`. Use it as the system message for any LLM call
+the agent issues.
 
 ## Hello-world agent (~30 lines)
 

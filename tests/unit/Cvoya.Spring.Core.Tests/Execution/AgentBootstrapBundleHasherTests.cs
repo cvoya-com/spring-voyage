@@ -139,7 +139,7 @@ public class AgentBootstrapBundleHasherTests
     {
         new(".spring/system-prompt.md", "sha256:aaaa", "You are an agent."),
         new(".mcp.json", "sha256:bbbb", "{\"mcpServers\":{}}"),
-        new("context/tenant-config.json", "sha256:cccc", "{\"tenant_id\":\"t\"}"),
+        new("connectors/example/binding.json", "sha256:cccc", "{\"foo\":\"bar\"}"),
     };
 
     private static Dictionary<string, string> SampleHashes() => new(StringComparer.Ordinal)

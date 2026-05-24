@@ -40,9 +40,10 @@ public class ConnectorRuntimeContextResolver(
 
     /// <summary>
     /// Sub-path prefix every contributed context file must sit under.
-    /// Mirrors the env-var namespace convention so connectors cannot
-    /// shadow platform mounts (<c>agent-definition.yaml</c>,
-    /// <c>tenant-config.json</c>) by accident.
+    /// Mirrors the env-var namespace convention so connector contributions
+    /// stay confined to the <c>connectors/</c> sub-tree and cannot shadow
+    /// launcher- or platform-emitted workspace files (the launcher's
+    /// system-prompt file, <c>.mcp.json</c>) by accident.
     /// </summary>
     internal const string ContextFileDirectory = "connectors/";
 
