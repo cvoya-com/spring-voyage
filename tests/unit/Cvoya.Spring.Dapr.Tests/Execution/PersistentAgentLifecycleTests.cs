@@ -66,7 +66,6 @@ public class PersistentAgentLifecycleTests
             DefaultImage: "ghcr.io/test/claude:latest",
             Launcher: "claude-code-cli",
             ThreadBinding: new ThreadBinding(ThreadBindingKind.CliArg, ArgName: "--resume"),
-            SystemPromptInjection: new SystemPromptInjection(SystemPromptInjectionKind.File, FilePath: "AGENTS.md"),
             ModelProviders: new[]
             {
                 new AgentRuntimeProviderEdge(

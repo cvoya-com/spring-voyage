@@ -72,7 +72,6 @@ public class AgentBootstrapBundleProviderTests
             DefaultImage: "ghcr.io/test/claude:latest",
             Launcher: "claude-code-cli",
             ThreadBinding: new ThreadBinding(ThreadBindingKind.CliArg, ArgName: "--resume"),
-            SystemPromptInjection: new SystemPromptInjection(SystemPromptInjectionKind.File, FilePath: ".spring/system-prompt.md"),
             ModelProviders: Array.Empty<AgentRuntimeProviderEdge>()));
 
         // Default: no connector contribution (both kinds).
@@ -87,7 +86,8 @@ public class AgentBootstrapBundleProviderTests
             .Returns((string?)null);
 
         // Stub the assembler so each test can pin / vary the resulting
-        // system prompt and assert it lands in the bundle's CLAUDE.md.
+        // system prompt and assert it lands in the bundle's
+        // `.spring/system-prompt.md` (ADR-0058 §2.2.2 / #2672).
         _promptAssembler
             .AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(_ => _assembledPrompt);
@@ -286,14 +286,13 @@ public class AgentBootstrapBundleProviderTests
     public async Task BuildAsync_ConcurrentThreadsTrue_FoldsGuardIntoAssembledSystemPrompt()
     {
         // #2668: the CLI launchers no longer prepend the
-        // ConcurrentThreadsGuard to SPRING_SYSTEM_PROMPT (the env var
-        // the CLIs never read). The guard now travels via the
-        // launcher's system-prompt file (`.spring/system-prompt.md`
-        // for Claude per #2672; `AGENTS.md` for Codex; `GEMINI.md` or
-        // `.spring/system-prompt.md` for Gemini per its
-        // system_prompt_mode), and the bundle provider folds it into
-        // AssembledSystemPrompt before the launcher's
-        // ContributeBundleAsync receives it.
+        // ConcurrentThreadsGuard to the assembled prompt themselves.
+        // The guard now travels via the launcher's system-prompt file
+        // — `.spring/system-prompt.md` for Claude/Codex/Gemini under
+        // ADR-0058 §2.2.2 (Gemini may instead write `GEMINI.md` when
+        // its system_prompt_mode opts for the legacy filename). The
+        // bundle provider folds the guard into AssembledSystemPrompt
+        // before the launcher's ContributeBundleAsync receives it.
         _assembledPrompt = "USER ASSEMBLED PROMPT";
         StubAgent(instructions: "x", concurrentThreads: true);
 
@@ -365,9 +364,9 @@ public class AgentBootstrapBundleProviderTests
     /// Minimal launcher stub. Returns a bundle contribution mirroring the
     /// production ClaudeCodeLauncher shape post-#2672 — the assembled
     /// system prompt lives at <c>.spring/system-prompt.md</c> under the
-    /// ADR-0058 §2.2.2 namespace (NOT the CLI's auto-discovered
-    /// <c>CLAUDE.md</c>), and <c>.mcp.json</c> carries an empty
-    /// Authorization placeholder.
+    /// ADR-0058 §2.2.2 namespace (off the CLI's auto-discovered prompt
+    /// filename), and <c>.mcp.json</c> carries an empty Authorization
+    /// placeholder.
     /// </summary>
     private sealed class StubLauncher : IAgentRuntimeLauncher
     {

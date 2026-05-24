@@ -542,8 +542,6 @@ public class UnitCreationServiceTests
                 Launcher: "claude-code-cli",
                 ThreadBinding: new Cvoya.Spring.Core.Catalog.ThreadBinding(
                     Cvoya.Spring.Core.Catalog.ThreadBindingKind.CliArg, "--resume", null),
-                SystemPromptInjection: new Cvoya.Spring.Core.Catalog.SystemPromptInjection(
-                    Cvoya.Spring.Core.Catalog.SystemPromptInjectionKind.File, "AGENTS.md", null),
                 ModelProviders: new[]
                 {
                     new Cvoya.Spring.Core.Catalog.AgentRuntimeProviderEdge(
@@ -625,8 +623,6 @@ public class UnitCreationServiceTests
                 Launcher: "claude-code-cli",
                 ThreadBinding: new Cvoya.Spring.Core.Catalog.ThreadBinding(
                     Cvoya.Spring.Core.Catalog.ThreadBindingKind.CliArg, "--resume", null),
-                SystemPromptInjection: new Cvoya.Spring.Core.Catalog.SystemPromptInjection(
-                    Cvoya.Spring.Core.Catalog.SystemPromptInjectionKind.File, "AGENTS.md", null),
                 ModelProviders: new[]
                 {
                     new Cvoya.Spring.Core.Catalog.AgentRuntimeProviderEdge(

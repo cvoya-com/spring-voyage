@@ -160,9 +160,6 @@ public static class RuntimeCatalogLoader
         var threadBinding = y.ThreadBinding
             ?? throw new InvalidOperationException(
                 $"runtime-catalog.yaml: agentRuntime '{y.Id}' is missing 'threadBinding'.");
-        var promptInjection = y.SystemPromptInjection
-            ?? throw new InvalidOperationException(
-                $"runtime-catalog.yaml: agentRuntime '{y.Id}' is missing 'systemPromptInjection'.");
 
         return new Cvoya.Spring.Core.Catalog.AgentRuntime(
             Id: Require(y.Id, "agentRuntime missing 'id'"),
@@ -173,11 +170,6 @@ public static class RuntimeCatalogLoader
                 Kind: ParseThreadBindingKind(threadBinding.Kind, y.Id!),
                 ArgName: threadBinding.ArgName,
                 EnvVarName: threadBinding.EnvVarName),
-            SystemPromptInjection: new SystemPromptInjection(
-                Kind: ParseSystemPromptInjectionKind(promptInjection.Kind, y.Id!),
-                FilePath: promptInjection.FilePath,
-                EnvVarName: promptInjection.EnvVarName,
-                ArgName: promptInjection.ArgName),
             ModelProviders: (y.ModelProviders ?? new List<AgentRuntimeProviderEdgeYaml>())
                 .Select(e => MapEdge(e, y.Id!, providers))
                 .ToArray());
@@ -230,15 +222,6 @@ public static class RuntimeCatalogLoader
         "none" => ThreadBindingKind.None,
         _ => throw new InvalidOperationException(
             $"runtime-catalog.yaml: agentRuntime '{runtimeId}' has unsupported threadBinding.kind '{value}'."),
-    };
-
-    private static SystemPromptInjectionKind ParseSystemPromptInjectionKind(string? value, string runtimeId) => value switch
-    {
-        "file" => SystemPromptInjectionKind.File,
-        "env-var" => SystemPromptInjectionKind.EnvVar,
-        "argv" => SystemPromptInjectionKind.Argv,
-        _ => throw new InvalidOperationException(
-            $"runtime-catalog.yaml: agentRuntime '{runtimeId}' has unsupported systemPromptInjection.kind '{value}'."),
     };
 
     private static string Require(string? value, string message) =>
@@ -321,7 +304,6 @@ internal sealed class AgentRuntimeYaml
     public string? DefaultImage { get; set; }
     public string? Launcher { get; set; }
     public ThreadBindingYaml? ThreadBinding { get; set; }
-    public SystemPromptInjectionYaml? SystemPromptInjection { get; set; }
     public List<AgentRuntimeProviderEdgeYaml>? ModelProviders { get; set; }
 }
 
@@ -330,14 +312,6 @@ internal sealed class ThreadBindingYaml
     public string? Kind { get; set; }
     public string? ArgName { get; set; }
     public string? EnvVarName { get; set; }
-}
-
-internal sealed class SystemPromptInjectionYaml
-{
-    public string? Kind { get; set; }
-    public string? FilePath { get; set; }
-    public string? EnvVarName { get; set; }
-    public string? ArgName { get; set; }
 }
 
 internal sealed class AgentRuntimeProviderEdgeYaml

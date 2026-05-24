@@ -80,11 +80,6 @@ public class ArtefactAutoStartGateTests
             DefaultImage: "ghcr.io/test:latest",
             Launcher: "test-launcher",
             ThreadBinding: new ThreadBinding(ThreadBindingKind.None, ArgName: null, EnvVarName: null),
-            SystemPromptInjection: new SystemPromptInjection(
-                SystemPromptInjectionKind.EnvVar,
-                FilePath: null,
-                EnvVarName: "SP",
-                ArgName: null),
             ModelProviders:
             [
                 new AgentRuntimeProviderEdge(
@@ -102,11 +97,6 @@ public class ArtefactAutoStartGateTests
             DefaultImage: "ghcr.io/test:latest",
             Launcher: "test-launcher",
             ThreadBinding: new ThreadBinding(ThreadBindingKind.None, ArgName: null, EnvVarName: null),
-            SystemPromptInjection: new SystemPromptInjection(
-                SystemPromptInjectionKind.EnvVar,
-                FilePath: null,
-                EnvVarName: "SP",
-                ArgName: null),
             ModelProviders:
             [
                 new AgentRuntimeProviderEdge(
