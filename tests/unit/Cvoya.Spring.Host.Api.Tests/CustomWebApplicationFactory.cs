@@ -33,6 +33,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using NSubstitute;
@@ -44,6 +45,36 @@ using NSubstitute;
 /// </summary>
 public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
+    /// <summary>
+    /// Bounded budget for the deterministic-shutdown <c>StopAsync</c> call
+    /// in <see cref="DisposeAsync"/>. Hosted services in this fixture are
+    /// stubs / no-ops that stop instantly; the budget exists so a buggy
+    /// future hosted-service registration that hangs on shutdown surfaces
+    /// as a clear timeout rather than a wedged test process.
+    /// </summary>
+    private static readonly TimeSpan ShutdownBudget = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Captured reference to the in-process <see cref="IHost"/>
+    /// <see cref="WebApplicationFactory{TEntryPoint}"/> built for this
+    /// fixture. We hold it so <see cref="DisposeAsync"/> can call
+    /// <see cref="IHost.StopAsync"/> on it deterministically, before the
+    /// base type disposes the wrapped service provider.
+    /// </summary>
+    /// <remarks>
+    /// #2662: without this, <c>Program.Main</c>'s <c>WaitForShutdownAsync</c>
+    /// (running inside <c>Microsoft.Extensions.HostFactoryResolver</c>'s
+    /// intercepted host pipeline) races the test fixture's teardown — the
+    /// resolver triggers <see cref="IServiceProvider"/> disposal before
+    /// Main's wait on <see cref="IHostApplicationLifetime"/> returns, and
+    /// the wait throws <see cref="ObjectDisposedException"/> with
+    /// <c>ObjectName == "IServiceProvider"</c>. Sequencing
+    /// <see cref="IHost.StopAsync"/> before any disposal makes the shutdown
+    /// signal fire <em>first</em>, so Main's wait unblocks and returns
+    /// cleanly before the SP goes away.
+    /// </remarks>
+    private IHost? _capturedHost;
+
     /// <summary>
     /// Gets the mock <see cref="IDirectoryService"/> registered in the test DI container.
     /// </summary>
@@ -609,5 +640,54 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 return new MessageRouter(DirectoryService, AgentProxyResolver, permSvc, loggerFactory, scopeFactory);
             });
         });
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// #2662: capture the host so <see cref="DisposeAsync"/> can stop it
+    /// before the base type runs its disposal chain. Defer to the base
+    /// implementation for actual build / start so the
+    /// <see cref="WebApplicationFactory{TEntryPoint}"/> machinery
+    /// (server-port wiring, host start) is preserved.
+    /// </remarks>
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        _capturedHost = base.CreateHost(builder);
+        return _capturedHost;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// #2662: stop the host explicitly before chaining to the base
+    /// disposal. The base's own disposal sequence already calls
+    /// <see cref="IHost.StopAsync"/>, but doing it here first guarantees
+    /// all hosted services have observed the shutdown signal and
+    /// <see cref="Program.Main"/>'s <c>WaitForShutdownAsync</c> has
+    /// returned <em>before</em> any service provider is disposed. Without
+    /// this sequencing, Main's lifetime-aware wait can resolve
+    /// <see cref="IHostApplicationLifetime"/> from a
+    /// <see cref="IServiceProvider"/> that the base has already started
+    /// disposing — the race the deleted <c>ObjectDisposedException</c>
+    /// catch in <c>Program.cs</c> was masking.
+    /// </remarks>
+    public override async ValueTask DisposeAsync()
+    {
+        if (_capturedHost is not null)
+        {
+            using var cts = new CancellationTokenSource(ShutdownBudget);
+            try
+            {
+                await _capturedHost.StopAsync(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Stop budget elapsed — a hosted service is hanging on
+                // shutdown. Surface it via the base dispose chain (which
+                // logs through the host's logger) rather than masking.
+            }
+        }
+
+        await base.DisposeAsync().ConfigureAwait(false);
+        GC.SuppressFinalize(this);
     }
 }

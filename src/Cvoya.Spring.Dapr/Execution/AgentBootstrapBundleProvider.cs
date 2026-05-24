@@ -143,6 +143,24 @@ public sealed class AgentBootstrapBundleProvider(
         var assembledSystemPrompt = await _promptAssembler.AssembleAsync(
             assemblyContext, cancellationToken);
 
+        // ADR-0041 / #2096 (#2668): when concurrent_threads is on, prepend
+        // the shared ConcurrentThreadsGuard fragment so the model is told
+        // (in the system prompt) not to invoke long-running watchers, bind
+        // fixed ports, or mutate shared global state. Before #2668 each
+        // CLI launcher prepended this in PrepareAsync and stamped it onto
+        // SPRING_SYSTEM_PROMPT, but the Claude / Codex / Gemini CLIs
+        // never read that env var — they consume their auto-discovered
+        // workspace file (CLAUDE.md / AGENTS.md / GEMINI.md) instead, and
+        // that file is sourced from this assembled prompt below. Folding
+        // the guard in here is therefore the only delivery channel that
+        // actually reaches the CLI surface. The Spring Voyage agent
+        // launcher (the lone remaining SPRING_SYSTEM_PROMPT consumer)
+        // does its own Compose against context.Prompt in PrepareAsync,
+        // independent of this path.
+        var concurrentThreads = definition.Execution?.ConcurrentThreads ?? true;
+        assembledSystemPrompt = LauncherPromptFragments.Compose(
+            assembledSystemPrompt, concurrentThreads);
+
         // Launcher contribution — the per-runtime system-prompt file and
         // MCP config (or nothing, for the A2A-native spring-voyage agent).
         var launcher = ResolveLauncher(definition, agentId);

@@ -715,15 +715,17 @@ public class A2AExecutionDispatcher(
                 agentId, endpoint);
         }
 
-        // #2442: enrich the per-invocation context with the platform-layer
-        // connector prompt fragments before handing it to the assembler.
-        // Symmetric with the ephemeral path — persistent agents must see
-        // the same auto-injected connector context on every dispatch.
-        var connectorPromptFragments = await _connectorPromptContextResolver.ResolveAsync(
-            message.To, cancellationToken);
-        var contextWithConnectorPrompts = WithConnectorPromptFragments(context, connectorPromptFragments);
-
-        var prompt = await promptAssembler.AssembleAsync(contextWithConnectorPrompts, cancellationToken);
+        // #2669: the previous block here resolved connector prompt
+        // fragments and ran IPromptAssembler.AssembleAsync, then
+        // discarded the resulting string — persistent-agent system-prompt
+        // delivery moved to the bootstrap-bundle endpoint
+        // (AgentBootstrapBundleProvider) long ago. The ephemeral path
+        // (DispatchEphemeralAsync) still calls these because its prompt
+        // flows into AgentLaunchContext.Prompt for ContributeBundleAsync;
+        // the persistent container fetches the same bundle on cold-start
+        // through the worker-side endpoint, so re-resolving here was pure
+        // wasted work plus connector-resolver side effects on every
+        // persistent dispatch.
 
         // #2159: register this dispatch as in flight so the background health
         // timer doesn't probe (and possibly restart) the container while the

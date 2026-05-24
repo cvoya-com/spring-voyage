@@ -629,6 +629,46 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
+    public async Task DispatchAsync_PersistentAgent_WarmContainer_DoesNotAssemblePromptOrResolveConnectorFragments()
+    {
+        // #2669: the persistent dispatch path used to resolve connector
+        // prompt fragments and run IPromptAssembler.AssembleAsync on the
+        // result, then discard the assembled string. The system prompt
+        // for persistent agents arrives via the bootstrap-bundle endpoint
+        // (AgentBootstrapBundleProvider) on cold-start; the per-turn
+        // dispatch never propagates it. Pin the new behaviour so the
+        // wasted work — plus the side effects of running every connector
+        // resolver on every persistent dispatch — does not regress.
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId,
+                "My Agent",
+                "instructions",
+                new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+
+        await _persistentRegistry.RegisterAsync(
+            AgentId,
+            new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/"),
+            "existing-container",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var message = CreateMessage(threadId: Guid.NewGuid().ToString("D"));
+        _persistentContainerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+        InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        // The whole point of #2669: neither collaborator is invoked on
+        // the persistent dispatch path.
+        await _promptAssembler.DidNotReceive().AssembleAsync(
+            Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>());
+        await _connectorPromptContext.DidNotReceive().ResolveAsync(
+            Arg.Any<Address>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task DispatchAsync_PersistentAgent_A2ACallThrows_StillRevokesPerTurnSession()
     {
         // ADR-0052 §4: the per-turn session is revoked in a finally block,
