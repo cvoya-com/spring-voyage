@@ -147,6 +147,15 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             .Returns(callInfo =>
                 Cvoya.Spring.Dapr.Execution.PersistentAgentDeploymentState.NotRunning(
                     callInfo.ArgAt<string>(0)));
+        // #2708: default UndeployAsync to a successful no-op so tests that
+        // exercise the unit/agent delete cascade — which now drives
+        // UndeployAsync unconditionally — do not need to stub it. Tests
+        // that exercise the failure path override per call.
+        gateway
+            .UndeployAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+                Cvoya.Spring.Dapr.Execution.PersistentAgentDeploymentState.NotRunning(
+                    callInfo.ArgAt<string>(0)));
         return gateway;
     }
 

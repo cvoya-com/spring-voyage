@@ -45,10 +45,35 @@ public static class HumanCommand
             "identity moved to 'spring user identity ...' per ADR-0047 (Phase G of the umbrella).");
 
         command.Subcommands.Add(CreateHumanSetCommand(outputOption));
+        command.Subcommands.Add(CreateHumanDeleteCommand());
 
         // #2492: `spring human tail <id>` — humans are activity subjects
         // (messages sent / received, notifications dispatched).
         command.Subcommands.Add(ActivityTailCommand.CreateHumanTail());
+
+        return command;
+    }
+
+    private static Command CreateHumanDeleteCommand()
+    {
+        var idArg = new Argument<Guid>("id")
+        {
+            Description = "Stable human UUID.",
+        };
+        var command = new Command(
+            "delete",
+            "Delete a human and cascade-remove every unit-membership row and ACL grant the " +
+            "human holds (#2649). The human disappears from every parent unit's members in " +
+            "the same write; the row is hard-deleted from the humans table.");
+        command.Arguments.Add(idArg);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var humanId = parseResult.GetValue(idArg);
+            var client = ClientFactory.Create();
+            await client.DeleteHumanAsync(humanId, ct);
+            Console.WriteLine($"Human '{humanId:N}' deleted.");
+        });
 
         return command;
     }

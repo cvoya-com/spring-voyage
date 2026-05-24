@@ -61,6 +61,18 @@ public static class HumanEnvelopeEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // #2649: parallel to DELETE /agents/{id} and DELETE /units/{id} —
+        // a human delete cascades to every membership and ACL grant the
+        // human holds so the row disappears from every parent unit's
+        // members collection in the same write.
+        group.MapDelete("/{humanId:guid}", DeleteHumanAsync)
+            .WithName("DeleteHuman")
+            .WithSummary("Delete a human and cascade-remove every unit-membership row and ACL grant.")
+            .WithDescription("Removes the human's row from `humans`, every `unit_membership_humans` row that names this human (so the human disappears from every parent unit's members), and every `unit_human_permissions` row (so stale grants do not survive the delete). Returns 204 on success, 404 when the id is not found in the current tenant, 400 when the id is empty.")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return group;
     }
 
@@ -151,5 +163,54 @@ public static class HumanEnvelopeEndpoints
             row.Email,
             row.PermissionLevel.ToString(),
             row.CreatedAt));
+    }
+
+    private static async Task<IResult> DeleteHumanAsync(
+        Guid humanId,
+        SpringDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (humanId == Guid.Empty)
+        {
+            return Results.Problem(
+                detail: "Human id must not be empty.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var row = await db.Humans
+            .FirstOrDefaultAsync(h => h.Id == humanId, cancellationToken);
+        if (row is null)
+        {
+            return Results.Problem(
+                detail: $"Human '{humanId:N}' was not found in the current tenant.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // #2649: cascade — remove every membership and grant row that
+        // names this human in the same write so the human disappears
+        // from every parent unit's members collection (parallel to the
+        // agent + unit delete cascades). The two tables capture
+        // orthogonal facts (ADR-0044 §1): team-membership rows on the
+        // unit, and platform-level ACL grants. Both go.
+        var memberships = await db.UnitMembershipsHumans
+            .Where(m => m.HumanId == humanId)
+            .ToListAsync(cancellationToken);
+        if (memberships.Count > 0)
+        {
+            db.UnitMembershipsHumans.RemoveRange(memberships);
+        }
+
+        var permissions = await db.UnitHumanPermissions
+            .Where(p => p.HumanId == humanId)
+            .ToListAsync(cancellationToken);
+        if (permissions.Count > 0)
+        {
+            db.UnitHumanPermissions.RemoveRange(permissions);
+        }
+
+        db.Humans.Remove(row);
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.NoContent();
     }
 }

@@ -1035,6 +1035,25 @@ public static class UnitEndpoints
 
         try
         {
+            // #2708: a unit-as-agent (ADR-0039) runs its own router runtime
+            // under the unit's id as a persistent agent. The members cascade
+            // above never enumerates this runtime — it isn't in the unit's
+            // members collection — so a separate undeploy is needed to drop
+            // the container and reclaim the workspace volume (which still
+            // holds the agent's live credentials). Idempotent: a no-op for
+            // ephemeral units or for units whose router was never deployed.
+            await UndeployUnitAsAgentRuntimeAsync(
+                actorId, executionGateway, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Force-delete: unit-as-agent router teardown failed for unit {UnitId}.", id);
+            failures.Add("persistent-agent-router");
+        }
+
+        try
+        {
             await directoryService.UnregisterAsync(address, cancellationToken);
         }
         catch (Exception ex)
@@ -1241,6 +1260,25 @@ public static class UnitEndpoints
         {
             logger.LogError(ex,
                 "Persistent-agent member teardown failed for unit {UnitId}; continuing unit stop.",
+                id);
+        }
+
+        // #2708: a unit-as-agent (ADR-0039) runs its own router runtime under
+        // the unit's id. The members cascade above never enumerates it, so a
+        // separate undeploy is needed before the unit transitions to Stopped
+        // — without this, the container and its workspace volume (which
+        // still holds the agent's live credentials) survive the stop and the
+        // subsequent clean-path delete leaks them. Idempotent: a no-op for
+        // ephemeral units or for units whose router was never deployed.
+        try
+        {
+            await UndeployUnitAsAgentRuntimeAsync(
+                entry.ActorId, executionGateway, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Unit-as-agent router teardown failed for unit {UnitId}; continuing unit stop.",
                 id);
         }
 
@@ -1728,6 +1766,28 @@ public static class UnitEndpoints
                     agentId, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorId));
             }
         }
+    }
+
+    /// <summary>
+    /// Undeploys the unit-as-agent's own router runtime (#2708). A unit-as-agent
+    /// (ADR-0039) deploys under the unit's id via
+    /// <c>PersistentAgentLifecycle.DeployAsync</c>; that container does not
+    /// appear in the unit's <c>members:</c> collection, so the per-member
+    /// cascade in <see cref="UndeployPersistentAgentMembersAsync"/> never
+    /// touches it. Calling
+    /// <see cref="IExecutionHostGateway.UndeployAsync"/> with the unit's id
+    /// drops both the router container and the per-agent workspace volume
+    /// (which still holds the agent's live credentials). The gateway is
+    /// idempotent: a no-op when no runtime is tracked (ephemeral units, or
+    /// persistent units whose router was never deployed).
+    /// </summary>
+    private static Task UndeployUnitAsAgentRuntimeAsync(
+        Guid unitActorId,
+        IExecutionHostGateway executionGateway,
+        CancellationToken ct)
+    {
+        var unitId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorId);
+        return executionGateway.UndeployAsync(unitId, ct);
     }
 
     private static async Task DispatchConnectorStopAsync(

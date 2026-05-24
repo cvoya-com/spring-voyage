@@ -1365,6 +1365,15 @@ public class SpringApiClient
         return await _client.Api.V1.Tenant.Humans[humanId].PatchAsync(body, cancellationToken: ct);
     }
 
+    /// <summary>
+    /// Deletes a human via <c>DELETE /api/v1/tenant/humans/{id}</c> (#2649).
+    /// Cascades to every <c>unit_membership_humans</c> row and every
+    /// <c>unit_human_permissions</c> grant that names this human so the row
+    /// disappears from every parent unit's members in the same write.
+    /// </summary>
+    public Task DeleteHumanAsync(Guid humanId, CancellationToken ct = default)
+        => _client.Api.V1.Tenant.Humans[humanId].DeleteAsync(cancellationToken: ct);
+
     // Per ADR-0047 §§ 2, 14 the connector-identity surface relocates onto
     // the TenantUser principal under /api/v1/tenant/users/{id}/identities.
     // Phase G of the umbrella adds the `spring user identity {set,list,remove}`
