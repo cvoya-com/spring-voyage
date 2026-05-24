@@ -294,7 +294,13 @@ jobs:
         run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
 
       - name: Test
-        run: dotnet test --solution SpringVoyage.slnx --no-restore --no-build --configuration Release
+        # Wrapped in a wall-clock watchdog (#2604): on rare hangs in
+        # Cvoya.Spring.Dapr.Tests the suite would sit silent until
+        # the 30-min job timeout killed the run with no diagnostics.
+        # The watchdog bounds the run, dumps thread stacks for live
+        # testhost processes when the budget is exceeded, and fails
+        # the step with a clear error message instead.
+        run: eng/ci/dotnet-test-with-watchdog.sh --solution SpringVoyage.slnx --no-restore --no-build --configuration Release
 
   package-validate:
     name: Validate in-tree packages
