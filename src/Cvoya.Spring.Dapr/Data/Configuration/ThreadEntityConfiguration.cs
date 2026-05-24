@@ -28,6 +28,11 @@ internal class ThreadEntityConfiguration : IEntityTypeConfiguration<ThreadEntity
         builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.ParticipantKey).HasColumnName("participant_key").IsRequired().HasMaxLength(2048);
         builder.Property(e => e.Participants).HasColumnName("participants").IsRequired().HasColumnType("jsonb");
+        builder.Property(e => e.ParticipantNameSnapshots)
+            .HasColumnName("participant_name_snapshots")
+            .IsRequired()
+            .HasColumnType("jsonb")
+            .HasDefaultValue("{}");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.LastActivityAt).HasColumnName("last_activity_at").IsRequired();
 

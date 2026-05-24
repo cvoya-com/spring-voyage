@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Auth;
 
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Dapr.Data;
 
@@ -13,7 +14,8 @@ using Microsoft.Extensions.Logging;
 /// Default scoped implementation of <see cref="IParticipantDisplayNameResolver"/>.
 /// Resolves a wire-form participant address (post-#1629:
 /// <c>scheme:&lt;32-hex-no-dash&gt;</c>) into a human-readable display
-/// name by joining onto the appropriate definition / humans table.
+/// name by joining onto the appropriate definition / humans / connector
+/// table.
 ///
 /// <para>
 /// Lives in <c>Cvoya.Spring.Dapr</c> because the implementation depends
@@ -26,25 +28,15 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
-/// Schemes covered:
-/// <list type="bullet">
-///   <item><description>
-///     <c>agent:&lt;guid&gt;</c> → <c>AgentDefinitions.DisplayName</c>.
-///   </description></item>
-///   <item><description>
-///     <c>unit:&lt;guid&gt;</c> → <c>UnitDefinitions.DisplayName</c>.
-///   </description></item>
-///   <item><description>
-///     <c>human:&lt;guid&gt;</c> → resolved via
-///     <see cref="IHumanIdentityResolver.GetDisplayNameAsync"/> (which
-///     reads <c>humans.display_name</c>, falling back to <c>username</c>).
-///   </description></item>
-/// </list>
+/// Schemes covered: <c>agent</c>, <c>unit</c>, <c>human</c>,
+/// <c>connector</c>, <c>tenant-user</c>. Unknown schemes flow into the
+/// generic fallback path rather than leaking a raw identifier.
 /// </para>
 ///
 /// <para>
-/// <b>Non-empty contract (#1635).</b> The resolver always returns a
-/// non-empty string. Resolution failures fall through tiers:
+/// <b>Non-empty contract (#1635 / #2532 / #2533).</b> The resolver
+/// always returns a non-empty string. Resolution failures fall through
+/// tiers:
 /// </para>
 /// <list type="number">
 ///   <item><description>
@@ -52,14 +44,24 @@ using Microsoft.Extensions.Logging;
 ///     display name → return it.
 ///   </description></item>
 ///   <item><description>
+///     A connector row is found but has no display name → return
+///     <c>"a {Type} connector"</c> (e.g. <c>"a github connector"</c>)
+///     so operators still see the connector kind.
+///   </description></item>
+///   <item><description>
 ///     The row is missing (entity was deleted or never existed) → return
-///     <see cref="IParticipantDisplayNameResolver.DeletedDisplayName"/>
-///     (<c>&lt;deleted&gt;</c>) so the portal can render a friendly tag
-///     without leaking GUIDs.
+///     the per-scheme generic fallback (<c>"an agent"</c>, <c>"a unit"</c>,
+///     <c>"a connector"</c>, <c>"someone"</c>, <c>"a member"</c>) marked
+///     <c>IsFallback = true</c>. Snapshot-aware callers (the thread
+///     endpoint) substitute a previously-captured real name in this case.
+///     Unknown schemes return <c>"a {scheme}"</c> — strictly better than
+///     leaking a GUID.
 ///   </description></item>
 ///   <item><description>
 ///     The address itself is malformed / empty → return the address
 ///     verbatim so logs / debugging surfaces still carry the raw value.
+///     Marked <c>IsFallback = true</c> because there is no entity to
+///     describe.
 ///   </description></item>
 /// </list>
 ///
@@ -75,18 +77,36 @@ internal sealed class ParticipantDisplayNameResolver(
     ILogger<ParticipantDisplayNameResolver> logger)
     : IParticipantDisplayNameResolver
 {
-    private readonly Dictionary<string, string> _cache = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ParticipantDisplayName> _cache = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
     public async ValueTask<string> ResolveAsync(
         string address,
         CancellationToken cancellationToken = default)
     {
+        var status = await ResolveStatusAsync(address, cancellationToken);
+        return status.DisplayName;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ParticipantDisplayName> ResolveStatusAsync(
+        string address,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(address))
+        {
+            // Truly empty input — there is no scheme to fall back on, so
+            // surface the unknown-scheme generic so callers still receive
+            // a non-empty string per the type-level contract.
+            return new ParticipantDisplayName(GenericFallback(scheme: null), IsFallback: true);
+        }
+
         if (string.IsNullOrWhiteSpace(address))
         {
-            return string.IsNullOrEmpty(address)
-                ? IParticipantDisplayNameResolver.DeletedDisplayName
-                : address;
+            // Whitespace-only — preserve the input verbatim for log
+            // grep-ability; mark as fallback because there is no entity
+            // behind it.
+            return new ParticipantDisplayName(address, IsFallback: true);
         }
 
         if (_cache.TryGetValue(address, out var cached))
@@ -99,7 +119,7 @@ internal sealed class ParticipantDisplayNameResolver(
         return result;
     }
 
-    private async Task<string> ResolveInternalAsync(
+    private async Task<ParticipantDisplayName> ResolveInternalAsync(
         string address,
         CancellationToken cancellationToken)
     {
@@ -112,41 +132,43 @@ internal sealed class ParticipantDisplayNameResolver(
         if (scheme is null || idText is null)
         {
             // Truly malformed — return the raw address so logs still
-            // carry the value.
-            return address;
+            // carry the value. Flag as fallback so snapshot-aware
+            // callers can prefer a captured name if they have one.
+            return new ParticipantDisplayName(address, IsFallback: true);
         }
 
         if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(idText, out var idGuid))
         {
             // Slug-shaped legacy address (e.g. "human://savas"). The slug
-            // IS the human-readable label, so return it verbatim.
+            // IS the human-readable label, so return it verbatim — not a
+            // fallback.
             return string.IsNullOrEmpty(idText)
-                ? IParticipantDisplayNameResolver.DeletedDisplayName
-                : idText;
+                ? new ParticipantDisplayName(GenericFallback(scheme), IsFallback: true)
+                : new ParticipantDisplayName(idText, IsFallback: false);
         }
 
-        if (string.Equals(scheme, "human", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(scheme, Address.HumanScheme, StringComparison.OrdinalIgnoreCase))
         {
             try
             {
                 var name = await humanIdentityResolver.GetDisplayNameAsync(idGuid, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(name))
                 {
-                    return name;
+                    return new ParticipantDisplayName(name, IsFallback: false);
                 }
             }
             catch (Exception ex)
             {
                 logger.LogDebug(
                     ex,
-                    "Failed to resolve display name for human {HumanId}; treating as deleted.",
+                    "Failed to resolve display name for human {HumanId}; using fallback.",
                     idGuid);
             }
 
-            return IParticipantDisplayNameResolver.DeletedDisplayName;
+            return new ParticipantDisplayName(GenericFallback(scheme), IsFallback: true);
         }
 
-        if (string.Equals(scheme, "agent", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase))
         {
             try
             {
@@ -158,25 +180,25 @@ internal sealed class ParticipantDisplayNameResolver(
 
                 if (!string.IsNullOrWhiteSpace(name))
                 {
-                    return name;
+                    return new ParticipantDisplayName(name, IsFallback: false);
                 }
 
                 logger.LogDebug(
-                    "No agent definition found for actor id {ActorId}; treating as deleted.",
+                    "No agent definition found for actor id {ActorId}; using fallback.",
                     idGuid);
             }
             catch (Exception ex)
             {
                 logger.LogDebug(
                     ex,
-                    "Failed to resolve display name for agent actor id {ActorId}; treating as deleted.",
+                    "Failed to resolve display name for agent actor id {ActorId}; using fallback.",
                     idGuid);
             }
 
-            return IParticipantDisplayNameResolver.DeletedDisplayName;
+            return new ParticipantDisplayName(GenericFallback(scheme), IsFallback: true);
         }
 
-        if (string.Equals(scheme, "unit", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
         {
             try
             {
@@ -188,30 +210,30 @@ internal sealed class ParticipantDisplayNameResolver(
 
                 if (!string.IsNullOrWhiteSpace(name))
                 {
-                    return name;
+                    return new ParticipantDisplayName(name, IsFallback: false);
                 }
 
                 logger.LogDebug(
-                    "No unit definition found for actor id {ActorId}; treating as deleted.",
+                    "No unit definition found for actor id {ActorId}; using fallback.",
                     idGuid);
             }
             catch (Exception ex)
             {
                 logger.LogDebug(
                     ex,
-                    "Failed to resolve display name for unit actor id {ActorId}; treating as deleted.",
+                    "Failed to resolve display name for unit actor id {ActorId}; using fallback.",
                     idGuid);
             }
 
-            return IParticipantDisplayNameResolver.DeletedDisplayName;
+            return new ParticipantDisplayName(GenericFallback(scheme), IsFallback: true);
         }
 
         // ADR-0047 §1: the TenantUser actor kind. Reads
         // tenant_users.display_name keyed on the address Guid; the tenant
         // query filter on the DbContext scopes the read to the active
         // tenant per CONVENTIONS § 12, so a cross-tenant id surfaces as
-        // the deleted sentinel rather than leaking the row's existence.
-        if (string.Equals(scheme, "tenant-user", StringComparison.OrdinalIgnoreCase))
+        // the per-scheme fallback rather than leaking the row's existence.
+        if (string.Equals(scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase))
         {
             try
             {
@@ -223,27 +245,102 @@ internal sealed class ParticipantDisplayNameResolver(
 
                 if (!string.IsNullOrWhiteSpace(name))
                 {
-                    return name;
+                    return new ParticipantDisplayName(name, IsFallback: false);
                 }
 
                 logger.LogDebug(
-                    "No tenant_user found for actor id {ActorId}; treating as deleted.",
+                    "No tenant_user found for actor id {ActorId}; using fallback.",
                     idGuid);
             }
             catch (Exception ex)
             {
                 logger.LogDebug(
                     ex,
-                    "Failed to resolve display name for tenant_user actor id {ActorId}; treating as deleted.",
+                    "Failed to resolve display name for tenant_user actor id {ActorId}; using fallback.",
                     idGuid);
             }
 
-            return IParticipantDisplayNameResolver.DeletedDisplayName;
+            return new ParticipantDisplayName(GenericFallback(scheme), IsFallback: true);
         }
 
-        // Unknown scheme — return the id as-is rather than the deleted
-        // sentinel so operator tooling can still trace it.
-        return idText;
+        // #2532: connectors leaked their hex id when no case matched. The
+        // catalog slug (e.g. "github") makes the fallback strictly more
+        // useful than the generic "a connector" — "a github connector"
+        // tells the operator what bridged the message in.
+        if (string.Equals(scheme, Address.ConnectorScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var row = await db.ConnectorDefinitions
+                    .AsNoTracking()
+                    .Where(c => c.Id == idGuid && c.DeletedAt == null)
+                    .Select(c => new { c.DisplayName, c.Type })
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (row is not null)
+                {
+                    if (!string.IsNullOrWhiteSpace(row.DisplayName))
+                    {
+                        return new ParticipantDisplayName(row.DisplayName, IsFallback: false);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(row.Type))
+                    {
+                        // Kind-aware fallback. Not a real display name, so
+                        // mark fallback=true — a snapshot of the connector's
+                        // pre-rename / pre-delete display name still wins.
+                        return new ParticipantDisplayName(
+                            $"a {row.Type.ToLowerInvariant()} connector",
+                            IsFallback: true);
+                    }
+                }
+
+                logger.LogDebug(
+                    "No connector definition found for actor id {ActorId}; using fallback.",
+                    idGuid);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(
+                    ex,
+                    "Failed to resolve display name for connector actor id {ActorId}; using fallback.",
+                    idGuid);
+            }
+
+            return new ParticipantDisplayName(GenericFallback(scheme), IsFallback: true);
+        }
+
+        // Unknown scheme — surface the per-scheme generic ("a {scheme}")
+        // rather than the raw id. The previous "return idText;" branch
+        // was the source of the GUID-as-display-name bug in #2532.
+        return new ParticipantDisplayName(GenericFallback(scheme), IsFallback: true);
+    }
+
+    /// <summary>
+    /// Per-scheme generic display label used when the directory cannot
+    /// resolve a real name. The mapping is intentionally conversational:
+    /// the portal renders the label inline ("…with an agent…") and
+    /// "Unit 'X' invited <i>an agent</i>" reads better than the previous
+    /// <c>&lt;deleted&gt;</c> sentinel. Unknown schemes get
+    /// <c>"a {scheme}"</c> — strictly better than the raw GUID.
+    /// </summary>
+    private static string GenericFallback(string? scheme)
+    {
+        if (string.IsNullOrWhiteSpace(scheme))
+        {
+            return "an unknown participant";
+        }
+
+        var normalised = scheme.Trim().ToLowerInvariant();
+        return normalised switch
+        {
+            Address.HumanScheme => "someone",
+            Address.AgentScheme => "an agent",
+            Address.UnitScheme => "a unit",
+            Address.ConnectorScheme => "a connector",
+            Address.TenantUserScheme => "a member",
+            _ => $"a {normalised}",
+        };
     }
 
     /// <summary>

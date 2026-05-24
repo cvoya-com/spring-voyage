@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
@@ -39,10 +40,21 @@ using Microsoft.Extensions.Logging;
 /// timeline. <see cref="Cvoya.Spring.Dapr.Routing.MessageRouter"/>
 /// propagates the exception unchanged.
 /// </para>
+/// <para>
+/// <b>Display-name snapshot (#2533).</b> Each write also captures the
+/// current display name of the sender and recipient into the parent
+/// thread's <c>participant_name_snapshots</c> jsonb column. The snapshot
+/// is only updated when the resolver returns a real name (not a per-scheme
+/// fallback) so a later soft-delete of the underlying entity leaves the
+/// last-seen real name intact for the engagement list. Snapshot writes
+/// failing (e.g. resolver throws) are best-effort: the message insert is
+/// authoritative and a missing snapshot is degraded UX, not corruption.
+/// </para>
 /// </remarks>
 public class EfMessageWriter(
     SpringDbContext db,
     ITenantContext tenantContext,
+    IParticipantDisplayNameResolver displayNameResolver,
     ILoggerFactory loggerFactory) : IMessageWriter
 {
     private static readonly JsonSerializerOptions PayloadJson = new()
@@ -119,6 +131,14 @@ public class EfMessageWriter(
             {
                 thread.LastActivityAt = message.Timestamp;
             }
+
+            // #2533: capture the sender's and recipient's display names so
+            // the engagement list still surfaces the last-known name after
+            // the underlying definition is soft-deleted. The resolver
+            // signals fallback status so we never overwrite a real name
+            // with a per-scheme generic ("an agent", "a connector", …).
+            await UpsertSnapshotAsync(thread, message.From, cancellationToken);
+            await UpsertSnapshotAsync(thread, message.To, cancellationToken);
         }
         else
         {
@@ -143,6 +163,50 @@ public class EfMessageWriter(
             _logger.LogDebug(
                 "Message {MessageId} was inserted concurrently; treating WriteAsync as a no-op.",
                 message.Id);
+        }
+    }
+
+    /// <summary>
+    /// Resolves the participant's current display name and upserts it
+    /// into the thread's <c>participant_name_snapshots</c> map keyed by
+    /// the canonical address string. Per-scheme generic fallbacks
+    /// (<c>"an agent"</c>, <c>"a connector"</c>, …) never overwrite a
+    /// previously-captured real name — the snapshot is the last real
+    /// name we saw, not the most recent resolver output. Resolver
+    /// failures are logged and swallowed; the message insert is
+    /// authoritative.
+    /// </summary>
+    private async Task UpsertSnapshotAsync(
+        ThreadEntity thread,
+        Address participant,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var status = await displayNameResolver
+                .ResolveStatusAsync(participant.ToString(), cancellationToken);
+            if (status.IsFallback || string.IsNullOrWhiteSpace(status.DisplayName))
+            {
+                return;
+            }
+
+            var snapshots = ParticipantNameSnapshotJson.Read(thread.ParticipantNameSnapshots);
+            var key = participant.ToString();
+            if (snapshots.TryGetValue(key, out var existing)
+                && string.Equals(existing, status.DisplayName, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            snapshots[key] = status.DisplayName;
+            thread.ParticipantNameSnapshots = ParticipantNameSnapshotJson.Write(snapshots);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(
+                ex,
+                "Failed to capture display-name snapshot for {Address} on thread {ThreadId}; continuing.",
+                participant, thread.Id);
         }
     }
 

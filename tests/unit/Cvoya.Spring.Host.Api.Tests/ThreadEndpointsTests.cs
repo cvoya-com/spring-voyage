@@ -314,6 +314,52 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
     }
 
     [Fact]
+    public async Task ListThreads_DeletedConnector_PrefersSnapshotOverFallback()
+    {
+        // #2533: the live resolver only returns "a connector" once the
+        // connector definition is soft-deleted, but the engagement list
+        // should still show the connector's pre-delete display name —
+        // the writer captured it on every message arrival, and the
+        // endpoint enrichment substitutes that snapshot when the live
+        // resolver reports a fallback. The test does not seed a
+        // connector row so the resolver hits its fallback path; the
+        // snapshot on the summary supplies the real name.
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+        var connectorGuid = Guid.NewGuid();
+        var connectorAddress = $"connector:{connectorGuid:N}";
+
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
+            {
+                new(
+                    Id: "c-snapshot",
+                    Participants: new[] { connectorAddress },
+                    LastActivity: now,
+                    CreatedAt: now,
+                    EventCount: 1,
+                    Origin: connectorAddress,
+                    Summary: "snapshot",
+                    ParticipantNameSnapshots: new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        [connectorAddress] = "Spring's GitHub",
+                    }),
+            });
+
+        var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummaryResponse>>(ct);
+        rows.ShouldNotBeNull();
+        var participant = rows!.Single().Participants.Single();
+        participant.Address.ShouldBe(connectorAddress);
+        // Without the snapshot the resolver would return "a connector";
+        // the snapshot wins because the live resolution is a fallback.
+        participant.DisplayName.ShouldBe("Spring's GitHub");
+    }
+
+    [Fact]
     public async Task ListInbox_ReturnsQueryServiceRows()
     {
         var ct = TestContext.Current.CancellationToken;

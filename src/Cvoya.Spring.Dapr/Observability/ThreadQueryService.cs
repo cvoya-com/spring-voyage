@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
+using Cvoya.Spring.Dapr.Threads;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -334,6 +335,18 @@ public class ThreadQueryService(
 
         var countByThread = messageCounts.ToDictionary(r => r.ThreadId, r => r.Count);
 
+        // #2533: surface the participant-name snapshots stored on each
+        // thread so the endpoint enrichment layer can prefer a captured
+        // name over a per-scheme generic when the live row is gone.
+        var threadSnapshots = await dbContext.Threads
+            .AsNoTracking()
+            .Where(t => threadIds.Contains(t.Id))
+            .Select(t => new { t.Id, t.ParticipantNameSnapshots })
+            .ToListAsync(cancellationToken);
+        var snapshotsByThread = threadSnapshots.ToDictionary(
+            t => t.Id,
+            t => (IReadOnlyDictionary<string, string>)ParticipantNameSnapshotJson.Read(t.ParticipantNameSnapshots));
+
         var humanRendered = RenderAddress(humanScheme, humanId);
         var inbox = new List<InboxItem>(humanReceivedRows.Count);
 
@@ -366,7 +379,8 @@ public class ThreadQueryService(
                 Human: humanRendered,
                 PendingSince: pending.SentAt,
                 Summary: pending.Body ?? string.Empty,
-                UnreadCount: unreadCount));
+                UnreadCount: unreadCount,
+                ParticipantNameSnapshots: snapshotsByThread.GetValueOrDefault(received.ThreadId)));
         }
 
         return inbox
@@ -418,6 +432,12 @@ public class ThreadQueryService(
         var summary = firstMessage?.Body
             ?? (firstMessage is not null ? string.Empty : string.Empty);
 
+        // #2533: surface the per-participant display-name snapshot the
+        // writer captured on every message arrival. The endpoint's
+        // enrichment layer falls back to this when the live resolver
+        // returns a per-scheme generic ("an agent", "a connector", …).
+        var snapshots = ParticipantNameSnapshotJson.Read(thread.ParticipantNameSnapshots);
+
         // Per ADR-0030 a thread is a lifelong record — there is no thread-level
         // lifecycle status; the only state machine in the model is
         // per-(thread, participant). #2074 removed the legacy `status` column.
@@ -428,7 +448,8 @@ public class ThreadQueryService(
             CreatedAt: thread.CreatedAt,
             EventCount: messageCount,
             Origin: origin,
-            Summary: summary);
+            Summary: summary,
+            ParticipantNameSnapshots: snapshots);
     }
 
     private ThreadEvent BuildThreadEvent(MessageEntity message)
