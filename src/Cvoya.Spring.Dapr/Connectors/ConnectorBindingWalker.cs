@@ -87,11 +87,18 @@ public class ConnectorBindingWalker(
         var membershipRepo = scope.ServiceProvider.GetService<IUnitMembershipRepository>();
         if (membershipRepo is null)
         {
-            return null;
+            // No membership repo available — fall back to treating the subject as a
+            // unit-as-agent (ADR-0017) so the binding walk still runs.
+            return subject.Id;
         }
 
         var memberships = await membershipRepo.ListByAgentAsync(subject.Id, cancellationToken);
-        return memberships.Count == 0 ? null : memberships[0].UnitId;
+
+        // Per ADR-0017 a unit IS an agent. Units live in unit_subunit_memberships,
+        // not unit_memberships, so ListByAgentAsync returns empty for a unit-as-agent
+        // subject. Fall back to the subject id itself so CollectBindingsAsync can find
+        // the unit's own connector binding and walk its ancestors via IUnitHierarchyResolver.
+        return memberships.Count == 0 ? subject.Id : memberships[0].UnitId;
     }
 
     private async Task<IReadOnlyList<ResolvedConnectorBinding>> CollectBindingsAsync(
