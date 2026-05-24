@@ -121,7 +121,7 @@ public class CodexLauncher(
             ["SPRING_THREAD_ID"] = context.ThreadId,
             // ADR-0055 §5: per-member workspace mount path. ADR-0057 §3:
             // the long-running A2A sidecar writes the per-turn MCP token
-            // to <SPRING_WORKSPACE_PATH>/.spring-voyage-bridge/mcp-token
+            // to <SPRING_WORKSPACE_PATH>/.spring/bridge/mcp-token
             // before each CLI spawn; the per-turn sidecar-MCP-server-mode
             // child reads it from the same path.
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.BuildMountPath(context.AgentId),

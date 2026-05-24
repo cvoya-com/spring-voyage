@@ -14,7 +14,7 @@
 // To survive container restart we persist the set of seen thread ids on
 // the per-agent workspace volume (D1 spec § 2.2.1, ADR-0029). The marker
 // file is a newline-separated list under
-// `$SPRING_WORKSPACE_PATH/.spring-voyage-bridge/seen-threads`. The
+// `$SPRING_WORKSPACE_PATH/.spring/bridge/seen-threads`. The
 // volume mount is owned by the platform — when an agent's container is
 // recreated on the same agent the file is still there and the bridge
 // resumes correctly on the first message after restart. When the volume
@@ -29,7 +29,7 @@ import * as path from "node:path";
  * Subdirectory under `$SPRING_WORKSPACE_PATH` that the bridge owns. Any
  * other component writing under here is a bridge bug.
  */
-export const BRIDGE_STATE_DIR = ".spring-voyage-bridge";
+export const BRIDGE_STATE_DIR = ".spring/bridge";
 
 /**
  * File name (under `BRIDGE_STATE_DIR`) holding the newline-separated set

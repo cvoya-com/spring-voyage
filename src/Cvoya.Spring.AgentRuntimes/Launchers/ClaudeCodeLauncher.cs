@@ -264,7 +264,7 @@ public class ClaudeCodeLauncher(
             [ClaudeConfigDirEnvVar] = $"{workspaceMountNoSlash}/{ClaudeConfigDirRelative}",
             // ADR-0055 §5: per-member workspace mount path. ADR-0057 §3:
             // the long-running A2A sidecar writes the per-turn MCP token
-            // to <SPRING_WORKSPACE_PATH>/.spring-voyage-bridge/mcp-token
+            // to <SPRING_WORKSPACE_PATH>/.spring/bridge/mcp-token
             // before each CLI spawn; the per-turn sidecar-MCP-server-mode
             // child reads it from the same path.
             [AgentWorkspaceContract.WorkspacePathEnvVar] = AgentWorkspaceContract.BuildMountPath(context.AgentId),
@@ -314,7 +314,7 @@ public class ClaudeCodeLauncher(
         // mode as a `command`-typed MCP server. Each tool-use round
         // spawns `node /opt/.../cli.js mcp` as a child of the CLI; that
         // child reads the per-turn MCP session token from
-        // <workspace>/.spring-voyage-bridge/mcp-token (written by the
+        // <workspace>/.spring/bridge/mcp-token (written by the
         // long-running A2A sidecar from A2A message/send metadata) and
         // proxies tools/list, tools/call, and initialize onto the
         // worker's POST /mcp/ route — passing

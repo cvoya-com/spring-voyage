@@ -15,7 +15,7 @@
 //     long-running A2A sidecar, so the in-memory token the A2A sidecar
 //     holds is not visible to it.
 //   * To bridge the two, the A2A sidecar writes the per-turn token to a
-//     file at `$SPRING_WORKSPACE_PATH/.spring-voyage-bridge/mcp-token`
+//     file at `$SPRING_WORKSPACE_PATH/.spring/bridge/mcp-token`
 //     on receipt of each `message/send`. The MCP-server-mode invocation
 //     reads that file at process startup and holds the token in memory
 //     for its lifetime. Each CLI spawn = one turn = one MCP-server
