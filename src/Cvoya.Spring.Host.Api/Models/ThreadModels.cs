@@ -16,11 +16,20 @@ using Cvoya.Spring.Core.Observability;
 /// <param name="Agent">Optional agent-name filter.</param>
 /// <param name="Participant">Optional <c>scheme://path</c> participant filter.</param>
 /// <param name="Limit">Optional row cap (default 50).</param>
+/// <param name="Archived">
+/// Optional archive-state filter (#2732). Omitted or <c>false</c>
+/// excludes archived (fully-orphaned) threads from the response — the
+/// default engagement list keeps the live list uncluttered.
+/// <c>true</c> returns ONLY archived threads — the portal's separate
+/// archive surface uses this. An explicit <c>null</c> is treated as
+/// omitted (defensive — same as the default).
+/// </param>
 public record ThreadListQuery(
     string? Unit,
     string? Agent,
     string? Participant,
-    int? Limit);
+    int? Limit,
+    bool? Archived = null);
 
 /// <summary>
 /// Semantic kind of a thread message. The discriminator is convention-driven —

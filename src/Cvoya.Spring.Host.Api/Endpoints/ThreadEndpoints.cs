@@ -68,7 +68,8 @@ public static class ThreadEndpoints
             Unit: query.Unit,
             Agent: query.Agent,
             Participant: query.Participant,
-            Limit: query.Limit);
+            Limit: query.Limit,
+            Archived: query.Archived);
 
         var summaries = await queryService.ListAsync(filters, cancellationToken);
         var enriched = await EnrichSummariesAsync(summaries, resolver, cancellationToken);
@@ -249,7 +250,8 @@ public static class ThreadEndpoints
             s.CreatedAt,
             s.EventCount,
             origin,
-            s.Summary);
+            s.Summary,
+            s.IsArchived);
     }
 
     internal static async Task<ThreadDetailResponse> EnrichDetailAsync(

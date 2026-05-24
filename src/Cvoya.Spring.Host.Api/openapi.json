@@ -6390,6 +6390,13 @@
               ],
               "format": "int32"
             }
+          },
+          {
+            "name": "Archived",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -15197,7 +15204,8 @@
           "createdAt",
           "eventCount",
           "origin",
-          "summary"
+          "summary",
+          "isArchived"
         ],
         "type": "object",
         "properties": {
@@ -15227,6 +15235,9 @@
           },
           "summary": {
             "type": "string"
+          },
+          "isArchived": {
+            "type": "boolean"
           }
         }
       },

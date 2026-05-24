@@ -234,6 +234,212 @@ public class ParticipantDisplayNameResolverTests : IDisposable
         status.IsFallback.ShouldBeTrue();
     }
 
+    // -------------------------------------------------------------------
+    // IsDeletedAsync (#2732) — drives auto-archive of orphaned engagements.
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task IsDeletedAsync_LiveAgent_ReturnsFalse()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = Guid.NewGuid();
+        await SeedAgentAsync(id, "Ada Lovelace");
+
+        var deleted = await _resolver.IsDeletedAsync(FormatAddress(Address.AgentScheme, id), ct);
+
+        deleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_SoftDeletedAgent_ReturnsTrue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = Guid.NewGuid();
+        await SeedAgentAsync(id, "Ada Lovelace", deletedAt: DateTimeOffset.UtcNow);
+
+        var deleted = await _resolver.IsDeletedAsync(FormatAddress(Address.AgentScheme, id), ct);
+
+        deleted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_MissingAgent_ReturnsTrue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var deleted = await _resolver.IsDeletedAsync(
+            FormatAddress(Address.AgentScheme, Guid.NewGuid()), ct);
+
+        deleted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_LiveUnit_ReturnsFalse()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = Guid.NewGuid();
+        await SeedUnitAsync(id, "Engineering");
+
+        var deleted = await _resolver.IsDeletedAsync(FormatAddress(Address.UnitScheme, id), ct);
+
+        deleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_SoftDeletedUnit_ReturnsTrue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = Guid.NewGuid();
+        await SeedUnitAsync(id, "Engineering", deletedAt: DateTimeOffset.UtcNow);
+
+        var deleted = await _resolver.IsDeletedAsync(FormatAddress(Address.UnitScheme, id), ct);
+
+        deleted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_MissingUnit_ReturnsTrue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var deleted = await _resolver.IsDeletedAsync(
+            FormatAddress(Address.UnitScheme, Guid.NewGuid()), ct);
+
+        deleted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_LiveConnector_ReturnsFalse()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = Guid.NewGuid();
+        await SeedConnectorAsync(id, type: "github", displayName: "Spring's GitHub");
+
+        var deleted = await _resolver.IsDeletedAsync(
+            FormatAddress(Address.ConnectorScheme, id), ct);
+
+        deleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_SoftDeletedConnector_ReturnsTrue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = Guid.NewGuid();
+        await SeedConnectorAsync(id, type: "github", displayName: "Spring's GitHub",
+            deletedAt: DateTimeOffset.UtcNow);
+
+        var deleted = await _resolver.IsDeletedAsync(
+            FormatAddress(Address.ConnectorScheme, id), ct);
+
+        deleted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_MissingConnector_ReturnsTrue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var deleted = await _resolver.IsDeletedAsync(
+            FormatAddress(Address.ConnectorScheme, Guid.NewGuid()), ct);
+
+        deleted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_LiveTenantUser_ReturnsFalse()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = Guid.NewGuid();
+        await SeedTenantUserAsync(id, "Savas");
+
+        var deleted = await _resolver.IsDeletedAsync(
+            FormatAddress(Address.TenantUserScheme, id), ct);
+
+        deleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_MissingTenantUser_ReturnsTrue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var deleted = await _resolver.IsDeletedAsync(
+            FormatAddress(Address.TenantUserScheme, Guid.NewGuid()), ct);
+
+        deleted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_Human_AlwaysReturnsFalse()
+    {
+        // Humans are not archivable per the orphan rule — they are
+        // always live participants on their own engagements. No DB
+        // lookup is performed (verified by the test asserting against
+        // a never-seeded id, which would otherwise show as missing).
+        var ct = TestContext.Current.CancellationToken;
+
+        var deleted = await _resolver.IsDeletedAsync(
+            FormatAddress(Address.HumanScheme, Guid.NewGuid()), ct);
+
+        deleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_UnknownScheme_ReturnsFalse()
+    {
+        // Conservative fallback: a scheme the resolver cannot reason
+        // about should not cause a thread to be archived.
+        var ct = TestContext.Current.CancellationToken;
+        var hexId = GuidFormatter.Format(Guid.NewGuid());
+
+        var deleted = await _resolver.IsDeletedAsync($"weird:{hexId}", ct);
+
+        deleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_MalformedAddress_ReturnsFalse()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var deleted = await _resolver.IsDeletedAsync("garbage-no-scheme", ct);
+
+        deleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_EmptyAddress_ReturnsFalse()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var deleted = await _resolver.IsDeletedAsync(string.Empty, ct);
+
+        deleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task IsDeletedAsync_CachesResultsWithinTheRequest()
+    {
+        // Mirror ResolveAsync's per-request caching: seed live, resolve
+        // once, hard-delete the row, resolve again — the second call
+        // should still see the cached not-deleted answer.
+        var ct = TestContext.Current.CancellationToken;
+        var id = Guid.NewGuid();
+        await SeedAgentAsync(id, "Cached Agent");
+        var address = FormatAddress(Address.AgentScheme, id);
+
+        var first = await _resolver.IsDeletedAsync(address, ct);
+        first.ShouldBeFalse();
+
+        var row = await _db.AgentDefinitions.IgnoreQueryFilters().FirstAsync(a => a.Id == id, ct);
+        _db.AgentDefinitions.Remove(row);
+        await _db.SaveChangesAsync(ct);
+
+        var second = await _resolver.IsDeletedAsync(address, ct);
+        second.ShouldBeFalse(); // still cached as not-deleted
+    }
+
     public void Dispose()
     {
         _db.Dispose();
@@ -264,10 +470,40 @@ public class ParticipantDisplayNameResolverTests : IDisposable
         await _db.SaveChangesAsync();
     }
 
-    private async Task SeedAgentAsync(Guid id, string displayName)
+    private async Task SeedAgentAsync(Guid id, string displayName, DateTimeOffset? deletedAt = null)
     {
         var now = DateTimeOffset.UtcNow;
         _db.AgentDefinitions.Add(new AgentDefinitionEntity
+        {
+            Id = id,
+            TenantId = TenantId,
+            DisplayName = displayName,
+            CreatedAt = now,
+            UpdatedAt = now,
+            DeletedAt = deletedAt,
+        });
+        await _db.SaveChangesAsync();
+    }
+
+    private async Task SeedUnitAsync(Guid id, string displayName, DateTimeOffset? deletedAt = null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        _db.UnitDefinitions.Add(new UnitDefinitionEntity
+        {
+            Id = id,
+            TenantId = TenantId,
+            DisplayName = displayName,
+            CreatedAt = now,
+            UpdatedAt = now,
+            DeletedAt = deletedAt,
+        });
+        await _db.SaveChangesAsync();
+    }
+
+    private async Task SeedTenantUserAsync(Guid id, string displayName)
+    {
+        var now = DateTimeOffset.UtcNow;
+        _db.TenantUsers.Add(new TenantUserEntity
         {
             Id = id,
             TenantId = TenantId,

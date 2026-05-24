@@ -93,6 +93,45 @@ public interface IParticipantDisplayNameResolver
     /// <param name="address">A wire-form participant address.</param>
     /// <param name="cancellationToken">Propagates request cancellation.</param>
     ValueTask<ParticipantDisplayName> ResolveStatusAsync(string address, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns <c>true</c> when <paramref name="address"/> refers to a
+    /// participant that has been soft-deleted (or is missing entirely),
+    /// otherwise <c>false</c>. Drives the orphan-engagement derivation
+    /// landed by #2732: a thread whose non-human participants are all
+    /// deleted is auto-archived out of the live engagement list.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Per-scheme semantics:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item><description>
+    ///     <c>human:</c> → always returns <c>false</c>. Humans are not
+    ///     archivable per the orphan rule (the user themselves is always
+    ///     a live participant on their own engagements).
+    ///   </description></item>
+    ///   <item><description>
+    ///     <c>agent:</c> / <c>unit:</c> / <c>connector:</c> /
+    ///     <c>tenant-user:</c> → <c>true</c> when the definition row is
+    ///     missing OR <c>DeletedAt != null</c>; otherwise <c>false</c>.
+    ///   </description></item>
+    ///   <item><description>
+    ///     Unknown scheme / malformed address → <c>false</c>. The orphan
+    ///     check is conservative: a thread whose participants we cannot
+    ///     reason about is not auto-archived.
+    ///   </description></item>
+    /// </list>
+    /// <para>
+    /// Implementations share the per-request resolution cache with
+    /// <see cref="ResolveStatusAsync"/> so a hot list endpoint that
+    /// already resolved every participant's display name does not pay a
+    /// second round-trip for the deleted-status check.
+    /// </para>
+    /// </remarks>
+    /// <param name="address">A wire-form participant address.</param>
+    /// <param name="cancellationToken">Propagates request cancellation.</param>
+    ValueTask<bool> IsDeletedAsync(string address, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

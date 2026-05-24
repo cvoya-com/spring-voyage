@@ -40,6 +40,14 @@ public record InboxItemResponse(
 /// <param name="EventCount">Number of activity events observed for this thread.</param>
 /// <param name="Origin">The address that emitted the first event, enriched with a display name.</param>
 /// <param name="Summary">Human-readable summary — the first message's summary text, truncated.</param>
+/// <param name="IsArchived">
+/// Derived auto-archive flag (#2732). <c>true</c> when every non-human
+/// participant on the thread has been soft-deleted — the human user
+/// cannot realistically take any further action. The portal splits the
+/// engagement list into "live" (<c>IsArchived = false</c>) and an
+/// "Archived" surface (<c>IsArchived = true</c>). Solo-human threads
+/// stay live.
+/// </param>
 public record ThreadSummaryResponse(
     string Id,
     IReadOnlyList<ParticipantRef> Participants,
@@ -47,7 +55,8 @@ public record ThreadSummaryResponse(
     DateTimeOffset CreatedAt,
     int EventCount,
     ParticipantRef Origin,
-    string Summary);
+    string Summary,
+    bool IsArchived);
 
 /// <summary>
 /// API-layer enriched version of <see cref="ThreadEvent"/>. The <c>source</c>,

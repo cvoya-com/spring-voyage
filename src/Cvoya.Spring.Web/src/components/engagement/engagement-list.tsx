@@ -17,6 +17,15 @@
 //
 // Recency-driven sort: latest activity first. Inactive engagements render at
 // lower opacity but remain visible; they resurface when new activity arrives.
+//
+// Archived section (#2732): below the active list we fetch a second slice
+// (`archived: true`) and render it under a collapsible `Archived (N)` header.
+// An engagement is "archived" when every non-human participant has been
+// soft-deleted (the user has nothing actionable left). The two queries are
+// independent — either can fail without blocking the other. The visibility
+// filter (`all` / `participant` / `observer`) applies to both lists. When N=0
+// the archived header is omitted entirely. Expand/collapse is session-scoped
+// (`useState`, no persistence).
 
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
@@ -26,6 +35,8 @@ import {
   Eye,
   MessageCircleQuestion,
   ChevronDown,
+  ChevronRight,
+  Archive,
 } from "lucide-react";
 
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
@@ -486,6 +497,148 @@ function EngagementListEmpty({
 }
 
 // ---------------------------------------------------------------------------
+// Archived section header (#2732)
+// ---------------------------------------------------------------------------
+
+interface ArchivedSectionHeaderProps {
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  panelId: string;
+  variant: "page" | "sidebar";
+}
+
+function ArchivedSectionHeader({
+  count,
+  open,
+  onToggle,
+  panelId,
+  variant,
+}: ArchivedSectionHeaderProps) {
+  const Chevron = open ? ChevronDown : ChevronRight;
+  // Real <button> with aria-expanded + aria-controls. The count is a real
+  // text node ("Archived, N items") so screen readers read it as part of
+  // the label rather than as a separate badge node.
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-controls={panelId}
+      aria-label={`Archived, ${count} ${count === 1 ? "item" : "items"}`}
+      className={cn(
+        "group flex w-full items-center gap-2 rounded-md text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        variant === "sidebar" ? "px-2 py-1.5" : "px-3 py-2",
+      )}
+      data-testid="engagement-archived-toggle"
+    >
+      <Chevron className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <Archive className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span className="text-[11px] font-medium uppercase tracking-wider">
+        Archived
+      </span>
+      <span
+        className="tabular-nums text-[11px] text-muted-foreground/80"
+        data-testid="engagement-archived-count"
+      >
+        ({count})
+      </span>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section body (active or archived) — internal renderer
+// ---------------------------------------------------------------------------
+
+interface DecoratedThread {
+  thread: ThreadSummary;
+  isParticipant: boolean;
+}
+
+interface ListBodyProps {
+  threads: DecoratedThread[];
+  pendingThreadIds: Set<string>;
+  currentUserId: string | undefined;
+  selectedThreadId: string | undefined;
+  variant: "page" | "sidebar";
+  /**
+   * Mute the cards (used by the archived section so the section is
+   * visually distinct from the active list).
+   */
+  muted?: boolean;
+  /** Element id for aria-controls wiring. */
+  id?: string;
+  /** Stable testid for the list root. */
+  testId: string;
+}
+
+function ListBody({
+  threads,
+  pendingThreadIds,
+  currentUserId,
+  selectedThreadId,
+  variant,
+  muted,
+  id,
+  testId,
+}: ListBodyProps) {
+  return (
+    <div
+      id={id}
+      className={cn(
+        variant === "sidebar" ? "flex flex-col gap-1" : "space-y-3",
+        muted && "opacity-70",
+      )}
+      data-testid={testId}
+      aria-label={muted ? "Archived engagements" : "Engagements"}
+    >
+      {threads.map(({ thread, isParticipant }) => (
+        <EngagementCard
+          key={thread.id}
+          thread={thread}
+          hasPendingQuestion={pendingThreadIds.has(thread.id)}
+          isParticipant={isParticipant}
+          title={engagementTitle(thread.participants ?? [], currentUserId)}
+          selected={selectedThreadId === thread.id}
+          variant={variant}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Apply the visibility filter and recency sort to a raw thread list.
+ * Shared between the active and archived slices so the two stay in
+ * lock-step.
+ */
+function filterAndSort(
+  threads: ThreadSummary[],
+  currentUserId: string | undefined,
+  filter: EngagementVisibilityFilter,
+): DecoratedThread[] {
+  const decorated = threads.map((thread) => {
+    const participants = thread.participants ?? [];
+    const isParticipant = userIsParticipant(participants, currentUserId);
+    return { thread, isParticipant };
+  });
+
+  const visible =
+    filter === "participant"
+      ? decorated.filter((d) => d.isParticipant)
+      : filter === "observer"
+        ? decorated.filter((d) => !d.isParticipant)
+        : decorated;
+
+  return [...visible].sort(
+    (a, b) =>
+      new Date(b.thread.lastActivity).getTime() -
+      new Date(a.thread.lastActivity).getTime(),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -500,15 +653,28 @@ export function EngagementList({
 }: EngagementListProps) {
   const [filter, setFilter] =
     useState<EngagementVisibilityFilter>(initialFilter);
+  // Session-scoped collapse state for the archived section (#2732). No
+  // localStorage / no URL param — the operator's last expand state does
+  // not survive a refresh on purpose; archived threads should not stay
+  // visually expanded across sessions.
+  const [archivedOpen, setArchivedOpen] = useState(false);
 
   // Build the filter for the API call.
-  const filters = (() => {
+  const baseFilters = (() => {
     if (slice === "unit" && unit) return { unit };
     if (slice === "agent" && agent) return { agent };
     return {};
   })();
 
-  const threadsQuery = useThreads(filters, { staleTime: 10_000 });
+  const threadsQuery = useThreads(baseFilters, { staleTime: 10_000 });
+  // #2732: archived slice — same scope (slice + unit/agent filter)
+  // independently fetched so either query can fail without blocking
+  // the other. The default-off `archived: true` flag keeps the
+  // active-list call URL identical to the pre-archive shape.
+  const archivedQuery = useThreads(
+    { ...baseFilters, archived: true },
+    { staleTime: 10_000 },
+  );
   const inboxQuery = useInbox({ staleTime: 10_000 });
   const userQuery = useCurrentUser({ staleTime: 60_000 });
 
@@ -536,30 +702,25 @@ export function EngagementList({
     );
   }
 
-  const allThreads = threadsQuery.data ?? [];
-
-  // Decorate each thread with the current human's relationship to it.
-  const decorated = allThreads.map((thread) => {
-    const participants = thread.participants ?? [];
-    const isParticipant = userIsParticipant(participants, currentUserId);
-    const a2aOnly = isA2aOnly(participants);
-    return { thread, isParticipant, a2aOnly };
-  });
-
-  // Apply the visibility filter.
-  let visible = decorated;
-  if (filter === "participant") {
-    visible = visible.filter((d) => d.isParticipant);
-  } else if (filter === "observer") {
-    visible = visible.filter((d) => !d.isParticipant);
-  }
-
-  // Sort recency-driven: latest activity first.
-  visible = [...visible].sort(
-    (a, b) =>
-      new Date(b.thread.lastActivity).getTime() -
-      new Date(a.thread.lastActivity).getTime(),
+  const activeVisible = filterAndSort(
+    threadsQuery.data ?? [],
+    currentUserId,
+    filter,
   );
+  const archivedVisible = filterAndSort(
+    archivedQuery.data ?? [],
+    currentUserId,
+    filter,
+  );
+  const archivedCount = archivedVisible.length;
+
+  const archivedPanelId = "engagement-archived-list";
+
+  // Decide whether to render the active-list empty state. The empty
+  // state replaces the active list only when *both* slices are empty;
+  // if the operator has archived threads waiting, those should still
+  // surface (the archived section becomes the only visible content).
+  const showActiveEmpty = activeVisible.length === 0 && archivedCount === 0;
 
   return (
     <div
@@ -592,7 +753,7 @@ export function EngagementList({
         </div>
       )}
 
-      {visible.length === 0 ? (
+      {showActiveEmpty ? (
         <EngagementListEmpty
           slice={slice}
           unit={unit}
@@ -600,29 +761,50 @@ export function EngagementList({
           variant={variant}
           filter={filter}
         />
-      ) : (
-        <div
-          className={
-            variant === "sidebar" ? "flex flex-col gap-1" : "space-y-3"
-          }
-          data-testid="engagement-list"
-          aria-label="Engagements"
+      ) : activeVisible.length > 0 ? (
+        <ListBody
+          threads={activeVisible}
+          pendingThreadIds={pendingThreadIds}
+          currentUserId={currentUserId}
+          selectedThreadId={selectedThreadId}
+          variant={variant}
+          testId="engagement-list"
+        />
+      ) : null}
+
+      {archivedCount > 0 && (
+        <section
+          className={cn(
+            // Visual separation from the active list. The section
+            // header stays low-key (muted) so the active list keeps
+            // visual priority.
+            variant === "sidebar"
+              ? "mt-1 flex flex-col gap-1"
+              : "mt-2 space-y-2 border-t border-border/60 pt-3",
+          )}
+          data-testid="engagement-archived-section"
+          aria-label="Archived engagements"
         >
-          {visible.map(({ thread, isParticipant }) => (
-            <EngagementCard
-              key={thread.id}
-              thread={thread}
-              hasPendingQuestion={pendingThreadIds.has(thread.id)}
-              isParticipant={isParticipant}
-              title={engagementTitle(
-                thread.participants ?? [],
-                currentUserId,
-              )}
-              selected={selectedThreadId === thread.id}
+          <ArchivedSectionHeader
+            count={archivedCount}
+            open={archivedOpen}
+            onToggle={() => setArchivedOpen((v) => !v)}
+            panelId={archivedPanelId}
+            variant={variant}
+          />
+          {archivedOpen && (
+            <ListBody
+              threads={archivedVisible}
+              pendingThreadIds={pendingThreadIds}
+              currentUserId={currentUserId}
+              selectedThreadId={selectedThreadId}
               variant={variant}
+              muted
+              id={archivedPanelId}
+              testId="engagement-archived-list"
             />
-          ))}
-        </div>
+          )}
+        </section>
       )}
     </div>
   );

@@ -451,6 +451,14 @@ export interface ThreadListFilters {
   agent?: string;
   participant?: string;
   limit?: number;
+  /**
+   * Auto-archive scope (#2732). Omitted / `false` → response excludes
+   * archived threads (the default). `true` → response contains *only*
+   * archived threads. A thread is archived when every non-human
+   * participant has been soft-deleted; solo-human threads are never
+   * archived.
+   */
+  archived?: boolean;
 }
 
 /** Matches Cvoya.Spring.Core.Initiative.InitiativeLevel enum. */
