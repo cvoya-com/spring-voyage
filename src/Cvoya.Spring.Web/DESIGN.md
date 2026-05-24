@@ -612,6 +612,18 @@ The card header carries an `Inherits` outline badge when no own declarations exi
 | `agent-create-dialog-unit-strip` | Dialog | Preselected-unit confirmation strip |
 | `agent-create-dialog-from-package-link` | Dialog | Pivot from scratch into the from-package picker |
 
+### 12.6.1 System prompt mode toggle (#2694 / #2691 / #2692 / #2667)
+
+Two-option control surfaced on the Unit × Execution tab (`src/components/units/tab-impls/execution-tab.tsx`) and the Agent × Execution panel (`src/components/agents/tab-impls/execution-panel.tsx`). Drives the `system_prompt_mode` slot on the execution block — `append` lets the assembled Spring Voyage system prompt extend the agent runtime's built-in scaffolding (engineer-style agents), `replace` swaps the entire system prompt for routers / PMs / other non-coding agents.
+
+Shape: a `<div role="radiogroup" aria-label="System prompt mode">` in a `flex gap-3` row containing two `<button role="radio">` affordances. Each button uses `min-w-[8rem] flex-1 rounded-md border px-3 py-2 text-left text-sm`; the selected button paints `border-primary bg-primary/10 text-primary` and the unselected variant `border-border bg-muted/30 text-foreground/70 hover:border-primary/40 hover:bg-accent/50`. `aria-checked` tracks state per option; `focus-visible:ring-2 focus-visible:ring-ring` keeps the focus ring on the primary token. The pattern intentionally borrows from §12.12's parent-choice radio so the surfaces share an axe sweep and dark-mode contract; no new colour tokens are introduced.
+
+Above the buttons, a small `<Badge variant="outline">` carries the cascade indicator (`data-testid="<surface>-system-prompt-mode-cascade-indicator"`, `data-origin="agent|unit|default"`): `Set here` when the current surface declared the value, `Inherited from unit` on the agent surface when the unit default fills in, or `Default` when neither tier declared and the platform's built-in `append` wins. On the agent surface only, when origin is `agent`, a ghost `Clear override` button is rendered on the right of the row — clicking it issues the tri-state PATCH (`UpdateAgentMetadataRequest.systemPromptMode = null`) so the slot reverts to inheriting from the unit. The unit surface omits the clear affordance because the unit `PUT /execution` cannot null individual fields (use the panel's existing `Clear all` to wipe every slot at once).
+
+Persistence is independent of the panel's image / runtime / model form; clicking an option fires immediately. The agent surface PATCHes `updateAgentMetadata({ systemPromptMode })`; the unit surface PUTs `setUnitExecution({ systemPromptMode })` which the server merges into the existing defaults. The cascade indicator reads `AgentResponse.declaredSystemPromptMode` (raw, agent's own block) and `AgentResponse.systemPromptMode` (post-cascade, resolved) so a refetch after either path keeps the indicator coherent with the resolved value the dispatcher sees.
+
+Effective `data-testid` prefix: `agent-system-prompt-mode-*` on the agent panel, `unit-system-prompt-mode-*` on the unit tab. Per-option testids end in `-option-append` / `-option-replace`; the clear control uses `-clear`.
+
 ### 12.7 Thread error events — inline dispatch-failure rendering (#1161)
 
 `ErrorOccurred` activity events, and any thread event with `severity === "Error"`, render as a distinct inline error bubble in `<ThreadEventRow>` (`src/components/thread/thread-event-row.tsx`). The pattern uses the destructive palette so the operator cannot miss a dispatch failure while reading a conversation thread.

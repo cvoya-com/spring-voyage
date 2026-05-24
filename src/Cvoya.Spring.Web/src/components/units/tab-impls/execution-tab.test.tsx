@@ -642,4 +642,77 @@ describe("ExecutionTab", () => {
       ).toHaveTextContent(`${label}: not configured`);
     },
   );
+
+  // ---------------------------------------------------------------------
+  // system_prompt_mode (#2694 — N4 of #2667 / #2691 / #2692).
+  // ---------------------------------------------------------------------
+
+  it("renders the Default cascade indicator on a unit with no declared mode", async () => {
+    getUnitExecution.mockResolvedValue({});
+
+    render(
+      <Wrapper>
+        <ExecutionTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const indicator = await screen.findByTestId(
+      "unit-system-prompt-mode-cascade-indicator",
+    );
+    expect(indicator).toHaveAttribute("data-origin", "default");
+    expect(indicator).toHaveTextContent("Default");
+    // Default falls back to Append.
+    expect(
+      screen.getByTestId("unit-system-prompt-mode-option-append"),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("renders 'Set here' when the unit persisted a mode", async () => {
+    getUnitExecution.mockResolvedValue({ systemPromptMode: "replace" });
+
+    render(
+      <Wrapper>
+        <ExecutionTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const indicator = await screen.findByTestId(
+      "unit-system-prompt-mode-cascade-indicator",
+    );
+    await waitFor(() => {
+      expect(indicator).toHaveAttribute("data-origin", "unit");
+    });
+    expect(indicator).toHaveTextContent("Set here");
+    expect(
+      screen.getByTestId("unit-system-prompt-mode-option-replace"),
+    ).toHaveAttribute("aria-checked", "true");
+    // No Clear-override at the unit surface — PUT has no per-field
+    // clear path for this slot.
+    expect(
+      screen.queryByTestId("unit-system-prompt-mode-clear"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("sends a PUT with only the systemPromptMode slot when the operator picks an option", async () => {
+    getUnitExecution.mockResolvedValue({});
+    setUnitExecution.mockResolvedValue({ systemPromptMode: "replace" });
+
+    render(
+      <Wrapper>
+        <ExecutionTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const replaceBtn = await screen.findByTestId(
+      "unit-system-prompt-mode-option-replace",
+    );
+    fireEvent.click(replaceBtn);
+
+    await waitFor(() => {
+      expect(setUnitExecution).toHaveBeenCalledTimes(1);
+    });
+    expect(setUnitExecution).toHaveBeenCalledWith("eng-team", {
+      systemPromptMode: "replace",
+    });
+  });
 });

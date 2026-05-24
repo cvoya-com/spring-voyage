@@ -6,9 +6,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { expectNoAxeViolations } from "@/test/a11y";
 import type {
+  AgentDetailResponse,
   AgentExecutionResponse,
+  AgentResponse,
   ProviderCredentialStatusResponse,
   UnitExecutionResponse,
+  UpdateAgentMetadataRequest,
 } from "@/lib/api/types";
 
 const getAgentExecution =
@@ -23,6 +26,9 @@ const setAgentExecution =
 const clearAgentExecution = vi.fn<(id: string) => Promise<void>>();
 const getUnitExecution =
   vi.fn<(id: string) => Promise<UnitExecutionResponse>>();
+const getAgent = vi.fn<(id: string) => Promise<AgentDetailResponse>>();
+const updateAgentMetadata =
+  vi.fn<(id: string, patch: UpdateAgentMetadataRequest) => Promise<unknown>>();
 const getModelProviderModels =
   vi.fn<
     (id: string) => Promise<
@@ -44,6 +50,9 @@ vi.mock("@/lib/api/client", () => ({
       setAgentExecution(id, body),
     clearAgentExecution: (id: string) => clearAgentExecution(id),
     getUnitExecution: (id: string) => getUnitExecution(id),
+    getAgent: (id: string) => getAgent(id),
+    updateAgentMetadata: (id: string, patch: UpdateAgentMetadataRequest) =>
+      updateAgentMetadata(id, patch),
     getModelProviderModels: (id: string) => getModelProviderModels(id),
     listModelProviders: () => Promise.resolve([]),
     getProviderCredentialStatus: (
@@ -85,12 +94,44 @@ function Wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
+function makeAgentDetail(
+  overrides: Partial<AgentResponse> = {},
+): AgentDetailResponse {
+  const agent: AgentResponse = {
+    id: "00000000-0000-0000-0000-000000000001",
+    name: "alpha",
+    displayName: "Alpha",
+    description: "",
+    role: null,
+    registeredAt: "2026-05-12T00:00:00Z",
+    model: null,
+    specialty: null,
+    enabled: true,
+    executionMode: "OnDemand",
+    parentUnit: "eng-team",
+    parentUnitId: "eng-team",
+    hostingMode: null,
+    initiativeLevel: null,
+    lifecycleStatus: null,
+    lifecycleError: null,
+    instructions: null,
+    effectiveTools: null,
+    executionImage: null,
+    systemPromptMode: null,
+    declaredSystemPromptMode: null,
+    ...overrides,
+  };
+  return { agent, status: null, deployment: null };
+}
+
 describe("AgentExecutionPanel", () => {
   beforeEach(() => {
     getAgentExecution.mockReset();
     setAgentExecution.mockReset();
     clearAgentExecution.mockReset();
     getUnitExecution.mockReset();
+    getAgent.mockReset();
+    updateAgentMetadata.mockReset();
     getModelProviderModels.mockReset();
     getProviderCredentialStatus.mockReset();
     toastMock.mockReset();
@@ -101,6 +142,11 @@ describe("AgentExecutionPanel", () => {
       source: "tenant",
       suggestion: null,
     });
+    // #2694: default agent detail with no declared / resolved
+    // system_prompt_mode so the cascade lands on the platform
+    // default. Individual tests override as needed.
+    getAgent.mockResolvedValue(makeAgentDetail());
+    updateAgentMetadata.mockResolvedValue(undefined);
   });
 
   it("renders an 'inherited from unit' indicator when the agent leaves image blank and the unit has one", async () => {
@@ -471,5 +517,152 @@ describe("AgentExecutionPanel", () => {
       expect(clearAgentExecution).toHaveBeenCalledTimes(1);
     });
     expect(clearAgentExecution).toHaveBeenCalledWith("alpha");
+  });
+
+  // ---------------------------------------------------------------------
+  // system_prompt_mode (#2694 — N4 of #2667 / #2691 / #2692).
+  // ---------------------------------------------------------------------
+
+  it("renders the Default cascade indicator when neither agent nor unit declared a mode", async () => {
+    getAgentExecution.mockResolvedValue({});
+    getUnitExecution.mockResolvedValue({});
+    getAgent.mockResolvedValue(makeAgentDetail({ systemPromptMode: "append" }));
+
+    render(
+      <Wrapper>
+        <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const indicator = await screen.findByTestId(
+      "agent-system-prompt-mode-cascade-indicator",
+    );
+    expect(indicator).toHaveAttribute("data-origin", "default");
+    expect(indicator).toHaveTextContent("Default");
+
+    // Effective default falls back to Append.
+    const appendOption = screen.getByTestId(
+      "agent-system-prompt-mode-option-append",
+    );
+    expect(appendOption).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("renders 'Inherited from unit' when only the unit declared a mode", async () => {
+    getAgentExecution.mockResolvedValue({});
+    getUnitExecution.mockResolvedValue({ systemPromptMode: "replace" });
+    getAgent.mockResolvedValue(
+      makeAgentDetail({
+        // The API resolves to the unit's value.
+        systemPromptMode: "replace",
+        // No agent-declared value.
+        declaredSystemPromptMode: null,
+      }),
+    );
+
+    render(
+      <Wrapper>
+        <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const indicator = await screen.findByTestId(
+      "agent-system-prompt-mode-cascade-indicator",
+    );
+    await waitFor(() => {
+      expect(indicator).toHaveAttribute("data-origin", "unit");
+    });
+    expect(indicator).toHaveTextContent("Inherited from unit");
+    const replaceOption = screen.getByTestId(
+      "agent-system-prompt-mode-option-replace",
+    );
+    expect(replaceOption).toHaveAttribute("aria-checked", "true");
+    // No "Clear override" because nothing is declared on the agent yet.
+    expect(
+      screen.queryByTestId("agent-system-prompt-mode-clear"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders 'Set here' and exposes Clear override when the agent declared the value", async () => {
+    getAgentExecution.mockResolvedValue({ systemPromptMode: "replace" });
+    getUnitExecution.mockResolvedValue({});
+    getAgent.mockResolvedValue(
+      makeAgentDetail({
+        systemPromptMode: "replace",
+        declaredSystemPromptMode: "replace",
+      }),
+    );
+
+    render(
+      <Wrapper>
+        <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const indicator = await screen.findByTestId(
+      "agent-system-prompt-mode-cascade-indicator",
+    );
+    await waitFor(() => {
+      expect(indicator).toHaveAttribute("data-origin", "agent");
+    });
+    expect(indicator).toHaveTextContent("Set here");
+    expect(
+      screen.getByTestId("agent-system-prompt-mode-clear"),
+    ).toBeInTheDocument();
+  });
+
+  it("sends a PATCH with the chosen literal when the operator picks an option", async () => {
+    getAgentExecution.mockResolvedValue({});
+    getUnitExecution.mockResolvedValue({});
+    getAgent.mockResolvedValue(makeAgentDetail({ systemPromptMode: "append" }));
+
+    render(
+      <Wrapper>
+        <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const replaceOption = await screen.findByTestId(
+      "agent-system-prompt-mode-option-replace",
+    );
+    fireEvent.click(replaceOption);
+
+    await waitFor(() => {
+      expect(updateAgentMetadata).toHaveBeenCalledTimes(1);
+    });
+    expect(updateAgentMetadata).toHaveBeenCalledWith("alpha", {
+      systemPromptMode: "replace",
+    });
+  });
+
+  it("Clear override issues a PATCH with explicit null", async () => {
+    getAgentExecution.mockResolvedValue({ systemPromptMode: "replace" });
+    getUnitExecution.mockResolvedValue({});
+    getAgent.mockResolvedValue(
+      makeAgentDetail({
+        systemPromptMode: "replace",
+        declaredSystemPromptMode: "replace",
+      }),
+    );
+
+    render(
+      <Wrapper>
+        <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const clearBtn = await screen.findByTestId("agent-system-prompt-mode-clear");
+    fireEvent.click(clearBtn);
+
+    await waitFor(() => {
+      expect(updateAgentMetadata).toHaveBeenCalledTimes(1);
+    });
+    const [id, patch] = updateAgentMetadata.mock.calls[0];
+    expect(id).toBe("alpha");
+    // Critically: an explicit JSON null (not undefined) so the
+    // tri-state API clears the slot rather than leaving it alone.
+    expect(patch).toEqual({ systemPromptMode: null });
+    expect(Object.prototype.hasOwnProperty.call(patch, "systemPromptMode")).toBe(
+      true,
+    );
   });
 });
