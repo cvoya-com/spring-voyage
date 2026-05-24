@@ -1,5 +1,6 @@
 "use client";
 
+import { CopyEntryButton } from "@/components/activity/copy-entry-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ActivityEvent, ActivitySeverity } from "@/lib/api/types";
 import { humanEventType, timeAgo } from "@/lib/utils";
@@ -65,7 +66,13 @@ export function ActivityFeed({
               <span className="sr-only">{item.severity}: </span>
             </span>
             <div className="min-w-0 flex-1">
-              <p>{item.summary}</p>
+              <div className="flex items-start gap-2">
+                <p className="min-w-0 flex-1">{item.summary}</p>
+                <CopyEntryButton
+                  entry={item}
+                  testId={`activity-feed-${item.id}-copy`}
+                />
+              </div>
               <p className="text-xs text-muted-foreground">
                 {item.source.scheme}://{item.source.path} &middot;{" "}
                 {humanEventType(item.eventType)} &middot; {timeAgo(item.timestamp)}

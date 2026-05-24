@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 
+import { CopyEntryButton } from "@/components/activity/copy-entry-button";
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -883,7 +884,13 @@ export function ActivityTab({ kind, id }: ActivityTabProps) {
                         {e.severity}
                       </Badge>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm">{e.summary}</p>
+                        <div className="flex items-start gap-2">
+                          <p className="min-w-0 flex-1 text-sm">{e.summary}</p>
+                          <CopyEntryButton
+                            entry={e}
+                            testId={`activity-row-${e.id}-copy`}
+                          />
+                        </div>
                         <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-muted-foreground">
                           <span>{humanEventType(e.eventType)}</span>
                           {e.cost != null && <span>${e.cost.toFixed(4)}</span>}

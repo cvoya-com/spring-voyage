@@ -53,7 +53,7 @@ function setupClipboard() {
   return writeText;
 }
 
-describe("addressFor (#1070 / #1200)", () => {
+describe("addressFor (#1070 / #2535)", () => {
   it("returns the canonical id verbatim when it already carries a known scheme", () => {
     expect(addressFor(tenant)).toBe("tenant://acme");
     expect(
@@ -72,34 +72,12 @@ describe("addressFor (#1070 / #1200)", () => {
     );
   });
 
-  // #1200: agent addresses include the unit-path prefix so the copied
-  // identity is globally unique across tenants with multiple units.
-  it("includes the unit-path prefix for an agent when path is supplied", () => {
-    const path: TreeNode[] = [tenant, unit, agent];
-    expect(addressFor(agent, path)).toBe("agent://engineering/ada");
-  });
-
-  it("includes nested unit segments for a deeply-nested agent", () => {
-    const subUnit: TreeNode = {
-      id: "frontend",
-      name: "Frontend",
-      kind: "Unit",
-      status: "running",
-    };
-    const path: TreeNode[] = [tenant, unit, subUnit, agent];
-    expect(addressFor(agent, path)).toBe("agent://engineering/frontend/ada");
-  });
-
-  it("falls back to agent://<name> when path has no unit ancestors", () => {
-    // Agent directly under the tenant root (no unit in the path).
-    const path: TreeNode[] = [tenant, agent];
-    expect(addressFor(agent, path)).toBe("agent://ada");
-  });
-
-  it("does not alter unit or tenant addresses when path is supplied", () => {
-    const path: TreeNode[] = [tenant, unit];
-    expect(addressFor(unit, path)).toBe("unit://engineering");
-    expect(addressFor(tenant, path)).toBe("tenant://acme");
+  // #2535: the copied agent address is the bare id, not the
+  // unit-prefixed form that #1200 introduced. Agent ids are already
+  // globally unique, so the path prefix added surface noise without
+  // routing value.
+  it("returns the bare agent id without any unit-path prefix", () => {
+    expect(addressFor(agent)).toBe("agent://ada");
   });
 });
 
@@ -128,7 +106,7 @@ describe("DetailPane copy-address button (#1070)", () => {
     );
   });
 
-  it("copies the full-path agent address when an agent is selected (#1200)", async () => {
+  it("copies the bare agent address when an agent is selected (#2535)", async () => {
     const writeText = setupClipboard();
     render(
       <DetailPane
@@ -140,10 +118,10 @@ describe("DetailPane copy-address button (#1070)", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("detail-copy-address"));
-    // #1200: the copied address includes the unit segment so the identity
-    // is globally unique: agent://engineering/ada, not just agent://ada.
+    // #2535: the copied address is the bare agent id, not the unit-path
+    // prefixed form that #1200 originally introduced.
     await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith("agent://engineering/ada"),
+      expect(writeText).toHaveBeenCalledWith("agent://ada"),
     );
   });
 

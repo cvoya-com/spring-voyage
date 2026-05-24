@@ -80,6 +80,28 @@ export const defaultRoutes: readonly RouteEntry[] = [
     description: "Units, agents, and recent activity at a glance.",
   },
   {
+    // #2473: renamed from "Units" to "Explorer"; canonical nav entry is
+    // now `/explorer` (#2517) so the browser bar shows `/explorer` when
+    // the user clicks the sidebar link. `/units` remains a legacy route
+    // that still renders the Explorer canvas; the active state covers
+    // both so bookmarked `/units` URLs keep the nav item lit.
+    // #2512: moved from Orchestrate to Overview so Explorer lives under
+    // the Dashboard section alongside Activity and Analytics.
+    // #2579: bumped above Activity/Analytics so Explorer sits second in
+    // the Overview group, directly under Dashboard.
+    path: "/explorer",
+    label: "Explorer",
+    icon: Network,
+    navSection: "overview",
+    orderHint: 15,
+    keywords: ["units", "teams", "groups", "agents", "explorer", "spring unit list"],
+    description:
+      "Canonical Explorer — units, agents, policies, and memory in one tree.",
+    // Mark /explorer/* and legacy /units paths as belonging to this nav
+    // entry so the sidebar active state lights up on any Explorer URL.
+    activePatterns: ["/explorer/", "/units"],
+  },
+  {
     path: "/activity",
     label: "Activity",
     icon: Activity,
@@ -103,27 +125,6 @@ export const defaultRoutes: readonly RouteEntry[] = [
     ],
     description:
       "Deep-dive charts: cost, throughput, and wait-time breakdowns.",
-  },
-
-  {
-    // #2473: renamed from "Units" to "Explorer"; canonical nav entry is
-    // now `/explorer` (#2517) so the browser bar shows `/explorer` when
-    // the user clicks the sidebar link. `/units` remains a legacy route
-    // that still renders the Explorer canvas; the active state covers
-    // both so bookmarked `/units` URLs keep the nav item lit.
-    // #2512: moved from Orchestrate to Overview so Explorer lives under
-    // the Dashboard section alongside Activity and Analytics.
-    path: "/explorer",
-    label: "Explorer",
-    icon: Network,
-    navSection: "overview",
-    orderHint: 35,
-    keywords: ["units", "teams", "groups", "agents", "explorer", "spring unit list"],
-    description:
-      "Canonical Explorer — units, agents, policies, and memory in one tree.",
-    // Mark /explorer/* and legacy /units paths as belonging to this nav
-    // entry so the sidebar active state lights up on any Explorer URL.
-    activePatterns: ["/explorer/", "/units"],
   },
 
   // ----- Orchestrate ------------------------------------------------

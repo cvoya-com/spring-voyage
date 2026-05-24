@@ -43,6 +43,17 @@ describe("defaultRoutes (IA §2)", () => {
     expect(byPath["/settings"]).toBe("control");
   });
 
+  it("renders Explorer directly below Dashboard in the Overview cluster (#2579)", () => {
+    const overview = defaultRoutes
+      .filter((r) => r.navSection === "overview")
+      .sort((a, b) => (a.orderHint ?? 0) - (b.orderHint ?? 0));
+
+    const dashboardIdx = overview.findIndex((r) => r.path === "/");
+    const explorerIdx = overview.findIndex((r) => r.path === "/explorer");
+    expect(dashboardIdx).toBe(0);
+    expect(explorerIdx).toBe(1);
+  });
+
   it("renders the Engagement entry directly below Discovery in the Orchestrate cluster (#1454)", () => {
     const orchestrate = defaultRoutes
       .filter((r) => r.navSection === "orchestrate")
