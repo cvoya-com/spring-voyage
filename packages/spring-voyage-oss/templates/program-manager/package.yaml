@@ -175,3 +175,7 @@ expertise:
     level: advanced
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest
+  # #2696: PMs only use `gh` and `sv.*` tools — no `Edit` / `Write` / `Bash`
+  # against the project tree. Dropping Claude Code's default coding-assistant
+  # prompt keeps the model from carrying tool guidance it must not act on.
+  system_prompt_mode: replace
