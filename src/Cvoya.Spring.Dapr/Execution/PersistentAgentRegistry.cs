@@ -922,15 +922,23 @@ public class PersistentAgentRegistry(
 
             if (definition?.Execution?.Image is null)
             {
+                // Definition gone means the agent was deleted while its
+                // runtime row lingered — an orphan from a delete where the
+                // undeploy did not complete (e.g. a crash mid-delete or a
+                // pre-#2713 cascade gap). Keeping the row alive here causes
+                // the health timer to probe → fail → hit threshold → retry
+                // every ~15s indefinitely, and webhook deliveries targeting
+                // this unit continue to emit "No directory entry found"
+                // warnings. Remove the row so the timer stops and the
+                // portal chip reflects accurate state (#2706).
+                // A transient provider error surfaces as a thrown exception
+                // (caught by the outer catch block) and leaves the row in
+                // Unknown status for one more sweep; this branch is only
+                // reached when the provider explicitly returned null.
                 _logger.LogWarning(
-                    "Cannot restart agent {AgentId}: no definition/image available; keeping as unavailable.",
+                    "Cannot restart agent {AgentId}: definition not found in durable storage; removing orphan runtime row.",
                     entry.AgentId);
-                // Keep the row in the registry so the portal chip stays
-                // "unavailable" rather than flipping back to "idle". Reset
-                // ConsecutiveFailures so we don't re-enter TryRestartAsync on
-                // every subsequent health tick — the cycle naturally rebuilds
-                // to the restart threshold over UnhealthyThreshold ticks.
-                await UpdateHealthAsync(entry.AgentId, AgentHealthStatus.Unhealthy, 0, CancellationToken.None);
+                await RemoveAsync(entry.AgentId, CancellationToken.None);
                 return;
             }
 
