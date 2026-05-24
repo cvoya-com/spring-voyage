@@ -220,6 +220,24 @@ public class CodexLauncherTests
 
     private const string TestAssembledSystemPrompt = "ASSEMBLED SYSTEM PROMPT FOR TEST";
 
+    /// <summary>
+    /// #2682: the launcher contributes runtime-true workspace prose
+    /// naming the Codex CLI surface and workspace env vars.
+    /// </summary>
+    [Fact]
+    public void GetWorkspacePromptFragment_NamesCodexRuntimeAndWorkspaceEnvVars()
+    {
+        var fragment = _launcher.GetWorkspacePromptFragment();
+
+        fragment.ShouldNotBeNullOrWhiteSpace();
+        fragment!.ShouldContain("Codex CLI");
+        fragment.ShouldContain("`codex`");
+        fragment.ShouldContain("$SPRING_WORKSPACE_PATH");
+        fragment.ShouldContain("AGENTS.md");
+        fragment.ShouldContain(".mcp.json");
+        fragment.ShouldNotContain("worktree");
+    }
+
     private static AgentBootstrapContributionContext CreateBundleContext(
         string? instructions = "Write clean code.",
         string assembledSystemPrompt = TestAssembledSystemPrompt)

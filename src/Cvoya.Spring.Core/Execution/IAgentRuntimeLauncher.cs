@@ -77,6 +77,21 @@ public interface IAgentRuntimeLauncher
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns the runtime-true prose the prompt assembler renders under
+    /// the platform-injected <c>## Container and workspace</c> section
+    /// (#2682). Describes the per-runtime container surface — workspace
+    /// path env var, CLI tool baseline, session-storage env vars, MCP
+    /// discovery — so authors do not have to repeat it in every agent's
+    /// instructions. Synchronous and context-free: the prose is a
+    /// launcher constant referencing env-var names (not values), so the
+    /// bundle provider can call it before assembling the system prompt
+    /// without round-tripping per-agent state. Return <c>null</c> when
+    /// the runtime has no container/workspace concept (the A2A-native
+    /// <c>spring-voyage-agent</c> launcher).
+    /// </summary>
+    string? GetWorkspacePromptFragment();
+
+    /// <summary>
     /// Builds the declarative list of in-container probe commands the
     /// Dapr <c>ArtefactValidationWorkflow</c> should execute against the
     /// unit's chosen container image, after pulling the image and
@@ -113,7 +128,7 @@ public interface IAgentRuntimeLauncher
 /// </summary>
 /// <param name="AgentId">The agent id (for logging and prompt materialisation).</param>
 /// <param name="ThreadId">The thread id being served.</param>
-/// <param name="Prompt">The assembled system prompt (Layer 1–4).</param>
+/// <param name="Prompt">The assembled system prompt (platform instructions + unit context + role-specific instructions).</param>
 /// <param name="McpEndpoint">The URL the container should use to reach the MCP server.</param>
 /// <param name="McpToken">The bearer token the container must present on MCP calls.</param>
 /// <param name="TenantId">

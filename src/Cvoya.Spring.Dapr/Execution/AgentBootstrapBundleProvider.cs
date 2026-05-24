@@ -42,6 +42,7 @@ public sealed class AgentBootstrapBundleProvider(
     IEnumerable<IAgentRuntimeLauncher> launchers,
     IConnectorRuntimeContextResolver connectorContextResolver,
     IConnectorPromptContextResolver connectorPromptContextResolver,
+    IIdentityPromptContextResolver identityPromptContextResolver,
     IPromptAssembler promptAssembler,
     IServiceScopeFactory scopeFactory,
     IOptions<McpServerOptions> mcpServerOptions,
@@ -72,6 +73,8 @@ public sealed class AgentBootstrapBundleProvider(
         ?? throw new ArgumentNullException(nameof(connectorContextResolver));
     private readonly IConnectorPromptContextResolver _connectorPromptContextResolver = connectorPromptContextResolver
         ?? throw new ArgumentNullException(nameof(connectorPromptContextResolver));
+    private readonly IIdentityPromptContextResolver _identityPromptContextResolver = identityPromptContextResolver
+        ?? throw new ArgumentNullException(nameof(identityPromptContextResolver));
     private readonly IPromptAssembler _promptAssembler = promptAssembler
         ?? throw new ArgumentNullException(nameof(promptAssembler));
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory
@@ -107,20 +110,39 @@ public sealed class AgentBootstrapBundleProvider(
 
         var platformFilePaths = new HashSet<string>(StringComparer.Ordinal);
 
-        // Compose the per-agent system prompt (platform contract +
-        // unit context + agent instructions + equipped skill bundles)
-        // via the same assembler the dispatch path uses, then hand it
-        // to the launcher contribution so each CLI runtime materialises
-        // it into the file its CLI auto-discovers (CLAUDE.md / AGENTS.md
-        // / GEMINI.md). Without this, the launcher contribution would
-        // ship only Definition.Instructions and the agent would never
-        // see the platform contract from Layer 1 — silent-dispatch
-        // territory.
+        // Compose the per-agent system prompt (platform instructions +
+        // unit context + role-specific instructions + equipped skill
+        // bundles) via the same assembler the dispatch path uses, then
+        // hand it to the launcher contribution so each CLI runtime
+        // materialises it into the file its CLI auto-discovers
+        // (CLAUDE.md / AGENTS.md / GEMINI.md). Without this, the
+        // launcher contribution would ship only Definition.Instructions
+        // and the agent would never see the platform contract from the
+        // platform-instructions layer — silent-dispatch territory.
         var subjectAddress = new Address("agent", Guid.Parse(agentId));
         var connectorPromptFragments = await _connectorPromptContextResolver
             .ResolveAsync(subjectAddress, cancellationToken);
         var (unitBundles, agentBundles) = await EquippedBundleLoader.LoadAsync(
             _scopeFactory, agentId, cancellationToken);
+
+        // #2680: pull the identity fragment from the resolver so the
+        // assembled prompt names the agent up front. Resolver may
+        // return null (e.g. for synthetic launch paths or address
+        // schemes the OSS default doesn't render); the assembler omits
+        // the section in that case.
+        var identityPromptFragment = await _identityPromptContextResolver
+            .ResolveAsync(subjectAddress, cancellationToken);
+
+        // #2682: launcher-contributed workspace prose, resolved BEFORE
+        // assembly so the assembler can render the
+        // `## Container and workspace` section in-band with the rest of
+        // the platform instructions. The launcher's file contribution
+        // (CLAUDE.md / AGENTS.md / GEMINI.md / .mcp.json) still happens
+        // post-assembly via ContributeBundleAsync — that's where the
+        // assembled prompt actually lands as a file.
+        var launcher = ResolveLauncher(definition, agentId);
+        var workspacePromptFragment = launcher?.GetWorkspacePromptFragment();
+
         var assemblyContext = new PromptAssemblyContext(
             Policies: null,
             AgentInstructions: definition.Instructions,
@@ -128,7 +150,9 @@ public sealed class AgentBootstrapBundleProvider(
             SkillBundles: unitBundles,
             AgentSkillBundles: agentBundles,
             PendingAmendments: null,
-            ConnectorPromptFragments: connectorPromptFragments);
+            ConnectorPromptFragments: connectorPromptFragments,
+            IdentityPromptFragment: identityPromptFragment,
+            WorkspacePromptFragment: workspacePromptFragment);
         var assembledSystemPrompt = await _promptAssembler.AssembleAsync(
             assemblyContext, cancellationToken);
 
@@ -151,8 +175,9 @@ public sealed class AgentBootstrapBundleProvider(
             assembledSystemPrompt, concurrentThreads);
 
         // Launcher contribution — the per-runtime system-prompt file and
-        // MCP config (or nothing, for the A2A-native spring-voyage agent).
-        var launcher = ResolveLauncher(definition, agentId);
+        // MCP config (or nothing, for the A2A-native spring-voyage
+        // agent). Launcher was resolved above to source the
+        // workspace-prompt fragment; reuse the same instance.
         if (launcher is not null)
         {
             var ctx = new AgentBootstrapContributionContext(

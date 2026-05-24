@@ -4,8 +4,9 @@
 namespace Cvoya.Spring.Core.Execution;
 
 /// <summary>
-/// Assembles the per-agent system prompt — three layers (platform,
-/// unit context, agent instructions) — from a <see cref="PromptAssemblyContext"/>.
+/// Assembles the per-agent system prompt — three sections (platform
+/// instructions, unit context, role-specific instructions) — from a
+/// <see cref="PromptAssemblyContext"/>.
 /// </summary>
 /// <remarks>
 /// The result is the system prompt the platform delivers to the agent
@@ -19,7 +20,7 @@ public interface IPromptAssembler
     /// <summary>
     /// Assembles the per-agent system prompt string from the supplied
     /// <paramref name="context"/>. When <paramref name="context"/> is
-    /// <c>null</c>, only the platform layer (Layer 1) is rendered.
+    /// <c>null</c>, only the platform-instructions section is rendered.
     /// </summary>
     /// <param name="context">
     /// Per-agent inputs (policies, unit + agent skill bundles, agent

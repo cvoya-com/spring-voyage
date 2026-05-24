@@ -85,7 +85,7 @@ public class ConversationalDefaultsBundleIntegrationTests
         //     text no longer carries the contract; it is provided once
         //     by the platform-prompt provider at the top of the prompt.
         var layer1Idx = assembled.IndexOf("## Platform Instructions", StringComparison.Ordinal);
-        var layer4Idx = assembled.IndexOf("## Agent Instructions", StringComparison.Ordinal);
+        var layer4Idx = assembled.IndexOf("## Role-specific instructions", StringComparison.Ordinal);
         var contractIdx = assembled.IndexOf("[PLATFORM CONTRACT — NON-NEGOTIABLE]", StringComparison.Ordinal);
         layer1Idx.ShouldBeGreaterThanOrEqualTo(0);
         layer4Idx.ShouldBeGreaterThan(layer1Idx);
@@ -123,11 +123,16 @@ public class ConversationalDefaultsBundleIntegrationTests
         //     calling sv.tools.list_categories.
         assembled.ShouldContain("memory");
 
-        // (8) #2670: the fundamental-core tool names appear exactly
-        //     once — in Layer 1. The bundle no longer re-names them.
-        var sendFirst = assembled.IndexOf("sv.messaging.send", StringComparison.Ordinal);
-        var sendSecond = assembled.IndexOf("sv.messaging.send", sendFirst + 1, StringComparison.Ordinal);
-        sendSecond.ShouldBe(-1, "Layer 1 owns the platform-tool catalog; no other layer may re-name sv.messaging.send.");
+        // (8) #2670 / #2681: the platform-instructions section owns the
+        //     fundamental-core tool names — they may appear multiple
+        //     times inside that section (the catalog plus the #2681
+        //     non-example refer to sv.messaging.send), but no downstream
+        //     section may re-name them. Check by asserting no occurrence
+        //     after the role-specific instructions heading.
+        var roleIdx = assembled.IndexOf("## Role-specific instructions", StringComparison.Ordinal);
+        roleIdx.ShouldBeGreaterThan(0);
+        var sendInRoleSection = assembled.IndexOf("sv.messaging.send", roleIdx, StringComparison.Ordinal);
+        sendInRoleSection.ShouldBe(-1, "The platform-instructions section owns the platform-tool catalog; no downstream section may re-name sv.messaging.send.");
     }
 
     [Fact]

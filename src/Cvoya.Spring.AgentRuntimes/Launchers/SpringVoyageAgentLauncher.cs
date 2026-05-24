@@ -217,6 +217,16 @@ public class SpringVoyageAgentLauncher(
 
     /// <inheritdoc />
     /// <remarks>
+    /// The Spring Voyage agent is A2A-native and runs from its image's
+    /// own working directory rather than a per-agent workspace; there is
+    /// no CLI surface for the prompt to describe, so this launcher
+    /// returns <c>null</c> and the prompt assembler omits the
+    /// <c>## Container and workspace</c> section entirely (#2682).
+    /// </remarks>
+    public string? GetWorkspacePromptFragment() => null;
+
+    /// <inheritdoc />
+    /// <remarks>
     /// The Spring Voyage agent is A2A-native — it does not consume any
     /// in-workspace system-prompt or MCP-config files. Per-message context
     /// arrives via the A2A wire; static prompt is delivered via

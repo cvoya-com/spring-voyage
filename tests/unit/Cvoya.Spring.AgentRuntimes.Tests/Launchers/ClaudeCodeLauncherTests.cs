@@ -382,6 +382,33 @@ public class ClaudeCodeLauncherTests
     // guard's delivery is therefore covered by
     // AgentBootstrapBundleProviderTests.
 
+    /// <summary>
+    /// #2682: the launcher contributes runtime-true workspace prose
+    /// that names the env vars and CLI surface it actually wires up
+    /// (workspace path, CLAUDE_CONFIG_DIR, MCP discovery file) and
+    /// stays author-agnostic (no clone-paths or GitHub env vars).
+    /// </summary>
+    [Fact]
+    public void GetWorkspacePromptFragment_NamesClaudeCodeRuntimeAndWorkspaceEnvVars()
+    {
+        var fragment = _launcher.GetWorkspacePromptFragment();
+
+        fragment.ShouldNotBeNullOrWhiteSpace();
+        fragment!.ShouldContain("Claude Code CLI");
+        fragment.ShouldContain("`claude`");
+        fragment.ShouldContain("$SPRING_WORKSPACE_PATH");
+        fragment.ShouldContain("CLAUDE.md");
+        fragment.ShouldContain(".mcp.json");
+        fragment.ShouldContain("$CLAUDE_CONFIG_DIR");
+
+        // Author-agnostic — no clones / GitHub env vars / worktree
+        // conventions; those belong on the author's role-specific
+        // instructions, not on the launcher.
+        fragment.ShouldNotContain("GH_TOKEN");
+        fragment.ShouldNotContain("GITHUB_TOKEN");
+        fragment.ShouldNotContain("worktree");
+    }
+
     private const string BundleContextMcpEndpoint = "http://host.docker.internal:9999/mcp/";
     private const string TestAssembledSystemPrompt = "ASSEMBLED SYSTEM PROMPT FOR TEST";
 

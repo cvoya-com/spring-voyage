@@ -41,11 +41,12 @@ public class PromptAssemblerTests
     }
 
     /// <summary>
-    /// Verifies that the three active layers (platform, unit context,
-    /// agent instructions) are included in order when context is set.
+    /// Verifies that the three active sections (platform instructions, unit
+    /// context, role-specific instructions) are included in order when
+    /// context is set.
     /// </summary>
     [Fact]
-    public async Task AssembleAsync_IncludesAllLayersInOrder()
+    public async Task AssembleAsync_IncludesAllSectionsInOrder()
     {
         var context = new PromptAssemblyContext(
             Policies: JsonSerializer.SerializeToElement(new { maxRetries = 3 }),
@@ -55,22 +56,22 @@ public class PromptAssemblerTests
 
         result.ShouldContain("## Platform Instructions");
         result.ShouldContain("## Unit Context");
-        result.ShouldContain("## Agent Instructions");
+        result.ShouldContain(PromptAssembler.RoleSpecificInstructionsHeading);
 
         // Verify ordering
         var platformIdx = result.IndexOf("## Platform Instructions", StringComparison.Ordinal);
         var unitIdx = result.IndexOf("## Unit Context", StringComparison.Ordinal);
-        var agentIdx = result.IndexOf("## Agent Instructions", StringComparison.Ordinal);
+        var roleIdx = result.IndexOf(PromptAssembler.RoleSpecificInstructionsHeading, StringComparison.Ordinal);
 
         platformIdx.ShouldBeLessThan(unitIdx);
-        unitIdx.ShouldBeLessThan(agentIdx);
+        unitIdx.ShouldBeLessThan(roleIdx);
     }
 
     /// <summary>
-    /// Verifies that empty layers are omitted gracefully.
+    /// Verifies that empty sections are omitted gracefully.
     /// </summary>
     [Fact]
-    public async Task AssembleAsync_OmitsEmptyLayersGracefully()
+    public async Task AssembleAsync_OmitsEmptySectionsGracefully()
     {
         var context = new PromptAssemblyContext(
             Policies: null,
@@ -80,29 +81,30 @@ public class PromptAssemblerTests
 
         result.ShouldContain("## Platform Instructions");
         result.ShouldNotContain("## Unit Context");
-        result.ShouldNotContain("## Agent Instructions");
+        result.ShouldNotContain(PromptAssembler.RoleSpecificInstructionsHeading);
     }
 
     /// <summary>
-    /// Verifies that calling with no context at all produces just the platform layer.
+    /// Verifies that calling with no context at all produces just the
+    /// platform-instructions section.
     /// </summary>
     [Fact]
-    public async Task AssembleAsync_NullContext_OnlyPlatformLayer()
+    public async Task AssembleAsync_NullContext_OnlyPlatformInstructions()
     {
         var result = await _assembler.AssembleAsync(context: null, TestContext.Current.CancellationToken);
 
         result.ShouldContain("## Platform Instructions");
         result.ShouldNotContain("## Unit Context");
-        result.ShouldNotContain("## Agent Instructions");
+        result.ShouldNotContain(PromptAssembler.RoleSpecificInstructionsHeading);
     }
 
     /// <summary>
     /// Pins the #2670 acceptance: the per-registry skill listing was
-    /// removed from Layer 2. Even a context that names a unit policy
-    /// must not synthesise an "Available Skills" sub-section, and the
-    /// auto-generated "Tools exposed by the X connector." string must
-    /// be impossible to surface because the projection that produced it
-    /// no longer exists.
+    /// removed from the unit-context section. Even a context that names a
+    /// unit policy must not synthesise an "Available Skills" sub-section,
+    /// and the auto-generated "Tools exposed by the X connector." string
+    /// must be impossible to surface because the projection that produced
+    /// it no longer exists.
     /// </summary>
     [Fact]
     public async Task AssembleAsync_DoesNotEmitAvailableSkillsBlockInUnitContext()
@@ -119,14 +121,15 @@ public class PromptAssemblerTests
     }
 
     /// <summary>
-    /// Unit-equipped skill bundles render in Layer 2; agent-equipped
-    /// bundles render in Layer 4. The same SkillBundle going through the
-    /// agent slot must land under "## Agent Instructions", not "## Unit
-    /// Context", so member-agent inheritance (unit → Layer 2) does not
-    /// conflate with the agent's own bundles (Layer 4).
+    /// Unit-equipped skill bundles render in the unit-context section;
+    /// agent-equipped bundles render in the role-specific instructions
+    /// section. The same SkillBundle going through the agent slot must
+    /// land under the role-specific heading, not under "## Unit Context",
+    /// so member-agent inheritance (unit → unit-context section) does not
+    /// conflate with the agent's own bundles.
     /// </summary>
     [Fact]
-    public async Task AssembleAsync_UnitBundles_RenderInLayer2()
+    public async Task AssembleAsync_UnitBundles_RenderInUnitContextSection()
     {
         var bundle = new SkillBundle(
             PackageName: "spring-voyage/software-engineering",
@@ -145,11 +148,11 @@ public class PromptAssemblerTests
         var unitIdx = result.IndexOf("## Unit Context", StringComparison.Ordinal);
         var bundleIdx = result.IndexOf("triage-and-assign", StringComparison.Ordinal);
         bundleIdx.ShouldBeGreaterThan(unitIdx);
-        result.ShouldNotContain("## Agent Instructions");
+        result.ShouldNotContain(PromptAssembler.RoleSpecificInstructionsHeading);
     }
 
     [Fact]
-    public async Task AssembleAsync_AgentBundles_RenderInLayer4()
+    public async Task AssembleAsync_AgentBundles_RenderInRoleSpecificInstructionsSection()
     {
         var bundle = new SkillBundle(
             PackageName: "spring-voyage/software-engineering",
@@ -164,23 +167,23 @@ public class PromptAssemblerTests
 
         var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
-        result.ShouldContain("## Agent Instructions");
-        var layer4Idx = result.IndexOf("## Agent Instructions", StringComparison.Ordinal);
+        result.ShouldContain(PromptAssembler.RoleSpecificInstructionsHeading);
+        var roleIdx = result.IndexOf(PromptAssembler.RoleSpecificInstructionsHeading, StringComparison.Ordinal);
         var bundleIdx = result.IndexOf("pr-review-cycle", StringComparison.Ordinal);
-        bundleIdx.ShouldBeGreaterThan(layer4Idx);
+        bundleIdx.ShouldBeGreaterThan(roleIdx);
 
-        // Must not leak the bundle body into Layer 2 — the two paths are
-        // strictly separated even when both feature only the agent
-        // bundles slot.
+        // Must not leak the bundle body into the unit-context section —
+        // the two paths are strictly separated even when both feature
+        // only the agent bundles slot.
         result.ShouldNotContain("## Unit Context");
     }
 
     /// <summary>
     /// The assembler renders an auto-injected "Connector context"
-    /// section between the platform layer and the unit-context layer
-    /// when the per-invocation context carries connector prompt
-    /// fragments. The section header is the canonical, stable text the
-    /// resolver and docs both pin against.
+    /// section between the platform-instructions section and the
+    /// unit-context section when the per-invocation context carries
+    /// connector prompt fragments. The section header is the canonical,
+    /// stable text the resolver and docs both pin against.
     /// </summary>
     [Fact]
     public async Task AssembleAsync_ConnectorPromptFragments_RenderUnderPlatformSection()
@@ -204,9 +207,9 @@ public class PromptAssemblerTests
 
         var platformIdx = result.IndexOf("## Platform Instructions", StringComparison.Ordinal);
         var connectorIdx = result.IndexOf("## Connector context", StringComparison.Ordinal);
-        var agentIdx = result.IndexOf("## Agent Instructions", StringComparison.Ordinal);
+        var roleIdx = result.IndexOf(PromptAssembler.RoleSpecificInstructionsHeading, StringComparison.Ordinal);
         platformIdx.ShouldBeLessThan(connectorIdx);
-        connectorIdx.ShouldBeLessThan(agentIdx);
+        connectorIdx.ShouldBeLessThan(roleIdx);
     }
 
     [Fact]
@@ -245,7 +248,7 @@ public class PromptAssemblerTests
     }
 
     [Fact]
-    public async Task AssembleAsync_UnitAndAgentBundles_RenderInDistinctLayers()
+    public async Task AssembleAsync_UnitAndAgentBundles_RenderInDistinctSections()
     {
         var unitBundle = new SkillBundle(
             PackageName: "pkg-u",
@@ -267,19 +270,113 @@ public class PromptAssemblerTests
         var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
         var unitCtxIdx = result.IndexOf("## Unit Context", StringComparison.Ordinal);
-        var agentCtxIdx = result.IndexOf("## Agent Instructions", StringComparison.Ordinal);
+        var roleIdx = result.IndexOf(PromptAssembler.RoleSpecificInstructionsHeading, StringComparison.Ordinal);
         var unitBundleIdx = result.IndexOf("skill-u", StringComparison.Ordinal);
         var agentBundleIdx = result.IndexOf("skill-a", StringComparison.Ordinal);
         var instructionsIdx = result.IndexOf("user-instructions", StringComparison.Ordinal);
 
         unitCtxIdx.ShouldBeGreaterThanOrEqualTo(0);
-        agentCtxIdx.ShouldBeGreaterThan(unitCtxIdx);
+        roleIdx.ShouldBeGreaterThan(unitCtxIdx);
 
-        // Unit bundle renders inside Layer 2; agent bundle + user
-        // instructions render inside Layer 4 — and the instructions
-        // appear before the bundle subsection within Layer 4.
-        unitBundleIdx.ShouldBeInRange(unitCtxIdx, agentCtxIdx);
-        instructionsIdx.ShouldBeGreaterThan(agentCtxIdx);
+        // Unit bundle renders inside the unit-context section; agent
+        // bundle + user instructions render inside the role-specific
+        // instructions section — and the instructions appear before the
+        // bundle subsection within that section.
+        unitBundleIdx.ShouldBeInRange(unitCtxIdx, roleIdx);
+        instructionsIdx.ShouldBeGreaterThan(roleIdx);
         agentBundleIdx.ShouldBeGreaterThan(instructionsIdx);
+    }
+
+    /// <summary>
+    /// #2680: the pre-rendered identity fragment lands in the
+    /// platform-instructions section, after the platform contract body
+    /// and before the connector-context subsection. The assembler does
+    /// not wrap or rewrite the fragment — it owns its own heading.
+    /// </summary>
+    [Fact]
+    public async Task AssembleAsync_IdentityPromptFragment_RendersAfterPlatformBeforeConnectorContext()
+    {
+        var context = new PromptAssemblyContext(
+            Policies: null,
+            AgentInstructions: "agent body",
+            ConnectorPromptFragments: new[] { "### A binding\nbody-a" },
+            IdentityPromptFragment: "## Who you are\n- **Kind:** agent");
+
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
+
+        result.ShouldContain("## Who you are");
+        var platformIdx = result.IndexOf("## Platform Instructions", StringComparison.Ordinal);
+        var identityIdx = result.IndexOf("## Who you are", StringComparison.Ordinal);
+        var connectorIdx = result.IndexOf("## Connector context", StringComparison.Ordinal);
+
+        platformIdx.ShouldBeLessThan(identityIdx);
+        identityIdx.ShouldBeLessThan(connectorIdx);
+    }
+
+    [Fact]
+    public async Task AssembleAsync_NullIdentityPromptFragment_OmitsSectionEntirely()
+    {
+        var context = new PromptAssemblyContext(
+            Policies: null,
+            AgentInstructions: "agent body");
+
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
+
+        result.ShouldNotContain("## Who you are");
+    }
+
+    /// <summary>
+    /// #2682: the launcher-contributed workspace fragment lands in the
+    /// platform-instructions section under a fixed
+    /// <c>## Container and workspace</c> heading owned by the assembler.
+    /// Rendered after identity and before connector context so all
+    /// platform-injected sections live together.
+    /// </summary>
+    [Fact]
+    public async Task AssembleAsync_WorkspacePromptFragment_RendersUnderFixedHeading()
+    {
+        var context = new PromptAssemblyContext(
+            Policies: null,
+            AgentInstructions: "agent body",
+            ConnectorPromptFragments: new[] { "### A binding\nbody-a" },
+            IdentityPromptFragment: "## Who you are\n- **Kind:** agent",
+            WorkspacePromptFragment: "You are running inside a Debian-based container.");
+
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
+
+        result.ShouldContain(PromptAssembler.ContainerAndWorkspaceHeading);
+        result.ShouldContain("You are running inside a Debian-based container.");
+
+        var identityIdx = result.IndexOf("## Who you are", StringComparison.Ordinal);
+        var workspaceIdx = result.IndexOf(PromptAssembler.ContainerAndWorkspaceHeading, StringComparison.Ordinal);
+        var connectorIdx = result.IndexOf("## Connector context", StringComparison.Ordinal);
+
+        identityIdx.ShouldBeLessThan(workspaceIdx);
+        workspaceIdx.ShouldBeLessThan(connectorIdx);
+    }
+
+    [Fact]
+    public async Task AssembleAsync_NullWorkspacePromptFragment_OmitsSectionEntirely()
+    {
+        var context = new PromptAssemblyContext(
+            Policies: null,
+            AgentInstructions: "agent body");
+
+        var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
+
+        result.ShouldNotContain(PromptAssembler.ContainerAndWorkspaceHeading);
+    }
+
+    /// <summary>
+    /// #2684: the role-specific instructions heading is kind-neutral —
+    /// no "agent" or "unit" wording — so unit-shaped subjects see the
+    /// same heading as agent-shaped subjects.
+    /// </summary>
+    [Fact]
+    public async Task AssembleAsync_RoleSpecificInstructionsHeading_IsKindNeutral()
+    {
+        PromptAssembler.RoleSpecificInstructionsHeading.ShouldBe("## Role-specific instructions");
+        PromptAssembler.RoleSpecificInstructionsHeading.ShouldNotContain("Agent");
+        PromptAssembler.RoleSpecificInstructionsHeading.ShouldNotContain("Unit");
     }
 }

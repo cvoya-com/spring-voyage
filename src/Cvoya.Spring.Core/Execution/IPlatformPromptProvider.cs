@@ -4,8 +4,9 @@
 namespace Cvoya.Spring.Core.Execution;
 
 /// <summary>
-/// Provides the platform-level prompt layer (Layer 1) containing safety constraints,
-/// tool descriptions, and behavioral guidance.
+/// Provides the platform-instructions body containing the platform
+/// introduction, safety constraints, tool descriptions, and behavioural
+/// guidance every runtime sees on every turn.
 /// </summary>
 public interface IPlatformPromptProvider
 {
