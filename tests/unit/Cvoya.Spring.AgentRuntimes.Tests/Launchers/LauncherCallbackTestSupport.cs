@@ -71,7 +71,9 @@ internal sealed class LauncherCallbackTestSupport
         Guid? tenantId = null,
         string? unitId = null,
         string? provider = null,
-        string? model = null)
+        string? model = null,
+        Cvoya.Spring.Core.Catalog.SystemPromptMode systemPromptMode =
+            Cvoya.Spring.Core.Catalog.SystemPromptMode.Append)
     {
         var resolvedAddress = agentAddress ?? DefaultAgentAddress;
         var resolvedThreadId = threadId ?? DefaultThreadId;
@@ -94,7 +96,10 @@ internal sealed class LauncherCallbackTestSupport
             Model: model,
             AgentAddress: resolvedAddress,
             CallbackThreadId: resolvedThreadId,
-            MessageId: messageId ?? DefaultMessageId);
+            MessageId: messageId ?? DefaultMessageId,
+            // #2695: dispatcher-applied default; per-test override via
+            // the `systemPromptMode` parameter.
+            SystemPromptMode: systemPromptMode);
     }
 
     public void AssertCallbackEnvironment(AgentLaunchSpec spec, AgentLaunchContext context)

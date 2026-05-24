@@ -109,12 +109,31 @@ public class CodexLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        // #2668: the Codex CLI never reads SPRING_SYSTEM_PROMPT — the
-        // system prompt is delivered exclusively via AGENTS.md written by
-        // ContributeBundleAsync, and the assembled-prompt path inside
-        // AgentBootstrapBundleProvider already folds in the
-        // ConcurrentThreadsGuard fragment (ADR-0041 / #2096) so the model
-        // still sees the concurrency contract.
+        // #2672 / #2695: the Codex CLI has no `--system-prompt-*` flags
+        // and no replace-only env var (tracked upstream at
+        // openai/codex#11588). The platform's assembled system prompt
+        // is delivered exclusively via Codex's auto-discovered
+        // `AGENTS.md` written by ContributeBundleAsync — both Append
+        // and Replace modes land at the same delivery channel. When an
+        // agent declares `system_prompt_mode: replace` on a Codex
+        // runtime, the field is honoured-by-best-effort only: the
+        // launcher logs an informational message so operators see the
+        // mismatch, and the next turn still uses `AGENTS.md`. Revisit
+        // when openai/codex#11588 ships per-runtime override flags.
+        //
+        // The assembled-prompt path inside AgentBootstrapBundleProvider
+        // already folds in the ConcurrentThreadsGuard fragment
+        // (ADR-0041 / #2096) so the model still sees the concurrency
+        // contract.
+        if (context.SystemPromptMode == Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace)
+        {
+            _logger.LogInformation(
+                "Codex launcher: system_prompt_mode=replace requested for agent {AgentId} " +
+                "but the Codex CLI exposes no replace-only override (openai/codex#11588). " +
+                "Delivering the assembled prompt via auto-discovered AGENTS.md; the CLI's " +
+                "default coding-assistant baseline is preserved.",
+                context.AgentId);
+        }
 
         var envVars = new Dictionary<string, string>
         {

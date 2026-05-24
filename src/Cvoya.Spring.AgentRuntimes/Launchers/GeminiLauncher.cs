@@ -20,12 +20,20 @@ using Microsoft.Extensions.Logging;
 /// <see cref="IAgentRuntimeLauncher"/> for Gemini CLI containers. Describes a
 /// per-invocation workspace containing:
 /// <list type="bullet">
-///   <item><c>GEMINI.md</c> — the assembled system prompt (all four layers).
-///         Gemini CLI reads this file as its instructions file.</item>
+///   <item>The platform's assembled system prompt — written to
+///         <c>GEMINI.md</c> when <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode"/>
+///         is <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Append"/>
+///         (the default; Gemini auto-discovers it as its instructions
+///         file) and to <c>.spring/system-prompt.md</c> when the mode is
+///         <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace"/>
+///         with <c>GEMINI_SYSTEM_MD</c> pointing at the absolute path
+///         (<c>GEMINI_SYSTEM_MD</c> is Gemini CLI's only system-prompt
+///         override mechanism; <b>replace-only</b> per gemini-cli 0.41.x
+///         — there is no append flag, see #2695).</item>
 ///   <item><c>.gemini/settings.json</c> — MCP server endpoint + bearer token the Gemini agent will dial.</item>
 /// </list>
 /// These files are written into the per-agent persistent workspace volume —
-/// the single workspace mount at <see cref="AgentWorkspaceContract.WorkspaceMountPath"/>
+/// the single workspace mount at <see cref="AgentWorkspaceContract.WorkspacePathEnvVar"/>
 /// (ADR-0029, #2608).
 /// <para>
 /// <b>Expected container image shape:</b> The image must bundle the Gemini CLI
@@ -59,6 +67,37 @@ public class GeminiLauncher(
     internal const string CredentialEnvVar = "GOOGLE_API_KEY";
 
     internal const string GeminiSettingsPath = ".gemini/settings.json";
+
+    /// <summary>
+    /// Workspace-relative path Gemini CLI auto-discovers as its
+    /// instructions file (Append-mode delivery target). Used when
+    /// <see cref="AgentLaunchContext.SystemPromptMode"/> is
+    /// <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Append"/>
+    /// because Gemini has no append flag — auto-discovery of
+    /// <c>GEMINI.md</c> is the only Append-mode delivery channel.
+    /// </summary>
+    internal const string GeminiMdPath = "GEMINI.md";
+
+    /// <summary>
+    /// Workspace-relative path the launcher writes the platform's
+    /// assembled system prompt to when
+    /// <see cref="AgentLaunchContext.SystemPromptMode"/> is
+    /// <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace"/>
+    /// (#2672 / #2695). Lives under the <c>.spring/</c> namespace per
+    /// ADR-0058 §2.2.2. Pointed at by <see cref="GeminiSystemMdEnvVar"/>
+    /// on the same launch.
+    /// </summary>
+    internal const string PlatformPromptFilePath = ".spring/system-prompt.md";
+
+    /// <summary>
+    /// Env var Gemini CLI reads to override its default system prompt
+    /// with the contents of a file (<b>replace-only</b>; there is no
+    /// append flag in gemini-cli 0.41.x — see #2695). Used in
+    /// Replace-mode launches to point the CLI at
+    /// <see cref="PlatformPromptFilePath"/>; unset in Append-mode
+    /// launches, leaving the CLI to auto-discover <c>GEMINI.md</c>.
+    /// </summary>
+    internal const string GeminiSystemMdEnvVar = "GEMINI_SYSTEM_MD";
 
     /// <summary>
     /// Bridge env var name carrying the CLI flag that *creates* a session
@@ -211,14 +250,28 @@ public class GeminiLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        // #2668: the Gemini CLI never reads SPRING_SYSTEM_PROMPT — the
-        // system prompt is delivered exclusively via GEMINI.md written by
-        // ContributeBundleAsync, and the assembled-prompt path inside
-        // AgentBootstrapBundleProvider already folds in the
-        // ConcurrentThreadsGuard fragment (ADR-0041 / #2096) so the model
-        // still sees the concurrency contract.
+        // #2672 / #2695: Gemini CLI's only system-prompt override
+        // mechanism is the `GEMINI_SYSTEM_MD` env var, which is
+        // *replace-only* — gemini-cli 0.41.x has no append flag. The
+        // asymmetry with the runtime catalogue's two-mode
+        // `system_prompt_mode` field is documented in
+        // `docs/architecture/agent-runtime.md`:
+        //
+        // - Append mode (default): no env override; the platform writes
+        //   the assembled prompt to `GEMINI.md` and Gemini
+        //   auto-discovers it. The CLI's coding-assistant baseline is
+        //   preserved.
+        // - Replace mode: the platform writes the assembled prompt to
+        //   `.spring/system-prompt.md` and points `GEMINI_SYSTEM_MD` at
+        //   it; the CLI's baseline is dropped entirely.
+        //
+        // The assembled-prompt path inside AgentBootstrapBundleProvider
+        // already folds in the ConcurrentThreadsGuard fragment
+        // (ADR-0041 / #2096) so the model still sees the concurrency
+        // contract either way.
 
         var workspaceMount = AgentWorkspaceContract.BuildMountPath(context.AgentId);
+        var workspaceMountNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
 
         var envVars = new Dictionary<string, string>
         {
@@ -239,6 +292,16 @@ public class GeminiLauncher(
             [GeminiCliHomeEnvVar] = workspaceMount,
         };
 
+        // #2695: Replace mode points GEMINI_SYSTEM_MD at the platform
+        // prompt file under `.spring/` so the CLI drops its own
+        // coding-assistant baseline. Append mode leaves the env var
+        // unset — auto-discovery of `GEMINI.md` is the only Append-mode
+        // delivery channel Gemini supports.
+        if (context.SystemPromptMode == Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace)
+        {
+            envVars[GeminiSystemMdEnvVar] = $"{workspaceMountNoSlash}/{PlatformPromptFilePath}";
+        }
+
         LauncherCallbackEnvironment.Add(callbackEnvironmentBuilder, context, envVars);
 
         // #1714 step 2: inject the Google AI Studio API key.
@@ -257,11 +320,16 @@ public class GeminiLauncher(
     /// the launcher itself wires up (workspace mount, MCP discovery
     /// file, session-storage env var) and stays author-agnostic (no
     /// reference to the project clone, GitHub env vars, or per-task
-    /// worktree conventions).
+    /// worktree conventions). The prose covers both Append-mode
+    /// (auto-discovered `GEMINI.md`) and Replace-mode
+    /// (`GEMINI_SYSTEM_MD` pointing at `.spring/system-prompt.md`)
+    /// delivery channels (#2695); the platform contract is the same in
+    /// both — what changes is whether the CLI's coding-assistant
+    /// baseline survives.
     /// </remarks>
     public string? GetWorkspacePromptFragment() =>
         """
-        You are running inside a Debian-based container supervised by the Spring Voyage agent sidecar. The Google Gemini CLI (`gemini`) is your runtime; the standard image bundles `dotnet`, `gh`, `git`, `node`, and `python3` for general-purpose tooling. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns and container restarts — anything you clone or write under it stays available next turn. The CLI auto-discovers its system prompt from `GEMINI.md` at the workspace root and its MCP server set from `.gemini/settings.json`; per-thread session state lives under `$GEMINI_CLI_HOME/.gemini/`.
+        You are running inside a Debian-based container supervised by the Spring Voyage agent sidecar. The Google Gemini CLI (`gemini`) is your runtime; the standard image bundles `dotnet`, `gh`, `git`, `node`, and `python3` for general-purpose tooling. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns and container restarts — anything you clone or write under it stays available next turn. The CLI auto-discovers its system prompt from `GEMINI.md` at the workspace root (or, when an agent declares `system_prompt_mode: replace`, from the file `$GEMINI_SYSTEM_MD` points at) and its MCP server set from `.gemini/settings.json`; per-thread session state lives under `$GEMINI_CLI_HOME/.gemini/`.
         """;
 
     /// <inheritdoc />
@@ -271,22 +339,39 @@ public class GeminiLauncher(
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        // GEMINI.md is the Gemini CLI's auto-discovered system-prompt
-        // file. The bundle provider has composed the per-agent system
-        // prompt (platform contract + unit context + agent
-        // instructions + equipped skill bundles) via IPromptAssembler
-        // and handed it in on AgentBootstrapContributionContext.
+        // #2672 / #2695: pick the prompt file path from the resolved
+        // system_prompt_mode. Gemini's `GEMINI_SYSTEM_MD` is
+        // replace-only (no append flag in gemini-cli 0.41.x), so the
+        // per-mode delivery channel is asymmetric:
+        //
+        // - Append (default) → write to `GEMINI.md` at the workspace
+        //   root; Gemini auto-discovers it as its instructions file.
+        // - Replace → write to `.spring/system-prompt.md` under the
+        //   `.spring/` namespace (ADR-0058 §2.2.2); PrepareAsync points
+        //   `GEMINI_SYSTEM_MD` at the absolute path so the CLI drops
+        //   its own baseline. `GEMINI.md` is not written in this mode.
+        //
+        // The bundle provider has composed the per-agent system prompt
+        // (platform contract + unit context + agent instructions +
+        // equipped skill bundles) via IPromptAssembler and handed it in
+        // on AgentBootstrapContributionContext.AssembledSystemPrompt.
+        var systemPromptMode = context.Definition.Execution?.SystemPromptMode
+            ?? Cvoya.Spring.Core.Catalog.SystemPromptMode.Append;
+        var promptFilePath = systemPromptMode == Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace
+            ? PlatformPromptFilePath
+            : GeminiMdPath;
+
         var workspaceMount = AgentWorkspaceContract.BuildMountPath(context.AgentId);
         var files = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["GEMINI.md"] = context.AssembledSystemPrompt,
+            [promptFilePath] = context.AssembledSystemPrompt,
             [GeminiSettingsPath] = JsonSerializer.Serialize(
                 BuildGeminiSettings(context.McpEndpoint, workspaceMount), JsonOptions),
         };
 
         return Task.FromResult(new AgentBootstrapContribution(
             Files: files,
-            PlatformFilePaths: new[] { "GEMINI.md", GeminiSettingsPath }));
+            PlatformFilePaths: new[] { promptFilePath, GeminiSettingsPath }));
     }
 
     private static object BuildGeminiSettings(string mcpEndpoint, string workspaceMount)

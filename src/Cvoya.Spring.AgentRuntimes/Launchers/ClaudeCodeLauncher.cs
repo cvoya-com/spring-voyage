@@ -19,11 +19,20 @@ using Microsoft.Extensions.Logging;
 /// <see cref="IAgentRuntimeLauncher"/> for Claude Code containers. Describes a
 /// per-invocation workspace containing:
 /// <list type="bullet">
-///   <item><c>CLAUDE.md</c> — the assembled system prompt (all four layers).</item>
+///   <item><c>.spring/system-prompt.md</c> — the assembled system prompt (all
+///         four layers). Written under the <c>.spring/</c> namespace per
+///         ADR-0058 §2.2.2 so it does not collide with any project clone's
+///         own <c>CLAUDE.md</c> (the engineer agents clone projects whose
+///         roots carry that filename — #2672). The Claude CLI is pointed at
+///         the file via <c>--append-system-prompt-file</c> (Append mode,
+///         the default) or <c>--system-prompt-file</c> (Replace mode) per
+///         <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode"/>
+///         (#2695). Both flags consume a workspace-resolved file path —
+///         see <see cref="BuildClaudeArgv"/>.</item>
 ///   <item><c>.mcp.json</c> — MCP server endpoint + bearer token Claude Code will dial.</item>
 /// </list>
 /// These files are written into the per-agent persistent workspace volume —
-/// the single workspace mount at <see cref="AgentWorkspaceContract.WorkspaceMountPath"/>
+/// the single workspace mount at <see cref="AgentWorkspaceContract.WorkspacePathEnvVar"/>
 /// (ADR-0029, #2608) — so they sit alongside the CLI's session state, the
 /// bridge's marker files, and everything else <c>SPRING_WORKSPACE_PATH</c>
 /// points at.
@@ -66,6 +75,40 @@ public class ClaudeCodeLauncher(
     /// reads its <c>spring-voyage</c> server definition from.
     /// </summary>
     internal const string McpConfigFileName = ".mcp.json";
+
+    /// <summary>
+    /// Workspace-relative path the platform writes the assembled system
+    /// prompt to (#2672). Lives under the <c>.spring/</c> namespace per
+    /// ADR-0058 §2.2.2 so it does not collide with any project clone's own
+    /// <c>CLAUDE.md</c>. The Claude CLI is pointed at this path via
+    /// <see cref="AppendSystemPromptFileFlag"/> (default) or
+    /// <see cref="SystemPromptFileFlag"/> (replace) on every spawn — see
+    /// <see cref="BuildClaudeArgv"/>.
+    /// </summary>
+    internal const string PlatformPromptFilePath = ".spring/system-prompt.md";
+
+    /// <summary>
+    /// Claude Code CLI flag that points the model at a file whose contents
+    /// are appended to the CLI's own default coding-assistant system
+    /// prompt. Verified against <c>claude --help</c> (2.1.x). Used when
+    /// <see cref="AgentLaunchContext.SystemPromptMode"/> is
+    /// <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Append"/> —
+    /// the default for engineer-shaped agents (#2695).
+    /// </summary>
+    internal const string AppendSystemPromptFileFlag = "--append-system-prompt-file";
+
+    /// <summary>
+    /// Claude Code CLI flag that replaces the CLI's own default system
+    /// prompt with the contents of the named file. Verified against
+    /// <c>claude --help</c> (2.1.x). Used when
+    /// <see cref="AgentLaunchContext.SystemPromptMode"/> is
+    /// <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace"/> —
+    /// non-coding agents (routers, PMs) opt in so the CLI's
+    /// coding-assistant baseline does not shape responses (#2695).
+    /// Mutually exclusive with <see cref="AppendSystemPromptFileFlag"/>;
+    /// the launcher emits exactly one.
+    /// </summary>
+    internal const string SystemPromptFileFlag = "--system-prompt-file";
 
     /// <summary>
     /// Absolute container path of the sidecar binary the CLI spawns as a
@@ -183,13 +226,44 @@ public class ClaudeCodeLauncher(
     /// Builds the argv vector exec'd by the bridge on every
     /// <c>message/send</c>: <see cref="BaseClaudeArgv"/> followed by
     /// <c>--mcp-config &lt;path&gt;</c> so the CLI loads the
-    /// platform's <c>spring-voyage</c> MCP server regardless of CWD.
+    /// platform's <c>spring-voyage</c> MCP server regardless of CWD,
+    /// plus the system-prompt-file flag selected by
+    /// <see cref="MapSystemPromptModeToFlag"/>. The CLI's
+    /// <c>--append-system-prompt-file</c> and <c>--system-prompt-file</c>
+    /// flags are mutually exclusive (Claude CLI reference); the launcher
+    /// emits exactly one (#2695).
     /// </summary>
-    internal static string[] BuildClaudeArgv(string mcpConfigPath)
+    internal static string[] BuildClaudeArgv(
+        string mcpConfigPath,
+        string systemPromptFlag,
+        string systemPromptFilePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mcpConfigPath);
-        return [.. BaseClaudeArgv, "--mcp-config", mcpConfigPath];
+        ArgumentException.ThrowIfNullOrWhiteSpace(systemPromptFlag);
+        ArgumentException.ThrowIfNullOrWhiteSpace(systemPromptFilePath);
+        return
+        [
+            .. BaseClaudeArgv,
+            "--mcp-config", mcpConfigPath,
+            systemPromptFlag, systemPromptFilePath,
+        ];
     }
+
+    /// <summary>
+    /// Maps a resolved <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode"/>
+    /// to the Claude CLI flag that carries that semantics (#2695).
+    /// <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Append"/>
+    /// preserves the CLI's coding-assistant default plus the platform
+    /// prompt; <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace"/>
+    /// drops the CLI default entirely (the platform prompt becomes the
+    /// whole system prompt).
+    /// </summary>
+    internal static string MapSystemPromptModeToFlag(SystemPromptMode mode) => mode switch
+    {
+        SystemPromptMode.Replace => SystemPromptFileFlag,
+        SystemPromptMode.Append => AppendSystemPromptFileFlag,
+        _ => AppendSystemPromptFileFlag,
+    };
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<ClaudeCodeLauncher>();
 
@@ -230,16 +304,28 @@ public class ClaudeCodeLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        // #2668: the Claude Code CLI never reads SPRING_SYSTEM_PROMPT —
-        // the system prompt is delivered exclusively via CLAUDE.md written
-        // by ContributeBundleAsync, and the assembled-prompt path inside
-        // AgentBootstrapBundleProvider already folds in the
-        // ConcurrentThreadsGuard fragment (ADR-0041 / #2096) so the model
-        // still sees the concurrency contract. Nothing the launcher could
-        // stamp here would reach the CLI.
+        // #2672 / #2695: the Claude Code CLI receives the platform's
+        // assembled system prompt via the
+        // `--append-system-prompt-file` / `--system-prompt-file` flag on
+        // every spawn (mode chosen by context.SystemPromptMode). The
+        // assembled-prompt path inside AgentBootstrapBundleProvider
+        // already folds in the ConcurrentThreadsGuard fragment
+        // (ADR-0041 / #2096) so the model still sees the concurrency
+        // contract. The platform no longer writes to the CLI's
+        // auto-discovered `CLAUDE.md` filename — that's reserved for any
+        // project clone the agent makes under its workspace (e.g.
+        // `<workspace>/myrepo/CLAUDE.md`), which the CLI walks up from
+        // its cwd as project context.
 
         var workspaceMountNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
         var mcpConfigPath = $"{workspaceMountNoSlash}/{McpConfigFileName}";
+        var systemPromptFilePath = $"{workspaceMountNoSlash}/{PlatformPromptFilePath}";
+        // #2695: select the Claude CLI flag for the resolved
+        // system_prompt_mode. The agent → unit → Append cascade has
+        // already been applied at the dispatch site
+        // (A2AExecutionDispatcher); the launcher consumes
+        // context.SystemPromptMode directly without further fallback.
+        var systemPromptFlag = MapSystemPromptModeToFlag(context.SystemPromptMode);
 
         var envVars = new Dictionary<string, string>
         {
@@ -247,8 +333,14 @@ public class ClaudeCodeLauncher(
             // The bridge parses this back into argv via JSON.parse — see
             // src/Cvoya.Spring.AgentSidecar/src/config.ts. The argv carries
             // `--mcp-config <path>` so the CLI always loads the platform
-            // MCP server, regardless of the bridge's spawn CWD.
-            ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(BuildClaudeArgv(mcpConfigPath)),
+            // MCP server, regardless of the bridge's spawn CWD, plus the
+            // system-prompt-file flag (#2672 / #2695): either
+            // `--append-system-prompt-file` (Append mode — default) or
+            // `--system-prompt-file` (Replace mode), both pointing at
+            // `<workspace>/.spring/system-prompt.md` written by
+            // ContributeBundleAsync.
+            ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(
+                BuildClaudeArgv(mcpConfigPath, systemPromptFlag, systemPromptFilePath)),
             // ADR-0041 / #2094: tell the bridge how to bind the platform
             // thread.id (= A2A 0.3 contextId) onto Claude Code's session
             // identifier.
@@ -295,12 +387,18 @@ public class ClaudeCodeLauncher(
     /// the launcher itself wires up (workspace mount, MCP discovery
     /// file, session-storage env var) and stays author-agnostic (no
     /// reference to the project clone, GitHub env vars, or per-task
-    /// worktree conventions). Per ADR-0058 §2.2.1, the CLI auto-discovery
-    /// files live at the workspace root.
+    /// worktree conventions). Per ADR-0058 §2.2 the platform's
+    /// system-prompt file lives under the `.spring/` namespace; the CLI
+    /// auto-discovery files (`.mcp.json`, `.claude/`) live at the
+    /// workspace root per ADR-0058 §2.2.1. The platform prompt reaches
+    /// the CLI via `--append-system-prompt-file` / `--system-prompt-file`
+    /// on argv, not via auto-discovery, so any project clone's own
+    /// `CLAUDE.md` (e.g. `<workspace>/myrepo/CLAUDE.md`) is the only
+    /// `CLAUDE.md` the CLI walks up from its cwd as project context.
     /// </remarks>
     public string? GetWorkspacePromptFragment() =>
         """
-        You are running inside a Debian-based container supervised by the Spring Voyage agent sidecar. The Claude Code CLI (`claude`) is your runtime; the standard image bundles `dotnet`, `gh`, `git`, `node`, and `python3` for general-purpose tooling. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns and container restarts — anything you clone or write under it stays available next turn. The CLI auto-discovers its system prompt from `CLAUDE.md` at the workspace root and its MCP server set from `.mcp.json` (also at the workspace root); per-thread session state lives under `$CLAUDE_CONFIG_DIR`.
+        You are running inside a Debian-based container supervised by the Spring Voyage agent sidecar. The Claude Code CLI (`claude`) is your runtime; the standard image bundles `dotnet`, `gh`, `git`, `node`, and `python3` for general-purpose tooling. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns and container restarts — anything you clone or write under it stays available next turn. The platform's system prompt is delivered to the CLI on every spawn via `--append-system-prompt-file` (or `--system-prompt-file` when an agent declares `system_prompt_mode: replace`); the CLI also auto-discovers its MCP server set from `.mcp.json` at the workspace root, and per-thread session state lives under `$CLAUDE_CONFIG_DIR`.
         """;
 
     /// <inheritdoc />
@@ -353,24 +451,35 @@ public class ClaudeCodeLauncher(
             },
         };
 
-        // CLAUDE.md is Claude Code's auto-discovered project context file
-        // — the only system-prompt surface the CLI reads at the
-        // workspace level. The bundle provider has already composed the
-        // per-agent system prompt (platform contract + unit context +
-        // agent instructions + equipped skill bundles) via
-        // IPromptAssembler and handed it in on
-        // AgentBootstrapContributionContext.AssembledSystemPrompt;
+        // #2672: write the platform's assembled system prompt to
+        // `.spring/system-prompt.md` under the workspace root rather than
+        // the CLI's auto-discovered `CLAUDE.md` filename. The
+        // `.spring/` namespace is ADR-0058 §2.2.2's home for every
+        // platform-managed file where the platform owns the name; it
+        // keeps the platform contract from colliding with any project
+        // clone the agent makes under its workspace (engineer agents
+        // clone projects whose roots carry their own `CLAUDE.md`).
+        //
+        // The CLI is pointed at this file via the
+        // `--append-system-prompt-file` / `--system-prompt-file` flag on
+        // argv (see BuildClaudeArgv) — auto-discovery is bypassed
+        // entirely.
+        //
+        // The bundle provider has already composed the per-agent system
+        // prompt (platform contract + unit context + agent instructions
+        // + equipped skill bundles) via IPromptAssembler and handed it
+        // in on AgentBootstrapContributionContext.AssembledSystemPrompt;
         // writing Definition.Instructions raw here would drop the
         // platform contract and leave the CLI silently dispatching.
         var files = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["CLAUDE.md"] = context.AssembledSystemPrompt,
+            [PlatformPromptFilePath] = context.AssembledSystemPrompt,
             [".mcp.json"] = SerializeMcpConfig(mcpConfig),
         };
 
         return Task.FromResult(new AgentBootstrapContribution(
             Files: files,
-            PlatformFilePaths: new[] { "CLAUDE.md", ".mcp.json" }));
+            PlatformFilePaths: new[] { PlatformPromptFilePath, ".mcp.json" }));
     }
 
     private static string SerializeMcpConfig(object mcpConfig) =>

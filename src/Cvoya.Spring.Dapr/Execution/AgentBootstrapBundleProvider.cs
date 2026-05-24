@@ -114,11 +114,14 @@ public sealed class AgentBootstrapBundleProvider(
         // unit context + role-specific instructions + equipped skill
         // bundles) via the same assembler the dispatch path uses, then
         // hand it to the launcher contribution so each CLI runtime
-        // materialises it into the file its CLI auto-discovers
-        // (CLAUDE.md / AGENTS.md / GEMINI.md). Without this, the
-        // launcher contribution would ship only Definition.Instructions
-        // and the agent would never see the platform contract from the
-        // platform-instructions layer — silent-dispatch territory.
+        // materialises it into the file its launcher names —
+        // `.spring/system-prompt.md` for Claude per #2672, `AGENTS.md`
+        // for Codex, and `GEMINI.md` or `.spring/system-prompt.md` for
+        // Gemini per its `system_prompt_mode` (#2695). Without this,
+        // the launcher contribution would ship only
+        // Definition.Instructions and the agent would never see the
+        // platform contract from the platform-instructions layer —
+        // silent-dispatch territory.
         var subjectAddress = new Address("agent", Guid.Parse(agentId));
         var connectorPromptFragments = await _connectorPromptContextResolver
             .ResolveAsync(subjectAddress, cancellationToken);
@@ -137,7 +140,8 @@ public sealed class AgentBootstrapBundleProvider(
         // assembly so the assembler can render the
         // `## Container and workspace` section in-band with the rest of
         // the platform instructions. The launcher's file contribution
-        // (CLAUDE.md / AGENTS.md / GEMINI.md / .mcp.json) still happens
+        // (`.spring/system-prompt.md` / `AGENTS.md` / `GEMINI.md` +
+        // `.mcp.json` / `.gemini/settings.json`) still happens
         // post-assembly via ContributeBundleAsync — that's where the
         // assembled prompt actually lands as a file.
         var launcher = ResolveLauncher(definition, agentId);
@@ -162,11 +166,13 @@ public sealed class AgentBootstrapBundleProvider(
         // fixed ports, or mutate shared global state. Before #2668 each
         // CLI launcher prepended this in PrepareAsync and stamped it onto
         // SPRING_SYSTEM_PROMPT, but the Claude / Codex / Gemini CLIs
-        // never read that env var — they consume their auto-discovered
-        // workspace file (CLAUDE.md / AGENTS.md / GEMINI.md) instead, and
-        // that file is sourced from this assembled prompt below. Folding
-        // the guard in here is therefore the only delivery channel that
-        // actually reaches the CLI surface. The Spring Voyage agent
+        // never read that env var — they consume the launcher's
+        // system-prompt file (`.spring/system-prompt.md` for Claude,
+        // `AGENTS.md` for Codex, `GEMINI.md` or `.spring/system-prompt.md`
+        // for Gemini), and that file is sourced from this assembled
+        // prompt below. Folding the guard in here is therefore the only
+        // delivery channel that actually reaches the CLI surface. The
+        // Spring Voyage agent
         // launcher (the lone remaining SPRING_SYSTEM_PROMPT consumer)
         // does its own Compose against context.Prompt in PrepareAsync,
         // independent of this path.
