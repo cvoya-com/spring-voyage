@@ -118,6 +118,17 @@ describe("SystemPromptModeControl", () => {
     expect(screen.getByTestId("system-prompt-mode-clear")).toBeDisabled();
   });
 
+  it("links to the agent-runtime docs section on system-prompt modes", () => {
+    renderControl({ effective: "append", origin: "default", surface: "agent" });
+    const link = screen.getByTestId("system-prompt-mode-docs-link");
+    expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/cvoya-com/spring-voyage/blob/main/docs/architecture/agent-runtime.md#system-prompt-delivery-and-system_prompt_mode",
+    );
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
   it("passes axe in the unit surface", async () => {
     const { container } = renderControl({
       effective: "replace",

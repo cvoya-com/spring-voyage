@@ -189,7 +189,17 @@ export function SystemPromptModeControl({
         agent runtime&rsquo;s built-in scaffolding.{" "}
         {surface === "agent"
           ? "Leave unset on the agent to inherit the unit default; the unit default itself falls back to Append."
-          : "Member agents inherit this default; an agent can override it on its own Execution panel."}
+          : "Member agents inherit this default; an agent can override it on its own Execution panel."}{" "}
+        <a
+          href="https://github.com/cvoya-com/spring-voyage/blob/main/docs/architecture/agent-runtime.md#system-prompt-delivery-and-system_prompt_mode"
+          className="text-primary underline-offset-2 hover:underline"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid={`${prefix}-docs-link`}
+        >
+          Learn more about system-prompt modes
+        </a>
+        .
       </p>
     </div>
   );
