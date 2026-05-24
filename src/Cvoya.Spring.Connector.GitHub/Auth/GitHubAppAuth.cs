@@ -73,8 +73,12 @@ public class GitHubAppAuth : IDisposable
 
     private RSA CreateRsa()
     {
+        // Normalize before import so this method is robust regardless of
+        // whether PostConfigure ran or how the value was delivered (e.g.
+        // podman env-file with surrounding single quotes, literal \n).
+        var pem = GitHubAppCredentialsValidator.NormaliseInputKey(_options.PrivateKeyPem);
         var rsa = RSA.Create();
-        rsa.ImportFromPem(_options.PrivateKeyPem);
+        rsa.ImportFromPem(pem);
         return rsa;
     }
 
