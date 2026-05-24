@@ -100,14 +100,12 @@ Bootstrap fetch latency on the warm path is one HTTP call returning 304 with an 
 
 ### 7. Layering rule — platform layer vs repo layer
 
-The workspace volume can hold two distinct kinds of content:
-
-- **Platform layer.** Files at fixed paths under the workspace root, listed in `platformFileHashes`. Owned by the sidecar. The integrity check pins them. Authoritative regardless of what any clone, agent runtime, or in-container process does. This includes the agent's `CLAUDE.md` (the assembled system prompt, all four layers) and `.mcp.json` (the worker-issued MCP server block).
-- **Repo layer.** Anything an agent puts under a cloned repository in its workspace (e.g. `<workspace>/myrepo/AGENTS.md`, `<workspace>/myrepo/CLAUDE.md`). The CLI may read these per its own rules — Claude Code reads `AGENTS.md` and `CLAUDE.md` walking up from `cwd` — but the platform does not own them, does not deliver them, does not verify them.
-
-**Non-override invariant.** The platform layer is not overridable by the repo layer. A repo-level `CLAUDE.md` cannot replace the platform `CLAUDE.md` at the workspace root: the sidecar restores the platform bytes on the next turn. The CLI's `cwd`-walking discovery of repo-level instruction files runs *under* the workspace root — repo-level files extend the prompt for that working directory; they never replace the platform-layer file.
-
-The platform does not assume an agent has a repo. The bundle contract is "here are the files the platform owns at workspace-root-relative paths". Whether the agent clones a repo into its workspace is the agent's choice and concern.
+Moved to [ADR-0058 §2.4](0058-spring-voyage-container-contract.md) — the
+layering rule (platform layer vs repo layer; non-override invariant; no
+assumption that an agent has a repo) is a general workspace-contract
+statement, not specific to the pull-based bootstrap. The canonical
+statement now lives on the container-contract ADR; this section is a
+pointer.
 
 ### 8. Bootstrap auth: per-agent bearer, lifetime = agent lifetime
 
@@ -119,22 +117,16 @@ The auth model is intentionally simpler than the per-turn MCP session model — 
 
 ### 9. What the container sees at launch
 
-```
-env:
-  SPRING_AGENT_ID            = <agentId>
-  SPRING_TENANT_ID           = <tenantId>
-  SPRING_UNIT_ID             = <unitId or empty>
-  SPRING_WORKSPACE_PATH      = /spring/members/<memberId>/
-  SPRING_BOOTSTRAP_URL       = http://worker:.../v1/bootstrap/agents/<agentId>
-  SPRING_BOOTSTRAP_TOKEN     = <opaque, per-agent>
-  SPRING_MCP_URL             = http://worker:.../mcp                     # unchanged
-  SPRING_AGENT_ARGV          = '["claude","--print",...]'                # unchanged
-  # credential env vars (CLAUDE_CODE_OAUTH_TOKEN, ...)                   # unchanged
-  # connector env vars (SPRING_CONNECTOR_*)                              # unchanged
-  # OTLP-ingest env vars (SPRING_CALLBACK_*)                             # unchanged
-```
-
-The per-member volume is mounted at `SPRING_WORKSPACE_PATH`, empty. The sidecar's bootstrap step runs before HTTP-listen accepts traffic; the first `message/send` blocks until the bundle is materialised and verified.
+Moved to [ADR-0058 §1](0058-spring-voyage-container-contract.md) — the
+full env-var enumeration (including the bootstrap-related entries
+`SPRING_BOOTSTRAP_URL` / `SPRING_BOOTSTRAP_TOKEN` introduced by this
+ADR, the workspace path `SPRING_WORKSPACE_PATH`, and the per-turn MCP
+token contract) now lives on the canonical container-contract ADR. The
+bootstrap-specific shape — empty per-member volume mounted at
+`SPRING_WORKSPACE_PATH`, sidecar's bootstrap step gates HTTP-listen,
+first `message/send` blocks until the bundle is materialised and
+verified — is recorded by ADR-0058 §3 (process tree) and §4.1 (inbound
+endpoint readiness).
 
 ### 10. Deletions in the implementation PR(s)
 
