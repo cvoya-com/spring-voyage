@@ -336,6 +336,73 @@ describe("A2AHandler.handle", () => {
     });
     assert.equal(res.error?.code, -32602);
   });
+
+  it("aborting the request signal mid-handle SIGTERMs the spawned CLI and returns a canceled task (#2718)", async () => {
+    // #2718: the bridge half of the "give up" symmetry. When the
+    // dispatcher closes its inbound HTTP connection (HttpClient timeout,
+    // actor turn cancel, dispose-mid-flight) the server passes the
+    // request's AbortSignal into handle(), which wires it to the
+    // per-task AbortController. Aborting it must SIGTERM the spawned
+    // CLI so it does not outlive the dispatcher's view of the turn.
+    // Without this the CLI keeps running after the dispatcher revokes
+    // the MCP session and every subsequent tool call returns 401.
+    const handler = makeHandler([
+      PROCESS_NODE,
+      "-e",
+      // Long-running CLI: keeps the event loop alive indefinitely.
+      // Without an abort it would never return — so a "completed"
+      // task here means the wiring is broken.
+      "setInterval(() => {}, 60000)",
+    ]);
+
+    const ac = new AbortController();
+    // Abort once the spawn has had a moment to start.
+    setTimeout(() => ac.abort(), 100);
+
+    const res = await handler.handle(
+      {
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { parts: [{ text: "ping" }] } },
+        id: "abort-1",
+      },
+      ac.signal,
+    );
+
+    const task = res.result as Record<string, unknown>;
+    assert.equal(task["kind"], "task");
+    const status = task["status"] as Record<string, unknown>;
+    assert.equal(status["state"], "canceled");
+  });
+
+  it("an already-aborted signal makes handle return a canceled task without leaving the CLI behind (#2718)", async () => {
+    // Defence-in-depth for the race where the request closes before
+    // handle() reads it (dispatcher gave up between TCP write and the
+    // bridge starting to read). The signal is already aborted when
+    // handle() runs; the spawn must still tear down promptly.
+    const handler = makeHandler([
+      PROCESS_NODE,
+      "-e",
+      "setInterval(() => {}, 60000)",
+    ]);
+
+    const ac = new AbortController();
+    ac.abort();
+
+    const res = await handler.handle(
+      {
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: { message: { parts: [{ text: "ping" }] } },
+        id: "abort-2",
+      },
+      ac.signal,
+    );
+
+    const task = res.result as Record<string, unknown>;
+    const status = task["status"] as Record<string, unknown>;
+    assert.equal(status["state"], "canceled");
+  });
 });
 
 describe("A2AHandler.handle — thread-id binding (ADR-0041 / #2094)", () => {

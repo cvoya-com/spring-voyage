@@ -66,13 +66,36 @@ export function createServer(
   const toolsManifestPath = env[TOOLS_MANIFEST_ENV_VAR];
 
   const server = http.createServer((req, res) => {
-    void route(handler, req, res, toolsManifestPath).catch((err) => {
-      writeJson(res, 500, {
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32603, message: (err as Error).message },
-      });
+    // #2718: per-request abort controller. When the inbound HTTP
+    // connection drops before the response has been written (the
+    // dispatcher's HttpClient timed out, the dispatcher cancelled its
+    // outbound call, the socket died, etc.), abort any in-flight handler
+    // work so the spawned CLI gets SIGTERM via the existing
+    // runAgentBridge AbortController rather than outliving the
+    // dispatcher's view of the turn.
+    //
+    // Listening on `res.on("close")` rather than `req.on("close")`: the
+    // request stream's close event fires once the body has been read,
+    // regardless of whether the response has been written — using it
+    // here would abort every successful handler. The response's close
+    // event fires when the connection terminates, and `writableEnded`
+    // distinguishes "we called res.end()" (normal completion) from "the
+    // client dropped first" (abort needed).
+    const requestAbort = new AbortController();
+    res.on("close", () => {
+      if (!res.writableEnded) {
+        requestAbort.abort();
+      }
     });
+    void route(handler, req, res, toolsManifestPath, requestAbort.signal).catch(
+      (err) => {
+        writeJson(res, 500, {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32603, message: (err as Error).message },
+        });
+      },
+    );
   });
 
   return {
@@ -90,6 +113,7 @@ async function route(
   req: IncomingMessage,
   res: ServerResponse,
   toolsManifestPath: string | undefined,
+  requestSignal: AbortSignal,
 ): Promise<void> {
   res.setHeader("x-spring-voyage-bridge-version", BRIDGE_VERSION);
 
@@ -123,7 +147,7 @@ async function route(
       });
       return;
     }
-    const response = await handler.handle(body);
+    const response = await handler.handle(body, requestSignal);
     const status = response.error ? 200 : 200;
     writeJson(res, status, response);
     return;
