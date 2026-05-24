@@ -53,7 +53,7 @@ For open design questions not yet decided, see
 | [0035](0035-package-as-bundling-unit.md) | Package as the unit of bundling, install, export | Accepted |
 | [0036](0036-single-identity-model.md) | Single-identity model: Guid identity, `display_name` presentation-only | Accepted |
 | [0037](0037-package-schema-decomposition.md) | Package schema decomposition (kind-discriminated YAMLs) | Accepted |
-| [0038](0038-agent-runtime-and-model-provider-split.md) | AgentRuntime and ModelProvider as separate identities | Accepted |
+| [0038](0038-agent-runtime-and-model-provider-split.md) | AgentRuntime and ModelProvider as separate identities | Accepted — amended by [0059](0059-prompt-assembly-pipeline.md) (§`systemPromptInjection` removed) |
 | [0040](0040-actor-state-ownership-matrix.md) | Actor state ownership matrix | Accepted — skill-grant tables reshaped by the Tools wave |
 | [0041](0041-actor-runtime-contract.md) | Actor-runtime contract (per-thread resume + concurrent threads) | Accepted |
 | [0042](0042-local-operator-installer.md) | Local-host operator installer (`install.sh`) | Accepted |
