@@ -36,6 +36,34 @@ public interface IThreadQueryService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Free-text search across persisted messages, scoped to the supplied
+    /// participant. Returns matching messages (newest match first), each
+    /// annotated with its containing thread id so the caller can stitch
+    /// the hit back to a thread. Implementations should prefer a Postgres
+    /// full-text path where available and fall back to a case-insensitive
+    /// substring scan elsewhere (the in-memory test provider falls into
+    /// the latter bucket).
+    /// </summary>
+    /// <param name="participant">
+    /// Canonical address of the caller. Only threads where this address
+    /// appears in the persisted participant set are searched — search is
+    /// scoped to what the caller is allowed to see.
+    /// </param>
+    /// <param name="query">Free-text query string. Empty input yields no rows.</param>
+    /// <param name="threadId">
+    /// Optional thread filter. When supplied, the search is constrained to
+    /// the single thread (and only when the caller is a participant of it).
+    /// </param>
+    /// <param name="limit">Maximum number of rows to return.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task<IReadOnlyList<ThreadSearchHit>> SearchAsync(
+        string participant,
+        string query,
+        string? threadId,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Lists inbox rows for the supplied human address — threads where
     /// the human has received at least one message and has not replied
     /// since. The predicate is a single SQL aggregate per (tenant, thread)

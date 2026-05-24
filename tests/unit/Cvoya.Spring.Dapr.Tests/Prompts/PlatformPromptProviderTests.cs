@@ -254,4 +254,92 @@ public class PlatformPromptProviderTests
         result.ShouldContain("sv.tools.list_categories");
         result.ShouldContain("sv.tools.list(<category>)");
     }
+
+    /// <summary>
+    /// #2683: the inbound-message envelope section renders after the
+    /// platform contract so a runtime arriving cold sees what the
+    /// platform actually delivers to its mailbox before the per-subject
+    /// sections.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_IncludesInboundMessageEnvelopeSection()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("## Inbound messages");
+
+        var contractEndIdx = result.IndexOf("[END PLATFORM CONTRACT]", StringComparison.Ordinal);
+        var envelopeIdx = result.IndexOf("## Inbound messages", StringComparison.Ordinal);
+        envelopeIdx.ShouldBeGreaterThan(contractEndIdx);
+    }
+
+    /// <summary>
+    /// #2683: the envelope section names every field the platform
+    /// delivers on an inbound message — from, to, thread_id, message_id,
+    /// payload, timestamp. Renaming a field at the wire boundary requires
+    /// updating this list first.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_EnvelopeNamesEveryDeliveredField()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        foreach (var field in new[] { "`from`", "`to`", "`thread_id`", "`message_id`", "`payload`", "`timestamp`" })
+        {
+            result.ShouldContain(field, customMessage: $"envelope field {field} must be named in the inbound-messages section.");
+        }
+    }
+
+    /// <summary>
+    /// #2683: the envelope section frames a thread as the participant
+    /// set plus the durable message timeline so a runtime understands
+    /// what a thread *is* before being told how to inspect one.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_EnvelopeDefinesThreadConcept()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("set of participants");
+        result.ShouldContain("durable timeline");
+    }
+
+    /// <summary>
+    /// #2683 (per @savasp): the envelope section reinforces that the
+    /// messaging tools acknowledge delivery only — they do NOT carry the
+    /// recipient's reply. This is the framing that motivates the
+    /// sv.thread.* tools (and rules out request/response framing).
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_EnvelopeFramesDeliveryNotReply()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("delivery to the recipient's mailbox");
+        result.ShouldContain("do NOT carry the recipient's response");
+    }
+
+    /// <summary>
+    /// #2683: the envelope section points at sv.thread.* (via
+    /// sv.tools.list) so a runtime knows where to look for the rest of
+    /// the envelope when needed.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_EnvelopePointsAtThreadTools()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("sv.thread.*");
+        result.ShouldContain("sv.tools.list(\"thread\")");
+    }
 }

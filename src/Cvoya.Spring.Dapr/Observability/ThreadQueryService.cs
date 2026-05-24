@@ -135,6 +135,118 @@ public class ThreadQueryService(
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<ThreadSearchHit>> SearchAsync(
+        string participant,
+        string query,
+        string? threadId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(participant) || string.IsNullOrWhiteSpace(query))
+        {
+            return Array.Empty<ThreadSearchHit>();
+        }
+
+        if (!AddressIdentity.TryGetActorId(participant, out var participantId))
+        {
+            return Array.Empty<ThreadSearchHit>();
+        }
+
+        Guid? threadFilter = null;
+        if (!string.IsNullOrWhiteSpace(threadId))
+        {
+            if (!GuidFormatter.TryParse(threadId, out var parsedThreadId))
+            {
+                return Array.Empty<ThreadSearchHit>();
+            }
+            threadFilter = parsedThreadId;
+        }
+
+        // Resolve the threads the participant can see. The thread row
+        // stores the participant set as a canonical JSON array, so the
+        // membership test runs in C# after a bounded read — v0.1 thread
+        // volumes per tenant make this cheap; a follow-up can add a
+        // normalised thread_participants table when the volume grows.
+        var allThreads = await dbContext.Threads
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        var threadIds = new HashSet<Guid>();
+        foreach (var thread in allThreads)
+        {
+            if (threadFilter is { } scoped && thread.Id != scoped)
+            {
+                continue;
+            }
+            foreach (var address in ParseParticipants(thread.Participants))
+            {
+                if (address.Id == participantId)
+                {
+                    threadIds.Add(thread.Id);
+                    break;
+                }
+            }
+        }
+
+        if (threadIds.Count == 0)
+        {
+            return Array.Empty<ThreadSearchHit>();
+        }
+
+        var cappedLimit = Math.Max(1, limit);
+
+        var baseQuery = dbContext.Messages
+            .AsNoTracking()
+            .Where(m => threadIds.Contains(m.ThreadId) && m.Body != null);
+
+        List<MessageEntity> rows;
+        var providerName = dbContext.Database.ProviderName ?? string.Empty;
+        if (providerName.Contains("Npgsql", StringComparison.OrdinalIgnoreCase))
+        {
+            // Postgres path: lean on to_tsvector('english', body) /
+            // plainto_tsquery so multi-word queries get sensible matching
+            // and relevance ordering. No precomputed tsvector column /
+            // GIN index today — v0.1 message volumes make this acceptable;
+            // a follow-up issue can add the index when search latency
+            // matters.
+            rows = await baseQuery
+                .Where(m => EF.Functions
+                    .ToTsVector("english", m.Body!)
+                    .Matches(EF.Functions.PlainToTsQuery("english", query)))
+                .OrderByDescending(m => EF.Functions
+                    .ToTsVector("english", m.Body!)
+                    .Rank(EF.Functions.PlainToTsQuery("english", query)))
+                .ThenByDescending(m => m.SentAt)
+                .Take(cappedLimit)
+                .ToListAsync(cancellationToken);
+        }
+        else
+        {
+            // Provider fallback (EF in-memory used in unit tests): plain
+            // case-insensitive substring match on Body, newest first.
+            var needle = query.Trim().ToLowerInvariant();
+            rows = await baseQuery
+                .Where(m => m.Body!.ToLower().Contains(needle))
+                .OrderByDescending(m => m.SentAt)
+                .Take(cappedLimit)
+                .ToListAsync(cancellationToken);
+        }
+
+        var hits = new List<ThreadSearchHit>(rows.Count);
+        foreach (var m in rows)
+        {
+            hits.Add(new ThreadSearchHit(
+                ThreadId: GuidFormatter.Format(m.ThreadId),
+                MessageId: m.Id,
+                Timestamp: m.SentAt,
+                From: RenderAddress(m.SenderScheme, m.SenderId),
+                To: RenderAddress(m.RecipientScheme, m.RecipientId),
+                Body: m.Body ?? string.Empty));
+        }
+        return hits;
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<InboxItem>> ListInboxAsync(
         string humanAddress,
         IReadOnlyDictionary<string, DateTimeOffset>? lastReadAt,

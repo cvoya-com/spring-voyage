@@ -37,4 +37,7 @@ public static class ToolCategories
 
     /// <summary>Capability-typed expertise tools (<c>sv.expertise.{slug}</c>).</summary>
     public const string Expertise = "expertise";
+
+    /// <summary>Thread inspection — list, get, search, participants (<c>sv.thread.*</c>).</summary>
+    public const string Thread = "thread";
 }

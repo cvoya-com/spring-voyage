@@ -128,6 +128,19 @@ public sealed class SvToolsDiscoverySkillRegistry : ISkillRegistry
             "sv.memory.update / sv.memory.delete to mutate. Memory is " +
             "caller-scoped — an agent cannot read another agent's memory " +
             "through this surface."),
+        new(
+            ToolCategories.Thread,
+            "Inspect threads you participate in — list, fetch, search, participants.",
+            "Use sv.thread.list to enumerate the threads you participate in, " +
+            "most-recent activity first. Use sv.thread.get to fetch the full " +
+            "message timeline for one thread (pass tail=N to limit to the most " +
+            "recent N messages). Use sv.thread.search to full-text-search " +
+            "across message bodies on the threads you participate in. Use " +
+            "sv.thread.participants for the lean participant list when you " +
+            "only need addresses. A thread is the set of participants plus " +
+            "the durable timeline of every message between them — caller-" +
+            "scoped: a thread you are not on is not visible through this " +
+            "surface."),
     ];
 
     private static readonly IReadOnlyDictionary<string, CategoryDescriptor> KnownCategoryIndex =
