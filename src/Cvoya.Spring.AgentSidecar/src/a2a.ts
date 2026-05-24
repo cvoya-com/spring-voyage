@@ -205,7 +205,23 @@ export class A2AHandler {
     };
   }
 
-  async handle(req: JsonRpcRequest): Promise<JsonRpcResponse> {
+  /**
+   * Dispatches a single JSON-RPC envelope. `requestSignal` is the
+   * cancellation signal for the inbound HTTP request: when it aborts
+   * (the dispatcher closed the connection before we replied), any
+   * in-flight `message/send` work is torn down so the spawned CLI does
+   * not outlive the dispatcher's view of the turn. Optional so direct
+   * callers (tests, future non-HTTP transports) can omit it.
+   *
+   * #2718: this is the bridge half of the worker → agent "give up"
+   * symmetry. The dispatcher half is the `finally` in
+   * `A2AExecutionDispatcher.SendA2AMessageAsync` that calls
+   * `tasks/cancel` on any non-terminal exit path.
+   */
+  async handle(
+    req: JsonRpcRequest,
+    requestSignal?: AbortSignal,
+  ): Promise<JsonRpcResponse> {
     const id = req.id ?? null;
     if (req.jsonrpc !== "2.0" || typeof req.method !== "string") {
       return {
@@ -216,7 +232,7 @@ export class A2AHandler {
     }
     switch (req.method) {
       case "message/send":
-        return this.handleSendMessage(req, id);
+        return this.handleSendMessage(req, id, requestSignal);
       case "tasks/cancel":
         return this.handleCancelTask(req, id);
       case "tasks/get":
@@ -432,6 +448,7 @@ export class A2AHandler {
   private async handleSendMessage(
     req: JsonRpcRequest,
     id: string | number | null,
+    requestSignal?: AbortSignal,
   ): Promise<JsonRpcResponse> {
     if (this.deps.agentArgv.length === 0) {
       return {
@@ -454,6 +471,23 @@ export class A2AHandler {
       errorMessage: null,
     };
     this.tasks.set(taskId, task);
+
+    // #2718: when the dispatcher cancels its outbound HTTP call (HttpClient
+    // timeout, actor turn cancellation, dispose-mid-flight), the inbound
+    // request signal aborts. Propagate that to the per-task AbortController
+    // so runAgentBridge SIGTERM/SIGKILLs the spawned CLI. Without this the
+    // CLI keeps running after the dispatcher's `finally` revokes the MCP
+    // session, producing the mid-turn 401 loop. The dispatcher's
+    // `tasks/cancel` path is the symmetric, explicit fallback.
+    let onRequestAbort: (() => void) | undefined;
+    if (requestSignal) {
+      if (requestSignal.aborted) {
+        abort.abort();
+      } else {
+        onRequestAbort = () => abort.abort();
+        requestSignal.addEventListener("abort", onRequestAbort, { once: true });
+      }
+    }
 
     const userText = this.extractText(req.params);
     const spawnEnv = this.deps.spawnEnv;

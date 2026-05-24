@@ -1072,33 +1072,118 @@ public class A2AExecutionDispatcher(
             },
         };
 
-        var response = await a2aClient.SendMessageAsync(request, cancellationToken);
-
-        // The Python `a2a-sdk` `message/send` handler returns the *initial*
-        // Task as soon as the executor has accepted the message — typically
-        // `state = Submitted` — and continues running the agent loop in
-        // the background. If we returned that snapshot to the caller every
-        // dispatch would surface as "exit code 1" (the dispatcher reads
-        // anything other than `Completed` as failure) and the container
-        // would be torn down mid-loop.
-        //
-        // A2A v0.3 expects the client to poll `tasks/get` on a
-        // non-terminal Task. Do that here, holding the ephemeral
-        // container's lease open until the workflow reaches a terminal
-        // state or the bounded deadline below trips.
-        if (response is AgentTask initialTask
-            && !IsTerminalTaskState(initialTask.Status.State))
+        // #2718: track the latest task we observed so the finally below
+        // can `tasks/cancel` it if we exit on a non-terminal state. Without
+        // that, the caller's outer `finally` runs `RevokeSession` while the
+        // agent's CLI is still running, every subsequent MCP call returns
+        // 401, and the model effectively stalls mid-turn.
+        AgentTask? lastTask = null;
+        try
         {
-            response = await PollTaskUntilTerminalAsync(
-                a2aClient, initialTask, agentId, containerId, cancellationToken);
-        }
+            var response = await a2aClient.SendMessageAsync(request, cancellationToken);
 
-        sw.Stop();
-        // ADR-0056 §5: snapshot the tool-call count BEFORE the caller
-        // revokes the MCP session so the dispatch coordinator can decide
-        // RuntimeCompletedSilent without racing the revoke.
-        var toolCallCount = mcpServer.GetToolCallCount(mcpToken);
-        return MapA2AResponseToOutcome(response, sw.Elapsed, toolCallCount, agentId, containerId);
+            // The Python `a2a-sdk` `message/send` handler returns the *initial*
+            // Task as soon as the executor has accepted the message — typically
+            // `state = Submitted` — and continues running the agent loop in
+            // the background. If we returned that snapshot to the caller every
+            // dispatch would surface as "exit code 1" (the dispatcher reads
+            // anything other than `Completed` as failure) and the container
+            // would be torn down mid-loop.
+            //
+            // A2A v0.3 expects the client to poll `tasks/get` on a
+            // non-terminal Task. Do that here, holding the ephemeral
+            // container's lease open until the workflow reaches a terminal
+            // state or the bounded deadline below trips.
+            if (response is AgentTask initialTask)
+            {
+                lastTask = initialTask;
+                if (!IsTerminalTaskState(initialTask.Status.State))
+                {
+                    response = await PollTaskUntilTerminalAsync(
+                        a2aClient, initialTask, agentId, containerId, cancellationToken);
+                    if (response is AgentTask polled)
+                    {
+                        lastTask = polled;
+                    }
+                }
+            }
+
+            sw.Stop();
+            // ADR-0056 §5: snapshot the tool-call count BEFORE the caller
+            // revokes the MCP session so the dispatch coordinator can decide
+            // RuntimeCompletedSilent without racing the revoke.
+            var toolCallCount = mcpServer.GetToolCallCount(mcpToken);
+            return MapA2AResponseToOutcome(response, sw.Elapsed, toolCallCount, agentId, containerId);
+        }
+        finally
+        {
+            // #2718: any non-terminal exit — poll timeout, exception,
+            // OperationCanceledException — leaves the bridge with a running
+            // CLI. The caller's outer `finally` (in
+            // DispatchPersistentAsync / DispatchEphemeralAsync) is about to
+            // run RevokeSession on the MCP session this turn was issued.
+            // Best-effort tell the bridge to tear the CLI down first so the
+            // worker's view ("turn done") matches the container's view ("CLI
+            // exited"). The cancel is bounded (the bridge's SIGTERM grace is
+            // small) and any error is swallowed — we are already on the
+            // failure path.
+            if (lastTask is not null && !IsTerminalTaskState(lastTask.Status.State))
+            {
+                await TryCancelAgentTaskAsync(a2aClient, lastTask.Id, agentId, containerId);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Maximum time the dispatcher will wait for a best-effort
+    /// <c>tasks/cancel</c> roundtrip when bailing out of a non-terminal turn.
+    /// The bridge's own cancellation grace is small (SIGTERM → SIGKILL,
+    /// typically ~5 s); a longer cap here would block the caller's
+    /// <see cref="IMcpServer.RevokeSession"/> for no benefit. The token
+    /// passed to <see cref="A2AClient.CancelTaskAsync"/> is detached from
+    /// the caller's cancellation token because we want the cancel to fire
+    /// precisely when the caller has already given up.
+    /// </summary>
+    internal static readonly TimeSpan CancelTaskBudget = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Effective <c>tasks/cancel</c> budget. Tests override this to exercise
+    /// the timeout branch without real wall-clock sleep.
+    /// </summary>
+    internal TimeSpan EffectiveCancelTaskBudget = CancelTaskBudget;
+
+    /// <summary>
+    /// Best-effort <c>tasks/cancel</c> on the bridge so the spawned CLI
+    /// is torn down before the caller's <c>finally</c> revokes the per-turn
+    /// MCP session. Bounded by <see cref="EffectiveCancelTaskBudget"/>;
+    /// every failure mode (timeout, transport error, bridge rejection) is
+    /// logged and swallowed — we are already in the dispatch's give-up path
+    /// and must not throw past the caller's finally.
+    /// </summary>
+    private async Task TryCancelAgentTaskAsync(
+        A2AClient a2aClient,
+        string taskId,
+        string agentId,
+        string? containerId)
+    {
+        using var cts = new CancellationTokenSource(EffectiveCancelTaskBudget);
+        try
+        {
+            await a2aClient.CancelTaskAsync(new TaskIdParams { Id = taskId }, cts.Token);
+            _logger.LogInformation(
+                "Best-effort A2A tasks/cancel issued for task {TaskId} (agent {AgentId} container {ContainerId}) — bridge will SIGTERM the CLI before the dispatch's finally revokes the MCP session.",
+                taskId, agentId, containerId);
+        }
+        catch (Exception ex)
+        {
+            // Bridge may already be gone (container torn down), the cancel
+            // may have raced the bridge's own exit, or the bridge may have
+            // returned -32001 because the task already finished. All of
+            // these are acceptable — RevokeSession follows immediately.
+            _logger.LogWarning(ex,
+                "Best-effort A2A tasks/cancel for task {TaskId} (agent {AgentId} container {ContainerId}) failed; the agent CLI may outlive the per-turn MCP session — see #2718.",
+                taskId, agentId, containerId);
+        }
     }
 
     /// <summary>

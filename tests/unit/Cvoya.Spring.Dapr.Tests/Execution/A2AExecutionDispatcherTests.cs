@@ -1380,15 +1380,25 @@ public class A2AExecutionDispatcherTests
               }
             }
             """;
+        var bodies = new List<byte[]>();
         _containerRuntime.SendHttpJsonAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
-            .Returns(_ => Task.FromResult(new ContainerHttpResponse(
-                200,
-                System.Text.Encoding.UTF8.GetBytes(submittedTaskJson))));
+            .Returns(call =>
+            {
+                bodies.Add(call.ArgAt<byte[]>(2));
+                return Task.FromResult(new ContainerHttpResponse(
+                    200,
+                    System.Text.Encoding.UTF8.GetBytes(submittedTaskJson)));
+            });
 
         // Override the task-terminal timeout to 10 ms. The readiness timeout
         // can stay default — the probe succeeds on the first attempt anyway.
         _dispatcher.EffectiveTaskTerminalTimeout = TimeSpan.FromMilliseconds(10);
+        // #2718: shrink the tasks/cancel budget too so the new
+        // bail-out path can't make this test sleep noticeably. The cancel
+        // call goes through the same stub so it answers instantly anyway,
+        // but the override keeps the test honest if something regresses.
+        _dispatcher.EffectiveCancelTaskBudget = TimeSpan.FromSeconds(1);
 
         // Act: dispatch completes (no exception — timeout in the polling loop
         // is not fatal; the dispatcher returns the last-known non-terminal task
@@ -1400,11 +1410,61 @@ public class A2AExecutionDispatcherTests
         result.ShouldNotBeNull();
         result.ExitCode.ShouldBe(1);
 
+        // #2718: before the dispatch's finally runs RevokeSession, the bail-
+        // out path must call A2A tasks/cancel so the bridge SIGTERMs the
+        // still-running CLI. Otherwise the CLI keeps making MCP calls with a
+        // revoked token and every call returns 401.
+        ExtractJsonRpcMethods(bodies).ShouldContain("tasks/cancel");
+
         // Assert: container teardown fires exactly once via the registry —
         // the finally block in DispatchEphemeralAsync always releases the
         // lease regardless of polling outcome.
         await _containerRuntime.Received(1).StopAsync(ContainerId, Arg.Any<CancellationToken>());
         _ephemeralRegistry.GetAllEntries().ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// #2718: the happy path (bridge returns a terminal task) must NOT call
+    /// tasks/cancel. The CLI has already exited, so cancelling would be a
+    /// pointless extra roundtrip — and worse, it would race the bridge's
+    /// already-completed state and surface noisy log warnings.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_TerminalTaskResponse_DoesNotIssueTasksCancel()
+    {
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+        var recorder = InstallA2AStub();
+
+        var result = await _dispatcher.DispatchAsync(
+            message, context: null, TestContext.Current.CancellationToken);
+
+        result.ShouldNotBeNull();
+        result.ExitCode.ShouldBe(0);
+
+        ExtractJsonRpcMethods(recorder.Calls.Select(c => c.Body))
+            .ShouldNotContain("tasks/cancel");
+    }
+
+    /// <summary>
+    /// Extracts the JSON-RPC <c>method</c> field from each captured body.
+    /// Used by #2718 tests to confirm whether a tasks/cancel roundtrip
+    /// occurred without coupling assertions to the SDK's request shape.
+    /// </summary>
+    private static IReadOnlyList<string> ExtractJsonRpcMethods(IEnumerable<byte[]> bodies)
+    {
+        var methods = new List<string>();
+        foreach (var body in bodies)
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.TryGetProperty("method", out var method) &&
+                method.ValueKind == JsonValueKind.String)
+            {
+                methods.Add(method.GetString()!);
+            }
+        }
+        return methods;
     }
 
     /// <summary>

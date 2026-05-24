@@ -32,6 +32,18 @@ using Cvoya.Spring.Core.Execution;
 /// dispatch; the platform adds auth at the API-layer Bucket-2 surface, not
 /// at the worker → agent hop.
 /// </para>
+/// <para>
+/// Timeout: <see cref="HttpClient.Timeout"/> is set to
+/// <see cref="System.Threading.Timeout.InfiniteTimeSpan"/>. A persistent-
+/// agent turn can legitimately take minutes (Claude Code agentic loop, slow
+/// model, large tool fan-out). The .NET default of 100 s would fire mid-turn
+/// and throw <see cref="TaskCanceledException"/>; the dispatch's
+/// <c>finally</c> would then revoke the per-turn MCP session while the
+/// agent's CLI is still running, producing the 401-loop in #2718. The real
+/// dispatch deadline lives elsewhere (actor turn cancellation, container
+/// teardown) — same rationale as
+/// <see cref="DispatcherClientOptions.RequestTimeout"/>.
+/// </para>
 /// </remarks>
 internal sealed class DirectA2ATransport : IA2ATransport
 {
@@ -42,7 +54,11 @@ internal sealed class DirectA2ATransport : IA2ATransport
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        return new HttpClient { BaseAddress = endpoint };
+        return new HttpClient
+        {
+            BaseAddress = endpoint,
+            Timeout = System.Threading.Timeout.InfiniteTimeSpan,
+        };
     }
 
     /// <inheritdoc />

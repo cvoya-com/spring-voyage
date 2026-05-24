@@ -144,6 +144,23 @@ public class A2ATransportTests
     }
 
     [Fact]
+    public void DispatcherProxyTransport_CreateHttpClient_TimeoutIsInfinite()
+    {
+        // #2718: the .NET default HttpClient.Timeout of 100 s fires mid-turn for
+        // long Claude Code / Codex runs and triggers the dispatch's RevokeSession
+        // while the agent's CLI is still busy — every subsequent MCP call then
+        // returns 401. The transport must hand out a client with Timeout =
+        // InfiniteTimeSpan so the dispatch's true deadline (actor turn
+        // cancellation, container teardown) is what controls liveness, not a
+        // silent client-side wall-clock cap.
+        var containerRuntime = Substitute.For<IContainerRuntime>();
+        using var transport = new DispatcherProxyA2ATransport(containerRuntime, ContainerId);
+        using var client = transport.CreateHttpClient(AgentEndpoint);
+
+        client.Timeout.ShouldBe(System.Threading.Timeout.InfiniteTimeSpan);
+    }
+
+    [Fact]
     public void DispatcherProxyTransport_Constructor_BlankContainerId_Throws()
     {
         var containerRuntime = Substitute.For<IContainerRuntime>();
@@ -174,6 +191,18 @@ public class A2ATransportTests
         using var client = transport.CreateHttpClient(AgentEndpoint);
 
         client.BaseAddress.ShouldBe(AgentEndpoint);
+    }
+
+    [Fact]
+    public void DirectTransport_CreateHttpClient_TimeoutIsInfinite()
+    {
+        // #2718: mirror DispatcherProxyTransport_CreateHttpClient_TimeoutIsInfinite.
+        // The .NET default 100 s timeout would silently terminate long turns
+        // and trigger the dispatch's RevokeSession under a still-running CLI.
+        using var transport = new DirectA2ATransport();
+        using var client = transport.CreateHttpClient(AgentEndpoint);
+
+        client.Timeout.ShouldBe(System.Threading.Timeout.InfiniteTimeSpan);
     }
 
     [Fact]
