@@ -68,6 +68,7 @@ For open design questions not yet decided, see
 | [0056](0056-tool-only-side-effects.md) | Tool calls are the only side-effect channel; stdout is reasoning trace | Approved |
 | [0057](0057-sidecar-local-mcp-server.md) | Agent-runtime MCP surface is sidecar-local (amends [0054](0054-one-mcp-server-one-execution-host.md) §2) | Proposed |
 | [0058](0058-spring-voyage-container-contract.md) | Spring Voyage container contract — platform-managed artefacts inside agent instances | Proposed |
+| [0059](0059-prompt-assembly-pipeline.md) | Prompt-assembly pipeline — layered providers, launcher-owned delivery, and `system_prompt_mode` | Proposed — supersedes [0038](0038-agent-runtime-and-model-provider-split.md) §`systemPromptInjection` |
 
 Archived records are listed in [`archive/README.md`](archive/README.md).
 
