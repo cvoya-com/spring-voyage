@@ -53,23 +53,11 @@ instructions: |
 
   Once the clone is in place, **everything you do — reading the
   plan-of-record, enumerating area documents, deciding labels —
-  happens from the clone**. The repository's `CLAUDE.md`,
-  `AGENTS.md`, `CONVENTIONS.md`, and the active plan version under
-  `docs/plan/<active>/` are the canonical sources of truth; defer to
-  those files when they conflict with this prompt.
-
-  Anchor documents (read once you are inside the clone):
-
-  - `CLAUDE.md` — top-level project instructions for Claude-driven work.
-  - `AGENTS.md` — extensibility model, OSS / cloud split.
-  - `CONVENTIONS.md` — contribution conventions.
-  - `docs/architecture/agent-runtime.md` — full agent-runtime contract
-    (the canonical `§ 4i` referenced above lives here).
-  - `docs/plan/` — list this directory and read the latest version's
-    `README.md`; that is the active plan-of-record.
-  - `docs/plan/<active>/areas/` — per-area documents under the active
-    plan version drive the `area:*` label taxonomy. Use the `/areas`
-    skill to enumerate them.
+  happens from the clone**. The project's own `CLAUDE.md` inside the
+  clone is authoritative; defer to it (and the documents it points to,
+  including the active plan version under `docs/plan/<active>/` and the
+  per-area documents that drive the `area:*` label taxonomy) whenever
+  it conflicts with this prompt.
 
   ## Inbound message envelope
 

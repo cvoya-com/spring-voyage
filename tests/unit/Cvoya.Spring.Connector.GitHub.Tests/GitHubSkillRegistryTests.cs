@@ -38,53 +38,157 @@ public class GitHubSkillRegistryTests
     }
 
     [Fact]
-    public void GetToolDefinitions_ExposesExactlyTheTokenTool()
+    public void GetToolDefinitions_ExposesExactlyTheTwoPinnedTools()
     {
         var registry = BuildRegistry();
         var tools = registry.GetToolDefinitions();
 
-        tools.ShouldHaveSingleItem();
-        var tool = tools[0];
-        tool.Name.ShouldBe(GitHubSkillRegistry.GetInstallationTokenTool);
-        tool.Namespace.ShouldBe("github");
-        // Connector tools sit outside the SV category taxonomy — empty
-        // category matches the ArxivSkillRegistry precedent.
-        tool.Category.ShouldBe(string.Empty);
+        // Two pinned exceptions to the wider #2384 / #2383 rule:
+        // get_installation_token (#2704) and describe_inbound_contract (#2676).
+        // Both live in the github namespace; only describe_inbound_contract
+        // participates in the platform's category-discovery surface.
+        tools.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ShouldBe(new[]
+        {
+            GitHubSkillRegistry.DescribeInboundContractTool,
+            GitHubSkillRegistry.GetInstallationTokenTool,
+        });
+        tools.ShouldAllBe(t => t.Namespace == "github");
     }
 
     [Fact]
-    public void ToolDefinition_HasObjectSchemaWithNoRequiredProperties()
+    public void TokenToolDefinition_HasObjectSchemaWithNoRequiredProperties()
     {
         var registry = BuildRegistry();
-        var tool = registry.GetToolDefinitions().Single();
+        var tool = registry.GetToolDefinitions()
+            .Single(t => t.Name == GitHubSkillRegistry.GetInstallationTokenTool);
 
         tool.InputSchema.GetProperty("type").GetString().ShouldBe("object");
         tool.InputSchema.GetProperty("additionalProperties").GetBoolean().ShouldBeFalse();
         tool.InputSchema.GetProperty("properties").GetRawText().ShouldBe("{}");
+        // The token-fetch tool is reached by name once the grant pipeline
+        // surfaces it; it deliberately stays outside the category taxonomy
+        // (matches the ArxivSkillRegistry precedent).
+        tool.Category.ShouldBe(string.Empty);
     }
 
     [Fact]
-    public void ToolDefinition_DescriptionExplicitlyDisclaimsHttpFetch()
+    public void TokenToolDescription_ExplicitlyDisclaimsHttpFetch()
     {
         // The tool's description is part of the model-facing surface: it
         // must steer the agent away from the URL-construction shape that
         // triggered the hallucination cascade in #2704.
         var registry = BuildRegistry();
-        var tool = registry.GetToolDefinitions().Single();
+        var tool = registry.GetToolDefinitions()
+            .Single(t => t.Name == GitHubSkillRegistry.GetInstallationTokenTool);
 
         tool.Description.ShouldContain("do NOT construct");
         tool.Description.ShouldContain("$SPRING_CONNECTOR_GITHUB_TOKEN");
     }
 
     [Fact]
-    public void GetToolsByNamespace_GithubMatchesTheTokenTool()
+    public void DescribeInboundContractTool_LivesInConnectorCategoryWithEmptySchema()
+    {
+        // #2676: surfaces via sv.tools.list_categories under "connector:github".
+        var registry = BuildRegistry();
+        var tool = registry.GetToolDefinitions()
+            .Single(t => t.Name == GitHubSkillRegistry.DescribeInboundContractTool);
+
+        tool.Category.ShouldBe(GitHubSkillRegistry.ConnectorCategory);
+        tool.InputSchema.GetProperty("type").GetString().ShouldBe("object");
+        tool.InputSchema.GetProperty("additionalProperties").GetBoolean().ShouldBeFalse();
+        tool.InputSchema.GetProperty("properties").GetRawText().ShouldBe("{}");
+        tool.Description.ShouldContain("'source' is 'github'");
+        tool.Description.ShouldContain("payload.intent");
+    }
+
+    [Fact]
+    public async Task DescribeInboundContractTool_ReturnsEnvelopeAndIntents_ConsistentWithVocabulary()
+    {
+        var registry = BuildRegistry();
+        var result = await registry.InvokeAsync(
+            GitHubSkillRegistry.DescribeInboundContractTool,
+            ParseJson("{}"),
+            AgentContext(AgentId),
+            TestContext.Current.CancellationToken);
+
+        var envelopeFields = result.GetProperty("envelope").GetProperty("fields");
+        envelopeFields.GetArrayLength().ShouldBe(GitHubIntentVocabulary.EnvelopeFields.Count);
+        envelopeFields.EnumerateArray()
+            .Select(f => f.GetProperty("name").GetString())
+            .ShouldBe(GitHubIntentVocabulary.EnvelopeFields.Select(f => f.Name));
+
+        var intents = result.GetProperty("intents");
+        intents.GetArrayLength().ShouldBe(GitHubIntentVocabulary.All.Count);
+        intents.EnumerateArray()
+            .Select(i => i.GetProperty("token").GetString())
+            .ShouldBe(GitHubIntentVocabulary.All.Select(i => i.Token));
+
+        // Every (event, action) the webhook handler can dispatch through
+        // GitHubIntentVocabulary.MapAction MUST be reachable from the
+        // published contract — defence against the vocabulary drifting
+        // away from the webhook handler.
+        var publishedActions = intents.EnumerateArray()
+            .SelectMany(i => i.GetProperty("github_actions").EnumerateArray()
+                .Select(a => a.GetString()!))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var intent in GitHubIntentVocabulary.All)
+        {
+            foreach (var src in intent.GithubActions)
+            {
+                publishedActions.ShouldContain(src);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task DescribeInboundContractTool_ReachableWithoutCallerContext()
+    {
+        // The contract has no per-caller variability — the context-less
+        // overload must succeed so callers reaching the tool through that
+        // path get the same document.
+        var registry = BuildRegistry();
+        var result = await registry.InvokeAsync(
+            GitHubSkillRegistry.DescribeInboundContractTool,
+            ParseJson("{}"),
+            TestContext.Current.CancellationToken);
+
+        result.GetProperty("envelope").GetProperty("fields").GetArrayLength().ShouldBeGreaterThan(0);
+        result.GetProperty("intents").GetArrayLength().ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
+    public void GitHubIntentVocabulary_MapAction_RoundTripsEveryPublishedAction()
+    {
+        // Single-source-of-truth check: every (event, action) the vocabulary
+        // publishes must round-trip through MapAction back to the same intent
+        // token. If a developer edits the vocab without updating MapAction
+        // (or vice versa), this test fails.
+        foreach (var intent in GitHubIntentVocabulary.All)
+        {
+            foreach (var src in intent.GithubActions)
+            {
+                var dot = src.IndexOf('.', StringComparison.Ordinal);
+                dot.ShouldBeGreaterThan(0,
+                    $"Source action '{src}' must be in 'event.action' form.");
+                var @event = src[..dot];
+                var action = src[(dot + 1)..];
+                GitHubIntentVocabulary.MapAction(@event, action).ShouldBe(intent.Token);
+            }
+        }
+    }
+
+    [Fact]
+    public void GetToolsByNamespace_GithubMatchesBothPinnedTools()
     {
         // GetToolsByNamespace is a default interface method on
         // ISkillRegistry; C# requires the call through the interface.
         ISkillRegistry registry = BuildRegistry();
         var tools = registry.GetToolsByNamespace("github");
-        tools.ShouldHaveSingleItem();
-        tools[0].Name.ShouldBe(GitHubSkillRegistry.GetInstallationTokenTool);
+        tools.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ShouldBe(new[]
+        {
+            GitHubSkillRegistry.DescribeInboundContractTool,
+            GitHubSkillRegistry.GetInstallationTokenTool,
+        });
     }
 
     [Fact]

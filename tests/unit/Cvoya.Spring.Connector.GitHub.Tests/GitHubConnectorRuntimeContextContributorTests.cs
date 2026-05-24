@@ -332,7 +332,13 @@ public class GitHubConnectorRuntimeContextContributorTests
             "call the platform tool `github.get_installation_token` — it returns the same\n" +
             "value as $GITHUB_TOKEN plus the credential kind and expiry. **Do not** try to\n" +
             "fetch the token by constructing an HTTP URL against the platform: no such\n" +
-            "endpoint exists, and the env-var / tool are the only two ways to get it.";
+            "endpoint exists, and the env-var / tool are the only two ways to get it.\n\n" +
+            "When you receive a message whose payload `source` is `github`, the connector\n" +
+            "translated an inbound webhook into that message. The envelope shape and the\n" +
+            "canonical intent vocabulary are published by the tool\n" +
+            "`github.describe_inbound_contract` — input-less, idempotent, stable across the\n" +
+            "connector's lifetime. Call it once on the first github-source turn and switch\n" +
+            "on the resulting `intent` rather than on the raw `action`.";
 
         // Normalise CRLF on Windows so the snapshot test is platform-agnostic.
         fragment.Replace("\r\n", "\n").ShouldBe(expected);
