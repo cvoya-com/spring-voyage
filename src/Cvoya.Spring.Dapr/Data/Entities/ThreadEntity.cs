@@ -36,6 +36,24 @@ public class ThreadEntity : ITenantScopedEntity
     /// </summary>
     public string Participants { get; set; } = "[]";
 
+    /// <summary>
+    /// JSON-encoded dictionary of <c>address → last-known display name</c>
+    /// captured at message-write time (#2533). The thread surface reads
+    /// this when the live resolver can no longer find the participant —
+    /// e.g. an agent or connector whose definition row has been
+    /// soft-deleted — so the engagement list keeps surfacing the name the
+    /// human saw at the time the conversation happened rather than a
+    /// generic <c>"an agent"</c> fallback.
+    ///
+    /// <para>
+    /// Stored as <c>jsonb</c> on PostgreSQL with a server-side default of
+    /// <c>{}</c> so rows predating the migration deserialise to an empty
+    /// snapshot. The map only ever grows in the "real name" direction:
+    /// per-scheme generic fallbacks never overwrite a captured real name.
+    /// </para>
+    /// </summary>
+    public string ParticipantNameSnapshots { get; set; } = "{}";
+
     /// <summary>Timestamp when the thread row was first inserted.</summary>
     public DateTimeOffset CreatedAt { get; set; }
 

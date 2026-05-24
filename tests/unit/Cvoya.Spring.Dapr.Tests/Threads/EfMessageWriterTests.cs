@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Tenancy;
@@ -245,6 +246,71 @@ public class EfMessageWriterTests : IDisposable
     }
 
     [Fact]
+    public async Task WriteAsync_CapturesRealDisplayNamesIntoParticipantNameSnapshots()
+    {
+        // #2533: every successful write upserts the sender's and
+        // recipient's current real display names into the parent
+        // thread's participant_name_snapshots map. Per-scheme fallbacks
+        // never overwrite a captured real name.
+        var ct = TestContext.Current.CancellationToken;
+        var resolver = new FixedNameParticipantDisplayNameResolver(new Dictionary<string, string>
+        {
+            [Human1.ToString()] = "Savas",
+            [Agent1.ToString()] = "Ada Lovelace",
+        });
+        var (writer, db, threadId, _) = await SetupAsync(Tenant1, Human1, Agent1, ct, resolver);
+
+        var message = NewDomainMessage(Human1, Agent1, threadId, JsonSerializer.SerializeToElement("hi"));
+        await writer.WriteAsync(message, ct);
+
+        var thread = await db.Threads.AsNoTracking()
+            .FirstAsync(t => t.Id == ParseGuid(threadId), ct);
+        var snapshots = ParticipantNameSnapshotJson.Read(thread.ParticipantNameSnapshots);
+        snapshots[Human1.ToString()].ShouldBe("Savas");
+        snapshots[Agent1.ToString()].ShouldBe("Ada Lovelace");
+    }
+
+    [Fact]
+    public async Task WriteAsync_FallbackDisplayName_DoesNotOverwriteCapturedRealName()
+    {
+        // The snapshot is the last *real* name seen, not the most recent
+        // resolver output: a later write that hits the per-scheme generic
+        // ("an agent", "a connector") must leave a previously-captured
+        // real name in place. This is the whole point — once the agent
+        // is soft-deleted the resolver only returns fallbacks; the
+        // snapshot has to survive that transition.
+        var ct = TestContext.Current.CancellationToken;
+        var realNameResolver = new FixedNameParticipantDisplayNameResolver(new Dictionary<string, string>
+        {
+            [Human1.ToString()] = "Savas",
+            [Agent1.ToString()] = "Ada Lovelace",
+        });
+        var (writer, db, threadId, _) = await SetupAsync(Tenant1, Human1, Agent1, ct, realNameResolver);
+
+        await writer.WriteAsync(
+            NewDomainMessage(Human1, Agent1, threadId, JsonSerializer.SerializeToElement("first")),
+            ct);
+
+        // Subsequent write uses a resolver that only knows the human —
+        // mirroring a soft-delete of the agent's definition row.
+        var halfRealResolver = new FixedNameParticipantDisplayNameResolver(new Dictionary<string, string>
+        {
+            [Human1.ToString()] = "Savas",
+        });
+        var degradedDb = new SpringDbContext(_dbOptions, new StaticTenantContext(Tenant1));
+        var degradedWriter = new EfMessageWriter(degradedDb, new StaticTenantContext(Tenant1), halfRealResolver, NullLoggerFactory.Instance);
+        await degradedWriter.WriteAsync(
+            NewDomainMessage(Human1, Agent1, threadId, JsonSerializer.SerializeToElement("after delete")),
+            ct);
+
+        var thread = await db.Threads.AsNoTracking()
+            .FirstAsync(t => t.Id == ParseGuid(threadId), ct);
+        var snapshots = ParticipantNameSnapshotJson.Read(thread.ParticipantNameSnapshots);
+        snapshots[Human1.ToString()].ShouldBe("Savas");
+        snapshots[Agent1.ToString()].ShouldBe("Ada Lovelace");
+    }
+
+    [Fact]
     public async Task WriteAsync_StructuredPayload_BodyIsNullPayloadIsSerialised()
     {
         // Non-text payloads — the recipient-side reply shape is e.g.
@@ -270,7 +336,8 @@ public class EfMessageWriterTests : IDisposable
         Guid tenantId,
         Address senderAddress,
         Address recipientAddress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IParticipantDisplayNameResolver? resolver = null)
     {
         var tenantContext = new StaticTenantContext(tenantId);
         var db = new SpringDbContext(_dbOptions, tenantContext);
@@ -286,8 +353,44 @@ public class EfMessageWriterTests : IDisposable
             .Select(t => t.LastActivityAt)
             .FirstAsync(cancellationToken);
 
-        var writer = new EfMessageWriter(db, tenantContext, NullLoggerFactory.Instance);
+        // Default resolver returns a fallback for every address so existing
+        // tests that don't care about the snapshot path observe empty
+        // snapshots — the writer never overwrites a real name with a
+        // fallback, so this is a clean baseline.
+        resolver ??= new FallbackOnlyParticipantDisplayNameResolver();
+        var writer = new EfMessageWriter(db, tenantContext, resolver, NullLoggerFactory.Instance);
         return (writer, db, threadId, baseline);
+    }
+
+    /// <summary>
+    /// Test-double resolver that always reports a per-scheme fallback so
+    /// the writer never captures a snapshot. The snapshot-path tests
+    /// substitute a stub that returns real names for the addresses they
+    /// care about.
+    /// </summary>
+    private sealed class FallbackOnlyParticipantDisplayNameResolver : IParticipantDisplayNameResolver
+    {
+        public ValueTask<string> ResolveAsync(string address, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult("an actor");
+
+        public ValueTask<ParticipantDisplayName> ResolveStatusAsync(string address, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(new ParticipantDisplayName("an actor", IsFallback: true));
+    }
+
+    /// <summary>
+    /// Test-double resolver that returns a configured real name for
+    /// known addresses (everything else falls back). Used by the
+    /// snapshot-capture tests below.
+    /// </summary>
+    private sealed class FixedNameParticipantDisplayNameResolver(IReadOnlyDictionary<string, string> names) : IParticipantDisplayNameResolver
+    {
+        public ValueTask<string> ResolveAsync(string address, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(ResolveStatusAsync(address, cancellationToken).Result.DisplayName);
+
+        public ValueTask<ParticipantDisplayName> ResolveStatusAsync(string address, CancellationToken cancellationToken = default)
+            => names.TryGetValue(address, out var name)
+                ? ValueTask.FromResult(new ParticipantDisplayName(name, IsFallback: false))
+                : ValueTask.FromResult(new ParticipantDisplayName("a fallback", IsFallback: true));
     }
 
     private static Message NewDomainMessage(

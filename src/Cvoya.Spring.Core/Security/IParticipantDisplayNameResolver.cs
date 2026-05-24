@@ -14,10 +14,14 @@ namespace Cvoya.Spring.Core.Security;
 /// <para>
 /// <b>Non-empty contract (#1635).</b> Implementations MUST return a
 /// non-empty string for every input. Resolution failures (deleted entity,
-/// missing row, transient DB error) surface as the
-/// <see cref="DeletedDisplayName"/> sentinel (<c>&lt;deleted&gt;</c>) so
-/// callers — the portal's render path AND the Dapr prompt-assembly path
-/// (#2129) — never have to fall back to a raw GUID.
+/// missing row, transient DB error) surface as a per-scheme generic
+/// fallback (#2532 / #2533) — <c>"an agent"</c>, <c>"a unit"</c>,
+/// <c>"a connector"</c>, <c>"someone"</c>, <c>"a member"</c>, or
+/// <c>"a {scheme}"</c> for unknown schemes — so callers never have to
+/// fall back to a raw GUID and the UI voice stays conversational. Use
+/// <see cref="ResolveStatusAsync"/> when the caller needs to distinguish
+/// a real name from a fallback (e.g. to prefer a thread-level snapshot
+/// captured before the entity was deleted).
 /// </para>
 ///
 /// <para>
@@ -33,6 +37,12 @@ namespace Cvoya.Spring.Core.Security;
 ///   <item><description>
 ///     <c>human:&lt;guid&gt;</c> →
 ///     <see cref="IHumanIdentityResolver.GetDisplayNameAsync"/>.
+///   </description></item>
+///   <item><description>
+///     <c>connector:&lt;guid&gt;</c> →
+///     <c>ConnectorDefinitions.DisplayName</c>, falling back to
+///     <c>"a {Type} connector"</c> when the row exists but has no
+///     display name (e.g. <c>"a github connector"</c>).
 ///   </description></item>
 ///   <item><description>
 ///     <c>tenant-user:&lt;guid&gt;</c> → <c>tenant_users.DisplayName</c>
@@ -61,14 +71,6 @@ namespace Cvoya.Spring.Core.Security;
 public interface IParticipantDisplayNameResolver
 {
     /// <summary>
-    /// Sentinel display name returned for participant addresses whose
-    /// backing entity (agent / unit / human) is no longer present in the
-    /// directory / humans table. Surfaces as a friendly tag in the
-    /// portal — see #1630, #1635.
-    /// </summary>
-    public const string DeletedDisplayName = "<deleted>";
-
-    /// <summary>
     /// Returns the display name for <paramref name="address"/>. Never
     /// returns an empty or whitespace string — see the type-level
     /// non-empty contract.
@@ -79,4 +81,38 @@ public interface IParticipantDisplayNameResolver
     /// </param>
     /// <param name="cancellationToken">Propagates request cancellation.</param>
     ValueTask<string> ResolveAsync(string address, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the display name for <paramref name="address"/> together
+    /// with a flag indicating whether the value is a per-scheme generic
+    /// fallback (e.g. <c>"an agent"</c>, <c>"a connector"</c>) rather
+    /// than the entity's real display name. Callers that maintain a
+    /// thread-level snapshot of last-known names use this to decide
+    /// whether to prefer the snapshot over the live resolution (#2533).
+    /// </summary>
+    /// <param name="address">A wire-form participant address.</param>
+    /// <param name="cancellationToken">Propagates request cancellation.</param>
+    ValueTask<ParticipantDisplayName> ResolveStatusAsync(string address, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Result of <see cref="IParticipantDisplayNameResolver.ResolveStatusAsync"/>:
+/// the user-facing <paramref name="DisplayName"/> plus a flag signalling
+/// whether the value is a per-scheme generic fallback. The fallback flag
+/// lets snapshot-aware callers (the thread-endpoints enrichment path)
+/// substitute a previously-cached real name when the live row has been
+/// soft-deleted (#2533).
+/// </summary>
+/// <param name="DisplayName">
+/// Non-empty user-facing label for the address. When the underlying
+/// entity has a real display name this is that name; otherwise this is
+/// the per-scheme generic fallback ("an agent", "a connector", …).
+/// </param>
+/// <param name="IsFallback">
+/// <c>true</c> when <paramref name="DisplayName"/> is a per-scheme
+/// generic fallback rather than the entity's real display name. Always
+/// <c>false</c> when the entity row exists with a non-empty display
+/// name; always <c>true</c> when the row is missing / soft-deleted /
+/// unparseable.
+/// </param>
+public readonly record struct ParticipantDisplayName(string DisplayName, bool IsFallback);

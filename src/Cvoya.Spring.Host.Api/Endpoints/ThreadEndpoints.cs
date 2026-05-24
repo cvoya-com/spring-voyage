@@ -183,12 +183,32 @@ public static class ThreadEndpoints
     // Enrichment helpers
     // ---------------------------------------------------------------------------
 
+    /// <summary>
+    /// Resolves <paramref name="address"/> to its display name, preferring
+    /// a snapshot from <paramref name="snapshots"/> when the live resolver
+    /// returns a per-scheme generic fallback (#2533). Snapshots capture
+    /// the last-known real name a participant had at message-write time,
+    /// so a later soft-delete of the underlying definition does not
+    /// blank the engagement list to "an agent" / "a connector" — the
+    /// human still sees the name they conversed with.
+    /// </summary>
     internal static async Task<ParticipantRef> ToRefAsync(
         string address,
         IParticipantDisplayNameResolver resolver,
+        IReadOnlyDictionary<string, string>? snapshots,
         CancellationToken ct)
     {
-        var displayName = await resolver.ResolveAsync(address, ct);
+        var status = await resolver.ResolveStatusAsync(address, ct);
+        var displayName = status.DisplayName;
+
+        if (status.IsFallback
+            && snapshots is not null
+            && snapshots.TryGetValue(address, out var snapshot)
+            && !string.IsNullOrWhiteSpace(snapshot))
+        {
+            displayName = snapshot;
+        }
+
         // #2082: emit the typed Guid identity alongside the textual
         // address. Callers do identity comparisons on Id, not Address.
         // Slug-shaped legacy addresses (no Guid) surface Guid.Empty —
@@ -215,12 +235,13 @@ public static class ThreadEndpoints
         IParticipantDisplayNameResolver resolver,
         CancellationToken ct)
     {
+        var snapshots = s.ParticipantNameSnapshots;
         var participants = new List<ParticipantRef>(s.Participants.Count);
         foreach (var p in s.Participants)
         {
-            participants.Add(await ToRefAsync(p, resolver, ct));
+            participants.Add(await ToRefAsync(p, resolver, snapshots, ct));
         }
-        var origin = await ToRefAsync(s.Origin, resolver, ct);
+        var origin = await ToRefAsync(s.Origin, resolver, snapshots, ct);
         return new ThreadSummaryResponse(
             s.Id,
             participants,
@@ -237,18 +258,19 @@ public static class ThreadEndpoints
         CancellationToken ct)
     {
         var summary = await EnrichSummaryAsync(detail.Summary, resolver, ct);
+        var snapshots = detail.Summary.ParticipantNameSnapshots;
         var events = new List<ThreadEventResponse>(detail.Events.Count);
         foreach (var e in detail.Events)
         {
-            var source = await ToRefAsync(e.Source, resolver, ct);
+            var source = await ToRefAsync(e.Source, resolver, snapshots, ct);
             ParticipantRef? from = e.From is not null
-                ? await ToRefAsync(e.From, resolver, ct)
+                ? await ToRefAsync(e.From, resolver, snapshots, ct)
                 : null;
             // #1635: also enrich the recipient address so the portal
             // gets a non-empty display name without resolving the
             // address client-side.
             ParticipantRef? to = e.To is not null
-                ? await ToRefAsync(e.To, resolver, ct)
+                ? await ToRefAsync(e.To, resolver, snapshots, ct)
                 : null;
             events.Add(new ThreadEventResponse(
                 e.Id,
@@ -427,8 +449,9 @@ public static class InboxEndpoints
         IParticipantDisplayNameResolver resolver,
         CancellationToken ct)
     {
-        var from = await ThreadEndpoints.ToRefAsync(item.From, resolver, ct);
-        var human = await ThreadEndpoints.ToRefAsync(item.Human, resolver, ct);
+        var snapshots = item.ParticipantNameSnapshots;
+        var from = await ThreadEndpoints.ToRefAsync(item.From, resolver, snapshots, ct);
+        var human = await ThreadEndpoints.ToRefAsync(item.Human, resolver, snapshots, ct);
         return new InboxItemResponse(
             item.ThreadId,
             from,

@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -326,6 +327,11 @@ public class MessageRouterTests
         var dbName = $"router-{Guid.NewGuid()}";
         services.AddDbContext<SpringDbContext>(opts => opts.UseInMemoryDatabase(dbName));
         services.AddSingleton<ITenantContext>(new StaticTenantContext(tenantId));
+        // #2533: EfMessageWriter now snapshots participant display names
+        // via IParticipantDisplayNameResolver. The router-end-to-end test
+        // doesn't care about snapshot capture — wire a no-op resolver that
+        // always reports a fallback so the writer skips the upsert path.
+        services.AddScoped<IParticipantDisplayNameResolver>(_ => new FallbackOnlyResolver());
         services.AddScoped<IMessageWriter, EfMessageWriter>();
         var provider = services.BuildServiceProvider();
         var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
@@ -398,6 +404,11 @@ public class MessageRouterTests
         var dbName = $"router-{Guid.NewGuid()}";
         services.AddDbContext<SpringDbContext>(opts => opts.UseInMemoryDatabase(dbName));
         services.AddSingleton<ITenantContext>(new StaticTenantContext(tenantId));
+        // #2533: EfMessageWriter now snapshots participant display names
+        // via IParticipantDisplayNameResolver. The router-end-to-end test
+        // doesn't care about snapshot capture — wire a no-op resolver that
+        // always reports a fallback so the writer skips the upsert path.
+        services.AddScoped<IParticipantDisplayNameResolver>(_ => new FallbackOnlyResolver());
         services.AddScoped<IMessageWriter, EfMessageWriter>();
         var provider = services.BuildServiceProvider();
         var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
@@ -459,4 +470,20 @@ public class MessageRouterTests
             original.ThreadId,
             JsonSerializer.SerializeToElement(new { Acknowledged = true, Label = label }),
             DateTimeOffset.UtcNow);
+
+    /// <summary>
+    /// Test-double <see cref="IParticipantDisplayNameResolver"/> that
+    /// always reports the per-scheme fallback. The
+    /// <see cref="EfMessageWriter"/> snapshot path treats this as "no
+    /// real name to capture" and skips the upsert, which is what these
+    /// router-end-to-end tests need.
+    /// </summary>
+    private sealed class FallbackOnlyResolver : IParticipantDisplayNameResolver
+    {
+        public ValueTask<string> ResolveAsync(string address, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult("an actor");
+
+        public ValueTask<ParticipantDisplayName> ResolveStatusAsync(string address, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(new ParticipantDisplayName("an actor", IsFallback: true));
+    }
 }

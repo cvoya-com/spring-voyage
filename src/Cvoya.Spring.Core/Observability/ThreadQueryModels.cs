@@ -19,6 +19,14 @@ namespace Cvoya.Spring.Core.Observability;
 /// <param name="EventCount">Number of persisted messages on this thread.</param>
 /// <param name="Origin">The canonical address (<c>scheme:&lt;32-hex&gt;</c>) that sent the first message on this thread.</param>
 /// <param name="Summary">Human-readable summary — the first message's body text, when extractable.</param>
+/// <param name="ParticipantNameSnapshots">
+/// Snapshot of each participant's display name at message-write time
+/// (#2533). Keyed by canonical address string. The enrichment path
+/// substitutes this value when the live resolver returns a per-scheme
+/// generic fallback (the underlying definition was soft-deleted) so
+/// the engagement list keeps showing the last-known real name.
+/// Defaults to an empty map.
+/// </param>
 public record ThreadSummary(
     string Id,
     IReadOnlyList<string> Participants,
@@ -26,7 +34,8 @@ public record ThreadSummary(
     DateTimeOffset CreatedAt,
     int EventCount,
     string Origin,
-    string Summary);
+    string Summary,
+    IReadOnlyDictionary<string, string>? ParticipantNameSnapshots = null);
 
 /// <summary>
 /// Detailed thread payload for <c>GET /api/v1/threads/{id}</c>.
@@ -90,13 +99,21 @@ public record ThreadEvent(
 /// the caller omits last-read data. The badge in the portal reads this
 /// field directly — it is always non-negative.
 /// </param>
+/// <param name="ParticipantNameSnapshots">
+/// Snapshot of each participant's display name at message-write time
+/// (#2533). Keyed by canonical address string. The enrichment path
+/// substitutes this value when the live resolver returns a per-scheme
+/// generic fallback so the inbox list keeps showing the last-known real
+/// name. Defaults to an empty map.
+/// </param>
 public record InboxItem(
     string ThreadId,
     string From,
     string Human,
     DateTimeOffset PendingSince,
     string Summary,
-    int UnreadCount = 0);
+    int UnreadCount = 0,
+    IReadOnlyDictionary<string, string>? ParticipantNameSnapshots = null);
 
 /// <summary>
 /// Filters for <see cref="IThreadQueryService.ListAsync"/>. Each filter is
