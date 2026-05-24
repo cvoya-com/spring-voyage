@@ -39,13 +39,15 @@ public class ConnectorRuntimeContextResolver(
     internal const string EnvVarPrefix = "SPRING_CONNECTOR_";
 
     /// <summary>
-    /// Sub-path prefix every contributed context file must sit under.
-    /// Mirrors the env-var namespace convention so connector contributions
-    /// stay confined to the <c>connectors/</c> sub-tree and cannot shadow
-    /// launcher- or platform-emitted workspace files (the launcher's
-    /// system-prompt file, <c>.mcp.json</c>) by accident.
+    /// Sub-path prefix every contributed context file must sit under, inside
+    /// the workspace. Mirrors the env-var namespace convention so connector
+    /// contributions stay confined to the <c>.spring/connectors/</c> sub-tree
+    /// (the platform's <c>.spring/</c> namespace per ADR-0058) and cannot
+    /// shadow the other platform-controlled files that already live there —
+    /// <c>.spring/system-prompt.md</c>, the <c>.spring/bridge/</c> directory —
+    /// or user-managed project content at the workspace root.
     /// </summary>
-    internal const string ContextFileDirectory = "connectors/";
+    internal const string ContextFileDirectory = ".spring/connectors/";
 
     private readonly Dictionary<Guid, IConnectorType> _connectorTypesById =
         BuildConnectorTypeMap(connectorTypes);
@@ -225,7 +227,7 @@ public class ConnectorRuntimeContextResolver(
                     throw new SpringException(
                         $"Connector '{slug}' contributed context file '{kvp.Key}' which violates the required " +
                         $"sub-path '{requiredFilePrefix}*'. Every IConnectorRuntimeContextContributor must scope " +
-                        "its files under connectors/<slug>/* per the seam contract.");
+                        "its files under .spring/connectors/<slug>/* per the seam contract.");
                 }
 
                 if (fileKeyOwners.TryGetValue(kvp.Key, out var previousOwner))

@@ -314,12 +314,12 @@ public class AgentBootstrapBundleProviderTests
                 new Dictionary<string, string>(),
                 new Dictionary<string, string>
                 {
-                    ["connectors/github/binding.json"] = "{}",
+                    [".spring/connectors/github/binding.json"] = "{}",
                 }));
 
         var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
-        bundle!.Files.ShouldContain(f => f.Path == "connectors/github/binding.json");
+        bundle!.Files.ShouldContain(f => f.Path == ".spring/connectors/github/binding.json");
     }
 
     // Default ConcurrentThreads to false in the test fixture so the

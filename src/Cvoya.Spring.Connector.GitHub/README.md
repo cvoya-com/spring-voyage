@@ -21,7 +21,9 @@ integration:
   installation token plus owner / repo / reviewer metadata and surfaces
   it inside the agent container via the
   `SPRING_CONNECTOR_GITHUB_*` env vars and the
-  `connectors/github/binding.json` context file. A convenience alias
+  `.spring/connectors/github/binding.json` context file
+  (workspace-relative, under the `.spring/` namespace per ADR-0058). A
+  convenience alias
   `GITHUB_TOKEN` is published alongside `SPRING_CONNECTOR_GITHUB_TOKEN`
   (#2442) so `gh` and `git` credential helpers pick the token up
   natively — `gh auth status` inside the container reports
@@ -176,7 +178,7 @@ reviewer" end-to-end:
   `SPRING_CONNECTOR_GITHUB_REVIEWER` env var from the container's
   environment entirely (so the agent sees a clean "not set" signal
   rather than `""`), and writes `"Reviewer": null` into
-  `connectors/github/binding.json`.
+  `.spring/connectors/github/binding.json`.
 - The agent container's `gh pr create` invocation runs without
   `--reviewer` when the env var is unset, and GitHub opens the PR
   with no reviewer requested. **This is the supported flow** — no

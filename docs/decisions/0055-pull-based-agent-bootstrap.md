@@ -54,7 +54,7 @@ GET  /v1/bootstrap/agents/{agentId}
        "files": [
          { "path": ".spring/system-prompt.md",           "sha256": "...", "content": "..." },
          { "path": ".mcp.json",                          "sha256": "...", "content": "..." },
-         { "path": "connectors/<slug>/<file>",           "sha256": "...", "content": "..." }
+         { "path": ".spring/connectors/<slug>/<file>",   "sha256": "...", "content": "..." }
        ],
        "platformFileHashes": {
          ".spring/system-prompt.md":  "sha256:...",

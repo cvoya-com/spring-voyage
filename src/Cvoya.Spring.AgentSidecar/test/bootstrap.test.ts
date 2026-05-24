@@ -118,8 +118,8 @@ describe("BootstrapFetcher.fetchAndMaterialize", () => {
     const bundle = buildBundle(
       [
         { path: "CLAUDE.md", content: "You are an agent." },
-        { path: "connectors/example/binding.yaml", content: "id: 1\n" },
-        { path: "connectors/example/state.json", content: '{"k":"v"}' },
+        { path: ".spring/connectors/example/binding.yaml", content: "id: 1\n" },
+        { path: ".spring/connectors/example/state.json", content: '{"k":"v"}' },
       ],
       ["CLAUDE.md"],
     );
@@ -136,11 +136,11 @@ describe("BootstrapFetcher.fetchAndMaterialize", () => {
 
     assert.equal(fs.readFileSync(path.join(workdir, "CLAUDE.md"), "utf8"), "You are an agent.");
     assert.equal(
-      fs.readFileSync(path.join(workdir, "connectors/example/binding.yaml"), "utf8"),
+      fs.readFileSync(path.join(workdir, ".spring/connectors/example/binding.yaml"), "utf8"),
       "id: 1\n",
     );
     assert.equal(
-      fs.readFileSync(path.join(workdir, "connectors/example/state.json"), "utf8"),
+      fs.readFileSync(path.join(workdir, ".spring/connectors/example/state.json"), "utf8"),
       '{"k":"v"}',
     );
     assert.equal(calls.length, 1);
@@ -362,7 +362,7 @@ describe("BootstrapFetcher.integrityCheckAndRefresh", () => {
     const v2 = buildBundle(
       [
         { path: "CLAUDE.md", content: "v2" },
-        { path: "connectors/example/binding.yaml", content: "id: 2\n" },
+        { path: ".spring/connectors/example/binding.yaml", content: "id: 2\n" },
       ],
       ["CLAUDE.md"],
       "sha256:" + "2".repeat(64),
@@ -376,10 +376,10 @@ describe("BootstrapFetcher.integrityCheckAndRefresh", () => {
     const result = await fetcher.integrityCheckAndRefresh();
 
     assert.equal(result.checked, true);
-    assert.deepEqual(result.restored?.sort(), ["CLAUDE.md", "connectors/example/binding.yaml"]);
+    assert.deepEqual(result.restored?.sort(), [".spring/connectors/example/binding.yaml", "CLAUDE.md"]);
     assert.equal(fs.readFileSync(path.join(workdir, "CLAUDE.md"), "utf8"), "v2");
     assert.equal(
-      fs.readFileSync(path.join(workdir, "connectors/example/binding.yaml"), "utf8"),
+      fs.readFileSync(path.join(workdir, ".spring/connectors/example/binding.yaml"), "utf8"),
       "id: 2\n",
     );
     assert.equal(fetcher.cachedVersion, v2.version);
@@ -493,8 +493,8 @@ describe("resolveSafeWorkspacePath", () => {
   });
 
   it("accepts a nested relative path", () => {
-    const resolved = resolveSafeWorkspacePath(workdir, "connectors/example/binding.yaml");
-    assert.equal(resolved, path.resolve(workdir, "connectors/example/binding.yaml"));
+    const resolved = resolveSafeWorkspacePath(workdir, ".spring/connectors/example/binding.yaml");
+    assert.equal(resolved, path.resolve(workdir, ".spring/connectors/example/binding.yaml"));
   });
 
   it("rejects an absolute path", () => {

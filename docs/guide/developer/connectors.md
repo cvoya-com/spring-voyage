@@ -79,7 +79,8 @@ entries for a unit with a GitHub binding. Agents use the in-container
 `SPRING_CONNECTOR_GITHUB_REPO` / `SPRING_CONNECTOR_GITHUB_REVIEWER` /
 `SPRING_CONNECTOR_GITHUB_INSTALLATION_ID` /
 `SPRING_CONNECTOR_GITHUB_TOKEN_EXPIRES_AT` plus the
-`connectors/github/binding.json` context file.
+`.spring/connectors/github/binding.json` context file (workspace-relative;
+under the `.spring/` namespace per ADR-0058).
 
 Choosing this pattern is appropriate when:
 

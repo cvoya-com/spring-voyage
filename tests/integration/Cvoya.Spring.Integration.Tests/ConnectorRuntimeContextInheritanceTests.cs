@@ -103,7 +103,7 @@ public class ConnectorRuntimeContextInheritanceTests : IDisposable
         contribution.EnvironmentVariables.ShouldContainKeyAndValue(
             "SPRING_CONNECTOR_TEST_CONNECTOR_OWNER", "parent-owner");
         contribution.ContextFiles.ShouldContainKey(
-            "connectors/test-connector/inherited.json");
+            ".spring/connectors/test-connector/inherited.json");
 
         contributor.LastRequest.ShouldNotBeNull();
         contributor.LastRequest!.BindingOwnerUnitId.ShouldBe(ParentUnit);
@@ -205,7 +205,7 @@ public class ConnectorRuntimeContextInheritanceTests : IDisposable
                 },
                 new Dictionary<string, string>(StringComparer.Ordinal)
                 {
-                    [$"connectors/{slug}/inherited.json"] = "{\"src\":\"inherited\"}",
+                    [$".spring/connectors/{slug}/inherited.json"] = "{\"src\":\"inherited\"}",
                 }));
         }
     }

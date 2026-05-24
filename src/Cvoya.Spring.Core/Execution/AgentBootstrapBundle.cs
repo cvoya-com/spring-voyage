@@ -47,7 +47,7 @@ public sealed record AgentBootstrapBundle(
 /// </summary>
 /// <param name="Path">
 /// Workspace-relative path the sidecar materialises the file at (e.g.
-/// <c>.spring/system-prompt.md</c>, <c>.mcp.json</c>, <c>connectors/&lt;slug&gt;/binding.json</c>).
+/// <c>.spring/system-prompt.md</c>, <c>.mcp.json</c>, <c>.spring/connectors/&lt;slug&gt;/binding.json</c>).
 /// Forward slashes; no leading slash; no <c>..</c> traversal.
 /// </param>
 /// <param name="Sha256">sha256 of <see cref="Content"/> in the form <c>sha256:&lt;hex&gt;</c>.</param>

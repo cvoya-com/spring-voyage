@@ -30,8 +30,9 @@ Every platform MCP tool follows the finer-grained `sv.<area>.<verb>` taxonomy â€
 > contribution (#2380); it does **not** register an `ISkillRegistry`. Agents
 > bound to a unit with a GitHub binding receive the
 > `SPRING_CONNECTOR_GITHUB_*` env vars + the
-> `connectors/github/binding.json` context file inside their container and
-> use the in-container `gh` and `git` CLIs for all GitHub workloads. Issues
+> `.spring/connectors/github/binding.json` context file inside their workspace
+> (under the `.spring/` namespace per ADR-0058) and use the in-container
+> `gh` and `git` CLIs for all GitHub workloads. Issues
 > [#2384](https://github.com/cvoya-com/spring-voyage/issues/2384) and
 > [#2383](https://github.com/cvoya-com/spring-voyage/issues/2383) record the
 > v0.1 decision.

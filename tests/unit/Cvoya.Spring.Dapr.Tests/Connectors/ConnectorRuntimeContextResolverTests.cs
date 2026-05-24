@@ -69,7 +69,7 @@ public class ConnectorRuntimeContextResolverTests
             },
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["connectors/connector-a/binding.json"] = "{}",
+                [".spring/connectors/connector-a/binding.json"] = "{}",
             });
 
         var resolver = BuildResolver(
@@ -80,7 +80,7 @@ public class ConnectorRuntimeContextResolverTests
             new Address(Address.UnitScheme, Unit1), TestContext.Current.CancellationToken);
 
         result.EnvironmentVariables.ShouldContainKeyAndValue("SPRING_CONNECTOR_CONNECTOR_A_OWNER", "alice");
-        result.ContextFiles.ShouldContainKey("connectors/connector-a/binding.json");
+        result.ContextFiles.ShouldContainKey(".spring/connectors/connector-a/binding.json");
 
         contributor.LastRequest.ShouldNotBeNull();
         contributor.LastRequest!.BindingOwnerUnitId.ShouldBe(Unit1);
@@ -241,7 +241,7 @@ public class ConnectorRuntimeContextResolverTests
             await resolver.ResolveAsync(
                 new Address(Address.UnitScheme, Unit1), TestContext.Current.CancellationToken));
 
-        ex.Message.ShouldContain("connectors/connector-a/");
+        ex.Message.ShouldContain(".spring/connectors/connector-a/");
     }
 
     [Fact]
@@ -405,7 +405,7 @@ public class ConnectorRuntimeContextResolverTests
     public void BuildFilePrefix_LowerCasesSlug()
     {
         ConnectorRuntimeContextResolver.BuildFilePrefix("GitHub")
-            .ShouldBe("connectors/github/");
+            .ShouldBe(".spring/connectors/github/");
     }
 
     private ConnectorRuntimeContextResolver BuildResolver(
