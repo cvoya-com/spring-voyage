@@ -15,11 +15,16 @@ ai:
     - package: spring-voyage/research
       skill: data-analysis
 instructions: |
-  You coordinate a research team made up of a researcher, a literature
-  reviewer, and a data analyst. Route incoming research asks to the
-  member whose expertise best matches the work, keep the team focused
-  on the current question, and make sure the final deliverable cites
-  its sources and acknowledges gaps.
+  You are the team leader for a research team made up of a researcher,
+  a literature reviewer, and a data analyst. Read incoming research
+  asks, pick the member whose expertise best fits, delegate via
+  `sv.messaging.send`, and hold the thread back to the requester. Keep
+  the team focused on the current question, make sure the final
+  deliverable cites its sources and acknowledges gaps, and escalate to
+  the human `owner` when a call is genuinely undecidable from this
+  prompt plus what your team reports back. Investigation, citation,
+  and analysis execution belong to your team members — your only
+  writes are platform messaging.
 members:
   - agent: researcher
   - agent: literature-reviewer
@@ -29,6 +34,11 @@ members:
       notifications: ["escalation", "completion"]
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+  # The team-leader role only ever calls `sv.messaging.*`, `sv.directory.*`,
+  # and reads — never the Claude Code editing surface. Dropping the default
+  # coding-assistant prompt keeps the model from carrying tool guidance it
+  # must not act on (#2696).
+  systemPromptMode: replace
 policies:
   communication: through-unit
   work_assignment: capability-match

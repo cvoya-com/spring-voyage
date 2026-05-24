@@ -353,11 +353,33 @@ public class ExecutionManifest
     [YamlMember(Alias = "hosting")]
     public string? Hosting { get; set; }
 
+    /// <summary>
+    /// How the assembled platform prompt is delivered to the runtime
+    /// (#2691 / #2696). One of <c>append</c> (default) or <c>replace</c>
+    /// (case-insensitive). Absence means <c>append</c>. Member agents
+    /// inherit the unit's value when neither the agent nor its template
+    /// declares one. Precedence: agent &gt; template &gt; unit &gt; default
+    /// (<c>append</c>). The manifest parser validates the literal at parse
+    /// time; unknown literals (<c>extend</c>, etc.) are rejected with a
+    /// structured <see cref="ManifestParseException"/>.
+    /// </summary>
+    /// <remarks>
+    /// In-tree package YAMLs use camelCase for compound typed keys
+    /// (<c>apiVersion</c>, <c>displayName</c>, …); this slot follows
+    /// the same convention as <c>systemPromptMode</c>. The persisted
+    /// definition-document YAML emitted by <c>AgentDefinitionSerializer</c>
+    /// uses a different key shape; that is a separate concern for the
+    /// persisted layer.
+    /// </remarks>
+    [YamlMember(Alias = "systemPromptMode")]
+    public string? SystemPromptMode { get; set; }
+
     /// <summary>True when every field is null / whitespace.</summary>
     [YamlIgnore]
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Hosting);
+        && string.IsNullOrWhiteSpace(Hosting)
+        && string.IsNullOrWhiteSpace(SystemPromptMode);
 }
 
 /// <summary>

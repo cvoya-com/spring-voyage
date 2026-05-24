@@ -106,6 +106,16 @@ public static class ManifestParser
                 fieldLocation: "execution.hosting");
         }
 
+        // Issue #2691 / #2696: same strict-literal validation for
+        // execution.systemPromptMode.
+        if (manifest.Execution is { SystemPromptMode: { } unitSystemPromptMode }
+            && !string.IsNullOrWhiteSpace(unitSystemPromptMode))
+        {
+            manifest.Execution.SystemPromptMode = NormaliseSystemPromptModeLiteral(
+                unitSystemPromptMode,
+                fieldLocation: "execution.systemPromptMode");
+        }
+
         return manifest;
     }
 
@@ -130,6 +140,26 @@ public static class ManifestParser
         };
 
     /// <summary>
+    /// The set of valid system-prompt-mode literals accepted on unit /
+    /// agent / agent-template <c>execution.systemPromptMode</c> blocks
+    /// (#2691 / #2696). Comparison is case-insensitive; literals are
+    /// normalised to lower-case after parsing so downstream consumers
+    /// can compare directly with the enum string forms.
+    /// </summary>
+    /// <remarks>
+    /// Matches the entries on
+    /// <c>Cvoya.Spring.Core.Catalog.SystemPromptMode</c>:
+    /// <c>append</c>, <c>replace</c>. The values are the lower-cased
+    /// enum names verbatim.
+    /// </remarks>
+    public static readonly IReadOnlySet<string> ValidSystemPromptModeLiterals =
+        new HashSet<string>(System.StringComparer.Ordinal)
+        {
+            "append",
+            "replace",
+        };
+
+    /// <summary>
     /// Validates <paramref name="hosting"/> against the
     /// <see cref="ValidHostingLiterals"/> set and returns the canonical
     /// lower-case form. Throws <see cref="ManifestParseException"/> on an
@@ -147,6 +177,27 @@ public static class ManifestParser
                 $"{fieldLocation}: unknown hosting literal '{trimmed}'. " +
                 $"Expected one of: {string.Join(", ", ValidHostingLiterals)} (case-insensitive). " +
                 "Issue #2436.");
+        }
+        return lower;
+    }
+
+    /// <summary>
+    /// Validates <paramref name="systemPromptMode"/> against the
+    /// <see cref="ValidSystemPromptModeLiterals"/> set and returns the
+    /// canonical lower-case form. Throws
+    /// <see cref="ManifestParseException"/> on an unknown literal
+    /// (#2691 / #2696).
+    /// </summary>
+    internal static string NormaliseSystemPromptModeLiteral(string systemPromptMode, string fieldLocation)
+    {
+        var trimmed = systemPromptMode.Trim();
+        var lower = trimmed.ToLowerInvariant();
+        if (!ValidSystemPromptModeLiterals.Contains(lower))
+        {
+            throw new ManifestParseException(
+                $"{fieldLocation}: unknown systemPromptMode literal '{trimmed}'. " +
+                $"Expected one of: {string.Join(", ", ValidSystemPromptModeLiterals)} (case-insensitive). " +
+                "Issues #2691 / #2696.");
         }
         return lower;
     }
@@ -347,6 +398,16 @@ public static class ManifestParser
                 fieldLocation: "execution.hosting");
         }
 
+        // Issue #2691 / #2696: same strict-literal validation for
+        // execution.systemPromptMode on the agent-template manifest.
+        if (manifest.Execution is { SystemPromptMode: { } templateSystemPromptMode }
+            && !string.IsNullOrWhiteSpace(templateSystemPromptMode))
+        {
+            manifest.Execution.SystemPromptMode = NormaliseSystemPromptModeLiteral(
+                templateSystemPromptMode,
+                fieldLocation: "execution.systemPromptMode");
+        }
+
         return manifest;
     }
 
@@ -411,6 +472,16 @@ public static class ManifestParser
             manifest.Execution.Hosting = NormaliseHostingLiteral(
                 agentHosting,
                 fieldLocation: "execution.hosting");
+        }
+
+        // Issue #2691 / #2696: same strict-literal validation for
+        // execution.systemPromptMode on the agent manifest.
+        if (manifest.Execution is { SystemPromptMode: { } agentSystemPromptMode }
+            && !string.IsNullOrWhiteSpace(agentSystemPromptMode))
+        {
+            manifest.Execution.SystemPromptMode = NormaliseSystemPromptModeLiteral(
+                agentSystemPromptMode,
+                fieldLocation: "execution.systemPromptMode");
         }
 
         return manifest;
@@ -483,6 +554,16 @@ public static class ManifestParser
             manifest.Execution.Hosting = NormaliseHostingLiteral(
                 unitTemplateHosting,
                 fieldLocation: "execution.hosting");
+        }
+
+        // Issue #2691 / #2696: same strict-literal validation for
+        // execution.systemPromptMode on the unit-template manifest.
+        if (manifest.Execution is { SystemPromptMode: { } unitTemplateSystemPromptMode }
+            && !string.IsNullOrWhiteSpace(unitTemplateSystemPromptMode))
+        {
+            manifest.Execution.SystemPromptMode = NormaliseSystemPromptModeLiteral(
+                unitTemplateSystemPromptMode,
+                fieldLocation: "execution.systemPromptMode");
         }
 
         return manifest;

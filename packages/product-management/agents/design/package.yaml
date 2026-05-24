@@ -35,3 +35,8 @@ expertise:
     level: advanced
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+  # Designers produce design artefacts and review proposals — no
+  # `Edit` / `Write` / `Bash` against the project tree. Dropping the
+  # Claude Code default coding-assistant prompt keeps the model from
+  # carrying tool guidance it must not act on (#2696).
+  systemPromptMode: replace

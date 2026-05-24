@@ -34,3 +34,8 @@ expertise:
     level: advanced
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+  # PMs only use `gh` reads and `sv.*` tools — no `Edit` / `Write` / `Bash`
+  # against the project tree. Dropping the Claude Code default coding-
+  # assistant prompt keeps the model from carrying tool guidance it must
+  # not act on (#2696).
+  systemPromptMode: replace
