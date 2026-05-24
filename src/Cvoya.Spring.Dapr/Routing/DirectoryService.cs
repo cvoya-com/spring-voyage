@@ -267,9 +267,32 @@ public class DirectoryService(
             var entity = await db.AgentDefinitions
                 .FirstOrDefaultAsync(a => a.Id == address.Id, cancellationToken);
 
+            // #2649: hard-delete every membership edge that names this
+            // agent so the agent disappears from every parent unit's
+            // members collection in the same write. The endpoint-level
+            // call to IUnitMembershipRepository.DeleteAllForAgentAsync
+            // (DeleteAgentAsync) used to be the only cleanup path —
+            // other unregister sites (UnregisterAgentActivity,
+            // DestroyCloneActivity, UnitCreationService rollback) bypassed
+            // it and left stale parent rows. Inlining here makes the
+            // cascade unconditional and matches the unit-delete pattern
+            // in CascadeDeleteUnitAsync above.
+            var memberships = await db.UnitMemberships
+                .Where(m => m.AgentId == address.Id)
+                .ToListAsync(cancellationToken);
+
+            if (memberships.Count > 0)
+            {
+                db.UnitMemberships.RemoveRange(memberships);
+            }
+
             if (entity is not null)
             {
                 entity.DeletedAt = DateTimeOffset.UtcNow;
+            }
+
+            if (entity is not null || memberships.Count > 0)
+            {
                 await db.SaveChangesAsync(cancellationToken);
             }
         }

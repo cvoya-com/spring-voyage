@@ -95,6 +95,67 @@ public class DirectoryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task UnregisterAsync_agent_removes_every_parent_membership_row()
+    {
+        // #2649: unregistering an agent must drop every (unit, agent)
+        // membership edge in the same write so the agent disappears
+        // from every parent unit's members collection. Callers like
+        // UnregisterAgentActivity and DestroyCloneActivity previously
+        // bypassed the endpoint-level repo call and left stale rows.
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        var parentA = Guid.NewGuid();
+        var parentB = Guid.NewGuid();
+
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.UnitMemberships.Add(new UnitMembershipEntity { UnitId = parentA, AgentId = agentId });
+            db.UnitMemberships.Add(new UnitMembershipEntity { UnitId = parentB, AgentId = agentId });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var address = new Address("agent", agentId);
+        await _service.RegisterAsync(
+            new DirectoryEntry(address, agentId, "Ada", "Backend", null, DateTimeOffset.UtcNow), ct);
+
+        await _service.UnregisterAsync(address, ct);
+
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            var survivors = await db.UnitMemberships
+                .Where(m => m.AgentId == agentId)
+                .CountAsync(ct);
+            survivors.ShouldBe(0);
+        }
+    }
+
+    [Fact]
+    public async Task UnregisterAsync_agent_with_no_memberships_is_noop_on_membership_table()
+    {
+        // Sanity: the cascade tolerates an agent that was never a member
+        // of any unit (e.g. an ephemeral clone). The directory soft-delete
+        // still happens.
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        var address = new Address("agent", agentId);
+
+        await _service.RegisterAsync(
+            new DirectoryEntry(address, agentId, "Ada", "Backend", null, DateTimeOffset.UtcNow), ct);
+
+        await _service.UnregisterAsync(address, ct);
+
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var entity = await db.AgentDefinitions
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(a => a.Id == agentId, ct);
+        entity.ShouldNotBeNull();
+        entity!.DeletedAt.ShouldNotBeNull();
+    }
+
+    [Fact]
     public async Task UpdateEntryAsync_updates_displayName_and_description()
     {
         var ct = TestContext.Current.CancellationToken;

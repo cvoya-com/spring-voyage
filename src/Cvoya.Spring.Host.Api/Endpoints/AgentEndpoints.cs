@@ -1831,7 +1831,6 @@ public static class AgentEndpoints
     private static async Task<IResult> DeleteAgentAsync(
         string id,
         IDirectoryService directoryService,
-        IUnitMembershipRepository membershipRepository,
         IExecutionHostGateway executionGateway,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -1866,16 +1865,14 @@ public static class AgentEndpoints
                 id);
         }
 
-        // Per #744 the last-membership guard lives on DeleteAsync — the
-        // cascade path must bypass it, otherwise DELETE /agents/{id} would
-        // fail for every agent whose membership count ≥ 1. DeleteAll* is
-        // the authorised bulk-clear seam the repository exposes for this
-        // purpose; call it before the directory unregister so the write
-        // is persisted even if a downstream step hiccups.
-        //
-        // #1492: DeleteAllForAgentAsync takes the agent's stable Guid.
-        await membershipRepository.DeleteAllForAgentAsync(entry.ActorId, cancellationToken);
-
+        // #2649: parent-membership cleanup is now driven by
+        // DirectoryService.UnregisterAsync (DeleteEntryAsync agent branch)
+        // so every unregister caller — including UnregisterAgentActivity
+        // and DestroyCloneActivity — removes the agent from every parent
+        // unit's members collection in the same write. The previous
+        // explicit IUnitMembershipRepository.DeleteAllForAgentAsync call
+        // here was the only cleanup path; pushing it down to the directory
+        // matches the unit-delete cascade and eliminates the leak.
         await directoryService.UnregisterAsync(address, cancellationToken);
 
         return Results.NoContent();

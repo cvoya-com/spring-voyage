@@ -3268,6 +3268,50 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Humans"
+        ],
+        "summary": "Delete a human and cascade-remove every unit-membership row and ACL grant.",
+        "description": "Removes the human's row from `humans`, every `unit_membership_humans` row that names this human (so the human disappears from every parent unit's members), and every `unit_human_permissions` row (so stale grants do not survive the delete). Returns 204 on success, 404 when the id is not found in the current tenant, 400 when the id is empty.",
+        "operationId": "DeleteHuman",
+        "parameters": [
+          {
+            "name": "humanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/tenant/users/{tenantUserId}": {
