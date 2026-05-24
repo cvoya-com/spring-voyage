@@ -186,8 +186,8 @@ public class PersistentAgentLifecycle(
 
         var prep = await launcher.PrepareAsync(launchContext, cancellationToken);
 
-        // D3a: assemble the IAgentContext bootstrap bundle (env vars + /spring/context/ files)
-        // and merge onto the launcher spec so all D1 spec env vars are present in the container.
+        // D3a: assemble the IAgentContext bootstrap bundle (env vars) and merge onto the
+        // launcher spec so all D1 spec env vars are present in the container.
         var bootstrapContext = await agentContextBuilder.BuildAsync(launchContext, cancellationToken);
         var prepWithBootstrap = MergeBootstrapContext(prep, bootstrapContext);
 

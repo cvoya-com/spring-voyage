@@ -47,7 +47,7 @@ public class A2ADispatcherConnectorContextMergeTests
             // they ride the bundle. We supply some here to verify the merge
             // does not accidentally re-introduce a launcher-side context-
             // files surface.
-            new Dictionary<string, string> { ["connectors/github/binding.json"] = "{}" });
+            new Dictionary<string, string> { [".spring/connectors/github/binding.json"] = "{}" });
 
         var result = A2AExecutionDispatcher.MergeConnectorContext(spec, contribution);
 

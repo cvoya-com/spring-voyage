@@ -267,8 +267,8 @@ public class A2AExecutionDispatcher(
         // #2380: resolve every connector binding (direct + inherited) for the
         // dispatch subject and gather each contributor's env-vars + context
         // files. The resolver enforces the SPRING_CONNECTOR_<SLUG>_* env-var
-        // namespace and the connectors/<slug>/* file sub-path so this merge
-        // is a pure overlay.
+        // namespace and the .spring/connectors/<slug>/* file sub-path so this
+        // merge is a pure overlay.
         var connectorContext = await _connectorRuntimeContextResolver.ResolveAsync(
             message.To, cancellationToken);
 
@@ -463,8 +463,9 @@ public class A2AExecutionDispatcher(
     /// <remarks>
     /// Per ADR-0055 the connector's per-binding context files are now part
     /// of the bootstrap bundle, written by the sidecar under the
-    /// <c>connectors/&lt;slug&gt;/</c> sub-path of the workspace mount. This
-    /// merge handles only the env-var contribution.
+    /// <c>.spring/connectors/&lt;slug&gt;/</c> sub-path of the workspace (the
+    /// <c>.spring/</c> namespace ADR-0058 reserves for platform-controlled
+    /// files). This merge handles only the env-var contribution.
     /// </remarks>
     internal static AgentLaunchSpec MergeConnectorContext(
         AgentLaunchSpec spec,
@@ -862,7 +863,7 @@ public class A2AExecutionDispatcher(
             SystemPromptMode: definition.Execution.SystemPromptMode
                 ?? Cvoya.Spring.Core.Catalog.SystemPromptMode.Append);
 
-        // D3a: assemble the IAgentContext bootstrap bundle (env vars + /spring/context/ files).
+        // D3a: assemble the IAgentContext bootstrap bundle (env vars).
         var bootstrapContext = await _agentContextBuilder.BuildAsync(launchContext, cancellationToken);
 
         // #2380: resolve connector runtime contributions for the dispatch

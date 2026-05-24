@@ -62,9 +62,10 @@ public interface IConnectorRuntimeContextResolver
     /// Builds the merged runtime-context contribution for the supplied
     /// subject. The returned value is suitable for merging directly into
     /// <see cref="Cvoya.Spring.Core.Execution.AgentLaunchSpec.EnvironmentVariables"/>
-    /// and <see cref="Cvoya.Spring.Core.Execution.AgentLaunchSpec.ContextFiles"/>.
-    /// Files are returned keyed on a sub-path relative to the canonical
-    /// <c>/spring/context/</c> mount.
+    /// and the bootstrap bundle's file list (ADR-0055). Files are returned
+    /// keyed on a workspace-relative sub-path under
+    /// <c>.spring/connectors/&lt;slug&gt;/</c> (the platform-controlled
+    /// namespace per ADR-0058).
     /// </summary>
     /// <param name="subject">
     /// The dispatch target. Must be an <c>agent:</c> or <c>unit:</c>

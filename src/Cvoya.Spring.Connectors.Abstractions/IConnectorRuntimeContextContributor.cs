@@ -39,12 +39,13 @@ using Cvoya.Spring.Core.Messaging;
 /// connectors cannot accidentally clobber each other.
 /// </para>
 /// <para>
-/// <b>Mounted-file path convention.</b> Files are placed under
-/// <c>/spring/context/connectors/&lt;slug&gt;/</c>; the dispatcher mounts
-/// the merged context directory at <c>/spring/context/</c> per the D1
-/// runtime spec. The contributor returns sub-paths relative to that mount
-/// (e.g. <c>connectors/github/binding.json</c>); the dispatcher fills in
-/// the on-host materialisation path.
+/// <b>Workspace-file path convention.</b> Files contributed by this seam
+/// land under <c>.spring/connectors/&lt;slug&gt;/</c> inside the agent's
+/// workspace — the <c>.spring/</c> namespace ADR-0058 reserves for
+/// platform-controlled files. The contributor returns sub-paths relative
+/// to the workspace root (e.g. <c>.spring/connectors/github/binding.json</c>);
+/// the dispatcher folds them into the bootstrap bundle the sidecar
+/// materialises on launch (ADR-0055).
 /// </para>
 /// <para>
 /// <b>Collision rules.</b> The dispatcher enforces fail-fast on any name
@@ -136,11 +137,12 @@ public record ConnectorRuntimeContextRequest(
 /// nothing to add.
 /// </param>
 /// <param name="ContextFiles">
-/// Files to materialise inside the container under
-/// <c>/spring/context/</c>. Keys are sub-paths relative to that mount
-/// point — e.g. <c>connectors/github/binding.json</c>. The dispatcher
-/// fails the launch if two contributors write the same sub-path. Empty
-/// when the contributor has nothing to add.
+/// Files to materialise inside the agent's workspace under
+/// <c>.spring/connectors/&lt;slug&gt;/</c> — the <c>.spring/</c> namespace
+/// ADR-0058 reserves for platform-controlled files. Keys are sub-paths
+/// relative to the workspace root — e.g. <c>.spring/connectors/github/binding.json</c>.
+/// The dispatcher fails the launch if two contributors write the same
+/// sub-path. Empty when the contributor has nothing to add.
 /// </param>
 /// <param name="WellKnownAliasEnvironmentVariables">
 /// Optional extra env-vars the contributor intentionally publishes

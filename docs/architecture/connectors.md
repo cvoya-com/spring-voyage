@@ -70,7 +70,9 @@ token** into the runtime container by implementing
 `IConnectorRuntimeContextContributor`. The dispatcher resolves every applicable
 binding (direct or inherited), invokes each contributor at launch, and merges
 the result into the launch spec — env vars under `SPRING_CONNECTOR_<SLUG>_*`,
-context files under `connectors/<slug>/`. Credentials are resolved per launch
+context files under `.spring/connectors/<slug>/` (workspace-relative; the
+`.spring/` namespace ADR-0058 reserves for platform-controlled files).
+Credentials are resolved per launch
 and never cached across launches; rotation is handled by relaunching. A sibling
 prompt-context contributor renders a markdown fragment into the agent's prompt
 naming the bound resource and the env vars its container carries.

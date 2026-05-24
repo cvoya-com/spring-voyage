@@ -21,7 +21,7 @@ using Microsoft.Extensions.Options;
 ///   <item>the launcher's per-runtime contribution (system-prompt file +
 ///   MCP config — selected by <see cref="AgentExecutionConfig.Runtime"/>),</item>
 ///   <item>the merged connector runtime-context contribution (per-binding
-///   files under <c>connectors/&lt;slug&gt;/</c>).</item>
+///   files under <c>.spring/connectors/&lt;slug&gt;/</c>).</item>
 /// </list>
 /// </summary>
 /// <remarks>
@@ -178,8 +178,8 @@ public sealed class AgentBootstrapBundleProvider(
         }
 
         // Connector contribution — per-binding files at
-        // connectors/<slug>/<sub-path>. Env-var contributions ride the
-        // dispatch path (A2AExecutionDispatcher); only file contributions
+        // .spring/connectors/<slug>/<sub-path>. Env-var contributions ride
+        // the dispatch path (A2AExecutionDispatcher); only file contributions
         // are folded into the bundle here.
         var connectorContext = await _connectorContextResolver.ResolveAsync(
             subjectAddress, cancellationToken);

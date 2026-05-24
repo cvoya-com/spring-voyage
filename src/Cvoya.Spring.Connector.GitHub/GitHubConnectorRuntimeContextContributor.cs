@@ -49,9 +49,11 @@ using Microsoft.Extensions.Logging;
 /// </para>
 /// <para>
 /// <b>Context file produced.</b> A single JSON file at
-/// <c>connectors/github/binding.json</c> mirrors the env-var fields plus
-/// the binding source unit id, so containers can read structured config
-/// without re-parsing env-var strings.
+/// <c>.spring/connectors/github/binding.json</c> (workspace-relative;
+/// the <c>.spring/</c> namespace ADR-0058 reserves for platform-controlled
+/// files) mirrors the env-var fields plus the binding source unit id, so
+/// containers can read structured config without re-parsing env-var
+/// strings.
 /// </para>
 /// <para>
 /// <b>Reviewer field.</b> In OSS the <see cref="UnitGitHubConfig.Reviewer"/>
@@ -86,9 +88,11 @@ public class GitHubConnectorRuntimeContextContributor(
 
     /// <summary>
     /// Sub-path of the context file the contributor produces, relative to
-    /// the canonical <c>/spring/context/</c> mount.
+    /// the workspace root. Sits under the <c>.spring/</c> namespace per
+    /// ADR-0058 so connector contributions cannot collide with user-managed
+    /// project content at the workspace root.
     /// </summary>
-    internal const string BindingFilePath = "connectors/github/binding.json";
+    internal const string BindingFilePath = ".spring/connectors/github/binding.json";
 
     private static readonly JsonSerializerOptions BindingFileJson = new(JsonSerializerDefaults.Web)
     {
@@ -319,13 +323,13 @@ public class GitHubConnectorRuntimeContextContributor(
     }
 
     /// <summary>
-    /// JSON shape written to <c>/spring/context/connectors/github/binding.json</c>.
-    /// Mirrors the env-var fields so containers that prefer structured input
-    /// can read a single file. The token itself is NOT written into the
-    /// JSON file — it lives exclusively in the env var so log dumps of the
-    /// context mount cannot leak it. <see cref="TokenExpiresAt"/> is
-    /// included so the container can plan around the lifetime without
-    /// re-decoding the env var.
+    /// JSON shape written to <c>.spring/connectors/github/binding.json</c>
+    /// (workspace-relative). Mirrors the env-var fields so containers that
+    /// prefer structured input can read a single file. The token itself is
+    /// NOT written into the JSON file — it lives exclusively in the env
+    /// var so log dumps of the workspace cannot leak it.
+    /// <see cref="TokenExpiresAt"/> is included so the container can plan
+    /// around the lifetime without re-decoding the env var.
     /// </summary>
     private sealed record GitHubBindingFile(
         string Owner,
