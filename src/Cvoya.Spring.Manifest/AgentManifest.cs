@@ -152,9 +152,29 @@ public class AgentExecutionManifest
     [YamlMember(Alias = "hosting")]
     public string? Hosting { get; set; }
 
+    /// <summary>
+    /// How the assembled platform prompt is delivered to the runtime
+    /// (#2691 / #2696). One of <c>append</c> (default) or <c>replace</c>
+    /// (case-insensitive). Absence means "inherit from the template /
+    /// unit, falling back to <c>append</c>" (precedence:
+    /// agent &gt; template &gt; unit &gt; default). The manifest parser
+    /// validates the literal at parse time; unknown literals
+    /// (<c>extend</c>, etc.) are rejected with a structured
+    /// <see cref="ManifestParseException"/>.
+    /// </summary>
+    /// <remarks>
+    /// <c>ApplyNamingConventions = false</c> keeps the snake_case YAML key
+    /// intact under the deserializer's <c>CamelCaseNamingConvention</c>
+    /// (which would otherwise rewrite the alias to <c>systemPromptMode</c>
+    /// and miss the YAML key).
+    /// </remarks>
+    [YamlMember(Alias = "system_prompt_mode", ApplyNamingConventions = false)]
+    public string? SystemPromptMode { get; set; }
+
     /// <summary>True when every field is null / whitespace.</summary>
     [YamlIgnore]
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
-        && string.IsNullOrWhiteSpace(Hosting);
+        && string.IsNullOrWhiteSpace(Hosting)
+        && string.IsNullOrWhiteSpace(SystemPromptMode);
 }

@@ -17,10 +17,15 @@ ai:
     - package: spring-voyage/product-management
       skill: design-review
 instructions: |
-  You coordinate a product squad made up of a product manager and a
-  product designer. Route incoming work to the most appropriate squad
-  member based on their expertise, keep the roadmap and sprint plan
-  healthy, and ensure design and product decisions stay aligned.
+  You are the team leader for a product squad made up of a product
+  manager and a product designer. Read incoming work, pick the squad
+  member whose expertise best fits, delegate via `sv.messaging.send`,
+  and hold the thread back to the requester. Keep the roadmap and
+  sprint plan healthy, and ensure design and product decisions stay
+  aligned. Escalate to the human `owner` when a call is genuinely
+  undecidable from this prompt plus what your squad reports back.
+  Implementation, prototyping, and write-back actions belong to your
+  squad members — your only writes are platform messaging.
 members:
   - agent: pm
   - agent: design
@@ -29,6 +34,11 @@ members:
       notifications: ["escalation", "completion"]
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+  # The team-leader role only ever calls `sv.messaging.*`, `sv.directory.*`,
+  # and reads — never the Claude Code editing surface. Dropping the default
+  # coding-assistant prompt keeps the model from carrying tool guidance it
+  # must not act on (#2696).
+  system_prompt_mode: replace
 requires:
   - connector: github
 policies:
