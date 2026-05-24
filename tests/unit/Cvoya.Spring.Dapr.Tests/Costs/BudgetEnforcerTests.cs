@@ -110,7 +110,7 @@ public class BudgetEnforcerTests : IDisposable
             Cost: cost);
     }
 
-    [Fact]
+    [Fact(Timeout = 10_000)]
     public async Task CheckBudget_UnderThreshold_NoEventEmitted()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -130,7 +130,7 @@ public class BudgetEnforcerTests : IDisposable
         enforcer.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 10_000)]
     public async Task CheckBudget_AtWarningThreshold_EmitsWarning()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -150,7 +150,7 @@ public class BudgetEnforcerTests : IDisposable
         enforcer.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 10_000)]
     public async Task CheckBudget_AtErrorThreshold_EmitsError()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -170,7 +170,7 @@ public class BudgetEnforcerTests : IDisposable
         enforcer.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 10_000)]
     public async Task CheckBudget_NoBudgetSet_NoEventEmitted()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -189,7 +189,7 @@ public class BudgetEnforcerTests : IDisposable
         enforcer.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 10_000)]
     public async Task CheckBudget_AccumulatesMultipleEvents()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -218,7 +218,7 @@ public class BudgetEnforcerTests : IDisposable
         enforcer.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 10_000)]
     public async Task CheckBudget_AtErrorThreshold_PausesInitiative()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -239,7 +239,7 @@ public class BudgetEnforcerTests : IDisposable
         enforcer.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 10_000)]
     public async Task CheckBudget_TenantBudgetWarning_EmitsWarning()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -261,7 +261,7 @@ public class BudgetEnforcerTests : IDisposable
         enforcer.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 10_000)]
     public async Task CheckBudget_TenantBudgetExceeded_EmitsError()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -283,7 +283,7 @@ public class BudgetEnforcerTests : IDisposable
         enforcer.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 10_000)]
     public async Task CheckBudget_NoTenantBudget_NoTenantEventEmitted()
     {
         var ct = TestContext.Current.CancellationToken;

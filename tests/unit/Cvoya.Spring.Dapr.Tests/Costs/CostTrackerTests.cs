@@ -83,7 +83,7 @@ public class CostTrackerTests : IDisposable
             Cost: cost);
     }
 
-    [Fact]
+    [Fact(Timeout = 30_000)]
     public async Task StartAsync_CostIncurredEvent_PersistsRecord()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -122,7 +122,7 @@ public class CostTrackerTests : IDisposable
     /// exactly what the stream carried — proving the subscriber, not a
     /// polling loop, is the source of truth for cost aggregation.
     /// </summary>
-    [Fact]
+    [Fact(Timeout = 30_000)]
     public async Task StartAsync_CostIncurredEventsForMultipleAgents_AggregatesPerAgentFromStream()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -154,7 +154,7 @@ public class CostTrackerTests : IDisposable
         tracker.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 30_000)]
     public async Task StartAsync_NonCostEvent_IsIgnored()
     {
         var ct = TestContext.Current.CancellationToken;

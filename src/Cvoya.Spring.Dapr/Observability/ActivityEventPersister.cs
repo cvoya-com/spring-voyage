@@ -30,7 +30,7 @@ public sealed class ActivityEventPersister(
             .Buffer(TimeSpan.FromSeconds(1))
             .Where(batch => batch.Count > 0)
             .Subscribe(
-                batch => Task.Run(() => PersistBatchAsync(batch)).GetAwaiter().GetResult(),
+                batch => { _ = Task.Run(() => PersistBatchAsync(batch)); },
                 ex => logger.LogError(ex, "ActivityEventPersister stream faulted"));
 
         logger.LogInformation("ActivityEventPersister started with 1-second batching");

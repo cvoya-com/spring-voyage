@@ -61,7 +61,7 @@ public sealed partial class BudgetEnforcer(
         _subscription = bus.Events
             .Where(e => e.EventType == ActivityEventType.CostIncurred)
             .Subscribe(
-                e => Task.Run(() => CheckBudgetAsync(e)).GetAwaiter().GetResult(),
+                e => { _ = Task.Run(() => CheckBudgetAsync(e)); },
                 ex => LogStreamFaulted(logger, ex));
 
         LogStarted(logger);

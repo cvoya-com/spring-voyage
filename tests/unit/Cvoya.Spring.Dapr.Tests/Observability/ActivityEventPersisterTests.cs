@@ -50,7 +50,7 @@ public class ActivityEventPersisterTests : IDisposable
             summary);
     }
 
-    [Fact]
+    [Fact(Timeout = 30_000)]
     public async Task StartAsync_SubscribesToBus()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -74,7 +74,7 @@ public class ActivityEventPersisterTests : IDisposable
         persister.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 30_000)]
     public async Task StartAsync_BatchesMultipleEvents()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -99,7 +99,7 @@ public class ActivityEventPersisterTests : IDisposable
         persister.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 30_000)]
     public async Task StopAsync_StopsProcessing()
     {
         var ct = TestContext.Current.CancellationToken;
