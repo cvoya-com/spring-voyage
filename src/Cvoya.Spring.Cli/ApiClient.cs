@@ -215,6 +215,34 @@ public class SpringApiClient
     }
 
     /// <summary>
+    /// PATCH the agent's <c>systemPromptMode</c> slot (#2693 / #2692 /
+    /// #2691). The wire format is tri-state: <c>null</c> clears the slot
+    /// (sends explicit JSON <c>null</c>) so the dispatcher falls back to
+    /// the parent unit / platform default; a string replaces it
+    /// (validated server-side against the <c>append</c> / <c>replace</c>
+    /// catalogue). Bypasses Kiota for the same reason as
+    /// <see cref="SetAgentInstructionsAsync"/>: the Kiota serializer
+    /// elides <c>null</c> string values, which would defeat the clear
+    /// semantics, and a hand-rolled body keeps the patch surgically
+    /// scoped to one slot so we don't accidentally clobber sibling
+    /// metadata.
+    /// </summary>
+    public async Task SetAgentSystemPromptModeAsync(
+        string agentId,
+        string? systemPromptMode,
+        CancellationToken ct = default)
+    {
+        var body = BuildSystemPromptModeBody(systemPromptMode);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Patch, $"{_baseUrl}/api/v1/tenant/agents/{agentId}")
+        {
+            Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+        };
+        using var response = await _httpClient.SendAsync(request, ct);
+        await EnsureSuccessOrThrowAsync(response, $"agent '{agentId}'", ct);
+    }
+
+    /// <summary>
     /// PATCH the unit's mutable metadata (#2341). Every parameter is optional
     /// — <c>null</c> means "leave unchanged"; the Kiota request adapter elides
     /// absent properties so only the supplied fields hit the wire. Mirrors the
@@ -280,6 +308,27 @@ public class SpringApiClient
         // and unicode round-trip correctly.
         return "{\"instructions\":"
             + System.Text.Json.JsonSerializer.Serialize(instructions)
+            + "}";
+    }
+
+    /// <summary>
+    /// Builds the raw PATCH body for a systemPromptMode-only update
+    /// (#2693). The JSON shape is
+    /// <c>{"systemPromptMode": &lt;value-or-null&gt;}</c>; the server's
+    /// tri-state distinguishes absent (leave alone), explicit-null
+    /// (clear — inherit from parent unit / default <c>append</c>), and
+    /// string (replace, validated against the <c>append</c> /
+    /// <c>replace</c> catalogue).
+    /// </summary>
+    internal static string BuildSystemPromptModeBody(string? systemPromptMode)
+    {
+        if (systemPromptMode is null)
+        {
+            return "{\"systemPromptMode\":null}";
+        }
+
+        return "{\"systemPromptMode\":"
+            + System.Text.Json.JsonSerializer.Serialize(systemPromptMode)
             + "}";
     }
 

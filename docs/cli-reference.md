@@ -191,6 +191,35 @@ Mutual exclusions are enforced at parse time: `--inherit` cannot be combined wit
 
 Per-field clear targets the new field-key surface: `image`, `runtime`, `model-provider`, `model`, `hosting` (agent only). Clearing `model-provider` wipes only the provider half of the structured `execution.model`; clearing `model` wipes the whole `{provider, id}` pair.
 
+### `--system-prompt-mode <append|replace>` on `agent execution` / `unit execution` (#2693)
+
+Shapes how the platform-assembled system prompt combines with the runtime's own default system prompt at dispatch time. `append` (the platform default) concatenates the platform prompt **after** the runtime's default; `replace` makes the platform prompt the entire system prompt sent to the model. Cascade: agent declared → parent unit declared → platform default `append`.
+
+```
+# Set on an agent (PATCH UpdateAgentMetadataRequest.systemPromptMode)
+$ spring agent execution set ada --system-prompt-mode replace
+
+# Set on a unit (PUT /units/{id}/execution with partial-update semantics)
+$ spring unit execution set my-unit --system-prompt-mode append
+
+# Inspect the declared and post-cascade effective values
+$ spring agent execution get ada
+  system_prompt_mode (declared):  replace
+  system_prompt_mode (effective): replace
+
+$ spring unit execution get my-unit
+  system_prompt_mode (declared):  append
+  system_prompt_mode (effective): append
+
+# Clear (re-engage the cascade)
+$ spring agent execution clear ada --system-prompt-mode    # PATCH with explicit JSON null
+$ spring unit  execution clear my-unit --system-prompt-mode  # DELETE-then-re-PUT all-but-the-cleared-slot
+```
+
+The flag is rejected at parse time for anything outside `{append, replace}`; the server-side validator (`NormaliseSystemPromptModeForWire`) enforces the same set so the CLI fails fast before the round-trip.
+
+`--system-prompt-mode` and `--field` on `clear` are mutually exclusive — they target different surfaces (the agent slot rides a separate PATCH endpoint per PR E / #2714; the unit slot is per-field cleared via DELETE-then-re-PUT). Issue two `clear` commands when both need to be cleared.
+
 ## `spring unit` (validation surface)
 
 The `unit` verb family carries many subcommands (see `spring unit --help`); the two that interact directly with the backend validation flow are covered below.
