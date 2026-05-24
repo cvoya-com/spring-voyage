@@ -8,7 +8,7 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Parser tests for issue #2691 / #2696 — <c>execution.system_prompt_mode</c>
+/// Parser tests for issue #2691 / #2696 — <c>execution.systemPromptMode</c>
 /// promoted to a first-class field on the unit, agent, agent-template, and
 /// unit-template manifests so the in-tree package validator does not reject
 /// the field as "unknown property". Covers:
@@ -16,7 +16,7 @@ using Xunit;
 ///   <item><description>Strict validation rejects unknown literals (<c>extend</c>, etc.) on every kind.</description></item>
 ///   <item><description>Valid literals (<c>append</c> / <c>replace</c>) accepted case-insensitively.</description></item>
 ///   <item><description>Parsed literals normalised to lower-case downstream.</description></item>
-///   <item><description>Absent <c>execution:</c> or <c>execution.system_prompt_mode:</c> leaves the slot null
+///   <item><description>Absent <c>execution:</c> or <c>execution.systemPromptMode:</c> leaves the slot null
 ///       (resolution to the dispatcher's default <c>append</c> happens elsewhere).</description></item>
 /// </list>
 /// </summary>
@@ -38,7 +38,7 @@ public class SystemPromptModeFirstClassTests
             description: x
             execution:
               image: ghcr.io/example/u:latest
-              system_prompt_mode: {{input}}
+              systemPromptMode: {{input}}
             """;
 
         var manifest = ManifestParser.Parse(yaml);
@@ -59,11 +59,11 @@ public class SystemPromptModeFirstClassTests
             name: u
             description: x
             execution:
-              system_prompt_mode: {{input}}
+              systemPromptMode: {{input}}
             """;
 
         var ex = Should.Throw<ManifestParseException>(() => ManifestParser.Parse(yaml));
-        ex.Message.ShouldContain("execution.system_prompt_mode");
+        ex.Message.ShouldContain("execution.systemPromptMode");
         ex.Message.ShouldContain(input);
         ex.Message.ShouldContain("#2691");
     }
@@ -101,7 +101,7 @@ public class SystemPromptModeFirstClassTests
             description: x
             execution:
               image: ghcr.io/example/a:latest
-              system_prompt_mode: {{input}}
+              systemPromptMode: {{input}}
             """;
 
         var manifest = ManifestParser.ParseAgent(yaml);
@@ -121,11 +121,11 @@ public class SystemPromptModeFirstClassTests
             name: a
             description: x
             execution:
-              system_prompt_mode: {{input}}
+              systemPromptMode: {{input}}
             """;
 
         var ex = Should.Throw<ManifestParseException>(() => ManifestParser.ParseAgent(yaml));
-        ex.Message.ShouldContain("execution.system_prompt_mode");
+        ex.Message.ShouldContain("execution.systemPromptMode");
         ex.Message.ShouldContain(input);
     }
 
@@ -142,7 +142,7 @@ public class SystemPromptModeFirstClassTests
             name: t
             description: x
             execution:
-              system_prompt_mode: {{input}}
+              systemPromptMode: {{input}}
             """;
 
         var manifest = ManifestParser.ParseAgentTemplate(yaml);
@@ -160,12 +160,12 @@ public class SystemPromptModeFirstClassTests
             name: t
             description: x
             execution:
-              system_prompt_mode: extend
+              systemPromptMode: extend
             """;
 
         var ex = Should.Throw<ManifestParseException>(
             () => ManifestParser.ParseAgentTemplate(yaml));
-        ex.Message.ShouldContain("execution.system_prompt_mode");
+        ex.Message.ShouldContain("execution.systemPromptMode");
         ex.Message.ShouldContain("extend");
     }
 
@@ -182,7 +182,7 @@ public class SystemPromptModeFirstClassTests
             name: t
             description: x
             execution:
-              system_prompt_mode: {{input}}
+              systemPromptMode: {{input}}
             """;
 
         var manifest = ManifestParser.ParseUnitTemplate(yaml);
@@ -200,12 +200,12 @@ public class SystemPromptModeFirstClassTests
             name: t
             description: x
             execution:
-              system_prompt_mode: extend
+              systemPromptMode: extend
             """;
 
         var ex = Should.Throw<ManifestParseException>(
             () => ManifestParser.ParseUnitTemplate(yaml));
-        ex.Message.ShouldContain("execution.system_prompt_mode");
+        ex.Message.ShouldContain("execution.systemPromptMode");
     }
 
     // ── IsEmpty ──────────────────────────────────────────────────────────

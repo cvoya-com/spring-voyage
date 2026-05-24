@@ -336,12 +336,12 @@ requires:
   - connector: github
 # #2696: the team-leader role only ever calls `sv.messaging.*`, `sv.directory.*`,
 # `sv.runtime.report_decision`, `sv.progress.report`, and `gh` reads — it never
-# invokes the Claude Code editing surface. `system_prompt_mode: replace` drops
+# invokes the Claude Code editing surface. `systemPromptMode: replace` drops
 # Claude Code's default coding-assistant prompt so the model isn't carrying tool
 # guidance it must not act on. The umbrella unit inherits its container image
 # from the package-level `execution:` block (`spring-voyage-claude-code-base`).
 execution:
-  system_prompt_mode: replace
+  systemPromptMode: replace
 policies:
   communication: through-unit
   work_assignment: capability-match

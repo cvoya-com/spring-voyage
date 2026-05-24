@@ -38,7 +38,7 @@ execution:
   # must not act on (#2696). The member agents (tech-lead /
   # backend-engineer / qa-engineer) keep the default `append` because
   # they use the Claude Code coding surface heavily.
-  system_prompt_mode: replace
+  systemPromptMode: replace
 requires:
   - connector: github
 policies:

@@ -107,13 +107,13 @@ public static class ManifestParser
         }
 
         // Issue #2691 / #2696: same strict-literal validation for
-        // execution.system_prompt_mode.
+        // execution.systemPromptMode.
         if (manifest.Execution is { SystemPromptMode: { } unitSystemPromptMode }
             && !string.IsNullOrWhiteSpace(unitSystemPromptMode))
         {
             manifest.Execution.SystemPromptMode = NormaliseSystemPromptModeLiteral(
                 unitSystemPromptMode,
-                fieldLocation: "execution.system_prompt_mode");
+                fieldLocation: "execution.systemPromptMode");
         }
 
         return manifest;
@@ -141,7 +141,7 @@ public static class ManifestParser
 
     /// <summary>
     /// The set of valid system-prompt-mode literals accepted on unit /
-    /// agent / agent-template <c>execution.system_prompt_mode</c> blocks
+    /// agent / agent-template <c>execution.systemPromptMode</c> blocks
     /// (#2691 / #2696). Comparison is case-insensitive; literals are
     /// normalised to lower-case after parsing so downstream consumers
     /// can compare directly with the enum string forms.
@@ -195,7 +195,7 @@ public static class ManifestParser
         if (!ValidSystemPromptModeLiterals.Contains(lower))
         {
             throw new ManifestParseException(
-                $"{fieldLocation}: unknown system_prompt_mode literal '{trimmed}'. " +
+                $"{fieldLocation}: unknown systemPromptMode literal '{trimmed}'. " +
                 $"Expected one of: {string.Join(", ", ValidSystemPromptModeLiterals)} (case-insensitive). " +
                 "Issues #2691 / #2696.");
         }
@@ -399,13 +399,13 @@ public static class ManifestParser
         }
 
         // Issue #2691 / #2696: same strict-literal validation for
-        // execution.system_prompt_mode on the agent-template manifest.
+        // execution.systemPromptMode on the agent-template manifest.
         if (manifest.Execution is { SystemPromptMode: { } templateSystemPromptMode }
             && !string.IsNullOrWhiteSpace(templateSystemPromptMode))
         {
             manifest.Execution.SystemPromptMode = NormaliseSystemPromptModeLiteral(
                 templateSystemPromptMode,
-                fieldLocation: "execution.system_prompt_mode");
+                fieldLocation: "execution.systemPromptMode");
         }
 
         return manifest;
@@ -475,13 +475,13 @@ public static class ManifestParser
         }
 
         // Issue #2691 / #2696: same strict-literal validation for
-        // execution.system_prompt_mode on the agent manifest.
+        // execution.systemPromptMode on the agent manifest.
         if (manifest.Execution is { SystemPromptMode: { } agentSystemPromptMode }
             && !string.IsNullOrWhiteSpace(agentSystemPromptMode))
         {
             manifest.Execution.SystemPromptMode = NormaliseSystemPromptModeLiteral(
                 agentSystemPromptMode,
-                fieldLocation: "execution.system_prompt_mode");
+                fieldLocation: "execution.systemPromptMode");
         }
 
         return manifest;
@@ -557,13 +557,13 @@ public static class ManifestParser
         }
 
         // Issue #2691 / #2696: same strict-literal validation for
-        // execution.system_prompt_mode on the unit-template manifest.
+        // execution.systemPromptMode on the unit-template manifest.
         if (manifest.Execution is { SystemPromptMode: { } unitTemplateSystemPromptMode }
             && !string.IsNullOrWhiteSpace(unitTemplateSystemPromptMode))
         {
             manifest.Execution.SystemPromptMode = NormaliseSystemPromptModeLiteral(
                 unitTemplateSystemPromptMode,
-                fieldLocation: "execution.system_prompt_mode");
+                fieldLocation: "execution.systemPromptMode");
         }
 
         return manifest;

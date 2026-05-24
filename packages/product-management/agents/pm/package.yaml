@@ -38,4 +38,4 @@ execution:
   # against the project tree. Dropping the Claude Code default coding-
   # assistant prompt keeps the model from carrying tool guidance it must
   # not act on (#2696).
-  system_prompt_mode: replace
+  systemPromptMode: replace

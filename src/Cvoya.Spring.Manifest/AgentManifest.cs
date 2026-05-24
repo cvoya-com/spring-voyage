@@ -163,12 +163,14 @@ public class AgentExecutionManifest
     /// <see cref="ManifestParseException"/>.
     /// </summary>
     /// <remarks>
-    /// <c>ApplyNamingConventions = false</c> keeps the snake_case YAML key
-    /// intact under the deserializer's <c>CamelCaseNamingConvention</c>
-    /// (which would otherwise rewrite the alias to <c>systemPromptMode</c>
-    /// and miss the YAML key).
+    /// In-tree package YAMLs use camelCase for compound typed keys
+    /// (<c>apiVersion</c>, <c>displayName</c>, …); this slot follows
+    /// the same convention as <c>systemPromptMode</c>. The persisted
+    /// definition-document YAML emitted by <c>AgentDefinitionSerializer</c>
+    /// uses a different key shape; that is a separate concern for the
+    /// persisted layer.
     /// </remarks>
-    [YamlMember(Alias = "system_prompt_mode", ApplyNamingConventions = false)]
+    [YamlMember(Alias = "systemPromptMode")]
     public string? SystemPromptMode { get; set; }
 
     /// <summary>True when every field is null / whitespace.</summary>
