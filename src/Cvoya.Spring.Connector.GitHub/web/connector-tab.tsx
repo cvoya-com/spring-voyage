@@ -60,6 +60,25 @@ const GITHUB_APP_DOCS_URL =
 
 const NO_REVIEWER = "";
 
+/**
+ * Issue #2563: split a free-text textarea into a list of label patterns.
+ * Splits on newlines and commas, trims, drops empties, de-duplicates
+ * case-insensitively.
+ */
+function parseLabelPatterns(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const piece of text.split(/[\n,]+/)) {
+    const trimmed = piece.trim();
+    if (trimmed === "") continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
 // ADR-0047 §11 qualified-repo validator. Matches the wizard step's
 // regex; kept duplicated on purpose (the post-bind and pre-bind
 // surfaces don't share helpers across the package boundary — see
@@ -138,6 +157,11 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
   const [reviewer, setReviewer] = useState("");
   const [useDefaults, setUseDefaults] = useState<boolean>(true);
   const [events, setEvents] = useState<string[]>([]);
+  // Issue #2563: per-binding label filters. Operators enter one pattern
+  // per line; the textarea is split on newlines (and commas, as a
+  // convenience) before round-tripping to the API as string[].
+  const [includeLabelsText, setIncludeLabelsText] = useState<string>("");
+  const [excludeLabelsText, setExcludeLabelsText] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -176,6 +200,8 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
     setReviewer(c.reviewer ?? "");
     setUseDefaults(c.eventsAreDefault);
     setEvents([...c.events]);
+    setIncludeLabelsText((c.include_labels ?? []).join("\n"));
+    setExcludeLabelsText((c.exclude_labels ?? []).join("\n"));
   }, []);
 
   const loadConfig = useCallback(async () => {
@@ -402,6 +428,8 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
       // ADR-0047 §11: keep the binding's auth field shape; the tab
       // forwards whichever side is set on the loaded config rather
       // than flipping branches itself.
+      const includeLabels = parseLabelPatterns(includeLabelsText);
+      const excludeLabels = parseLabelPatterns(excludeLabelsText);
       const resp = await api.putUnitGitHubConfig(unitId, {
         repo: repo.trim(),
         events: useDefaults
@@ -414,6 +442,19 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
         pat_secret_name:
           patSecretName.trim() === "" ? undefined : patSecretName.trim(),
         reviewer: reviewer.trim() === "" ? undefined : reviewer.trim(),
+        include_labels: includeLabels.length > 0 ? includeLabels : undefined,
+        exclude_labels: excludeLabels.length > 0 ? excludeLabels : undefined,
+        // Preserve the other inbound filters operators set via CLI; the
+        // tab doesn't surface them yet (CLI-only for v0.1) but we must
+        // not blow them away on save.
+        include_authors:
+          config?.include_authors == null
+            ? undefined
+            : [...config.include_authors],
+        include_paths:
+          config?.include_paths == null
+            ? undefined
+            : [...config.include_paths],
       });
       applyConfig(resp);
       toast({ title: "Connector saved" });
@@ -835,6 +876,57 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
               </span>
             </label>
           )}
+
+        {/* Issue #2563: per-binding label filter. Optional. Empty
+            means "no filter on that kind". Each line is one pattern:
+            `*` (all), `prefix:*` (namespace prefix), or an exact label
+            name. */}
+        <fieldset className="space-y-3" data-testid="github-label-filters">
+          <legend className="text-sm text-muted-foreground">
+            Label filters
+          </legend>
+          <p className="text-[11px] text-muted-foreground">
+            Optional. One pattern per line (commas also accepted).
+            Supports <code className="rounded bg-muted px-1 py-0.5">*</code>{" "}
+            for all labels and{" "}
+            <code className="rounded bg-muted px-1 py-0.5">prefix:*</code>{" "}
+            for namespaced label families. Exclude patterns are evaluated
+            first and short-circuit to a drop.
+          </p>
+          <label className="block space-y-1">
+            <span className="text-sm text-muted-foreground">
+              Include labels (allow-list)
+            </span>
+            <textarea
+              aria-label="Include labels (one pattern per line)"
+              data-testid="github-include-labels"
+              className="min-h-[64px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+              placeholder={"spring-voyage-team:*\nbug"}
+              value={includeLabelsText}
+              onChange={(e) => setIncludeLabelsText(e.target.value)}
+            />
+            <span className="block text-[11px] text-muted-foreground">
+              Events pass only if at least one of their labels matches one
+              of these patterns. Leave empty to skip the allow-list check.
+            </span>
+          </label>
+          <label className="block space-y-1">
+            <span className="text-sm text-muted-foreground">
+              Exclude labels (block-list)
+            </span>
+            <textarea
+              aria-label="Exclude labels (one pattern per line)"
+              data-testid="github-exclude-labels"
+              className="min-h-[64px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+              placeholder={"wip\ninternal:*"}
+              value={excludeLabelsText}
+              onChange={(e) => setExcludeLabelsText(e.target.value)}
+            />
+            <span className="block text-[11px] text-muted-foreground">
+              Events whose labels match any of these patterns are dropped.
+            </span>
+          </label>
+        </fieldset>
 
         <fieldset className="space-y-2">
           <legend className="text-sm text-muted-foreground">

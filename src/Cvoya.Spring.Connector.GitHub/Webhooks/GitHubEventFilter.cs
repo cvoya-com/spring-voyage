@@ -7,7 +7,8 @@ using System.Text.Json;
 
 /// <summary>
 /// Pure evaluator for per-binding inbound webhook filters declared on
-/// <see cref="UnitGitHubConfig"/>. Issue #2407.
+/// <see cref="UnitGitHubConfig"/>. Issue #2407; wildcard label patterns and
+/// PR / issue-comment label sourcing added per issue #2563.
 /// </summary>
 /// <remarks>
 /// Filter semantics:
@@ -20,6 +21,25 @@ using System.Text.Json;
 ///   even when it's set — they have no changed-files surface.</description></item>
 ///   <item><description>Null or empty for a kind means "no filter on that kind."</description></item>
 /// </list>
+/// <para>
+/// <b>Label pattern syntax (issue #2563).</b> Each entry in
+/// <see cref="UnitGitHubConfig.IncludeLabels"/> /
+/// <see cref="UnitGitHubConfig.ExcludeLabels"/> is one of:
+/// <list type="bullet">
+///   <item><description><c>*</c> — matches every label.</description></item>
+///   <item><description><c>prefix:*</c> — matches every label whose name
+///   starts with <c>prefix:</c> (case-insensitive). Useful for namespaced
+///   label families such as <c>area:*</c> or <c>spring-voyage-team:*</c>.</description></item>
+///   <item><description>Any other value is matched as an exact label name
+///   (case-insensitive).</description></item>
+/// </list>
+/// Labels are sourced from the translated payload's <c>issue.labels</c>
+/// (for issue and issue_comment events — the latter carries the parent
+/// issue's labels) and from <c>pull_request.labels</c> (for PR-shape
+/// events). When both are present, the issue list wins — this matters
+/// only for hand-crafted test payloads; the translator emits one or the
+/// other.
+/// </para>
 /// The evaluator works directly off the translated domain payload produced
 /// by <see cref="GitHubWebhookHandler"/>, NOT the raw webhook body, so the
 /// schema stays decoupled from GitHub's wire shape — adding a new event
@@ -47,22 +67,29 @@ public static class GitHubEventFilter
         var author = ExtractAuthor(domainPayload);
         var (isPrShape, paths) = ExtractPaths(domainPayload);
 
-        // 1. ExcludeLabels — short-circuit drop.
+        // 1. ExcludeLabels — short-circuit drop. Each pattern is matched
+        //    against the label set; first hit wins. The dropped result
+        //    carries the actual label that triggered the drop (not the
+        //    pattern), so operators see what came in on the wire.
         if (HasValues(config.ExcludeLabels))
         {
-            foreach (var excluded in config.ExcludeLabels!)
+            foreach (var pattern in config.ExcludeLabels!)
             {
-                if (labels.Contains(excluded, StringComparer.OrdinalIgnoreCase))
+                var matched = labels.FirstOrDefault(l => LabelMatches(pattern, l));
+                if (matched is not null)
                 {
-                    return GitHubEventFilterResult.Drop("exclude_label", excluded);
+                    return GitHubEventFilterResult.Drop("exclude_label", matched);
                 }
             }
         }
 
-        // 2. IncludeLabels — at least one label must match.
+        // 2. IncludeLabels — at least one label must match at least one
+        //    pattern. Disjunctive within the kind.
         if (HasValues(config.IncludeLabels))
         {
-            if (!config.IncludeLabels!.Any(l => labels.Contains(l, StringComparer.OrdinalIgnoreCase)))
+            var anyMatch = config.IncludeLabels!.Any(p =>
+                labels.Any(l => LabelMatches(p, l)));
+            if (!anyMatch)
             {
                 return GitHubEventFilterResult.Drop(
                     "include_label",
@@ -105,25 +132,75 @@ public static class GitHubEventFilter
 
     private static bool HasValues(IReadOnlyList<string>? list) => list is { Count: > 0 };
 
+    /// <summary>
+    /// Matches a single label against one pattern from the
+    /// <c>IncludeLabels</c> / <c>ExcludeLabels</c> list. See the type's
+    /// remarks for the supported syntax (<c>*</c>, <c>prefix:*</c>, or
+    /// exact name — case-insensitive throughout).
+    /// </summary>
+    internal static bool LabelMatches(string? pattern, string? label)
+    {
+        if (string.IsNullOrEmpty(pattern) || string.IsNullOrEmpty(label))
+        {
+            return false;
+        }
+        if (pattern == "*")
+        {
+            return true;
+        }
+        // "prefix:*" — match any label whose name starts with the prefix
+        // including the trailing ':'. The pattern must contribute at
+        // least one character before the ':*' (so "*" stays the only
+        // catch-all and a bare ":*" doesn't sneak in as one too).
+        if (pattern.Length > 2 && pattern.EndsWith(":*", StringComparison.Ordinal))
+        {
+            var prefix = pattern[..^1]; // drop the trailing '*', keep the ':'
+            return label.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        }
+        return string.Equals(pattern, label, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static IReadOnlyList<string> ExtractLabels(JsonElement domainPayload)
     {
-        // Issue events surface labels under "issue.labels"; PR events
-        // surface them under "pull_request.labels" — but the translated
-        // PR payload doesn't carry labels today. Issue webhooks DO carry
-        // them, so the include/exclude filter is effective for the
-        // issue-event family; PR-shape labels can be added by extending
-        // BuildPullRequestPayload (out of scope for #2407).
-        if (TryGetObject(domainPayload, "issue", out var issue)
-            && issue.TryGetProperty("labels", out var labels)
-            && labels.ValueKind == JsonValueKind.Array)
+        // Translated-payload contract: BuildIssuePayload and
+        // BuildCommentPayload surface labels under "issue.labels"; the
+        // four PR-shape builders surface them under "pull_request.labels"
+        // (issue #2563). Both shapes flatten the label objects to a
+        // plain string[] of names.
+        //
+        // When both keys are populated (only possible in hand-crafted
+        // test payloads — the translator emits one or the other), the
+        // "issue" array wins, mirroring the existing read order.
+        if (TryReadStringArray(domainPayload, "issue", "labels", out var issueLabels))
         {
-            return labels.EnumerateArray()
+            return issueLabels;
+        }
+        if (TryReadStringArray(domainPayload, "pull_request", "labels", out var prLabels))
+        {
+            return prLabels;
+        }
+        return Array.Empty<string>();
+    }
+
+    private static bool TryReadStringArray(
+        JsonElement parent,
+        string objectName,
+        string arrayName,
+        out IReadOnlyList<string> values)
+    {
+        if (TryGetObject(parent, objectName, out var obj)
+            && obj.TryGetProperty(arrayName, out var arr)
+            && arr.ValueKind == JsonValueKind.Array)
+        {
+            values = arr.EnumerateArray()
                 .Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() : null)
                 .Where(s => !string.IsNullOrEmpty(s))
                 .Select(s => s!)
                 .ToList();
+            return true;
         }
-        return Array.Empty<string>();
+        values = Array.Empty<string>();
+        return false;
     }
 
     private static string? ExtractAuthor(JsonElement domainPayload)

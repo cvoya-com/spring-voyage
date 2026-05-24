@@ -188,6 +188,61 @@ reviewer" end-to-end:
 See [`docs/architecture/agent-runtime.md` § 4g — PR-without-reviewer is a valid flow](../../docs/architecture/agent-runtime.md#pr-without-reviewer-is-a-valid-flow)
 for the cross-layer contract.
 
+## Inbound label filtering
+
+Each binding may declare optional label allow- / block-lists on
+`UnitGitHubConfig.IncludeLabels` / `ExcludeLabels`. The platform
+evaluates them in `GitHubEventFilter` after the webhook handler
+translates the event; matched-by-exclude short-circuits to a drop,
+matched-by-include requires at least one label to match. Both lists
+support the same pattern syntax (issue #2563):
+
+| Pattern | Matches |
+|---------|---------|
+| `*` | Every label on the event. The event drops (exclude) or passes (include) as soon as **any** label is present. |
+| `prefix:*` | Every label whose name starts with `prefix:` (the trailing `:` is part of the pattern; `area:*` matches `area:platform` but **not** `area`). |
+| `<exact>` | An exact label name, case-insensitive (e.g. `bug`, `spring-voyage-team`). |
+
+Labels are sourced from:
+
+- **`issues` events** — the issue's own labels.
+- **`issue_comment` events** — the parent issue's labels (so a comment
+  on a labelled issue inherits the issue's filter result).
+- **`pull_request`, `pull_request_review`,
+  `pull_request_review_comment`, `pull_request_review_thread`
+  events** — the PR's labels. Tip for agents that open PRs from this
+  unit: copy the source issue's labels onto the PR so the same
+  allow-list lets follow-up review events flow through.
+
+The label filter is **optional** — leaving both lists empty is the
+"no filter" path. Operators set the filter through any of the
+following surfaces (each surface persists the same wire fields):
+
+- **CLI** — `spring connector bind` accepts `--include-label` /
+  `--exclude-label`, and `spring connector filter set` updates them
+  on an existing binding.
+- **Portal (new-unit wizard)** — the GitHub step's "Label filters"
+  section (textarea: one pattern per line; commas also accepted).
+- **Portal (post-bind tab)** — the same section in the unit's GitHub
+  tab.
+- **Package install** — `spring package install` accepts label
+  filters via the `--connector` long form. Repeating the flag appends
+  to the list; a single comma-separated value also splits. Example:
+
+  ```bash
+  spring package install spring-voyage-oss \
+    --connector github=cvoya-com/spring-voyage@12345 \
+    --connector github.include_labels=spring-voyage-team:*,bug \
+    --connector github.exclude_labels=wip
+  ```
+
+  Package manifests themselves only **declare** the connector
+  requirement (`requires: [{ connector: github }]`); the binding's
+  config payload — including label filters — is operator-supplied at
+  install time. See [ADR-0037](../../docs/decisions/0037-package-schema-decomposition.md)
+  for the manifest envelope and [ADR-0035](../../docs/decisions/0035-package-as-bundling-unit.md)
+  for the install-time binding contract.
+
 ## Endpoints (recap)
 
 The connector owns the route group at

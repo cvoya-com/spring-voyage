@@ -69,6 +69,26 @@ const GITHUB_APP_DOCS_URL =
 // option, and it can never collide with a real GitHub login.
 const NO_REVIEWER = "";
 
+/**
+ * Issue #2563: split a free-text textarea into a list of label patterns.
+ * Splits on newlines and commas, trims, drops empties, de-duplicates
+ * case-insensitively. Kept duplicated with the post-bind tab on purpose
+ * — the two surfaces don't share helpers (see file-level note).
+ */
+function parseLabelPatterns(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const piece of text.split(/[\n,]+/)) {
+    const trimmed = piece.trim();
+    if (trimmed === "") continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
 // `owner/repo` validator (ADR-0047 §11). One slash, both segments
 // non-empty, no leading/trailing whitespace. The server clamps
 // stricter; the inline message gives the operator a fast-feedback hint
@@ -210,6 +230,15 @@ export function GitHubConnectorWizardStep({
     initialValue?.events && initialValue.events.length > 0
       ? [...initialValue.events]
       : [...DEFAULT_EVENTS],
+  );
+  // Issue #2563: per-binding inbound label filter. Each textarea is one
+  // pattern per line (commas also accepted); seeded from initialValue
+  // so a back-nav into this step preserves the previous edits.
+  const [includeLabelsText, setIncludeLabelsText] = useState<string>(
+    (initialValue?.include_labels ?? []).join("\n"),
+  );
+  const [excludeLabelsText, setExcludeLabelsText] = useState<string>(
+    (initialValue?.exclude_labels ?? []).join("\n"),
   );
 
   const [repositories, setRepositories] = useState<
@@ -543,6 +572,8 @@ export function GitHubConnectorWizardStep({
     // ADR-0047 §11: exactly one of App installation / PAT secret. The
     // wizard refuses to bundle a payload until the auth-choice is
     // resolved.
+    const includeLabels = parseLabelPatterns(includeLabelsText);
+    const excludeLabels = parseLabelPatterns(excludeLabelsText);
     if (authChoice === "app") {
       if (installationId == null) {
         onChange(null);
@@ -557,6 +588,8 @@ export function GitHubConnectorWizardStep({
             ? events
             : undefined,
         reviewer: reviewer.trim() === "" ? undefined : reviewer.trim(),
+        include_labels: includeLabels.length > 0 ? includeLabels : undefined,
+        exclude_labels: excludeLabels.length > 0 ? excludeLabels : undefined,
       });
       return;
     }
@@ -576,6 +609,8 @@ export function GitHubConnectorWizardStep({
           ? events
           : undefined,
       reviewer: reviewer.trim() === "" ? undefined : reviewer.trim(),
+      include_labels: includeLabels.length > 0 ? includeLabels : undefined,
+      exclude_labels: excludeLabels.length > 0 ? excludeLabels : undefined,
     });
   }, [
     repo,
@@ -586,6 +621,8 @@ export function GitHubConnectorWizardStep({
     events,
     reviewer,
     useDefaults,
+    includeLabelsText,
+    excludeLabelsText,
     onChange,
   ]);
 
@@ -1101,6 +1138,58 @@ export function GitHubConnectorWizardStep({
           </span>
         </label>
       )}
+
+      {/* Issue #2563: per-binding label filter (optional). One pattern
+          per line — `*`, `prefix:*`, or an exact label name. Exclude
+          patterns are evaluated first and short-circuit to a drop. */}
+      <fieldset
+        className="space-y-3"
+        data-testid="github-label-filters"
+      >
+        <legend className="text-xs text-muted-foreground">
+          Label filters
+        </legend>
+        <p className="text-[11px] text-muted-foreground">
+          Optional. One pattern per line (commas also accepted). Supports{" "}
+          <code className="rounded bg-muted px-1 py-0.5">*</code> for all
+          labels and{" "}
+          <code className="rounded bg-muted px-1 py-0.5">prefix:*</code>{" "}
+          for namespaced label families.
+        </p>
+        <label className="block space-y-1">
+          <span className="text-xs text-muted-foreground">
+            Include labels (allow-list)
+          </span>
+          <textarea
+            aria-label="Include labels (one pattern per line)"
+            data-testid="github-include-labels"
+            className="min-h-[56px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+            placeholder={"spring-voyage-team:*\nbug"}
+            value={includeLabelsText}
+            onChange={(e) => setIncludeLabelsText(e.target.value)}
+          />
+          <span className="block text-[11px] text-muted-foreground">
+            Events pass only if at least one of their labels matches one
+            of these patterns. Leave empty to skip the allow-list check.
+          </span>
+        </label>
+        <label className="block space-y-1">
+          <span className="text-xs text-muted-foreground">
+            Exclude labels (block-list)
+          </span>
+          <textarea
+            aria-label="Exclude labels (one pattern per line)"
+            data-testid="github-exclude-labels"
+            className="min-h-[56px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+            placeholder={"wip\ninternal:*"}
+            value={excludeLabelsText}
+            onChange={(e) => setExcludeLabelsText(e.target.value)}
+          />
+          <span className="block text-[11px] text-muted-foreground">
+            Events whose labels match any of these patterns are dropped.
+          </span>
+        </label>
+      </fieldset>
 
       <fieldset className="space-y-2">
         <legend className="text-xs text-muted-foreground">

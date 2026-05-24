@@ -660,6 +660,199 @@ public class GitHubWebhookHandlerTests
         unrelatedMessage!.Payload.GetProperty("state_transition").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
+    // ---- Issue #2563: PR-shape and issue_comment events surface labels
+    //                   so the per-binding filter can gate on them. ----
+
+    [Fact]
+    public void TranslateEvent_PullRequest_SurfacesPullRequestLabels()
+    {
+        var data = new
+        {
+            action = "opened",
+            pull_request = new
+            {
+                number = 10,
+                title = "Add thing",
+                body = "PR body",
+                head = new { @ref = "feature" },
+                @base = new { @ref = "main" },
+                user = new { login = "author" },
+                labels = new[] { new { name = "spring-voyage" }, new { name = "area:platform" } },
+            },
+            repository = new
+            {
+                name = "test-repo",
+                full_name = "owner/test-repo",
+                owner = new { login = "owner" }
+            }
+        };
+        var payload = JsonSerializer.SerializeToElement(data);
+
+        var message = _handler.TranslatePayload("pull_request", payload);
+
+        message.ShouldNotBeNull();
+        var labels = message!.Payload.GetProperty("pull_request").GetProperty("labels");
+        labels.ValueKind.ShouldBe(JsonValueKind.Array);
+        labels.GetArrayLength().ShouldBe(2);
+        labels[0].GetString().ShouldBe("spring-voyage");
+        labels[1].GetString().ShouldBe("area:platform");
+    }
+
+    [Fact]
+    public void TranslateEvent_PullRequest_NoLabelsOnPayload_EmitsEmptyArray()
+    {
+        var payload = CreatePullRequestPayload("opened");
+
+        var message = _handler.TranslatePayload("pull_request", payload);
+
+        message.ShouldNotBeNull();
+        var labels = message!.Payload.GetProperty("pull_request").GetProperty("labels");
+        labels.ValueKind.ShouldBe(JsonValueKind.Array);
+        labels.GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public void TranslateEvent_IssueComment_SurfacesParentIssueLabels()
+    {
+        // issue_comment events allow through only if the PARENT issue's
+        // labels pass the filter (issue #2563). The translator must
+        // surface them on the issue block.
+        var data = new
+        {
+            action = "created",
+            comment = new
+            {
+                id = 123L,
+                body = "Looks good!",
+                user = new { login = "reviewer" }
+            },
+            issue = new
+            {
+                number = 42,
+                title = "Test issue",
+                labels = new[] { new { name = "spring-voyage" } },
+            },
+            repository = new
+            {
+                name = "test-repo",
+                full_name = "owner/test-repo",
+                owner = new { login = "owner" }
+            }
+        };
+        var payload = JsonSerializer.SerializeToElement(data);
+
+        var message = _handler.TranslatePayload("issue_comment", payload);
+
+        message.ShouldNotBeNull();
+        var labels = message!.Payload.GetProperty("issue").GetProperty("labels");
+        labels.ValueKind.ShouldBe(JsonValueKind.Array);
+        labels.GetArrayLength().ShouldBe(1);
+        labels[0].GetString().ShouldBe("spring-voyage");
+    }
+
+    [Fact]
+    public void TranslateEvent_PullRequestReview_SurfacesPullRequestLabels()
+    {
+        var data = new
+        {
+            action = "submitted",
+            review = new
+            {
+                id = 900L,
+                state = "approved",
+                user = new { login = "reviewer" },
+            },
+            pull_request = new
+            {
+                number = 10,
+                title = "Add thing",
+                user = new { login = "author" },
+                labels = new[] { new { name = "spring-voyage" } },
+            },
+            repository = new
+            {
+                name = "test-repo",
+                full_name = "owner/test-repo",
+                owner = new { login = "owner" }
+            }
+        };
+        var payload = JsonSerializer.SerializeToElement(data);
+
+        var message = _handler.TranslatePayload("pull_request_review", payload);
+
+        message.ShouldNotBeNull();
+        var labels = message!.Payload.GetProperty("pull_request").GetProperty("labels");
+        labels.GetArrayLength().ShouldBe(1);
+        labels[0].GetString().ShouldBe("spring-voyage");
+    }
+
+    [Fact]
+    public void TranslateEvent_PullRequestReviewComment_SurfacesPullRequestLabels()
+    {
+        var data = new
+        {
+            action = "created",
+            comment = new
+            {
+                id = 123L,
+                body = "nit",
+                path = "src/Foo.cs",
+                position = 12,
+                user = new { login = "reviewer" },
+            },
+            pull_request = new
+            {
+                number = 10,
+                title = "Add thing",
+                labels = new[] { new { name = "spring-voyage" } },
+            },
+            repository = new
+            {
+                name = "test-repo",
+                full_name = "owner/test-repo",
+                owner = new { login = "owner" }
+            }
+        };
+        var payload = JsonSerializer.SerializeToElement(data);
+
+        var message = _handler.TranslatePayload("pull_request_review_comment", payload);
+
+        message.ShouldNotBeNull();
+        var labels = message!.Payload.GetProperty("pull_request").GetProperty("labels");
+        labels.GetArrayLength().ShouldBe(1);
+        labels[0].GetString().ShouldBe("spring-voyage");
+    }
+
+    [Fact]
+    public void TranslateEvent_PullRequestReviewThread_SurfacesPullRequestLabels()
+    {
+        var data = new
+        {
+            action = "resolved",
+            thread = new { id = 7777L, node_id = "PRRT_abc" },
+            pull_request = new
+            {
+                number = 10,
+                title = "Add thing",
+                labels = new[] { new { name = "spring-voyage" } },
+            },
+            repository = new
+            {
+                name = "test-repo",
+                full_name = "owner/test-repo",
+                owner = new { login = "owner" }
+            }
+        };
+        var payload = JsonSerializer.SerializeToElement(data);
+
+        var message = _handler.TranslatePayload("pull_request_review_thread", payload);
+
+        message.ShouldNotBeNull();
+        var labels = message!.Payload.GetProperty("pull_request").GetProperty("labels");
+        labels.GetArrayLength().ShouldBe(1);
+        labels[0].GetString().ShouldBe("spring-voyage");
+    }
+
     private static JsonElement CreateIssuePayload(string action)
     {
         var data = new
