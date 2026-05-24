@@ -17,6 +17,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Cli.GitHubApp;
+using Cvoya.Spring.Core.Net;
 
 /// <summary>
 /// Builds the <c>spring github-app</c> verb tree. Today the tree has a
@@ -867,7 +868,7 @@ public static class GitHubAppCommand
         {
             endpoint = "http://localhost:5000";
         }
-        return $"{endpoint.TrimEnd('/')}/api/v1/webhooks/github";
+        return UrlPath.Combine(endpoint, "/api/v1/webhooks/github");
     }
 
     private static string DefaultEnvFilePath()

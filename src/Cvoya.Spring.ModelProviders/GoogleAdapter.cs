@@ -10,6 +10,7 @@ using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Net;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -55,9 +56,8 @@ public sealed class GoogleAdapter : IModelProviderAdapter
                 "Supply a Google API key to fetch the live model catalog.");
         }
 
-        var baseUrl = provider.ApiBaseUrl.TrimEnd('/');
-        var endpoint = provider.ModelsEndpoint.StartsWith('/') ? provider.ModelsEndpoint : "/" + provider.ModelsEndpoint;
-        var url = $"{baseUrl}{endpoint}?key={Uri.EscapeDataString(credential)}";
+        var url = UrlPath.Combine(provider.ApiBaseUrl, provider.ModelsEndpoint)
+            + $"?key={Uri.EscapeDataString(credential)}";
 
         var client = _httpClientFactory.CreateClient(HttpClientName);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);

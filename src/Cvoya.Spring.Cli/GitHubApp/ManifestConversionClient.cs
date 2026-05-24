@@ -10,6 +10,8 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Net;
+
 /// <summary>
 /// Thin HTTP wrapper around GitHub's one-shot
 /// <c>POST /app-manifests/{code}/conversions</c> endpoint. The endpoint
@@ -36,7 +38,7 @@ public sealed class ManifestConversionClient
     public ManifestConversionClient(HttpClient http, string baseUrl = DefaultGitHubBaseUrl)
     {
         _http = http ?? throw new ArgumentNullException(nameof(http));
-        _baseUrl = (baseUrl ?? DefaultGitHubBaseUrl).TrimEnd('/');
+        _baseUrl = baseUrl ?? DefaultGitHubBaseUrl;
     }
 
     /// <summary>
@@ -59,7 +61,7 @@ public sealed class ManifestConversionClient
             throw new ArgumentException("Conversion code is required.", nameof(code));
         }
 
-        var url = $"{_baseUrl}/app-manifests/{Uri.EscapeDataString(code)}/conversions";
+        var url = UrlPath.Combine(_baseUrl, $"/app-manifests/{Uri.EscapeDataString(code)}/conversions");
         using var request = new HttpRequestMessage(HttpMethod.Post, url);
         // GitHub recommends a version header; the CLI tracks the 2022-11-28
         // API surface. Omitting the header works today but could regress

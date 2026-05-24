@@ -11,6 +11,7 @@ using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.ModelProviders;
+using Cvoya.Spring.Core.Net;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -72,11 +73,10 @@ public sealed class OpenAiCompatibleAdapter : IModelProviderAdapter
                 $"Supply an API key for {provider.DisplayName} to fetch the live model catalog.");
         }
 
-        var baseUrl = provider.ApiBaseUrl.TrimEnd('/');
-        var endpoint = provider.ModelsEndpoint.StartsWith('/') ? provider.ModelsEndpoint : "/" + provider.ModelsEndpoint;
+        var url = UrlPath.Combine(provider.ApiBaseUrl, provider.ModelsEndpoint);
 
         var client = _httpClientFactory.CreateClient(HttpClientName);
-        using var request = new HttpRequestMessage(HttpMethod.Get, baseUrl + endpoint);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (requiresCredential && !string.IsNullOrWhiteSpace(credential))
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);

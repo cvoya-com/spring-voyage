@@ -9,6 +9,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Net;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -222,8 +223,7 @@ public class OllamaProvider(
     /// </summary>
     protected virtual Uri BuildChatCompletionsUri()
     {
-        var trimmed = _options.BaseUrl.TrimEnd('/');
-        return new Uri($"{trimmed}/v1/chat/completions");
+        return new Uri(UrlPath.Combine(_options.BaseUrl, "/v1/chat/completions"));
     }
 
     /// <summary>

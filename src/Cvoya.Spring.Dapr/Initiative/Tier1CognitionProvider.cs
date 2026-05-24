@@ -9,6 +9,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
+using Cvoya.Spring.Core.Net;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -126,7 +127,7 @@ public class Tier1CognitionProvider : ICognitionProvider
 
     private async Task<string> CallOllamaAsync(string prompt, CancellationToken cancellationToken)
     {
-        var endpoint = $"{_options.OllamaBaseUrl.TrimEnd('/')}/api/generate";
+        var endpoint = UrlPath.Combine(_options.OllamaBaseUrl, "/api/generate");
 
         var body = new
         {

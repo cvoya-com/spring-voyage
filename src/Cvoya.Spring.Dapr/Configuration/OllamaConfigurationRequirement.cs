@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Net;
 
 using Microsoft.Extensions.Options;
 
@@ -82,7 +83,7 @@ public sealed class OllamaConfigurationRequirement(
                 : ConfigurationRequirementStatus.Disabled(reason, suggestion);
         }
 
-        var endpoint = $"{_options.BaseUrl.TrimEnd('/')}/api/tags";
+        var endpoint = UrlPath.Combine(_options.BaseUrl, "/api/tags");
 
         using var httpClient = httpClientFactory.CreateClient(nameof(OllamaConfigurationRequirement));
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
