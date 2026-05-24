@@ -781,6 +781,66 @@ public class PackageInstallCommandTests
         await Task.CompletedTask; // placeholder
     }
 
+    // ── ParseConnectorTokens — array-shaped config keys (issue #2563) ─────────
+
+    [Fact]
+    public void ParseConnectorTokens_LongFormArrayKey_StoresAsList()
+    {
+        // include_labels is array-shaped — a comma-separated value splits.
+        var result = PackageCommand.ParseConnectorTokens(
+            new[] { "github.include_labels=spring-voyage-team:*,bug" },
+            new[] { "my-pkg" });
+
+        result.ShouldNotBeNull();
+        var binding = result!["my-pkg"].Package!["github"];
+        binding.Config["include_labels"].ShouldBeAssignableTo<IReadOnlyList<string>>();
+        var list = (IReadOnlyList<string>)binding.Config["include_labels"];
+        list.ShouldBe(new[] { "spring-voyage-team:*", "bug" });
+    }
+
+    [Fact]
+    public void ParseConnectorTokens_LongFormArrayKey_RepeatedFlagAppends()
+    {
+        // Two separate --connector invocations with the same array key
+        // append to a single list rather than overwriting (the scalar
+        // path overwrites — array paths accumulate).
+        var result = PackageCommand.ParseConnectorTokens(
+            new[]
+            {
+                "github.include_labels=spring-voyage-team:*",
+                "github.include_labels=bug",
+            },
+            new[] { "my-pkg" });
+
+        var binding = result!["my-pkg"].Package!["github"];
+        var list = (IReadOnlyList<string>)binding.Config["include_labels"];
+        list.ShouldBe(new[] { "spring-voyage-team:*", "bug" });
+    }
+
+    [Fact]
+    public void ParseConnectorTokens_LongFormArrayKey_ExcludeLabelsToo()
+    {
+        var result = PackageCommand.ParseConnectorTokens(
+            new[] { "github.exclude_labels=wip,internal:*" },
+            new[] { "my-pkg" });
+
+        var binding = result!["my-pkg"].Package!["github"];
+        var list = (IReadOnlyList<string>)binding.Config["exclude_labels"];
+        list.ShouldBe(new[] { "wip", "internal:*" });
+    }
+
+    [Fact]
+    public void ParseConnectorTokens_LongFormScalarKey_StaysScalar()
+    {
+        // installation_id is a scalar key — value still parses as long.
+        var result = PackageCommand.ParseConnectorTokens(
+            new[] { "github.installation-id=12345" },
+            new[] { "my-pkg" });
+
+        var binding = result!["my-pkg"].Package!["github"];
+        binding.Config["installation-id"].ShouldBe(12345L);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>

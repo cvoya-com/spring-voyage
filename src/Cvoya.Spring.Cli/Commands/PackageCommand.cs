@@ -1138,7 +1138,30 @@ public static class PackageCommand
                 // we treat the remainder as a flat key. Numbers convert to
                 // long when parseable (so installation-id stays numeric in
                 // the JSON payload).
-                targetConfig[configKey] = ParseScalar(valuePart);
+                //
+                // Issue #2563: array-shaped config keys (label / author /
+                // path filters on the GitHub connector — and any future
+                // connector that names its array fields the same way) are
+                // detected by suffix and stored as a list. Repeating the
+                // flag appends; a single comma-separated value splits.
+                if (IsArrayConfigKey(configKey))
+                {
+                    var pieces = SplitArrayValue(valuePart);
+                    if (!targetConfig.TryGetValue(configKey, out var existing)
+                        || existing is not List<string> existingList)
+                    {
+                        existingList = new List<string>(pieces.Count);
+                        targetConfig[configKey] = existingList;
+                    }
+                    foreach (var piece in pieces)
+                    {
+                        existingList.Add(piece);
+                    }
+                }
+                else
+                {
+                    targetConfig[configKey] = ParseScalar(valuePart);
+                }
             }
         }
 
@@ -1225,6 +1248,48 @@ public static class PackageCommand
         if (long.TryParse(value, out var l)) return l;
         if (bool.TryParse(value, out var b)) return b;
         return value;
+    }
+
+    /// <summary>
+    /// Issue #2563: detect connector-config keys whose wire shape is an
+    /// array. The matcher is intentionally suffix-based (and not GitHub-
+    /// specific) — every connector's array slots in
+    /// <c>UnitGitHubConfig</c>-shaped configs end in
+    /// <c>_labels</c>, <c>_authors</c>, or <c>_paths</c>. Adding another
+    /// array key on any connector just needs to match one of those
+    /// suffixes for <c>--connector slug.key=...</c> to accept multi-
+    /// value semantics.
+    /// </summary>
+    private static bool IsArrayConfigKey(string key)
+    {
+        return key.EndsWith("_labels", StringComparison.OrdinalIgnoreCase)
+            || key.EndsWith("_authors", StringComparison.OrdinalIgnoreCase)
+            || key.EndsWith("_paths", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Splits a <c>--connector slug.array_key=v1,v2,v3</c> value on
+    /// commas, trims, and drops empties. Keeps each piece as a raw
+    /// string — wildcard patterns (<c>*</c>, <c>prefix:*</c>) flow
+    /// through untouched so the server-side evaluator sees what the
+    /// operator typed.
+    /// </summary>
+    private static IReadOnlyList<string> SplitArrayValue(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return Array.Empty<string>();
+        }
+        var out_ = new List<string>();
+        foreach (var piece in value.Split(','))
+        {
+            var trimmed = piece.Trim();
+            if (trimmed.Length > 0)
+            {
+                out_.Add(trimmed);
+            }
+        }
+        return out_;
     }
 
     private static (string key, string value) SplitKeyValue(string token, string originalToken)

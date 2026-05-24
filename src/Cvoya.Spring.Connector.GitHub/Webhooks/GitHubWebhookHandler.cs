@@ -784,6 +784,7 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
                 author = pr.TryGetProperty("user", out var user) && user.ValueKind == JsonValueKind.Object
                     ? user.GetProperty("login").GetString()
                     : null,
+                labels = ExtractLabels(pr),
             }
         };
 
@@ -810,7 +811,8 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             issue = new
             {
                 number = issue.GetProperty("number").GetInt32(),
-                title = issue.GetProperty("title").GetString()
+                title = issue.GetProperty("title").GetString(),
+                labels = ExtractLabels(issue),
             },
             comment = new
             {
@@ -902,6 +904,7 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
                 author = pr.TryGetProperty("user", out var u) && u.ValueKind == JsonValueKind.Object
                     ? u.GetProperty("login").GetString()
                     : null,
+                labels = ExtractLabels(pr),
             },
             review = new
             {
@@ -941,6 +944,7 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             {
                 number = pr.GetProperty("number").GetInt32(),
                 title = pr.TryGetProperty("title", out var t) ? t.GetString() : null,
+                labels = ExtractLabels(pr),
             },
             comment = new
             {
@@ -993,6 +997,7 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             {
                 number = pr.GetProperty("number").GetInt32(),
                 title = pr.TryGetProperty("title", out var t) ? t.GetString() : null,
+                labels = ExtractLabels(pr),
             },
             thread = new
             {

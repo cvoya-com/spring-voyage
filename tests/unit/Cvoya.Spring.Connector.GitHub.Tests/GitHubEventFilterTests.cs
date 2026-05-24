@@ -12,7 +12,9 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Pure-evaluator tests for <see cref="GitHubEventFilter"/>. Issue #2407.
+/// Pure-evaluator tests for <see cref="GitHubEventFilter"/>. Issue #2407;
+/// wildcard label patterns and PR / issue-comment label sourcing per
+/// issue #2563.
 /// </summary>
 public class GitHubEventFilterTests
 {
@@ -242,6 +244,222 @@ public class GitHubEventFilterTests
         result.Allowed.ShouldBeTrue();
     }
 
+    // ---- Wildcard pattern matching (issue #2563) ----
+
+    [Fact]
+    public void Evaluate_IncludeLabel_StarPattern_MatchesAnyLabel()
+    {
+        var config = NewConfig(includeLabels: new[] { "*" });
+        var payload = IssuePayload(labels: new[] { "anything" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_IncludeLabel_StarPattern_NoLabelsOnIssue_Drops()
+    {
+        // "*" only matches when at least one label is present — a label-less
+        // event still fails the include filter.
+        var config = NewConfig(includeLabels: new[] { "*" });
+        var payload = IssuePayload(labels: Array.Empty<string>());
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeFalse();
+        result.Kind.ShouldBe("include_label");
+    }
+
+    [Fact]
+    public void Evaluate_IncludeLabel_PrefixPattern_MatchesNamespacedLabel()
+    {
+        var config = NewConfig(includeLabels: new[] { "spring-voyage-team:*" });
+        var payload = IssuePayload(labels: new[] { "spring-voyage-team:platform" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_IncludeLabel_PrefixPattern_NoMatch_Drops()
+    {
+        var config = NewConfig(includeLabels: new[] { "spring-voyage-team:*" });
+        var payload = IssuePayload(labels: new[] { "other:thing", "bug" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeFalse();
+        result.Kind.ShouldBe("include_label");
+    }
+
+    [Fact]
+    public void Evaluate_IncludeLabel_PrefixPattern_DoesNotMatchPrefixWithoutSeparator()
+    {
+        // "area:*" matches "area:platform" but NOT the bare label "area"
+        // (the trailing ':' is part of the pattern).
+        var config = NewConfig(includeLabels: new[] { "area:*" });
+        var payload = IssuePayload(labels: new[] { "area" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeFalse();
+        result.Kind.ShouldBe("include_label");
+    }
+
+    [Fact]
+    public void Evaluate_IncludeLabel_PrefixPattern_CaseInsensitive()
+    {
+        var config = NewConfig(includeLabels: new[] { "Area:*" });
+        var payload = IssuePayload(labels: new[] { "area:Platform" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_ExcludeLabel_StarPattern_DropsAnyLabel()
+    {
+        var config = NewConfig(excludeLabels: new[] { "*" });
+        var payload = IssuePayload(labels: new[] { "anything" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeFalse();
+        result.Kind.ShouldBe("exclude_label");
+        result.Value.ShouldBe("anything");
+    }
+
+    [Fact]
+    public void Evaluate_ExcludeLabel_PrefixPattern_DropsNamespacedLabel()
+    {
+        // The exclude payload is reported with the actual label (not the
+        // pattern) so operators see what came in on the wire.
+        var config = NewConfig(excludeLabels: new[] { "internal:*" });
+        var payload = IssuePayload(labels: new[] { "internal:do-not-route", "bug" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeFalse();
+        result.Kind.ShouldBe("exclude_label");
+        result.Value.ShouldBe("internal:do-not-route");
+    }
+
+    [Fact]
+    public void Evaluate_ExcludeLabel_PrefixPattern_OtherLabelsPresent_DoesNotDrop()
+    {
+        var config = NewConfig(excludeLabels: new[] { "internal:*" });
+        var payload = IssuePayload(labels: new[] { "bug", "feature" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_IncludeLabel_PrefixAllowsButExcludeMatchesSpecific_Drops()
+    {
+        // Realistic compose: allow the namespace, block one specific label
+        // inside it.
+        var config = NewConfig(
+            includeLabels: new[] { "spring-voyage-team:*" },
+            excludeLabels: new[] { "spring-voyage-team:wip" });
+        var payload = IssuePayload(labels: new[] { "spring-voyage-team:wip" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeFalse();
+        result.Kind.ShouldBe("exclude_label");
+    }
+
+    [Fact]
+    public void Evaluate_StarPattern_CombinedWithSpecificPattern_MatchesEither()
+    {
+        var config = NewConfig(includeLabels: new[] { "bug", "spring-voyage-team:*" });
+        var payload = IssuePayload(labels: new[] { "spring-voyage-team:eng" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeTrue();
+    }
+
+    // ---- PR-shape label sourcing (issue #2563) ----
+
+    [Fact]
+    public void Evaluate_IncludeLabel_PullRequestShape_ReadsLabelsFromPullRequest()
+    {
+        var config = NewConfig(includeLabels: new[] { "spring-voyage" });
+        var payload = PullRequestPayloadWithLabels(
+            author: "alice",
+            labels: new[] { "spring-voyage", "review-needed" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_ExcludeLabel_PullRequestShape_DropsOnPrLabel()
+    {
+        var config = NewConfig(excludeLabels: new[] { "wip" });
+        var payload = PullRequestPayloadWithLabels(
+            author: "alice",
+            labels: new[] { "wip" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeFalse();
+        result.Kind.ShouldBe("exclude_label");
+        result.Value.ShouldBe("wip");
+    }
+
+    [Fact]
+    public void Evaluate_IncludeLabel_PullRequestShape_NoMatch_Drops()
+    {
+        var config = NewConfig(includeLabels: new[] { "spring-voyage" });
+        var payload = PullRequestPayloadWithLabels(
+            author: "alice",
+            labels: new[] { "other" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeFalse();
+        result.Kind.ShouldBe("include_label");
+    }
+
+    [Fact]
+    public void Evaluate_IncludeLabel_IssueCommentShape_ReadsParentIssueLabels()
+    {
+        // issue_comment events allow through only if the PARENT issue's
+        // labels pass — BuildCommentPayload surfaces issue.labels for that.
+        var config = NewConfig(includeLabels: new[] { "spring-voyage" });
+        var payload = CommentPayloadWithIssueLabels(
+            commentAuthor: "carol",
+            issueAuthor: "alice",
+            issueLabels: new[] { "spring-voyage" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_IncludeLabel_IssueCommentShape_ParentIssueMissingLabel_Drops()
+    {
+        var config = NewConfig(includeLabels: new[] { "spring-voyage" });
+        var payload = CommentPayloadWithIssueLabels(
+            commentAuthor: "carol",
+            issueAuthor: "alice",
+            issueLabels: new[] { "bug" });
+
+        var result = GitHubEventFilter.Evaluate(config, payload);
+
+        result.Allowed.ShouldBeFalse();
+        result.Kind.ShouldBe("include_label");
+    }
+
     [Fact]
     public void Evaluate_EmptyListSameAsNull_NoFilter()
     {
@@ -336,6 +554,53 @@ public class GitHubEventFilterTests
                 number = 42,
                 title = "T",
                 author = issueAuthor,
+            },
+            comment = new
+            {
+                id = 1,
+                body = "x",
+                author = commentAuthor,
+            },
+        };
+        return JsonSerializer.SerializeToElement(data);
+    }
+
+    private static JsonElement PullRequestPayloadWithLabels(
+        string author,
+        IReadOnlyList<string> labels)
+    {
+        var data = new
+        {
+            source = "github",
+            intent = "review_request",
+            action = "opened",
+            pull_request = new
+            {
+                number = 10,
+                title = "T",
+                author,
+                labels,
+            },
+        };
+        return JsonSerializer.SerializeToElement(data);
+    }
+
+    private static JsonElement CommentPayloadWithIssueLabels(
+        string commentAuthor,
+        string issueAuthor,
+        IReadOnlyList<string> issueLabels)
+    {
+        var data = new
+        {
+            source = "github",
+            intent = "feedback",
+            action = "created",
+            issue = new
+            {
+                number = 42,
+                title = "T",
+                author = issueAuthor,
+                labels = issueLabels,
             },
             comment = new
             {
