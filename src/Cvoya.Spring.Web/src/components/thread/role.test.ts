@@ -136,6 +136,16 @@ describe("ROLE_STYLES", () => {
     expect(ROLE_STYLES.tool.align).toBe("start");
     expect(ROLE_STYLES.system.align).toBe("start");
   });
+
+  // #2516: the dark-theme `bg-primary text-primary-foreground` pair fell
+  // below WCAG AA on the user-sent bubble. The fix locks the human
+  // bubble to `bg-blue-600 text-white` for a stable contrast ratio in
+  // both themes — pin it so a future theme tweak doesn't silently
+  // regress the bubble's legibility.
+  it("paints the human bubble with the high-contrast blue-600 / white pair (#2516)", () => {
+    expect(ROLE_STYLES.human.bubble).toContain("bg-blue-600");
+    expect(ROLE_STYLES.human.bubble).toContain("text-white");
+  });
 });
 
 // #1630

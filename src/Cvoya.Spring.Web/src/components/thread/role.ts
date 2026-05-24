@@ -450,7 +450,12 @@ export function splitBodyIntoStructuredAndProse(body: string): {
 export const ROLE_STYLES: Record<ConversationRole, RoleStyle> = {
   human: {
     align: "end",
-    bubble: "bg-primary text-primary-foreground",
+    // #2516: the dark-theme `--color-primary` (#3b82f6) is too light for
+    // `--color-primary-foreground` (#fafafa) to clear WCAG AA — the
+    // user-sent bubbles read as washed-out pastel. A fixed `blue-600 /
+    // white` pair lands at ~5.17:1 in both themes and matches the
+    // designer's "make it readable" intent.
+    bubble: "bg-blue-600 text-white",
     label: "Human",
   },
   agent: {

@@ -14,6 +14,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 
+import { CopyEntryButton } from "@/components/activity/copy-entry-button";
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -189,12 +190,26 @@ function EventRow({
   const severity = event.severity as ActivitySeverity;
 
   const payload = getEventPayload(event as any);
+  // #2562: the row used to be a single `<button>` wrapping the dot,
+  // chevron, summary, and metadata. To add the per-entry copy button
+  // next to the title without an invalid nested-button, the row is now
+  // a `role="button"` container with explicit Enter / Space handling —
+  // semantically the same widget, just composable.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onToggle();
+    }
+  };
   return (
     <div className="border-b border-border last:border-0">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
         onClick={onToggle}
-        className="flex w-full items-start gap-3 rounded-md px-2 py-3 text-left transition-colors hover:bg-accent/50"
+        onKeyDown={handleKeyDown}
+        className="flex w-full cursor-pointer items-start gap-3 rounded-md px-2 py-3 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {/* Status dot — severity-coded. Mirrors the Explorer DetailPane
             pattern so every surface reads the same. */}
@@ -216,7 +231,13 @@ function EventRow({
             (time, source, event type, severity) wraps beneath. sm+
             restores the single-row inline layout. */}
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="truncate text-sm">{event.summary}</p>
+          <div className="flex items-start gap-2">
+            <p className="min-w-0 flex-1 truncate text-sm">{event.summary}</p>
+            <CopyEntryButton
+              entry={event}
+              testId={`activity-event-${event.id}-copy`}
+            />
+          </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="tabular-nums">
               {timeAgo(event.timestamp)}
@@ -239,7 +260,7 @@ function EventRow({
             </Badge>
           </div>
         </div>
-      </button>
+      </div>
       {expanded && (
         <div className="mb-3 ml-10 space-y-2 rounded-md border border-border bg-muted/30 p-3 text-sm">
           {/* Event payload / message body (#1502 Fix 5): surface the message

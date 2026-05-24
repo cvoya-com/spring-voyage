@@ -152,7 +152,7 @@ export function DetailPane({
       <header className="border-b border-border px-6 pb-3 pt-4">
         <div className="flex items-center gap-2">
           <Breadcrumb path={path} onSelect={onSelectNode} />
-          <CopyAddressButton address={addressFor(node, path)} />
+          <CopyAddressButton address={addressFor(node)} />
         </div>
         <div className="mt-2 flex items-center gap-3">
           <DetailHeaderStatus node={node} />
@@ -248,26 +248,18 @@ export function DetailPane({
  *
  * The synthesized tenant root already ships an id of the form
  * `tenant://<id>` (see `validate-tenant-tree.test.ts` and the wire shape
- * documented in `aggregate.ts`); units and agents land bare. Treat any
- * id that already carries a known scheme prefix as canonical so a future
- * server-side reshape that pushes prefixes onto every kind doesn't
- * double-prefix here.
+ * documented in `aggregate.ts`); units, agents, and humans land bare.
+ * Treat any id that already carries a known scheme prefix as canonical
+ * so a future server-side reshape that pushes prefixes onto every kind
+ * doesn't double-prefix here.
  *
- * #1200: for agent nodes the address now includes the full unit-path
- * prefix so the copied identity is globally unique. The `path` argument
- * is the ancestor chain supplied by `findIndex` — e.g.
- * `[TenantNode, UnitNode("engineering-team"), AgentNode("ada")]` yields
- * `agent://engineering-team/ada`. When `path` is omitted or contains no
- * Unit ancestors the address falls back to `agent://<name>` (same as
- * before) so callers that do not have a path context are unaffected.
+ * #2535: the copied address is always `<scheme>://<id>` (no path
+ * prefix). Agent ids are already globally unique, so the earlier
+ * `agent://<unit>/<agent>` form (#1200) created surface noise without
+ * adding routing information.
  */
-export function addressFor(node: TreeNode, path?: TreeNode[]): string {
+export function addressFor(node: TreeNode): string {
   const id = node.id;
-  // `human://` joins the existing schemes for #2266 / #2267 — the
-  // platform's HumanActor address scheme is `human:<guid>` (see
-  // `docs/concepts/humans.md`) and the navigation-form analogue
-  // `human://<guid>` slots into the Copy Address surface the same
-  // way `agent://` and `unit://` do.
   const SCHEMES = ["tenant://", "unit://", "agent://", "human://"];
   if (SCHEMES.some((s) => id.startsWith(s))) return id;
   switch (node.kind) {
@@ -275,26 +267,9 @@ export function addressFor(node: TreeNode, path?: TreeNode[]): string {
       return `tenant://${id}`;
     case "Unit":
       return `unit://${id}`;
-    case "Agent": {
-      // Build the full path by collecting the names of Unit ancestors
-      // from the breadcrumb path (Tenant nodes are excluded — they are
-      // not part of the address). This produces the globally-unique
-      // `agent://<unit>/…/<agent>` form the issue requires.
-      if (path && path.length > 0) {
-        const unitSegments = path
-          .filter((n) => n.kind === "Unit")
-          .map((n) => n.id);
-        if (unitSegments.length > 0) {
-          return `agent://${unitSegments.join("/")}/${id}`;
-        }
-      }
+    case "Agent":
       return `agent://${id}`;
-    }
     case "Human":
-      // Humans are globally addressable by Guid — they aren't scoped
-      // to a unit path the way agents are (see `docs/concepts/humans.md`
-      // — `human:` short-circuits the directory and routes via the
-      // human's configured inbound connector binding).
       return `human://${id}`;
   }
 }
