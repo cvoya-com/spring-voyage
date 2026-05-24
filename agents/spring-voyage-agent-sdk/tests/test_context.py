@@ -139,9 +139,7 @@ class TestIAgentContextLoad:
         into ``context.system_prompt`` (spec §2.2.2)."""
         spring_dir = tmp_path / ".spring"
         spring_dir.mkdir()
-        (spring_dir / "system-prompt.md").write_text(
-            "You are a helpful Spring Voyage agent.", encoding="utf-8"
-        )
+        (spring_dir / "system-prompt.md").write_text("You are a helpful Spring Voyage agent.", encoding="utf-8")
 
         with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
             ctx = IAgentContext.load()
