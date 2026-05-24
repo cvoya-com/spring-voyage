@@ -161,7 +161,6 @@ public sealed class EquippedSkillsLayer2InheritanceTests : IDisposable
 
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: "You are the member agent.",
             SkillBundles: unitBundles,
             AgentSkillBundles: agentBundles);

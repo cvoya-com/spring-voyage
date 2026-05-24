@@ -49,7 +49,6 @@ public class PromptAssemblerTests
     {
         var context = new PromptAssemblyContext(
             Policies: JsonSerializer.SerializeToElement(new { maxRetries = 3 }),
-            Skills: [new Skill("review", "Code review", [])],
             AgentInstructions: "You are a code reviewer.");
 
         var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
@@ -75,7 +74,6 @@ public class PromptAssemblerTests
     {
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: null);
 
         var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
@@ -99,24 +97,25 @@ public class PromptAssemblerTests
     }
 
     /// <summary>
-    /// Verifies that skill descriptions are included in the unit context layer.
+    /// Pins the #2670 acceptance: the per-registry skill listing was
+    /// removed from Layer 2. Even a context that names a unit policy
+    /// must not synthesise an "Available Skills" sub-section, and the
+    /// auto-generated "Tools exposed by the X connector." string must
+    /// be impossible to surface because the projection that produced it
+    /// no longer exists.
     /// </summary>
     [Fact]
-    public async Task AssembleAsync_IncludesSkillDescriptionsInUnitContext()
+    public async Task AssembleAsync_DoesNotEmitAvailableSkillsBlockInUnitContext()
     {
         var context = new PromptAssemblyContext(
-            Policies: null,
-            Skills: [new Skill("deploy", "Deploys services", [
-                new ToolDefinition("ops.run_deploy", "Runs deployment", JsonSerializer.SerializeToElement(new { }), string.Empty)
-            ])],
+            Policies: JsonSerializer.SerializeToElement(new { maxRetries = 3 }),
             AgentInstructions: null);
 
         var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
         result.ShouldContain("## Unit Context");
-        result.ShouldContain("deploy");
-        result.ShouldContain("Deploys services");
-        result.ShouldContain("ops.run_deploy");
+        result.ShouldNotContain("Available Skills");
+        result.ShouldNotContain("Tools exposed by the");
     }
 
     /// <summary>
@@ -137,7 +136,6 @@ public class PromptAssemblerTests
 
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: null,
             SkillBundles: new[] { bundle });
 
@@ -161,7 +159,6 @@ public class PromptAssemblerTests
 
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: null,
             AgentSkillBundles: new[] { bundle });
 
@@ -190,7 +187,6 @@ public class PromptAssemblerTests
     {
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: "agent body",
             ConnectorPromptFragments: new[]
             {
@@ -218,7 +214,6 @@ public class PromptAssemblerTests
     {
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: "agent body");
 
         var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
@@ -231,7 +226,6 @@ public class PromptAssemblerTests
     {
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: null,
             ConnectorPromptFragments: new[]
             {
@@ -266,7 +260,6 @@ public class PromptAssemblerTests
 
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: "user-instructions",
             SkillBundles: new[] { unitBundle },
             AgentSkillBundles: new[] { agentBundle });

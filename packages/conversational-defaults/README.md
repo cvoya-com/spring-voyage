@@ -1,16 +1,11 @@
 # conversational-defaults
 
-The `sv.conversational.defaults` skill bundle (ADR-0056 Wave 2 / #2657).
+The `sv.conversational.defaults` skill bundle (ADR-0056 Wave 2 / #2657; reshaped by #2670).
 
-A naive conversational use case — "I just want a chatbot" — shouldn't require an operator to know about `sv.messaging.send`, `sv.directory.list`, or the discovery surface. This bundle:
+A naive conversational use case — "I just want a chatbot" — shouldn't require an operator to know about `sv.messaging.send`, `sv.directory.list`, or the discovery surface. After #2670 that knowledge lives in Layer 1 (`PlatformPromptProvider`); this bundle adds the conversation-shaped extras on top:
 
-- **Pre-loads the fundamental-core tools** in every turn's system prompt so the runtime doesn't have to call `sv.tools.list_categories` before replying:
-  - `sv.messaging.send`, `sv.messaging.multicast` (category `messaging`)
-  - `sv.directory.list`, `sv.directory.lookup` (category `directory`)
-  - `sv.progress.report` (category `observability`)
-  - `sv.tools.list_categories`, `sv.tools.list` (category `tools`)
-- **Surfaces the `memory` category** via discovery — per-tool schemas only load when the runtime queries them, so the prompt budget stays bounded.
-- **Contributes the platform-layer prompt fragment** that opens with the load-bearing `[PLATFORM CONTRACT — NON-NEGOTIABLE]` header. The header is the marker that tells the runtime its terminal output is captured for diagnostics only — every side effect (including replying on the thread) goes through a tool call. ADR-0056 §8 ("Platform-prompt authority") explains why this is not stylistic: the synthesis-removed model in Wave 3 depends on the runtime actually following the contract.
+- **Points at the platform-layer contract.** Layer 1 already emits the `[PLATFORM CONTRACT — NON-NEGOTIABLE]` header and names every always-available platform tool (`sv.messaging.*`, `sv.directory.*`, `sv.progress.report`, `sv.tools.*`). The bundle prompt tells the runtime where to read that contract rather than duplicating it — per #2670, packages must never re-state the platform-generated tooling instructions.
+- **Surfaces the `memory` category** as the one package-specific grant on top of the always-available core. Per-tool schemas only load when the runtime calls `sv.tools.list(memory)`, so the prompt budget stays bounded.
 
 The bundle is referenced as `spring-voyage/conversational-defaults:conversational-defaults` in `ai.skills:` blocks and via `spring agent skills add`.
 

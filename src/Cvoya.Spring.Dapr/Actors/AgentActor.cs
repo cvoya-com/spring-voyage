@@ -49,7 +49,6 @@ public class AgentActor(
     IAgentMailboxCoordinator mailboxCoordinator,
     IAgentDispatchCoordinator dispatchCoordinator,
     IAgentDefinitionProvider agentDefinitionProvider,
-    IEnumerable<ISkillRegistry> skillRegistries,
     IUnitMembershipRepository membershipRepository,
     IUnitPolicyEnforcer unitPolicyEnforcer,
     IAgentInitiativeEvaluator initiativeEvaluator,
@@ -72,7 +71,6 @@ public class AgentActor(
     internal const string InitiativeReminderName = "initiative-check";
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<AgentActor>();
-    private readonly IReadOnlyList<ISkillRegistry> _skillRegistries = skillRegistries.ToList();
 
     /// <summary>
     /// Per-thread dispatcher tracker — one entry per thread the agent is
@@ -617,13 +615,6 @@ public class AgentActor(
     {
         var definition = await agentDefinitionProvider.GetByIdAsync(Id.GetId(), cancellationToken);
 
-        var skills = _skillRegistries
-            .Select(r => new Skill(
-                Name: r.Name,
-                Description: $"Tools exposed by the {r.Name} connector.",
-                Tools: r.GetToolDefinitions()))
-            .ToList();
-
         var pendingAmendments = await StateManager
             .TryGetStateAsync<List<PendingAmendment>>(StateKeys.AgentPendingAmendments, cancellationToken);
 
@@ -643,9 +634,11 @@ public class AgentActor(
         // nesting is out of scope and not consulted.
         var (unitBundles, agentBundles) = await LoadEquippedBundlesAsync(cancellationToken);
 
+        // The always-on platform-tool catalog rides Layer 1
+        // (IPlatformPromptProvider) since #2670, so no per-actor skill-
+        // registry projection is required here.
         return new PromptAssemblyContext(
             Policies: null,
-            Skills: skills,
             AgentInstructions: definition?.Instructions,
             EffectiveMetadata: effective,
             SkillBundles: unitBundles,

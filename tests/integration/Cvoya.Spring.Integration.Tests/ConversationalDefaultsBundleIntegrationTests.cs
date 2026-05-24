@@ -71,7 +71,6 @@ public class ConversationalDefaultsBundleIntegrationTests
 
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: "You are a helpful assistant.",
             AgentSkillBundles: bundles);
 
@@ -95,7 +94,8 @@ public class ConversationalDefaultsBundleIntegrationTests
 
         // (3) The bundle text (in Layer 4) starts by pointing back to
         //     the platform-layer contract rather than duplicating it.
-        assembled.ShouldContain("The platform's response contract is in the platform-layer instructions");
+        assembled.ShouldContain("platform's response contract");
+        assembled.ShouldContain("platform-layer instructions");
 
         // (4) There must be only one occurrence of the contract header
         //     — the bundle no longer carries a parallel copy.
@@ -103,8 +103,11 @@ public class ConversationalDefaultsBundleIntegrationTests
         var secondHeader = assembled.IndexOf("[PLATFORM CONTRACT — NON-NEGOTIABLE]", firstHeader + 1, StringComparison.Ordinal);
         secondHeader.ShouldBe(-1);
 
-        // (5) The fundamental-core tool names appear inline so the
-        //     runtime doesn't have to discover them before replying.
+        // (5) The fundamental-core tool names appear inline — they
+        //     are rendered by Layer 1 (PlatformPromptProvider) since
+        //     #2670, not by the bundle. The runtime sees them at the
+        //     top of the prompt without any equipped bundle being
+        //     required.
         assembled.ShouldContain("sv.messaging.send");
         assembled.ShouldContain("sv.directory.list");
         assembled.ShouldContain("sv.progress.report");
@@ -114,14 +117,21 @@ public class ConversationalDefaultsBundleIntegrationTests
         //     knows how to pull additional categories on demand.
         assembled.ShouldContain("sv.tools.list(");
 
-        // (7) The memory category is named so the runtime can pull its
-        //     tools on demand without first calling
-        //     sv.tools.list_categories.
+        // (7) The memory category is named — the bundle's only
+        //     bundle-specific contribution after #2670. Surfaced so
+        //     the runtime knows the category exists without first
+        //     calling sv.tools.list_categories.
         assembled.ShouldContain("memory");
+
+        // (8) #2670: the fundamental-core tool names appear exactly
+        //     once — in Layer 1. The bundle no longer re-names them.
+        var sendFirst = assembled.IndexOf("sv.messaging.send", StringComparison.Ordinal);
+        var sendSecond = assembled.IndexOf("sv.messaging.send", sendFirst + 1, StringComparison.Ordinal);
+        sendSecond.ShouldBe(-1, "Layer 1 owns the platform-tool catalog; no other layer may re-name sv.messaging.send.");
     }
 
     [Fact]
-    public async Task EquippedOnAgent_BundleSurfacesFundamentalCoreToolsInRequiredList()
+    public async Task EquippedOnAgent_BundleEmitsNoRequiredToolsAfterCoreCatalogMovedToLayer1()
     {
         var ct = TestContext.Current.CancellationToken;
 
@@ -138,22 +148,14 @@ public class ConversationalDefaultsBundleIntegrationTests
         var bundles = await agentStore.GetAsync(agentId, ct);
         var bundle = bundles.Single();
 
-        // The seven fundamental-core grants from ADR-0056 §8 must
-        // survive the resolve → persist → re-resolve round-trip.
-        // The bundle store re-resolves on each mutation; this asserts
-        // the persisted record carries the right tool list rather than
-        // dropping it on a JSON round-trip.
-        var expected = new[]
-        {
-            "sv.messaging.send",
-            "sv.messaging.multicast",
-            "sv.directory.list",
-            "sv.directory.lookup",
-            "sv.progress.report",
-            "sv.tools.list_categories",
-            "sv.tools.list",
-        };
-        bundle.RequiredTools.Select(t => t.Name).ShouldBe(expected, ignoreOrder: true);
+        // #2670: the bundle no longer re-grants the fundamental-core
+        // tools through RequiredTools. ToolGrantResolver.EnumeratePlatformTools
+        // grants every sv.* registry tool with provenance=Platform on
+        // its own; surfacing the same names through the bundle would
+        // double up the rendered Required tools sub-section and
+        // duplicate the Layer 1 catalog.
+        bundle.RequiredTools.ShouldBeEmpty(
+            "After #2670 the bundle is prompt-only; the platform-tool catalog lives in Layer 1.");
     }
 
     /// <summary>

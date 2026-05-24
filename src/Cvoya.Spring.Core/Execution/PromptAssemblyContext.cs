@@ -15,7 +15,6 @@ using Cvoya.Spring.Core.Skills;
 /// (Layer 2), and agent instructions (Layer 4) — from this context.
 /// </summary>
 /// <param name="Policies">Optional unit policies as a JSON element.</param>
-/// <param name="Skills">Optional skills available to the agent.</param>
 /// <param name="AgentInstructions">Optional agent-specific instructions (Layer 4).</param>
 /// <param name="EffectiveMetadata">
 /// The agent's effective configuration for this particular message turn,
@@ -52,6 +51,7 @@ using Cvoya.Spring.Core.Skills;
 /// binding represents, and how to use the connector's CLI tools.
 /// </param>
 /// <remarks>
+/// <para>
 /// Layer 3 (thread context — prior messages, sender display names,
 /// last checkpoint) was removed: in every runtime we ship, thread
 /// history lives in a runtime-native session-resume mechanism
@@ -63,10 +63,20 @@ using Cvoya.Spring.Core.Skills;
 /// and defeat the 304 fast path the bridge relies on. The peer-
 /// directory member list that used to live on this record was also
 /// removed once the runtime gained the <c>sv.directory.*</c> tools.
+/// </para>
+/// <para>
+/// The <c>Skills</c> projection of <see cref="ISkillRegistry"/> was
+/// removed in #2670: the assembler no longer renders a per-registry
+/// catalog (the duplicate <c>**sv**:</c> headers and the auto-generated
+/// "Tools exposed by the X connector." strings). The always-available
+/// platform-tool catalog now lives in Layer 1
+/// (<see cref="IPlatformPromptProvider"/>); category-aware discovery
+/// for everything else happens at runtime via
+/// <c>sv.tools.list_categories</c> / <c>sv.tools.list(&lt;category&gt;)</c>.
+/// </para>
 /// </remarks>
 public record PromptAssemblyContext(
     JsonElement? Policies,
-    IReadOnlyList<Skill>? Skills,
     string? AgentInstructions,
     AgentMetadata? EffectiveMetadata = null,
     IReadOnlyList<SkillBundle>? SkillBundles = null,

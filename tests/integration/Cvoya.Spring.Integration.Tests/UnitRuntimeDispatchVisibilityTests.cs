@@ -102,7 +102,6 @@ public class UnitRuntimeDispatchVisibilityTests
 
         return new RuntimeInvocationPath(
             definitionProvider,
-            Array.Empty<ISkillRegistry>(),
             coordinator);
     }
 }

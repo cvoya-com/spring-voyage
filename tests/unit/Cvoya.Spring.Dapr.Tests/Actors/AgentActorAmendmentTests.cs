@@ -101,7 +101,6 @@ public class AgentActorAmendmentTests
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
             new AgentDispatchCoordinator(_dispatcher, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             _definitionProvider,
-            Array.Empty<ISkillRegistry>(),
             _membershipRepository,
             _unitPolicyEnforcer,
             Substitute.For<IAgentInitiativeEvaluator>(),

@@ -9,7 +9,6 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Execution;
@@ -51,12 +50,10 @@ public class RuntimeInvocationPathTests
             DateTimeOffset.UtcNow);
 
     private RuntimeInvocationPath MakePath(
-        IEnumerable<ISkillRegistry>? skillRegistries = null,
         IAgentDispatchCoordinator? dispatchCoordinator = null)
     {
         return new RuntimeInvocationPath(
             _definitionProvider,
-            skillRegistries ?? Array.Empty<ISkillRegistry>(),
             dispatchCoordinator ?? _dispatchCoordinator);
     }
 
@@ -136,17 +133,26 @@ public class RuntimeInvocationPathTests
         captured!.AgentInstructions.ShouldBe("Be helpful.");
     }
 
+    /// <summary>
+    /// Pins the #2670 invariant: the lean overload builds a minimal
+    /// context that does not enumerate skill registries. The
+    /// always-on platform-tool catalog rides Layer 1 via
+    /// <see cref="IPlatformPromptProvider"/>, so the lean path needs
+    /// no skill projection at all — every field other than
+    /// <c>AgentInstructions</c> is left at its default (null).
+    /// </summary>
     [Fact]
-    public async Task InvokeAsync_LeanOverload_AssemblesSkillsFromRegistries()
+    public async Task InvokeAsync_LeanOverload_BuildsMinimalContextWithoutSkillProjection()
     {
         var subject = MakeAgent("test-agent");
         var inbound = MakeMessage(MakeAgent("test-sender"), subject);
-        var registry = Substitute.For<ISkillRegistry>();
-        registry.Name.Returns("github");
-        registry.GetToolDefinitions().Returns([
-            new ToolDefinition("github.comment", "Comment", JsonSerializer.SerializeToElement(new { }), string.Empty)
-        ]);
-        var path = MakePath([registry]);
+        _definitionProvider.GetByIdAsync(subject.Path, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId: subject.Path,
+                Name: "Test Agent",
+                Instructions: "Be helpful.",
+                Execution: null));
+        var path = MakePath();
 
         PromptAssemblyContext? captured = null;
         await _dispatchCoordinator.RunDispatchAsync(
@@ -160,10 +166,11 @@ public class RuntimeInvocationPathTests
         await path.InvokeAsync(subject, inbound, TestContext.Current.CancellationToken);
 
         captured.ShouldNotBeNull();
-        captured!.Skills.ShouldNotBeNull();
-        captured.Skills!.Count.ShouldBe(1);
-        captured.Skills[0].Name.ShouldBe("github");
-        captured.Skills[0].Tools.Count.ShouldBe(1);
+        captured!.AgentInstructions.ShouldBe("Be helpful.");
+        captured.Policies.ShouldBeNull();
+        captured.SkillBundles.ShouldBeNull();
+        captured.AgentSkillBundles.ShouldBeNull();
+        captured.PendingAmendments.ShouldBeNull();
     }
 
     [Fact]
@@ -175,7 +182,6 @@ public class RuntimeInvocationPathTests
 
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: "instructions",
             EffectiveMetadata: null,
             PendingAmendments: null);
@@ -448,7 +454,6 @@ public class RuntimeInvocationPathTests
 
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: null);
 
         await path.InvokeAsync(

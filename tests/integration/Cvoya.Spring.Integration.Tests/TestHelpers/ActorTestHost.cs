@@ -149,7 +149,6 @@ public static class ActorTestHost
             new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
             new AgentDispatchCoordinator(dispatcher, Substitute.For<ILogger<AgentDispatchCoordinator>>()),
             definitionProvider,
-            Array.Empty<ISkillRegistry>(),
             membershipRepository,
             unitPolicyEnforcer,
             initiativeEvaluator,

@@ -118,7 +118,6 @@ public class ConnectorPromptContextInheritanceTests : IDisposable
             new Address(Address.UnitScheme, LeafUnit), ct);
         var context = new PromptAssemblyContext(
             Policies: null,
-            Skills: null,
             AgentInstructions: "agent body",
             ConnectorPromptFragments: fragments);
 

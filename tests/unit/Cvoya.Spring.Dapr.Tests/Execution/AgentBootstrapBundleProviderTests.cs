@@ -7,7 +7,6 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Execution;
@@ -105,7 +104,6 @@ public class AgentBootstrapBundleProviderTests
             _connectorContextResolver,
             _connectorPromptContextResolver,
             _promptAssembler,
-            Array.Empty<ISkillRegistry>(),
             _scopeFactory,
             Options.Create(new McpServerOptions
             {

@@ -11,21 +11,26 @@ namespace Cvoya.Spring.Core.Skills;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Per ADR-0056 §8 ("Default skill bundle"), a fresh conversational agent
-/// needs the fundamental-core tool grants and the
-/// <c>[PLATFORM CONTRACT — NON-NEGOTIABLE]</c> prompt fragment to be
-/// useful out of the box once Wave 3 removes the stdout-synthesis
-/// fallback. Rather than encoding the bundle name as a magic string in
-/// the agent-create endpoint, the platform's default-bundle list lives
-/// here so test compositions (which substitute the bundle store) can
-/// reference the same constant the production path uses.
+/// Per ADR-0056 §8 ("Default skill bundle"), a fresh conversational
+/// agent ships with the <c>sv.conversational.defaults</c> bundle so it
+/// surfaces conversation-shaped guidance (and the <c>memory</c>
+/// category grant) on top of the always-on platform-tool catalog and
+/// the <c>[PLATFORM CONTRACT — NON-NEGOTIABLE]</c> prompt fragment,
+/// both of which now live in Layer 1
+/// (<see cref="IPlatformPromptProvider"/>) since #2670 and are
+/// delivered to every agent regardless of equipped bundles. Rather
+/// than encoding the bundle name as a magic string in the agent-create
+/// endpoint, the platform's default-bundle list lives here so test
+/// compositions (which substitute the bundle store) can reference the
+/// same constant the production path uses.
 /// </para>
 /// <para>
-/// The constants here are platform contract: a deployment that wants to
-/// suppress the default conversational bundle (e.g. a tenant that
-/// composes its own platform-layer prompt) does so by passing an empty
-/// override into <see cref="ConversationalDefaults"/>'s consumer, not by
-/// editing this file.
+/// The constants here are platform contract: a deployment that wants
+/// to suppress the default conversational bundle (e.g. a tenant that
+/// composes its own conversational guidance on top of the
+/// platform-layer prompt) does so by passing an empty override into
+/// <see cref="ConversationalDefaults"/>'s consumer, not by editing
+/// this file.
 /// </para>
 /// </remarks>
 public static class DefaultAgentSkillBundles
