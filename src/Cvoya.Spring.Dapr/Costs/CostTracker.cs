@@ -34,7 +34,7 @@ public sealed partial class CostTracker(
             .Buffer(TimeSpan.FromSeconds(1))
             .Where(batch => batch.Count > 0)
             .Subscribe(
-                batch => Task.Run(() => PersistBatchAsync(batch)).GetAwaiter().GetResult(),
+                batch => { _ = Task.Run(() => PersistBatchAsync(batch)); },
                 ex => LogStreamFaulted(logger, ex));
 
         LogStarted(logger);
