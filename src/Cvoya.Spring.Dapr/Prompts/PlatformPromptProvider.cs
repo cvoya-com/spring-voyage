@@ -15,6 +15,12 @@ using Cvoya.Spring.Core.Execution;
 /// The contract names the always-available platform tools (#2670) and
 /// carries the reads-vs-side-effects clause plus the messaging-channel
 /// emphasis from #2681 so agent authors do not need to repeat them.
+/// A trailing <c>## Inbound messages</c> section (#2683) names the
+/// envelope fields the platform delivers — <c>from</c>, <c>to</c>,
+/// <c>thread_id</c>, <c>message_id</c>, <c>payload</c>, <c>timestamp</c>
+/// — frames the thread concept (participants + durable timeline), and
+/// reinforces that the messaging tools acknowledge delivery rather than
+/// carrying the recipient's reply.
 /// </summary>
 /// <remarks>
 /// Carrying both the introduction and the contract here (rather than in
@@ -83,6 +89,23 @@ public class PlatformPromptProvider : IPlatformPromptProvider
         The catalog above is the always-available core, not the closed set of tools you may use. Additional capabilities are organised into categories the discovery tools enumerate; call `sv.tools.list_categories` to see them and `sv.tools.list(<category>)` to pull the full tool definitions for a category. Equipped skill bundles below may name specific categories they grant.
 
         [END PLATFORM CONTRACT]
+
+        ## Inbound messages
+
+        Every message routed to your mailbox carries a platform envelope with these fields:
+
+        - `from` — the sender's canonical address (`agent:<uuid>`, `unit:<uuid>`, `human:<uuid>`, or a connector-specific scheme). Resolve names / roles / expertise via `sv.directory.lookup(address=<from>)`.
+        - `to` — your own canonical address. The platform routes to your mailbox before invoking you, so this is always you.
+        - `thread_id` — the conversation identifier. Pass it back on every `sv.messaging.send` so your reply lands on the same thread.
+        - `message_id` — the durable id for this specific delivery.
+        - `payload` — the message body. Free-form text from a human, agent, or unit reads as natural language; a structured object emitted by a connector or workflow follows the shape documented for that connector (also surfaced via `sv.tools.list`).
+        - `timestamp` — when the message was dispatched.
+
+        What you literally see at the start of a turn is the `payload`. Your runtime's session is already bound to `thread_id`, so the messaging tools default to the active thread when you reply. To inspect anything else on the envelope — the sender beyond their address, prior messages on the thread, the other participants — use the `sv.thread.*` tools (call `sv.tools.list("thread")` for the full set).
+
+        A **thread** is the set of participants on a conversation plus the durable timeline of every message between them. The participant set is fixed for the life of the thread; sending to a different combination of recipients opens a different thread.
+
+        The messaging tools acknowledge **delivery to the recipient's mailbox** — they do NOT carry the recipient's response. There is no return value from a recipient; if a reply is warranted, it arrives later as a *new* inbound message on this thread.
         """;
 
     /// <inheritdoc />

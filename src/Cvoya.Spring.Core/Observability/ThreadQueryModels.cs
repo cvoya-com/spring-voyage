@@ -112,3 +112,23 @@ public record ThreadQueryFilters(
     string? Agent = null,
     string? Participant = null,
     int? Limit = null);
+
+/// <summary>
+/// One hit returned by <see cref="IThreadQueryService.SearchAsync"/>. Mirrors
+/// the per-message projection on <see cref="ThreadEvent"/> with the
+/// containing thread id added so callers can stitch the hit back to a
+/// thread without a second query.
+/// </summary>
+/// <param name="ThreadId">The thread the matching message belongs to (no-dash 32-char hex Guid).</param>
+/// <param name="MessageId">The matching message id.</param>
+/// <param name="Timestamp">When the message was sent.</param>
+/// <param name="From">Sender address in canonical <c>scheme:&lt;32-hex&gt;</c> form.</param>
+/// <param name="To">Recipient address in canonical <c>scheme:&lt;32-hex&gt;</c> form.</param>
+/// <param name="Body">The rendered text body of the message.</param>
+public record ThreadSearchHit(
+    string ThreadId,
+    Guid MessageId,
+    DateTimeOffset Timestamp,
+    string From,
+    string To,
+    string Body);

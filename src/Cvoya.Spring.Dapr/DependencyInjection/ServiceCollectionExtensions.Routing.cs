@@ -84,6 +84,21 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvMemorySkillRegistry>(
             sp => sp.GetRequiredService<SvMemorySkillRegistry>()));
 
+        // Spring Voyage thread-inspection tools (#2683). Exposes
+        // sv.thread.list / sv.thread.get / sv.thread.search /
+        // sv.thread.participants so a runtime can inspect the threads it
+        // participates in — fetch the timeline, search across message
+        // bodies, enumerate participants — without baking thread state
+        // into the system prompt or shipping the full history on every
+        // turn. Singleton with a scope-factory dependency: the read
+        // services (IThreadQueryService, IThreadRegistry) live in a fresh
+        // DI scope per invocation, matching the SvDirectorySkillRegistry
+        // pattern. TryAddEnumerable so cloud hosts can layer a
+        // tenant-aware decorator without displacing the OSS default.
+        services.TryAddSingleton<SvThreadSkillRegistry>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvThreadSkillRegistry>(
+            sp => sp.GetRequiredService<SvThreadSkillRegistry>()));
+
         // Spring Voyage runtime reflection tools (#2493 / #2581). Exposes
         // sv.runtime.report_decision so a runtime can annotate its
         // routing/delegation choice on the activity stream. Progress
