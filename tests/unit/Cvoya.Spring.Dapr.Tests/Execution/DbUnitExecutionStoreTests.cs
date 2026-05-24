@@ -119,6 +119,94 @@ public class DbUnitExecutionStoreTests
     }
 
     [Fact]
+    public void UnitExecutionDefaults_IsEmpty_FalseWhenOnlySystemPromptModeSet()
+    {
+        // #2691 / #2692: system_prompt_mode is a first-class slot in
+        // IsEmpty so the PUT /api/v1/units/{id}/execution path accepts a
+        // body that carries only `systemPromptMode` (the all-null-other-
+        // fields request must not be rejected with "must carry at least
+        // one non-empty field").
+        new UnitExecutionDefaults(SystemPromptMode: SystemPromptMode.Replace).IsEmpty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Extract_ReadsSystemPromptModeReplace()
+    {
+        // #2691: the lower-case wire literal round-trips through the JSON
+        // shape onto the typed enum slot.
+        using var doc = JsonDocument.Parse("""
+            {
+              "execution": {
+                "runtime": "claude-code",
+                "system_prompt_mode": "replace"
+              }
+            }
+            """);
+        var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
+        defaults.ShouldNotBeNull();
+        defaults!.SystemPromptMode.ShouldBe(SystemPromptMode.Replace);
+    }
+
+    [Fact]
+    public void Extract_ReadsSystemPromptModeAppend()
+    {
+        using var doc = JsonDocument.Parse("""
+            {
+              "execution": {
+                "runtime": "claude-code",
+                "system_prompt_mode": "APPEND"
+              }
+            }
+            """);
+        var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
+        defaults.ShouldNotBeNull();
+        defaults!.SystemPromptMode.ShouldBe(SystemPromptMode.Append);
+    }
+
+    [Fact]
+    public void Extract_UnknownSystemPromptModeLiteral_TreatsAsAbsent()
+    {
+        // The persisted JSON is supposed to have been validated at the API
+        // boundary; an out-of-band write that carries an unknown literal
+        // degrades to null rather than throwing — same tolerance as the
+        // other extraction fields.
+        using var doc = JsonDocument.Parse("""
+            {
+              "execution": {
+                "runtime": "claude-code",
+                "system_prompt_mode": "extend"
+              }
+            }
+            """);
+        var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
+        defaults.ShouldNotBeNull();
+        defaults!.SystemPromptMode.ShouldBeNull();
+        defaults.Runtime.ShouldBe("claude-code");
+    }
+
+    [Fact]
+    public async Task SetAsync_RoundTripsSystemPromptMode()
+    {
+        var actorGuid = Guid.NewGuid();
+        var (store, _) = BuildStore(actorGuid);
+
+        await store.SetAsync(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid),
+            new UnitExecutionDefaults(
+                Runtime: "claude-code",
+                SystemPromptMode: SystemPromptMode.Replace),
+            TestContext.Current.CancellationToken);
+
+        var read = await store.GetAsync(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid),
+            TestContext.Current.CancellationToken);
+
+        read.ShouldNotBeNull();
+        read!.SystemPromptMode.ShouldBe(SystemPromptMode.Replace);
+        read.Runtime.ShouldBe("claude-code");
+    }
+
+    [Fact]
     public async Task SetAsync_RoundTripsRuntimeSlot()
     {
         // Write → read round-trip for the `runtime` slot. Uses an

@@ -80,6 +80,13 @@ public class ExecutionConfigInheritanceResolver(
         public const string Runtime = "runtime";
         public const string Image = "image";
         public const string Model = "model";
+
+        /// <summary>
+        /// Field key for the <c>system_prompt_mode</c> slot (#2691 / #2667).
+        /// Conflict <see cref="ParentValue.Value"/> entries carry the
+        /// lower-case enum literal (<c>"append"</c> / <c>"replace"</c>).
+        /// </summary>
+        public const string SystemPromptMode = "system_prompt_mode";
     }
 
     /// <inheritdoc />
@@ -136,6 +143,16 @@ public class ExecutionConfigInheritanceResolver(
             parentDefaults.Select(p => (p.UnitId, p.Defaults?.Model)),
             conflicts);
 
+        // #2691: system_prompt_mode follows the same field intersection rule
+        // as the string slots above — agent wins, otherwise every supplying
+        // parent must agree. The lower-case enum literal goes onto the
+        // conflict envelope so the operator sees `"append"` / `"replace"`
+        // rather than the PascalCase C# names.
+        var resolvedSystemPromptMode = ResolveSystemPromptModeField(
+            agentOwn.SystemPromptMode,
+            parentDefaults.Select(p => (p.UnitId, p.Defaults?.SystemPromptMode)),
+            conflicts);
+
         // Runtime is non-nullable on AgentExecutionConfig. When the
         // intersection leaves it unresolved (every contributor null) we
         // fall back to the empty string — mirroring the contract on
@@ -149,6 +166,7 @@ public class ExecutionConfigInheritanceResolver(
             // Hosting is agent-owned — pass through verbatim.
             Hosting = agentOwn.Hosting,
             ConcurrentThreads = agentOwn.ConcurrentThreads,
+            SystemPromptMode = resolvedSystemPromptMode,
         };
 
         if (conflicts.Count > 0)
@@ -310,6 +328,63 @@ public class ExecutionConfigInheritanceResolver(
         {
             conflicts[FieldNames.Model] = contributing
                 .Select(c => new ParentValue(c.UnitId, $"{c.Model.Provider}/{c.Model.Id}"))
+                .ToArray();
+            return null;
+        }
+
+        return first;
+    }
+
+    /// <summary>
+    /// Per-field intersection for the <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode"/>
+    /// enum slot (#2691 / #2667). Semantics match the string-slot resolver:
+    /// agent wins; otherwise every contributing parent must agree on the
+    /// same enum value or the field surfaces on
+    /// <see cref="InheritanceResolution.ConflictingFields"/>. Conflict
+    /// <see cref="ParentValue.Value"/> entries carry the lower-case wire
+    /// literal so the rendered 422 envelope matches what the operator
+    /// wrote in YAML.
+    /// </summary>
+    private static Cvoya.Spring.Core.Catalog.SystemPromptMode? ResolveSystemPromptModeField(
+        Cvoya.Spring.Core.Catalog.SystemPromptMode? ownValue,
+        IEnumerable<(Guid UnitId, Cvoya.Spring.Core.Catalog.SystemPromptMode? Value)> parentValues,
+        IDictionary<string, IReadOnlyList<ParentValue>> conflicts)
+    {
+        if (ownValue is not null)
+        {
+            return ownValue;
+        }
+
+        var contributing = new List<(Guid UnitId, Cvoya.Spring.Core.Catalog.SystemPromptMode Value)>();
+        foreach (var (unitId, value) in parentValues)
+        {
+            if (value is null)
+            {
+                continue;
+            }
+            contributing.Add((unitId, value.Value));
+        }
+
+        if (contributing.Count == 0)
+        {
+            return null;
+        }
+
+        var first = contributing[0].Value;
+        var diverged = false;
+        for (var i = 1; i < contributing.Count; i++)
+        {
+            if (contributing[i].Value != first)
+            {
+                diverged = true;
+                break;
+            }
+        }
+
+        if (diverged)
+        {
+            conflicts[FieldNames.SystemPromptMode] = contributing
+                .Select(c => new ParentValue(c.UnitId, c.Value.ToString().ToLowerInvariant()))
                 .ToArray();
             return null;
         }

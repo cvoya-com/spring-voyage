@@ -76,16 +76,24 @@ public interface IAgentExecutionStore
 /// <param name="Model">Structured <c>{provider, id}</c> model selector.</param>
 /// <param name="Hosting">Hosting mode (ephemeral / persistent). Agent-exclusive.</param>
 /// <param name="Runtime">Agent-runtime registry id (e.g. <c>claude-code</c>, <c>codex</c>, <c>spring-voyage</c>). Determines both the validation pipeline and the launcher selected at dispatch (via the catalogue runtime's <c>Launcher</c> field).</param>
+/// <param name="SystemPromptMode">
+/// How the platform-assembled system prompt combines with the runtime's own
+/// default system prompt (#2691 / #2667). Wire form is the lower-case
+/// enum literal (<c>"append"</c> / <c>"replace"</c>); <c>null</c> means
+/// "inherit from the parent unit's default".
+/// </param>
 public record AgentExecutionShape(
     string? Image = null,
     Cvoya.Spring.Core.Catalog.Model? Model = null,
     string? Hosting = null,
-    string? Runtime = null)
+    string? Runtime = null,
+    string? SystemPromptMode = null)
 {
     /// <summary>True when every field is null / whitespace.</summary>
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(Image)
         && Model is null
         && string.IsNullOrWhiteSpace(Hosting)
-        && string.IsNullOrWhiteSpace(Runtime);
+        && string.IsNullOrWhiteSpace(Runtime)
+        && string.IsNullOrWhiteSpace(SystemPromptMode);
 }

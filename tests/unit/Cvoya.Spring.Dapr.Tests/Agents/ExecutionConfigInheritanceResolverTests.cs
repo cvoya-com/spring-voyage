@@ -270,6 +270,111 @@ public class ExecutionConfigInheritanceResolverTests
         result.Effective.Image.ShouldBe("agent-img");
     }
 
+    // ── #2691 / #2692: system_prompt_mode cascade ──────────────────────────
+
+    [Fact]
+    public void ResolveAgentConfig_SystemPromptMode_AgentReplaceWinsOverUnitAppend()
+    {
+        var parentId = Guid.NewGuid();
+        StubParent(parentId, new UnitExecutionDefaults(
+            Runtime: "claude-code",
+            SystemPromptMode: SystemPromptMode.Append));
+
+        var agentOwn = new AgentExecutionConfig(
+            Runtime: "claude-code",
+            Image: null,
+            SystemPromptMode: SystemPromptMode.Replace);
+
+        var result = _resolver.ResolveAgentConfig(
+            agentOwn,
+            parentUnitIds: new[] { parentId },
+            tenantId: _tenantId,
+            ct: TestContext.Current.CancellationToken);
+
+        result.ConflictingFields.ShouldBeEmpty();
+        result.Effective.SystemPromptMode.ShouldBe(SystemPromptMode.Replace);
+    }
+
+    [Fact]
+    public void ResolveAgentConfig_SystemPromptMode_InheritsFromUnitWhenAgentUnset()
+    {
+        var parentId = Guid.NewGuid();
+        StubParent(parentId, new UnitExecutionDefaults(
+            Runtime: "claude-code",
+            SystemPromptMode: SystemPromptMode.Replace));
+
+        var agentOwn = new AgentExecutionConfig(
+            Runtime: "claude-code",
+            Image: null,
+            SystemPromptMode: null);
+
+        var result = _resolver.ResolveAgentConfig(
+            agentOwn,
+            parentUnitIds: new[] { parentId },
+            tenantId: _tenantId,
+            ct: TestContext.Current.CancellationToken);
+
+        result.ConflictingFields.ShouldBeEmpty();
+        result.Effective.SystemPromptMode.ShouldBe(SystemPromptMode.Replace);
+    }
+
+    [Fact]
+    public void ResolveAgentConfig_SystemPromptMode_NullEverywhereStaysNull()
+    {
+        // Zero-parents branch always returns agentOwn verbatim per the
+        // resolver's tenant-default-fallthrough gap — explicit one-parent
+        // case so we cover the cascade lookup path.
+        var parentId = Guid.NewGuid();
+        StubParent(parentId, new UnitExecutionDefaults(Runtime: "claude-code"));
+
+        var agentOwn = new AgentExecutionConfig(
+            Runtime: "claude-code",
+            Image: null,
+            SystemPromptMode: null);
+
+        var result = _resolver.ResolveAgentConfig(
+            agentOwn,
+            parentUnitIds: new[] { parentId },
+            tenantId: _tenantId,
+            ct: TestContext.Current.CancellationToken);
+
+        result.ConflictingFields.ShouldBeEmpty();
+        // null means "no declared value" — the launch-context layer
+        // applies the Append fallback. The resolver does not synthesise it.
+        result.Effective.SystemPromptMode.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ResolveAgentConfig_SystemPromptMode_DivergingParentsReportConflictWithWireLiteral()
+    {
+        var parentA = Guid.NewGuid();
+        var parentB = Guid.NewGuid();
+        StubParent(parentA, new UnitExecutionDefaults(
+            Runtime: "claude-code",
+            SystemPromptMode: SystemPromptMode.Append));
+        StubParent(parentB, new UnitExecutionDefaults(
+            Runtime: "claude-code",
+            SystemPromptMode: SystemPromptMode.Replace));
+
+        var agentOwn = new AgentExecutionConfig(
+            Runtime: "claude-code",
+            Image: null,
+            SystemPromptMode: null);
+
+        var result = _resolver.ResolveAgentConfig(
+            agentOwn,
+            parentUnitIds: new[] { parentA, parentB },
+            tenantId: _tenantId,
+            ct: TestContext.Current.CancellationToken);
+
+        result.ConflictingFields.ShouldContainKey(ExecutionConfigInheritanceResolver.FieldNames.SystemPromptMode);
+
+        var conflicts = result.ConflictingFields[ExecutionConfigInheritanceResolver.FieldNames.SystemPromptMode];
+        conflicts.Count.ShouldBe(2);
+        conflicts.ShouldContain(new ParentValue(parentA, "append"));
+        conflicts.ShouldContain(new ParentValue(parentB, "replace"));
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────
 
     private void StubParent(Guid unitId, UnitExecutionDefaults defaults)

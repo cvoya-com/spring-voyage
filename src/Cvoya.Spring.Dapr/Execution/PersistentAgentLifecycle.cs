@@ -177,7 +177,12 @@ public class PersistentAgentLifecycle(
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
             AgentAddress: deployTarget,
             CallbackThreadId: Guid.NewGuid(),
-            MessageId: Guid.NewGuid());
+            MessageId: Guid.NewGuid(),
+            // #2691 / #2667: resolved system_prompt_mode. Cascade has
+            // already landed on definition.Execution via the definition
+            // provider's agent → unit merge; final fallback is Append.
+            SystemPromptMode: definition.Execution.SystemPromptMode
+                ?? Cvoya.Spring.Core.Catalog.SystemPromptMode.Append);
 
         var prep = await launcher.PrepareAsync(launchContext, cancellationToken);
 

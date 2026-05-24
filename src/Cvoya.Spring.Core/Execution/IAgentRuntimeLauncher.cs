@@ -174,6 +174,15 @@ public interface IAgentRuntimeLauncher
 /// launch paths that are not serving an inbound message supply their own
 /// synthetic id.
 /// </param>
+/// <param name="SystemPromptMode">
+/// Resolved system-prompt mode (#2691 / #2667). The agent → unit → default
+/// cascade has already been applied at the dispatch site, so launchers
+/// consume this value directly without further fallback. Defaults to
+/// <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Append"/> for
+/// launch paths that have not yet been wired through the cascade.
+/// Launcher consumption lands in a sibling sub-issue; this PR only plumbs
+/// the value through.
+/// </param>
 public record AgentLaunchContext(
     string AgentId,
     string ThreadId,
@@ -189,7 +198,8 @@ public record AgentLaunchContext(
     string? Model = null,
     Address? AgentAddress = null,
     Guid? CallbackThreadId = null,
-    Guid? MessageId = null);
+    Guid? MessageId = null,
+    Cvoya.Spring.Core.Catalog.SystemPromptMode SystemPromptMode = Cvoya.Spring.Core.Catalog.SystemPromptMode.Append);
 
 /// <summary>
 /// Output of <see cref="IAgentRuntimeLauncher.PrepareAsync"/>. Pure data —

@@ -117,9 +117,23 @@ public enum AgentHostingMode
 /// Delivered to the container via <c>SPRING_CONCURRENT_THREADS</c>
 /// (D1 spec § 2.2.1).
 /// </param>
+/// <param name="SystemPromptMode">
+/// How the platform-assembled system prompt combines with the runtime's own
+/// default system prompt (#2691 / #2667). <c>null</c> on the agent means
+/// "inherit from the parent unit"; the parent unit's <c>null</c> means
+/// "fall through to <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Append"/>".
+/// The resolution chain <i>agent → unit → <see cref="Cvoya.Spring.Core.Catalog.SystemPromptMode.Append"/></i>
+/// happens at dispatch time in
+/// <see cref="Cvoya.Spring.Dapr.Execution.DbAgentDefinitionProvider"/> (and
+/// at save time in
+/// <see cref="Cvoya.Spring.Core.Agents.IExecutionConfigInheritanceResolver"/>);
+/// the resolved value surfaces on
+/// <see cref="AgentLaunchContext.SystemPromptMode"/> for launchers to consume.
+/// </param>
 public record AgentExecutionConfig(
     string Runtime,
     string? Image,
     AgentHostingMode Hosting = AgentHostingMode.Persistent,
     Cvoya.Spring.Core.Catalog.Model? Model = null,
-    bool ConcurrentThreads = true);
+    bool ConcurrentThreads = true,
+    Cvoya.Spring.Core.Catalog.SystemPromptMode? SystemPromptMode = null);

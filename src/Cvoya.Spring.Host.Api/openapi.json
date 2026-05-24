@@ -10833,6 +10833,12 @@
               "null",
               "boolean"
             ]
+          },
+          "systemPromptMode": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -10961,6 +10967,18 @@
             }
           },
           "executionImage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "systemPromptMode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "declaredSystemPromptMode": {
             "type": [
               "null",
               "string"
@@ -15517,6 +15535,12 @@
                 "$ref": "#/components/schemas/AiModelDto"
               }
             ]
+          },
+          "systemPromptMode": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -16236,6 +16260,12 @@
             ]
           },
           "instructions": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "systemPromptMode": {
             "type": [
               "null",
               "string"

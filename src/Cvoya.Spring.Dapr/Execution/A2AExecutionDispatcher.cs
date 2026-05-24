@@ -261,7 +261,13 @@ public class A2AExecutionDispatcher(
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
             AgentAddress: message.To,
             CallbackThreadId: threadGuid,
-            MessageId: message.Id);
+            MessageId: message.Id,
+            // #2691 / #2667: resolved system_prompt_mode. The agent → unit
+            // cascade happens in DbAgentDefinitionProvider.Merge; the final
+            // fallback to Append is applied here so launchers consume a
+            // single concrete value.
+            SystemPromptMode: definition.Execution.SystemPromptMode
+                ?? Cvoya.Spring.Core.Catalog.SystemPromptMode.Append);
 
         // D3a: assemble the IAgentContext bootstrap bundle (env vars + mounted
         // context files) defined by the D1 spec § 2. The bundle is merged into
@@ -866,7 +872,12 @@ public class A2AExecutionDispatcher(
             CallbackThreadId: Guid.TryParse(message.ThreadId, out var callbackThreadId)
                 ? callbackThreadId
                 : Guid.Empty,
-            MessageId: message.Id);
+            MessageId: message.Id,
+            // #2691 / #2667: resolved system_prompt_mode. Cascade has
+            // already landed on definition.Execution via the definition
+            // provider's agent → unit merge; final fallback is Append.
+            SystemPromptMode: definition.Execution.SystemPromptMode
+                ?? Cvoya.Spring.Core.Catalog.SystemPromptMode.Append);
 
         // D3a: assemble the IAgentContext bootstrap bundle (env vars + /spring/context/ files).
         var bootstrapContext = await _agentContextBuilder.BuildAsync(launchContext, cancellationToken);
