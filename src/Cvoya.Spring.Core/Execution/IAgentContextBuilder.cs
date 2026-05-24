@@ -9,12 +9,10 @@ namespace Cvoya.Spring.Core.Execution;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Per ADR-0055 the launch-time context delivers env vars only — the
-/// structured files that used to ride <c>/spring/context/</c>
-/// (<c>agent-definition.yaml</c>, <c>tenant-config.json</c>) now live in
-/// the agent-bootstrap bundle the sidecar pulls from the worker, written
-/// under the per-member workspace mount alongside the rest of the
-/// agent's workspace state.
+/// Per ADR-0055 the launch-time context delivers env vars only — every
+/// workspace file (the launcher's system-prompt file, <c>.mcp.json</c>,
+/// connector contributions) rides the agent-bootstrap bundle the sidecar
+/// pulls from the worker and writes under the per-member workspace mount.
 /// </para>
 /// <para>
 /// Implementations are the DI seam through which the private cloud host

@@ -230,7 +230,6 @@ public class A2AExecutionDispatcherTests
             transportFactory,
             _connectorContext,
             _connectorPromptContext,
-            new AgentDefinitionSerializer(_runtimeCatalog),
             _loggerFactory);
     }
 
@@ -1252,58 +1251,6 @@ public class A2AExecutionDispatcherTests
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
         await _containerRuntime.Received(1).StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task DispatchAsync_EphemeralAgent_PopulatesAgentDefinitionYamlAndTenantIdOnLaunchContext()
-    {
-        // #1321: dispatcher must populate AgentDefinitionYaml and TenantId on
-        // the AgentLaunchContext so AgentContextBuilder can write the
-        // /spring/context/ files.
-        var message = CreateMessage();
-        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns("p");
-        _tenantContext.CurrentTenantId.Returns(AcmeTenantGuid);
-        InstallA2AStub();
-
-        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
-
-        await _launcher.Received(1).PrepareAsync(
-            Arg.Is<AgentLaunchContext>(ctx =>
-                ctx.TenantId == AcmeTenantGuid &&
-                ctx.AgentDefinitionYaml != null &&
-                ctx.AgentDefinitionYaml.Contains("agent_id") &&
-                ctx.TenantConfigJson != null &&
-                ctx.TenantConfigJson.Contains(AcmeTenantGuid.ToString("N"))),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task DispatchAsync_EphemeralAgent_AgentDefinitionYaml_ContainsExpectedFields()
-    {
-        // #1321: the serialised YAML must include the core agent definition
-        // fields so the in-container SDK can read them from agent-definition.yaml.
-        var message = CreateMessage();
-        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns("p");
-        InstallA2AStub();
-
-        AgentLaunchContext? capturedCtx = null;
-        _launcher.PrepareAsync(Arg.Do<AgentLaunchContext>(ctx => capturedCtx = ctx), Arg.Any<CancellationToken>())
-            .Returns(new AgentLaunchSpec(
-                EnvironmentVariables: new Dictionary<string, string>()));
-
-        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
-
-        capturedCtx.ShouldNotBeNull();
-        capturedCtx!.AgentDefinitionYaml.ShouldNotBeNullOrEmpty();
-        capturedCtx.AgentDefinitionYaml.ShouldContain(AgentId);  // agent_id field
-        // ADR-0038 amendment (#2634): execution.runtime (the runtime
-        // registry id) — the YAML includes the derived kind so in-container
-        // probes that read it can see which engine was selected.
-        capturedCtx.AgentDefinitionYaml.ShouldContain("runtime: claude");
-        capturedCtx.AgentDefinitionYaml.ShouldContain("kind: claude-code-cli");
-        capturedCtx.TenantConfigJson.ShouldNotBeNullOrEmpty();
     }
 
     [Fact]

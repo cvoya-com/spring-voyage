@@ -138,14 +138,6 @@ public interface IAgentRuntimeLauncher
 /// <param name="UnitId">
 /// Optional unit identifier. Delivered as <c>SPRING_UNIT_ID</c> when non-null.
 /// </param>
-/// <param name="AgentDefinitionYaml">
-/// The agent's full definition serialised as YAML. Written to
-/// <c>/spring/context/agent-definition.yaml</c> per D1 spec § 2.2.2.
-/// </param>
-/// <param name="TenantConfigJson">
-/// Tenant-level configuration blob serialised as JSON. Written to
-/// <c>/spring/context/tenant-config.json</c> when non-null per D1 spec § 2.2.2.
-/// </param>
 /// <param name="ConcurrentThreads">
 /// Resolved value of the agent / unit <c>concurrent_threads</c> policy flag
 /// (D1 spec § 2.1, § 1.2.4). Delivered as <c>SPRING_CONCURRENT_THREADS</c>.
@@ -191,8 +183,6 @@ public record AgentLaunchContext(
     string McpToken,
     Guid TenantId,
     string? UnitId = null,
-    string? AgentDefinitionYaml = null,
-    string? TenantConfigJson = null,
     bool ConcurrentThreads = true,
     string? Provider = null,
     string? Model = null,

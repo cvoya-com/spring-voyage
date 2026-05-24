@@ -239,8 +239,7 @@ The bundle MUST carry the following fields. Field names below are normative; the
 | `unit_id` | string | no | The unit the agent is a member of, if applicable. Absent for standalone agents. |
 | `agent_id` | string | yes | The agent's stable identifier within the tenant. Used by the platform to route. |
 | `thread_id` | string | no | The Spring Voyage thread id associated with this launch, when the launch was triggered by a dispatch on a known thread. Absent on supervisor-driven restarts (see § 2.2.1). |
-| `agent_definition` | object | yes | The agent's full definition (instructions, execution config, etc.). Delivered as a structured document; see § 2.2 for the file-channel mechanism. |
-| `tenant_config` | object | no | Tenant-level configuration the agent may read (feature flags, defaults). Structure is operator-defined; the platform MUST NOT reinterpret. |
+| `system_prompt` | string | no | The platform-assembled system prompt (instructions + identity + equipped skills + connector context). Delivered as a file under the workspace mount; see § 2.2.2. SDKs SHOULD use it as the system message they send to the agent's LLM. Absent when the platform has not contributed one (e.g. local dev harness, A2A-native runtimes that have no workspace). |
 
 #### Bucket-2 endpoint
 
@@ -295,22 +294,7 @@ The composite logical view, for an SDK that materialises `IAgentContext` as a ty
   "tenant_id": "tenant_acme",
   "unit_id": "unit_engineering-team",
   "agent_id": "agent_backend-engineer-3",
-  "agent_definition": {
-    "id": "agent_backend-engineer-3",
-    "instructions": "...",
-    "ai": {
-      "runtime": "claude-code",
-      "model": { "provider": "anthropic", "id": "claude-opus-4-7" }
-    },
-    "execution": {
-      "image": "ghcr.io/cvoya-com/spring-voyage-claude-code-base:1.4.2",
-      "hosting": "persistent",
-      "concurrent_threads": true
-    }
-  },
-  "tenant_config": {
-    "features": { "extended-context": true }
-  },
+  "system_prompt": "You are agent_backend-engineer-3...",
   "bucket2_url": "https://api.example.com/api/v1/",
   "bucket2_token": "svat_...",
   "llm_provider_url": "https://api.example.com/llm/anthropic/",
@@ -331,7 +315,7 @@ The actual on-disk representation is split between env vars and files per § 2.2
 The platform **MUST** deliver `IAgentContext` via two channels, both populated before the container's main process starts:
 
 1. **Environment variables** — for scalar / short values (URLs, credentials, ids, the `concurrent_threads` flag).
-2. **Mounted files** — for structured / multi-value payloads (the agent definition, tenant-level config blob).
+2. **Workspace files** — for multi-line payloads such as the assembled system prompt.
 
 Both channels **MUST** be readable synchronously at the top of `initialize` — the SDK does not wait on a network call to assemble the bundle.
 
@@ -361,20 +345,21 @@ The platform **MUST** populate every required env var before the container's PID
 
 `SPRING_THREAD_ID` is present when the container launch originates from a specific dispatch context (e.g. the first launch triggered by a message on a known thread). It is **absent** on supervisor-driven restarts (which are agent-level lifecycle events, not bound to any particular thread). The SDK **MUST NOT** treat the absence of `SPRING_THREAD_ID` as a fatal error. The SDK **MAY** use the thread id when present to associate the current container with the dispatching thread (e.g. for runtime-session resume — see #1300). See also follow-up #1357 for Python SDK adoption of this env var.
 
-#### 2.2.2 Canonical mount path (normative)
+#### 2.2.2 Canonical workspace files (normative)
 
-The platform **MUST** mount structured files at `/spring/context/` inside the container. The directory **MUST** contain at minimum:
+The platform **MUST** deliver the agent's assembled system prompt as a file under the workspace mount (§ 3.1):
 
 | File | Maps to | Required | Format |
 |---|---|---|---|
-| `/spring/context/agent-definition.yaml` | `agent_definition` | yes | YAML or JSON (operators MAY pick; SDK SHOULD accept both — file extension is normative) |
-| `/spring/context/tenant-config.json` | `tenant_config` | no | JSON |
+| `$SPRING_WORKSPACE_PATH/.spring/system-prompt.md` | `system_prompt` | yes | Markdown / UTF-8 text |
 
-If the agent definition is delivered as YAML, the file MUST be `agent-definition.yaml`; if JSON, `agent-definition.json`. The SDK **MUST** check both extensions.
+The system prompt is the platform's composed instructions for the agent — platform contract, identity, role-specific instructions, equipped skill bundles, and connector context — assembled by the platform's prompt assembler. CLI-based runtimes consume it directly (e.g. Claude reads `.spring/system-prompt.md`; other launchers MAY mirror it at a runtime-specific path). Custom-built SDKs SHOULD use it as the system message they send to their LLM.
 
-The `/spring/context/` directory **MUST** be readable to the container's UID. The platform **SHOULD** mount it read-only.
+The structured agent metadata that earlier spec revisions exposed at `/spring/context/agent-definition.yaml` and `/spring/context/tenant-config.json` is no longer delivered as a separate file: the actionable fields (`agent_id`, `tenant_id`, `unit_id`, etc.) ride on the env-var channel (§ 2.2.1); the instructions and policy text are folded into the assembled system prompt.
 
-The platform **MAY** add additional files under `/spring/context/` in future revisions (e.g., `cloning-policy.json`, `expertise-projection.json`); SDKs **MUST** ignore files they do not recognise.
+The file **MUST** be readable to the container's UID. The platform's bootstrap mechanism (ADR-0055) re-pulls it on every turn so an operator-edited agent definition takes effect at next-turn cadence without a container restart.
+
+The platform **MAY** add additional files under the workspace mount in future revisions; SDKs **MUST** ignore files they do not recognise.
 
 #### 2.2.3 Credential rotation
 
@@ -401,7 +386,7 @@ Future evolution (informative): a follow-up revision **MAY** add a mounted-files
 A platform conforms to § 2 when:
 
 1. Every required env var (§ 2.2.1) is populated before container start.
-2. Every required mounted file (§ 2.2.2) is present and readable at `/spring/context/`.
+2. Every required workspace file (§ 2.2.2) is present and readable under the workspace mount.
 3. Every credential is agent-scoped (no cross-agent reuse).
 4. The `SPRING_CONCURRENT_THREADS` value matches the resolved agent / unit definition.
 5. Every container launch — including supervisor-driven restarts — sees freshly minted scoped credentials (§ 2.2.3); no replay of a prior launch's credentials.

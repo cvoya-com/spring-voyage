@@ -308,7 +308,6 @@ internal static class ServiceCollectionExtensionsExecution
             // execution host; the endpoint route lives in Host.Worker. The
             // auth store is a single in-memory authority — same scale-out
             // caveat as the MCP session store (ADR-0054 §Revisit).
-            services.TryAddSingleton<IAgentDefinitionSerializer, AgentDefinitionSerializer>();
             services.TryAddSingleton<IAgentBootstrapAuthStore, InMemoryAgentBootstrapAuthStore>();
             services.TryAddSingleton<IAgentBootstrapBundleProvider, AgentBootstrapBundleProvider>();
 

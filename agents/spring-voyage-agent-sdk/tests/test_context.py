@@ -6,7 +6,6 @@ missing required fields → fatal initialize failure).
 
 from __future__ import annotations
 
-import json
 import os
 from unittest.mock import patch
 
@@ -127,60 +126,27 @@ class TestIAgentContextLoad:
         with pytest.raises(ContextLoadError):
             IAgentContext.load()
 
-    def test_agent_definition_absent_returns_empty(self):
-        """When neither agent-definition.yaml nor .json exist, load() succeeds
-        with an empty dict — matching local dev harness behaviour."""
-        with _patch_env():
-            # /spring/context/ almost certainly doesn't exist in CI.
+    def test_system_prompt_absent_returns_none(self, tmp_path):
+        """When .spring/system-prompt.md does not exist under the workspace
+        mount, load() succeeds with ``system_prompt = None`` — matching
+        local dev harness behaviour."""
+        with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
             ctx = IAgentContext.load()
-        assert ctx.agent_definition == {}
+        assert ctx.system_prompt is None
 
-    def test_agent_definition_json_loaded(self, tmp_path):
-        """agent-definition.json at the canonical path is parsed."""
-        ctx_dir = tmp_path / "context"
-        ctx_dir.mkdir()
-        def_file = ctx_dir / "agent-definition.json"
-        def_file.write_text(json.dumps({"id": "agent_be3", "instructions": "be helpful"}))
+    def test_system_prompt_loaded_when_present(self, tmp_path):
+        """``.spring/system-prompt.md`` under the workspace mount is read
+        into ``context.system_prompt`` (spec §2.2.2)."""
+        spring_dir = tmp_path / ".spring"
+        spring_dir.mkdir()
+        (spring_dir / "system-prompt.md").write_text(
+            "You are a helpful Spring Voyage agent.", encoding="utf-8"
+        )
 
-        import spring_voyage_agent_sdk.context as ctx_module
-
-        orig_yaml = ctx_module._AGENT_DEF_YAML
-        orig_json = ctx_module._AGENT_DEF_JSON
-
-        ctx_module._AGENT_DEF_YAML = ctx_dir / "agent-definition.yaml"
-        ctx_module._AGENT_DEF_JSON = def_file
-
-        try:
-            with _patch_env():
-                ctx = IAgentContext.load()
-            assert ctx.agent_definition["id"] == "agent_be3"
-        finally:
-            ctx_module._AGENT_DEF_YAML = orig_yaml
-            ctx_module._AGENT_DEF_JSON = orig_json
-
-    def test_tenant_config_absent_returns_empty(self):
-        with _patch_env():
+        with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
             ctx = IAgentContext.load()
-        assert ctx.tenant_config == {}
 
-    def test_tenant_config_loaded_when_present(self, tmp_path):
-        """tenant-config.json is parsed when present."""
-        ctx_dir = tmp_path / "context"
-        ctx_dir.mkdir()
-        cfg_file = ctx_dir / "tenant-config.json"
-        cfg_file.write_text(json.dumps({"features": {"extended-context": True}}))
-
-        import spring_voyage_agent_sdk.context as ctx_module
-
-        orig_cfg = ctx_module._TENANT_CONFIG_JSON
-        ctx_module._TENANT_CONFIG_JSON = cfg_file
-
-        try:
-            with _patch_env():
-                ctx = IAgentContext.load()
-            assert ctx.tenant_config["features"]["extended-context"] is True
-        finally:
-            ctx_module._TENANT_CONFIG_JSON = orig_cfg
+        assert ctx.system_prompt == "You are a helpful Spring Voyage agent."
 
 
 class TestThreadWorkspace:

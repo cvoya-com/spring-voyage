@@ -89,13 +89,13 @@ def _make_context(
     mcp_url: str = "",
     mcp_token: str = "",
     llm_provider_url: str = "",
-    agent_definition: dict | None = None,
+    system_prompt: str | None = None,
 ) -> MagicMock:
     ctx = MagicMock()
     ctx.mcp_url = mcp_url
     ctx.mcp_token = mcp_token
     ctx.llm_provider_url = llm_provider_url
-    ctx.agent_definition = agent_definition or {}
+    ctx.system_prompt = system_prompt
     return ctx
 
 
@@ -290,18 +290,18 @@ class TestInitializeHook:
         assert agent_module._agent_build.system_prompt == "Be concise."
 
     @pytest.mark.asyncio
-    async def test_system_prompt_from_agent_definition(self, monkeypatch):
+    async def test_system_prompt_from_context_system_prompt(self, monkeypatch):
         monkeypatch.delenv("SPRING_SYSTEM_PROMPT", raising=False)
         monkeypatch.setenv("SPRING_LLM_COMPONENT", "llm-ollama")
 
-        ctx = _make_context(agent_definition={"instructions": "From definition."})
+        ctx = _make_context(system_prompt="From .spring/system-prompt.md.")
 
         with patch("agent.DaprChatClient") as mock_client_cls:
             mock_client_cls.return_value = MagicMock()
             await initialize(ctx)
 
         assert agent_module._agent_build is not None
-        assert agent_module._agent_build.system_prompt == "From definition."
+        assert agent_module._agent_build.system_prompt == "From .spring/system-prompt.md."
 
     @pytest.mark.asyncio
     async def test_respects_llm_component_override(self, monkeypatch):

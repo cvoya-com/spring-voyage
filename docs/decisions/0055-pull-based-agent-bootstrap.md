@@ -10,7 +10,7 @@
 
 The current delivery mechanism for a per-agent workspace and per-invocation configuration is a **push/seed** model:
 
-1. Each launcher (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`, `SpringVoyageAgentLauncher`) produces an `AgentLaunchSpec` whose `WorkspaceFiles` / `ContextFiles` maps carry the file contents (`CLAUDE.md`, `.mcp.json`, `agent-definition.yaml`, `tenant-config.json`, connector contributions).
+1. Each launcher (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`, `SpringVoyageAgentLauncher`) produces an `AgentLaunchSpec` whose `WorkspaceFiles` / `ContextFiles` maps carry the file contents (the launcher's system-prompt file, `.mcp.json`, connector contributions).
 2. The dispatcher's `WorkspaceMaterializer` writes those files into a staging directory on the dispatcher host filesystem.
 3. `IWorkspaceVolumePopulator.TryPopulateVolumeAsync` (implemented on `ProcessContainerRuntime`) runs a helper container that mounts the per-agent named volume and copies the staged files into it — runtime-mediated because the dispatcher and the runtime's volume storage do not share a filesystem under `podman machine` on macOS.
 4. The dispatcher then starts the agent container; the volume already carries the files.
@@ -52,15 +52,13 @@ GET  /v1/bootstrap/agents/{agentId}
        "version": "sha256:<bundle-hash>",
        "issuedAt": "2026-05-22T12:00:00Z",
        "files": [
-         { "path": "CLAUDE.md",                          "sha256": "...", "content": "..." },
+         { "path": ".spring/system-prompt.md",           "sha256": "...", "content": "..." },
          { "path": ".mcp.json",                          "sha256": "...", "content": "..." },
-         { "path": "context/agent-definition.yaml",      "sha256": "...", "content": "..." },
-         { "path": "context/tenant-config.json",         "sha256": "...", "content": "..." },
          { "path": "connectors/<slug>/<file>",           "sha256": "...", "content": "..." }
        ],
        "platformFileHashes": {
-         "CLAUDE.md":  "sha256:...",
-         ".mcp.json":  "sha256:..."
+         ".spring/system-prompt.md":  "sha256:...",
+         ".mcp.json":                 "sha256:..."
        }
      }
 
@@ -69,7 +67,7 @@ GET  /v1/bootstrap/agents/{agentId}
 
 - `version` and the ETag are the content-addressable sha256 of the canonical JSON serialisation of the bundle. Two workers serving the same agent definition compute the same hash; re-pulls after a worker restart pay zero bandwidth on a 304.
 - Paths are workspace-relative; the sidecar writes them under `SPRING_WORKSPACE_PATH` (§5) at sidecar-chosen subpaths. The dispatcher does not see them.
-- `platformFileHashes` is the SV-authoritative subset of `files` — the files §6's integrity check pins. Connector contributions and `context/*` are part of the bundle but are not pinned per-turn.
+- `platformFileHashes` is the SV-authoritative subset of `files` — the files §6's integrity check pins. Connector contributions are part of the bundle but are not pinned per-turn.
 - The bundle is content-only. The per-turn MCP token is **not** part of it (§4).
 
 ### 4. The per-turn MCP token continues to ride A2A `message/send` metadata

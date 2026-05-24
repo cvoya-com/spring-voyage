@@ -12,9 +12,6 @@ license = { text = "Proprietary" }
 dependencies = [
     "a2a-sdk[http-server]>=1.0,<2",
     "uvicorn>=0.30,<1",
-    # PyYAML for loading agent-definition.yaml (optional at runtime;
-    # the SDK falls back to JSON if YAML is absent).
-    "PyYAML>=6.0",
     # #2501: OTLP/HTTP+protobuf telemetry emission. opentelemetry-proto
     # provides the generated Python OTLP message types; we wire them up
     # in spring_voyage_agent_sdk.telemetry when

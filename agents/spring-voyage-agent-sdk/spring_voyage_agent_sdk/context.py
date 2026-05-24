@@ -3,18 +3,16 @@ IAgentContext — bootstrap bundle delivered to the SDK at initialize().
 
 Implements docs/specs/agent-runtime-boundary.md §2:
   - Reads all required env vars (§2.2.1).
-  - Reads structured files from /spring/context/ (§2.2.2).
+  - Reads the platform-assembled system prompt from the workspace mount (§2.2.2).
   - Raises a fatal error if any required field is missing.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger("spring-voyage-agent-sdk.context")
 
@@ -34,11 +32,8 @@ _ENV_TELEMETRY_TOKEN = "SPRING_TELEMETRY_TOKEN"
 _ENV_WORKSPACE_PATH = "SPRING_WORKSPACE_PATH"
 _ENV_CONCURRENT_THREADS = "SPRING_CONCURRENT_THREADS"
 
-# Canonical mount path per spec §2.2.2.
-_CONTEXT_DIR = Path("/spring/context")
-_AGENT_DEF_YAML = _CONTEXT_DIR / "agent-definition.yaml"
-_AGENT_DEF_JSON = _CONTEXT_DIR / "agent-definition.json"
-_TENANT_CONFIG_JSON = _CONTEXT_DIR / "tenant-config.json"
+# Workspace-relative path of the platform-assembled system prompt (spec §2.2.2).
+_SYSTEM_PROMPT_REL_PATH = Path(".spring") / "system-prompt.md"
 
 _REQUIRED_ENV_VARS = (
     _ENV_TENANT_ID,
@@ -107,9 +102,10 @@ class IAgentContext:
     # Concurrent-threads policy
     concurrent_threads: bool
 
-    # Structured documents (from mounted files)
-    agent_definition: dict[str, Any] = field(default_factory=dict)
-    tenant_config: dict[str, Any] = field(default_factory=dict)
+    # Platform-assembled system prompt (spec §2.2.2). ``None`` when the file
+    # is absent (e.g. local dev harness, or a launcher that has not yet
+    # contributed a system-prompt file).
+    system_prompt: str | None = None
 
     def thread_workspace(self, thread_id: str) -> Path:
         """Return the on-disk workspace directory for ``thread_id``.
@@ -168,8 +164,8 @@ class IAgentContext:
                 f"SPRING_CONCURRENT_THREADS must be 'true' or 'false', got: {os.environ[_ENV_CONCURRENT_THREADS]!r}"
             )
 
-        agent_definition = _load_agent_definition()
-        tenant_config = _load_tenant_config()
+        workspace_path = os.environ[_ENV_WORKSPACE_PATH]
+        system_prompt = _load_system_prompt(workspace_path)
 
         ctx = cls(
             tenant_id=os.environ[_ENV_TENANT_ID],
@@ -184,10 +180,9 @@ class IAgentContext:
             mcp_token=os.environ[_ENV_MCP_TOKEN],
             telemetry_url=os.environ[_ENV_TELEMETRY_URL],
             telemetry_token=os.environ.get(_ENV_TELEMETRY_TOKEN) or None,
-            workspace_path=os.environ[_ENV_WORKSPACE_PATH],
+            workspace_path=workspace_path,
             concurrent_threads=(concurrent_threads_raw == "true"),
-            agent_definition=agent_definition,
-            tenant_config=tenant_config,
+            system_prompt=system_prompt,
         )
 
         logger.info(
@@ -202,56 +197,24 @@ class IAgentContext:
         return ctx
 
 
-def _load_agent_definition() -> dict[str, Any]:
-    """Read /spring/context/agent-definition.yaml or .json.
+def _load_system_prompt(workspace_path: str) -> str | None:
+    """Read the platform-assembled system prompt from the workspace mount.
 
-    Spec §2.2.2: the SDK MUST check both extensions.
-    The YAML extension is tried first; JSON is tried second.
-    Returns an empty dict (and logs a warning) if neither file exists, so
-    the SDK does not hard-fail when running in a local dev harness.
+    Spec §2.2.2: the platform delivers the system prompt at
+    ``$SPRING_WORKSPACE_PATH/.spring/system-prompt.md``. The platform's
+    bootstrap mechanism (ADR-0055) re-pulls it on every turn so changes to
+    the agent definition take effect at next-turn cadence.
+
+    Returns ``None`` (and logs a warning) when the file is absent — e.g. a
+    local dev harness that hasn't mounted the workspace, or a launcher that
+    has not yet contributed a system-prompt file.
     """
-    # Try YAML first (preferred per spec prose).
-    if _AGENT_DEF_YAML.exists():
-        try:
-            import yaml  # type: ignore[import-untyped]
-
-            with _AGENT_DEF_YAML.open() as f:
-                data = yaml.safe_load(f)
-            return data if isinstance(data, dict) else {}
-        except Exception as exc:
-            logger.warning("Failed to parse %s: %s", _AGENT_DEF_YAML, exc)
-            return {}
-
-    # Fall back to JSON.
-    if _AGENT_DEF_JSON.exists():
-        try:
-            with _AGENT_DEF_JSON.open() as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
-        except Exception as exc:
-            logger.warning("Failed to parse %s: %s", _AGENT_DEF_JSON, exc)
-            return {}
-
-    # Neither file present — warn but do not fail.  A local harness may not
-    # mount the context directory.
-    logger.warning(
-        "agent-definition not found at %s or %s — running without it",
-        _AGENT_DEF_YAML,
-        _AGENT_DEF_JSON,
-    )
-    return {}
-
-
-def _load_tenant_config() -> dict[str, Any]:
-    """Read /spring/context/tenant-config.json if present.
-
-    The file is optional per spec §2.2.2; returns an empty dict when absent.
-    """
-    if _TENANT_CONFIG_JSON.exists():
-        try:
-            with _TENANT_CONFIG_JSON.open() as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
-        except Exception as exc:
-            logger.warning("Failed to parse %s: %s", _TENANT_CONFIG_JSON, exc)
-    return {}
+    path = Path(workspace_path) / _SYSTEM_PROMPT_REL_PATH
+    if not path.exists():
+        logger.warning("system-prompt not found at %s — running without it", path)
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except Exception as exc:
+        logger.warning("Failed to read %s: %s", path, exc)
+        return None

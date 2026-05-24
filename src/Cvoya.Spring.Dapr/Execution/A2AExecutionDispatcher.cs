@@ -76,12 +76,9 @@ public class A2AExecutionDispatcher(
     IA2ATransportFactory transportFactory,
     IConnectorRuntimeContextResolver connectorRuntimeContextResolver,
     IConnectorPromptContextResolver connectorPromptContextResolver,
-    IAgentDefinitionSerializer agentDefinitionSerializer,
     ILoggerFactory loggerFactory) : IExecutionDispatcher
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<A2AExecutionDispatcher>();
-    private readonly IAgentDefinitionSerializer _agentDefinitionSerializer = agentDefinitionSerializer
-        ?? throw new ArgumentNullException(nameof(agentDefinitionSerializer));
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
     private readonly IA2ATransportFactory _transportFactory = transportFactory
         ?? throw new ArgumentNullException(nameof(transportFactory));
@@ -224,13 +221,7 @@ public class A2AExecutionDispatcher(
         // retired callback JWT used to provide.
         var session = mcpServer.IssueSession(agentId, threadId, message.To.Scheme, message.Id);
 
-        // #1321: serialise AgentDefinition → YAML for the /spring/context/
-        // agent-definition.yaml file (D1 spec § 2.2.2). Tenant config is
-        // delivered as a minimal JSON with the current tenant id — the OSS
-        // platform has no separate tenant-config blob.
-        var agentDefinitionYaml = SerialiseAgentDefinitionYaml(definition);
         var tenantId = _tenantContext.CurrentTenantId;
-        var tenantConfigJson = SerialiseTenantConfigJson(tenantId);
 
         // ADR-0051: sv.messaging.* tools are served by the single platform
         // MCP server alongside every other sv.* tool — the launcher no longer
@@ -252,12 +243,10 @@ public class A2AExecutionDispatcher(
             // it to ILlmCredentialResolver — without this the resolver skips
             // Tier 1 (unit) and the parent-chain walk.
             UnitId: definition.UnitId,
-            AgentDefinitionYaml: agentDefinitionYaml,
-            TenantConfigJson: tenantConfigJson,
             Provider: definition.Execution.Model?.Provider,
             Model: definition.Execution.Model?.Id,
             // D3a: populate D1-spec metadata so the context builder can mint the
-            // full bootstrap bundle (env vars + /spring/context/ files) per § 2.
+            // full bootstrap bundle (env vars) per § 2.
             ConcurrentThreads: definition.Execution.ConcurrentThreads,
             AgentAddress: message.To,
             CallbackThreadId: threadGuid,
@@ -843,11 +832,7 @@ public class A2AExecutionDispatcher(
         // from the live worker-side McpServer so the container knows where to
         // dial once it has a token.
 
-        // #1321: populate agent definition YAML + tenant config JSON for the
-        // /spring/context/ mount (D1 spec § 2.2.2).
-        var agentDefinitionYaml = SerialiseAgentDefinitionYaml(definition);
         var tenantId = _tenantContext.CurrentTenantId;
-        var tenantConfigJson = SerialiseTenantConfigJson(tenantId);
 
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
@@ -862,8 +847,6 @@ public class A2AExecutionDispatcher(
             // it to ILlmCredentialResolver — without this the resolver skips
             // Tier 1 (unit) and the parent-chain walk.
             UnitId: definition.UnitId,
-            AgentDefinitionYaml: agentDefinitionYaml,
-            TenantConfigJson: tenantConfigJson,
             Provider: definition.Execution.Model?.Provider,
             Model: definition.Execution.Model?.Id,
             // D3a: populate D1-spec metadata for context builder.
@@ -1394,12 +1377,6 @@ public class A2AExecutionDispatcher(
 
         return (runtime.Launcher, launcher);
     }
-
-    private string SerialiseAgentDefinitionYaml(AgentDefinition definition)
-        => _agentDefinitionSerializer.SerializeAgentDefinitionYaml(definition);
-
-    private string SerialiseTenantConfigJson(Guid tenantId)
-        => _agentDefinitionSerializer.SerializeTenantConfigJson(tenantId);
 
     /// <summary>
     /// Translates an <see cref="A2AResponse"/> into a
