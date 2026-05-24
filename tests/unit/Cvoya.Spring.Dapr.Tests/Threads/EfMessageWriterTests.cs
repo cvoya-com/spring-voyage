@@ -375,6 +375,9 @@ public class EfMessageWriterTests : IDisposable
 
         public ValueTask<ParticipantDisplayName> ResolveStatusAsync(string address, CancellationToken cancellationToken = default)
             => ValueTask.FromResult(new ParticipantDisplayName("an actor", IsFallback: true));
+
+        public ValueTask<bool> IsDeletedAsync(string address, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(false);
     }
 
     /// <summary>
@@ -391,6 +394,9 @@ public class EfMessageWriterTests : IDisposable
             => names.TryGetValue(address, out var name)
                 ? ValueTask.FromResult(new ParticipantDisplayName(name, IsFallback: false))
                 : ValueTask.FromResult(new ParticipantDisplayName("a fallback", IsFallback: true));
+
+        public ValueTask<bool> IsDeletedAsync(string address, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(false);
     }
 
     private static Message NewDomainMessage(

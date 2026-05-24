@@ -27,6 +27,16 @@ namespace Cvoya.Spring.Core.Observability;
 /// the engagement list keeps showing the last-known real name.
 /// Defaults to an empty map.
 /// </param>
+/// <param name="IsArchived">
+/// Derived flag (#2732) — <c>true</c> when every non-human participant
+/// has been soft-deleted (or is missing) so the human user cannot
+/// realistically take any further action on the thread. The default
+/// engagement list filters these out; the portal exposes a separate
+/// archive surface keyed off this flag. A thread with no non-human
+/// participants (e.g. a solo human row) is never archived — the empty
+/// "every non-human" set is vacuously true, but the orphan rule
+/// requires at least one non-human participant on the thread.
+/// </param>
 public record ThreadSummary(
     string Id,
     IReadOnlyList<string> Participants,
@@ -35,7 +45,8 @@ public record ThreadSummary(
     int EventCount,
     string Origin,
     string Summary,
-    IReadOnlyDictionary<string, string>? ParticipantNameSnapshots = null);
+    IReadOnlyDictionary<string, string>? ParticipantNameSnapshots = null,
+    bool IsArchived = false);
 
 /// <summary>
 /// Detailed thread payload for <c>GET /api/v1/threads/{id}</c>.
@@ -124,11 +135,19 @@ public record InboxItem(
 /// <param name="Agent">Restrict to threads whose origin source is the named agent.</param>
 /// <param name="Participant">Restrict to threads where <c>scheme://path</c> appears as a participant.</param>
 /// <param name="Limit">Maximum number of rows to return (default 50).</param>
+/// <param name="Archived">
+/// Archive-state filter (#2732). <c>null</c> or <c>false</c> excludes
+/// archived (fully-orphaned) threads from the response — the default
+/// engagement list stays uncluttered. <c>true</c> returns ONLY archived
+/// threads — drives the portal's separate archive surface. The check is
+/// derived per-thread from <see cref="ThreadSummary.IsArchived"/>.
+/// </param>
 public record ThreadQueryFilters(
     string? Unit = null,
     string? Agent = null,
     string? Participant = null,
-    int? Limit = null);
+    int? Limit = null,
+    bool? Archived = null);
 
 /// <summary>
 /// One hit returned by <see cref="IThreadQueryService.SearchAsync"/>. Mirrors

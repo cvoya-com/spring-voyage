@@ -47,6 +47,9 @@ function makeThread(overrides: Partial<ThreadSummary> = {}): ThreadSummary {
     eventCount: 5,
     origin: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
     summary: "Working on the feature",
+    // #2732: derived auto-archive flag. Default fixtures stay live;
+    // tests that exercise the archive surface override via the spread.
+    isArchived: false,
     ...overrides,
   };
 }

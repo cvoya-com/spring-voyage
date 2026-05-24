@@ -485,5 +485,8 @@ public class MessageRouterTests
 
         public ValueTask<ParticipantDisplayName> ResolveStatusAsync(string address, CancellationToken cancellationToken = default)
             => ValueTask.FromResult(new ParticipantDisplayName("an actor", IsFallback: true));
+
+        public ValueTask<bool> IsDeletedAsync(string address, CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(false);
     }
 }

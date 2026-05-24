@@ -78,6 +78,7 @@ internal sealed class ParticipantDisplayNameResolver(
     : IParticipantDisplayNameResolver
 {
     private readonly Dictionary<string, ParticipantDisplayName> _cache = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, bool> _deletedCache = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
     public async ValueTask<string> ResolveAsync(
@@ -117,6 +118,112 @@ internal sealed class ParticipantDisplayNameResolver(
         var result = await ResolveInternalAsync(address, cancellationToken);
         _cache[address] = result;
         return result;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<bool> IsDeletedAsync(
+        string address,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            // Empty / whitespace — cannot reason about a missing entity,
+            // so the orphan check defaults to "not deleted" per the
+            // conservative-fallback contract on the interface.
+            return false;
+        }
+
+        if (_deletedCache.TryGetValue(address, out var cached))
+        {
+            return cached;
+        }
+
+        var result = await IsDeletedInternalAsync(address, cancellationToken);
+        _deletedCache[address] = result;
+        return result;
+    }
+
+    private async Task<bool> IsDeletedInternalAsync(
+        string address,
+        CancellationToken cancellationToken)
+    {
+        var (scheme, idText) = ParseAddress(address);
+        if (scheme is null || idText is null)
+        {
+            return false;
+        }
+
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(idText, out var idGuid))
+        {
+            // Slug-form legacy addresses carry no Guid; we cannot look
+            // them up in the definition tables. Treat as not-deleted so
+            // the orphan check does not blank legacy threads from the
+            // live list.
+            return false;
+        }
+
+        // Humans are not archivable: the user is always live on their
+        // own engagements. Short-circuit ahead of the DB lookup.
+        if (string.Equals(scheme, Address.HumanScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Per-scheme deleted-status lookups. The DbContext's tenant +
+        // soft-delete query filters DROP soft-deleted rows by default,
+        // so "row not found through the default query" subsumes both
+        // "missing entirely" and "soft-deleted in this tenant" — exactly
+        // the spec on IsDeletedAsync. We deliberately do NOT call
+        // IgnoreQueryFilters here so a cross-tenant row that exists in
+        // another tenant still surfaces as deleted-or-missing from the
+        // perspective of the caller's tenant.
+        try
+        {
+            if (string.Equals(scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase))
+            {
+                var exists = await db.AgentDefinitions
+                    .AsNoTracking()
+                    .AnyAsync(a => a.Id == idGuid, cancellationToken);
+                return !exists;
+            }
+
+            if (string.Equals(scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
+            {
+                var exists = await db.UnitDefinitions
+                    .AsNoTracking()
+                    .AnyAsync(u => u.Id == idGuid, cancellationToken);
+                return !exists;
+            }
+
+            if (string.Equals(scheme, Address.ConnectorScheme, StringComparison.OrdinalIgnoreCase))
+            {
+                var exists = await db.ConnectorDefinitions
+                    .AsNoTracking()
+                    .AnyAsync(c => c.Id == idGuid, cancellationToken);
+                return !exists;
+            }
+
+            if (string.Equals(scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase))
+            {
+                // TenantUsers carries no DeletedAt column today — the row
+                // either exists (live) or it doesn't (deleted).
+                var exists = await db.TenantUsers
+                    .AsNoTracking()
+                    .AnyAsync(u => u.Id == idGuid, cancellationToken);
+                return !exists;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(
+                ex,
+                "Failed to read deleted-status for address {Address}; treating as not-deleted.",
+                address);
+            return false;
+        }
+
+        // Unknown scheme — conservative fallback.
+        return false;
     }
 
     private async Task<ParticipantDisplayName> ResolveInternalAsync(

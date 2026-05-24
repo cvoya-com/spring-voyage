@@ -48,6 +48,8 @@ function makeDetail(events: ThreadDetail["events"]): ThreadDetail {
       eventCount: events.length,
       origin: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
       summary: "Test thread",
+      // #2732: derived auto-archive flag — fixture default stays live.
+      isArchived: false,
     },
     events,
   };

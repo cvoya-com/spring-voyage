@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Threads;
@@ -36,7 +37,8 @@ using Microsoft.EntityFrameworkCore;
 /// </para>
 /// </remarks>
 public class ThreadQueryService(
-    SpringDbContext dbContext) : IThreadQueryService
+    SpringDbContext dbContext,
+    IParticipantDisplayNameResolver participantResolver) : IThreadQueryService
 {
     private const int DefaultLimit = 50;
 
@@ -90,6 +92,15 @@ public class ThreadQueryService(
                 thread,
                 firstByThread.GetValueOrDefault(thread.Id),
                 countByThread.GetValueOrDefault(thread.Id));
+            // #2732: derive IsArchived from the participant set. The
+            // resolver caches per-request, so repeated calls across a
+            // hot list are cheap. We compute the flag before the in-
+            // memory filter so the Archived predicate works against
+            // the populated value.
+            summary = summary with
+            {
+                IsArchived = await ComputeIsArchivedAsync(summary.Participants, cancellationToken),
+            };
             summaries.Add(summary);
         }
 
@@ -131,8 +142,81 @@ public class ThreadQueryService(
             messages.Count > 0 ? messages[0] : null,
             messages.Count);
 
+        // #2732: derive IsArchived once we know the canonical
+        // participant set. GetAsync is the per-thread surface so a
+        // single async pass is fine — there is no fan-out to amortise.
+        summary = summary with
+        {
+            IsArchived = await ComputeIsArchivedAsync(summary.Participants, cancellationToken),
+        };
+
         var events = messages.Select(BuildThreadEvent).ToList();
         return new ThreadDetail(summary, events);
+    }
+
+    /// <summary>
+    /// Derives the auto-archive flag (#2732) for a thread from its
+    /// participant set. A thread is archived when it has at least one
+    /// non-human participant AND every non-human participant is
+    /// deleted. Solo-human threads return <c>false</c> (the "every non-
+    /// human is deleted" predicate is vacuously true on an empty set,
+    /// but the orphan UX requires at least one non-human to be present
+    /// in the first place — otherwise there is nothing to be orphaned
+    /// from). The lookup uses the resolver's per-request cache so
+    /// repeated calls within the same scope (e.g. the same agent on
+    /// multiple threads) round-trip the DB at most once.
+    /// </summary>
+    private async Task<bool> ComputeIsArchivedAsync(
+        IReadOnlyList<string> participants,
+        CancellationToken cancellationToken)
+    {
+        var nonHumanCount = 0;
+        var deletedNonHumanCount = 0;
+
+        foreach (var address in participants)
+        {
+            if (IsHumanAddress(address))
+            {
+                continue;
+            }
+
+            nonHumanCount++;
+            if (await participantResolver.IsDeletedAsync(address, cancellationToken))
+            {
+                deletedNonHumanCount++;
+            }
+        }
+
+        // Empty non-human set → not archived. Guards the solo-human
+        // edge case (vacuous truth would otherwise mark these as
+        // archived, which is wrong: there is no one to be orphaned
+        // from).
+        if (nonHumanCount == 0)
+        {
+            return false;
+        }
+
+        return deletedNonHumanCount == nonHumanCount;
+    }
+
+    /// <summary>
+    /// Tests whether a canonical wire-form address belongs to a human
+    /// participant. The orphan derivation excludes humans because the
+    /// authenticated user is always live on their own engagements.
+    /// </summary>
+    private static bool IsHumanAddress(string address)
+    {
+        // Accept the canonical "human:<hex>" form plus the legacy
+        // "human://path" / "human:id:<uuid>" forms for parity with
+        // ParticipantDisplayNameResolver.
+        var colonIdx = address.IndexOf(':');
+        if (colonIdx <= 0)
+        {
+            return false;
+        }
+
+        var scheme = address[..colonIdx];
+        return string.Equals(scheme, Address.HumanScheme, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <inheritdoc />
@@ -510,6 +594,16 @@ public class ThreadQueryService(
                 query = Array.Empty<ThreadSummary>();
             }
         }
+
+        // #2732: archive-state filter. Omitted (null) is treated as
+        // "exclude archived" so the default engagement list stays
+        // uncluttered. archived=true returns ONLY archived threads —
+        // drives the portal's separate archive surface.
+        query = (filters.Archived ?? false) switch
+        {
+            true => query.Where(s => s.IsArchived),
+            false => query.Where(s => !s.IsArchived),
+        };
 
         return query.ToList();
     }

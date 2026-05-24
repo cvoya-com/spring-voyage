@@ -360,6 +360,94 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
     }
 
     [Fact]
+    public async Task ListThreads_WithArchivedFilter_PassesItToService()
+    {
+        // #2732: the API surface accepts ?archived=true|false and threads
+        // it through to ThreadQueryFilters.Archived. The query service
+        // owns the actual derivation + filter; the endpoint stays thin.
+        // The class fixture shares the ThreadQueryService mock across
+        // tests, so wipe arrangements + received calls before asserting.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>());
+
+        var response = await _client.GetAsync("/api/v1/tenant/threads?archived=true", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await _factory.ThreadQueryService.Received(1)
+            .ListAsync(
+                Arg.Is<ThreadQueryFilters>(f => f.Archived == true),
+                Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ListThreads_NoArchivedQueryParam_FilterIsNull()
+    {
+        // Defensive: the absence of ?archived passes null through to
+        // the service so the service's omitted-vs-explicit-false
+        // semantics can be evolved without an endpoint-side change.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>());
+
+        var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await _factory.ThreadQueryService.Received(1)
+            .ListAsync(
+                Arg.Is<ThreadQueryFilters>(f => f.Archived == null),
+                Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ListThreads_IsArchivedSurfacesOnResponse()
+    {
+        // #2732: ThreadSummary.IsArchived projects onto the enriched
+        // ThreadSummaryResponse so the portal can split the engagement
+        // list without re-deriving the flag.
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
+            {
+                new(
+                    Id: "c-live",
+                    Participants: new[] { "agent://ada" },
+                    LastActivity: now,
+                    CreatedAt: now,
+                    EventCount: 1,
+                    Origin: "agent://ada",
+                    Summary: "Live",
+                    ParticipantNameSnapshots: null,
+                    IsArchived: false),
+                new(
+                    Id: "c-archived",
+                    Participants: new[] { "agent://grace" },
+                    LastActivity: now,
+                    CreatedAt: now,
+                    EventCount: 1,
+                    Origin: "agent://grace",
+                    Summary: "Archived",
+                    ParticipantNameSnapshots: null,
+                    IsArchived: true),
+            });
+
+        var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummaryResponse>>(ct);
+        rows.ShouldNotBeNull();
+        rows!.Count.ShouldBe(2);
+        rows.Single(r => r.Id == "c-live").IsArchived.ShouldBeFalse();
+        rows.Single(r => r.Id == "c-archived").IsArchived.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task ListInbox_ReturnsQueryServiceRows()
     {
         var ct = TestContext.Current.CancellationToken;

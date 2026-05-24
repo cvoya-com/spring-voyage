@@ -92,6 +92,9 @@ function makeThread(overrides: Partial<ThreadDetail["summary"]> = {}): ThreadDet
       eventCount: 3,
       origin: { id: "11111111-1111-1111-1111-111111111111", address: "human://savas", displayName: "savas" },
       summary: "Test engagement",
+      // #2732: derived auto-archive flag. Default fixtures stay live;
+      // tests that exercise the archive surface override via the spread.
+      isArchived: false,
       ...overrides,
     },
     events: [],

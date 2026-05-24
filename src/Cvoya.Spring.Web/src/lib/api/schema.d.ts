@@ -4085,6 +4085,7 @@ export interface components {
             eventCount: number;
             origin: components["schemas"]["ParticipantRef"];
             summary: string;
+            isArchived: boolean;
         };
         ThroughputEntryResponse: {
             source: string;
@@ -9131,6 +9132,7 @@ export interface operations {
                 Agent?: string;
                 Participant?: string;
                 Limit?: null | number;
+                Archived?: boolean;
             };
             header?: never;
             path?: never;

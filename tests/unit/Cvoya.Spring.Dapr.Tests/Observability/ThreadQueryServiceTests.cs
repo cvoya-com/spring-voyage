@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -15,6 +16,8 @@ using Cvoya.Spring.Dapr.Observability;
 using Cvoya.Spring.Dapr.Tenancy;
 
 using Microsoft.EntityFrameworkCore;
+
+using NSubstitute;
 
 using Shouldly;
 
@@ -36,6 +39,7 @@ public class ThreadQueryServiceTests : IDisposable
     private readonly DbContextOptions<SpringDbContext> _dbOptions;
     private readonly SpringDbContext _db;
     private readonly ITenantContext _tenantContext;
+    private readonly IParticipantDisplayNameResolver _participantResolver = NotDeletedResolver();
 
     /// <summary>
     /// Tracks the seed-time scheme + display value for every actor id.
@@ -60,7 +64,21 @@ public class ThreadQueryServiceTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private ThreadQueryService BuildService() => new(_db);
+    private ThreadQueryService BuildService() => new(_db, _participantResolver);
+
+    /// <summary>
+    /// Default resolver substitute: every address is reported as not
+    /// deleted, so threads default to <c>IsArchived = false</c>. The
+    /// IsArchived-specific tests below override per-address via
+    /// <c>_participantResolver.IsDeletedAsync(...).Returns(...)</c>.
+    /// </summary>
+    private static IParticipantDisplayNameResolver NotDeletedResolver()
+    {
+        var stub = Substitute.For<IParticipantDisplayNameResolver>();
+        stub.IsDeletedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(false));
+        return stub;
+    }
 
     [Fact]
     public async Task ListAsync_NoThreads_ReturnsEmpty()
@@ -167,7 +185,7 @@ public class ThreadQueryServiceTests : IDisposable
         // Re-bind to a different tenant; the DbContext query filter should
         // hide every row.
         using var otherDb = new SpringDbContext(_dbOptions, new StaticTenantContext(OtherTenantId));
-        var svc = new ThreadQueryService(otherDb);
+        var svc = new ThreadQueryService(otherDb, _participantResolver);
         var result = await svc.ListAsync(new ThreadQueryFilters(), ct);
         result.ShouldBeEmpty();
     }
@@ -487,10 +505,255 @@ public class ThreadQueryServiceTests : IDisposable
             new[] { NewMessage(ada, savasp, "secret", DateTimeOffset.UtcNow.AddMinutes(-1)) });
 
         using var otherDb = new SpringDbContext(_dbOptions, new StaticTenantContext(OtherTenantId));
-        var svc = new ThreadQueryService(otherDb);
+        var svc = new ThreadQueryService(otherDb, _participantResolver);
         var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
 
         inbox.ShouldBeEmpty();
+    }
+
+    // -------------------------------------------------------------------
+    // IsArchived (#2732) — orphan-engagement derivation.
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task ListAsync_LiveAgentParticipant_IsArchivedFalse()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+
+        var (threadId, _) = await SeedThreadAsync(
+            new[] { ada, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(ada, savasp, "Hello", DateTimeOffset.UtcNow.AddMinutes(-4)) });
+
+        // Default substitute already reports every address as not-deleted.
+
+        var svc = BuildService();
+        // Bypass the default archived=false filter by explicitly requesting
+        // the unfiltered shape (both live + archived).
+        var result = await svc.ListAsync(new ThreadQueryFilters(), ct);
+
+        var summary = result.Single(s => s.Id == GuidFormatter.Format(threadId));
+        summary.IsArchived.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ListAsync_DeletedAgentParticipant_IsArchivedTrue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+        var adaAddress = $"agent:{ada.Id:N}";
+
+        var (threadId, _) = await SeedThreadAsync(
+            new[] { ada, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(ada, savasp, "Hello", DateTimeOffset.UtcNow.AddMinutes(-4)) });
+
+        _participantResolver.IsDeletedAsync(adaAddress, Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(true));
+
+        var svc = BuildService();
+        // Default filter excludes archived; request archived-only to see this thread.
+        var result = await svc.ListAsync(new ThreadQueryFilters(Archived: true), ct);
+
+        var summary = result.Single(s => s.Id == GuidFormatter.Format(threadId));
+        summary.IsArchived.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListAsync_OneDeletedOneLiveNonHuman_IsArchivedFalse()
+    {
+        // Mixed participant set: one live, one deleted. The orphan rule
+        // requires EVERY non-human to be deleted, so this stays live.
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var grace = NewActor("agent", "grace");
+        var savasp = NewActor("human", "savasp");
+        var adaAddress = $"agent:{ada.Id:N}";
+
+        var (threadId, _) = await SeedThreadAsync(
+            new[] { ada, grace, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(ada, savasp, "Hello", DateTimeOffset.UtcNow.AddMinutes(-4)) });
+
+        // ada deleted, grace live, savasp human.
+        _participantResolver.IsDeletedAsync(adaAddress, Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(true));
+
+        var svc = BuildService();
+        var result = await svc.ListAsync(new ThreadQueryFilters(), ct);
+
+        var summary = result.Single(s => s.Id == GuidFormatter.Format(threadId));
+        summary.IsArchived.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ListAsync_SoloHumanThread_IsArchivedFalse()
+    {
+        // No non-human participants → orphan rule does not apply (the
+        // "every non-human is deleted" predicate is vacuously true on an
+        // empty set, but the orphan UX requires at least one non-human
+        // on the thread for archiving to be meaningful).
+        var ct = TestContext.Current.CancellationToken;
+        var savasp = NewActor("human", "savasp");
+
+        var (threadId, _) = await SeedThreadAsync(
+            new[] { savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(savasp, savasp, "Solo note", DateTimeOffset.UtcNow.AddMinutes(-4)) });
+
+        var svc = BuildService();
+        var result = await svc.ListAsync(new ThreadQueryFilters(), ct);
+
+        var summary = result.Single(s => s.Id == GuidFormatter.Format(threadId));
+        summary.IsArchived.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ListAsync_DeletedConnectorLiveUnit_IsArchivedFalse()
+    {
+        // Cross-scheme mix: a deleted connector + a live unit on the
+        // same thread. Live unit keeps the thread out of the archive.
+        var ct = TestContext.Current.CancellationToken;
+        var connector = NewActor("connector", "github");
+        var eng = NewActor("unit", "eng");
+        var savasp = NewActor("human", "savasp");
+        var connectorAddress = $"connector:{connector.Id:N}";
+
+        var (threadId, _) = await SeedThreadAsync(
+            new[] { connector, eng, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(connector, eng, "pr opened", DateTimeOffset.UtcNow.AddMinutes(-4)) });
+
+        _participantResolver.IsDeletedAsync(connectorAddress, Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(true));
+
+        var svc = BuildService();
+        var result = await svc.ListAsync(new ThreadQueryFilters(), ct);
+
+        var summary = result.Single(s => s.Id == GuidFormatter.Format(threadId));
+        summary.IsArchived.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ListAsync_DefaultFilter_ExcludesArchivedThreads()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var grace = NewActor("agent", "grace");
+        var savasp = NewActor("human", "savasp");
+        var adaAddress = $"agent:{ada.Id:N}";
+
+        // Thread 1: live (ada is live).
+        await SeedThreadAsync(
+            new[] { ada, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(ada, savasp, "live", DateTimeOffset.UtcNow.AddMinutes(-4)) },
+            participantKeyOverride: "live-thread");
+
+        // Thread 2: archived (grace is the only non-human, deleted).
+        var (archivedId, _) = await SeedThreadAsync(
+            new[] { grace, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-10),
+            new[] { NewMessage(grace, savasp, "orphan", DateTimeOffset.UtcNow.AddMinutes(-9)) },
+            participantKeyOverride: "archived-thread");
+
+        var graceAddress = $"agent:{grace.Id:N}";
+        _participantResolver.IsDeletedAsync(graceAddress, Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(true));
+        _participantResolver.IsDeletedAsync(adaAddress, Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(false));
+
+        var svc = BuildService();
+        var result = await svc.ListAsync(new ThreadQueryFilters(), ct);
+
+        // Only the live thread survives the default filter.
+        result.Count.ShouldBe(1);
+        result[0].IsArchived.ShouldBeFalse();
+        result[0].Id.ShouldNotBe(GuidFormatter.Format(archivedId));
+    }
+
+    [Fact]
+    public async Task ListAsync_ArchivedFalse_ExcludesArchivedThreads()
+    {
+        // Explicit archived=false behaves identically to the omitted
+        // case — defensive: the explicit-null branch is covered by
+        // ListAsync_DefaultFilter_ExcludesArchivedThreads above.
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+        var adaAddress = $"agent:{ada.Id:N}";
+
+        await SeedThreadAsync(
+            new[] { ada, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(ada, savasp, "orphan", DateTimeOffset.UtcNow.AddMinutes(-4)) });
+
+        _participantResolver.IsDeletedAsync(adaAddress, Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(true));
+
+        var svc = BuildService();
+        var result = await svc.ListAsync(new ThreadQueryFilters(Archived: false), ct);
+
+        result.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ListAsync_ArchivedTrue_ReturnsOnlyArchivedThreads()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var grace = NewActor("agent", "grace");
+        var savasp = NewActor("human", "savasp");
+
+        // Live thread.
+        await SeedThreadAsync(
+            new[] { ada, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(ada, savasp, "live", DateTimeOffset.UtcNow.AddMinutes(-4)) },
+            participantKeyOverride: "live-thread");
+
+        // Archived thread.
+        var (archivedId, _) = await SeedThreadAsync(
+            new[] { grace, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-10),
+            new[] { NewMessage(grace, savasp, "orphan", DateTimeOffset.UtcNow.AddMinutes(-9)) },
+            participantKeyOverride: "archived-thread");
+
+        _participantResolver.IsDeletedAsync($"agent:{grace.Id:N}", Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(true));
+
+        var svc = BuildService();
+        var result = await svc.ListAsync(new ThreadQueryFilters(Archived: true), ct);
+
+        result.Count.ShouldBe(1);
+        result[0].Id.ShouldBe(GuidFormatter.Format(archivedId));
+        result[0].IsArchived.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetAsync_DeletedAgentParticipant_ReturnsIsArchivedTrue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+        var adaAddress = $"agent:{ada.Id:N}";
+
+        var (threadId, _) = await SeedThreadAsync(
+            new[] { ada, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(ada, savasp, "Hello", DateTimeOffset.UtcNow.AddMinutes(-4)) });
+
+        _participantResolver.IsDeletedAsync(adaAddress, Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(true));
+
+        var svc = BuildService();
+        var detail = await svc.GetAsync(GuidFormatter.Format(threadId), ct);
+
+        detail.ShouldNotBeNull();
+        detail!.Summary.IsArchived.ShouldBeTrue();
     }
 
     // -------------------------------------------------------------------
