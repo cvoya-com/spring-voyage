@@ -90,7 +90,7 @@ public class GeminiLauncherTests
     }
 
     [Fact]
-    public async Task ContributeBundleAsync_ReturnsGeminiMdAndSettingsFiles()
+    public async Task ContributeBundleAsync_AppendMode_WritesGeminiMd()
     {
         // ADR-0055 §3: launcher-owned in-workspace files live in the
         // bootstrap contribution, not on the launch spec. ADR-0057 §1:
@@ -98,12 +98,18 @@ public class GeminiLauncherTests
         // (stdio), not `httpUrl`-typed — the CLI spawns the sidecar
         // binary in MCP-server mode per turn rather than dialling the
         // worker across the network.
+        //
+        // #2695: Append mode (default) → write to GEMINI.md, the only
+        // Append-mode delivery channel Gemini supports (no append flag
+        // in gemini-cli 0.41.x).
         var contribution = await _launcher.ContributeBundleAsync(
             CreateBundleContext(),
             TestContext.Current.CancellationToken);
 
         contribution.Files.Keys.ShouldBe(new[] { "GEMINI.md", ".gemini/settings.json" }, ignoreOrder: true);
         contribution.Files["GEMINI.md"].ShouldBe(TestAssembledSystemPrompt);
+        contribution.Files.ShouldNotContainKey(".spring/system-prompt.md",
+            "Append mode delivers via auto-discovered GEMINI.md, not the .spring/ namespace (#2695)");
 
         using var settings = JsonDocument.Parse(contribution.Files[".gemini/settings.json"]);
         var server = settings.RootElement.GetProperty("mcpServers").GetProperty("spring-voyage");
@@ -124,6 +130,72 @@ public class GeminiLauncherTests
         server.TryGetProperty("httpUrl", out _).ShouldBeFalse();
 
         contribution.PlatformFilePaths.ShouldBe(new[] { "GEMINI.md", ".gemini/settings.json" }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task ContributeBundleAsync_ReplaceMode_WritesPlatformPromptFile()
+    {
+        // #2695: Replace mode → write to `.spring/system-prompt.md`
+        // under ADR-0058 §2.2.2's namespace. PrepareAsync sets
+        // GEMINI_SYSTEM_MD to the absolute path so the CLI drops its
+        // own baseline. GEMINI.md is NOT written in this mode.
+        var contribution = await _launcher.ContributeBundleAsync(
+            CreateBundleContext(systemPromptMode: Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace),
+            TestContext.Current.CancellationToken);
+
+        contribution.Files.Keys.ShouldBe(
+            new[] { ".spring/system-prompt.md", ".gemini/settings.json" }, ignoreOrder: true);
+        contribution.Files[".spring/system-prompt.md"].ShouldBe(TestAssembledSystemPrompt);
+        contribution.Files.ShouldNotContainKey("GEMINI.md",
+            "Replace mode drops auto-discovery; GEMINI_SYSTEM_MD names the platform file directly (#2695)");
+
+        contribution.PlatformFilePaths.ShouldBe(
+            new[] { ".spring/system-prompt.md", ".gemini/settings.json" }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_AppendMode_LeavesGeminiSystemMdUnset()
+    {
+        // #2695: Gemini has no append flag — Append mode's only
+        // delivery channel is auto-discovered GEMINI.md. The launcher
+        // must NOT set GEMINI_SYSTEM_MD, which would silently force
+        // Replace semantics regardless of the agent's declared mode.
+        var context = LauncherCallbackTestSupport.CreateContext(
+            systemPromptMode: Cvoya.Spring.Core.Catalog.SystemPromptMode.Append);
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldNotContainKey("GEMINI_SYSTEM_MD");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_ReplaceMode_SetsGeminiSystemMdToPlatformPromptFile()
+    {
+        // #2695: Replace mode points GEMINI_SYSTEM_MD at the absolute
+        // path of `.spring/system-prompt.md` on the per-member
+        // workspace mount; the CLI's coding-assistant baseline is
+        // dropped entirely.
+        var context = LauncherCallbackTestSupport.CreateContext(
+            systemPromptMode: Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace);
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        var workspaceNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
+        prep.EnvironmentVariables["GEMINI_SYSTEM_MD"]
+            .ShouldBe($"{workspaceNoSlash}/.spring/system-prompt.md");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_DefaultMode_LeavesGeminiSystemMdUnset()
+    {
+        // #2695: default → Append (per the dispatcher's fallback); no
+        // GEMINI_SYSTEM_MD override.
+        var context = LauncherCallbackTestSupport.CreateContext();
+        context.SystemPromptMode.ShouldBe(Cvoya.Spring.Core.Catalog.SystemPromptMode.Append);
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldNotContainKey("GEMINI_SYSTEM_MD");
     }
 
     [Fact]
@@ -314,12 +386,16 @@ public class GeminiLauncherTests
         fragment.ShouldContain("GEMINI.md");
         fragment.ShouldContain(".gemini/settings.json");
         fragment.ShouldContain("$GEMINI_CLI_HOME");
+        // #2695: the fragment covers the Replace-mode override env var
+        // so authors know the per-mode delivery channel.
+        fragment.ShouldContain("$GEMINI_SYSTEM_MD");
         fragment.ShouldNotContain("worktree");
     }
 
     private static AgentBootstrapContributionContext CreateBundleContext(
         string? instructions = "Analyze thoroughly.",
-        string assembledSystemPrompt = TestAssembledSystemPrompt)
+        string assembledSystemPrompt = TestAssembledSystemPrompt,
+        Cvoya.Spring.Core.Catalog.SystemPromptMode? systemPromptMode = null)
     {
         var definition = new AgentDefinition(
             AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
@@ -327,7 +403,8 @@ public class GeminiLauncherTests
             Instructions: instructions,
             Execution: new AgentExecutionConfig(
                 Runtime: "gemini",
-                Image: "ghcr.io/test/gemini:latest"));
+                Image: "ghcr.io/test/gemini:latest",
+                SystemPromptMode: systemPromptMode));
         return new AgentBootstrapContributionContext(
             AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
             Definition: definition,

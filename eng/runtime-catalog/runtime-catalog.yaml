@@ -76,9 +76,6 @@ agentRuntimes:
     threadBinding:
       kind: cli-arg
       argName: --resume
-    systemPromptInjection:
-      kind: file
-      filePath: AGENTS.md
     modelProviders:
       - id: anthropic
         authMethod: oauth
@@ -91,9 +88,6 @@ agentRuntimes:
     threadBinding:
       kind: cli-arg
       argName: --conversation-id
-    systemPromptInjection:
-      kind: file
-      filePath: AGENTS.md
     modelProviders:
       - id: openai
         authMethod: api-key
@@ -106,9 +100,6 @@ agentRuntimes:
     threadBinding:
       kind: cli-arg
       argName: --session-id
-    systemPromptInjection:
-      kind: file
-      filePath: GEMINI.md
     modelProviders:
       - id: google
         authMethod: api-key
@@ -121,9 +112,6 @@ agentRuntimes:
     threadBinding:
       kind: env-var
       envVarName: SPRING_THREAD_ID
-    systemPromptInjection:
-      kind: env-var
-      envVarName: SPRING_SYSTEM_PROMPT
     modelProviders:
       - id: anthropic
         authMethod: api-key

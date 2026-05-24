@@ -64,6 +64,44 @@ file map plus a mount path — and the dispatcher materialises it (see
 [Deployment](deployment.md)). A launcher also writes the MCP server config the
 runtime CLI reads.
 
+### System-prompt delivery and `system_prompt_mode`
+
+Every agent definition carries a `system_prompt_mode` field
+([#2691](https://github.com/cvoya-com/spring-voyage/issues/2691),
+[#2695](https://github.com/cvoya-com/spring-voyage/issues/2695)) on
+its `execution` block. The cascade is *agent → unit → `append`*. The two values:
+
+- `append` (default) — the platform's assembled prompt is **appended** to the
+  runtime CLI's own default coding-assistant system prompt. Preserves the CLI's
+  tool guidance and safety baseline. Right for engineer-shaped agents.
+- `replace` — the platform's assembled prompt **replaces** the runtime CLI's
+  default. Drops the coding-assistant persona entirely. Right for non-coding
+  agents (routers, PMs, analysts).
+
+The platform-managed system-prompt file lives at
+`$SPRING_WORKSPACE_PATH/.spring/system-prompt.md` per
+[ADR-0058](../decisions/0058-spring-voyage-container-contract.md) §2.2.2 (the
+`.spring/` namespace for platform-owned workspace files). Writing it under
+`.spring/` rather than the CLI's auto-discovered name keeps the platform
+contract from colliding with any project clone the agent makes under its
+workspace (e.g. an engineer agent cloning a repo whose root carries its own
+`CLAUDE.md`).
+
+Each runtime's per-mode flag-mapping is asymmetric — only Claude Code exposes
+both modes natively:
+
+| Runtime | `append` delivery | `replace` delivery | Asymmetry note |
+|---|---|---|---|
+| Claude Code (`claude`) | `--append-system-prompt-file <workspace>/.spring/system-prompt.md` | `--system-prompt-file <workspace>/.spring/system-prompt.md` | Both flags are mutually exclusive per the Claude CLI reference; the launcher emits exactly one. |
+| Gemini (`gemini`) | Auto-discovered `GEMINI.md` at workspace root | `GEMINI_SYSTEM_MD=<workspace>/.spring/system-prompt.md` (env var) | Gemini's `GEMINI_SYSTEM_MD` is **replace-only** — gemini-cli 0.41.x has no append flag. Append mode therefore uses auto-discovery (the best Gemini offers) and Replace mode uses the env-var override. |
+| Codex (`codex`) | Auto-discovered `AGENTS.md` at workspace root | (same — Codex has no flag) | Codex CLI has no `--system-prompt-*` flags ([openai/codex#11588](https://github.com/openai/codex/issues/11588)). `system_prompt_mode` on a Codex agent is honoured-by-best-effort only — Replace mode emits an informational log line and proceeds with `AGENTS.md`. Revisit when the upstream flags land. |
+| Spring Voyage agent | (in-image; the Python agent reads `SPRING_SYSTEM_PROMPT` directly) | (same) | The native A2A runtime is not a CLI — `system_prompt_mode` is a CLI-shape concept. |
+
+The launcher reads `AgentLaunchContext.SystemPromptMode` (cascade resolved at
+dispatch time by `A2AExecutionDispatcher`) and selects the flag / env-var /
+file path accordingly. The Codex limitation is the only case where the field's
+declared semantics are not faithfully reflected in the runtime spawn.
+
 ## The A2A sidecar bridge
 
 A runtime CLI like `claude` speaks stdin/stdout, not A2A. The platform bridges
@@ -78,7 +116,7 @@ into every CLI-based agent image. The same binary runs in two modes:
   stdout/stderr, and maps the result to an A2A task;
 - reads the **per-turn MCP token** from the A2A `message/send` metadata and
   writes it to a workspace-resident token file
-  (`$SPRING_WORKSPACE_PATH/.spring-voyage-bridge/mcp-token`) before spawning
+  (`$SPRING_WORKSPACE_PATH/.spring/bridge/mcp-token`) before spawning
   the CLI;
 - propagates cancellation (`SIGTERM` → `SIGKILL`).
 

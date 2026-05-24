@@ -201,11 +201,11 @@ public class BootstrapEndpointsTests
             IssuedAt: new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero),
             Files: new[]
             {
-                new AgentBootstrapFile("CLAUDE.md", "sha256:files", "instructions"),
+                new AgentBootstrapFile(".spring/system-prompt.md", "sha256:files", "instructions"),
             },
             PlatformFileHashes: new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["CLAUDE.md"] = "sha256:files",
+                [".spring/system-prompt.md"] = "sha256:files",
             });
 
     private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);

@@ -25,7 +25,6 @@ namespace Cvoya.Spring.Core.Catalog;
 /// <see cref="Cvoya.Spring.Core.Execution.IAgentRuntimeLauncher"/>.
 /// </param>
 /// <param name="ThreadBinding">How the platform delivers the thread id to the runtime.</param>
-/// <param name="SystemPromptInjection">How the assembled system prompt reaches the runtime.</param>
 /// <param name="ModelProviders">
 /// The runtime's allowed providers, each carrying its consumed
 /// <see cref="AgentRuntimeProviderEdge.AuthMethod"/> and per-edge
@@ -37,7 +36,6 @@ public sealed record AgentRuntime(
     string DefaultImage,
     string Launcher,
     ThreadBinding ThreadBinding,
-    SystemPromptInjection SystemPromptInjection,
     IReadOnlyList<AgentRuntimeProviderEdge> ModelProviders)
 {
     /// <summary>

@@ -24,12 +24,13 @@ namespace Cvoya.Spring.Core.Execution;
 /// than the launcher project because both consumers cross assembly
 /// boundaries: the CLI-runtime path now delivers the guard via the
 /// <see cref="IAgentBootstrapBundleProvider"/>'s assembled-prompt
-/// composition (the launcher's auto-discovered system-prompt file —
-/// <c>CLAUDE.md</c> / <c>AGENTS.md</c> / <c>GEMINI.md</c>), and the
-/// Spring Voyage agent path delivers it via the launcher's
-/// <c>SPRING_SYSTEM_PROMPT</c> env var. Keeping the guard string in a
-/// single Core-level class is the single source of truth both consumers
-/// can reach.
+/// composition (the launcher's system-prompt file —
+/// <c>.spring/system-prompt.md</c> for Claude per #2672, <c>AGENTS.md</c>
+/// for Codex, and <c>GEMINI.md</c> or <c>.spring/system-prompt.md</c>
+/// for Gemini per its <c>system_prompt_mode</c>), and the Spring Voyage
+/// agent path delivers it via the launcher's <c>SPRING_SYSTEM_PROMPT</c>
+/// env var. Keeping the guard string in a single Core-level class is
+/// the single source of truth both consumers can reach.
 /// </para>
 /// <para>
 /// The pre-cutover <c>ResponseDiscipline</c> fragment that used to live

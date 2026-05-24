@@ -6,18 +6,20 @@ namespace Cvoya.Spring.Core.Execution;
 /// <summary>
 /// A launcher's contribution to an agent's bootstrap bundle (ADR-0055 §3).
 /// The runtime-specific files an agent needs at workspace launch — the
-/// system-prompt file (<c>CLAUDE.md</c> / <c>AGENTS.md</c> / <c>GEMINI.md</c>)
-/// and the MCP config file (<c>.mcp.json</c>, <c>.gemini/settings.json</c>) —
-/// live here rather than on <see cref="AgentLaunchSpec"/>. The bundle
-/// provider composes contributions from every launcher (selected by the
-/// agent's runtime) into the single content-addressable bundle the
-/// sidecar pulls.
+/// system-prompt file (<c>.spring/system-prompt.md</c> for Claude per
+/// #2672; <c>AGENTS.md</c> for Codex; <c>GEMINI.md</c> or
+/// <c>.spring/system-prompt.md</c> for Gemini per its
+/// <c>system_prompt_mode</c>) and the MCP config file (<c>.mcp.json</c>,
+/// <c>.gemini/settings.json</c>) — live here rather than on
+/// <see cref="AgentLaunchSpec"/>. The bundle provider composes
+/// contributions from every launcher (selected by the agent's runtime)
+/// into the single content-addressable bundle the sidecar pulls.
 /// </summary>
 /// <param name="Files">
-/// File contents keyed by workspace-relative path (e.g. <c>"CLAUDE.md"</c>,
-/// <c>".mcp.json"</c>). Empty when the launcher does not own any
-/// in-workspace files — the A2A-native <c>spring-voyage-agent</c>
-/// launcher returns an empty contribution.
+/// File contents keyed by workspace-relative path (e.g.
+/// <c>".spring/system-prompt.md"</c>, <c>".mcp.json"</c>). Empty when the
+/// launcher does not own any in-workspace files — the A2A-native
+/// <c>spring-voyage-agent</c> launcher returns an empty contribution.
 /// </param>
 /// <param name="PlatformFilePaths">
 /// Subset of <see cref="Files"/> the sidecar pins per-turn via the
@@ -55,9 +57,12 @@ public record AgentBootstrapContribution(
 /// — platform instructions + unit context + role-specific instructions
 /// and equipped skill bundles. The bundle provider invokes the assembler
 /// once per bundle build and hands the resulting string here; CLI
-/// launchers write it to their runtime's auto-discovered system-prompt
-/// file (<c>CLAUDE.md</c> for Claude Code, <c>AGENTS.md</c> for Codex,
-/// <c>GEMINI.md</c> for Gemini). Thread history is NOT in this string —
+/// launchers write it to the runtime-specific system-prompt file
+/// (<c>.spring/system-prompt.md</c> for Claude per #2672 and pointed at
+/// via <c>--append-system-prompt-file</c> / <c>--system-prompt-file</c>;
+/// <c>AGENTS.md</c> for Codex; <c>GEMINI.md</c> or
+/// <c>.spring/system-prompt.md</c> for Gemini per its
+/// <c>system_prompt_mode</c>). Thread history is NOT in this string —
 /// each runtime's session-resume mechanism delivers it.
 /// </param>
 public record AgentBootstrapContributionContext(

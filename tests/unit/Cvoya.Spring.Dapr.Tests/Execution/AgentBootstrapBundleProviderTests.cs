@@ -28,7 +28,10 @@ using Xunit;
 /// The previously hardcoded <c>CLAUDE.md</c> file is now sourced from the
 /// launcher's <see cref="IAgentRuntimeLauncher.ContributeBundleAsync"/>,
 /// which receives the assembler-built system prompt on the contribution
-/// context.
+/// context. Per #2672 the Claude launcher's prompt file moved off the
+/// CLI's auto-discovered <c>CLAUDE.md</c> to <c>.spring/system-prompt.md</c>
+/// under the ADR-0058 §2.2.2 namespace; the stub launcher mirrors the
+/// production filename so the bundle-shape tests reflect the real wire.
 /// </summary>
 public class AgentBootstrapBundleProviderTests
 {
@@ -69,7 +72,6 @@ public class AgentBootstrapBundleProviderTests
             DefaultImage: "ghcr.io/test/claude:latest",
             Launcher: "claude-code-cli",
             ThreadBinding: new ThreadBinding(ThreadBindingKind.CliArg, ArgName: "--resume"),
-            SystemPromptInjection: new SystemPromptInjection(SystemPromptInjectionKind.File, FilePath: "CLAUDE.md"),
             ModelProviders: Array.Empty<AgentRuntimeProviderEdge>()));
 
         // Default: no connector contribution (both kinds).
@@ -84,7 +86,8 @@ public class AgentBootstrapBundleProviderTests
             .Returns((string?)null);
 
         // Stub the assembler so each test can pin / vary the resulting
-        // system prompt and assert it lands in the bundle's CLAUDE.md.
+        // system prompt and assert it lands in the bundle's
+        // `.spring/system-prompt.md` (ADR-0058 §2.2.2 / #2672).
         _promptAssembler
             .AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(_ => _assembledPrompt);
@@ -144,7 +147,7 @@ public class AgentBootstrapBundleProviderTests
         // the launcher contributes for its runtime.
         bundle!.Files.ShouldContain(f => f.Path == AgentBootstrapBundleProvider.AgentDefinitionPath);
         bundle.Files.ShouldContain(f => f.Path == AgentBootstrapBundleProvider.TenantConfigPath);
-        bundle.Files.ShouldContain(f => f.Path == "CLAUDE.md");
+        bundle.Files.ShouldContain(f => f.Path == ".spring/system-prompt.md");
         bundle.Files.ShouldContain(f => f.Path == ".mcp.json");
     }
 
@@ -153,29 +156,30 @@ public class AgentBootstrapBundleProviderTests
     {
         // After the silent-dispatch cutover the provider invokes the
         // assembler once per bundle build and passes the result to the
-        // launcher contribution. The bundle's CLAUDE.md is that string —
-        // NOT Definition.Instructions.
+        // launcher contribution. The bundle's
+        // `.spring/system-prompt.md` is that string — NOT
+        // Definition.Instructions (#2672 moved it off `CLAUDE.md`).
         _assembledPrompt = "MULTI-LAYER ASSEMBLED PROMPT";
         StubAgent(instructions: "You are a helpful agent.");
 
         var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
-        var claudeMd = bundle!.Files.First(f => f.Path == "CLAUDE.md");
-        claudeMd.Content.ShouldBe("MULTI-LAYER ASSEMBLED PROMPT");
+        var promptFile = bundle!.Files.First(f => f.Path == ".spring/system-prompt.md");
+        promptFile.Content.ShouldBe("MULTI-LAYER ASSEMBLED PROMPT");
     }
 
     [Fact]
     public async Task BuildAsync_LauncherContribution_HandlesEmptyAssembledPrompt()
     {
         // Defensive: a synthetic empty assembled prompt must materialise
-        // an empty CLAUDE.md rather than throwing.
+        // an empty `.spring/system-prompt.md` rather than throwing.
         _assembledPrompt = string.Empty;
         StubAgent(instructions: null);
 
         var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
-        var claudeMd = bundle!.Files.First(f => f.Path == "CLAUDE.md");
-        claudeMd.Content.ShouldBe(string.Empty);
+        var promptFile = bundle!.Files.First(f => f.Path == ".spring/system-prompt.md");
+        promptFile.Content.ShouldBe(string.Empty);
     }
 
     [Fact]
@@ -189,9 +193,9 @@ public class AgentBootstrapBundleProviderTests
 
         var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
-        bundle!.PlatformFileHashes.Keys.ShouldBe(new[] { "CLAUDE.md", ".mcp.json" }, ignoreOrder: true);
-        bundle.PlatformFileHashes["CLAUDE.md"]
-            .ShouldBe(bundle.Files.First(f => f.Path == "CLAUDE.md").Sha256);
+        bundle!.PlatformFileHashes.Keys.ShouldBe(new[] { ".spring/system-prompt.md", ".mcp.json" }, ignoreOrder: true);
+        bundle.PlatformFileHashes[".spring/system-prompt.md"]
+            .ShouldBe(bundle.Files.First(f => f.Path == ".spring/system-prompt.md").Sha256);
         bundle.PlatformFileHashes[".mcp.json"]
             .ShouldBe(bundle.Files.First(f => f.Path == ".mcp.json").Sha256);
     }
@@ -282,22 +286,23 @@ public class AgentBootstrapBundleProviderTests
     public async Task BuildAsync_ConcurrentThreadsTrue_FoldsGuardIntoAssembledSystemPrompt()
     {
         // #2668: the CLI launchers no longer prepend the
-        // ConcurrentThreadsGuard to SPRING_SYSTEM_PROMPT (the env var
-        // the CLIs never read). The guard now travels via the
-        // launcher's system-prompt file (CLAUDE.md / AGENTS.md /
-        // GEMINI.md), and the bundle provider folds it into
-        // AssembledSystemPrompt before the launcher's
-        // ContributeBundleAsync receives it.
+        // ConcurrentThreadsGuard to the assembled prompt themselves.
+        // The guard now travels via the launcher's system-prompt file
+        // — `.spring/system-prompt.md` for Claude/Codex/Gemini under
+        // ADR-0058 §2.2.2 (Gemini may instead write `GEMINI.md` when
+        // its system_prompt_mode opts for the legacy filename). The
+        // bundle provider folds the guard into AssembledSystemPrompt
+        // before the launcher's ContributeBundleAsync receives it.
         _assembledPrompt = "USER ASSEMBLED PROMPT";
         StubAgent(instructions: "x", concurrentThreads: true);
 
         var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
-        var claudeMd = bundle!.Files.First(f => f.Path == "CLAUDE.md");
-        claudeMd.Content.ShouldStartWith("## Spring Voyage runtime guard — concurrent_threads is on");
-        claudeMd.Content.ShouldContain("USER ASSEMBLED PROMPT");
-        claudeMd.Content.IndexOf("concurrent_threads is on", StringComparison.Ordinal)
-            .ShouldBeLessThan(claudeMd.Content.IndexOf("USER ASSEMBLED PROMPT", StringComparison.Ordinal));
+        var promptFile = bundle!.Files.First(f => f.Path == ".spring/system-prompt.md");
+        promptFile.Content.ShouldStartWith("## Spring Voyage runtime guard — concurrent_threads is on");
+        promptFile.Content.ShouldContain("USER ASSEMBLED PROMPT");
+        promptFile.Content.IndexOf("concurrent_threads is on", StringComparison.Ordinal)
+            .ShouldBeLessThan(promptFile.Content.IndexOf("USER ASSEMBLED PROMPT", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -305,15 +310,15 @@ public class AgentBootstrapBundleProviderTests
     {
         // Mirror of the guard-on test: when concurrent_threads is
         // explicitly off the guard is NOT folded in. The bundle's
-        // CLAUDE.md is the assembler's output verbatim.
+        // prompt file is the assembler's output verbatim.
         _assembledPrompt = "USER ASSEMBLED PROMPT";
         StubAgent(instructions: "x", concurrentThreads: false);
 
         var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
-        var claudeMd = bundle!.Files.First(f => f.Path == "CLAUDE.md");
-        claudeMd.Content.ShouldBe("USER ASSEMBLED PROMPT");
-        claudeMd.Content.ShouldNotContain("concurrent_threads is on");
+        var promptFile = bundle!.Files.First(f => f.Path == ".spring/system-prompt.md");
+        promptFile.Content.ShouldBe("USER ASSEMBLED PROMPT");
+        promptFile.Content.ShouldNotContain("concurrent_threads is on");
     }
 
     [Fact]
@@ -357,9 +362,10 @@ public class AgentBootstrapBundleProviderTests
 
     /// <summary>
     /// Minimal launcher stub. Returns a bundle contribution mirroring the
-    /// production ClaudeCodeLauncher shape — CLAUDE.md is the
-    /// AssembledSystemPrompt the provider hands in (NOT
-    /// Definition.Instructions), .mcp.json carries an empty Authorization
+    /// production ClaudeCodeLauncher shape post-#2672 — the assembled
+    /// system prompt lives at <c>.spring/system-prompt.md</c> under the
+    /// ADR-0058 §2.2.2 namespace (off the CLI's auto-discovered prompt
+    /// filename), and <c>.mcp.json</c> carries an empty Authorization
     /// placeholder.
     /// </summary>
     private sealed class StubLauncher : IAgentRuntimeLauncher
@@ -378,12 +384,12 @@ public class AgentBootstrapBundleProviderTests
             => Task.FromResult(new AgentBootstrapContribution(
                 Files: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
-                    ["CLAUDE.md"] = context.AssembledSystemPrompt,
+                    [".spring/system-prompt.md"] = context.AssembledSystemPrompt,
                     [".mcp.json"] = "{\"mcpServers\":{\"spring-voyage\":{\"url\":\""
                         + context.McpEndpoint
                         + "\",\"headers\":{\"Authorization\":\"Bearer \"}}}}",
                 },
-                PlatformFilePaths: new[] { "CLAUDE.md", ".mcp.json" }));
+                PlatformFilePaths: new[] { ".spring/system-prompt.md", ".mcp.json" }));
 
         public string? GetWorkspacePromptFragment() => null;
 

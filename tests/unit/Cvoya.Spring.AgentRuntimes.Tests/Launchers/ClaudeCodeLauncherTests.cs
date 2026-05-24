@@ -90,20 +90,28 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task ContributeBundleAsync_ReturnsClaudeMdAndMcpJsonFiles()
+    public async Task ContributeBundleAsync_ReturnsPlatformPromptFileAndMcpJson()
     {
         // ADR-0055 §3: launcher-owned in-workspace files live in the
         // bootstrap contribution, not on the launch spec. ADR-0057 §1:
         // the `.mcp.json` MCP server entry is `command`-typed (stdio),
         // not `http`-typed — the CLI spawns the sidecar binary in
         // MCP-server mode per turn rather than dialling the worker
-        // across the network.
+        // across the network. #2672: the platform's system prompt
+        // lives at `.spring/system-prompt.md` under ADR-0058 §2.2.2's
+        // namespace, NOT the CLI's auto-discovered `CLAUDE.md` (that
+        // filename is reserved for any project clone the agent makes
+        // under its workspace).
         var contribution = await _launcher.ContributeBundleAsync(
             CreateBundleContext(),
             TestContext.Current.CancellationToken);
 
-        contribution.Files.Keys.ShouldBe(new[] { "CLAUDE.md", ".mcp.json" }, ignoreOrder: true);
-        contribution.Files["CLAUDE.md"].ShouldBe(TestAssembledSystemPrompt);
+        contribution.Files.Keys.ShouldBe(
+            new[] { ".spring/system-prompt.md", ".mcp.json" }, ignoreOrder: true);
+        contribution.Files[".spring/system-prompt.md"].ShouldBe(TestAssembledSystemPrompt);
+        contribution.Files.ShouldNotContainKey("CLAUDE.md",
+            "the platform never writes the CLI's auto-discovered filename — that " +
+            "collides with any project clone the agent makes under its workspace (#2672)");
 
         var parsed = JsonDocument.Parse(contribution.Files[".mcp.json"]).RootElement;
         var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
@@ -133,20 +141,21 @@ public class ClaudeCodeLauncherTests
         server.TryGetProperty("url", out _).ShouldBeFalse(
             "stdio MCP servers carry no remote URL");
 
-        contribution.PlatformFilePaths.ShouldBe(new[] { "CLAUDE.md", ".mcp.json" }, ignoreOrder: true);
+        contribution.PlatformFilePaths.ShouldBe(
+            new[] { ".spring/system-prompt.md", ".mcp.json" }, ignoreOrder: true);
     }
 
     [Fact]
-    public async Task ContributeBundleAsync_EmptyAssembledPrompt_YieldsEmptyClaudeMd()
+    public async Task ContributeBundleAsync_EmptyAssembledPrompt_YieldsEmptyPromptFile()
     {
         // The bundle provider always supplies AssembledSystemPrompt — but
-        // a synthetic empty prompt must materialise an empty CLAUDE.md
-        // rather than throwing.
+        // a synthetic empty prompt must materialise an empty
+        // `.spring/system-prompt.md` rather than throwing.
         var contribution = await _launcher.ContributeBundleAsync(
             CreateBundleContext(assembledSystemPrompt: string.Empty),
             TestContext.Current.CancellationToken);
 
-        contribution.Files["CLAUDE.md"].ShouldBe(string.Empty);
+        contribution.Files[".spring/system-prompt.md"].ShouldBe(string.Empty);
     }
 
     [Fact]
@@ -196,21 +205,23 @@ public class ClaudeCodeLauncherTests
     [Fact]
     public async Task PrepareAsync_SetsSpringAgentArgv_AsJsonEncodedArrayOfStrings()
     {
+        // Default mode is Append (#2695) — argv carries the
+        // `--append-system-prompt-file` flag pointing at
+        // `.spring/system-prompt.md` (#2672). The bridge does
+        // JSON.parse on SPRING_AGENT_ARGV (see
+        // src/Cvoya.Spring.AgentSidecar/src/config.ts); round-tripping
+        // through JsonSerializer is the contract.
         var context = CreateContext();
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         prep.EnvironmentVariables.ShouldContainKey("SPRING_AGENT_ARGV");
         var raw = prep.EnvironmentVariables["SPRING_AGENT_ARGV"];
 
-        // The bridge does JSON.parse on this value (see
-        // src/Cvoya.Spring.AgentSidecar/src/config.ts). Round-tripping it
-        // through JsonSerializer is the contract. The argv carries
-        // --mcp-config so the CLI loads the platform MCP server
-        // independently of its spawn CWD.
         var argv = JsonSerializer.Deserialize<string[]>(raw);
         argv.ShouldNotBeNull();
-        var expectedMcpConfigPath =
-            $"{AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId)}/.mcp.json";
+        var workspaceNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
+        var expectedMcpConfigPath = $"{workspaceNoSlash}/.mcp.json";
+        var expectedSystemPromptPath = $"{workspaceNoSlash}/.spring/system-prompt.md";
         argv.ShouldBe(new[]
         {
             "claude",
@@ -218,7 +229,73 @@ public class ClaudeCodeLauncherTests
             "--dangerously-skip-permissions",
             "--mcp-config",
             expectedMcpConfigPath,
+            "--append-system-prompt-file",
+            expectedSystemPromptPath,
         });
+    }
+
+    [Fact]
+    public async Task PrepareAsync_AppendMode_UsesAppendSystemPromptFileFlag()
+    {
+        // #2695: explicit Append mode produces the append flag — the
+        // CLI's coding-assistant baseline is preserved.
+        var context = LauncherCallbackTestSupport.CreateContext(
+            systemPromptMode: Cvoya.Spring.Core.Catalog.SystemPromptMode.Append);
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        var argv = JsonSerializer.Deserialize<string[]>(
+            prep.EnvironmentVariables["SPRING_AGENT_ARGV"]);
+        argv.ShouldNotBeNull();
+        argv.ShouldContain("--append-system-prompt-file");
+        argv.ShouldNotContain("--system-prompt-file",
+            "the append and replace flags are mutually exclusive per the Claude CLI reference (#2695)");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_ReplaceMode_UsesSystemPromptFileFlag()
+    {
+        // #2695: Replace mode produces the replace flag — the CLI's
+        // coding-assistant baseline is dropped entirely; the assembled
+        // platform prompt is the whole system prompt. Used by routers,
+        // PMs, analysts that opt into the override.
+        var context = LauncherCallbackTestSupport.CreateContext(
+            systemPromptMode: Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace);
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        var argv = JsonSerializer.Deserialize<string[]>(
+            prep.EnvironmentVariables["SPRING_AGENT_ARGV"]);
+        argv.ShouldNotBeNull();
+        argv.ShouldContain("--system-prompt-file");
+        argv.ShouldNotContain("--append-system-prompt-file",
+            "the append and replace flags are mutually exclusive per the Claude CLI reference (#2695)");
+
+        // The flag is followed by the same `.spring/system-prompt.md`
+        // path the Append-mode invocation uses — the file itself does
+        // not move, only the flag selecting how the CLI consumes it.
+        var workspaceNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
+        var expectedSystemPromptPath = $"{workspaceNoSlash}/.spring/system-prompt.md";
+        var flagIndex = Array.IndexOf(argv, "--system-prompt-file");
+        argv[flagIndex + 1].ShouldBe(expectedSystemPromptPath);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_DefaultMode_FallsBackToAppend()
+    {
+        // #2695: when context.SystemPromptMode is left at the
+        // dispatcher-applied default (Append), the launcher emits the
+        // append flag — preserves today's behaviour after #2672.
+        var context = CreateContext();
+        context.SystemPromptMode.ShouldBe(Cvoya.Spring.Core.Catalog.SystemPromptMode.Append,
+            "test support defaults SystemPromptMode to Append — matches the dispatcher's fallback");
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        var argv = JsonSerializer.Deserialize<string[]>(
+            prep.EnvironmentVariables["SPRING_AGENT_ARGV"]);
+        argv.ShouldNotBeNull();
+        argv.ShouldContain("--append-system-prompt-file");
     }
 
     [Fact]
@@ -397,9 +474,19 @@ public class ClaudeCodeLauncherTests
         fragment!.ShouldContain("Claude Code CLI");
         fragment.ShouldContain("`claude`");
         fragment.ShouldContain("$SPRING_WORKSPACE_PATH");
-        fragment.ShouldContain("CLAUDE.md");
+        // #2672: platform prompt reaches the CLI via the
+        // append/replace flag on argv, not via auto-discovered
+        // CLAUDE.md. The fragment must name the flag so authors know
+        // the delivery channel.
+        fragment.ShouldContain("--append-system-prompt-file");
         fragment.ShouldContain(".mcp.json");
         fragment.ShouldContain("$CLAUDE_CONFIG_DIR");
+        // #2672: the fragment must NOT promise auto-discovered
+        // CLAUDE.md — that filename is reserved for any project clone
+        // the agent makes under its workspace.
+        fragment.ShouldNotContain(
+            "auto-discovers its system prompt from `CLAUDE.md`",
+            customMessage: "the platform no longer writes the CLI's auto-discovered filename (#2672)");
 
         // Author-agnostic — no clones / GitHub env vars / worktree
         // conventions; those belong on the author's role-specific

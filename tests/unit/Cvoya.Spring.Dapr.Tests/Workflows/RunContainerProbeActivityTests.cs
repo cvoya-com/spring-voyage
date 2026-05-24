@@ -54,7 +54,6 @@ public class RunContainerProbeActivityTests
             DefaultImage: TestImage,
             Launcher: TestLauncherId,
             ThreadBinding: new ThreadBinding(ThreadBindingKind.EnvVar, EnvVarName: "T_ID"),
-            SystemPromptInjection: new SystemPromptInjection(SystemPromptInjectionKind.EnvVar, EnvVarName: "P_ID"),
             ModelProviders: Array.Empty<AgentRuntimeProviderEdge>());
         _catalog.GetAgentRuntime(TestRuntimeId).Returns(runtime);
     }

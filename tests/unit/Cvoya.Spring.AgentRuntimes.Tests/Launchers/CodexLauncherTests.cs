@@ -218,6 +218,48 @@ public class CodexLauncherTests
     // handing it to ContributeBundleAsync. The guard's delivery is
     // therefore covered by AgentBootstrapBundleProviderTests.
 
+    [Fact]
+    public async Task ContributeBundleAsync_StillWritesAgentsMd_RegardlessOfSystemPromptMode()
+    {
+        // #2672 / #2695: Codex CLI has no `--system-prompt-*` flags
+        // and no replace-only env var (openai/codex#11588). The
+        // launcher always writes to the CLI's auto-discovered
+        // `AGENTS.md` — Replace mode is honoured-by-best-effort only
+        // (logged informationally; see PrepareAsync_ReplaceMode test).
+        var contribution = await _launcher.ContributeBundleAsync(
+            CreateBundleContext(),
+            TestContext.Current.CancellationToken);
+
+        contribution.Files.ShouldContainKey("AGENTS.md",
+            "Codex's only system-prompt delivery channel is auto-discovered AGENTS.md " +
+            "until openai/codex#11588 lands per-runtime override flags");
+        contribution.Files.ShouldNotContainKey(".spring/system-prompt.md",
+            "the .spring/ namespace move requires a CLI flag that Codex does not " +
+            "currently expose (openai/codex#11588)");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_ReplaceMode_LogsInfoButOtherwiseUnchanged()
+    {
+        // #2695: Codex honours neither system_prompt_mode. When an
+        // agent declares Replace on a Codex runtime, the launcher logs
+        // an informational message so operators see the mismatch, then
+        // proceeds with the default AGENTS.md delivery channel. Logging
+        // is asserted by hooking the logger; here we sanity-check that
+        // the env contract is unchanged.
+        var context = LauncherCallbackTestSupport.CreateContext(
+            systemPromptMode: Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace);
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        // No Codex equivalent of GEMINI_SYSTEM_MD or
+        // --system-prompt-file exists; nothing about Replace mode
+        // changes the env block produced.
+        prep.EnvironmentVariables.ShouldNotContainKey("GEMINI_SYSTEM_MD");
+        prep.EnvironmentVariables.ShouldNotContainKey("CODEX_SYSTEM_PROMPT");
+        prep.EnvironmentVariables.ShouldContainKey(AgentWorkspaceContract.WorkspacePathEnvVar);
+    }
+
     private const string TestAssembledSystemPrompt = "ASSEMBLED SYSTEM PROMPT FOR TEST";
 
     /// <summary>
