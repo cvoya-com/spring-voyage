@@ -144,11 +144,11 @@ instructions: |
   ## Recording the delegation decision
 
   Delivering a message via `sv.messaging.send` / `sv.messaging.multicast`
-  records only a `MessageSent` activity — the platform does not infer a
+  records only that a message was sent — the platform does not infer a
   delegation *decision* from a delivery. To make the decision itself
   visible to the operator and the portal, call
   `sv.runtime.report_decision`. It records a structured decision
-  activity naming the intended target(s) and the rationale.
+  naming the intended target(s) and the rationale.
 
   On every turn where you delegate (or decide you cannot), call
   `sv.runtime.report_decision` once. The call shape is the same in all

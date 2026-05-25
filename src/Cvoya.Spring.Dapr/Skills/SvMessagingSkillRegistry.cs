@@ -32,6 +32,15 @@ using Microsoft.Extensions.Logging;
 /// list itself in <c>recipients</c>.
 /// </para>
 /// <para>
+/// Recipient kinds are restricted to <c>agent</c> / <c>unit</c> / <c>human</c>
+/// at the tool boundary (#2740). The connector scheme (and any other
+/// non-routable scheme) is rejected synchronously with a validation-class
+/// tool error before tenant / scope resolution happens, so the calling model
+/// gets a locally attributable failure instead of a downstream
+/// <see cref="MessageDeliveryService.EnsureCanReceive"/> rejection. The
+/// downstream guard remains as defence-in-depth on the delivery path.
+/// </para>
+/// <para>
 /// Caller identity is sourced from the MCP session's <see cref="ToolCallContext"/>:
 /// <see cref="ToolCallContext.CallerId"/> + <see cref="ToolCallContext.CallerKind"/>
 /// build the caller address; the tenant is ambient via <see cref="ITenantContext"/>.
@@ -180,6 +189,7 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
                 {
                     throw new ArgumentException($"'{raw}' is not a valid Spring Voyage address.");
                 }
+                EnsureRoutableRecipientScheme(address, toolName);
                 list.Add(address);
             }
             return (list, null);
@@ -191,6 +201,35 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
                 $"'{scopeValue}' is not a valid scope. Use 'unit-members' or 'siblings'.");
         }
         return (null, scope);
+    }
+
+    /// <summary>
+    /// Rejects recipients whose scheme is not one of the routable kinds
+    /// (<c>agent</c> / <c>unit</c> / <c>human</c>) at the tool boundary
+    /// (#2740). The downstream <see cref="MessageDeliveryService.EnsureCanReceive"/>
+    /// catches the same condition with the <c>UnroutableTarget</c> reject
+    /// code, but raising synchronously here means the calling model sees a
+    /// validation-class tool error before any tenant / scope resolution
+    /// happens — the failure is locally attributable to the argument the
+    /// model produced. Connectors are the canonical case: they translate
+    /// external events into inbound messages but do not host mailboxes;
+    /// the same guard rejects other non-routable schemes (for example the
+    /// auth <c>tenant-user</c> scheme) up front.
+    /// </summary>
+    private static void EnsureRoutableRecipientScheme(Address recipient, string toolName)
+    {
+        if (string.Equals(recipient.Scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(recipient.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(recipient.Scheme, Address.HumanScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        throw new ArgumentException(
+            $"{toolName} cannot deliver to '{recipient}': the '{recipient.Scheme}' scheme is non-routable " +
+            $"(UnroutableTarget). Valid recipient kinds are '{Address.AgentScheme}', '{Address.UnitScheme}', " +
+            $"and '{Address.HumanScheme}'. Connectors ('{Address.ConnectorScheme}:<uuid>') appear as the " +
+            "sender of inbound messages but cannot receive — pick a human, agent, or unit recipient instead.");
     }
 
     private static JsonElement SerializeSendResult(SendResult result)
