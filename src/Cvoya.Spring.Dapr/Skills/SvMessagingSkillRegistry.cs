@@ -125,7 +125,7 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         var upstreamThread = ResolveThreadId(context);
         var (recipients, scope) = ParseRecipientsAndScope(arguments, SendTool);
         var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
-        var message = BuildMessage(context, caller, ExtractMessagePayload(arguments));
+        var message = BuildMessage(caller, ExtractMessagePayload(arguments));
 
         var result = await _handlers.HandleSendAsync(
             caller,
@@ -149,7 +149,7 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         var upstreamThread = ResolveThreadId(context);
         var (recipients, scope) = ParseRecipientsAndScope(arguments, MulticastTool);
         var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
-        var message = BuildMessage(context, caller, ExtractMessagePayload(arguments));
+        var message = BuildMessage(caller, ExtractMessagePayload(arguments));
 
         var result = await _handlers.HandleMulticastAsync(
             caller,
@@ -316,16 +316,18 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
     /// Builds the <see cref="Message"/> envelope for a delivery. <c>ThreadId</c>
     /// is intentionally left <c>null</c> (#2596 / ADR-0030): the delivery hop
     /// owns thread identity, so <see cref="MessageDeliveryService"/> resolves
-    /// the thread from the participant set per hop. The message id is the
-    /// inbound-turn message from the session — the per-turn delivery
-    /// authority the callback JWT used to carry as its <c>messageId</c>
-    /// claim (ADR-0051). <c>To</c> is set to the caller as a placeholder;
-    /// the delivery loop overrides it per recipient.
+    /// the thread from the participant set per hop. The id is freshly minted
+    /// per outbound message — the inbound-turn id (carried on
+    /// <see cref="ToolCallContext.MessageId"/>) is the *cause* of the turn,
+    /// not the *identity* of the reply. Stamping the inbound id onto the
+    /// outbound message would dedupe-skip in <c>EfMessageWriter</c> and
+    /// collide on activity-event correlation (#2765). <c>To</c> is set to
+    /// the caller as a placeholder; the delivery loop overrides it per
+    /// recipient.
     /// </summary>
-    private static Message BuildMessage(
-        ToolCallContext context, Address caller, JsonElement payload) =>
+    private static Message BuildMessage(Address caller, JsonElement payload) =>
         new(
-            context.MessageId,
+            Guid.NewGuid(),
             caller,
             caller,
             MessageType.Domain,

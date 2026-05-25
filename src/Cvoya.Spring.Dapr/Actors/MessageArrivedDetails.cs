@@ -86,7 +86,7 @@ public static class MessageArrivedDetails
 
     /// <summary>
     /// Returns the rendered text from <paramref name="payload"/>.
-    /// Recognises two shapes:
+    /// Recognises three shapes:
     /// <list type="bullet">
     ///   <item><description>
     ///     A bare JSON string — the <c>spring message send</c> /
@@ -98,6 +98,14 @@ public static class MessageArrivedDetails
     ///     (<c>{ Output, ExitCode, [Error] }</c>). The <c>Output</c> string is
     ///     returned so the thread surfaces render the agent's natural-language
     ///     reply rather than only the envelope summary line (#1547, #1549).
+    ///   </description></item>
+    ///   <item><description>
+    ///     A JSON object with a <c>content</c> string property — the shape
+    ///     produced by <c>SvMessagingSkillRegistry.ExtractMessagePayload</c>
+    ///     when an agent calls <c>sv.messaging.send</c> with a string
+    ///     <c>message</c> argument (#2767). Without this, the unit-or-agent
+    ///     reply persisted by #2764 surfaces as an empty bubble in the inbox
+    ///     and thread timeline.
     ///   </description></item>
     /// </list>
     /// Returns <c>null</c> for any other shape (structured non-reply payloads,
@@ -115,6 +123,13 @@ public static class MessageArrivedDetails
             && outputProp.ValueKind == JsonValueKind.String)
         {
             return outputProp.GetString();
+        }
+
+        if (payload.ValueKind == JsonValueKind.Object
+            && payload.TryGetProperty("content", out var contentProp)
+            && contentProp.ValueKind == JsonValueKind.String)
+        {
+            return contentProp.GetString();
         }
 
         return null;

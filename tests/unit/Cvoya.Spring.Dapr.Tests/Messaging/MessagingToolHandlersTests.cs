@@ -13,6 +13,7 @@ using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Messaging;
 using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Dapr.Threads;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -425,6 +426,7 @@ public class MessagingToolHandlersTests
 
         services.AddSingleton(Substitute.For<IUnitSubunitMembershipRepository>());
         services.AddScoped<IThreadRegistry>(_ => _threadRegistry);
+        services.AddScoped<IMessageWriter>(_ => new NoOpMessageWriter());
         var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
         var deliveryService = new MessageDeliveryService(
@@ -474,6 +476,20 @@ public class MessagingToolHandlersTests
             Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Content = "work" }),
             DateTimeOffset.UtcNow);
+
+    /// <summary>
+    /// No-op <see cref="IMessageWriter"/> for tests that don't assert on
+    /// persistence. The handlers wire delivery through
+    /// <see cref="MessageDeliveryService.DeliverWithRetryAsync"/>, which
+    /// resolves a writer from each delivery's DI scope (#2764); supplying a
+    /// no-op keeps the scope wiring satisfied without coupling these tests
+    /// to persistence behaviour (covered by <c>MessageDeliveryServiceTests</c>).
+    /// </summary>
+    private sealed class NoOpMessageWriter : IMessageWriter
+    {
+        public Task WriteAsync(Message message, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+    }
 
     /// <summary>
     /// Minimal in-memory <see cref="IThreadRegistry"/>: canonicalises the

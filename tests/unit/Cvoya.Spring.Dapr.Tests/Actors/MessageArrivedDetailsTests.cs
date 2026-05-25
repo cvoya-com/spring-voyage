@@ -80,6 +80,24 @@ public class MessageArrivedDetailsTests
     }
 
     [Fact]
+    public void BuildSummary_SvMessagingContentShape_ReturnsContentText()
+    {
+        // #2767 — sv.messaging.send wraps a string `message` argument as
+        // { content: "..." } before delivery. Without recognising this shape,
+        // the reply persisted by #2764 surfaces as an empty bubble in the
+        // inbox and thread timeline.
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            content = "Hello from Spring Voyage OSS!",
+        });
+        var msg = CreateMessage(payload);
+
+        var summary = MessageArrivedDetails.BuildSummary(msg);
+
+        summary.ShouldBe("Hello from Spring Voyage OSS!");
+    }
+
+    [Fact]
     public void BuildSummary_LongTextPayload_TruncatesWithEllipsis()
     {
         // Summary is a glance-line; the full body still rides on Details.body.
