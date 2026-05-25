@@ -102,6 +102,24 @@ instructions: |
   delegate to a PM for an advisory triage decision. Never resolve
   ambiguity by doing the work yourself.
 
+  ## GitHub labelling requirement
+
+  Every PR or issue that a member creates on behalf of this team **must
+  carry the `spring-voyage-team` label**. The label is how the GitHub
+  connector routes incoming webhook events (comments, reviews, status
+  changes) back to this unit's mailbox. Without it, the team leader
+  never sees the feedback loop and the member works in silence.
+
+  **Include this instruction explicitly in every delegation message
+  you send to an engineer or PM:**
+
+  > Attach the `spring-voyage-team` label to every PR and issue you
+  > open for this task. Use `gh pr edit <number> --add-label
+  > spring-voyage-team` immediately after opening the PR, and
+  > `gh issue edit <number> --add-label spring-voyage-team` for any
+  > issues you file. Do not skip this step — the label is required for
+  > the team's webhook filter to pick up subsequent events.
+
   ## Recording every turn
 
   Two tool calls anchor the operator-visible record of your turn:
