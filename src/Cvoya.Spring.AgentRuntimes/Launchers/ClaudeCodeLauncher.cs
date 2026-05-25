@@ -398,7 +398,7 @@ public class ClaudeCodeLauncher(
     /// </remarks>
     public string? GetWorkspacePromptFragment() =>
         """
-        You are running inside a Debian-based container supervised by the Spring Voyage agent sidecar. The Claude Code CLI (`claude`) is your runtime; the standard image bundles `dotnet`, `gh`, `git`, `node`, and `python3` for general-purpose tooling. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns and container restarts — anything you clone or write under it stays available next turn. The platform's system prompt is delivered to the CLI on every spawn via `--append-system-prompt-file` (or `--system-prompt-file` when an agent declares `system_prompt_mode: replace`); the CLI also auto-discovers its MCP server set from `.mcp.json` at the workspace root, and per-thread session state lives under `$CLAUDE_CONFIG_DIR`.
+        Your runtime is the Claude Code CLI (`claude`). Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns — anything you write under it stays available next turn. The platform's system prompt is delivered to the CLI on every spawn via `--append-system-prompt-file` (or `--system-prompt-file` when an agent declares `system_prompt_mode: replace`); the CLI also auto-discovers its MCP server set from `.mcp.json` at the workspace root, and per-thread session state lives under `$CLAUDE_CONFIG_DIR`.
         """;
 
     /// <inheritdoc />

@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Units;
+using Cvoya.Spring.Dapr.Capabilities;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 // IUnitMembershipRepository is resolved from a scope at runtime (not
@@ -174,6 +175,8 @@ public class DbAgentDefinitionProvider(
     internal static AgentDefinition Project(AgentDefinitionEntity entity)
     {
         string? instructions = null;
+        string? role = null;
+        Cvoya.Spring.Core.Capabilities.ExpertiseDomain[]? expertise = null;
         AgentExecutionConfig? execution = null;
 
         if (entity.Definition is { ValueKind: JsonValueKind.Object } definition)
@@ -184,6 +187,16 @@ public class DbAgentDefinitionProvider(
                 instructions = instructionsProp.GetString();
             }
 
+            // #2741: surface `role:` (identity-side, single-valued) and the
+            // `expertise:` block inline on the projected definition so the
+            // identity-prompt resolver can render them without a round-trip
+            // through sv.directory.lookup. The expertise extractor is shared
+            // with DbExpertiseSeedProvider (#488) so the JSON shape stays
+            // canonical across the two readers.
+            role = GetStringOrNull(definition, "role");
+            var expertiseList = DbExpertiseSeedProvider.ExtractExpertise(definition);
+            expertise = expertiseList is null ? null : expertiseList.ToArray();
+
             execution = ExtractExecution(definition);
         }
 
@@ -191,7 +204,9 @@ public class DbAgentDefinitionProvider(
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entity.Id),
             entity.DisplayName,
             instructions,
-            execution);
+            execution,
+            Role: role,
+            Expertise: expertise);
     }
 
     /// <summary>
@@ -229,6 +244,8 @@ public class DbAgentDefinitionProvider(
         }
 
         string? instructions = null;
+        string? role = null;
+        Cvoya.Spring.Core.Capabilities.ExpertiseDomain[]? expertise = null;
         AgentExecutionConfig? execution = null;
 
         if (unit.Definition is { ValueKind: JsonValueKind.Object } definition)
@@ -238,6 +255,14 @@ public class DbAgentDefinitionProvider(
             {
                 instructions = instructionsProp.GetString();
             }
+
+            // #2741: same identity-side fields as the agent projection so a
+            // unit-as-agent (ADR-0039) renders its role / expertise inline
+            // in the identity section. The unit definition JSON carries the
+            // same shape — `role:` (single) and `expertise:` (list).
+            role = GetStringOrNull(definition, "role");
+            var expertiseList = DbExpertiseSeedProvider.ExtractExpertise(definition);
+            expertise = expertiseList is null ? null : expertiseList.ToArray();
 
             execution = ExtractExecution(definition);
         }
@@ -296,7 +321,9 @@ public class DbAgentDefinitionProvider(
             unit.DisplayName,
             instructions,
             execution,
-            UnitId: Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id));
+            UnitId: Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id),
+            Role: role,
+            Expertise: expertise);
     }
 
     /// <summary>

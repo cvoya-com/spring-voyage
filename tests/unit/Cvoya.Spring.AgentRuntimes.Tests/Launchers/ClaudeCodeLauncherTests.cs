@@ -497,6 +497,26 @@ public class ClaudeCodeLauncherTests
         fragment.ShouldNotContain("GH_TOKEN");
         fragment.ShouldNotContain("GITHUB_TOKEN");
         fragment.ShouldNotContain("worktree");
+
+        // #2742: the launcher fragment describes the CLI-universal
+        // surface (runtime CLI, workspace mount, delivery flags, MCP
+        // discovery, session-state env var). It MUST NOT assert that a
+        // specific image bundles a specific tool set — multiple images
+        // run against the same CLI in v0.1 (software-engineering,
+        // program-management, claude-code-base, …), each with its own
+        // tool inventory. Image-bundled tooling belongs in the
+        // role-specific instructions for that image, not in the
+        // platform-emitted launcher fragment.
+        fragment.ShouldNotContain("standard image bundles");
+        fragment.ShouldNotContain("`dotnet`");
+        fragment.ShouldNotContain("`gh`");
+        fragment.ShouldNotContain("`git`");
+        fragment.ShouldNotContain("`python3`");
+        // Containers / images are platform-internal concerns the agent
+        // cannot act on — #2739 stripped this jargon from the platform
+        // contract, and the launcher fragment should match.
+        fragment.ShouldNotContain("Debian-based container");
+        fragment.ShouldNotContain("Spring Voyage agent sidecar");
     }
 
     private const string BundleContextMcpEndpoint = "http://host.docker.internal:9999/mcp/";

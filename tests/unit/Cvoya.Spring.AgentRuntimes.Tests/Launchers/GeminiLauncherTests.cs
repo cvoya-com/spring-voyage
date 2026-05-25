@@ -393,6 +393,17 @@ public class GeminiLauncherTests
         // so authors know the per-mode delivery channel.
         fragment.ShouldContain("$GEMINI_SYSTEM_MD");
         fragment.ShouldNotContain("worktree");
+
+        // #2742: the launcher fragment is CLI-universal, not image-
+        // specific. Image-bundled tooling moves to per-image profiles
+        // or role-specific instructions.
+        fragment.ShouldNotContain("standard image bundles");
+        fragment.ShouldNotContain("`dotnet`");
+        fragment.ShouldNotContain("`gh`");
+        fragment.ShouldNotContain("`git`");
+        fragment.ShouldNotContain("`python3`");
+        fragment.ShouldNotContain("Debian-based container");
+        fragment.ShouldNotContain("Spring Voyage agent sidecar");
     }
 
     private static AgentBootstrapContributionContext CreateBundleContext(

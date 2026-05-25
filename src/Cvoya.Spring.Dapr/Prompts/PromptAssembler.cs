@@ -16,9 +16,10 @@ using Microsoft.Extensions.Logging;
 /// emitted sub-section inside the first one as <c>### …</c> children
 /// (#2738). The platform-instructions section carries — in order — the
 /// platform-contract block from <see cref="IPlatformPromptProvider"/>
-/// (#2679/#2681), the conditional <c>### Spring Voyage runtime guard
-/// — concurrent_threads is on</c> sub-section (ADR-0041 / #2096, in-
-/// band per #2738), the launch subject's identity section (#2680), the
+/// (#2679/#2681), the conditional <c>### Concurrent threads — per-
+/// thread isolation</c> sub-section (ADR-0041 / #2096, in-band per
+/// #2738; reworded as universal-core per #2745), the launch subject's
+/// identity section (#2680), the
 /// per-runtime container/workspace description (#2682), and the
 /// auto-injected connector context. Thread history is delivered by each
 /// runtime's session-resume mechanism rather than duplicated in the

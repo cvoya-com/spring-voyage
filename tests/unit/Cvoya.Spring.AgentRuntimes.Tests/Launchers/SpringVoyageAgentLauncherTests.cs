@@ -429,7 +429,7 @@ public class SpringVoyageAgentLauncherTests
 
         var composed = prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"];
         composed.ShouldBe(context.Prompt);
-        composed.ShouldNotContain("concurrent_threads is on");
+        composed.ShouldNotContain(LauncherPromptFragments.ConcurrentThreadsGuardAnchor);
     }
 
     /// <summary>
