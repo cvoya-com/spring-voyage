@@ -13,6 +13,7 @@ using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Messaging;
 using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Dapr.Threads;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -289,25 +290,51 @@ public class MessageDeliveryDecisionIntegrationTests
 
     /// <summary>
     /// A scope factory whose scopes resolve an in-memory
-    /// <see cref="IThreadRegistry"/> — the explicit-address multicast / send
+    /// <see cref="IThreadRegistry"/> and a no-op
+    /// <see cref="IMessageWriter"/> — the explicit-address multicast / send
     /// paths exercised here never resolve the membership repositories, but
-    /// the delivery seam re-resolves a per-hop thread (#2596).
+    /// the delivery seam re-resolves a per-hop thread (#2596) and writes the
+    /// outbound envelope to the messages table (#2764).
     /// </summary>
     private sealed class ThreadRegistryServiceScopeFactory
         : IServiceScopeFactory, IServiceScope, IServiceProvider
     {
         private readonly RecordingThreadRegistry _threadRegistry = new();
+        private readonly NoOpMessageWriter _messageWriter = new();
 
         public IServiceScope CreateScope() => this;
 
         public IServiceProvider ServiceProvider => this;
 
-        public object? GetService(Type serviceType) =>
-            serviceType == typeof(IThreadRegistry) ? _threadRegistry : null;
+        public object? GetService(Type serviceType)
+        {
+            if (serviceType == typeof(IThreadRegistry))
+            {
+                return _threadRegistry;
+            }
+
+            if (serviceType == typeof(IMessageWriter))
+            {
+                return _messageWriter;
+            }
+
+            return null;
+        }
 
         public void Dispose()
         {
         }
+    }
+
+    /// <summary>
+    /// No-op <see cref="IMessageWriter"/> for delivery tests that don't
+    /// assert on persistence (#2764). Coverage for the persist-before-deliver
+    /// invariant lives in <c>MessageDeliveryServiceTests</c>.
+    /// </summary>
+    private sealed class NoOpMessageWriter : IMessageWriter
+    {
+        public Task WriteAsync(Message message, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     /// <summary>

@@ -7,6 +7,7 @@ using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Dapr.Threads;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -231,6 +232,20 @@ public class MessageDeliveryService(
             ThreadId = threadId,
         };
 
+        // #2764 / ADR-0030 — persist the outbound envelope before delivery so
+        // the Thread Timeline and inbox queries see the reply. Mirrors the
+        // shape used by MessageRouter.RouteAsync for inbound (API-side)
+        // dispatches; without it, sv.messaging.send replies never land in
+        // spring.messages and the recipient's inbox is empty. The writer is
+        // scoped (EF-backed) while this service is a singleton, so a DI scope
+        // is opened per delivery, matching ResolveHopThreadAsync above. The
+        // write is idempotent on Message.Id; retries that re-enter the loop
+        // hit the existence check and no-op.
+        if (IMessageWriter.ShouldWrite(outbound))
+        {
+            await PersistMessageAsync(outbound, ct);
+        }
+
         var deadline = DateTimeOffset.UtcNow + _deliveryOptions.Budget;
         var backoff = _deliveryOptions.InitialBackoff;
         Exception? lastTransient = null;
@@ -322,6 +337,23 @@ public class MessageDeliveryService(
         using var scope = scopeFactory.CreateScope();
         var threadRegistry = scope.ServiceProvider.GetRequiredService<IThreadRegistry>();
         return await threadRegistry.GetOrCreateAsync(participants, ct);
+    }
+
+    /// <summary>
+    /// Resolves an <see cref="IMessageWriter"/> for the current request scope
+    /// and writes the outbound message envelope (#2764). This service is a
+    /// singleton, so an <see cref="IServiceScopeFactory"/> opens a scope per
+    /// delivery — the same pattern used by <see cref="ResolveHopThreadAsync"/>
+    /// and <see cref="Routing.MessageRouter.PersistMessageAsync"/>.
+    /// Persistence is fail-fast: ADR-0040 makes the EF <c>messages</c> table
+    /// authoritative for thread history, so a write failure must abort the
+    /// dispatch rather than silently deliver an unrecorded message.
+    /// </summary>
+    private async Task PersistMessageAsync(Message message, CancellationToken cancellationToken)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var writer = scope.ServiceProvider.GetRequiredService<IMessageWriter>();
+        await writer.WriteAsync(message, cancellationToken);
     }
 
     private static bool AddressEquals(Address left, Address right) =>

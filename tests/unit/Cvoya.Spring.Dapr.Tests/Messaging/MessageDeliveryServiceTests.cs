@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Messaging;
 using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Dapr.Threads;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -39,6 +40,7 @@ public class MessageDeliveryServiceTests
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly IMessageTenantResolver _tenantResolver = Substitute.For<IMessageTenantResolver>();
     private readonly RecordingThreadRegistry _threadRegistry = new();
+    private readonly RecordingMessageWriter _messageWriter = new();
     private readonly ILogger<MessageDeliveryService> _logger =
         Substitute.For<ILogger<MessageDeliveryService>>();
 
@@ -216,6 +218,63 @@ public class MessageDeliveryServiceTests
     }
 
     [Fact]
+    public async Task DeliverWithRetry_PersistsOutboundEnvelopeBeforeDelivery()
+    {
+        // #2764 — sv.messaging.send replies must land in spring.messages so
+        // the recipient's inbox and the thread timeline see them. The
+        // persistence call mirrors MessageRouter.RouteAsync: a scoped
+        // IMessageWriter writes the outbound envelope (with the hop-resolved
+        // thread id) before the actor proxy is invoked.
+        var caller = new Address(Address.UnitScheme, Guid.NewGuid());
+        var target = new Address(Address.AgentScheme, Guid.NewGuid());
+        var agent = Substitute.For<IAgent>();
+        Message? deliveredEnvelope = null;
+        _agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns(agent);
+        agent.ReceiveAsync(Arg.Do<Message>(m => deliveredEnvelope = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+
+        var service = CreateService();
+        await service.DeliverWithRetryAsync(caller, target, CreateMessage(), CancellationToken.None);
+
+        _messageWriter.Written.Count.ShouldBe(1);
+        deliveredEnvelope.ShouldNotBeNull();
+        // The persisted envelope and the delivered envelope are the same
+        // record — same id, same hop-resolved thread, same From/To rewrite.
+        _messageWriter.Written[0].Id.ShouldBe(deliveredEnvelope!.Id);
+        _messageWriter.Written[0].ThreadId.ShouldBe(deliveredEnvelope.ThreadId);
+        _messageWriter.Written[0].From.ShouldBe(caller);
+        _messageWriter.Written[0].To.ShouldBe(target);
+    }
+
+    [Fact]
+    public async Task DeliverWithRetry_TransientThenSuccess_PersistsOnce()
+    {
+        // The writer is idempotent on Message.Id, but the delivery loop
+        // should persist before the retry loop — not inside it — so a
+        // transient delivery failure does not produce duplicate write
+        // attempts.
+        var caller = new Address(Address.UnitScheme, Guid.NewGuid());
+        var target = new Address(Address.AgentScheme, Guid.NewGuid());
+        var agent = Substitute.For<IAgent>();
+        var attempts = 0;
+        _agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns(agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                attempts++;
+                return attempts < 2
+                    ? throw new InvalidOperationException("transient dapr hiccup")
+                    : Task.FromResult<Message?>(null);
+            });
+
+        var service = CreateService();
+        await service.DeliverWithRetryAsync(caller, target, CreateMessage(), CancellationToken.None);
+
+        attempts.ShouldBe(2);
+        _messageWriter.Written.Count.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task DeliverWithRetry_SameCallerAndTarget_ReuseHopThread()
     {
         // #2596 / ADR-0030 — the same participant set always resolves to the
@@ -242,7 +301,7 @@ public class MessageDeliveryServiceTests
             _agentProxyResolver,
             _actorProxyFactory,
             _tenantResolver,
-            ScopeFactoryWith(_threadRegistry),
+            ScopeFactoryWith(_threadRegistry, _messageWriter),
             _logger,
             Options.Create(new MessageDeliveryOptions
             {
@@ -252,10 +311,12 @@ public class MessageDeliveryServiceTests
                 MaxHopCount = maxHopCount,
             }));
 
-    private static IServiceScopeFactory ScopeFactoryWith(IThreadRegistry registry)
+    private static IServiceScopeFactory ScopeFactoryWith(
+        IThreadRegistry registry, IMessageWriter writer)
     {
         var services = new ServiceCollection();
         services.AddScoped<IThreadRegistry>(_ => registry);
+        services.AddScoped<IMessageWriter>(_ => writer);
         return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
 
@@ -268,6 +329,27 @@ public class MessageDeliveryServiceTests
             Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Content = "work" }),
             DateTimeOffset.UtcNow);
+
+    /// <summary>
+    /// Minimal in-memory <see cref="IMessageWriter"/>: records every call so
+    /// tests can assert the outbound envelope was persisted before delivery
+    /// (#2764). Re-write of an already-recorded id is silently no-op'd,
+    /// matching the EF-backed writer's idempotency contract.
+    /// </summary>
+    private sealed class RecordingMessageWriter : IMessageWriter
+    {
+        public List<Message> Written { get; } = new();
+
+        public Task WriteAsync(Message message, CancellationToken cancellationToken = default)
+        {
+            if (!Written.Any(m => m.Id == message.Id))
+            {
+                Written.Add(message);
+            }
+
+            return Task.CompletedTask;
+        }
+    }
 
     /// <summary>
     /// Minimal in-memory <see cref="IThreadRegistry"/>: canonicalises the
