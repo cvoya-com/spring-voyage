@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "sv.messaging.multicast.input",
-  "description": "Input for sv.messaging.multicast — a one-way message-delivery tool that delivers the same message to every recipient on its own INDEPENDENT 1-1 THREAD identified by {caller, recipient_i}. Each recipient sees only itself in the inbound envelope's `to` field and only this pair's history via sv.memory.history_with. Supply exactly one of `recipients` or `scope`. The calling participant is auto-included in each pair's thread — do not list yourself in `recipients`. Use sv.messaging.send when you want every recipient on a single shared thread. The platform delivers messages; it does NOT wait for or return the recipients' replies.",
+  "description": "Input for sv.messaging.multicast — a one-way message-delivery tool that delivers the same message to every recipient on its own INDEPENDENT 1-1 THREAD identified by {caller, recipient_i}. Each recipient sees only itself in the inbound envelope's `to` field and only this pair's history via sv.memory.history_with. Supply exactly one of `recipients` or `scope`. The calling participant is auto-included in each pair's thread — do not list yourself in `recipients`. Valid recipient kinds are humans, agents, and units; connector addresses (`connector:<uuid>`) appear on inbound messages as a sender but are non-routable as recipients and are rejected synchronously with an UnroutableTarget error. Use sv.messaging.send when you want every recipient on a single shared thread. Delivery is one-way: the call returns a per-recipient delivery acknowledgement; any response from a recipient arrives later as a separate inbound message.",
   "type": "object",
   "properties": {
     "recipients": {
       "type": "array",
       "minItems": 1,
-      "description": "Explicit recipient list. Each entry is a canonical address (`agent:<32-hex>`, `unit:<32-hex>`, `human:<32-hex>`) of a participant in the caller's tenant. Connectors (`connector:<32-hex>`) are non-routable and are rejected with an UnroutableTarget error. Mutually exclusive with `scope`.",
+      "description": "Explicit recipient list. Each entry is a canonical address with a routable scheme — `agent:<32-hex>`, `unit:<32-hex>`, or `human:<32-hex>` — for a participant in the caller's tenant. Connectors (`connector:<32-hex>`) and other non-routable schemes are rejected synchronously with an UnroutableTarget error. Mutually exclusive with `scope`.",
       "items": {
         "type": "string",
-        "description": "Canonical scheme:no-dash-hex address of a recipient."
+        "description": "Canonical scheme:no-dash-hex address of a recipient (humans, agents, or units only)."
       }
     },
     "scope": {
@@ -23,7 +23,7 @@
     },
     "reason": {
       "type": ["string", "null"],
-      "description": "Optional rationale recorded verbatim on the MessageSent activity. Never the model's hidden chain-of-thought."
+      "description": "Optional rationale recorded verbatim alongside each per-recipient delivery record. Never the model's hidden chain-of-thought."
     }
   },
   "required": ["message"],

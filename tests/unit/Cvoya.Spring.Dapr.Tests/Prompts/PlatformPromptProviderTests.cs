@@ -104,7 +104,9 @@ public class PlatformPromptProviderTests
     /// <summary>
     /// Pins the no-echo guidance — agents must not mirror the
     /// timestamp / sender prefix used in the conversation history into
-    /// their replies.
+    /// the messages they compose. Per #2740 the verb is "respond", not
+    /// "reply", so the framing does not suggest swapping the inbound
+    /// envelope's `from` / `to` fields blindly.
     /// </summary>
     [Fact]
     public async Task GetPlatformPromptAsync_IncludesNoEchoInstruction()
@@ -113,14 +115,15 @@ public class PlatformPromptProviderTests
 
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
-        result.ShouldContain("Reply with natural-language text only.");
+        result.ShouldContain("Respond with natural-language text only.");
         result.ShouldContain("Do not echo timestamps or sender prefixes");
     }
 
     /// <summary>
-    /// Pins the one-way messaging guidance: domain messaging is one-way,
-    /// so the agent must act on an inbound message rather than composing
-    /// a reply to a caller that is not waiting on a return value.
+    /// Pins the one-way messaging guidance: an inbound message is a
+    /// notification, not a request awaiting a return value, so the agent
+    /// acts on it rather than composing output addressed back at a
+    /// caller that is not waiting on a return value (#2740).
     /// </summary>
     [Fact]
     public async Task GetPlatformPromptAsync_IncludesOneWayMessagingModel()
@@ -129,25 +132,29 @@ public class PlatformPromptProviderTests
 
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
-        result.ShouldContain("Messages on this platform are one-way.");
+        result.ShouldContain("An inbound message is a notification, not a request awaiting a return value");
         result.ShouldContain("do not address your output as if returning a value to a caller");
     }
 
     /// <summary>
-    /// Pins the ADR-0056 clause: stdout is diagnostic; replies are
-    /// tool calls. The whole reason the contract exists.
+    /// Pins the ADR-0056 clause: stdout is diagnostic; visible actions
+    /// are tool calls. The whole reason the contract exists. Per #2739
+    /// the prose no longer names the platform-internal
+    /// <c>RuntimeCompletedSilent</c> activity (an agent cannot reason
+    /// about platform activity names); the clause states what the agent
+    /// can act on — a turn that writes only stdout delivers nothing.
     /// </summary>
     [Fact]
-    public async Task GetPlatformPromptAsync_DeclaresStdoutDiagnosticAndRepliesAreToolCalls()
+    public async Task GetPlatformPromptAsync_DeclaresStdoutDiagnosticAndVisibleActionsAreToolCalls()
     {
         var provider = new PlatformPromptProvider();
 
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
-        result.ShouldContain("Terminal output (stdout) is captured as a diagnostic reasoning trace only");
+        result.ShouldContain("Terminal output (stdout) is captured as a diagnostic reasoning trace");
         result.ShouldContain("NOT delivered");
         result.ShouldContain("sv.messaging.send");
-        result.ShouldContain("RuntimeCompletedSilent");
+        result.ShouldContain("delivers nothing to anyone");
     }
 
     /// <summary>
@@ -166,8 +173,13 @@ public class PlatformPromptProviderTests
     }
 
     /// <summary>
-    /// #2681 (with @savasp's comment): communication with humans,
-    /// agents, and units happens through <c>sv.messaging.*</c> for v0.1.
+    /// #2681 (with @savasp's comment) / #2739: communication with humans,
+    /// agents, and units happens through the messaging tools. The
+    /// clause names the two tools explicitly rather than the
+    /// <c>sv.messaging.*</c> namespace glob (the agent sees a literal
+    /// tool list, not a namespace), and names the three valid recipient
+    /// kinds so the platform-correct framing lands without referring
+    /// the runtime to anywhere else.
     /// </summary>
     [Fact]
     public async Task GetPlatformPromptAsync_EmphasisesMessagingAsTheCommunicationChannel()
@@ -176,13 +188,19 @@ public class PlatformPromptProviderTests
 
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
-        result.ShouldContain("Communicate with humans, agents, and units through `sv.messaging.*`");
+        result.ShouldContain("Send messages to humans, agents, and units through the messaging tools");
+        result.ShouldContain("`sv.messaging.send`");
+        result.ShouldContain("`sv.messaging.multicast`");
     }
 
     /// <summary>
-    /// #2681 (with @savasp's comment): a concrete non-example shows that
-    /// emitting plaintext to stdout is not a reply — the runtime must
-    /// invoke the messaging tool.
+    /// #2681 (with @savasp's comment) / #2740: a concrete non-example
+    /// shows that emitting plaintext to stdout reaches no one — the
+    /// runtime must invoke the messaging tool. The example uses the
+    /// real <c>sv.messaging.send</c> shape (a <c>recipients</c> array,
+    /// never <c>thread_id</c>) so a runtime cold-reading the prompt
+    /// forms the right tool-call shape on the first try (#2739
+    /// schema-mismatch fix).
     /// </summary>
     [Fact]
     public async Task GetPlatformPromptAsync_IncludesHelloNonExample()
@@ -192,14 +210,15 @@ public class PlatformPromptProviderTests
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
         result.ShouldContain("hello back to you");
-        result.ShouldContain("MUST call the messaging tool");
+        result.ShouldContain("The tool call is the only way the message is delivered");
+        result.ShouldContain("sv.messaging.send(recipients=[\"human:abc123\"]");
     }
 
     /// <summary>
     /// #2681 (with @savasp's comment): the contract does NOT say "use
     /// only the tools described in this prompt" — tools are discoverable
     /// at runtime via the discovery tools, so the catalog enumerated
-    /// here is the always-available core, not a closed set.
+    /// here is the core every agent gets, not a closed set.
     /// </summary>
     [Fact]
     public async Task GetPlatformPromptAsync_DoesNotClaimCatalogIsClosedSet()
@@ -208,15 +227,18 @@ public class PlatformPromptProviderTests
 
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
-        result.ShouldContain("always-available core, not the closed set");
+        result.ShouldContain("core every agent gets, not the closed set");
     }
 
     /// <summary>
-    /// Pins the #2670 acceptance: the always-available platform-tool
-    /// catalog is named in the platform-instructions section itself, so
-    /// an agent reading the prompt cold sees every fundamental-core tool
-    /// by name with a one-line purpose — no skill bundle is required to
-    /// surface it, and no downstream section should duplicate it.
+    /// Pins the #2670 acceptance: the platform-tool catalog is named in
+    /// the platform-instructions section itself, so an agent reading the
+    /// prompt cold sees every fundamental-core tool by name with a
+    /// one-line purpose. No downstream section duplicates it. Per #2739
+    /// the catalog heading no longer uses the "always available,
+    /// regardless of equipped skill bundles" qualifier (an agent has no
+    /// model of skill bundles or tool lifetimes — its tool list is
+    /// authoritative).
     /// </summary>
     [Fact]
     public async Task GetPlatformPromptAsync_NamesEveryFundamentalCoreToolWithOneLinePurpose()
@@ -226,8 +248,8 @@ public class PlatformPromptProviderTests
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
         // The catalog heading is the load-bearing signal that anything
-        // following it is the always-available core.
-        result.ShouldContain("Platform-tool catalog (always available");
+        // following it is the core tool surface every agent gets.
+        result.ShouldContain("Platform-tool catalog");
 
         // ADR-0056 §8 fundamental-core list — every name and nothing
         // extra. Renaming or dropping a tool here must update the ADR
@@ -425,5 +447,104 @@ public class PlatformPromptProviderTests
 
         result.ShouldContain("UnroutableTarget");
         result.ShouldContain("non-routable");
+    }
+
+    /// <summary>
+    /// #2739 acceptance: the platform-contract layer carries no
+    /// platform-internal jargon — the agent cannot reason about
+    /// platform activity event types, container nouns, or
+    /// skill-bundle / equipped vocabulary, so naming them in the
+    /// instructions leaves the model with terms it cannot act on.
+    /// The terms still appear in operator-facing surfaces (the
+    /// activity event-type enum, infrastructure logs, the package
+    /// authoring docs) — this test only pins their absence from the
+    /// prompt text the platform delivers to a runtime.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_DoesNotContainPlatformInternalJargon()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        // Activity event-type names — internal terminology operators
+        // see in the activity stream, not actionable for the model.
+        result.ShouldNotContain("RuntimeCompletedSilent");
+        result.ShouldNotContain("MessageSent activity");
+
+        // The agent does not know it is running in a container — drop
+        // the noun where it was used as a platform-internal scope.
+        result.ShouldNotContain("this container");
+
+        // Package-authoring vocabulary — the model just sees its tool
+        // list, not a notion of "equipped skill bundles".
+        result.ShouldNotContain("skill bundle");
+        result.ShouldNotContain("Equipped skill");
+        result.ShouldNotContain("equipped skill");
+    }
+
+    /// <summary>
+    /// #2740 acceptance: "reply" is not the messaging-action verb in
+    /// the platform contract. Reply suggests blindly inverting the
+    /// inbound envelope's <c>from</c> / <c>to</c> fields. The verbs
+    /// the contract uses — "send", "compose", "respond", "communicate" —
+    /// frame each outbound message as a deliberate choice about whom
+    /// to address.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_DoesNotUseReplyAsTheMessagingActionVerb()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        // No "reply" / "replies" anywhere in the prompt text — the
+        // word survives only in code comments (XML doc) that describe
+        // what was deliberately removed.
+        result.ShouldNotContain("reply");
+        result.ShouldNotContain("Reply");
+        result.ShouldNotContain("replies");
+    }
+
+    /// <summary>
+    /// #2740 acceptance: the contract names the three routable
+    /// recipient kinds explicitly so the agent knows up front that
+    /// connector addresses are senders only.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_NamesValidRecipientKindsExplicitly()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("Send messages to humans, agents, and units");
+        result.ShouldContain("`human:<uuid>`");
+        result.ShouldContain("`agent:<uuid>`");
+        result.ShouldContain("`unit:<uuid>`");
+        result.ShouldContain("Connector addresses (`connector:<uuid>`)");
+    }
+
+    /// <summary>
+    /// #2739 acceptance: the worked example uses the real
+    /// <c>sv.messaging.send</c> shape (the tool takes a
+    /// <c>recipients</c> array, not a <c>thread_id</c> argument). A
+    /// runtime cold-reading the prompt and copying the example
+    /// produces a valid tool call on the first try.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_WorkedExampleUsesRecipientsArrayNotThreadId()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("sv.messaging.send(recipients=[\"human:abc123\"], message=\"hello back to you\")");
+
+        // The pre-#2747 shape — `thread_id=...` and `body=...` — has
+        // never matched the wire schema and must not reappear in the
+        // worked example.
+        result.ShouldNotContain("thread_id=");
+        result.ShouldNotContain("body=");
     }
 }
