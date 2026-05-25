@@ -333,6 +333,7 @@ public static class InboxEndpoints
     private static async Task<IResult> ListInboxAsync(
         IThreadQueryService queryService,
         IAuthenticatedCallerAccessor callerAccessor,
+        IInboxIdentityResolver inboxIdentityResolver,
         IActorProxyFactory actorProxyFactory,
         IParticipantDisplayNameResolver resolver,
         CancellationToken cancellationToken)
@@ -346,40 +347,94 @@ public static class InboxEndpoints
                 detail: "No authenticated caller identity available.",
                 statusCode: StatusCodes.Status401Unauthorized);
         }
-        // callerAddress is the canonical form used to match activity event
-        // sources. Every address renders as scheme:no-dash-guid post-#1629
-        // (ADR-0036); the identity vs navigation distinction is gone.
-        var callerAddress = caller.ToString();
 
-        // Fetch the caller's per-thread read cursors from their HumanActor so
-        // the query service can compute UnreadCount per row.
-        IReadOnlyDictionary<string, DateTimeOffset>? lastReadAt = null;
-        try
+        // #2766: resolve the calling TenantUser to the set of HumanEntity
+        // ids the inbox query should match against. OSS-default returns
+        // every Human in the tenant; cloud overlay walks the explicit
+        // Human → TenantUser mapping table.
+        var humanIds = await inboxIdentityResolver.ResolveHumanIdsAsync(caller, cancellationToken);
+        if (humanIds.Count == 0)
         {
-            var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
-                new ActorId(caller.Path), nameof(HumanActor));
-            var entries = await humanProxy.GetLastReadAtAsync(cancellationToken);
-            lastReadAt = entries.ToDictionary(e => e.ThreadId, e => e.LastReadAt);
-        }
-        catch
-        {
-            // Actor unavailable — proceed without unread data; all items get UnreadCount=0.
+            return Results.Ok(Array.Empty<InboxItemResponse>());
         }
 
-        var items = await queryService.ListInboxAsync(callerAddress, lastReadAt, cancellationToken);
+        // Merge per-HumanActor read cursors. Each mapped Human has its
+        // own HumanActor with its own cursor; the merged map biases
+        // toward "fewer unread" (latest cursor per thread wins) so the
+        // operator does not see inflated unread counts across the fan-in
+        // set.
+        var lastReadAt = await LoadMergedReadCursorsAsync(humanIds, actorProxyFactory, cancellationToken);
+
+        var items = await queryService.ListInboxAsync(humanIds, lastReadAt, cancellationToken);
         var enriched = await EnrichInboxItemsAsync(items, resolver, cancellationToken);
         return Results.Ok(enriched);
     }
 
     /// <summary>
+    /// Reads per-thread read cursors from every <see cref="HumanActor"/>
+    /// in the supplied set and merges them with "most-recent cursor wins"
+    /// per thread id. The merged cursor is the conservative bound used by
+    /// the inbox query's unread computation — a thread is unread if
+    /// <em>any</em> of the caller's mapped humans has unseen messages on
+    /// it, so picking the most-recent cursor per thread biases toward
+    /// "fewer unread" rather than overcounting.
+    /// </summary>
+    private static async Task<IReadOnlyDictionary<string, DateTimeOffset>?> LoadMergedReadCursorsAsync(
+        IReadOnlyCollection<Guid> humanIds,
+        IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        Dictionary<string, DateTimeOffset>? merged = null;
+        foreach (var humanId in humanIds)
+        {
+            try
+            {
+                var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
+                    new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(humanId)),
+                    nameof(HumanActor));
+                var entries = await humanProxy.GetLastReadAtAsync(cancellationToken);
+                if (entries.Length == 0)
+                {
+                    continue;
+                }
+
+                merged ??= new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+                foreach (var entry in entries)
+                {
+                    if (!merged.TryGetValue(entry.ThreadId, out var existing) || entry.LastReadAt > existing)
+                    {
+                        merged[entry.ThreadId] = entry.LastReadAt;
+                    }
+                }
+            }
+            catch
+            {
+                // Per-human actor unavailable — continue with the rest.
+                // The query service tolerates a null overall cursor; a
+                // partial map just means the unaffected humans' cursors
+                // still apply.
+            }
+        }
+
+        return merged;
+    }
+
+    /// <summary>
     /// Records <c>now</c> as the read cursor for <paramref name="threadId"/>
-    /// on the caller's <see cref="IHumanActor"/>. Idempotent — repeated calls
-    /// only advance the cursor. Returns the updated <see cref="InboxItemResponse"/> so
+    /// on the <see cref="HumanActor"/> backing the specific recipient of
+    /// the latest pending message on the thread (#2766). Pre-fix this
+    /// advanced the caller's login HumanActor cursor — which was the
+    /// wrong row when the inbox-pending entry was addressed to a
+    /// different mapped Human (e.g. the OSS overall-lead). The endpoint
+    /// resolves the correct HumanActor by inspecting the refreshed inbox
+    /// row's <c>Human</c> field. Idempotent — repeated calls only advance
+    /// the cursor. Returns the updated <see cref="InboxItemResponse"/> so
     /// the portal can reconcile the cache in one round-trip.
     /// </summary>
     private static async Task<IResult> MarkReadAsync(
         string threadId,
         IAuthenticatedCallerAccessor callerAccessor,
+        IInboxIdentityResolver inboxIdentityResolver,
         IThreadQueryService queryService,
         IActorProxyFactory actorProxyFactory,
         IParticipantDisplayNameResolver resolver,
@@ -395,34 +450,65 @@ public static class InboxEndpoints
         var caller = await callerAccessor.GetCallerAddressAsync(cancellationToken);
         if (caller is null)
         {
-            // mark-read writes a per-thread read cursor on the caller's
-            // HumanActor; without an identity there is nothing to advance
-            // (#2405).
+            // mark-read writes a per-thread read cursor on a HumanActor;
+            // without an identity there is nothing to advance (#2405).
             return Results.Problem(
                 detail: "No authenticated caller identity available.",
                 statusCode: StatusCodes.Status401Unauthorized);
         }
-        var readAt = DateTimeOffset.UtcNow;
 
-        var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
-            new ActorId(caller.Path), nameof(HumanActor));
-
-        await humanProxy.MarkReadAsync(threadId, readAt, cancellationToken);
-
-        // Return the refreshed inbox item (UnreadCount should now be 0).
-        var entries = await humanProxy.GetLastReadAtAsync(cancellationToken);
-        var lastReadAt = entries.ToDictionary(e => e.ThreadId, e => e.LastReadAt);
-        // The address always renders as scheme:no-dash-guid post-#1629; the
-        // identity vs navigation distinction is gone.
-        var callerAddress = caller.ToString();
-        var items = await queryService.ListInboxAsync(callerAddress, lastReadAt, cancellationToken);
-        var rawUpdated = items.FirstOrDefault(i => string.Equals(i.ThreadId, threadId, StringComparison.Ordinal));
-
-        if (rawUpdated is null)
+        var humanIds = await inboxIdentityResolver.ResolveHumanIdsAsync(caller, cancellationToken);
+        if (humanIds.Count == 0)
         {
             return Results.Problem(
                 detail: $"Thread '{threadId}' not found in inbox.",
                 statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // Find the inbox row for this thread to identify which mapped
+        // HumanActor received the pending message. The same query also
+        // returns the post-mark snapshot we hand back below, so the
+        // round-trip is a single ListInboxAsync after the cursor write.
+        var preItems = await queryService.ListInboxAsync(humanIds, lastReadAt: null, cancellationToken);
+        var targetRow = preItems.FirstOrDefault(i =>
+            string.Equals(i.ThreadId, threadId, StringComparison.Ordinal));
+        if (targetRow is null)
+        {
+            return Results.Problem(
+                detail: $"Thread '{threadId}' not found in inbox.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (!Address.TryParse(targetRow.Human, out var recipientAddress) || recipientAddress is null)
+        {
+            // The inbox row's Human field is written by RenderAddress in
+            // canonical form; a parse failure means an upstream invariant
+            // broke. Surface as 500-via-Problem rather than the previous
+            // silent no-op.
+            return Results.Problem(
+                detail: $"Inbox row for thread '{threadId}' carried a malformed recipient address '{targetRow.Human}'.",
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        var readAt = DateTimeOffset.UtcNow;
+        var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
+            new ActorId(recipientAddress.Path), nameof(HumanActor));
+        await humanProxy.MarkReadAsync(threadId, readAt, cancellationToken);
+
+        // Recompute the inbox with the post-mark cursor map so the
+        // returned item carries the correct UnreadCount (typically 0).
+        var lastReadAt = await LoadMergedReadCursorsAsync(humanIds, actorProxyFactory, cancellationToken);
+        var items = await queryService.ListInboxAsync(humanIds, lastReadAt, cancellationToken);
+        var rawUpdated = items.FirstOrDefault(i => string.Equals(i.ThreadId, threadId, StringComparison.Ordinal));
+
+        if (rawUpdated is null)
+        {
+            // The row dropped from the inbox between the two passes —
+            // typically because mark-read advanced the cursor past the
+            // last pending message. Fall back to the pre-mark snapshot
+            // so the portal still gets a 200 with the now-resolved
+            // identity.
+            rawUpdated = targetRow with { UnreadCount = 0 };
         }
 
         var updated = await EnrichInboxItemAsync(rawUpdated, resolver, cancellationToken);

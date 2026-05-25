@@ -14,6 +14,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.AspNetCore.Http;
@@ -84,6 +85,7 @@ public static class ActivityEndpoints
 
     private static async Task StreamActivityAsync(
         HttpContext httpContext,
+        IAuthenticatedCallerAccessor callerAccessor,
         IActivityEventBus activityEventBus,
         IUnitActivityObservable unitActivityObservable,
         IPermissionService permissionService,
@@ -100,8 +102,8 @@ public static class ActivityEndpoints
     {
         var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.ActivityEndpoints");
 
-        var humanId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(humanId))
+        var caller = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (caller is null)
         {
             httpContext.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
@@ -115,11 +117,17 @@ public static class ActivityEndpoints
         IObservable<ActivityEvent> stream;
         if (!string.IsNullOrEmpty(unitId))
         {
+            if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitId, out var unitGuid))
+            {
+                httpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+                return;
+            }
+
             // Hierarchy-aware (#414): a Viewer on an ancestor can observe
             // the activity of any descendant unit unless the descendant is
             // marked UnitPermissionInheritance.Isolated.
             var permission = await permissionService
-                .ResolveEffectivePermissionAsync(humanId, unitId, cancellationToken);
+                .ResolveEffectivePermissionAsync(caller, unitGuid, cancellationToken);
 
             if (permission is null || permission.Value < PermissionLevel.Viewer)
             {
@@ -136,7 +144,7 @@ public static class ActivityEndpoints
             // Resolution is cached per-(source-scheme,source-path) for the
             // lifetime of the subscription so a chatty agent inside an
             // authorised unit doesn't cause a storm of actor proxy calls.
-            stream = ApplyPlatformPermissionFilter(stream, humanId, permissionService, logger);
+            stream = ApplyPlatformPermissionFilter(stream, caller, permissionService, logger);
         }
 
         if (!string.IsNullOrEmpty(source))
@@ -218,7 +226,7 @@ public static class ActivityEndpoints
             },
             ex =>
             {
-                logger.LogWarning(ex, "Activity SSE stream faulted for human {HumanId}.", humanId);
+                logger.LogWarning(ex, "Activity SSE stream faulted for caller {Caller}.", caller);
                 channel.Writer.TryComplete(ex);
             },
             () => channel.Writer.TryComplete());
@@ -289,28 +297,28 @@ public static class ActivityEndpoints
     /// </summary>
     private static IObservable<ActivityEvent> ApplyPlatformPermissionFilter(
         IObservable<ActivityEvent> source,
-        string humanId,
+        Address caller,
         IPermissionService permissionService,
         ILogger logger)
     {
-        var cache = new System.Collections.Concurrent.ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
+        var cache = new System.Collections.Concurrent.ConcurrentDictionary<Guid, bool>();
 
         return source.SelectMany(evt =>
         {
-            if (!evt.Source.Scheme.Equals("unit", StringComparison.OrdinalIgnoreCase))
+            if (!evt.Source.Scheme.Equals(Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
             {
                 return Observable.Return(evt);
             }
 
-            // Fast path: permission already resolved for this unit path in this session.
-            if (cache.TryGetValue(evt.Source.Path, out var cached))
+            // Fast path: permission already resolved for this unit id in this session.
+            if (cache.TryGetValue(evt.Source.Id, out var cached))
             {
                 return cached ? Observable.Return(evt) : Observable.Empty<ActivityEvent>();
             }
 
-            // Slow path: first event from this unit path — resolve asynchronously so
+            // Slow path: first event from this unit — resolve asynchronously so
             // the event-publisher thread is not blocked. Two concurrent first-events
-            // for the same path may both call ResolveEffectivePermissionAsync; TryAdd
+            // for the same unit may both call ResolveEffectivePermissionAsync; TryAdd
             // is idempotent and both yield the same deterministic result.
             return Observable.FromAsync(async () =>
                 {
@@ -320,17 +328,17 @@ public static class ActivityEndpoints
                         // so a Viewer on an ancestor unit can observe events from
                         // descendant units without a direct grant on each one.
                         var permission = await permissionService
-                            .ResolveEffectivePermissionAsync(humanId, evt.Source.Path, CancellationToken.None);
+                            .ResolveEffectivePermissionAsync(caller, evt.Source.Id, CancellationToken.None);
                         var allowed = permission.HasValue && permission.Value >= PermissionLevel.Viewer;
-                        cache.TryAdd(evt.Source.Path, allowed);
+                        cache.TryAdd(evt.Source.Id, allowed);
                         return allowed;
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex,
-                            "Permission lookup failed for human {HumanId} on unit {UnitId}; denying.",
-                            humanId, evt.Source.Path);
-                        cache.TryAdd(evt.Source.Path, false);
+                            "Permission lookup failed for caller {Caller} on unit {UnitId}; denying.",
+                            caller, evt.Source.Id);
+                        cache.TryAdd(evt.Source.Id, false);
                         return false;
                     }
                 })

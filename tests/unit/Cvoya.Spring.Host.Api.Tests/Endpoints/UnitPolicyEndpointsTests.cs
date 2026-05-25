@@ -63,9 +63,11 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         // The UnitViewer gate runs before the handler; arrange a permissive
         // grant so the test observes the handler's 404 (the declared
         // behaviour under test) rather than the gate's 403.
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, ghostId.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), ghostId, Arg.Any<CancellationToken>())
             .Returns(PermissionLevel.Owner);
 
         var response = await _client.GetAsync($"/api/v1/tenant/units/{ghostId:N}/policy", ct);
@@ -252,9 +254,11 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         // The UnitOwner gate runs before the handler; arrange a permissive
         // grant so the test observes the handler's 404 (the declared
         // behaviour under test) rather than the gate's 403.
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, ghostId.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), ghostId, Arg.Any<CancellationToken>())
             .Returns(PermissionLevel.Owner);
 
         var response = await _client.PutAsJsonAsync(
@@ -292,9 +296,11 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
                 "Engineering unit v1",
                 null,
                 DateTimeOffset.UtcNow));
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitIdV1.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), unitIdV1, Arg.Any<CancellationToken>())
             .Returns(PermissionLevel.Owner);
 
         // Write a policy on the first unit instance.
@@ -323,9 +329,11 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
                 "Engineering unit v2",
                 null,
                 DateTimeOffset.UtcNow));
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitIdV2.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), unitIdV2, Arg.Any<CancellationToken>())
             .Returns(PermissionLevel.Owner);
 
         // The new unit instance must see no policy (empty) — the old policy
@@ -368,9 +376,11 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         // The endpoints are gated by UnitOwner / UnitViewer policies (#1001).
         // The happy-path tests in this file write then read the policy, so
         // arrange Owner on the LocalDev caller so both verbs are allowed.
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitId.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), unitId, Arg.Any<CancellationToken>())
             .Returns(PermissionLevel.Owner);
     }
 }

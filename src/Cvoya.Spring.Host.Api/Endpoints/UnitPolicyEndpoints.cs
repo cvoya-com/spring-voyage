@@ -67,7 +67,7 @@ public static class UnitPolicyEndpoints
 
     private static async Task<IResult> GetPolicyAsync(
         string id,
-        HttpContext httpContext,
+        [FromServices] IAuthenticatedCallerAccessor callerAccessor,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IPermissionService permissionService,
         [FromServices] IUnitPolicyRepository repository,
@@ -78,7 +78,7 @@ public static class UnitPolicyEndpoints
             PermissionLevel.Viewer,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {
@@ -97,7 +97,7 @@ public static class UnitPolicyEndpoints
     private static async Task<IResult> SetPolicyAsync(
         string id,
         UnitPolicyResponse request,
-        HttpContext httpContext,
+        [FromServices] IAuthenticatedCallerAccessor callerAccessor,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IPermissionService permissionService,
         [FromServices] IUnitPolicyRepository repository,
@@ -108,7 +108,7 @@ public static class UnitPolicyEndpoints
             PermissionLevel.Owner,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {

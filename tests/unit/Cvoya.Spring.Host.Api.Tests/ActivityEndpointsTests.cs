@@ -314,13 +314,16 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
 
+        // #2768: the permission service now takes (Address caller, Guid unitId);
+        // the unitId path parameter must parse as a Guid.
+        var lockedUnitId = new Guid("11111111-2222-3333-4444-aaaaaaaaaaaa");
         var permissionService = (IPermissionService)_factory.Services
             .GetService(typeof(IPermissionService))!;
         permissionService.ResolveEffectivePermissionAsync(
-                Arg.Any<string>(), "locked-unit", Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
-        var response = await _client.GetAsync("/api/v1/tenant/activity/stream?unitId=locked-unit", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/activity/stream?unitId={lockedUnitId:N}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
@@ -335,19 +338,23 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
 
+        // #2768: the permission service now takes (Address caller, Guid unitId);
+        // the unitId path parameter must parse as a Guid.
+        var openUnitId = new Guid("11111111-2222-3333-4444-bbbbbbbbbbbb");
+        var openUnitIdString = openUnitId.ToString("N");
         var permissionService = (IPermissionService)_factory.Services
             .GetService(typeof(IPermissionService))!;
         permissionService.ResolveEffectivePermissionAsync(
-                Arg.Any<string>(), "open-unit", Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(PermissionLevel.Viewer);
 
-        _factory.UnitActivityObservable.GetStreamAsync("open-unit", Arg.Any<CancellationToken>())
+        _factory.UnitActivityObservable.GetStreamAsync(openUnitIdString, Arg.Any<CancellationToken>())
             .Returns(Observable.Never<ActivityEvent>());
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(3));
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/tenant/activity/stream?unitId=open-unit");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/tenant/activity/stream?unitId={openUnitIdString}");
 
         try
         {
@@ -361,6 +368,6 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         }
 
         await _factory.UnitActivityObservable.Received(1)
-            .GetStreamAsync("open-unit", Arg.Any<CancellationToken>());
+            .GetStreamAsync(openUnitIdString, Arg.Any<CancellationToken>());
     }
 }

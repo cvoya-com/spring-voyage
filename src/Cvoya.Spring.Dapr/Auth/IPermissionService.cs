@@ -3,62 +3,63 @@
 
 namespace Cvoya.Spring.Dapr.Auth;
 
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 
 /// <summary>
-/// Resolves the effective permission level for a human within a specific unit.
+/// Resolves the effective <see cref="PermissionLevel"/> for an authenticated
+/// caller against a specific unit. Per ADR-0047 §1 and #2768 the caller is
+/// represented as an <see cref="Address"/> — a tenant-user when surfacing
+/// from <see cref="Cvoya.Spring.Host.Api.Auth.IAuthenticatedCallerAccessor"/>,
+/// a human when a package-declared role-slot acts on its own behalf — so the
+/// permission model can short-circuit operator implicit-owner without forcing
+/// every caller through the human-keyed grant table.
 /// </summary>
 public interface IPermissionService
 {
     /// <summary>
     /// Returns the <em>direct</em> permission grant recorded on
-    /// <paramref name="unitId"/> for <paramref name="humanId"/>, ignoring the
-    /// unit hierarchy. Does not consult ancestor units. Kept for backward
-    /// compatibility and for the unit-editor surfaces that need to answer
-    /// "is there an explicit grant here?" independently of inheritance.
+    /// <paramref name="unitId"/> for <paramref name="caller"/>, ignoring the
+    /// unit hierarchy. Does not consult ancestor units. Kept for unit-editor
+    /// surfaces that need to answer "is there an explicit grant here?"
+    /// independently of inheritance.
     /// </summary>
-    /// <param name="humanId">The human's identifier.</param>
+    /// <param name="caller">The authenticated caller's address.</param>
     /// <param name="unitId">The unit's identifier.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The direct <see cref="PermissionLevel"/>, or <c>null</c> if no direct grant exists.</returns>
-    Task<PermissionLevel?> ResolvePermissionAsync(string humanId, string unitId, CancellationToken cancellationToken = default);
+    Task<PermissionLevel?> ResolvePermissionAsync(Address caller, Guid unitId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the <em>effective</em> permission level for <paramref name="humanId"/>
+    /// Returns the <em>effective</em> permission level for <paramref name="caller"/>
     /// on <paramref name="unitId"/>, walking up the unit hierarchy so that
     /// ancestor grants cascade down to descendant units by default (#414).
     /// This is the value the <see cref="PermissionHandler"/> consults when
-    /// authorizing HTTP requests.
+    /// authorising HTTP requests.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Resolution rules:
+    /// Per-scheme behaviour (OSS defaults; cloud overlays may swap via DI):
     /// </para>
-    /// <list type="number">
-    ///   <item><description>A direct grant on the target unit always wins —
-    ///     including a deliberate downgrade. A child unit that grants a human
-    ///     <see cref="PermissionLevel.Viewer"/> is never silently promoted to
-    ///     Owner because an ancestor happens to grant Owner.</description></item>
-    ///   <item><description>If the target unit has no direct grant, the
-    ///     resolver walks ancestor units (nearest first) and returns the
-    ///     first non-<c>null</c> grant it finds. The walk takes the strongest
-    ///     grant along the nearest ancestor — a parent that grants Operator
-    ///     cascades as Operator, not as Owner.</description></item>
-    ///   <item><description>The walk stops at any unit whose
-    ///     <see cref="UnitPermissionInheritance"/> mode is
-    ///     <see cref="UnitPermissionInheritance.Isolated"/>. An isolated unit
-    ///     is the permission-layer analogue of an opaque boundary (#413):
-    ///     ancestor authority does not flow through it. Direct grants on the
-    ///     isolated unit or on its own descendants still apply.</description></item>
-    ///   <item><description>The walk is bounded by the same depth cap that
-    ///     <c>UnitActor</c> uses for membership cycle detection (64). A
-    ///     pathological graph never loops; it surfaces as "no ancestor
-    ///     grant found" and the caller is denied.</description></item>
+    /// <list type="bullet">
+    ///   <item><description><c>tenant-user://&lt;operator&gt;</c> — implicit
+    ///     <see cref="PermissionLevel.Owner"/> on every unit in the tenant
+    ///     (#2768). The OSS deployment ships with exactly one TenantUser, the
+    ///     operator, so an explicit grant row carries no information.</description></item>
+    ///   <item><description><c>human://&lt;id&gt;</c> — read against the
+    ///     <c>unit_human_permissions</c> table, walking ancestor units for
+    ///     inherited grants. A direct grant on the target unit always wins —
+    ///     including a deliberate downgrade. The walk stops at an
+    ///     <see cref="UnitPermissionInheritance.Isolated"/> boundary and is
+    ///     bounded by <see cref="PermissionService.MaxHierarchyDepth"/>.</description></item>
+    ///   <item><description>Any other scheme — returns <c>null</c> (no
+    ///     permission). Future schemes that participate in authorisation
+    ///     register their own branch.</description></item>
     /// </list>
     /// </remarks>
-    /// <param name="humanId">The human's identifier.</param>
+    /// <param name="caller">The authenticated caller's address.</param>
     /// <param name="unitId">The unit's identifier.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    /// <returns>The effective <see cref="PermissionLevel"/>, or <c>null</c> when the human has no direct or inherited permission.</returns>
-    Task<PermissionLevel?> ResolveEffectivePermissionAsync(string humanId, string unitId, CancellationToken cancellationToken = default);
+    /// <returns>The effective <see cref="PermissionLevel"/>, or <c>null</c> when the caller has no direct or inherited permission.</returns>
+    Task<PermissionLevel?> ResolveEffectivePermissionAsync(Address caller, Guid unitId, CancellationToken cancellationToken = default);
 }

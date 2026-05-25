@@ -97,9 +97,11 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
         // Explicit null arrangement documents the "no grant" branch; the
         // Owner gate must still refuse a non-owner, otherwise a second
         // tenant's caller could overwrite the first tenant's policy.
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitName, Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), Guid.Parse(unitName), Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
         var response = await _client.PutAsJsonAsync(
@@ -136,9 +138,11 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
         var unitName = NewUnitName();
         ArrangeResolved(unitName);
 
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitName, Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), Guid.Parse(unitName), Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
         var response = await _client.GetAsync(
@@ -162,9 +166,11 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
 
         // Explicitly arrange no permission too; the handler must still
         // prefer 404 over 403 when the unit is missing.
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitName, Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), Guid.Parse(unitName), Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
         var response = await _client.GetAsync(
@@ -184,9 +190,11 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
         var unitName = NewUnitName();
         ArrangeNotFound(unitName);
 
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitName, Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), Guid.Parse(unitName), Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
         var response = await _client.PutAsJsonAsync(
@@ -229,8 +237,15 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
 
     private void ArrangePermission(string unitName, string humanId, PermissionLevel level)
     {
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings. The `humanId` parameter is retained for
+        // call-site readability — what mattered to the test is the unit and
+        // the level granted; the caller identity is now an Address resolved
+        // by IAuthenticatedCallerAccessor (mocked to a tenant-user).
+        _ = humanId; // documented for callers; not used in the new arrangement
+        var unitGuid = Guid.Parse(unitName);
         _factory.PermissionService
-            .ResolveEffectivePermissionAsync(humanId, unitName, Arg.Any<CancellationToken>())
+            .ResolveEffectivePermissionAsync(Arg.Any<Address>(), unitGuid, Arg.Any<CancellationToken>())
             .Returns(level);
     }
 }

@@ -5,7 +5,8 @@ namespace Cvoya.Spring.Host.Api.Tests.Auth;
 
 using System.Security.Claims;
 
-using Cvoya.Spring.Core.Security;
+using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Host.Api.Auth;
 
 using Microsoft.AspNetCore.Http;
@@ -19,27 +20,16 @@ using Xunit;
 /// <summary>
 /// Unit tests for <see cref="AuthenticatedCallerAccessor"/>.
 ///
-/// Post-ADR-0036 every <see cref="Cvoya.Spring.Core.Messaging.Address"/> is
-/// a Guid identity (no slug/identity dichotomy). #2405 made the
-/// "no caller available" outcome explicit at the type level — the accessor
-/// returns <see langword="null"/> instead of fabricating a non-Guid
-/// fallback address that would throw <c>InvalidAddressIdException</c>.
+/// Per ADR-0047 §1 and #2768 the OSS-default accessor returns the canonical
+/// <c>tenant-user://&lt;OssTenantUserIds.Operator&gt;</c> address whenever
+/// the principal is authenticated and carries a non-empty
+/// <see cref="ClaimTypes.NameIdentifier"/> claim. No HumanEntity is
+/// auto-minted on login.
 /// </summary>
 public class AuthenticatedCallerAccessorTests
 {
-    private static readonly Guid AliceId = new("aaaaaaaa-0000-0000-0000-000000000001");
-
-    private readonly IHumanIdentityResolver _identityResolver = Substitute.For<IHumanIdentityResolver>();
-
-    public AuthenticatedCallerAccessorTests()
-    {
-        // Default: any username resolves to AliceId.
-        _identityResolver.ResolveByUsernameAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-            .Returns(AliceId);
-    }
-
     [Fact]
-    public async Task GetCallerAddressAsync_AuthenticatedPrincipal_ReturnsResolverGuidAddress()
+    public async Task GetCallerAddressAsync_AuthenticatedPrincipal_ReturnsOperatorTenantUserAddress()
     {
         var accessor = Substitute.For<IHttpContextAccessor>();
         var httpContext = new DefaultHttpContext();
@@ -49,13 +39,13 @@ public class AuthenticatedCallerAccessorTests
         httpContext.User = new ClaimsPrincipal(identity);
         accessor.HttpContext.Returns(httpContext);
 
-        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
+        var sut = new AuthenticatedCallerAccessor(accessor);
 
         var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
-        result.Scheme.ShouldBe("human");
-        result.Id.ShouldBe(AliceId);
+        result.Scheme.ShouldBe(Address.TenantUserScheme);
+        result.Id.ShouldBe(OssTenantUserIds.Operator);
     }
 
     [Fact]
@@ -68,7 +58,7 @@ public class AuthenticatedCallerAccessorTests
         var accessor = Substitute.For<IHttpContextAccessor>();
         accessor.HttpContext.Returns((HttpContext?)null);
 
-        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
+        var sut = new AuthenticatedCallerAccessor(accessor);
 
         var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
 
@@ -87,7 +77,7 @@ public class AuthenticatedCallerAccessorTests
         httpContext.User = new ClaimsPrincipal(new ClaimsIdentity());
         accessor.HttpContext.Returns(httpContext);
 
-        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
+        var sut = new AuthenticatedCallerAccessor(accessor);
 
         var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
 
@@ -97,9 +87,11 @@ public class AuthenticatedCallerAccessorTests
     [Fact]
     public async Task GetCallerAddressAsync_AuthenticatedButNoNameIdentifierClaim_ReturnsNull()
     {
-        // Auth handler accepted the request but did not emit a
-        // NameIdentifier claim. Pre-#2405 this hit Address.For("human", "api")
-        // and threw post-ADR-0036; now it surfaces null cleanly.
+        // Defence-in-depth: an authenticated principal without a
+        // NameIdentifier claim must NOT silently resolve to the operator.
+        // The OSS LocalDev handler always stamps one; this guards against a
+        // misconfigured upstream that authenticated without surfacing a
+        // subject.
         var accessor = Substitute.For<IHttpContextAccessor>();
         var httpContext = new DefaultHttpContext();
         var identity = new ClaimsIdentity(
@@ -108,7 +100,7 @@ public class AuthenticatedCallerAccessorTests
         httpContext.User = new ClaimsPrincipal(identity);
         accessor.HttpContext.Returns(httpContext);
 
-        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
+        var sut = new AuthenticatedCallerAccessor(accessor);
 
         var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
 
@@ -126,7 +118,7 @@ public class AuthenticatedCallerAccessorTests
         httpContext.User = new ClaimsPrincipal(identity);
         accessor.HttpContext.Returns(httpContext);
 
-        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
+        var sut = new AuthenticatedCallerAccessor(accessor);
 
         var result = sut.GetUsername();
 
@@ -139,7 +131,7 @@ public class AuthenticatedCallerAccessorTests
         var accessor = Substitute.For<IHttpContextAccessor>();
         accessor.HttpContext.Returns((HttpContext?)null);
 
-        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
+        var sut = new AuthenticatedCallerAccessor(accessor);
 
         var result = sut.GetUsername();
 

@@ -3,14 +3,10 @@
 
 namespace Cvoya.Spring.Host.Api.Auth;
 
-using System.Security.Claims;
-
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
-
-using Microsoft.AspNetCore.Http;
 
 /// <summary>
 /// Existence-first authorisation helper for unit-scoped subresources
@@ -84,7 +80,11 @@ public static class UnitPermissionCheck
 
     /// <summary>
     /// Evaluates the existence-first + permission-check pipeline for the
-    /// given unit <paramref name="unitId"/>.
+    /// given unit <paramref name="unitId"/>. The caller's identity is read
+    /// from <see cref="IAuthenticatedCallerAccessor"/> so the helper sees
+    /// the tenant-user / human Address shape ADR-0047 §1 and #2768 establish,
+    /// rather than reaching into <c>HttpContext.User.FindFirstValue(NameIdentifier)</c>
+    /// directly and conflating the JWT subject string with a HumanEntity row.
     /// </summary>
     /// <param name="unitId">The route-level unit id (from <c>{id}</c>).</param>
     /// <param name="minimumPermission">
@@ -92,7 +92,7 @@ public static class UnitPermissionCheck
     /// </param>
     /// <param name="directoryService">Resolves the unit address.</param>
     /// <param name="permissionService">Evaluates effective permission.</param>
-    /// <param name="httpContext">Ambient context used to read the caller id.</param>
+    /// <param name="callerAccessor">Resolves the authenticated caller's address.</param>
     /// <param name="cancellationToken">Propagation token.</param>
     /// <returns>A <see cref="Result"/> with exactly one branch set.</returns>
     public static async Task<Result> AuthorizeAsync(
@@ -100,7 +100,7 @@ public static class UnitPermissionCheck
         PermissionLevel minimumPermission,
         IDirectoryService directoryService,
         IPermissionService permissionService,
-        HttpContext httpContext,
+        IAuthenticatedCallerAccessor callerAccessor,
         CancellationToken cancellationToken)
     {
         // Existence-first: a missing unit surfaces as 404 regardless of
@@ -108,25 +108,25 @@ public static class UnitPermissionCheck
         // unit with the same id. This is the fix for #1029 — the previous
         // declarative gate returned 403 here because the permission
         // evaluator saw no grant for a unit that did not exist.
-        var address = Address.For("unit", unitId);
+        var address = Address.For(Address.UnitScheme, unitId);
         var entry = await directoryService.ResolveAsync(address, cancellationToken);
         if (entry is null)
         {
             return new Result(NotFound: true, Forbidden: false, Entry: null);
         }
 
-        var userId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userId))
+        var caller = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (caller is null)
         {
             // Defence-in-depth: authentication middleware should have
             // rejected the request with 401 already. If somehow a caller
-            // with no NameIdentifier claim made it here, treat as forbidden
+            // with no resolvable identity made it here, treat as forbidden
             // rather than succeeding the gate.
             return new Result(NotFound: false, Forbidden: true, Entry: null);
         }
 
         var permission = await permissionService.ResolveEffectivePermissionAsync(
-            userId, unitId, cancellationToken);
+            caller, entry.ActorId, cancellationToken);
         if (permission is null || (int)permission.Value < (int)minimumPermission)
         {
             return new Result(NotFound: false, Forbidden: true, Entry: null);

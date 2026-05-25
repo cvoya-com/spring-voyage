@@ -126,9 +126,11 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
         // Explicitly arrange "no permission" so we don't depend on the
         // substitute's implicit null default — the assertion documents
         // the expected 403 branch.
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitId.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), unitId, Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
         var response = await _client.PatchAsJsonAsync(
@@ -161,10 +163,13 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
     [Fact]
     public async Task SetHumanPermission_PermissionServiceAddressesUnitByRouteId()
     {
-        // The handler passes the route `{id}` — the unit *name* — to the
-        // permission service. Verifying this call shape guards against a
-        // regression where the auth gate starts consulting a different
-        // identifier than the rest of the humans endpoint surface.
+        // The handler resolves the route `{id}` to a DirectoryEntry, then
+        // passes the entry's ActorId Guid to the permission service.
+        // Verifying this call shape guards against a regression where the
+        // auth gate starts consulting a different identifier than the rest
+        // of the humans endpoint surface.
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         var ct = TestContext.Current.CancellationToken;
         var unitId = Guid.NewGuid();
         ArrangeResolved(unitId);
@@ -178,8 +183,8 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
         await _factory.PermissionService
             .Received()
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId,
-                unitId.ToString("N"),
+                Arg.Any<Address>(),
+                unitId,
                 Arg.Any<CancellationToken>());
     }
 
@@ -195,9 +200,11 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
         var unitId = Guid.NewGuid();
         ArrangeNotFound(unitId);
 
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitId.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), unitId, Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
         var response = await _client.PatchAsJsonAsync(
@@ -215,9 +222,11 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
         var unitId = Guid.NewGuid();
         ArrangeNotFound(unitId);
 
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitId.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), unitId, Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
         var response = await _client.GetAsync(
@@ -233,9 +242,11 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
         var unitId = Guid.NewGuid();
         ArrangeNotFound(unitId);
 
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitId.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), unitId, Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
         var response = await _client.DeleteAsync(
@@ -270,8 +281,14 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
 
     private void ArrangePermission(Guid unitId, string humanId, PermissionLevel level)
     {
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings. The `humanId` parameter is retained for
+        // call-site readability — what mattered to the test is the unit and
+        // the level granted; the caller identity is now an Address resolved
+        // by IAuthenticatedCallerAccessor (mocked to a tenant-user).
+        _ = humanId; // documented for callers; not used in the new arrangement
         _factory.PermissionService
-            .ResolveEffectivePermissionAsync(humanId, unitId.ToString("N"), Arg.Any<CancellationToken>())
+            .ResolveEffectivePermissionAsync(Arg.Any<Address>(), unitId, Arg.Any<CancellationToken>())
             .Returns(level);
     }
 }

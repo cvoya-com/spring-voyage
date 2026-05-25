@@ -157,9 +157,11 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
         var ct = TestContext.Current.CancellationToken;
         var unitId = Guid.NewGuid();
         ArrangeNotFound(unitId);
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitId.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), unitId, Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
         var response = await _client.PostAsJsonAsync(
@@ -221,9 +223,11 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
         var ct = TestContext.Current.CancellationToken;
         var unitId = Guid.NewGuid();
         ArrangeNotFound(unitId);
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings.
         _factory.PermissionService
             .ResolveEffectivePermissionAsync(
-                AuthConstants.DefaultLocalUserId, unitId.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), unitId, Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
         var response = await _client.GetAsync(
@@ -422,8 +426,14 @@ public class UnitTeamMembershipEndpointsTests : IClassFixture<CustomWebApplicati
 
     private void ArrangePermission(Guid unitId, string humanId, PermissionLevel level)
     {
+        // #2768: the permission service now takes (Address caller, Guid unitId)
+        // instead of two strings. The `humanId` parameter is retained for
+        // call-site readability — what mattered to the test is the unit and
+        // the level granted; the caller identity is now an Address resolved
+        // by IAuthenticatedCallerAccessor (mocked to a tenant-user).
+        _ = humanId; // documented for callers; not used in the new arrangement
         _factory.PermissionService
-            .ResolveEffectivePermissionAsync(humanId, unitId.ToString("N"), Arg.Any<CancellationToken>())
+            .ResolveEffectivePermissionAsync(Arg.Any<Address>(), unitId, Arg.Any<CancellationToken>())
             .Returns(level);
     }
 
