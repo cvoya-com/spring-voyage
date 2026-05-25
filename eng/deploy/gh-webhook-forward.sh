@@ -48,8 +48,24 @@ URL="${GH_WEBHOOK_URL:-http://localhost/api/v1/webhooks/github}"
 ENV_FILE="${GH_WEBHOOK_ENV_FILE:-${CONFIG_DIR}/spring.env}"
 EVENTS="${GH_WEBHOOK_EVENTS:-}"
 
-log() { printf '[gh-webhook-forward] %s\n' "$*" >&2; }
-die() { printf '[gh-webhook-forward][error] %s\n' "$*" >&2; exit 1; }
+# ANSI colors — emitted only when stderr is a TTY and NO_COLOR is unset
+# (https://no-color.org/).
+if [[ -t 2 && -z "${NO_COLOR:-}" ]]; then
+    C_RED=$'\033[31m'
+    C_GREEN=$'\033[32m'
+    C_YELLOW=$'\033[33m'
+    C_CYAN=$'\033[36m'
+    C_DIM=$'\033[2m'
+    C_RESET=$'\033[0m'
+else
+    C_RED='' C_GREEN='' C_YELLOW='' C_CYAN='' C_DIM='' C_RESET=''
+fi
+
+log()      { printf '[gh-webhook-forward] %s\n' "$*" >&2; }
+log_warn() { printf '%s[gh-webhook-forward] %s%s\n' "${C_YELLOW}" "$*" "${C_RESET}" >&2; }
+log_err()  { printf '%s[gh-webhook-forward] %s%s\n' "${C_RED}"    "$*" "${C_RESET}" >&2; }
+log_info() { printf '%s[gh-webhook-forward] %s%s\n' "${C_CYAN}"   "$*" "${C_RESET}" >&2; }
+die()      { log_err "error: $*"; exit 1; }
 
 usage() {
     cat >&2 <<'USAGE'
@@ -187,7 +203,7 @@ RETRY_DELAY=5
 cleanup_stale_forward_hooks() {
     local hooks
     hooks="$(gh api "repos/${REPO}/hooks" 2>/dev/null)" || {
-        log "warning: could not list webhooks — skipping stale-hook cleanup"
+        log_warn "warning: could not list webhooks — skipping stale-hook cleanup"
         return 0
     }
     while IFS=$'\t' read -r hook_id hook_url; do
@@ -196,7 +212,7 @@ cleanup_stale_forward_hooks() {
         if gh api -X DELETE "repos/${REPO}/hooks/${hook_id}" >/dev/null 2>&1; then
             log "  removed."
         else
-            log "  warning: could not remove webhook id=${hook_id} — may already be gone."
+            log_warn "  warning: could not remove webhook id=${hook_id} — may already be gone."
         fi
     done < <(printf '%s' "${hooks}" | python3 -c "
 import json, sys
@@ -208,9 +224,78 @@ for h in json.load(sys.stdin):
 ")
 }
 
+# Filter for `gh webhook forward`'s combined stdout+stderr.
+#
+# Translates the noisy bits into one-liners:
+#   - "Forwarding Webhook events from GitHub..." -> "connected" / "reconnected" (green)
+#   - "Error: ..."                               -> "disconnect: ..." (yellow)
+#   - "warning: error forwarding event: ..."     -> red passthrough
+#   - "[LOG] received event ..."                 -> green passthrough
+# Suppresses the cobra help block (everything from "Usage:" to end-of-stream),
+# which gh emits whenever the forward subcommand exits with an error. Each gh
+# subprocess emits at most one such block, so a stream-wide suppression flag
+# is sufficient.
+# Other lines from gh are passed through with a dim "[gh]" prefix so they
+# remain visible but are visually distinct from this script's own output.
+filter_gh_output() {
+    local attempt="${1:-0}"
+    awk \
+        -v ATTEMPT="${attempt}" \
+        -v C_GREEN="${C_GREEN}" \
+        -v C_YELLOW="${C_YELLOW}" \
+        -v C_RED="${C_RED}" \
+        -v C_DIM="${C_DIM}" \
+        -v C_RESET="${C_RESET}" '
+    BEGIN { in_help = 0 }
+
+    /^Usage:/ { in_help = 1 }
+    in_help   { next }
+
+    /^Forwarding Webhook events from GitHub/ {
+        verb = (ATTEMPT == "0") ? "connected" : "reconnected"
+        printf "%s[gh-webhook-forward] %s — waiting for events%s\n", C_GREEN, verb, C_RESET
+        fflush()
+        next
+    }
+
+    /^Error:/ {
+        msg = $0
+        sub(/^Error:[ \t]*/, "", msg)
+        printf "%s[gh-webhook-forward] disconnect: %s%s\n", C_YELLOW, msg, C_RESET
+        fflush()
+        next
+    }
+
+    /^warning: error forwarding event:/ {
+        printf "%s[gh-webhook-forward] %s%s\n", C_RED, $0, C_RESET
+        fflush()
+        next
+    }
+
+    /^\[LOG\] received event/ {
+        printf "%s[gh-webhook-forward] %s%s\n", C_GREEN, $0, C_RESET
+        fflush()
+        next
+    }
+
+    /^[[:space:]]*$/ { next }
+
+    {
+        printf "%s[gh] %s%s\n", C_DIM, $0, C_RESET
+        fflush()
+    }
+    '
+}
+
+attempt=0
 while true; do
     cleanup_stale_forward_hooks
-    gh "${forward_args[@]}" || true
-    log "connection dropped — reconnecting in ${RETRY_DELAY}s (Ctrl-C to stop)..."
+    # Merge gh's stderr into stdout, run through the filter, and redirect the
+    # filter back to stderr so script-wide logging stays on a single stream.
+    # `|| true` keeps the retry loop running across gh exit codes (and across
+    # `set -o pipefail` triggered by gh exiting non-zero).
+    { gh "${forward_args[@]}" 2>&1 | filter_gh_output "${attempt}" >&2; } || true
+    log_info "reconnecting in ${RETRY_DELAY}s (Ctrl-C to stop)..."
     sleep "${RETRY_DELAY}"
+    attempt=$((attempt + 1))
 done
