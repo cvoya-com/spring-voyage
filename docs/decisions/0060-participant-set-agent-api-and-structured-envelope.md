@@ -44,7 +44,7 @@ The `sv.memory.*` namespace now hosts two distinct surfaces: the agent's private
 
 The dispatcher's `A2AExecutionDispatcher.SendA2AMessageAsync` wraps the inbound payload in a fixed-shape envelope before placing it in the runtime's user-message slot. The envelope is rendered as bullet header + fenced JSON appendix so a structured payload (a webhook event from a connector, a custom shape from a peer) survives intact:
 
-```
+````
 You received a message.
 
 - from: human:<32-hex> (Alice)
@@ -60,7 +60,7 @@ hello
 ```
 
 Decide what to do. To send a message in response, call `sv.messaging.send` with the recipient address(es) and body.
-```
+````
 
 Field semantics:
 
