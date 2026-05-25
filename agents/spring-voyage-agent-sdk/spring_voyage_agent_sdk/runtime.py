@@ -69,6 +69,13 @@ from a2a.types import (
 from a2a.types.a2a_pb2 import AgentInterface, Part
 from starlette.applications import Starlette
 
+from spring_voyage_agent_sdk.bootstrap import (
+    BootstrapError,
+    BootstrapFetcher,
+)
+from spring_voyage_agent_sdk.bootstrap import (
+    create_from_env as create_bootstrap_fetcher_from_env,
+)
 from spring_voyage_agent_sdk.context import IAgentContext
 from spring_voyage_agent_sdk.hooks import AgentHooks
 from spring_voyage_agent_sdk.runtime_context import RuntimeContext
@@ -166,10 +173,19 @@ class _SdkAgentExecutor(AgentExecutor):
         hooks: AgentHooks,
         concurrent_threads: bool,
         initialize_done: asyncio.Event,
+        bootstrap_fetcher: BootstrapFetcher | None = None,
     ) -> None:
         self._hooks = hooks
         self._concurrent_threads = concurrent_threads
         self._initialize_done = initialize_done
+        # Per-turn integrity check (#2734 / ADR-0055 §6). When the
+        # platform stamped SPRING_BOOTSTRAP_URL the SDK holds onto the
+        # fetcher across the agent's lifetime and re-pulls the bundle
+        # before every on_message so operator edits to the agent
+        # definition (instructions, connector contributions, equipped
+        # skills) take effect at turn cadence. ``None`` in smoke-test
+        # harnesses and alternate launchers — the check is skipped.
+        self._bootstrap_fetcher = bootstrap_fetcher
         # Global lock for concurrent_threads=False serialisation.
         self._serial_lock: asyncio.Lock | None = None if concurrent_threads else asyncio.Lock()
 
@@ -196,6 +212,14 @@ class _SdkAgentExecutor(AgentExecutor):
         # Spec §1.1: on_message MUST NOT run before initialize completes.
         await self._initialize_done.wait()
 
+        # ADR-0055 §6 / #2734: per-turn integrity check. Re-pulls the
+        # bundle if the cached etag is stale (and restores any
+        # platform file the previous turn rewrote on disk). Best-effort:
+        # a failed check logs a warning but does NOT abort the turn —
+        # the agent runs with the last-known-good bundle bytes. This
+        # mirrors the TS sidecar's per-CLI-spawn integrity check.
+        await self._maybe_refresh_bootstrap()
+
         await updater.start_work()
 
         try:
@@ -207,6 +231,33 @@ class _SdkAgentExecutor(AgentExecutor):
         except Exception as exc:
             logger.exception("on_message hook raised an unhandled exception")
             await updater.failed(updater.new_agent_message([Part(text=f"Agent error: {exc}")]))
+
+    async def _maybe_refresh_bootstrap(self) -> None:
+        """Run the per-turn bootstrap integrity check when configured.
+
+        See :meth:`spring_voyage_agent_sdk.bootstrap.BootstrapFetcher.integrity_check_and_refresh`.
+        Failures are logged but never raised — the agent must still
+        get a chance to answer the message with whatever bundle bytes
+        it has.
+        """
+        if self._bootstrap_fetcher is None:
+            return
+        try:
+            result = await asyncio.to_thread(self._bootstrap_fetcher.integrity_check_and_refresh)
+        except Exception as exc:
+            logger.warning(
+                "Per-turn bootstrap integrity check raised (%s) — continuing with the last-known-good bundle bytes",
+                exc,
+            )
+            return
+        if result.warning:
+            logger.warning("Bootstrap integrity check: %s", result.warning)
+        elif result.restored:
+            logger.info(
+                "Bootstrap integrity check restored %d platform file(s) on disk: %s",
+                len(result.restored),
+                ", ".join(result.restored),
+            )
 
     async def _run_on_message(self, context: RequestContext, updater: TaskUpdater) -> None:
         """Invoke the on_message hook and stream its responses.
@@ -478,11 +529,25 @@ class AgentRuntime:
             )
 
     async def _load_and_initialize(self, executor: "_SdkAgentExecutor") -> None:
-        """Load IAgentContext then run the initialize hook in the background.
+        """Pull the bootstrap bundle, load IAgentContext, then run the
+        initialize hook in the background.
 
         This runs concurrently with the uvicorn server so the A2A server
         can serve the agent card even before the platform context is
         available (e.g. in the smoke-test harness with no env vars).
+
+        Per ADR-0055 (#2734) the SDK pulls the per-agent bootstrap
+        bundle from the worker BEFORE ``IAgentContext.load()`` runs:
+        the bundle is what writes ``$SPRING_WORKSPACE_PATH/.spring/system-prompt.md``
+        for Spring Voyage Agent containers, and the loader reads that
+        file into ``context.system_prompt``. Without the pull, the
+        bundle file never lands on disk and ``system_prompt`` is always
+        ``None``.
+
+        The pull is skipped when ``SPRING_BOOTSTRAP_URL`` is unset
+        (smoke-test harness, alternate launchers). A bootstrap failure
+        leaves ``_initialize_done`` unset so on_message blocks — same
+        contract as a context-load failure.
 
         If context loading fails the error is logged and _initialize_done
         is left unset — the agent card stays reachable but on_message will
@@ -493,6 +558,38 @@ class AgentRuntime:
         _initialize_done is still set (by _run_initialize's finally block)
         so that executors can surface an error rather than hanging.
         """
+        # #2734: pull the bootstrap bundle before IAgentContext.load()
+        # so `.spring/system-prompt.md` is on disk when the loader
+        # reads it. urllib is blocking; off-load to a thread so the
+        # uvicorn event loop stays responsive (the /.well-known/agent.json
+        # endpoint must keep answering 200 during this).
+        try:
+            fetcher = create_bootstrap_fetcher_from_env()
+        except BootstrapError as exc:
+            logger.warning(
+                "Bootstrap env vars are partially configured (%s) — agent card will "
+                "stay reachable but on_message will not be dispatched.",
+                exc,
+            )
+            return
+
+        if fetcher is not None:
+            try:
+                await asyncio.to_thread(fetcher.fetch_and_materialize)
+            except BootstrapError as exc:
+                logger.warning(
+                    "Bootstrap fetch failed (%s) — agent card will stay reachable but "
+                    "on_message will not be dispatched until the platform supplies a "
+                    "valid bundle.",
+                    exc,
+                )
+                return
+            # Hand the fetcher to the executor so it can run the per-turn
+            # integrity check before each on_message (ADR-0055 §6).
+            # Operator edits to the agent definition then take effect at
+            # turn cadence without a container restart.
+            executor._bootstrap_fetcher = fetcher
+
         try:
             context = IAgentContext.load()
         except Exception as exc:

@@ -3,8 +3,6 @@
 
 namespace Cvoya.Spring.AgentRuntimes.Tests.Launchers;
 
-using System.Text.Json;
-
 using Cvoya.Spring.AgentRuntimes.Launchers;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
@@ -77,8 +75,9 @@ public class SpringVoyageAgentLauncherTests
     // assertion races with any parallel test (in any assembly) that writes
     // under /tmp, producing a recurring CI flake (#1082). The contract is
     // now enforced by code review on the launcher implementation, which is
-    // pure-functional dictionary construction; PrepareAsync_ProvidesEmptyWorkspace
-    // below still pins the empty WorkspaceFiles map.
+    // pure-functional dictionary construction; the assertion that the
+    // launch spec contains no in-workspace files is pinned by
+    // ContributeBundleAsync below.
 
     [Fact]
     public async Task PrepareAsync_SetsRequiredEnvVars()
@@ -96,11 +95,13 @@ public class SpringVoyageAgentLauncherTests
         prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
             "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
-        // After the silent-dispatch cutover the response-discipline
-        // contract lives in the platform-prompt layer. With
-        // concurrent_threads off the launcher returns the prompt body
-        // unchanged.
-        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        // #2734: SPRING_SYSTEM_PROMPT removed — the assembled prompt now
+        // lands at $SPRING_WORKSPACE_PATH/.spring/system-prompt.md via
+        // ContributeBundleAsync, mirroring the file-based delivery path
+        // every other launcher uses.
+        prep.EnvironmentVariables.ContainsKey("SPRING_SYSTEM_PROMPT").ShouldBeFalse(
+            "SPRING_SYSTEM_PROMPT removed by #2734; the Python SDK reads " +
+            "context.system_prompt from the bundle-delivered file instead.");
         _callbackSupport.AssertCallbackEnvironment(prep, context);
         // #1327: SPRING_MODEL and SPRING_LLM_PROVIDER are now D1-spec-declared (§ 2.2.1).
         prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("llama3.2:3b");
@@ -124,11 +125,17 @@ public class SpringVoyageAgentLauncherTests
     }
 
     [Fact]
-    public async Task ContributeBundleAsync_ReturnsEmptyContribution()
+    public async Task ContributeBundleAsync_WritesAssembledPromptToPlatformFile()
     {
-        // ADR-0055: the Dapr Agent is A2A-native — it does not consume any
-        // in-workspace system-prompt or MCP-config files. The bundle
-        // contribution is therefore empty.
+        // #2734: the SVA now mirrors the other launchers' file-based
+        // delivery path. The bundle provider hands the assembled prompt
+        // in on AgentBootstrapContributionContext.AssembledSystemPrompt
+        // and the launcher writes it to `.spring/system-prompt.md` — the
+        // Python SDK's bootstrap client pulls the bundle on container
+        // start and the SDK reads the file via
+        // IAgentContext.system_prompt (spec §2.2.2). The file is
+        // registered in PlatformFilePaths so the sidecar's per-turn
+        // integrity check pins it bit-for-bit.
         var definition = new AgentDefinition(
             AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
             Name: "Test",
@@ -137,22 +144,27 @@ public class SpringVoyageAgentLauncherTests
                 Runtime: "spring-voyage",
                 Image: "ghcr.io/test/spring-voyage:latest"));
 
+        const string assembled = "ASSEMBLED SYSTEM PROMPT FOR TEST";
         var contribution = await _launcher.ContributeBundleAsync(
             new AgentBootstrapContributionContext(
                 AgentId: LauncherCallbackTestSupport.DefaultAgentAddress.Path,
                 Definition: definition,
                 McpEndpoint: "http://host.docker.internal:9999/mcp/",
-                AssembledSystemPrompt: "ASSEMBLED SYSTEM PROMPT FOR TEST"),
+                AssembledSystemPrompt: assembled),
             TestContext.Current.CancellationToken);
 
-        contribution.Files.ShouldBeEmpty();
-        contribution.PlatformFilePaths.ShouldBeEmpty();
+        contribution.Files.ShouldContainKeyAndValue(".spring/system-prompt.md", assembled);
+        // No .mcp.json — the Python runtime dials the platform MCP server
+        // directly via SPRING_MCP_URL / SPRING_MCP_TOKEN, not via an
+        // in-workspace config file.
+        contribution.Files.ShouldNotContainKey(".mcp.json");
+        contribution.PlatformFilePaths.ShouldBe(new[] { ".spring/system-prompt.md" });
     }
 
     [Fact]
     public async Task PrepareAsync_LeavesWorkingDirectoryNull_SoImageDefaultIsKept()
     {
-        // #1159: the Dapr Agent image's CMD is `python agent.py` relative
+        // #1159: the Spring Voyage Agent image's CMD is `python agent.py` relative
         // to its image WORKDIR (/app). The launcher must NOT set a
         // WorkingDirectory — ContainerConfigBuilder then leaves the
         // container workdir unset and the image default applies. If that
@@ -220,10 +232,10 @@ public class SpringVoyageAgentLauncherTests
     [Fact]
     public async Task PrepareAsync_SetsArgvForNativeA2APath()
     {
-        // BYOI conformance path 3: dapr-agent images speak A2A natively.
-        // The launcher hands the dispatcher a non-empty argv so the
-        // image's bridge ENTRYPOINT (if present) is bypassed and the
-        // Python process boots directly. Matches the production CMD
+        // BYOI conformance path 3: spring-voyage-agent images speak A2A
+        // natively. The launcher hands the dispatcher a non-empty argv
+        // so the image's bridge ENTRYPOINT (if present) is bypassed and
+        // the Python process boots directly. Matches the production CMD
         // declared by agents/spring-voyage-agent/Dockerfile.
         var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
 
@@ -396,79 +408,30 @@ public class SpringVoyageAgentLauncherTests
         ex.Data[SpringException.IssueSourceDataKey].ShouldBe("credential");
     }
 
-    [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_PrependsConcurrentThreadsGuard()
-    {
-        // ADR-0041: when concurrent_threads is on, the launcher prepends
-        // the ConcurrentThreadsGuard marker to the prompt body delivered
-        // via SPRING_SYSTEM_PROMPT. The user's prompt body is preserved
-        // as the tail. The universal response-discipline contract now
-        // lives in the platform-prompt layer.
-        //
-        // #2738: the wrap is the deploy-persistent path's only delivery
-        // channel — context.Prompt here is raw definition.Instructions
-        // (no `## Platform Instructions` section to nest into) so the
-        // guard prepends as a top-of-body `### …` heading.
-        var context = CreateContext() with { ConcurrentThreads = true };
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        var composed = prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"];
-        composed.ShouldStartWith("### " + LauncherPromptFragments.ConcurrentThreadsGuardAnchor);
-        composed.ShouldEndWith(context.Prompt);
-    }
-
-    [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsFalse_LeavesPromptUnchanged()
-    {
-        // With concurrent_threads off the launcher returns the prompt
-        // body unchanged — no guard prepended.
-        var context = CreateContext() with { ConcurrentThreads = false };
-
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        var composed = prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"];
-        composed.ShouldBe(context.Prompt);
-        composed.ShouldNotContain(LauncherPromptFragments.ConcurrentThreadsGuardAnchor);
-    }
-
     /// <summary>
-    /// #2738: Compose is idempotent — when the ephemeral dispatch path
-    /// already rendered the guard in-band inside `## Platform
-    /// Instructions` the launcher's wrap must not double-apply.
+    /// #2734: the Spring Voyage Agent no longer has a container-side
+    /// "no workspace concept" — the bundle file IS the delivery channel
+    /// for the platform prompt, so the assembler renders the
+    /// <c>### Container and workspace</c> sub-section using the
+    /// runtime-true prose this launcher provides. Pin the load-bearing
+    /// content: the workspace env var, the in-workspace prompt path the
+    /// SDK reads, and the env-var-based MCP discovery contract (no
+    /// <c>.mcp.json</c> for this runtime).
     /// </summary>
     [Fact]
-    public async Task PrepareAsync_ConcurrentThreadsTrue_DoesNotDoubleApply_WhenPromptCarriesInBandGuard()
+    public void GetWorkspacePromptFragment_NamesWorkspaceAndPromptFile()
     {
-        var assembled = "## Platform Instructions\n\n### About Spring Voyage\n\nintro\n\n"
-            + LauncherPromptFragments.ConcurrentThreadsGuard
-            + "\n\n## Role-specific instructions\n\nbody";
-        var context = CreateContext() with { ConcurrentThreads = true, Prompt = assembled };
+        var prose = _launcher.GetWorkspacePromptFragment();
 
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        var composed = prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"];
-        composed.ShouldBe(assembled);
-        var first = composed.IndexOf(
-            LauncherPromptFragments.ConcurrentThreadsGuardAnchor,
-            StringComparison.Ordinal);
-        var second = composed.IndexOf(
-            LauncherPromptFragments.ConcurrentThreadsGuardAnchor,
-            first + 1, StringComparison.Ordinal);
-        second.ShouldBe(-1);
-    }
-
-    /// <summary>
-    /// #2682: the A2A-native Spring Voyage agent has no container /
-    /// workspace concept, so the launcher returns null and the prompt
-    /// assembler omits the <c>### Container and workspace</c> sub-
-    /// section entirely for runtimes that dispatch through this
-    /// launcher (heading level per #2738).
-    /// </summary>
-    [Fact]
-    public void GetWorkspacePromptFragment_ReturnsNull()
-    {
-        _launcher.GetWorkspacePromptFragment().ShouldBeNull();
+        prose.ShouldNotBeNullOrWhiteSpace();
+        prose!.ShouldContain("$SPRING_WORKSPACE_PATH");
+        prose.ShouldContain(".spring/system-prompt.md");
+        prose.ShouldContain("$SPRING_MCP_URL");
+        prose.ShouldContain("$SPRING_MCP_TOKEN");
+        // The Python runtime does NOT use an in-workspace .mcp.json — the
+        // prose must say so explicitly so the agent knows where to look.
+        prose.ShouldContain(".mcp.json");
+        prose.ShouldContain("Spring Voyage Agent SDK");
     }
 
     private static AgentLaunchContext MakeContext(string provider, string model) =>

@@ -274,6 +274,88 @@ class TestSdkAgentExecutor:
 
         assert executor._serial_lock is None
 
+    @pytest.mark.asyncio
+    async def test_runs_bootstrap_integrity_check_before_on_message(self):
+        """#2734: when a BootstrapFetcher is attached, the executor
+        calls integrity_check_and_refresh() before invoking on_message
+        so operator edits to the agent definition land before the
+        handler reads context.system_prompt."""
+        from spring_voyage_agent_sdk.bootstrap import IntegrityCheckResult
+
+        done_event = asyncio.Event()
+        done_event.set()
+
+        invocations: list[str] = []
+
+        async def on_message(message: Message):
+            invocations.append("on_message")
+            yield Response(text="ok")
+
+        fetcher = MagicMock()
+        fetcher.integrity_check_and_refresh = MagicMock(
+            side_effect=lambda: (invocations.append("integrity_check"), IntegrityCheckResult(checked=True))[1]
+        )
+
+        executor = _SdkAgentExecutor(
+            hooks=_make_hooks(on_message=on_message),
+            concurrent_threads=True,
+            initialize_done=done_event,
+            bootstrap_fetcher=fetcher,
+        )
+
+        await executor.execute(_make_context(), _make_event_queue())
+
+        assert invocations == ["integrity_check", "on_message"]
+
+    @pytest.mark.asyncio
+    async def test_integrity_check_failure_does_not_abort_turn(self):
+        """A bootstrap fetcher exception during the per-turn check is
+        logged but never raised — the agent must still get a chance to
+        answer the message with the last-known-good bundle bytes."""
+        done_event = asyncio.Event()
+        done_event.set()
+
+        on_message_called = False
+
+        async def on_message(message: Message):
+            nonlocal on_message_called
+            on_message_called = True
+            yield Response(text="ok")
+
+        fetcher = MagicMock()
+        fetcher.integrity_check_and_refresh = MagicMock(side_effect=RuntimeError("worker dropped the connection"))
+
+        executor = _SdkAgentExecutor(
+            hooks=_make_hooks(on_message=on_message),
+            concurrent_threads=True,
+            initialize_done=done_event,
+            bootstrap_fetcher=fetcher,
+        )
+
+        await executor.execute(_make_context(), _make_event_queue())
+
+        assert on_message_called is True
+
+    @pytest.mark.asyncio
+    async def test_no_fetcher_skips_integrity_check(self):
+        """When no BootstrapFetcher is attached (smoke-test harness,
+        alternate launcher) the executor must NOT touch a fetcher.
+        This is the no-op path."""
+        done_event = asyncio.Event()
+        done_event.set()
+
+        executor = _SdkAgentExecutor(
+            hooks=_make_hooks(),
+            concurrent_threads=True,
+            initialize_done=done_event,
+            bootstrap_fetcher=None,
+        )
+
+        # Calling _maybe_refresh_bootstrap directly is the most direct
+        # way to assert the no-op behaviour without standing up an
+        # entire A2A request roundtrip.
+        await executor._maybe_refresh_bootstrap()
+
 
 class TestBareStartup:
     """Verify the uvicorn-first startup contract.
@@ -374,6 +456,158 @@ class TestBareStartup:
         assert runtime._initialize_done.is_set()
         assert len(initialized_with) == 1
         assert initialized_with[0].tenant_id == "t1"
+
+    @pytest.mark.asyncio
+    async def test_load_and_initialize_pulls_bootstrap_when_url_present(self, monkeypatch, tmp_path):
+        """#2734: when SPRING_BOOTSTRAP_URL is set, _load_and_initialize
+        pulls the bootstrap bundle before IAgentContext.load() so the
+        launcher-contributed `.spring/system-prompt.md` is on disk when
+        the loader reads it. Validates the end-to-end wire: the
+        launcher's bundle file becomes context.system_prompt."""
+        required = {
+            "SPRING_TENANT_ID": "t1",
+            "SPRING_AGENT_ID": "a1",
+            "SPRING_BUCKET2_URL": "http://b2",
+            "SPRING_BUCKET2_TOKEN": "tok",
+            "SPRING_LLM_PROVIDER_URL": "http://llm",
+            "SPRING_LLM_PROVIDER_TOKEN": "llmtok",
+            "SPRING_MCP_URL": "http://mcp",
+            "SPRING_MCP_TOKEN": "mcptok",
+            "SPRING_TELEMETRY_URL": "http://tel",
+            "SPRING_WORKSPACE_PATH": str(tmp_path),
+            "SPRING_CONCURRENT_THREADS": "true",
+            # The bootstrap env vars the launcher (and AgentContextBuilder)
+            # stamp on every dispatch per ADR-0055 §9.
+            "SPRING_BOOTSTRAP_URL": "http://worker/v1/bootstrap/agents/a1",
+            "SPRING_BOOTSTRAP_TOKEN": "bootstrap-bearer",
+        }
+        for k, v in required.items():
+            monkeypatch.setenv(k, v)
+
+        import json as _json
+
+        # Patch the bootstrap fetcher's HTTP impl so the test doesn't
+        # need a real worker — return a bundle carrying the assembled
+        # system prompt at the canonical path.
+        body = _json.dumps(
+            {
+                "version": "sha256:test",
+                "issuedAt": "2026-05-22T12:00:00Z",
+                "files": [
+                    {
+                        "path": ".spring/system-prompt.md",
+                        "sha256": "sha256:fake",
+                        "content": "Assembled system prompt for the test.",
+                    }
+                ],
+                "platformFileHashes": {".spring/system-prompt.md": "sha256:fake"},
+            }
+        )
+
+        def _fake_fetch(url, headers, timeout):
+            assert url == "http://worker/v1/bootstrap/agents/a1"
+            assert headers["Authorization"] == "Bearer bootstrap-bearer"
+            return (200, '"sha256:test"', body)
+
+        # Patch the module-level _default_fetch so create_from_env()
+        # composes a fetcher that uses our stub.
+        import spring_voyage_agent_sdk.bootstrap as bootstrap_module
+
+        monkeypatch.setattr(bootstrap_module, "_default_fetch", _fake_fetch)
+
+        initialized_with: list = []
+
+        async def _record_initialize(ctx):
+            initialized_with.append(ctx)
+
+        async def _noop_on_message(msg):
+            yield Response(text="ok")
+
+        async def _noop_shutdown(reason):
+            pass
+
+        hooks = AgentHooks(
+            initialize=_record_initialize,
+            on_message=_noop_on_message,
+            on_shutdown=_noop_shutdown,
+        )
+        runtime = AgentRuntime(hooks, port=0)
+
+        executor = _SdkAgentExecutor(
+            hooks=hooks,
+            concurrent_threads=True,
+            initialize_done=runtime._initialize_done,
+        )
+
+        await runtime._load_and_initialize(executor)
+
+        # The bootstrap fetch wrote the file under the workspace mount.
+        assert (tmp_path / ".spring" / "system-prompt.md").exists()
+        # The SDK then loaded context, which read the file into
+        # system_prompt. initialize() saw the assembled prompt.
+        assert runtime._initialize_done.is_set()
+        assert len(initialized_with) == 1
+        assert initialized_with[0].system_prompt == "Assembled system prompt for the test."
+
+    @pytest.mark.asyncio
+    async def test_load_and_initialize_warns_on_bootstrap_failure(self, monkeypatch, tmp_path):
+        """A bootstrap fetch failure leaves _initialize_done unset so
+        on_message blocks — the agent never dispatches with a
+        half-populated workspace."""
+        required = {
+            "SPRING_TENANT_ID": "t1",
+            "SPRING_AGENT_ID": "a1",
+            "SPRING_BUCKET2_URL": "http://b2",
+            "SPRING_BUCKET2_TOKEN": "tok",
+            "SPRING_LLM_PROVIDER_URL": "http://llm",
+            "SPRING_LLM_PROVIDER_TOKEN": "llmtok",
+            "SPRING_MCP_URL": "http://mcp",
+            "SPRING_MCP_TOKEN": "mcptok",
+            "SPRING_TELEMETRY_URL": "http://tel",
+            "SPRING_WORKSPACE_PATH": str(tmp_path),
+            "SPRING_CONCURRENT_THREADS": "true",
+            "SPRING_BOOTSTRAP_URL": "http://worker/v1/bootstrap/agents/a1",
+            "SPRING_BOOTSTRAP_TOKEN": "bootstrap-bearer",
+        }
+        for k, v in required.items():
+            monkeypatch.setenv(k, v)
+
+        def _failing_fetch(url, headers, timeout):
+            return (500, None, "worker on fire")
+
+        import spring_voyage_agent_sdk.bootstrap as bootstrap_module
+
+        monkeypatch.setattr(bootstrap_module, "_default_fetch", _failing_fetch)
+
+        initialized_with: list = []
+
+        async def _record_initialize(ctx):
+            initialized_with.append(ctx)
+
+        async def _noop_on_message(msg):
+            yield Response(text="ok")
+
+        async def _noop_shutdown(reason):
+            pass
+
+        hooks = AgentHooks(
+            initialize=_record_initialize,
+            on_message=_noop_on_message,
+            on_shutdown=_noop_shutdown,
+        )
+        runtime = AgentRuntime(hooks, port=0)
+        executor = _SdkAgentExecutor(
+            hooks=hooks,
+            concurrent_threads=True,
+            initialize_done=runtime._initialize_done,
+        )
+
+        # Must complete without raising — the failure path logs a
+        # warning and returns early.
+        await runtime._load_and_initialize(executor)
+
+        assert not runtime._initialize_done.is_set()
+        assert initialized_with == []
 
 
 class TestAgentCardRoutes:

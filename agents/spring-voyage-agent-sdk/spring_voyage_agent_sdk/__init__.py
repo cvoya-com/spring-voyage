@@ -65,6 +65,16 @@ warning — the platform user always sees *something* even when an
 agent author forgets to reply.
 """
 
+from spring_voyage_agent_sdk.bootstrap import (
+    BootstrapBundle,
+    BootstrapError,
+    BootstrapFetcher,
+    BootstrapFile,
+    IntegrityCheckResult,
+)
+from spring_voyage_agent_sdk.bootstrap import (
+    create_from_env as create_bootstrap_fetcher_from_env,
+)
 from spring_voyage_agent_sdk.context import IAgentContext
 from spring_voyage_agent_sdk.hooks import AgentHooks
 from spring_voyage_agent_sdk.rate_limit import (
@@ -109,4 +119,10 @@ __all__ = [
     "tool_call",
     "llm_turn",
     "run",
+    "BootstrapBundle",
+    "BootstrapError",
+    "BootstrapFetcher",
+    "BootstrapFile",
+    "IntegrityCheckResult",
+    "create_bootstrap_fetcher_from_env",
 ]

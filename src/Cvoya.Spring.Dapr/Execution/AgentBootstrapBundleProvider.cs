@@ -135,12 +135,13 @@ public sealed class AgentBootstrapBundleProvider(
         // (per #2738 — the pre-cutover prepend-above-everything path put
         // the guard outside the heading tree). The bundle path threads
         // the resolved flag through PromptAssemblyContext so the model
-        // sees the concurrency contract inside the section it belongs to
-        // — without a post-Assemble Compose call. The Spring Voyage
-        // agent launcher (the lone remaining SPRING_SYSTEM_PROMPT
-        // consumer) still wraps its deploy-time raw-instructions body
-        // via LauncherPromptFragments.Compose; that wrapper is now
-        // idempotent on prompts that already carry the in-band guard.
+        // sees the concurrency contract inside the section it belongs to.
+        // #2734: the Spring Voyage Agent launcher used to wrap its
+        // deploy-time SPRING_SYSTEM_PROMPT body via
+        // LauncherPromptFragments.Compose; that env-var delivery path is
+        // gone (the SVA now reads .spring/system-prompt.md from the
+        // bundle, same as every other launcher), so the in-band render
+        // is now the single delivery channel.
         var concurrentThreads = definition.Execution?.ConcurrentThreads ?? true;
 
         var assemblyContext = new PromptAssemblyContext(

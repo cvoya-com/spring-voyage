@@ -40,11 +40,6 @@ deployments:
                           dispatch (``llm-anthropic``, ``llm-openai``,
                           ``llm-google``, ``llm-ollama``) per ADR-0038.
                           Missing values raise at ``initialize()``.
-  SPRING_SYSTEM_PROMPT  — System prompt assembled by the platform
-                          (optional; falls back to
-                          ``context.system_prompt`` — i.e. the
-                          ``.spring/system-prompt.md`` file under the
-                          workspace mount — if unset).
   SPRING_AGENT_MAX_STEPS — Maximum tool-call rounds before forcing the
                           loop to terminate (default: 12). Guards
                           against runaway loops without imposing a wall
@@ -54,6 +49,13 @@ deployments:
                           SPRING_MODEL at first message time if the local
                           Ollama server does not already have it
                           (default: true).
+
+The platform-assembled system prompt arrives via the SDK bootstrap
+bundle (#2734): the SpringVoyageAgentLauncher's ``ContributeBundleAsync``
+writes ``$SPRING_WORKSPACE_PATH/.spring/system-prompt.md`` and the SDK's
+bootstrap client materialises it before ``initialize()`` runs.  The hook
+reads it via ``context.system_prompt`` (spec §2.2.2) — the legacy
+``SPRING_SYSTEM_PROMPT`` env-var path was removed at the same time.
 
   The MCP endpoint and token are read from IAgentContext
   (SPRING_MCP_URL / SPRING_MCP_TOKEN) — the canonical D1-spec names
@@ -114,11 +116,18 @@ _ollama_model_lock = asyncio.Lock()
 
 @dataclass
 class AgentBuild:
-    """Cached agent runtime — the LLM client + the resolved tool list."""
+    """Cached agent runtime — the LLM client + the resolved tool list.
+
+    #2734: ``system_prompt`` is NOT cached here. It is re-read from
+    ``IAgentContext.system_prompt`` (which reads
+    ``$SPRING_WORKSPACE_PATH/.spring/system-prompt.md`` from disk) on
+    every ``on_message`` so the SDK's per-turn bootstrap integrity
+    check (ADR-0055 §6) is observable — operator edits to the agent
+    definition take effect at turn cadence.
+    """
 
     llm: DaprChatClient
     tools: List[AgentTool]
-    system_prompt: str
     tools_by_name: dict[str, AgentTool]
     provider: str = ""
     model: str = ""
@@ -186,13 +195,6 @@ async def initialize(context: IAgentContext) -> None:
 
     tools_by_name = {_resolve_tool_name(t, f"tool-{i}"): t for i, t in enumerate(tools)}
 
-    # Resolve system prompt: explicit env var wins; fall back to the
-    # platform-assembled system prompt from .spring/system-prompt.md
-    # (spec §2.2.2) the SDK loads into context.system_prompt.
-    system_prompt = os.environ.get("SPRING_SYSTEM_PROMPT", "")
-    if not system_prompt:
-        system_prompt = context.system_prompt or "You are a helpful AI assistant."
-
     logger.info(
         "Dapr Agent initialized (workflow-free per ADR 0029 Stage 0): provider=%s, model=%s, component=%s, tools=%d",
         provider,
@@ -204,7 +206,6 @@ async def initialize(context: IAgentContext) -> None:
     _agent_build = AgentBuild(
         llm=llm_client,
         tools=tools,
-        system_prompt=system_prompt,
         tools_by_name=tools_by_name,
         provider=provider,
         model=model,
@@ -259,9 +260,23 @@ async def on_message(message: Message):
         kind="turn_start",
     )
 
+    # #2734: read the platform-assembled system prompt fresh from
+    # IAgentContext on every turn. The SDK has just run the per-turn
+    # bootstrap integrity check (ADR-0055 §6) so disk reflects the
+    # latest bundle; context.system_prompt is a property that reads
+    # the file each access, so this picks up operator edits at turn
+    # cadence without a container restart. Falls back to a neutral
+    # default when no bundle delivered a prompt (smoke-test harness
+    # or alternate launcher).
+    system_prompt = (
+        _agent_context.system_prompt
+        if _agent_context is not None and _agent_context.system_prompt
+        else "You are a helpful AI assistant."
+    )
+
     try:
         await _ensure_configured_model(_agent_build)
-        result_text = await _run_agentic_loop(_agent_build, user_text, rt)
+        result_text = await _run_agentic_loop(_agent_build, system_prompt, user_text, rt)
         if not result_text:
             # An empty result means the loop exited without producing any
             # visible text — typically because the LLM returned an empty
@@ -322,12 +337,19 @@ async def on_shutdown(reason: ShutdownReason) -> None:
 
 async def _run_agentic_loop(
     build: AgentBuild,
+    system_prompt: str,
     user_text: str,
     rt: RuntimeContext | None = None,
 ) -> str:
     """Run a tool-calling loop until the LLM returns a final assistant
     message (no further tool calls) or ``SPRING_AGENT_MAX_STEPS`` rounds
     elapse. Returns the assistant's final textual response.
+
+    ``system_prompt`` is supplied per-call rather than stashed on
+    ``build`` so each turn picks up the freshest platform-assembled
+    prompt (#2734): on_message reads ``IAgentContext.system_prompt``
+    right after the SDK's per-turn bootstrap integrity check (ADR-0055
+    §6) and threads it in here.
 
     Each iteration is one Conversation API call to daprd (a single unary
     gRPC, no workflow / actor placement involvement) plus, if the model
@@ -344,8 +366,8 @@ async def _run_agentic_loop(
     rt = rt or RuntimeContext.current()
 
     messages: List[BaseMessage] = []
-    if build.system_prompt:
-        messages.append(SystemMessage(content=build.system_prompt))
+    if system_prompt:
+        messages.append(SystemMessage(content=system_prompt))
     messages.append(UserMessage(content=user_text))
 
     loop = asyncio.get_event_loop()
