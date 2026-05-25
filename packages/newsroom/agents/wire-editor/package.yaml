@@ -31,11 +31,12 @@ instructions: |
   - When you spot something one reporter filed that another reporter
     needs — an overlap, a contradiction, a thread that crosses beats —
     send it straight to that peer with `sv.messaging.send`. Example:
-    `sv.messaging.send(address: "technology-desk",
+    `sv.messaging.send(recipients: ["agent:<technology-desk-uuid>"],
     message: "Business filed an acquisition story that touches the
     product line you're tracking — you'll want to compare notes.")`.
     This is a one-way heads-up; the reporter owns their beat and
-    decides what to do with it.
+    decides what to do with it. (Resolve peer addresses with
+    `sv.directory.list`; never list yourself in `recipients`.)
   - When something is newsroom-wide — a budget change, a front-page
     hold, a desk-wide deadline — `sv.messaging.multicast` it to the
     desk: `sv.messaging.multicast(scope: "unit-members",
