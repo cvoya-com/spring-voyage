@@ -18,39 +18,26 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// Platform <see cref="ISkillRegistry"/> for the message-delivery tools
 /// <c>sv.messaging.send</c> and <c>sv.messaging.multicast</c> (ADR-0048 /
-/// ADR-0049). It re-fronts the existing <see cref="MessagingToolHandlers"/>
-/// delivery seam as a registry so messaging joins the other
-/// <c>Sv*SkillRegistry</c> types on the single platform MCP server (ADR-0051):
-/// one auth model (the MCP session bearer token), one JSON-RPC handler, and —
-/// critically — the same effective-grant gate (#2379) and unit-policy
-/// enforcement (#162) every other <c>sv.*</c> tool already passes through.
+/// ADR-0049, reshaped by #2747). Both tools take the same input shape —
+/// either an explicit <c>recipients</c> list or a <c>scope</c> — and differ
+/// in thread identity: <c>send</c> places every recipient on the single
+/// shared thread <c>{caller} ∪ recipients</c>; <c>multicast</c> places each
+/// recipient on its own independent 1-1 thread.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The retired callback JWT carried per-turn delivery authority as four
-/// claims (<c>tenantId</c> / <c>agentAddress</c> / <c>threadId</c> /
-/// <c>messageId</c>). ADR-0051 folds that authority into the MCP session,
-/// which is minted per turn and revoked on turn-end. This registry reads it
-/// from <see cref="ToolCallContext"/>: <see cref="ToolCallContext.CallerId"/>
-/// + <see cref="ToolCallContext.CallerKind"/> give the caller address,
-/// <see cref="ToolCallContext.ThreadId"/> gives the thread,
-/// <see cref="ToolCallContext.MessageId"/> gives the inbound message, and the
-/// tenant is ambient via <see cref="ITenantContext"/>.
+/// The agent never names <c>thread_id</c> in either direction: the platform
+/// derives it from the participant set per ADR-0030. The caller is
+/// auto-included in every thread's participant set — the agent does not
+/// list itself in <c>recipients</c>.
 /// </para>
 /// <para>
-/// Because <c>sv.messaging.*</c> tools live in the <c>sv</c> namespace, the
-/// effective-grant resolver's platform tier (<c>EnumeratePlatformTools</c>)
-/// surfaces them implicitly for every agent and unit subject — no grant row
-/// is required. That is the "default grant seeding" ADR-0051 §4 calls for:
-/// existing agents keep their messaging tools by construction, while a unit
-/// policy can now <i>deny</i> messaging, closing the gap the two-server split
-/// left open.
-/// </para>
-/// <para>
-/// The ADR-0049 delivery-acknowledgement contract is unchanged — each tool is
-/// an RPC returning a delivery ack, never the recipient's reply; delivery is
-/// synchronous with bounded retry; failure surfaces as a synchronous tool
-/// error. Only the transport and the credential moved.
+/// Caller identity is sourced from the MCP session's <see cref="ToolCallContext"/>:
+/// <see cref="ToolCallContext.CallerId"/> + <see cref="ToolCallContext.CallerKind"/>
+/// build the caller address; the tenant is ambient via <see cref="ITenantContext"/>.
+/// The inbound <see cref="ToolCallContext.ThreadId"/> is the caller's upstream
+/// thread, used only for hop-budget accounting (#2576) — it never names the
+/// delivery thread.
 /// </para>
 /// </remarks>
 public sealed class SvMessagingSkillRegistry : ISkillRegistry
@@ -126,37 +113,22 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         CancellationToken cancellationToken)
     {
         var caller = ResolveCaller(context);
-        var threadId = ResolveThreadId(context);
-
-        if (!TryGetStringArgument(arguments, "address", out var addressValue))
-        {
-            throw new ArgumentException("sv.messaging.send requires an 'address' string argument.");
-        }
-
-        if (!Address.TryParse(addressValue, out var target) || target is null)
-        {
-            throw new ArgumentException($"'{addressValue}' is not a valid Spring Voyage address.");
-        }
-
+        var upstreamThread = ResolveThreadId(context);
+        var (recipients, scope) = ParseRecipientsAndScope(arguments, SendTool);
         var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
-        var message = BuildMessage(context, caller, target, ExtractMessagePayload(arguments));
+        var message = BuildMessage(context, caller, ExtractMessagePayload(arguments));
 
-        var ack = await _handlers.HandleSendAsync(
+        var result = await _handlers.HandleSendAsync(
             caller,
             _tenantContext.CurrentTenantId,
-            target,
+            recipients,
+            scope,
             message,
             reason,
-            threadId,
+            upstreamThread,
             cancellationToken);
 
-        return JsonSerializer.SerializeToElement(new
-        {
-            delivered = ack.Delivered,
-            messageId = ack.MessageId.ToString("D"),
-            target = ack.Target.ToString(),
-            threadId = ack.ThreadId.ToString("D"),
-        });
+        return SerializeSendResult(result);
     }
 
     private async Task<JsonElement> InvokeMulticastAsync(
@@ -165,73 +137,116 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         CancellationToken cancellationToken)
     {
         var caller = ResolveCaller(context);
-        var threadId = ResolveThreadId(context);
-
-        var hasAddresses = arguments.ValueKind == JsonValueKind.Object &&
-            arguments.TryGetProperty("addresses", out var addressesProp) &&
-            addressesProp.ValueKind == JsonValueKind.Array;
-        var hasScope = TryGetStringArgument(arguments, "scope", out var scopeValue);
-
-        if (hasAddresses == hasScope)
-        {
-            throw new ArgumentException(
-                "sv.messaging.multicast requires exactly one of an 'addresses' array or a 'scope' string.");
-        }
-
-        List<Address>? targets = null;
-        MulticastScope? scope = null;
-
-        if (hasAddresses)
-        {
-            targets = new List<Address>();
-            arguments.TryGetProperty("addresses", out var addressesArray);
-            foreach (var element in addressesArray.EnumerateArray())
-            {
-                var addressValue = element.ValueKind == JsonValueKind.String ? element.GetString() : null;
-                if (!Address.TryParse(addressValue, out var target) || target is null)
-                {
-                    throw new ArgumentException($"'{addressValue}' is not a valid Spring Voyage address.");
-                }
-
-                targets.Add(target);
-            }
-        }
-        else if (!TryParseMulticastScope(scopeValue, out scope))
-        {
-            throw new ArgumentException(
-                $"'{scopeValue}' is not a valid multicast scope. Use 'unit-members' or 'siblings'.");
-        }
-
+        var upstreamThread = ResolveThreadId(context);
+        var (recipients, scope) = ParseRecipientsAndScope(arguments, MulticastTool);
         var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
-        var message = BuildMessage(
-            context,
-            caller,
-            targets is { Count: > 0 } ? targets[0] : caller,
-            ExtractMessagePayload(arguments));
+        var message = BuildMessage(context, caller, ExtractMessagePayload(arguments));
 
         var result = await _handlers.HandleMulticastAsync(
             caller,
             _tenantContext.CurrentTenantId,
-            targets,
+            recipients,
             scope,
             message,
             reason,
-            threadId,
+            upstreamThread,
             cancellationToken);
 
-        return JsonSerializer.SerializeToElement(new
+        return SerializeMulticastResult(result);
+    }
+
+    private static (IReadOnlyList<Address>? Recipients, MulticastScope? Scope) ParseRecipientsAndScope(
+        JsonElement arguments, string toolName)
+    {
+        var hasRecipients = arguments.ValueKind == JsonValueKind.Object &&
+            arguments.TryGetProperty("recipients", out var recipientsProp) &&
+            recipientsProp.ValueKind == JsonValueKind.Array;
+        var hasScope = TryGetStringArgument(arguments, "scope", out var scopeValue);
+
+        if (hasRecipients == hasScope)
         {
-            messageId = result.MessageId.ToString("D"),
-            threadId = result.ThreadId.ToString("D"),
-            deliveries = result.Deliveries
-                .Select(outcome => new
+            throw new ArgumentException(
+                $"{toolName} requires exactly one of a non-empty 'recipients' array or a 'scope' string.");
+        }
+
+        if (hasRecipients)
+        {
+            arguments.TryGetProperty("recipients", out var array);
+            var list = new List<Address>(array.GetArrayLength());
+            foreach (var element in array.EnumerateArray())
+            {
+                var raw = element.ValueKind == JsonValueKind.String ? element.GetString() : null;
+                if (!Address.TryParse(raw, out var address) || address is null)
                 {
-                    target = outcome.Target.ToString(),
-                    delivered = outcome.Delivered,
-                    error = outcome.Error,
-                })
-                .ToArray(),
-        });
+                    throw new ArgumentException($"'{raw}' is not a valid Spring Voyage address.");
+                }
+                list.Add(address);
+            }
+            return (list, null);
+        }
+
+        if (!TryParseMulticastScope(scopeValue, out var scope))
+        {
+            throw new ArgumentException(
+                $"'{scopeValue}' is not a valid scope. Use 'unit-members' or 'siblings'.");
+        }
+        return (null, scope);
+    }
+
+    private static JsonElement SerializeSendResult(SendResult result)
+    {
+        using var stream = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("messageId", result.MessageId.ToString("D"));
+            writer.WriteString("threadId", result.ThreadId.ToString("D"));
+            writer.WritePropertyName("deliveries");
+            writer.WriteStartArray();
+            foreach (var delivery in result.Deliveries)
+            {
+                WriteDelivery(writer, delivery);
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+    }
+
+    private static JsonElement SerializeMulticastResult(MulticastResult result)
+    {
+        using var stream = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("messageId", result.MessageId.ToString("D"));
+            writer.WritePropertyName("deliveries");
+            writer.WriteStartArray();
+            foreach (var delivery in result.Deliveries)
+            {
+                WriteDelivery(writer, delivery);
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+    }
+
+    private static void WriteDelivery(Utf8JsonWriter writer, RecipientDeliveryAck delivery)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("target", delivery.Target.ToString());
+        writer.WriteBoolean("delivered", delivery.Delivered);
+        writer.WriteString("threadId", delivery.ThreadId.ToString("D"));
+        if (delivery.Error is { } err)
+        {
+            writer.WriteString("error", err);
+        }
+        else
+        {
+            writer.WriteNull("error");
+        }
+        writer.WriteEndObject();
     }
 
     /// <summary>
@@ -262,17 +277,18 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
     /// Builds the <see cref="Message"/> envelope for a delivery. <c>ThreadId</c>
     /// is intentionally left <c>null</c> (#2596 / ADR-0030): the delivery hop
     /// owns thread identity, so <see cref="MessageDeliveryService"/> resolves
-    /// the thread from the <c>(caller, target)</c> participant set per hop. The
-    /// message id is the inbound-turn message from the session — the per-turn
-    /// delivery authority the callback JWT used to carry as its <c>messageId</c>
-    /// claim (ADR-0051).
+    /// the thread from the participant set per hop. The message id is the
+    /// inbound-turn message from the session — the per-turn delivery
+    /// authority the callback JWT used to carry as its <c>messageId</c>
+    /// claim (ADR-0051). <c>To</c> is set to the caller as a placeholder;
+    /// the delivery loop overrides it per recipient.
     /// </summary>
     private static Message BuildMessage(
-        ToolCallContext context, Address caller, Address target, JsonElement payload) =>
+        ToolCallContext context, Address caller, JsonElement payload) =>
         new(
             context.MessageId,
             caller,
-            target,
+            caller,
             MessageType.Domain,
             ThreadId: null,
             payload,

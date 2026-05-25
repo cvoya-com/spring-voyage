@@ -76,8 +76,12 @@ public class A2AExecutionDispatcher(
     IA2ATransportFactory transportFactory,
     IConnectorRuntimeContextResolver connectorRuntimeContextResolver,
     IConnectorPromptContextResolver connectorPromptContextResolver,
+    Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver inboundEnvelopeResolver,
     ILoggerFactory loggerFactory) : IExecutionDispatcher
 {
+    private readonly Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver _inboundEnvelopeResolver =
+        inboundEnvelopeResolver ?? throw new ArgumentNullException(nameof(inboundEnvelopeResolver));
+
     private readonly ILogger _logger = loggerFactory.CreateLogger<A2AExecutionDispatcher>();
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
     private readonly IA2ATransportFactory _transportFactory = transportFactory
@@ -998,17 +1002,19 @@ public class A2AExecutionDispatcher(
         using var httpClient = transport.CreateHttpClient(endpoint);
         var a2aClient = new A2AClient(endpoint, httpClient);
 
-        // Map the inbound payload to the user-facing text via the shared
-        // helper so all three payload shapes (bare string, { text: "…" },
-        // { Task: "…" }) are handled identically. An empty extraction
-        // results in an empty user-message text — the system prompt
-        // (delivered via the bootstrap bundle / runtime-native session
-        // resume) carries everything else the runtime needs. Falling
-        // back to the assembled system prompt — as the previous
-        // Task-only extraction did on a miss — leaked the system
-        // instructions into the user role and made the agent reply to
-        // itself on follow-up turns (#2230).
-        var userMessage = MessagePayloadText.Extract(originalMessage.Payload);
+        // #2746 — wrap the inbound payload in the structured envelope so
+        // the runtime sees `from`, `to` (the participants the sender
+        // targeted), `message_id`, `timestamp`, and the payload as
+        // first-class fields plus a fenced JSON appendix for parseable
+        // payloads (webhook events, custom shapes). The envelope makes the
+        // "this is a structured event to act on" framing visible at the
+        // input boundary so the runtime cannot drift into "answer this
+        // chat turn as text" (the silent-runtime-on-casual-input failure
+        // pattern #2703 documented). The empty-payload fallback used to
+        // collapse to an empty user message; the envelope still names
+        // sender/message_id so the runtime always has handles to act on.
+        var userMessage = await _inboundEnvelopeResolver
+            .RenderEnvelopeAsync(originalMessage, cancellationToken);
 
         // A2A v0.3 wire shape: MessageSendParams { message, configuration } —
         // the JSON-RPC method name is `message/send` (set by the SDK), which

@@ -32,9 +32,11 @@ instructions: |
     it straight to that peer with `sv.messaging.send`. A merger facing a
     regulatory review is `politics-desk`'s to weigh; an acquisition that
     reshapes a product roadmap is `technology-desk`'s.
-    Example: `sv.messaging.send(address: "politics-desk",
+    Example: `sv.messaging.send(recipients: ["agent:<politics-desk-uuid>"],
     message: "The merger I'm covering has a regulatory angle — antitrust
-    scrutiny likely. You'll want this.")`. This is a one-way heads-up:
+    scrutiny likely. You'll want this.")`. (Resolve the peer's address
+    via `sv.directory.list`; never list yourself in `recipients`.)
+    This is a one-way heads-up:
     the peer owns their beat and decides what to do with it. You are
     informing them, not assigning them work.
   - When something is newsroom-wide — a market-moving event, a story

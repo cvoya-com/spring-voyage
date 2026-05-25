@@ -106,14 +106,27 @@ is the ordering invariant.
 
 ## Message delivery
 
-A runtime delivers a message through two platform tools. Both share one
-contract: the response is a **delivery acknowledgement** — the message was
-durably placed in the recipient's mailbox — never the recipient's reply.
+A runtime delivers a message through two platform tools. Both take the same
+input shape — either an explicit `recipients` list or a `scope` — and differ in
+**thread identity**, not input shape. Both return a **delivery
+acknowledgement** — the message was durably placed in each recipient's mailbox
+— never the recipient's reply.
 
-| Tool | Delivers to |
-|------|-------------|
-| `sv.messaging.send(address, message, reason?)` | One addressable target |
-| `sv.messaging.multicast(scope \| addresses, message, reason?)` | Many targets — explicit, or by directory-relationship `scope` (`unit-members`, `siblings`) |
+| Tool | Thread shape |
+|------|--------------|
+| `sv.messaging.send(recipients \| scope, message, reason?)` | One SHARED thread for the whole participant set `{caller} ∪ recipients`. Every recipient sees the others in the inbound envelope's `to` field. |
+| `sv.messaging.multicast(recipients \| scope, message, reason?)` | N INDEPENDENT 1-1 threads `{caller, recipient_i}`. Each recipient sees only itself in the inbound envelope and only this pair's history via `sv.memory.history_with`. |
+
+The calling participant is auto-included in every thread's participant set —
+the runtime does not list itself in `recipients`. Connector (`connector://`)
+addresses are non-routable: passing one as a recipient returns an
+`UnroutableTarget` error (connectors are senders only — they stamp message
+provenance on inbound webhook events but never receive replies).
+
+The runtime never names a `thread_id`. The platform derives it from the
+participant set per [ADR-0030](../decisions/0030-thread-model.md); shared
+history is reached via `sv.memory.history_with(participants=[…])` — the
+participant set IS the identifier.
 
 - Delivery is **synchronous with bounded retry** inside the handler — there is no
   delivery queue. `agent:` / `unit:` / `human:` targets are virtual actors that
@@ -139,8 +152,8 @@ Every platform tool is named `sv.<area>.<verb>`:
 | Area | Tools |
 |------|-------|
 | `sv.directory.*` | `get_self`, `get_member`, `list_members`, `get_siblings`, `get_parents`, `get_status` |
-| `sv.memory.*` | `add`, `get`, `list`, `search`, `update`, `delete` |
-| `sv.messaging.*` | `send`, `multicast` |
+| `sv.memory.*` | Private memory: `add`, `get`, `list`, `search`, `update`, `delete`. Shared history (#2747): `history_with`, `engagements`, `search_messages` |
+| `sv.messaging.*` | `send`, `multicast` (both take `recipients[]` or `scope`; differ in thread identity per #2747) |
 | `sv.runtime.*` | `report_progress`, `report_decision` |
 | `sv.expertise.*` | `search`, plus dynamic per-capability `sv.expertise.{slug}` tools |
 

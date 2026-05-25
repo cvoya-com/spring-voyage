@@ -14,9 +14,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Recipient scopes a <c>sv.messaging.multicast</c> call may target instead
-/// of an explicit address list. Resolved against the caller's position in
-/// the unit member graph.
+/// Recipient scopes a messaging-tool call may target instead of an explicit
+/// address list. Resolved against the caller's position in the unit member
+/// graph. <c>sv.messaging.send</c> treats the scope as the participants of
+/// a single shared thread; <c>sv.messaging.multicast</c> treats it as a
+/// fan-out list across N independent 1-1 threads (#2747).
 /// </summary>
 public enum MulticastScope
 {
@@ -28,14 +30,56 @@ public enum MulticastScope
 }
 
 /// <summary>
+/// Outcome of one <c>sv.messaging.send</c> call (#2747). The call delivers
+/// one message to every resolved recipient on the <i>single shared thread</i>
+/// identified by <c>{caller} ∪ recipients</c>. Each <see cref="Deliveries"/>
+/// row confirms enqueue to that recipient's mailbox; the platform never
+/// carries the recipient's response (ADR-0049).
+/// </summary>
+public sealed record SendResult(
+    Guid MessageId,
+    Guid ThreadId,
+    IReadOnlyList<RecipientDeliveryAck> Deliveries);
+
+/// <summary>
+/// Outcome of one <c>sv.messaging.multicast</c> call (#2747). The call
+/// delivers the same message to every resolved recipient on its own
+/// independent 1-1 thread, so each <see cref="Deliveries"/> row carries its
+/// own <see cref="RecipientDeliveryAck.ThreadId"/>.
+/// </summary>
+public sealed record MulticastResult(
+    Guid MessageId,
+    IReadOnlyList<RecipientDeliveryAck> Deliveries);
+
+/// <summary>
+/// Per-recipient delivery acknowledgement for a messaging-tool call
+/// (ADR-0049). <see cref="ThreadId"/> is the thread the recipient saw the
+/// message on — shared across all deliveries for <c>sv.messaging.send</c>,
+/// per-pair for <c>sv.messaging.multicast</c>.
+/// </summary>
+public sealed record RecipientDeliveryAck(
+    Address Target,
+    bool Delivered,
+    Guid ThreadId,
+    string? Error);
+
+/// <summary>
 /// Handlers backing the platform messaging tools <c>sv.messaging.send</c>
-/// and <c>sv.messaging.multicast</c> (ADR-0048 / ADR-0049). Both are
-/// one-way message-delivery tools: the platform durably places the message
-/// in the recipient mailbox(es) and returns a delivery acknowledgement —
-/// never the recipient's reply. Each call emits a plain
-/// <see cref="ActivityEventType.MessageSent"/> activity (best-effort);
-/// recording a routing <i>decision</i> is the separate, optional
-/// <c>sv.runtime.report_decision</c> tool.
+/// and <c>sv.messaging.multicast</c> (ADR-0048 / ADR-0049, reshaped by
+/// #2747). Both tools accept either an explicit recipient list OR a scope
+/// (<c>"unit-members"</c> / <c>"siblings"</c>); they differ in thread
+/// identity, not input shape:
+/// <list type="bullet">
+///   <item><description><c>sv.messaging.send</c> — one shared thread for the
+///   whole participant set <c>{caller} ∪ recipients</c>. Every recipient
+///   sees the others in the inbound envelope's <c>to</c> field.</description></item>
+///   <item><description><c>sv.messaging.multicast</c> — N independent 1-1
+///   threads <c>{caller, recipient_i}</c>. Each recipient sees only itself
+///   in the inbound envelope.</description></item>
+/// </list>
+/// Both calls emit a plain <see cref="ActivityEventType.MessageSent"/>
+/// activity (best-effort); routing decisions are emitted separately via
+/// <c>sv.runtime.report_decision</c>.
 /// </summary>
 public class MessagingToolHandlers(
     MessageDeliveryService deliveryService,
@@ -45,67 +89,19 @@ public class MessagingToolHandlers(
     ILogger<MessagingToolHandlers> logger)
 {
     /// <summary>
-    /// Delivers <paramref name="message"/> to <paramref name="target"/> and
-    /// returns a delivery acknowledgement (ADR-0049). Delivery is synchronous
-    /// with bounded retry; the tool never blocks on the recipient's runtime.
-    /// Validation failures, hop-budget exhaustion, and terminal delivery
-    /// failures throw <see cref="MessageDeliveryException"/>.
+    /// Delivers <paramref name="message"/> to every resolved recipient on
+    /// the single shared thread <c>{caller} ∪ recipients</c> (#2747). Each
+    /// recipient receives the message on the same <see cref="SendResult.ThreadId"/>;
+    /// a subsequent <c>sv.memory.history_with([…recipients])</c> by any
+    /// participant returns this thread's full timeline. Validation
+    /// failures, hop-budget exhaustion, and unroutable recipients (e.g.
+    /// <c>connector://</c>) throw <see cref="MessageDeliveryException"/>
+    /// before any delivery attempt.
     /// </summary>
-    public async Task<MessageDeliveryAck> HandleSendAsync(
+    public async Task<SendResult> HandleSendAsync(
         Address caller,
         Guid tenantId,
-        Address target,
-        Message message,
-        string? reason,
-        Guid threadId,
-        CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(caller);
-        ArgumentNullException.ThrowIfNull(target);
-        ArgumentNullException.ThrowIfNull(message);
-
-        await deliveryService.EnsureCallerTenantAsync(caller, tenantId, ct);
-        MessageDeliveryService.EnsureNotSelfTarget(caller, target);
-        await deliveryService.EnsureTargetTenantAsync(target, tenantId, ct);
-
-        // #2576 — one hop per send call, checked before delivery so a cycle
-        // terminates at the limit.
-        await deliveryService.EnsureHopBudgetAsync(threadId, ct);
-
-        if (!string.IsNullOrWhiteSpace(reason))
-        {
-            logger.LogInformation(
-                "Delivering message {MessageId} from {Caller} to {Target} on thread {ThreadId}. Reason: {Reason}",
-                message.Id, caller, target, threadId, reason);
-        }
-
-        await deliveryService.DeliverWithRetryAsync(caller, target, message, ct);
-
-        await PublishMessageSentAsync(
-            caller,
-            threadId,
-            $"Message sent to {target}.",
-            new[] { target },
-            reason,
-            ct);
-
-        return new MessageDeliveryAck(true, message.Id, target, threadId);
-    }
-
-    /// <summary>
-    /// Delivers <paramref name="message"/> to every resolved target in
-    /// parallel and returns a per-target delivery outcome (ADR-0049). The
-    /// recipient set is either <paramref name="explicitTargets"/> or, when
-    /// that is <c>null</c>, the addresses resolved from
-    /// <paramref name="scope"/>. Synchronous validation failures and
-    /// hop-budget exhaustion throw <see cref="MessageDeliveryException"/>
-    /// before any delivery attempt; a transient delivery failure surfaces as
-    /// that target's outcome, not as a thrown exception.
-    /// </summary>
-    public async Task<MulticastResult> HandleMulticastAsync(
-        Address caller,
-        Guid tenantId,
-        IReadOnlyList<Address>? explicitTargets,
+        IReadOnlyList<Address>? explicitRecipients,
         MulticastScope? scope,
         Message message,
         string? reason,
@@ -115,30 +111,95 @@ public class MessagingToolHandlers(
         ArgumentNullException.ThrowIfNull(caller);
         ArgumentNullException.ThrowIfNull(message);
 
-        if (explicitTargets is null && scope is null)
+        await deliveryService.EnsureCallerTenantAsync(caller, tenantId, ct);
+
+        var recipients = await ResolveRecipientsAsync(
+            caller, explicitRecipients, scope, "sv.messaging.send", ct);
+
+        foreach (var recipient in recipients)
         {
-            throw new MessageDeliveryException(
-                MessageDeliveryException.RejectCodes.InvalidRequest,
-                "sv.messaging.multicast requires exactly one of 'addresses' or 'scope'.");
+            MessageDeliveryService.EnsureNotSelfTarget(caller, recipient);
+            MessageDeliveryService.EnsureCanReceive(recipient);
+            await deliveryService.EnsureTargetTenantAsync(recipient, tenantId, ct);
         }
 
-        if (explicitTargets is not null && scope is not null)
+        // The shared-thread participant set: caller plus every recipient.
+        // IThreadRegistry canonicalises (order-insensitive, dedupe), so the
+        // same set always resolves to the same thread id — that is the
+        // identity ADR-0030 calls out.
+        var participantSet = new List<Address>(recipients.Count + 1) { caller };
+        participantSet.AddRange(recipients);
+
+        // #2576 — one hop per send call, regardless of fan-out width.
+        await deliveryService.EnsureHopBudgetAsync(threadId, ct);
+
+        if (!string.IsNullOrWhiteSpace(reason))
         {
-            throw new MessageDeliveryException(
-                MessageDeliveryException.RejectCodes.InvalidRequest,
-                "sv.messaging.multicast accepts 'addresses' or 'scope', not both.");
+            logger.LogInformation(
+                "Sending message {MessageId} from {Caller} to {RecipientCount} recipient(s) on shared thread (upstream thread {ThreadId}). Reason: {Reason}",
+                message.Id, caller, recipients.Count, threadId, reason);
         }
+
+        var tasks = recipients
+            .Select(target => deliveryService.DeliverOutcomeAsync(
+                caller, target, message, ct, threadParticipants: participantSet))
+            .ToArray();
+        var outcomes = await Task.WhenAll(tasks);
+
+        // All deliveries land on the same shared thread; surface that id on
+        // the top-level result and on each per-recipient row.
+        var sharedThreadId = await ResolveThreadIdAsync(participantSet, ct);
+        var deliveries = outcomes
+            .Select(o => new RecipientDeliveryAck(o.Target, o.Delivered, sharedThreadId, o.Error))
+            .ToList();
+
+        await PublishMessageSentAsync(
+            caller,
+            threadId,
+            recipients.Count == 1
+                ? $"Message sent to {recipients[0]}."
+                : $"Message sent to {recipients.Count} participant(s) on a shared thread.",
+            recipients,
+            reason,
+            ct);
+
+        return new SendResult(message.Id, sharedThreadId, deliveries);
+    }
+
+    /// <summary>
+    /// Delivers <paramref name="message"/> to every resolved recipient on
+    /// its own independent 1-1 thread <c>{caller, recipient_i}</c> (#2747).
+    /// Each recipient sees only itself in the inbound envelope's <c>to</c>
+    /// field, and a subsequent <c>sv.memory.history_with([recipient_i])</c>
+    /// returns only that pair's history. Validation failures, hop-budget
+    /// exhaustion, and unroutable recipients (e.g. <c>connector://</c>)
+    /// throw <see cref="MessageDeliveryException"/> before any delivery
+    /// attempt; a transient delivery failure surfaces as that recipient's
+    /// outcome, not a thrown exception.
+    /// </summary>
+    public async Task<MulticastResult> HandleMulticastAsync(
+        Address caller,
+        Guid tenantId,
+        IReadOnlyList<Address>? explicitRecipients,
+        MulticastScope? scope,
+        Message message,
+        string? reason,
+        Guid threadId,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentNullException.ThrowIfNull(message);
 
         await deliveryService.EnsureCallerTenantAsync(caller, tenantId, ct);
 
-        var targets = explicitTargets is not null
-            ? explicitTargets
-            : await ResolveScopeAsync(caller, scope!.Value, ct);
+        var recipients = await ResolveRecipientsAsync(
+            caller, explicitRecipients, scope, "sv.messaging.multicast", ct);
 
-        foreach (var target in targets)
+        foreach (var recipient in recipients)
         {
-            MessageDeliveryService.EnsureNotSelfTarget(caller, target);
-            await deliveryService.EnsureTargetTenantAsync(target, tenantId, ct);
+            MessageDeliveryService.EnsureNotSelfTarget(caller, recipient);
+            MessageDeliveryService.EnsureCanReceive(recipient);
+            await deliveryService.EnsureTargetTenantAsync(recipient, tenantId, ct);
         }
 
         // #2576 — one hop per multicast call, regardless of fan-out width.
@@ -147,24 +208,110 @@ public class MessagingToolHandlers(
         if (!string.IsNullOrWhiteSpace(reason))
         {
             logger.LogInformation(
-                "Multicasting message {MessageId} from {Caller} to {TargetCount} target(s) on thread {ThreadId}. Reason: {Reason}",
-                message.Id, caller, targets.Count, threadId, reason);
+                "Multicasting message {MessageId} from {Caller} to {RecipientCount} independent 1-1 thread(s) (upstream thread {ThreadId}). Reason: {Reason}",
+                message.Id, caller, recipients.Count, threadId, reason);
         }
 
-        var tasks = targets
+        var tasks = recipients
             .Select(target => deliveryService.DeliverOutcomeAsync(caller, target, message, ct))
             .ToArray();
         var outcomes = await Task.WhenAll(tasks);
 
+        // Each recipient lands on its own (caller, recipient) thread; rehydrate
+        // the per-pair id so callers see the thread their message actually
+        // landed on (mirrors MessageDeliveryService.ResolveHopThreadAsync).
+        var perRecipient = new RecipientDeliveryAck[outcomes.Length];
+        for (var i = 0; i < outcomes.Length; i++)
+        {
+            var pairThreadId = await ResolveThreadIdAsync(
+                new[] { caller, outcomes[i].Target }, ct);
+            perRecipient[i] = new RecipientDeliveryAck(
+                outcomes[i].Target, outcomes[i].Delivered, pairThreadId, outcomes[i].Error);
+        }
+
         await PublishMessageSentAsync(
             caller,
             threadId,
-            $"Message multicast to {targets.Count} target(s).",
-            targets,
+            $"Message multicast to {recipients.Count} independent 1-1 thread(s).",
+            recipients,
             reason,
             ct);
 
-        return new MulticastResult(message.Id, threadId, outcomes);
+        return new MulticastResult(message.Id, perRecipient);
+    }
+
+    /// <summary>
+    /// Resolves the recipient set for a messaging-tool call: either the
+    /// explicit list or the addresses resolved from <paramref name="scope"/>.
+    /// Throws <see cref="MessageDeliveryException"/> when neither or both
+    /// are supplied. Duplicates are collapsed (deterministic by canonical
+    /// address) — including the caller's own address, since the caller is
+    /// auto-included in every participant set and listing themselves is a
+    /// no-op (a recipient list is a set, not an order-significant list).
+    /// An all-caller list (e.g. <c>recipients=[caller]</c>) becomes an
+    /// empty set and surfaces as <c>InvalidRequest</c>.
+    /// </summary>
+    private async Task<IReadOnlyList<Address>> ResolveRecipientsAsync(
+        Address caller,
+        IReadOnlyList<Address>? explicitRecipients,
+        MulticastScope? scope,
+        string toolName,
+        CancellationToken ct)
+    {
+        var hasRecipients = explicitRecipients is { Count: > 0 };
+        var hasScope = scope is not null;
+
+        if (hasRecipients == hasScope)
+        {
+            throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.InvalidRequest,
+                $"{toolName} requires exactly one of a non-empty 'recipients' array or a 'scope' string.");
+        }
+
+        var resolved = hasRecipients
+            ? explicitRecipients!
+            : await ResolveScopeAsync(caller, scope!.Value, ct);
+
+        // Dedupe (including the caller, who is auto-included in the
+        // participant set and listing themselves is a no-op) while
+        // preserving order so logs and per-recipient acks mirror the
+        // caller's intent. A scope resolver never returns the caller, so
+        // this only filters explicit-list duplicates / explicit self-listing.
+        var callerKey = caller.ToString();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var deduped = new List<Address>(resolved.Count);
+        foreach (var address in resolved)
+        {
+            var key = address.ToString();
+            if (string.Equals(key, callerKey, StringComparison.Ordinal))
+            {
+                continue;
+            }
+            if (seen.Add(key))
+            {
+                deduped.Add(address);
+            }
+        }
+
+        if (deduped.Count == 0)
+        {
+            throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.InvalidRequest,
+                hasScope
+                    ? $"{toolName} resolved zero recipients (scope='{scope}' yielded an empty set)."
+                    : $"{toolName} resolved zero recipients (the only address supplied was the caller — recipients is a set and the caller is auto-included).");
+        }
+
+        return deduped;
+    }
+
+    private async Task<Guid> ResolveThreadIdAsync(
+        IReadOnlyCollection<Address> participants, CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var registry = scope.ServiceProvider.GetRequiredService<IThreadRegistry>();
+        var id = await registry.GetOrCreateAsync(participants, ct);
+        return GuidFormatter.TryParse(id, out var guid) ? guid : Guid.Empty;
     }
 
     /// <summary>
@@ -187,7 +334,7 @@ public class MessagingToolHandlers(
             MulticastScope.Siblings => await ResolveSiblingsAsync(caller, ct),
             _ => throw new MessageDeliveryException(
                 MessageDeliveryException.RejectCodes.InvalidRequest,
-                $"Unknown multicast scope '{scope}'."),
+                $"Unknown scope '{scope}'."),
         };
     }
 
@@ -199,7 +346,7 @@ public class MessagingToolHandlers(
         {
             throw new MessageDeliveryException(
                 MessageDeliveryException.RejectCodes.InvalidRequest,
-                $"Multicast scope 'unit-members' is only valid for a unit:// caller; got '{caller}'.");
+                $"Scope 'unit-members' is only valid for a unit:// caller; got '{caller}'.");
         }
 
         return await memberGraphStore.GetMembersAsync(caller.Id, ct);
@@ -302,12 +449,3 @@ public class MessagingToolHandlers(
         }
     }
 }
-
-/// <summary>
-/// Result of a <c>sv.messaging.multicast</c> call — the delivered message
-/// id, the thread, and a per-target delivery outcome (ADR-0049).
-/// </summary>
-public sealed record MulticastResult(
-    Guid MessageId,
-    Guid ThreadId,
-    IReadOnlyList<MulticastTargetAck> Deliveries);

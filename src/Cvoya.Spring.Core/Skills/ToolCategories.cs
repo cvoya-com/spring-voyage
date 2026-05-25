@@ -32,12 +32,17 @@ public static class ToolCategories
     /// <summary>The discovery surface itself (<c>sv.tools.*</c>).</summary>
     public const string Tools = "tools";
 
-    /// <summary>Cross-thread state — goals, notes, learned facts (<c>sv.memory.*</c>).</summary>
+    /// <summary>
+    /// Shared participant-set timelines (<c>sv.memory.history_with</c>,
+    /// <c>sv.memory.engagements</c>, <c>sv.memory.search_messages</c>) plus
+    /// the agent's own private memory entries (<c>sv.memory.add</c>,
+    /// <c>sv.memory.get</c>, <c>sv.memory.list</c>, <c>sv.memory.search</c>,
+    /// <c>sv.memory.update</c>, <c>sv.memory.delete</c>). Per #2747 the
+    /// agent never names a <c>thread_id</c>; participant sets identify
+    /// shared history.
+    /// </summary>
     public const string Memory = "memory";
 
     /// <summary>Capability-typed expertise tools (<c>sv.expertise.{slug}</c>).</summary>
     public const string Expertise = "expertise";
-
-    /// <summary>Thread inspection — list, get, search, participants (<c>sv.thread.*</c>).</summary>
-    public const string Thread = "thread";
 }

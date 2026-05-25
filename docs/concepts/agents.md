@@ -71,8 +71,17 @@ The message-delivery surface is exactly two tools:
 
 | Tool | Description |
 | --- | --- |
-| `sv.messaging.send` | One-way delivery of a message to a single addressable target. Returns a delivery acknowledgement — the message reached the recipient's mailbox — never the recipient's reply. |
-| `sv.messaging.multicast` | One-way delivery to multiple targets, addressed explicitly or by a directory-relationship `scope` (`unit-members`, `siblings`). |
+| `sv.messaging.send` | Deliver one message to every recipient on the SINGLE SHARED thread for `{caller} ∪ recipients`. Recipients see the others in the inbound envelope's `to`. Returns a per-recipient delivery acknowledgement — never the recipient's reply. |
+| `sv.messaging.multicast` | Deliver the same message to every recipient on its OWN INDEPENDENT 1-1 thread `{caller, recipient_i}`. Each recipient sees only itself in its envelope. |
+
+Both tools take the same input shape — either an explicit `recipients` list or
+a relationship `scope` (`unit-members`, `siblings`) — and differ in thread
+identity, not input shape. The calling participant is auto-included in every
+participant set; the runtime does not list itself in `recipients`. The runtime
+never names a `thread_id` — the platform derives it from the participant set
+([ADR-0030](../decisions/0030-thread-model.md)). Connectors (`connector://`)
+can stamp inbound messages as the sender but cannot receive: passing a
+connector address as a recipient returns an `UnroutableTarget` error.
 
 The platform delivers messages; it does not orchestrate. There is no
 `delegate_to` / `fanout_to` tool — "delegation" is message *content* the
@@ -81,7 +90,10 @@ delegates by sending a message via `sv.messaging.send` whose content says so.
 
 Discovery, inspection, memory, and runtime-status sit on the other areas —
 `sv.directory.*` (`list_members`, `get_member`, `get_status`, `get_siblings`,
-`get_parents`, `get_self`), `sv.memory.*`, `sv.expertise.*`, and `sv.runtime.*`.
+`get_parents`, `get_self`), `sv.memory.*` (private memory plus the
+participant-set shared timeline tools `history_with`, `engagements`,
+`search_messages` per [#2747](https://github.com/cvoya-com/spring-voyage/issues/2747)),
+`sv.expertise.*`, and `sv.runtime.*`.
 Recording a routing decision on the activity stream is an optional, explicit
 `sv.runtime.report_decision` call; a plain `sv.messaging.*` delivery records a
 `MessageSent` activity and nothing more. The full catalogue is in

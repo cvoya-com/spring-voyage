@@ -121,26 +121,22 @@ public sealed class SvToolsDiscoverySkillRegistry : ISkillRegistry
             "usage guidance for any category you need to act through."),
         new(
             ToolCategories.Memory,
-            "Persist and recall cross-thread state (goals, notes, learned facts).",
-            "Use sv.memory.add to record long-term entries that should survive " +
-            "across conversations or short-term working notes scoped to a " +
-            "thread. Use sv.memory.list and sv.memory.search to retrieve, and " +
-            "sv.memory.update / sv.memory.delete to mutate. Memory is " +
-            "caller-scoped — an agent cannot read another agent's memory " +
-            "through this surface."),
-        new(
-            ToolCategories.Thread,
-            "Inspect threads you participate in — list, fetch, search, participants.",
-            "Use sv.thread.list to enumerate the threads you participate in, " +
-            "most-recent activity first. Use sv.thread.get to fetch the full " +
-            "message timeline for one thread (pass tail=N to limit to the most " +
-            "recent N messages). Use sv.thread.search to full-text-search " +
-            "across message bodies on the threads you participate in. Use " +
-            "sv.thread.participants for the lean participant list when you " +
-            "only need addresses. A thread is the set of participants plus " +
-            "the durable timeline of every message between them — caller-" +
-            "scoped: a thread you are not on is not visible through this " +
-            "surface."),
+            "Private memory and shared participant-set history.",
+            "Two surfaces on the same category. Private memory: use " +
+            "sv.memory.add to record long-term entries that survive across " +
+            "conversations or short-term working notes scoped to a thread; " +
+            "sv.memory.list / sv.memory.search to retrieve; " +
+            "sv.memory.update / sv.memory.delete to mutate. Caller-scoped " +
+            "— another agent's entries are not visible. Shared history: " +
+            "sv.memory.engagements lists the participant sets you share a " +
+            "timeline with (most-recent activity first); " +
+            "sv.memory.history_with(participants=[…]) fetches the full " +
+            "timeline shared with a participant set (your own address is " +
+            "auto-included — do not list yourself); " +
+            "sv.memory.search_messages free-text-searches across the " +
+            "timelines you participate in, optionally scoped to a single " +
+            "participant set. The agent never names a thread_id — the " +
+            "participant set identifies the timeline."),
     ];
 
     private static readonly IReadOnlyDictionary<string, CategoryDescriptor> KnownCategoryIndex =
