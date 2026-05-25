@@ -69,6 +69,12 @@ from a2a.types import (
 from a2a.types.a2a_pb2 import AgentInterface, Part
 from starlette.applications import Starlette
 
+from spring_voyage_agent_sdk.bootstrap import (
+    BootstrapError,
+)
+from spring_voyage_agent_sdk.bootstrap import (
+    create_from_env as create_bootstrap_fetcher_from_env,
+)
 from spring_voyage_agent_sdk.context import IAgentContext
 from spring_voyage_agent_sdk.hooks import AgentHooks
 from spring_voyage_agent_sdk.runtime_context import RuntimeContext
@@ -478,11 +484,25 @@ class AgentRuntime:
             )
 
     async def _load_and_initialize(self, executor: "_SdkAgentExecutor") -> None:
-        """Load IAgentContext then run the initialize hook in the background.
+        """Pull the bootstrap bundle, load IAgentContext, then run the
+        initialize hook in the background.
 
         This runs concurrently with the uvicorn server so the A2A server
         can serve the agent card even before the platform context is
         available (e.g. in the smoke-test harness with no env vars).
+
+        Per ADR-0055 (#2734) the SDK pulls the per-agent bootstrap
+        bundle from the worker BEFORE ``IAgentContext.load()`` runs:
+        the bundle is what writes ``$SPRING_WORKSPACE_PATH/.spring/system-prompt.md``
+        for Spring Voyage Agent containers, and the loader reads that
+        file into ``context.system_prompt``. Without the pull, the
+        bundle file never lands on disk and ``system_prompt`` is always
+        ``None``.
+
+        The pull is skipped when ``SPRING_BOOTSTRAP_URL`` is unset
+        (smoke-test harness, alternate launchers). A bootstrap failure
+        leaves ``_initialize_done`` unset so on_message blocks — same
+        contract as a context-load failure.
 
         If context loading fails the error is logged and _initialize_done
         is left unset — the agent card stays reachable but on_message will
@@ -493,6 +513,33 @@ class AgentRuntime:
         _initialize_done is still set (by _run_initialize's finally block)
         so that executors can surface an error rather than hanging.
         """
+        # #2734: pull the bootstrap bundle before IAgentContext.load()
+        # so `.spring/system-prompt.md` is on disk when the loader
+        # reads it. urllib is blocking; off-load to a thread so the
+        # uvicorn event loop stays responsive (the /.well-known/agent.json
+        # endpoint must keep answering 200 during this).
+        try:
+            fetcher = create_bootstrap_fetcher_from_env()
+        except BootstrapError as exc:
+            logger.warning(
+                "Bootstrap env vars are partially configured (%s) — agent card will "
+                "stay reachable but on_message will not be dispatched.",
+                exc,
+            )
+            return
+
+        if fetcher is not None:
+            try:
+                await asyncio.to_thread(fetcher.fetch_and_materialize)
+            except BootstrapError as exc:
+                logger.warning(
+                    "Bootstrap fetch failed (%s) — agent card will stay reachable but "
+                    "on_message will not be dispatched until the platform supplies a "
+                    "valid bundle.",
+                    exc,
+                )
+                return
+
         try:
             context = IAgentContext.load()
         except Exception as exc:

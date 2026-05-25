@@ -35,17 +35,15 @@ namespace Cvoya.Spring.Core.Execution;
 /// <para>
 /// The fragment lives in <see cref="Cvoya.Spring.Core.Execution"/> as
 /// a dep-free constant so the prompt assembler (in
-/// <c>Cvoya.Spring.Dapr</c>) and the Spring Voyage agent launcher (in
-/// <c>Cvoya.Spring.AgentRuntimes</c>) both reach the same single
-/// source of truth. Per #2738 the assembler renders the fragment
-/// in-band as a <c>### …</c> sub-section of <c>## Platform
-/// Instructions</c> when the per-invocation
-/// <c>PromptAssemblyContext.ConcurrentThreadsGuard</c> flag is
-/// <c>true</c>; <see cref="Compose"/> still wraps the Spring Voyage
-/// agent's deploy-time <c>SPRING_SYSTEM_PROMPT</c> body (which is raw
-/// <c>definition.Instructions</c>, no platform-instructions section
-/// to nest into) and is a no-op when the body already carries the
-/// in-band guard.
+/// <c>Cvoya.Spring.Dapr</c>) reaches a single source of truth. Per
+/// #2738 the assembler renders the fragment in-band as a <c>### …</c>
+/// sub-section of <c>## Platform Instructions</c> when the
+/// per-invocation <c>PromptAssemblyContext.ConcurrentThreadsGuard</c>
+/// flag is <c>true</c>. #2734 retired the legacy
+/// <c>LauncherPromptFragments.Compose</c> helper that wrapped the
+/// Spring Voyage Agent launcher's <c>SPRING_SYSTEM_PROMPT</c> body —
+/// every launcher now consumes the assembled prompt as a bundle file
+/// so the in-band render is the single delivery channel.
 /// </para>
 /// <para>
 /// The pre-cutover <c>ResponseDiscipline</c> fragment that used to
@@ -61,9 +59,8 @@ public static class LauncherPromptFragments
 {
     /// <summary>
     /// Distinctive heading-line anchor (without the leading <c>### </c>)
-    /// shared by the assembler's in-band render and <see cref="Compose"/>'s
-    /// idempotence check. Tests pin against this anchor without coupling
-    /// to the surrounding prose.
+    /// shared by the assembler's in-band render. Tests pin against this
+    /// anchor without coupling to the surrounding prose.
     /// </summary>
     public const string ConcurrentThreadsGuardAnchor =
         "Concurrent threads — per-thread isolation";
@@ -99,37 +96,4 @@ public static class LauncherPromptFragments
         "assigned port back — fixed ports collide between concurrent turns.\n" +
         "- Do not mutate process-global state (env vars, working directory at the top level, " +
         "signal handlers) without restoring it before the turn ends.";
-
-    /// <summary>
-    /// Wraps a prompt body the assembler did NOT produce — i.e. the
-    /// Spring Voyage agent's deploy-time <c>SPRING_SYSTEM_PROMPT</c>,
-    /// which carries only <c>definition.Instructions</c>. When
-    /// <paramref name="concurrentThreads"/> is <c>true</c> the guard is
-    /// prepended above the raw body; otherwise the body is returned
-    /// unchanged. Idempotent: a body that already carries the in-band
-    /// guard (rendered inside <c>## Platform Instructions</c> by the
-    /// assembler) is returned unchanged so the ephemeral-dispatch
-    /// SVA path does not double-apply.
-    /// </summary>
-    /// <param name="prompt">
-    /// The prompt body. May be <c>null</c> or empty — the guard still
-    /// emits when concurrent threads are on, so callers who need it to
-    /// fire on a sparse prompt get it.
-    /// </param>
-    /// <param name="concurrentThreads">
-    /// The resolved agent / unit <c>concurrent_threads</c> policy value.
-    /// </param>
-    public static string Compose(string prompt, bool concurrentThreads)
-    {
-        var body = prompt ?? string.Empty;
-        if (!concurrentThreads)
-        {
-            return body;
-        }
-        if (body.Contains(ConcurrentThreadsGuardAnchor, StringComparison.Ordinal))
-        {
-            return body;
-        }
-        return ConcurrentThreadsGuard + "\n\n" + body;
-    }
 }

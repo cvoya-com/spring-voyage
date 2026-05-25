@@ -108,10 +108,12 @@ public class PromptAssembler(
             // `## Platform Instructions`, breaking the heading tree;
             // nesting it here keeps the section in the document outline
             // and makes the platform-emitted-vs-author-emitted split
-            // visible. The launcher-side `LauncherPromptFragments.Compose`
-            // is now idempotent so any caller that also wraps the
-            // assembled prompt (e.g. the Spring Voyage agent launcher's
-            // SPRING_SYSTEM_PROMPT path) does not double-apply.
+            // visible. #2734: the in-band render is now the single
+            // delivery channel — the Spring Voyage Agent launcher's
+            // SPRING_SYSTEM_PROMPT env-var wrap (and the
+            // LauncherPromptFragments.Compose helper that backed it) is
+            // gone now that the SVA consumes the assembled prompt as a
+            // bundle file like every other launcher.
             if (context.ConcurrentThreadsGuard)
             {
                 builder.AppendLine(LauncherPromptFragments.ConcurrentThreadsGuard);

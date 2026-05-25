@@ -11,34 +11,31 @@ using Xunit;
 
 /// <summary>
 /// Pin-tests for the <see cref="LauncherPromptFragments"/> guard fragment
-/// composition (ADR-0041 § "The <c>concurrent_threads: true</c> author
+/// content (ADR-0041 § "The <c>concurrent_threads: true</c> author
 /// contract"). The fragment text invariants are pinned here; the
-/// delivery channels (in-band assembler render for the bundle path and
-/// the dispatch ephemeral path, Spring Voyage launcher's
-/// <c>SPRING_SYSTEM_PROMPT</c> wrap for the deploy persistent path) are
-/// covered by their own targeted tests.
+/// delivery channel — the assembler's in-band render inside
+/// <c>## Platform Instructions</c> — is covered by the prompt assembler's
+/// own targeted tests.
 /// </summary>
 /// <remarks>
 /// #2668: the class moved from <c>Cvoya.Spring.AgentRuntimes.Launchers</c>
 /// into <c>Cvoya.Spring.Core.Execution</c> as a public type so the
-/// bundle provider (in <c>Cvoya.Spring.Dapr</c>) and the launchers (in
-/// <c>Cvoya.Spring.AgentRuntimes</c>) both reach the same single source
-/// of truth.
+/// bundle provider (in <c>Cvoya.Spring.Dapr</c>) reaches the single
+/// source of truth.
 ///
 /// #2738: the guard is now a <c>### …</c> sub-section of
 /// <c>## Platform Instructions</c> rather than a top-level <c>##</c>
 /// heading prepended above everything. The legacy
 /// <c>## End Spring Voyage runtime guard</c> closing heading was
 /// dropped at the same time — markdown section boundaries are implicit.
-/// <see cref="LauncherPromptFragments.Compose"/> is now idempotent: a
-/// prompt that already carries the in-band guard anchor is returned
-/// unchanged, so the dispatch ephemeral path's launcher wrap does not
-/// double-apply.
+///
+/// #2734: the legacy <c>Compose</c> helper that wrapped the Spring
+/// Voyage Agent launcher's <c>SPRING_SYSTEM_PROMPT</c> body is gone —
+/// every launcher now consumes the assembled prompt as a bundle file
+/// so the in-band render is the single delivery channel.
 /// </remarks>
 public class LauncherPromptFragmentsTests
 {
-    private const string SampleUserPrompt = "## Platform Instructions\n\nBe helpful.";
-
     [Fact]
     public void ConcurrentThreadsGuard_CarriesTheLoadBearingConstraints()
     {
@@ -126,80 +123,5 @@ public class LauncherPromptFragmentsTests
 
         guard.ShouldNotContain("End Spring Voyage runtime guard");
         guard.ShouldNotContain("## End ");
-    }
-
-    [Fact]
-    public void Compose_ConcurrentThreadsFalse_ReturnsPromptUnchanged()
-    {
-        // After the silent-dispatch cutover the universal response-
-        // discipline guard moved to the platform-layer contract emitted
-        // by IPlatformPromptProvider and assembled into the per-agent
-        // system prompt. The composer no longer prepends anything when
-        // concurrent_threads is off — the prompt is the unmodified
-        // assembled body.
-        var composed = LauncherPromptFragments.Compose(SampleUserPrompt, concurrentThreads: false);
-
-        composed.ShouldBe(SampleUserPrompt);
-    }
-
-    [Fact]
-    public void Compose_ConcurrentThreadsTrue_PrependsGuardWhenBodyHasNoneYet()
-    {
-        // The deploy-persistent SVA path delivers raw
-        // definition.Instructions (no `## Platform Instructions`
-        // section to nest into), so the wrap prepends the guard.
-        var rawInstructions = "Be helpful.";
-        var composed = LauncherPromptFragments.Compose(rawInstructions, concurrentThreads: true);
-
-        composed.ShouldStartWith("### " + LauncherPromptFragments.ConcurrentThreadsGuardAnchor);
-        composed.ShouldEndWith(rawInstructions);
-        composed.ShouldContain(rawInstructions, Case.Sensitive);
-        composed.IndexOf("concurrent_threads is on", StringComparison.Ordinal)
-            .ShouldBeLessThan(composed.IndexOf(rawInstructions, StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void Compose_EmptyPrompt_ReturnsEmptyWhenConcurrentThreadsOff()
-    {
-        var composed = LauncherPromptFragments.Compose(string.Empty, concurrentThreads: false);
-
-        composed.ShouldBe(string.Empty);
-    }
-
-    [Fact]
-    public void Compose_EmptyPrompt_EmitsConcurrentThreadsGuardWhenOn()
-    {
-        // A sparse / empty prompt still gets the concurrent-threads guard
-        // when the agent opts in.
-        var composed = LauncherPromptFragments.Compose(string.Empty, concurrentThreads: true);
-
-        composed.ShouldStartWith("### " + LauncherPromptFragments.ConcurrentThreadsGuardAnchor);
-    }
-
-    /// <summary>
-    /// #2738: the assembler now renders the guard in-band inside
-    /// <c>## Platform Instructions</c>. The dispatch ephemeral path's
-    /// launcher wrap (Spring Voyage agent's SPRING_SYSTEM_PROMPT)
-    /// runs against that already-assembled body — Compose must be a
-    /// no-op when the body already carries the guard's distinctive
-    /// anchor, otherwise the runtime sees two copies of the guard.
-    /// </summary>
-    [Fact]
-    public void Compose_IsIdempotent_WhenPromptAlreadyContainsTheInBandGuard()
-    {
-        var assembled = "## Platform Instructions\n\n"
-            + "### About Spring Voyage\n\n"
-            + "...intro...\n\n"
-            + LauncherPromptFragments.ConcurrentThreadsGuard
-            + "\n\n## Role-specific instructions\n\nbody";
-
-        var composed = LauncherPromptFragments.Compose(assembled, concurrentThreads: true);
-
-        composed.ShouldBe(assembled);
-        // The anchor appears exactly once even though Compose was asked
-        // to add the guard.
-        var first = composed.IndexOf(LauncherPromptFragments.ConcurrentThreadsGuardAnchor, StringComparison.Ordinal);
-        var second = composed.IndexOf(LauncherPromptFragments.ConcurrentThreadsGuardAnchor, first + 1, StringComparison.Ordinal);
-        second.ShouldBe(-1);
     }
 }

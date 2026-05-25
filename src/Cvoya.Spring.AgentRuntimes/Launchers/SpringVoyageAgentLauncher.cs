@@ -15,21 +15,29 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// <see cref="IAgentRuntimeLauncher"/> for the Spring Voyage Agent container. Sets the
-/// environment variables the Python Dapr Agent expects: MCP endpoint/token,
-/// LLM provider/model, and the assembled system prompt. The Dapr Agent
-/// consumes its prompt via <c>SPRING_SYSTEM_PROMPT</c>, so this launcher
-/// carries no workspace files. With an empty <see cref="AgentLaunchSpec.WorkspaceFiles"/>
-/// the dispatcher emits no <c>/workspace</c> bind mount (#2608), and the
-/// container runs from its image's own working directory (e.g. <c>/app</c>
-/// for <c>python agent.py</c>). The per-agent persistent volume is the
-/// container's single workspace mount, at
-/// <see cref="AgentWorkspaceContract.WorkspaceMountPath"/>.
+/// <see cref="IAgentRuntimeLauncher"/> for the Spring Voyage Agent container —
+/// the Python A2A-native runtime that consumes the Spring Voyage Agent SDK.
+/// Describes a per-invocation workspace containing:
+/// <list type="bullet">
+///   <item><c>.spring/system-prompt.md</c> — the platform-assembled system
+///         prompt (all four layers) the Python SDK reads via
+///         <c>IAgentContext.system_prompt</c>. Written under the
+///         <c>.spring/</c> namespace per ADR-0058 §2.2.2 so it does not
+///         collide with any project clone the agent makes under its
+///         workspace.</item>
+/// </list>
+/// The file is pulled by the Python SDK's bootstrap client on container
+/// start (mirror of <c>src/Cvoya.Spring.AgentSidecar/src/bootstrap.ts</c>)
+/// and lives under the per-member workspace volume at
+/// <see cref="AgentWorkspaceContract.WorkspacePathEnvVar"/> (ADR-0029, ADR-0055 §5).
+/// MCP endpoint + token are delivered via env vars (<c>SPRING_MCP_URL</c> /
+/// <c>SPRING_MCP_TOKEN</c>) rather than an in-workspace <c>.mcp.json</c> —
+/// the Python agent dials the platform MCP server directly via the SDK.
 ///
-/// Unlike <see cref="ClaudeCodeLauncher"/> the Dapr Agent is an A2A-native
-/// service and does not need a sidecar adapter — it exposes the A2A endpoint
-/// directly. The dispatcher reaches the agent on the container's
-/// <c>AGENT_PORT</c> (default 8999).
+/// Unlike <see cref="ClaudeCodeLauncher"/> the Spring Voyage Agent is an
+/// A2A-native service and does not need the TypeScript agent-sidecar bridge
+/// — it exposes the A2A endpoint directly. The dispatcher reaches the
+/// agent on the container's <c>AGENT_PORT</c> (default 8999).
 ///
 /// PR 4 of the #1087 series wires the launcher to BYOI conformance path 3:
 /// the spec sets a non-empty <see cref="AgentLaunchSpec.Argv"/> that bypasses
@@ -42,12 +50,22 @@ public class SpringVoyageAgentLauncher(
     ILoggerFactory loggerFactory,
     IAgentCallbackEnvironmentBuilder? callbackEnvironmentBuilder = null) : IAgentRuntimeLauncher
 {
-    /// <summary>Default A2A port the Dapr Agent listens on.</summary>
+    /// <summary>Default A2A port the Spring Voyage Agent listens on.</summary>
     internal const int DefaultAgentPort = 8999;
 
     /// <summary>
-    /// Argv vector that bypasses the agent-base bridge and starts the Dapr
-    /// Agent process directly. Matches the CMD declared by
+    /// Workspace-relative path the platform writes the assembled system
+    /// prompt to. Lives under the <c>.spring/</c> namespace per
+    /// ADR-0058 §2.2.2 so it does not collide with any project clone's
+    /// own files. Read by the Python SDK via
+    /// <c>IAgentContext.system_prompt</c> (spec §2.2.2,
+    /// <c>agents/spring-voyage-agent-sdk/spring_voyage_agent_sdk/context.py</c>).
+    /// </summary>
+    internal const string PlatformPromptFilePath = ".spring/system-prompt.md";
+
+    /// <summary>
+    /// Argv vector that bypasses the agent-base bridge and starts the
+    /// Spring Voyage Agent process directly. Matches the CMD declared by
     /// <c>agents/spring-voyage-agent/Dockerfile</c>. BYOI conformance path 3.
     /// </summary>
     /// <remarks>
@@ -140,28 +158,22 @@ public class SpringVoyageAgentLauncher(
         // #1328: OLLAMA_ENDPOINT removed — llm-ollama.yaml now reads
         // SPRING_LLM_PROVIDER_URL.
         //
-        // SPRING_THREAD_ID and SPRING_SYSTEM_PROMPT have no D1-spec equivalents
-        // and are retained as launcher-specific vars.
+        // #2734: SPRING_SYSTEM_PROMPT removed. The platform-assembled system
+        // prompt now lands at $SPRING_WORKSPACE_PATH/.spring/system-prompt.md
+        // via ContributeBundleAsync — the Python SDK's bootstrap client
+        // pulls the bundle on container start and the SDK reads the file
+        // into IAgentContext.system_prompt (spec §2.2.2). Uniform with the
+        // file-based delivery path used by the Claude / Codex / Gemini
+        // launchers. The ConcurrentThreadsGuard fragment is already folded
+        // into the assembled prompt in-band (ADR-0041 / #2738) by the
+        // bundle provider, so the per-launcher Compose wrap is no longer
+        // needed.
         //
-        // #2738: the dispatch ephemeral path's assembler now renders the
-        // ConcurrentThreadsGuard fragment in-band inside `## Platform
-        // Instructions` (driven by AgentActor.BuildPromptAssemblyContextAsync
-        // setting ConcurrentThreadsGuard on the assembly context) so an
-        // ephemeral SVA already sees the guard via context.Prompt. The
-        // PersistentAgentLifecycle deploy path, however, calls this with
-        // context.Prompt = raw definition.Instructions (no `## Platform
-        // Instructions` section) — for that path the Compose helper still
-        // prepends the guard so a long-lived persistent SVA opting into
-        // concurrent_threads still sees the constraint at deploy time.
-        // The helper is idempotent: a prompt that already carries the
-        // in-band guard anchor is returned unchanged, so the ephemeral
-        // path does not double-apply.
-        var assembledPrompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
-
+        // SPRING_THREAD_ID has no D1-spec equivalent and is retained as a
+        // launcher-specific var.
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
-            ["SPRING_SYSTEM_PROMPT"] = assembledPrompt,
             ["SPRING_MODEL"] = model,
             ["SPRING_LLM_PROVIDER"] = provider,
             // AGENT_PORT is the env var the in-container agent.py binds to
@@ -225,27 +237,56 @@ public class SpringVoyageAgentLauncher(
 
     /// <inheritdoc />
     /// <remarks>
-    /// The Spring Voyage agent is A2A-native and runs from its image's
-    /// own working directory rather than a per-agent workspace; there is
-    /// no CLI surface for the prompt to describe, so this launcher
-    /// returns <c>null</c> and the prompt assembler omits the
-    /// <c>### Container and workspace</c> sub-section entirely (#2682,
-    /// heading level per #2738).
+    /// #2682 / #2734: runtime-true prose only — names env vars and the
+    /// in-workspace platform-prompt file the launcher itself wires up
+    /// (workspace mount, MCP discovery env vars, system-prompt file).
+    /// Stays author-agnostic (no reference to the project clone, GitHub
+    /// env vars, or per-task worktree conventions). Per ADR-0058 §2.2
+    /// the platform's system-prompt file lives under the <c>.spring/</c>
+    /// namespace; MCP discovery for the Python runtime is env-var-based
+    /// rather than file-based (no <c>.mcp.json</c> — the SDK dials the
+    /// platform MCP server directly via <c>SPRING_MCP_URL</c> /
+    /// <c>SPRING_MCP_TOKEN</c>).
     /// </remarks>
-    public string? GetWorkspacePromptFragment() => null;
+    public string? GetWorkspacePromptFragment() =>
+        """
+        Your runtime is the Spring Voyage Agent — a Python A2A-native service built on the Spring Voyage Agent SDK. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns — anything you write under it stays available next turn. The platform's system prompt is delivered to your process via the SDK's `IAgentContext.system_prompt`, sourced from `$SPRING_WORKSPACE_PATH/.spring/system-prompt.md` (the SDK's bootstrap client pulls it on container start). The platform MCP server is reached via `$SPRING_MCP_URL` with the bearer in `$SPRING_MCP_TOKEN`; there is no in-workspace `.mcp.json` for this runtime.
+        """;
 
     /// <inheritdoc />
     /// <remarks>
-    /// The Spring Voyage agent is A2A-native — it does not consume any
-    /// in-workspace system-prompt or MCP-config files. Per-message context
-    /// arrives via the A2A wire; static prompt is delivered via
-    /// <c>SPRING_SYSTEM_PROMPT</c>. The bundle therefore carries no files
-    /// from this launcher.
+    /// #2734: the Spring Voyage Agent now consumes the platform-assembled
+    /// system prompt via the bundle file (mirror of the file-based
+    /// delivery path the Claude / Codex / Gemini launchers use), not via
+    /// the legacy <c>SPRING_SYSTEM_PROMPT</c> env var. The Python SDK's
+    /// bootstrap client pulls the bundle on container start and the
+    /// SDK's <c>IAgentContext.system_prompt</c> reads
+    /// <c>.spring/system-prompt.md</c> from under the workspace mount
+    /// (spec §2.2.2).
     /// </remarks>
     public Task<AgentBootstrapContribution> ContributeBundleAsync(
         AgentBootstrapContributionContext context,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(AgentBootstrapContribution.Empty);
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        // The bundle provider has composed the per-agent system prompt
+        // (platform contract + unit context + agent instructions +
+        // equipped skill bundles + ConcurrentThreadsGuard when on) via
+        // IPromptAssembler and handed it in on
+        // AgentBootstrapContributionContext.AssembledSystemPrompt.
+        // The Python SDK's bootstrap client pulls the bundle on
+        // container start; the SDK's IAgentContext.load() reads this
+        // file into context.system_prompt (spec §2.2.2).
+        var files = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [PlatformPromptFilePath] = context.AssembledSystemPrompt,
+        };
+
+        return Task.FromResult(new AgentBootstrapContribution(
+            Files: files,
+            PlatformFilePaths: new[] { PlatformPromptFilePath }));
+    }
 
     private async Task ResolveProviderCredentialAsync(
         AgentLaunchContext context,

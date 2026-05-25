@@ -276,22 +276,12 @@ class TestInitializeHook:
         mock_client_cls.assert_called_once_with(component_name="llm-ollama")
 
     @pytest.mark.asyncio
-    async def test_system_prompt_from_env(self, monkeypatch):
-        monkeypatch.setenv("SPRING_SYSTEM_PROMPT", "Be concise.")
-        monkeypatch.setenv("SPRING_LLM_COMPONENT", "llm-ollama")
-
-        ctx = _make_context()
-
-        with patch("agent.DaprChatClient") as mock_client_cls:
-            mock_client_cls.return_value = MagicMock()
-            await initialize(ctx)
-
-        assert agent_module._agent_build is not None
-        assert agent_module._agent_build.system_prompt == "Be concise."
-
-    @pytest.mark.asyncio
     async def test_system_prompt_from_context_system_prompt(self, monkeypatch):
-        monkeypatch.delenv("SPRING_SYSTEM_PROMPT", raising=False)
+        # #2734: the platform-assembled system prompt is delivered via
+        # the SDK bootstrap bundle (the launcher writes
+        # `.spring/system-prompt.md` and the SDK reads it into
+        # context.system_prompt). The legacy SPRING_SYSTEM_PROMPT
+        # env-var path was removed at the same time.
         monkeypatch.setenv("SPRING_LLM_COMPONENT", "llm-ollama")
 
         ctx = _make_context(system_prompt="From .spring/system-prompt.md.")
@@ -302,6 +292,42 @@ class TestInitializeHook:
 
         assert agent_module._agent_build is not None
         assert agent_module._agent_build.system_prompt == "From .spring/system-prompt.md."
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_env_var_is_ignored(self, monkeypatch):
+        # #2734: SPRING_SYSTEM_PROMPT is no longer read by agent.py — a
+        # leftover value in the env (e.g. a stale operator override or
+        # a pre-cutover deployment) must not influence the prompt the
+        # loop sees.
+        monkeypatch.setenv("SPRING_SYSTEM_PROMPT", "Should be ignored.")
+        monkeypatch.setenv("SPRING_LLM_COMPONENT", "llm-ollama")
+
+        ctx = _make_context(system_prompt="From .spring/system-prompt.md.")
+
+        with patch("agent.DaprChatClient") as mock_client_cls:
+            mock_client_cls.return_value = MagicMock()
+            await initialize(ctx)
+
+        assert agent_module._agent_build is not None
+        assert agent_module._agent_build.system_prompt == "From .spring/system-prompt.md."
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_default_when_context_has_none(self, monkeypatch):
+        # When the bootstrap bundle did not deliver a system prompt
+        # (e.g. the smoke-test harness ran without a bundle), the agent
+        # falls back to a neutral default so the LLM still has system
+        # framing.
+        monkeypatch.delenv("SPRING_SYSTEM_PROMPT", raising=False)
+        monkeypatch.setenv("SPRING_LLM_COMPONENT", "llm-ollama")
+
+        ctx = _make_context(system_prompt=None)
+
+        with patch("agent.DaprChatClient") as mock_client_cls:
+            mock_client_cls.return_value = MagicMock()
+            await initialize(ctx)
+
+        assert agent_module._agent_build is not None
+        assert agent_module._agent_build.system_prompt == "You are a helpful AI assistant."
 
     @pytest.mark.asyncio
     async def test_respects_llm_component_override(self, monkeypatch):

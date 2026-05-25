@@ -375,6 +375,158 @@ class TestBareStartup:
         assert len(initialized_with) == 1
         assert initialized_with[0].tenant_id == "t1"
 
+    @pytest.mark.asyncio
+    async def test_load_and_initialize_pulls_bootstrap_when_url_present(self, monkeypatch, tmp_path):
+        """#2734: when SPRING_BOOTSTRAP_URL is set, _load_and_initialize
+        pulls the bootstrap bundle before IAgentContext.load() so the
+        launcher-contributed `.spring/system-prompt.md` is on disk when
+        the loader reads it. Validates the end-to-end wire: the
+        launcher's bundle file becomes context.system_prompt."""
+        required = {
+            "SPRING_TENANT_ID": "t1",
+            "SPRING_AGENT_ID": "a1",
+            "SPRING_BUCKET2_URL": "http://b2",
+            "SPRING_BUCKET2_TOKEN": "tok",
+            "SPRING_LLM_PROVIDER_URL": "http://llm",
+            "SPRING_LLM_PROVIDER_TOKEN": "llmtok",
+            "SPRING_MCP_URL": "http://mcp",
+            "SPRING_MCP_TOKEN": "mcptok",
+            "SPRING_TELEMETRY_URL": "http://tel",
+            "SPRING_WORKSPACE_PATH": str(tmp_path),
+            "SPRING_CONCURRENT_THREADS": "true",
+            # The bootstrap env vars the launcher (and AgentContextBuilder)
+            # stamp on every dispatch per ADR-0055 §9.
+            "SPRING_BOOTSTRAP_URL": "http://worker/v1/bootstrap/agents/a1",
+            "SPRING_BOOTSTRAP_TOKEN": "bootstrap-bearer",
+        }
+        for k, v in required.items():
+            monkeypatch.setenv(k, v)
+
+        import json as _json
+
+        # Patch the bootstrap fetcher's HTTP impl so the test doesn't
+        # need a real worker — return a bundle carrying the assembled
+        # system prompt at the canonical path.
+        body = _json.dumps(
+            {
+                "version": "sha256:test",
+                "issuedAt": "2026-05-22T12:00:00Z",
+                "files": [
+                    {
+                        "path": ".spring/system-prompt.md",
+                        "sha256": "sha256:fake",
+                        "content": "Assembled system prompt for the test.",
+                    }
+                ],
+                "platformFileHashes": {".spring/system-prompt.md": "sha256:fake"},
+            }
+        )
+
+        def _fake_fetch(url, headers, timeout):
+            assert url == "http://worker/v1/bootstrap/agents/a1"
+            assert headers["Authorization"] == "Bearer bootstrap-bearer"
+            return (200, '"sha256:test"', body)
+
+        # Patch the module-level _default_fetch so create_from_env()
+        # composes a fetcher that uses our stub.
+        import spring_voyage_agent_sdk.bootstrap as bootstrap_module
+
+        monkeypatch.setattr(bootstrap_module, "_default_fetch", _fake_fetch)
+
+        initialized_with: list = []
+
+        async def _record_initialize(ctx):
+            initialized_with.append(ctx)
+
+        async def _noop_on_message(msg):
+            yield Response(text="ok")
+
+        async def _noop_shutdown(reason):
+            pass
+
+        hooks = AgentHooks(
+            initialize=_record_initialize,
+            on_message=_noop_on_message,
+            on_shutdown=_noop_shutdown,
+        )
+        runtime = AgentRuntime(hooks, port=0)
+
+        executor = _SdkAgentExecutor(
+            hooks=hooks,
+            concurrent_threads=True,
+            initialize_done=runtime._initialize_done,
+        )
+
+        await runtime._load_and_initialize(executor)
+
+        # The bootstrap fetch wrote the file under the workspace mount.
+        assert (tmp_path / ".spring" / "system-prompt.md").exists()
+        # The SDK then loaded context, which read the file into
+        # system_prompt. initialize() saw the assembled prompt.
+        assert runtime._initialize_done.is_set()
+        assert len(initialized_with) == 1
+        assert initialized_with[0].system_prompt == "Assembled system prompt for the test."
+
+    @pytest.mark.asyncio
+    async def test_load_and_initialize_warns_on_bootstrap_failure(self, monkeypatch, tmp_path):
+        """A bootstrap fetch failure leaves _initialize_done unset so
+        on_message blocks — the agent never dispatches with a
+        half-populated workspace."""
+        required = {
+            "SPRING_TENANT_ID": "t1",
+            "SPRING_AGENT_ID": "a1",
+            "SPRING_BUCKET2_URL": "http://b2",
+            "SPRING_BUCKET2_TOKEN": "tok",
+            "SPRING_LLM_PROVIDER_URL": "http://llm",
+            "SPRING_LLM_PROVIDER_TOKEN": "llmtok",
+            "SPRING_MCP_URL": "http://mcp",
+            "SPRING_MCP_TOKEN": "mcptok",
+            "SPRING_TELEMETRY_URL": "http://tel",
+            "SPRING_WORKSPACE_PATH": str(tmp_path),
+            "SPRING_CONCURRENT_THREADS": "true",
+            "SPRING_BOOTSTRAP_URL": "http://worker/v1/bootstrap/agents/a1",
+            "SPRING_BOOTSTRAP_TOKEN": "bootstrap-bearer",
+        }
+        for k, v in required.items():
+            monkeypatch.setenv(k, v)
+
+        def _failing_fetch(url, headers, timeout):
+            return (500, None, "worker on fire")
+
+        import spring_voyage_agent_sdk.bootstrap as bootstrap_module
+
+        monkeypatch.setattr(bootstrap_module, "_default_fetch", _failing_fetch)
+
+        initialized_with: list = []
+
+        async def _record_initialize(ctx):
+            initialized_with.append(ctx)
+
+        async def _noop_on_message(msg):
+            yield Response(text="ok")
+
+        async def _noop_shutdown(reason):
+            pass
+
+        hooks = AgentHooks(
+            initialize=_record_initialize,
+            on_message=_noop_on_message,
+            on_shutdown=_noop_shutdown,
+        )
+        runtime = AgentRuntime(hooks, port=0)
+        executor = _SdkAgentExecutor(
+            hooks=hooks,
+            concurrent_threads=True,
+            initialize_done=runtime._initialize_done,
+        )
+
+        # Must complete without raising — the failure path logs a
+        # warning and returns early.
+        await runtime._load_and_initialize(executor)
+
+        assert not runtime._initialize_done.is_set()
+        assert initialized_with == []
+
 
 class TestAgentCardRoutes:
     """Regression: both /.well-known/agent-card.json (SDK 1.x canonical) and

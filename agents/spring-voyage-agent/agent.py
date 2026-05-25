@@ -40,11 +40,6 @@ deployments:
                           dispatch (``llm-anthropic``, ``llm-openai``,
                           ``llm-google``, ``llm-ollama``) per ADR-0038.
                           Missing values raise at ``initialize()``.
-  SPRING_SYSTEM_PROMPT  — System prompt assembled by the platform
-                          (optional; falls back to
-                          ``context.system_prompt`` — i.e. the
-                          ``.spring/system-prompt.md`` file under the
-                          workspace mount — if unset).
   SPRING_AGENT_MAX_STEPS — Maximum tool-call rounds before forcing the
                           loop to terminate (default: 12). Guards
                           against runaway loops without imposing a wall
@@ -54,6 +49,13 @@ deployments:
                           SPRING_MODEL at first message time if the local
                           Ollama server does not already have it
                           (default: true).
+
+The platform-assembled system prompt arrives via the SDK bootstrap
+bundle (#2734): the SpringVoyageAgentLauncher's ``ContributeBundleAsync``
+writes ``$SPRING_WORKSPACE_PATH/.spring/system-prompt.md`` and the SDK's
+bootstrap client materialises it before ``initialize()`` runs.  The hook
+reads it via ``context.system_prompt`` (spec §2.2.2) — the legacy
+``SPRING_SYSTEM_PROMPT`` env-var path was removed at the same time.
 
   The MCP endpoint and token are read from IAgentContext
   (SPRING_MCP_URL / SPRING_MCP_TOKEN) — the canonical D1-spec names
@@ -186,12 +188,14 @@ async def initialize(context: IAgentContext) -> None:
 
     tools_by_name = {_resolve_tool_name(t, f"tool-{i}"): t for i, t in enumerate(tools)}
 
-    # Resolve system prompt: explicit env var wins; fall back to the
-    # platform-assembled system prompt from .spring/system-prompt.md
-    # (spec §2.2.2) the SDK loads into context.system_prompt.
-    system_prompt = os.environ.get("SPRING_SYSTEM_PROMPT", "")
-    if not system_prompt:
-        system_prompt = context.system_prompt or "You are a helpful AI assistant."
+    # #2734: the platform-assembled system prompt is delivered via the
+    # SDK bootstrap bundle. The SpringVoyageAgentLauncher writes
+    # ``.spring/system-prompt.md`` into the bundle, the SDK's
+    # bootstrap client materialises it under
+    # ``$SPRING_WORKSPACE_PATH``, and IAgentContext.load() reads it
+    # into ``context.system_prompt`` (spec §2.2.2). The legacy
+    # SPRING_SYSTEM_PROMPT env-var path was removed at the same time.
+    system_prompt = context.system_prompt or "You are a helpful AI assistant."
 
     logger.info(
         "Dapr Agent initialized (workflow-free per ADR 0029 Stage 0): provider=%s, model=%s, component=%s, tools=%d",
