@@ -128,8 +128,8 @@ class TestIAgentContextLoad:
 
     def test_system_prompt_absent_returns_none(self, tmp_path):
         """When .spring/system-prompt.md does not exist under the workspace
-        mount, load() succeeds with ``system_prompt = None`` — matching
-        local dev harness behaviour."""
+        mount, ``system_prompt`` returns ``None`` — matching local dev
+        harness behaviour."""
         with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
             ctx = IAgentContext.load()
         assert ctx.system_prompt is None
@@ -145,6 +145,32 @@ class TestIAgentContextLoad:
             ctx = IAgentContext.load()
 
         assert ctx.system_prompt == "You are a helpful Spring Voyage agent."
+
+    def test_system_prompt_is_re_read_each_access(self, tmp_path):
+        """#2734: ``system_prompt`` is a property that reads from disk
+        on every access — caching at ``load()`` time would defeat the
+        SDK's per-turn bootstrap integrity check (ADR-0055 §6). Edits
+        the platform makes between ``on_message`` calls must surface
+        without a container restart."""
+        spring_dir = tmp_path / ".spring"
+        spring_dir.mkdir()
+        prompt_file = spring_dir / "system-prompt.md"
+        prompt_file.write_text("v1", encoding="utf-8")
+
+        with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
+            ctx = IAgentContext.load()
+
+        assert ctx.system_prompt == "v1"
+
+        # Simulate the per-turn bootstrap integrity check writing
+        # fresh bytes (operator edited the agent's instructions).
+        prompt_file.write_text("v2", encoding="utf-8")
+        assert ctx.system_prompt == "v2"
+
+        # File deletion after the initial load must also surface as
+        # None on the next access (e.g. the platform pruned the agent).
+        prompt_file.unlink()
+        assert ctx.system_prompt is None
 
 
 class TestThreadWorkspace:

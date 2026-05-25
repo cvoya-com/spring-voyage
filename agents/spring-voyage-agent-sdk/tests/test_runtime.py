@@ -274,6 +274,88 @@ class TestSdkAgentExecutor:
 
         assert executor._serial_lock is None
 
+    @pytest.mark.asyncio
+    async def test_runs_bootstrap_integrity_check_before_on_message(self):
+        """#2734: when a BootstrapFetcher is attached, the executor
+        calls integrity_check_and_refresh() before invoking on_message
+        so operator edits to the agent definition land before the
+        handler reads context.system_prompt."""
+        from spring_voyage_agent_sdk.bootstrap import IntegrityCheckResult
+
+        done_event = asyncio.Event()
+        done_event.set()
+
+        invocations: list[str] = []
+
+        async def on_message(message: Message):
+            invocations.append("on_message")
+            yield Response(text="ok")
+
+        fetcher = MagicMock()
+        fetcher.integrity_check_and_refresh = MagicMock(
+            side_effect=lambda: (invocations.append("integrity_check"), IntegrityCheckResult(checked=True))[1]
+        )
+
+        executor = _SdkAgentExecutor(
+            hooks=_make_hooks(on_message=on_message),
+            concurrent_threads=True,
+            initialize_done=done_event,
+            bootstrap_fetcher=fetcher,
+        )
+
+        await executor.execute(_make_context(), _make_event_queue())
+
+        assert invocations == ["integrity_check", "on_message"]
+
+    @pytest.mark.asyncio
+    async def test_integrity_check_failure_does_not_abort_turn(self):
+        """A bootstrap fetcher exception during the per-turn check is
+        logged but never raised — the agent must still get a chance to
+        answer the message with the last-known-good bundle bytes."""
+        done_event = asyncio.Event()
+        done_event.set()
+
+        on_message_called = False
+
+        async def on_message(message: Message):
+            nonlocal on_message_called
+            on_message_called = True
+            yield Response(text="ok")
+
+        fetcher = MagicMock()
+        fetcher.integrity_check_and_refresh = MagicMock(side_effect=RuntimeError("worker dropped the connection"))
+
+        executor = _SdkAgentExecutor(
+            hooks=_make_hooks(on_message=on_message),
+            concurrent_threads=True,
+            initialize_done=done_event,
+            bootstrap_fetcher=fetcher,
+        )
+
+        await executor.execute(_make_context(), _make_event_queue())
+
+        assert on_message_called is True
+
+    @pytest.mark.asyncio
+    async def test_no_fetcher_skips_integrity_check(self):
+        """When no BootstrapFetcher is attached (smoke-test harness,
+        alternate launcher) the executor must NOT touch a fetcher.
+        This is the no-op path."""
+        done_event = asyncio.Event()
+        done_event.set()
+
+        executor = _SdkAgentExecutor(
+            hooks=_make_hooks(),
+            concurrent_threads=True,
+            initialize_done=done_event,
+            bootstrap_fetcher=None,
+        )
+
+        # Calling _maybe_refresh_bootstrap directly is the most direct
+        # way to assert the no-op behaviour without standing up an
+        # entire A2A request roundtrip.
+        await executor._maybe_refresh_bootstrap()
+
 
 class TestBareStartup:
     """Verify the uvicorn-first startup contract.

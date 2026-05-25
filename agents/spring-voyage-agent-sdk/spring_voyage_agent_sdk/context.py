@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger("spring-voyage-agent-sdk.context")
@@ -57,7 +56,6 @@ class ContextLoadError(RuntimeError):
     """
 
 
-@dataclass
 class IAgentContext:
     """Read-only bootstrap bundle for the agent container.
 
@@ -66,46 +64,78 @@ class IAgentContext:
     Construct via :meth:`load` rather than directly; :meth:`load` reads env
     vars and mounted files, validates required fields, and raises
     :class:`ContextLoadError` on missing required fields.
+
+    :attr:`system_prompt` is a fresh-read property (#2734): each access
+    re-reads ``$SPRING_WORKSPACE_PATH/.spring/system-prompt.md`` from
+    disk so the SDK's per-turn bootstrap integrity check (ADR-0055 §6,
+    :class:`spring_voyage_agent_sdk.bootstrap.BootstrapFetcher.integrity_check_and_refresh`)
+    actually flows through to ``on_message``. Caching the bytes once at
+    :meth:`load` time would defeat the integrity check — operator
+    edits to the agent's instructions or connector contributions would
+    not take effect until the container restarted.
     """
 
-    # Static metadata
-    tenant_id: str
-    agent_id: str
-    unit_id: str | None
-    thread_id: str | None
-    """The Spring Voyage thread id associated with this launch.
+    def __init__(
+        self,
+        *,
+        tenant_id: str,
+        agent_id: str,
+        unit_id: str | None,
+        thread_id: str | None,
+        bucket2_url: str,
+        bucket2_token: str,
+        llm_provider_url: str,
+        llm_provider_token: str,
+        mcp_url: str,
+        mcp_token: str,
+        telemetry_url: str,
+        telemetry_token: str | None,
+        workspace_path: str,
+        concurrent_threads: bool,
+    ) -> None:
+        # Static metadata
+        self.tenant_id = tenant_id
+        self.agent_id = agent_id
+        self.unit_id = unit_id
+        # Thread id — present when the container launch was triggered by a
+        # dispatch on a known thread (every normal message dispatch); None on
+        # supervisor-driven restarts (agent-level lifecycle events, not bound
+        # to any thread). Spec §2.2.1 (`SPRING_THREAD_ID`, optional).
+        self.thread_id = thread_id
 
-    Present when the container launch was triggered by a dispatch on a known
-    thread (i.e. every normal message dispatch).  ``None`` on supervisor-driven
-    restarts, which are agent-level lifecycle events not bound to any particular
-    thread.
+        # Bucket-2 endpoint
+        self.bucket2_url = bucket2_url
+        self.bucket2_token = bucket2_token
 
-    Spec: docs/specs/agent-runtime-boundary.md §2.1, §2.2.1
-    (``SPRING_THREAD_ID``, optional).
-    """
+        # Platform-provided service endpoints
+        self.llm_provider_url = llm_provider_url
+        self.llm_provider_token = llm_provider_token
+        self.mcp_url = mcp_url
+        self.mcp_token = mcp_token
+        self.telemetry_url = telemetry_url
+        self.telemetry_token = telemetry_token
 
-    # Bucket-2 endpoint
-    bucket2_url: str
-    bucket2_token: str
+        # Workspace mount path — every file the platform contributes to the
+        # bundle lives under this root (the SDK's bootstrap client writes the
+        # bundle here on container start and refreshes the platform-
+        # authoritative subset on every on_message).
+        self.workspace_path = workspace_path
 
-    # Platform-provided service endpoints
-    llm_provider_url: str
-    llm_provider_token: str
-    mcp_url: str
-    mcp_token: str
-    telemetry_url: str
-    telemetry_token: str | None
+        # Concurrent-threads policy
+        self.concurrent_threads = concurrent_threads
 
-    # Workspace mount path
-    workspace_path: str
+    @property
+    def system_prompt(self) -> str | None:
+        """Platform-assembled system prompt (spec §2.2.2).
 
-    # Concurrent-threads policy
-    concurrent_threads: bool
-
-    # Platform-assembled system prompt (spec §2.2.2). ``None`` when the file
-    # is absent (e.g. local dev harness, or a launcher that has not yet
-    # contributed a system-prompt file).
-    system_prompt: str | None = None
+        Reads ``$SPRING_WORKSPACE_PATH/.spring/system-prompt.md`` on
+        every access so the SDK's per-turn bootstrap integrity check
+        (ADR-0055 §6) is observable to ``on_message``. Returns
+        ``None`` (and logs a warning) when the file is absent — e.g.
+        a local dev harness that hasn't mounted the workspace, or a
+        launcher that did not contribute a system-prompt file.
+        """
+        return _read_system_prompt(self.workspace_path)
 
     def thread_workspace(self, thread_id: str) -> Path:
         """Return the on-disk workspace directory for ``thread_id``.
@@ -144,7 +174,7 @@ class IAgentContext:
 
     @classmethod
     def load(cls) -> "IAgentContext":
-        """Read IAgentContext from environment variables and mounted files.
+        """Read IAgentContext from environment variables.
 
         Validates that all required env vars are present and non-empty.
         Raises :class:`ContextLoadError` for any missing required field.
@@ -164,9 +194,6 @@ class IAgentContext:
                 f"SPRING_CONCURRENT_THREADS must be 'true' or 'false', got: {os.environ[_ENV_CONCURRENT_THREADS]!r}"
             )
 
-        workspace_path = os.environ[_ENV_WORKSPACE_PATH]
-        system_prompt = _load_system_prompt(workspace_path)
-
         ctx = cls(
             tenant_id=os.environ[_ENV_TENANT_ID],
             agent_id=os.environ[_ENV_AGENT_ID],
@@ -180,9 +207,8 @@ class IAgentContext:
             mcp_token=os.environ[_ENV_MCP_TOKEN],
             telemetry_url=os.environ[_ENV_TELEMETRY_URL],
             telemetry_token=os.environ.get(_ENV_TELEMETRY_TOKEN) or None,
-            workspace_path=workspace_path,
+            workspace_path=os.environ[_ENV_WORKSPACE_PATH],
             concurrent_threads=(concurrent_threads_raw == "true"),
-            system_prompt=system_prompt,
         )
 
         logger.info(
@@ -197,17 +223,20 @@ class IAgentContext:
         return ctx
 
 
-def _load_system_prompt(workspace_path: str) -> str | None:
+def _read_system_prompt(workspace_path: str) -> str | None:
     """Read the platform-assembled system prompt from the workspace mount.
 
-    Spec §2.2.2: the platform delivers the system prompt at
+    Spec §2.2.2 — the platform delivers the system prompt at
     ``$SPRING_WORKSPACE_PATH/.spring/system-prompt.md``. The platform's
-    bootstrap mechanism (ADR-0055) re-pulls it on every turn so changes to
-    the agent definition take effect at next-turn cadence.
+    bootstrap mechanism (ADR-0055) re-pulls and re-writes this file on
+    every ``on_message`` so changes to the agent definition take effect
+    at turn cadence; :attr:`IAgentContext.system_prompt` reads the file
+    fresh on each access to surface those changes.
 
-    Returns ``None`` (and logs a warning) when the file is absent — e.g. a
-    local dev harness that hasn't mounted the workspace, or a launcher that
-    has not yet contributed a system-prompt file.
+    Returns ``None`` (and logs a warning) when the file is absent or
+    unreadable — e.g. a local dev harness that hasn't mounted the
+    workspace, or a launcher that did not contribute a system-prompt
+    file.
     """
     path = Path(workspace_path) / _SYSTEM_PROMPT_REL_PATH
     if not path.exists():

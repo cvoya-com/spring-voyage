@@ -107,19 +107,48 @@ class TestAgenticLoop:
         return AgentBuild(
             llm=llm,
             tools=tools or [],
-            system_prompt="You are a helpful AI assistant.",
             tools_by_name=tools_by_name or {},
         )
+
+    _SYSTEM = "You are a helpful AI assistant."
 
     @pytest.mark.asyncio
     async def test_returns_assistant_text_when_no_tool_calls(self):
         llm = MagicMock()
         llm.generate = MagicMock(return_value=_final_response("answer"))
 
-        result = await _run_agentic_loop(self._build(llm), "ping")
+        result = await _run_agentic_loop(self._build(llm), self._SYSTEM, "ping")
 
         assert result == "answer"
         llm.generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_passes_system_prompt_to_llm(self):
+        """#2734: _run_agentic_loop receives the system prompt per call
+        (read fresh from IAgentContext on each on_message) and seeds the
+        SystemMessage with it. Pin that the value threads through."""
+        llm = MagicMock()
+        llm.generate = MagicMock(return_value=_final_response("hi"))
+
+        await _run_agentic_loop(self._build(llm), "fresh prompt v2", "ping")
+
+        messages = llm.generate.call_args.kwargs["messages"]
+        system_messages = [m for m in messages if getattr(m, "role", None) == "system"]
+        assert system_messages
+        assert system_messages[0].content == "fresh prompt v2"
+
+    @pytest.mark.asyncio
+    async def test_empty_system_prompt_omits_system_message(self):
+        """A blank system prompt (e.g. local dev with no bundle) means
+        the LLM call has no SystemMessage rather than a hollow one."""
+        llm = MagicMock()
+        llm.generate = MagicMock(return_value=_final_response("hi"))
+
+        await _run_agentic_loop(self._build(llm), "", "ping")
+
+        messages = llm.generate.call_args.kwargs["messages"]
+        system_messages = [m for m in messages if getattr(m, "role", None) == "system"]
+        assert system_messages == []
 
     @pytest.mark.asyncio
     async def test_invokes_tool_then_returns_final_answer(self):
@@ -142,7 +171,7 @@ class TestAgenticLoop:
             tools_by_name={"echo": tool},
         )
 
-        result = await _run_agentic_loop(build, "say hi")
+        result = await _run_agentic_loop(build, self._SYSTEM, "say hi")
 
         assert result == "the tool said hello"
         tool.arun.assert_awaited_once_with(text="hello")
@@ -158,7 +187,7 @@ class TestAgenticLoop:
             ]
         )
 
-        result = await _run_agentic_loop(self._build(llm), "do a thing")
+        result = await _run_agentic_loop(self._build(llm), self._SYSTEM, "do a thing")
 
         assert result == "sorry, no such tool"
         second_messages = llm.generate.call_args_list[1].kwargs["messages"]
@@ -186,7 +215,7 @@ class TestAgenticLoop:
             tools_by_name={"echo": tool},
         )
 
-        result = await _run_agentic_loop(build, "do a thing")
+        result = await _run_agentic_loop(build, self._SYSTEM, "do a thing")
 
         assert result == "recovered"
         tool.arun.assert_not_awaited()
@@ -211,7 +240,7 @@ class TestAgenticLoop:
             tools_by_name={"boom": tool},
         )
 
-        result = await _run_agentic_loop(build, "go")
+        result = await _run_agentic_loop(build, self._SYSTEM, "go")
 
         assert result == "noted"
         second_messages = llm.generate.call_args_list[1].kwargs["messages"]
@@ -245,7 +274,7 @@ class TestAgenticLoop:
         )
 
         with pytest.raises(RuntimeError, match="exhausted"):
-            await _run_agentic_loop(build, "loop forever")
+            await _run_agentic_loop(build, self._SYSTEM, "loop forever")
 
         assert llm.generate.call_count == 2
 
@@ -276,12 +305,12 @@ class TestInitializeHook:
         mock_client_cls.assert_called_once_with(component_name="llm-ollama")
 
     @pytest.mark.asyncio
-    async def test_system_prompt_from_context_system_prompt(self, monkeypatch):
-        # #2734: the platform-assembled system prompt is delivered via
-        # the SDK bootstrap bundle (the launcher writes
-        # `.spring/system-prompt.md` and the SDK reads it into
-        # context.system_prompt). The legacy SPRING_SYSTEM_PROMPT
-        # env-var path was removed at the same time.
+    async def test_initialize_does_not_cache_system_prompt(self, monkeypatch):
+        # #2734: agent.py no longer caches the prompt on AgentBuild —
+        # on_message reads context.system_prompt fresh per turn so the
+        # SDK's per-turn bootstrap integrity check (ADR-0055 §6) is
+        # observable. The AgentBuild dataclass therefore exposes no
+        # system_prompt field.
         monkeypatch.setenv("SPRING_LLM_COMPONENT", "llm-ollama")
 
         ctx = _make_context(system_prompt="From .spring/system-prompt.md.")
@@ -291,43 +320,7 @@ class TestInitializeHook:
             await initialize(ctx)
 
         assert agent_module._agent_build is not None
-        assert agent_module._agent_build.system_prompt == "From .spring/system-prompt.md."
-
-    @pytest.mark.asyncio
-    async def test_system_prompt_env_var_is_ignored(self, monkeypatch):
-        # #2734: SPRING_SYSTEM_PROMPT is no longer read by agent.py — a
-        # leftover value in the env (e.g. a stale operator override or
-        # a pre-cutover deployment) must not influence the prompt the
-        # loop sees.
-        monkeypatch.setenv("SPRING_SYSTEM_PROMPT", "Should be ignored.")
-        monkeypatch.setenv("SPRING_LLM_COMPONENT", "llm-ollama")
-
-        ctx = _make_context(system_prompt="From .spring/system-prompt.md.")
-
-        with patch("agent.DaprChatClient") as mock_client_cls:
-            mock_client_cls.return_value = MagicMock()
-            await initialize(ctx)
-
-        assert agent_module._agent_build is not None
-        assert agent_module._agent_build.system_prompt == "From .spring/system-prompt.md."
-
-    @pytest.mark.asyncio
-    async def test_system_prompt_default_when_context_has_none(self, monkeypatch):
-        # When the bootstrap bundle did not deliver a system prompt
-        # (e.g. the smoke-test harness ran without a bundle), the agent
-        # falls back to a neutral default so the LLM still has system
-        # framing.
-        monkeypatch.delenv("SPRING_SYSTEM_PROMPT", raising=False)
-        monkeypatch.setenv("SPRING_LLM_COMPONENT", "llm-ollama")
-
-        ctx = _make_context(system_prompt=None)
-
-        with patch("agent.DaprChatClient") as mock_client_cls:
-            mock_client_cls.return_value = MagicMock()
-            await initialize(ctx)
-
-        assert agent_module._agent_build is not None
-        assert agent_module._agent_build.system_prompt == "You are a helpful AI assistant."
+        assert not hasattr(agent_module._agent_build, "system_prompt")
 
     @pytest.mark.asyncio
     async def test_respects_llm_component_override(self, monkeypatch):
@@ -387,7 +380,6 @@ class TestOllamaModelReadiness:
         build = AgentBuild(
             llm=MagicMock(),
             tools=[],
-            system_prompt="",
             tools_by_name={},
             provider="ollama",
             model="qwen2.5:7b",
@@ -406,7 +398,6 @@ class TestOllamaModelReadiness:
         build = AgentBuild(
             llm=MagicMock(),
             tools=[],
-            system_prompt="",
             tools_by_name={},
             provider="openai",
             model="gpt-4o",
@@ -453,7 +444,6 @@ class TestOnMessageHook:
         agent_module._agent_build = AgentBuild(
             llm=llm,
             tools=[],
-            system_prompt="Be helpful.",
             tools_by_name={},
         )
 
@@ -474,7 +464,6 @@ class TestOnMessageHook:
         agent_module._agent_build = AgentBuild(
             llm=llm,
             tools=[],
-            system_prompt="Be helpful.",
             tools_by_name={},
         )
 
@@ -499,7 +488,6 @@ class TestOnMessageHook:
         agent_module._agent_build = AgentBuild(
             llm=llm,
             tools=[],
-            system_prompt="Be helpful.",
             tools_by_name={},
         )
         # A real IAgentContext gives us the live thread_workspace helper.
@@ -529,3 +517,60 @@ class TestOnMessageHook:
         counter = tmp_path / "threads" / "thr-1" / "turn-count.txt"
         assert counter.exists()
         assert counter.read_text() == "2"
+
+    @pytest.mark.asyncio
+    async def test_reads_system_prompt_fresh_per_turn(self, tmp_path):
+        """#2734: on_message reads ``context.system_prompt`` on every
+        turn so platform-edit-then-next-message takes effect at turn
+        cadence (the SDK's per-turn bootstrap integrity check writes
+        fresh bytes to ``.spring/system-prompt.md``; this test simulates
+        that write between two on_message calls and verifies the LLM
+        sees the new bytes on the second turn)."""
+        from spring_voyage_agent_sdk.context import IAgentContext
+
+        llm = MagicMock()
+        llm.generate = MagicMock(side_effect=[_final_response("first"), _final_response("second")])
+
+        agent_module._agent_build = AgentBuild(
+            llm=llm,
+            tools=[],
+            tools_by_name={},
+        )
+
+        spring_dir = tmp_path / ".spring"
+        spring_dir.mkdir()
+        prompt_file = spring_dir / "system-prompt.md"
+        prompt_file.write_text("turn-1 prompt", encoding="utf-8")
+
+        agent_module._agent_context = IAgentContext(
+            tenant_id="t",
+            agent_id="a",
+            unit_id=None,
+            thread_id=None,
+            bucket2_url="",
+            bucket2_token="",
+            llm_provider_url="",
+            llm_provider_token="",
+            mcp_url="",
+            mcp_token="",
+            telemetry_url="",
+            telemetry_token=None,
+            workspace_path=str(tmp_path),
+            concurrent_threads=False,
+        )
+        try:
+            [_ async for _ in on_message(_make_message("first"))]
+            # Simulate the SDK's per-turn integrity check rewriting the
+            # bundle file after the platform edited the agent's
+            # instructions.
+            prompt_file.write_text("turn-2 prompt", encoding="utf-8")
+            [_ async for _ in on_message(_make_message("second"))]
+        finally:
+            agent_module._agent_context = None
+
+        first_messages = llm.generate.call_args_list[0].kwargs["messages"]
+        second_messages = llm.generate.call_args_list[1].kwargs["messages"]
+        first_system = next(m for m in first_messages if getattr(m, "role", None) == "system")
+        second_system = next(m for m in second_messages if getattr(m, "role", None) == "system")
+        assert first_system.content == "turn-1 prompt"
+        assert second_system.content == "turn-2 prompt"
