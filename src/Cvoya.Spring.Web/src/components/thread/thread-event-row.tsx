@@ -408,7 +408,7 @@ export function ThreadEventRow({
                 </span>
               </button>
             ) : (
-              <div className="prose prose-sm dark:prose-invert max-w-none break-words [&_a]:text-primary [&_a]:underline [&_code:not(pre_code)]:rounded [&_code:not(pre_code)]:bg-black/10 [&_code:not(pre_code)]:px-1 [&_code:not(pre_code)]:dark:bg-white/10 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/10 [&_pre]:p-2 [&_pre]:dark:bg-white/10 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left">
+              <div className={cn("prose prose-sm max-w-none break-words [&_a]:text-primary [&_a]:underline [&_code:not(pre_code)]:rounded [&_code:not(pre_code)]:bg-black/10 [&_code:not(pre_code)]:px-1 [&_code:not(pre_code)]:dark:bg-white/10 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/10 [&_pre]:p-2 [&_pre]:dark:bg-white/10 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left", style.proseInvert ? "prose-invert" : "dark:prose-invert")}>
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
