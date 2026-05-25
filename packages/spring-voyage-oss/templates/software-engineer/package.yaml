@@ -14,6 +14,8 @@ capabilities:
   - code-review
   - architecture
   - devops
+  - security
+  - design
 ai:
   runtime: claude-code
   model:
@@ -144,18 +146,50 @@ instructions: |
   context that only a human owner has — escalate to the unit's
   `overall-lead` human listed on the parent unit's `members:` block
   via the platform message channel. Do not guess.
+# #2534: the engineer is a generalist that dispatches focused work to
+# repository-defined personas under `.claude/agents/`. The expertise
+# domains below cover every persona an engineer can dispatch to, so a
+# peer doing `sv.directory.lookup` against this member can see what
+# the engineer is capable of delivering end-to-end (via the persona).
+# Levels reflect depth of coverage on the Spring Voyage codebase
+# (expert: core surfaces the engineer owns directly; advanced:
+# specialist surfaces the engineer dispatches to a persona for).
 expertise:
   - domain: dotnet-development
     level: expert
+    description: Core platform — Dapr actors, domain interfaces, message routing, prompt assembly, API host, worker host. Dispatched to the `dotnet-engineer` persona.
   - domain: web-development
     level: expert
+    description: Next.js portal under `src/Cvoya.Spring.Web/`. Dispatched to the `web-engineer` persona.
   - domain: cli-development
     level: advanced
+    description: The `spring` CLI under `src/Cvoya.Spring.Cli/`. Dispatched to the `cli-engineer` persona.
   - domain: api-design
     level: advanced
+    description: HTTP / A2A contracts, DTOs, OpenAPI surface. Dispatched to the `api-designer` persona.
+  - domain: connector-development
+    level: advanced
+    description: Inbound webhook translation and outbound skill exposure (GitHub, Slack). Dispatched to the `connector-engineer` persona.
   - domain: testing
     level: advanced
+    description: Unit / integration / e2e tests with xUnit, Shouldly, Testcontainers. Dispatched to the `qa-engineer` persona.
   - domain: code-review
     level: expert
+    description: PR review against scope discipline, project conventions, and the active plan-of-record.
+  - domain: architecture
+    level: advanced
+    description: ADRs and boundary decisions for SV-hosted agent developers. Dispatched to the `architect` persona.
+  - domain: devops
+    level: advanced
+    description: Dapr component config, Dockerfiles, CI / CD pipelines. Dispatched to the `devops-engineer` persona.
+  - domain: security
+    level: advanced
+    description: Tenant-isolation audits, credential handling, DI safety, extensibility-contract violations. Dispatched to the `security-engineer` persona.
+  - domain: design
+    level: advanced
+    description: Portal visual contract (`DESIGN.md`), design-system tokens, accessibility. Dispatched to the `design-engineer` persona.
+  - domain: documentation
+    level: advanced
+    description: Architecture docs, concept docs, user guides, ADRs under `docs/`. Dispatched to the `docs-writer` persona.
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
