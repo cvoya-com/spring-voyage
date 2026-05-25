@@ -42,20 +42,58 @@ public class LauncherPromptFragmentsTests
     [Fact]
     public void ConcurrentThreadsGuard_CarriesTheLoadBearingConstraints()
     {
-        // The contract enumerated in ADR-0041 § "The concurrent_threads:
-        // true author contract" must be visible verbatim in the guard so
-        // grep'ing the assembled prompt (or the runtime's logs) can find
-        // each constraint. If a future reword drops one of these terms,
-        // this test fails so the deletion is intentional.
+        // #2745: the guard is the universal core — name the two things
+        // the platform isolates per thread (workspace subtree + session
+        // storage) and the constraints that follow from what is shared.
+        // SE-specific tool guidance (watcher commands, broad process
+        // kills, "run as one-shot commands") moves into the
+        // sv.engineer.defaults bundle and must NOT appear here.
         var guard = LauncherPromptFragments.ConcurrentThreadsGuard;
 
-        guard.ShouldContain("Spring Voyage runtime guard");
-        guard.ShouldContain("concurrent_threads is on");
-        guard.ShouldContain("pytest --watch");
-        guard.ShouldContain("npm run dev");
-        guard.ShouldContain("ephemeral");
+        guard.ShouldContain("Concurrent threads — per-thread isolation");
         guard.ShouldContain("$SPRING_WORKSPACE_PATH/threads/$SPRING_THREAD_ID/");
-        guard.ShouldContain("pkill -f pytest");
+        guard.ShouldContain("Workspace subtree");
+        guard.ShouldContain("Session storage");
+        // Shared-state framing — ephemeral-port advice and the no-
+        // process-global-mutation rule are the two constraints
+        // load-bearing for any agent class.
+        guard.ShouldContain("ephemeral");
+        guard.ShouldContain("port 0");
+        guard.ShouldContain("process-global");
+    }
+
+    /// <summary>
+    /// #2745: the SE-specific tool names that used to live in the guard
+    /// move into the sv.engineer.defaults bundle. The universal core
+    /// MUST NOT reference any of them — an analyst, PM, or router agent
+    /// has no model for these tools and the prose was signal noise to
+    /// them.
+    /// </summary>
+    [Fact]
+    public void ConcurrentThreadsGuard_DoesNotEnumerateEngineerSpecificTools()
+    {
+        var guard = LauncherPromptFragments.ConcurrentThreadsGuard;
+
+        foreach (var seToolName in new[]
+        {
+            "pytest --watch",
+            "pytest-watch",
+            "npm run dev",
+            "next dev",
+            "vite",
+            "cargo watch",
+            "nodemon",
+            "tail -f",
+            "watchman watch",
+            "dotnet watch run",
+            "pkill -f",
+            "killall",
+        })
+        {
+            guard.ShouldNotContain(
+                seToolName,
+                customMessage: $"`{seToolName}` is engineer-specific; it belongs in sv.engineer.defaults, not the universal guard (#2745).");
+        }
     }
 
     /// <summary>

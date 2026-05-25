@@ -329,7 +329,7 @@ public class GeminiLauncher(
     /// </remarks>
     public string? GetWorkspacePromptFragment() =>
         """
-        You are running inside a Debian-based container supervised by the Spring Voyage agent sidecar. The Google Gemini CLI (`gemini`) is your runtime; the standard image bundles `dotnet`, `gh`, `git`, `node`, and `python3` for general-purpose tooling. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns and container restarts — anything you clone or write under it stays available next turn. The CLI auto-discovers its system prompt from `GEMINI.md` at the workspace root (or, when an agent declares `system_prompt_mode: replace`, from the file `$GEMINI_SYSTEM_MD` points at) and its MCP server set from `.gemini/settings.json`; per-thread session state lives under `$GEMINI_CLI_HOME/.gemini/`.
+        Your runtime is the Google Gemini CLI (`gemini`). Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns — anything you write under it stays available next turn. The CLI auto-discovers its system prompt from `GEMINI.md` at the workspace root (or, when an agent declares `system_prompt_mode: replace`, from the file `$GEMINI_SYSTEM_MD` points at) and its MCP server set from `.gemini/settings.json`; per-thread session state lives under `$GEMINI_CLI_HOME/.gemini/`.
         """;
 
     /// <inheritdoc />

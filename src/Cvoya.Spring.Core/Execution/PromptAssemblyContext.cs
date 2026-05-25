@@ -74,14 +74,17 @@ using Cvoya.Spring.Core.Skills;
 /// </param>
 /// <param name="ConcurrentThreadsGuard">
 /// When <c>true</c>, the assembler renders the platform-emitted
-/// <c>### Spring Voyage runtime guard — concurrent_threads is on</c>
-/// sub-section inside the <c>## Platform Instructions</c> section
-/// (ADR-0041 / #2096 / #2738). The guard names the contract every
-/// CLI-runtime agent must honour when N concurrent turns share a
-/// container — do not launch watchers, do not bind fixed ports, write
-/// thread-local state only, etc. Defaults to <c>false</c> so synthetic
-/// launch paths and tests that build a sparse context do not
-/// accidentally surface the guard; the two production callers
+/// <c>### Concurrent threads — per-thread isolation</c> sub-section
+/// inside the <c>## Platform Instructions</c> section
+/// (ADR-0041 / #2096 / #2738 / #2745). The guard names the two
+/// things the platform isolates per thread (workspace subtree +
+/// session storage) and the constraints that follow from what is
+/// shared (ephemeral ports, no process-global mutation). Engineer-
+/// specific guidance (watcher commands, broad process kills) lives
+/// in the <c>sv.engineer.defaults</c> bundle, not here. Defaults to
+/// <c>false</c> so synthetic launch paths and tests that build a
+/// sparse context do not accidentally surface the guard; the two
+/// production callers
 /// (<see cref="IAgentBootstrapBundleProvider"/> for the bundle path
 /// and the per-actor dispatch context for the ephemeral path) set the
 /// flag from <see cref="AgentExecutionConfig.ConcurrentThreads"/>.

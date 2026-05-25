@@ -168,7 +168,7 @@ public class CodexLauncher(
     /// </remarks>
     public string? GetWorkspacePromptFragment() =>
         """
-        You are running inside a Debian-based container supervised by the Spring Voyage agent sidecar. The OpenAI Codex CLI (`codex`) is your runtime; the standard image bundles `dotnet`, `gh`, `git`, `node`, and `python3` for general-purpose tooling. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns and container restarts — anything you clone or write under it stays available next turn. The CLI auto-discovers its system prompt from `AGENTS.md` at the workspace root and its MCP server set from `.mcp.json` (also at the workspace root).
+        Your runtime is the OpenAI Codex CLI (`codex`). Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns — anything you write under it stays available next turn. The CLI auto-discovers its system prompt from `AGENTS.md` at the workspace root and its MCP server set from `.mcp.json` (also at the workspace root).
         """;
 
     /// <inheritdoc />

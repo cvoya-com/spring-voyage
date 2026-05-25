@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Prompts;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
@@ -102,7 +103,7 @@ public class DefaultIdentityPromptContextResolverTests
     }
 
     [Fact]
-    public async Task ResolveAsync_PointsAtDirectoryToolsForLiveDiscovery()
+    public async Task ResolveAsync_PointsAtDirectoryListForLiveMemberDiscovery()
     {
         var subjectId = Guid.Parse("55555555-5555-5555-5555-555555555555");
         var subject = new Address(Address.AgentScheme, subjectId);
@@ -116,12 +117,104 @@ public class DefaultIdentityPromptContextResolverTests
         var fragment = await _resolver.ResolveAsync(subject, TestContext.Current.CancellationToken);
 
         fragment.ShouldNotBeNull();
-        // The OSS default surfaces minimal identity bullets and points
-        // the runtime at the directory tools for the rest (declared
-        // role, expertise, members, peers). Pin against the tool names
-        // rather than the literal sentence so wording can evolve.
-        fragment.ShouldContain("sv.directory.lookup");
+        // #2741: role and expertise render inline (covered by their own
+        // tests below), so the resolver no longer points at
+        // sv.directory.lookup for that data. The remaining pointer is
+        // sv.directory.list — the live membership / sibling /
+        // peer-discovery surface.
         fragment.ShouldContain("sv.directory.list");
+        fragment.ShouldNotContain(
+            "sv.directory.lookup",
+            customMessage: "role/expertise render inline (#2741); no use-site reminder for sv.directory.lookup belongs in the identity section.");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_AgentWithDeclaredRole_RendersInlineBullet()
+    {
+        var subjectId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var subject = new Address(Address.AgentScheme, subjectId);
+        _agentDefinitionProvider.GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId: GuidFormatter.Format(subjectId),
+                Name: "engineer-1",
+                Instructions: null,
+                Execution: null,
+                Role: "software-engineer"));
+
+        var fragment = await _resolver.ResolveAsync(subject, TestContext.Current.CancellationToken);
+
+        fragment.ShouldNotBeNull();
+        fragment.ShouldContain("**Role:** software-engineer");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_AgentWithDeclaredExpertise_RendersInlineBullets()
+    {
+        var subjectId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var subject = new Address(Address.AgentScheme, subjectId);
+        _agentDefinitionProvider.GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId: GuidFormatter.Format(subjectId),
+                Name: "engineer-1",
+                Instructions: null,
+                Execution: null,
+                Expertise: new[]
+                {
+                    new ExpertiseDomain("dotnet-development", "Backend / Dapr / domain code.", ExpertiseLevel.Expert),
+                    new ExpertiseDomain("testing", "xUnit / FluentAssertions patterns.", ExpertiseLevel.Advanced),
+                }));
+
+        var fragment = await _resolver.ResolveAsync(subject, TestContext.Current.CancellationToken);
+
+        fragment.ShouldNotBeNull();
+        fragment.ShouldContain("**Expertise:**");
+        fragment.ShouldContain("dotnet-development (expert)");
+        fragment.ShouldContain("Backend / Dapr / domain code.");
+        fragment.ShouldContain("testing (advanced)");
+        fragment.ShouldContain("xUnit / FluentAssertions patterns.");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_AgentWithoutRoleOrExpertise_OmitsThoseBullets()
+    {
+        var subjectId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        var subject = new Address(Address.AgentScheme, subjectId);
+        _agentDefinitionProvider.GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId: GuidFormatter.Format(subjectId),
+                Name: "minimal-agent",
+                Instructions: null,
+                Execution: null));
+
+        var fragment = await _resolver.ResolveAsync(subject, TestContext.Current.CancellationToken);
+
+        fragment.ShouldNotBeNull();
+        fragment.ShouldNotContain("**Role:**");
+        fragment.ShouldNotContain("**Expertise:**");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ExpertiseWithoutLevelOrDescription_RendersDomainNameOnly()
+    {
+        var subjectId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+        var subject = new Address(Address.AgentScheme, subjectId);
+        _agentDefinitionProvider.GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId: GuidFormatter.Format(subjectId),
+                Name: "x",
+                Instructions: null,
+                Execution: null,
+                Expertise: new[]
+                {
+                    new ExpertiseDomain("triage", string.Empty),
+                }));
+
+        var fragment = await _resolver.ResolveAsync(subject, TestContext.Current.CancellationToken);
+
+        fragment.ShouldNotBeNull();
+        fragment.ShouldContain("- triage");
+        fragment.ShouldNotContain("triage ()");
+        fragment.ShouldNotContain("triage — ");
     }
 
     [Fact]

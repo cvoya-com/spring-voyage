@@ -1,0 +1,29 @@
+apiVersion: spring.voyage/v1
+kind: Package
+name: engineer-defaults
+description: Engineer-shaped defaults — guidance on top of the platform's universal concurrent-threads guard for agents whose tooling is CLI-shell-heavy.
+version: 1.0.0
+readme: README.md
+
+# #2745 carve-out — the `sv.engineer.defaults` skill bundle.
+#
+# The platform-layer concurrent-threads guard (`LauncherPromptFragments
+# .ConcurrentThreadsGuard`) is rewritten as the universal core — it
+# names the two things the platform isolates per thread (workspace
+# subtree + session storage) and the constraints that follow from
+# what is shared (ephemeral ports, no process-global mutation).
+# Software-engineering-shaped agents have additional shell-tooling
+# footguns that don't generalise to PM / analyst / router agents:
+# long-running watcher commands (`pytest --watch`, `npm run dev`,
+# `dotnet watch run`, …) and broad process kills (`pkill`, `killall`).
+# Those names move here so engineer agents who equip this bundle get
+# the SE-specific guidance and other agent classes are not signal-
+# noised with tool names they have no model for.
+#
+# This package intentionally declares NO `requires:` block: the
+# bundle ships prose-only guidance and grants no tools beyond the
+# platform core. The `.tools.json` is the empty array.
+#
+# ADR-0043 §1 / §3: directory layout is the manifest — no `content:`
+# block. The package ships exactly the artefacts discovered under
+# `skills/`.

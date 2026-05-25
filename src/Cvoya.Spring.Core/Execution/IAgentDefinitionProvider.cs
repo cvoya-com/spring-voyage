@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Core.Execution;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Catalog;
 
 /// <summary>
@@ -42,12 +43,32 @@ public interface IAgentDefinitionProvider
 /// dispatcher / credential resolver treats as "no unit-scoped credential
 /// available" and falls back to tenant-scope.
 /// </param>
+/// <param name="Role">
+/// The agent's declared identity role (the YAML <c>role:</c> field — e.g.
+/// <c>software-engineer</c>). Single-valued — orthogonal to the membership-
+/// side <c>roles[]</c> array on <c>UnitMembership</c> (ADR-0046 §8). Read
+/// directly off the persisted <c>AgentDefinitions.Definition</c> /
+/// <c>UnitDefinitions.Definition</c> JSON. <c>null</c> when the manifest
+/// did not declare a role, so the identity prompt resolver can suppress
+/// the bullet rather than emit an empty value.
+/// </param>
+/// <param name="Expertise">
+/// The agent's declared expertise domains (the YAML <c>expertise:</c>
+/// block — list of <c>{ domain, description?, level? }</c> entries). Read
+/// directly off the persisted definition JSON via the same extractor the
+/// expertise-seed provider uses (#488). <c>null</c> when the manifest did
+/// not declare an <c>expertise:</c> block; an empty list means "declared
+/// empty". Identity-prompt rendering treats <c>null</c> and empty
+/// identically — no bullet emitted.
+/// </param>
 public record AgentDefinition(
     string AgentId,
     string Name,
     string? Instructions,
     AgentExecutionConfig? Execution,
-    string? UnitId = null);
+    string? UnitId = null,
+    string? Role = null,
+    IReadOnlyList<ExpertiseDomain>? Expertise = null);
 
 /// <summary>
 /// Determines how an agent process is hosted across dispatch invocations.

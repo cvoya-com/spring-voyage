@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Prompts;
 
 using System.Text;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
@@ -110,16 +111,58 @@ public class DefaultIdentityPromptContextResolver(
             builder.AppendLine($"- **Parent unit:** `unit:{definition.UnitId}`");
         }
 
+        // #2741: declared role and expertise are properties of the
+        // agent / unit definition itself — the provider read them off
+        // the same definition JSON above and there is no extra lookup
+        // to defer. Render them inline so a fresh runtime does not pay
+        // a per-turn sv.directory.lookup round-trip just to recover its
+        // own static metadata. Live / membership-shaped data (siblings,
+        // members) genuinely changes between turns and stays behind the
+        // sv.directory.list pointer below.
+        if (!string.IsNullOrWhiteSpace(definition.Role))
+        {
+            builder.AppendLine($"- **Role:** {definition.Role}");
+        }
+
+        if (definition.Expertise is { Count: > 0 } expertise)
+        {
+            builder.AppendLine("- **Expertise:**");
+            foreach (var domain in expertise)
+            {
+                builder.AppendLine($"  - {FormatExpertiseDomain(domain)}");
+            }
+        }
+
         // The OSS default surfaces the always-available identity fields
-        // only. For declared role, expertise, sibling / peer agents, and
-        // (for units) members, point the runtime at the directory tools
-        // so it can pull the live picture rather than relying on a
-        // frozen snapshot in the prompt. The catalog in the platform
+        // (kind, address, display name, parent unit, role, expertise)
+        // and points the runtime at the directory tools only for
+        // live / membership-shaped data — sibling enumeration, peer
+        // discovery, and (for units) member listings — which genuinely
+        // changes between turns. The catalog in the platform
         // instructions names these tools; this line is a use-site
         // reminder.
         builder.AppendLine();
-        builder.AppendLine("Use `sv.directory.lookup` to discover your declared role and expertise, and (for units) `sv.directory.list` to enumerate your members or peers — the platform serves the live view rather than freezing it in this snapshot.");
+        builder.AppendLine("Use `sv.directory.list` to enumerate your members, siblings, or peers — the platform serves the live view rather than freezing it in this snapshot.");
 
         return builder.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Renders one expertise domain as a single inline bullet — the
+    /// domain name, the optional level in parentheses, and the
+    /// description on the same line when present. Mirrors the
+    /// summary shape <c>sv.directory.lookup</c>'s caller would compose
+    /// from the structured response, so the inline render and the
+    /// tool's response stay readable in the same way.
+    /// </summary>
+    private static string FormatExpertiseDomain(ExpertiseDomain domain)
+    {
+        var name = string.IsNullOrWhiteSpace(domain.Name) ? "(unnamed)" : domain.Name;
+        var head = domain.Level is { } level
+            ? $"{name} ({level.ToString().ToLowerInvariant()})"
+            : name;
+        return string.IsNullOrWhiteSpace(domain.Description)
+            ? head
+            : $"{head} — {domain.Description}";
     }
 }
