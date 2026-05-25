@@ -20,17 +20,18 @@ namespace Cvoya.Spring.Core.Execution;
 /// catches the case where the model independently decides to invoke one.
 /// </para>
 /// <para>
-/// The fragment lives in <see cref="Cvoya.Spring.Core.Execution"/> rather
-/// than the launcher project because both consumers cross assembly
-/// boundaries: the CLI-runtime path now delivers the guard via the
-/// <see cref="IAgentBootstrapBundleProvider"/>'s assembled-prompt
-/// composition (the launcher's system-prompt file —
-/// <c>.spring/system-prompt.md</c> for Claude per #2672, <c>AGENTS.md</c>
-/// for Codex, and <c>GEMINI.md</c> or <c>.spring/system-prompt.md</c>
-/// for Gemini per its <c>system_prompt_mode</c>), and the Spring Voyage
-/// agent path delivers it via the launcher's <c>SPRING_SYSTEM_PROMPT</c>
-/// env var. Keeping the guard string in a single Core-level class is
-/// the single source of truth both consumers can reach.
+/// The fragment lives in <see cref="Cvoya.Spring.Core.Execution"/> as a
+/// dep-free constant so the prompt assembler (in <c>Cvoya.Spring.Dapr</c>)
+/// and the Spring Voyage agent launcher (in
+/// <c>Cvoya.Spring.AgentRuntimes</c>) both reach the same single source
+/// of truth. Per #2738 the assembler renders the fragment in-band as a
+/// <c>### …</c> sub-section of <c>## Platform Instructions</c> when the
+/// per-invocation <c>PromptAssemblyContext.ConcurrentThreadsGuard</c>
+/// flag is <c>true</c>; <see cref="Compose"/> still wraps the Spring
+/// Voyage agent's deploy-time <c>SPRING_SYSTEM_PROMPT</c> body (which
+/// is raw <c>definition.Instructions</c>, no platform-instructions
+/// section to nest into) and is a no-op when the body already carries
+/// the in-band guard.
 /// </para>
 /// <para>
 /// The pre-cutover <c>ResponseDiscipline</c> fragment that used to live
@@ -45,21 +46,24 @@ namespace Cvoya.Spring.Core.Execution;
 public static class LauncherPromptFragments
 {
     /// <summary>
-    /// Marker prepended to the user's assembled prompt by every CLI-runtime
-    /// system-prompt delivery path when the resolved agent / unit
-    /// <c>concurrent_threads</c> flag is <c>true</c>. Single source of
-    /// truth so the bootstrap-bundle path (Claude / Codex / Gemini) and
-    /// the Spring Voyage launcher's <c>SPRING_SYSTEM_PROMPT</c> path all
-    /// emit the same text.
+    /// Distinctive heading-line anchor (without the leading <c>### </c>)
+    /// shared by the assembler's in-band render and <see cref="Compose"/>'s
+    /// idempotence check. Tests pin against this anchor without coupling
+    /// to the surrounding prose.
     /// </summary>
-    /// <remarks>
-    /// The fragment is wrapped in a stable header / footer so launcher
-    /// tests can pin its presence without coupling to the prose. Authors
-    /// who need to verify the guard ran can grep for the header marker
-    /// in the assembled prompt or in the runtime's own logs.
-    /// </remarks>
+    public const string ConcurrentThreadsGuardAnchor =
+        "Spring Voyage runtime guard — concurrent_threads is on";
+
+    /// <summary>
+    /// The platform-emitted runtime guard for CLI-runtime agents that opt
+    /// in to <c>concurrent_threads: true</c>. Rendered as a <c>### …</c>
+    /// sub-section of the assembler's <c>## Platform Instructions</c>
+    /// section per #2738; the legacy <c>## End Spring Voyage runtime
+    /// guard</c> closing heading was dropped at the same time because
+    /// markdown section boundaries are implicit.
+    /// </summary>
     public const string ConcurrentThreadsGuard =
-        "## Spring Voyage runtime guard — concurrent_threads is on\n\n" +
+        "### " + ConcurrentThreadsGuardAnchor + "\n\n" +
         "This container may be serving multiple Spring Voyage threads at the same time. " +
         "Every per-turn process you launch shares the container's PID namespace, port " +
         "namespace, /tmp, and ~/.cache with every other concurrent turn.\n\n" +
@@ -79,19 +83,23 @@ public static class LauncherPromptFragments
         "the turn ends.\n\n" +
         "Run tests, builds, and any tool invocation as one-shot commands that exit when finished. " +
         "If you genuinely need long-lived state across messages, use the runtime's session-resume " +
-        "primitive (`thread.id` is the session id) — do not background-process it.\n\n" +
-        "## End Spring Voyage runtime guard\n\n";
+        "primitive (`thread.id` is the session id) — do not background-process it.";
 
     /// <summary>
-    /// Composes the <see cref="ConcurrentThreadsGuard"/> fragment with the
-    /// user's assembled prompt body. The guard is only prepended when
-    /// <paramref name="concurrentThreads"/> is <c>true</c>; otherwise the
-    /// prompt is returned unchanged.
+    /// Wraps a prompt body the assembler did NOT produce — i.e. the
+    /// Spring Voyage agent's deploy-time <c>SPRING_SYSTEM_PROMPT</c>,
+    /// which carries only <c>definition.Instructions</c>. When
+    /// <paramref name="concurrentThreads"/> is <c>true</c> the guard is
+    /// prepended above the raw body; otherwise the body is returned
+    /// unchanged. Idempotent: a body that already carries the in-band
+    /// guard (rendered inside <c>## Platform Instructions</c> by the
+    /// assembler) is returned unchanged so the ephemeral-dispatch
+    /// SVA path does not double-apply.
     /// </summary>
     /// <param name="prompt">
-    /// The assembled prompt body. May be <c>null</c> or empty — the guard
-    /// still emits when concurrent threads are on, so callers who need
-    /// it to fire on a sparse prompt get it.
+    /// The prompt body. May be <c>null</c> or empty — the guard still
+    /// emits when concurrent threads are on, so callers who need it to
+    /// fire on a sparse prompt get it.
     /// </param>
     /// <param name="concurrentThreads">
     /// The resolved agent / unit <c>concurrent_threads</c> policy value.
@@ -99,10 +107,14 @@ public static class LauncherPromptFragments
     public static string Compose(string prompt, bool concurrentThreads)
     {
         var body = prompt ?? string.Empty;
-        if (concurrentThreads)
+        if (!concurrentThreads)
         {
-            return ConcurrentThreadsGuard + body;
+            return body;
         }
-        return body;
+        if (body.Contains(ConcurrentThreadsGuardAnchor, StringComparison.Ordinal))
+        {
+            return body;
+        }
+        return ConcurrentThreadsGuard + "\n\n" + body;
     }
 }

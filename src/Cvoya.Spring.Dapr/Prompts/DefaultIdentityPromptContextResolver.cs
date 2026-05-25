@@ -13,7 +13,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// OSS-default <see cref="IIdentityPromptContextResolver"/>. Renders a
-/// minimal <c>## Who you are</c> section from the data
+/// minimal <c>### Who you are</c> sub-section from the data
 /// <see cref="IAgentDefinitionProvider"/> already serves at bundle build
 /// time: kind (agent / unit, derived from the subject's address scheme),
 /// address, display name, and — when present — the agent's owning unit
@@ -47,7 +47,7 @@ public class DefaultIdentityPromptContextResolver(
     /// as an internal constant so tests can pin against the same
     /// string the resolver emits.
     /// </summary>
-    internal const string Heading = "## Who you are";
+    internal const string Heading = "### Who you are";
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<DefaultIdentityPromptContextResolver>();
 

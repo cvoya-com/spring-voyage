@@ -27,8 +27,9 @@ using Xunit;
 /// <see cref="FileSystemSkillBundleResolver"/>, equip via
 /// <see cref="IAgentSkillBundleStore"/>, and assemble through
 /// <see cref="PromptAssembler"/> to assert the
-/// <c>[PLATFORM CONTRACT — NON-NEGOTIABLE]</c> header lands verbatim in
-/// the agent's Layer 1 (Platform Instructions) section — and is NOT
+/// <c>### Platform Contract — Non-Negotiable</c> heading (level per
+/// #2738 — promoted from the legacy bracketed marker) lands in the
+/// agent's Layer 1 (Platform Instructions) section — and is NOT
 /// duplicated in the conversational-defaults bundle text rendered in
 /// Layer 4.
 /// </summary>
@@ -62,7 +63,8 @@ public class ConversationalDefaultsBundleIntegrationTests
         bundles.Count.ShouldBe(1);
 
         // Use the real PlatformPromptProvider so Layer 1 carries the
-        // production [PLATFORM CONTRACT — NON-NEGOTIABLE] block verbatim.
+        // production `### Platform Contract — Non-Negotiable` block
+        // verbatim (heading level per #2738).
         var assembler = new PromptAssembler(
             new PlatformPromptProvider(),
             new UnitContextBuilder(),
@@ -76,9 +78,12 @@ public class ConversationalDefaultsBundleIntegrationTests
 
         var assembled = await assembler.AssembleAsync(context, ct);
 
-        // (1) The bracketed-upper-case marker — the load-bearing
-        //     authority signal — is in the assembled prompt verbatim.
-        assembled.ShouldContain("[PLATFORM CONTRACT — NON-NEGOTIABLE]");
+        // (1) The contract heading — the load-bearing authority signal,
+        //     promoted from the legacy bracketed marker per #2738 — is
+        //     in the assembled prompt verbatim.
+        assembled.ShouldContain("### Platform Contract — Non-Negotiable");
+        assembled.ShouldNotContain("[PLATFORM CONTRACT — NON-NEGOTIABLE]");
+        assembled.ShouldNotContain("[END PLATFORM CONTRACT]");
 
         // (2) The contract lands inside Layer 1 (Platform Instructions)
         //     — not inside Layer 4. After the Wave 3 cutover the bundle
@@ -86,7 +91,7 @@ public class ConversationalDefaultsBundleIntegrationTests
         //     by the platform-prompt provider at the top of the prompt.
         var layer1Idx = assembled.IndexOf("## Platform Instructions", StringComparison.Ordinal);
         var layer4Idx = assembled.IndexOf("## Role-specific instructions", StringComparison.Ordinal);
-        var contractIdx = assembled.IndexOf("[PLATFORM CONTRACT — NON-NEGOTIABLE]", StringComparison.Ordinal);
+        var contractIdx = assembled.IndexOf("### Platform Contract — Non-Negotiable", StringComparison.Ordinal);
         layer1Idx.ShouldBeGreaterThanOrEqualTo(0);
         layer4Idx.ShouldBeGreaterThan(layer1Idx);
         contractIdx.ShouldBeGreaterThan(layer1Idx);
@@ -99,8 +104,8 @@ public class ConversationalDefaultsBundleIntegrationTests
 
         // (4) There must be only one occurrence of the contract header
         //     — the bundle no longer carries a parallel copy.
-        var firstHeader = assembled.IndexOf("[PLATFORM CONTRACT — NON-NEGOTIABLE]", StringComparison.Ordinal);
-        var secondHeader = assembled.IndexOf("[PLATFORM CONTRACT — NON-NEGOTIABLE]", firstHeader + 1, StringComparison.Ordinal);
+        var firstHeader = assembled.IndexOf("### Platform Contract — Non-Negotiable", StringComparison.Ordinal);
+        var secondHeader = assembled.IndexOf("### Platform Contract — Non-Negotiable", firstHeader + 1, StringComparison.Ordinal);
         secondHeader.ShouldBe(-1);
 
         // (5) The fundamental-core tool names appear inline — they

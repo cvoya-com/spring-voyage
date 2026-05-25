@@ -33,7 +33,8 @@ integration:
   markdown fragment that names the bound repo and lists the env-vars
   the agent's LLM should read. The fragment lands in the platform
   layer of the four-layer prompt assembly under
-  `## Connector context (auto-injected by platform)`.
+  `### Connector context (auto-injected by platform)` — a sub-section
+  of `## Platform Instructions` (heading level per #2738).
 
 **No `github.*` MCP tools are registered** (issues #2384 / #2383).
 Agent containers run `gh` and `git` directly against GitHub using the

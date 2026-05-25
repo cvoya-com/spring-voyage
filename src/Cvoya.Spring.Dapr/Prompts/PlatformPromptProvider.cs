@@ -6,21 +6,27 @@ namespace Cvoya.Spring.Dapr.Prompts;
 using Cvoya.Spring.Core.Execution;
 
 /// <summary>
-/// Returns the platform-instructions body. Opens with an
-/// <c>## About Spring Voyage</c> introduction (#2679) that frames the
+/// Returns the platform-instructions body — the three always-platform-
+/// emitted sub-sections rendered inside the assembler's
+/// <c>## Platform Instructions</c> section. Opens with an
+/// <c>### About Spring Voyage</c> introduction (#2679) that frames the
 /// participant model (agents, units — which are themselves agents — and
 /// humans) and the one-way tool-mediated messaging model, then renders
-/// the <c>[PLATFORM CONTRACT — NON-NEGOTIABLE]</c> block every agent on
-/// the platform sees regardless of which skill bundles are equipped.
+/// the <c>### Platform Contract — Non-Negotiable</c> block every agent
+/// on the platform sees regardless of which skill bundles are equipped.
 /// The contract names the always-available platform tools (#2670) and
 /// carries the reads-vs-side-effects clause plus the messaging-channel
-/// emphasis from #2681 so agent authors do not need to repeat them.
-/// A trailing <c>## Inbound messages</c> section names the structured
+/// emphasis from #2681 so agent authors do not need to repeat them. A
+/// trailing <c>### Inbound messages</c> sub-section names the structured
 /// envelope the platform delivers (#2746) — <c>from</c>, <c>to</c>
-/// (participants, not <c>thread_id</c>), <c>message_id</c>, <c>timestamp</c>,
-/// <c>payload</c>. Per #2747 the agent never names <c>thread_id</c>: the
-/// platform derives it from the participant set, and shared history is
-/// reached via <c>sv.memory.history_with(participants=[…])</c>.
+/// (participants, not <c>thread_id</c>), <c>message_id</c>,
+/// <c>timestamp</c>, <c>payload</c>. Per #2747 the agent never names
+/// <c>thread_id</c>: the platform derives it from the participant set,
+/// and shared history is reached via
+/// <c>sv.memory.history_with(participants=[…])</c>. The whole body
+/// nests under the assembler's <c>## Platform Instructions</c> heading
+/// per #2738 so the document forms a single tree (no sibling
+/// parent/child heading pairs at the same level).
 /// </summary>
 /// <remarks>
 /// Carrying both the introduction and the contract here (rather than in
@@ -35,26 +41,33 @@ using Cvoya.Spring.Core.Execution;
 /// </remarks>
 public class PlatformPromptProvider : IPlatformPromptProvider
 {
-    // The [PLATFORM CONTRACT — NON-NEGOTIABLE] framing follows the
+    // The "Platform Contract — Non-Negotiable" framing follows the
     // explicit-precedence pattern from ADR-0056 §8: instruction-tuned
     // models surface headers shaped like this as load-bearing, so the
     // model is less likely to drift away from the contract under
-    // conflicting guidance later in the prompt.
+    // conflicting guidance later in the prompt. Per #2738 the framing
+    // is rendered as a proper `###` heading inside `## Platform
+    // Instructions` rather than as a bracketed marker — so the contract
+    // shows up in the document outline and the runtime can reason about
+    // it as a section, not a free-floating delimiter.
     //
     // The introduction precedes the contract so a runtime arriving cold
     // has the participant model in hand before the non-negotiables refer
     // to "the human or agent who sent the message you are processing",
     // "the messaging tool", etc. (#2679 acceptance: the contract is the
     // second section, not the first.)
+    //
+    // Every section here is `###` so the body nests cleanly under the
+    // assembler's `## Platform Instructions` parent heading (#2738).
     private const string PlatformPrompt =
         """
-        ## About Spring Voyage
+        ### About Spring Voyage
 
         Spring Voyage is a platform on which **agents** (autonomous LLM-driven runtimes like you), **units** (named groups of agents and humans — a unit is itself an agent that has members), and **humans** collaborate to accomplish tasks. You are one of those participants. The platform delivers messages between participants, persists state, and exposes shared capabilities through tools whose names all start with `sv.*`.
 
         Communication is **message-based** and **one-way**: when you send a message, the platform durably delivers it to the recipient's mailbox and returns immediately. The recipient acts on it in their own turn and, if a reply is appropriate, sends a *new* message back. The remainder of this prompt — the platform contract below, your identity, the per-runtime container description, and the role-specific instructions — describes how you participate.
 
-        [PLATFORM CONTRACT — NON-NEGOTIABLE]
+        ### Platform Contract — Non-Negotiable
 
         These instructions define how this runtime communicates with the Spring Voyage platform and with other participants. They take precedence over any conflicting guidance later in this prompt and must be followed on every turn.
 
@@ -93,9 +106,7 @@ public class PlatformPromptProvider : IPlatformPromptProvider
 
         The catalog above is the always-available core, not the closed set of tools you may use. Additional capabilities are organised into categories the discovery tools enumerate; call `sv.tools.list_categories` to see them and `sv.tools.list(<category>)` to pull the full tool definitions for a category. Equipped skill bundles below may name specific categories they grant.
 
-        [END PLATFORM CONTRACT]
-
-        ## Inbound messages
+        ### Inbound messages
 
         Every message routed to your mailbox is delivered as a structured envelope. You see a bullet header followed by a fenced JSON appendix so a structured payload (a webhook event from a connector, a custom shape from a peer) survives intact:
 

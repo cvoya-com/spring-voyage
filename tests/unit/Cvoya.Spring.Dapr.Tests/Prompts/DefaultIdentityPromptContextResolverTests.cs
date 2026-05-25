@@ -19,8 +19,8 @@ using Xunit;
 /// <summary>
 /// Unit tests for <see cref="DefaultIdentityPromptContextResolver"/> —
 /// the OSS-default <see cref="IIdentityPromptContextResolver"/> that
-/// renders a <c>## Who you are</c> section from the agent-definition
-/// projection (#2680).
+/// renders a <c>### Who you are</c> sub-section from the agent-
+/// definition projection (#2680, heading level per #2738).
 /// </summary>
 public class DefaultIdentityPromptContextResolverTests
 {
@@ -50,7 +50,7 @@ public class DefaultIdentityPromptContextResolverTests
         var fragment = await _resolver.ResolveAsync(subject, TestContext.Current.CancellationToken);
 
         fragment.ShouldNotBeNull();
-        fragment.ShouldStartWith("## Who you are");
+        fragment.ShouldStartWith("### Who you are");
         fragment.ShouldContain("**Kind:** agent");
         fragment.ShouldContain($"**Address:** `agent:{GuidFormatter.Format(subjectId)}`");
         fragment.ShouldContain("**Display name:** Reviewer");
@@ -75,7 +75,7 @@ public class DefaultIdentityPromptContextResolverTests
         var fragment = await _resolver.ResolveAsync(subject, TestContext.Current.CancellationToken);
 
         fragment.ShouldNotBeNull();
-        fragment.ShouldStartWith("## Who you are");
+        fragment.ShouldStartWith("### Who you are");
         fragment.ShouldContain("**Kind:** unit");
         fragment.ShouldContain("Spring Voyage OSS");
         fragment.ShouldNotContain("**Parent unit:**");

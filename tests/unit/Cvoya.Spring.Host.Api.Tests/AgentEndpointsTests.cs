@@ -173,8 +173,9 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     // platform's default skill-bundle list out of the box. The endpoint
     // calls IAgentSkillBundleStore.AddAsync(actorId, conversational-
     // defaults) right after the auto-start gate so the agent's Layer 4
-    // prompt carries the [PLATFORM CONTRACT — NON-NEGOTIABLE] fragment
-    // on the very next dispatch — no follow-up `spring agent skills add`.
+    // prompt carries the `### Platform Contract — Non-Negotiable`
+    // heading (promoted from the legacy bracketed marker per #2738) on
+    // the very next dispatch — no follow-up `spring agent skills add`.
     [Fact]
     public async Task CreateAgent_TopLevel_AttachesConversationalDefaultsBundle()
     {

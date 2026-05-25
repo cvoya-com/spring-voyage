@@ -263,34 +263,37 @@ public class AgentBootstrapBundleProviderTests
     }
 
     [Fact]
-    public async Task BuildAsync_ConcurrentThreadsTrue_FoldsGuardIntoAssembledSystemPrompt()
+    public async Task BuildAsync_ConcurrentThreadsTrue_ThreadsFlagThroughAssemblyContext()
     {
-        // #2668: the CLI launchers no longer prepend the
-        // ConcurrentThreadsGuard to the assembled prompt themselves.
-        // The guard now travels via the launcher's system-prompt file
-        // — `.spring/system-prompt.md` for Claude/Codex/Gemini under
-        // ADR-0058 §2.2.2 (Gemini may instead write `GEMINI.md` when
-        // its system_prompt_mode opts for the legacy filename). The
-        // bundle provider folds the guard into AssembledSystemPrompt
-        // before the launcher's ContributeBundleAsync receives it.
+        // #2738: the bundle provider no longer post-processes the
+        // assembled prompt with a Compose() call. Instead it threads
+        // the resolved concurrent_threads flag through
+        // PromptAssemblyContext.ConcurrentThreadsGuard so the assembler
+        // renders the guard in-band as a `### …` sub-section of
+        // `## Platform Instructions`. The bundle's prompt file is the
+        // assembler's output verbatim — we pin the flag on the call
+        // args here and let PromptAssemblerTests cover the in-band
+        // render shape.
         _assembledPrompt = "USER ASSEMBLED PROMPT";
         StubAgent(instructions: "x", concurrentThreads: true);
 
         var bundle = await _provider.BuildAsync(AgentId, TestContext.Current.CancellationToken);
 
         var promptFile = bundle!.Files.First(f => f.Path == ".spring/system-prompt.md");
-        promptFile.Content.ShouldStartWith("## Spring Voyage runtime guard — concurrent_threads is on");
-        promptFile.Content.ShouldContain("USER ASSEMBLED PROMPT");
-        promptFile.Content.IndexOf("concurrent_threads is on", StringComparison.Ordinal)
-            .ShouldBeLessThan(promptFile.Content.IndexOf("USER ASSEMBLED PROMPT", StringComparison.Ordinal));
+        promptFile.Content.ShouldBe("USER ASSEMBLED PROMPT");
+
+        await _promptAssembler.Received(1).AssembleAsync(
+            Arg.Is<PromptAssemblyContext?>(ctx => ctx != null && ctx.ConcurrentThreadsGuard),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task BuildAsync_ConcurrentThreadsFalse_LeavesAssembledSystemPromptUnchanged()
+    public async Task BuildAsync_ConcurrentThreadsFalse_PassesFalseFlagThroughAssemblyContext()
     {
         // Mirror of the guard-on test: when concurrent_threads is
-        // explicitly off the guard is NOT folded in. The bundle's
-        // prompt file is the assembler's output verbatim.
+        // explicitly off the flag rides as false on the assembly
+        // context so the assembler omits the in-band guard. The
+        // bundle's prompt file is the assembler's output verbatim.
         _assembledPrompt = "USER ASSEMBLED PROMPT";
         StubAgent(instructions: "x", concurrentThreads: false);
 
@@ -298,7 +301,10 @@ public class AgentBootstrapBundleProviderTests
 
         var promptFile = bundle!.Files.First(f => f.Path == ".spring/system-prompt.md");
         promptFile.Content.ShouldBe("USER ASSEMBLED PROMPT");
-        promptFile.Content.ShouldNotContain("concurrent_threads is on");
+
+        await _promptAssembler.Received(1).AssembleAsync(
+            Arg.Is<PromptAssemblyContext?>(ctx => ctx != null && !ctx.ConcurrentThreadsGuard),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
