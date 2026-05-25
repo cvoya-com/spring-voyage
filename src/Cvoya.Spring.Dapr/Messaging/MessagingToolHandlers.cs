@@ -245,8 +245,11 @@ public class MessagingToolHandlers(
     /// explicit list or the addresses resolved from <paramref name="scope"/>.
     /// Throws <see cref="MessageDeliveryException"/> when neither or both
     /// are supplied. Duplicates are collapsed (deterministic by canonical
-    /// address) so a fan-out cannot accidentally deliver to the same
-    /// recipient twice.
+    /// address) — including the caller's own address, since the caller is
+    /// auto-included in every participant set and listing themselves is a
+    /// no-op (a recipient list is a set, not an order-significant list).
+    /// An all-caller list (e.g. <c>recipients=[caller]</c>) becomes an
+    /// empty set and surfaces as <c>InvalidRequest</c>.
     /// </summary>
     private async Task<IReadOnlyList<Address>> ResolveRecipientsAsync(
         Address caller,
@@ -269,24 +272,36 @@ public class MessagingToolHandlers(
             ? explicitRecipients!
             : await ResolveScopeAsync(caller, scope!.Value, ct);
 
-        if (resolved.Count == 0)
-        {
-            throw new MessageDeliveryException(
-                MessageDeliveryException.RejectCodes.InvalidRequest,
-                $"{toolName} resolved zero recipients (scope='{scope}' yielded an empty set).");
-        }
-
-        // Dedupe while preserving order so logs and per-recipient acks
-        // mirror the caller's intent.
+        // Dedupe (including the caller, who is auto-included in the
+        // participant set and listing themselves is a no-op) while
+        // preserving order so logs and per-recipient acks mirror the
+        // caller's intent. A scope resolver never returns the caller, so
+        // this only filters explicit-list duplicates / explicit self-listing.
+        var callerKey = caller.ToString();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var deduped = new List<Address>(resolved.Count);
         foreach (var address in resolved)
         {
-            if (seen.Add(address.ToString()))
+            var key = address.ToString();
+            if (string.Equals(key, callerKey, StringComparison.Ordinal))
+            {
+                continue;
+            }
+            if (seen.Add(key))
             {
                 deduped.Add(address);
             }
         }
+
+        if (deduped.Count == 0)
+        {
+            throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.InvalidRequest,
+                hasScope
+                    ? $"{toolName} resolved zero recipients (scope='{scope}' yielded an empty set)."
+                    : $"{toolName} resolved zero recipients (the only address supplied was the caller — recipients is a set and the caller is auto-included).");
+        }
+
         return deduped;
     }
 

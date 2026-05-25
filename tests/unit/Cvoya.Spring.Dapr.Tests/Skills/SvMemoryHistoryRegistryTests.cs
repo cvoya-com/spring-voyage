@@ -197,6 +197,48 @@ public class SvMemoryHistoryRegistryTests
     }
 
     [Fact]
+    public async Task HistoryWith_DedupesCaller_WhenExplicitlyListed()
+    {
+        // #2747 — participants is a set; the caller is auto-included, so
+        // explicitly listing them is a no-op (does not double-count when
+        // resolving the thread). The participant set passed to
+        // IThreadRegistry must contain the caller exactly once.
+        var registry = CreateRegistry();
+        var callerId = Guid.NewGuid();
+        var caller = new Address(Address.AgentScheme, callerId);
+        var other = new Address(Address.HumanScheme, Guid.NewGuid());
+        var resolvedThread = GuidFormatter.Format(Guid.NewGuid());
+
+        IEnumerable<Address>? captured = null;
+        _threadRegistry.GetOrCreateAsync(
+                Arg.Do<IEnumerable<Address>>(p => captured = p),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(resolvedThread));
+
+        _queryService.GetAsync(resolvedThread, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<ThreadDetail?>(new ThreadDetail(
+                new ThreadSummary(
+                    Id: resolvedThread,
+                    Participants: new[] { caller.ToString(), other.ToString() },
+                    LastActivity: DateTimeOffset.UtcNow,
+                    CreatedAt: DateTimeOffset.UtcNow,
+                    EventCount: 0,
+                    Origin: caller.ToString(),
+                    Summary: string.Empty),
+                Array.Empty<ThreadEvent>())));
+
+        await registry.InvokeAsync(
+            SvMemoryHistoryRegistry.HistoryWithTool,
+            Args($$$"""{"participants": ["{{{caller}}}", "{{{other}}}"]}"""),
+            AgentContext(callerId), TestContext.Current.CancellationToken);
+
+        captured.ShouldNotBeNull();
+        var keys = captured!.Select(a => a.ToString()).ToList();
+        keys.Count(k => k == caller.ToString()).ShouldBe(1);
+        keys.ShouldContain(other.ToString());
+    }
+
+    [Fact]
     public async Task HistoryWith_RequiresParticipants()
     {
         var registry = CreateRegistry();

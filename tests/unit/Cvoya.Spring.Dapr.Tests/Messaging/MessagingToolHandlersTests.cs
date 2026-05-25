@@ -217,8 +217,11 @@ public class MessagingToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleSend_SelfTarget_ThrowsSelfDelivery()
+    public async Task HandleSend_CallerOnlyRecipient_ThrowsInvalidRequestAfterDedupe()
     {
+        // #2747 — recipients is a set; the caller is auto-included, so
+        // explicitly listing them is a no-op. A list whose only entry is
+        // the caller dedupes to empty and surfaces as InvalidRequest.
         var handlers = CreateHandlers();
         var caller = Unit();
 
@@ -227,7 +230,34 @@ public class MessagingToolHandlersTests
                 caller, TenantId, [caller], scope: null, CreateMessage(),
                 reason: null, threadId: Guid.NewGuid(), CancellationToken.None));
 
-        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.SelfDelivery);
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.InvalidRequest);
+    }
+
+    [Fact]
+    public async Task HandleSend_CallerListedAmongRecipients_SilentlyDeduped()
+    {
+        // #2747 — listing yourself alongside other recipients is fine: the
+        // caller is dropped from the recipient set silently and delivery
+        // proceeds for the others. The thread is still {caller} ∪ recipients.
+        var handlers = CreateHandlers();
+        var caller = Unit();
+        var t1 = Agent(ChildAgentId);
+        var t2 = Agent(OtherChildAgentId);
+        RegisterAgent(t1);
+        RegisterAgent(t2);
+
+        var result = await handlers.HandleSendAsync(
+            caller, TenantId, [caller, t1, t2], scope: null, CreateMessage(),
+            reason: null, threadId: Guid.NewGuid(), CancellationToken.None);
+
+        result.Deliveries.Count.ShouldBe(2);
+        result.Deliveries.Select(d => d.Target).ShouldBe(new[] { t1, t2 }, ignoreOrder: true);
+        result.Deliveries.ShouldAllBe(d => d.Delivered);
+
+        // Shared thread is {caller, t1, t2} — listing the caller didn't change it.
+        var sharedThread = await _threadRegistry.GetOrCreateAsync(
+            new[] { caller, t1, t2 }, CancellationToken.None);
+        result.ThreadId.ShouldBe(ParseGuid(sharedThread));
     }
 
     [Fact]
