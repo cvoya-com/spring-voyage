@@ -222,6 +222,13 @@ export interface RoleStyle {
   bubble: string;
   /** Short human-readable label for the role pill. */
   label: string;
+  /**
+   * When true the prose content inside the bubble always renders with
+   * inverted (light) text. Set for roles whose bubble background is dark
+   * in every theme — human bubbles use `bg-blue-600` in both light and
+   * dark mode, so prose-invert must not be gated on `dark:`.
+   */
+  proseInvert?: boolean;
 }
 
 /**
@@ -455,8 +462,13 @@ export const ROLE_STYLES: Record<ConversationRole, RoleStyle> = {
     // user-sent bubbles read as washed-out pastel. A fixed `blue-600 /
     // white` pair lands at ~5.17:1 in both themes and matches the
     // designer's "make it readable" intent.
+    // #2770: proseInvert ensures the Tailwind Typography prose classes do
+    // not reset the text to dark in light mode — the bubble background is
+    // `blue-600` in every theme, so prose-invert must not be gated on
+    // `dark:`.
     bubble: "bg-blue-600 text-white",
     label: "Human",
+    proseInvert: true,
   },
   agent: {
     align: "start",
