@@ -50,7 +50,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
-    public async Task DeleteUnit_Stopped_Returns204AndUnregisters()
+    public async Task DeleteUnit_Stopped_Returns204AndUnregistersAndEmitsEvent()
     {
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(LifecycleStatus.Stopped);
@@ -62,10 +62,21 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         await _factory.DirectoryService.Received(1).UnregisterAsync(
             Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
             Arg.Any<CancellationToken>());
+
+        // #2528: clean-path delete emits a StateChanged event so the
+        // portal's SSE-driven tree refresh fires without a manual reload.
+        await _factory.ActivityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.StateChanged &&
+                e.Severity == ActivitySeverity.Info &&
+                e.Summary.Contains("deleted") &&
+                e.Source.Scheme == "unit" &&
+                e.Source.Path == UnitName),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task DeleteUnit_Draft_Returns204AndUnregisters()
+    public async Task DeleteUnit_Draft_Returns204AndUnregistersAndEmitsEvent()
     {
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(LifecycleStatus.Draft);
@@ -76,6 +87,14 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         await _factory.DirectoryService.Received(1).UnregisterAsync(
             Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
+            Arg.Any<CancellationToken>());
+
+        // #2528: clean-path delete emits a StateChanged event for the tree refresh.
+        await _factory.ActivityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.StateChanged &&
+                e.Source.Scheme == "unit" &&
+                e.Source.Path == UnitName),
             Arg.Any<CancellationToken>());
     }
 
@@ -173,8 +192,20 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         await _factory.ExecutionHostGateway.DidNotReceive()
             .StopUnitContainerAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _factory.ActivityEventBus.DidNotReceive().PublishAsync(
-            Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>());
+
+        // #2528: clean-path delete emits a StateChanged event so the portal's
+        // SSE-driven tree refresh fires. Previously the test asserted no event
+        // was published on the force-from-stopped fast path; that assertion was
+        // tied to the old "only force-delete emits" behaviour and has been
+        // relaxed alongside the lifecycle event addition. The force-delete
+        // warning emission still has its own test path
+        // (DeleteUnit_Force_ContainerStopFails_…).
+        await _factory.ActivityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.StateChanged &&
+                e.Severity == ActivitySeverity.Info &&
+                e.Summary.Contains("deleted")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

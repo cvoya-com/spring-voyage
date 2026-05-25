@@ -49,7 +49,6 @@ import {
   useTenantCost,
   useTenantTree,
 } from "@/lib/api/queries";
-import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import type { DashboardSummary } from "@/lib/api/types";
 import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
 import { formatCost, humanEventType, timeAgo } from "@/lib/utils";
@@ -439,9 +438,8 @@ export default function DashboardPage() {
   const { data: cost24h } = useTenantCost(costWindow);
   const { data: connectors } = useConnectorTypes();
 
-  // Subscribe to the activity stream — side-effect is cache
-  // invalidation inside the hook (`queryKeysAffectedBySource`).
-  useActivityStream();
+  // Activity-stream cache invalidation is mounted globally in <AppShell>
+  // (#2528) so every route — not just Dashboard — sees live updates.
 
   const topLevelUnits = useMemo(() => selectTopLevelUnits(tree), [tree]);
 

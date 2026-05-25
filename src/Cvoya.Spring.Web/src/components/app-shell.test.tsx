@@ -6,6 +6,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "./app-shell";
 import { __resetExtensionsForTesting } from "@/lib/extensions/registry";
 
+// #2528: stub the activity stream — JSDOM has no EventSource and the
+// global mount in <AppShell> would otherwise throw at construction.
+// `useActivityStream` is hoisted via vi.mock so the stub captures every
+// render's invocation; the spy lets the test verify the global mount
+// fires once per shell render.
+const activityStreamSpy = vi.fn();
+vi.mock("@/lib/stream/use-activity-stream", () => ({
+  useActivityStream: (...args: unknown[]) => {
+    activityStreamSpy(...args);
+    return { events: [], connected: false };
+  },
+}));
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
 }));
@@ -67,7 +80,10 @@ function renderShell() {
 }
 
 describe("AppShell", () => {
-  beforeEach(() => __resetExtensionsForTesting());
+  beforeEach(() => {
+    __resetExtensionsForTesting();
+    activityStreamSpy.mockClear();
+  });
   afterEach(() => __resetExtensionsForTesting());
 
   it("renders the sidebar + children + command palette; settings live at /settings", () => {
@@ -83,5 +99,11 @@ describe("AppShell", () => {
     // now reached via the `/settings` route (SET-hub, #862). The
     // sidebar no longer renders an in-shell drawer trigger either.
     expect(screen.queryByTestId("sidebar-settings-trigger")).toBeNull();
+  });
+
+  it("subscribes to the activity stream so every route sees live cache invalidation (#2528)", () => {
+    renderShell();
+
+    expect(activityStreamSpy).toHaveBeenCalled();
   });
 });

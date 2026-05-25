@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/sidebar";
 import { CommandPaletteProvider } from "@/components/command-palette";
 import { ExplorerSelectionProvider } from "@/components/units/explorer-selection-context";
 import { ExtensionProvider } from "@/lib/extensions";
+import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import type { ReactNode } from "react";
 
 /**
@@ -20,8 +21,18 @@ import type { ReactNode } from "react";
  * introduced in EXP-cmdk-bridge: selecting a node in the palette
  * dispatches into a mounted `<UnitExplorer>` when one is present,
  * otherwise the palette navigates to `/explorer/units/<id>` (#2473).
+ *
+ * #2528: the global `useActivityStream()` call here keeps the TanStack
+ * Query cache invalidated for every page — previously only routes that
+ * explicitly mounted the hook (Dashboard, Activity tab, Validation
+ * panel) saw live updates, so navigating to the Explorer and creating
+ * or deleting a unit left the tree stale until a manual reload. The
+ * hook's `events` array is unused here; we mount only for the cache-
+ * invalidation side effect.
  */
 export function AppShell({ children }: { children: ReactNode }) {
+  useActivityStream();
+
   return (
     <ExtensionProvider>
       <ExplorerSelectionProvider>

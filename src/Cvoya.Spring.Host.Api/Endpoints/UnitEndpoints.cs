@@ -562,6 +562,8 @@ public static class UnitEndpoints
     private static async Task<IResult> CreateUnitAsync(
         CreateUnitRequest request,
         [FromServices] IUnitCreationService creationService,
+        [FromServices] IActivityEventBus activityEventBus,
+        [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         // #1632: reject Guid-shaped / empty / control-char display names up
@@ -576,6 +578,19 @@ public static class UnitEndpoints
         try
         {
             var result = await creationService.CreateAsync(request, cancellationToken);
+
+            // #2528: emit a StateChanged event so the portal's SSE-driven
+            // cache invalidation refreshes the tenant tree without a manual
+            // reload. The clean-path delete below mirrors this; force-delete
+            // already publishes its own event in PublishForceDeleteEventAsync.
+            await PublishUnitLifecycleEventAsync(
+                activityEventBus,
+                loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.UnitEndpoints"),
+                Address.For("unit", result.Unit.Name),
+                $"Unit '{result.Unit.DisplayName}' created.",
+                lifecyclePhase: "created",
+                cancellationToken);
+
             return Results.Created(
                 $"/api/v1/units/{Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(result.Unit.Id)}",
                 result.Unit);
@@ -947,7 +962,20 @@ public static class UnitEndpoints
             // Clean-path delete. No runtime teardown required — the gate above
             // already proved the container / sidecar / webhook are either gone
             // or never existed.
+            var displayName = string.IsNullOrWhiteSpace(entry.DisplayName) ? id : entry.DisplayName;
             await directoryService.UnregisterAsync(address, cancellationToken);
+
+            // #2528: emit a StateChanged event so the portal's SSE-driven
+            // tree refresh fires without a manual reload. Force-delete has
+            // its own emission in PublishForceDeleteEventAsync.
+            await PublishUnitLifecycleEventAsync(
+                activityEventBus,
+                logger,
+                address,
+                $"Unit '{displayName}' deleted.",
+                lifecyclePhase: "deleted",
+                cancellationToken);
+
             return Results.NoContent();
         }
 
@@ -1076,6 +1104,48 @@ public static class UnitEndpoints
         }
 
         return Results.NoContent();
+    }
+
+    /// <summary>
+    /// Emits a lightweight <see cref="ActivityEventType.StateChanged"/> event
+    /// on the unit's address so the portal's SSE-driven cache invalidation
+    /// (see <c>queryKeysAffectedBySource</c> in
+    /// <c>src/lib/api/query-keys.ts</c>) refreshes the tenant tree without
+    /// a manual reload (#2528). Failures are logged and swallowed —
+    /// observability emission must never gate the API write.
+    /// </summary>
+    private static async Task PublishUnitLifecycleEventAsync(
+        IActivityEventBus bus,
+        ILogger logger,
+        Address unit,
+        string summary,
+        string lifecyclePhase,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                lifecyclePhase,
+            }));
+
+            var evt = new ActivityEvent(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                unit,
+                ActivityEventType.StateChanged,
+                ActivitySeverity.Info,
+                summary,
+                doc.RootElement.Clone());
+
+            await bus.PublishAsync(evt, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Failed to publish lifecycle activity event for unit {Unit} ({Phase}).",
+                unit.Path, lifecyclePhase);
+        }
     }
 
     private static async Task PublishForceDeleteEventAsync(

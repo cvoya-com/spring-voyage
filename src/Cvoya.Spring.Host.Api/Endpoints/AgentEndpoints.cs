@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
@@ -1799,6 +1800,7 @@ public static class AgentEndpoints
         SpringDbContext db,
         Services.IArtefactAutoStartGate autoStartGate,
         IAgentSkillBundleStore agentSkillBundleStore,
+        IActivityEventBus activityEventBus,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -2040,6 +2042,18 @@ public static class AgentEndpoints
             entry,
             new AgentMetadata(ParentUnit: primaryUnit),
             parentUnitId: primaryUnitGuid);
+
+        // #2528: emit a StateChanged event so the portal's SSE-driven cache
+        // invalidation refreshes the tenant tree without a manual reload.
+        // Mirrors the unit-side emission in UnitEndpoints.CreateUnitAsync.
+        await PublishAgentLifecycleEventAsync(
+            activityEventBus,
+            loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.AgentEndpoints"),
+            address,
+            $"Agent '{entry.DisplayName}' created.",
+            lifecyclePhase: "created",
+            cancellationToken);
+
         return Results.Created($"/api/v1/tenant/agents/{actorId}", response);
     }
 
@@ -2109,6 +2123,7 @@ public static class AgentEndpoints
         string id,
         IDirectoryService directoryService,
         IExecutionHostGateway executionGateway,
+        IActivityEventBus activityEventBus,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -2122,6 +2137,7 @@ public static class AgentEndpoints
         }
 
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        var displayName = string.IsNullOrWhiteSpace(entry.DisplayName) ? id : entry.DisplayName;
 
         // #2649: undeploy any persistent-agent runtime before unregistering
         // so the per-agent container + workspace volume (which still holds
@@ -2152,7 +2168,60 @@ public static class AgentEndpoints
         // matches the unit-delete cascade and eliminates the leak.
         await directoryService.UnregisterAsync(address, cancellationToken);
 
+        // #2528: emit a StateChanged event so the portal's SSE-driven cache
+        // invalidation refreshes the tenant tree without a manual reload.
+        // Mirrors the unit-side emission in UnitEndpoints.DeleteUnitAsync.
+        await PublishAgentLifecycleEventAsync(
+            activityEventBus,
+            logger,
+            address,
+            $"Agent '{displayName}' deleted.",
+            lifecyclePhase: "deleted",
+            cancellationToken);
+
         return Results.NoContent();
+    }
+
+    /// <summary>
+    /// Emits a lightweight <see cref="ActivityEventType.StateChanged"/> event
+    /// on the agent's address so the portal's SSE-driven cache invalidation
+    /// (see <c>queryKeysAffectedBySource</c> in
+    /// <c>src/lib/api/query-keys.ts</c>) refreshes the tenant tree without
+    /// a manual reload (#2528). Failures are logged and swallowed —
+    /// observability emission must never gate the API write.
+    /// </summary>
+    private static async Task PublishAgentLifecycleEventAsync(
+        IActivityEventBus bus,
+        ILogger logger,
+        Address agent,
+        string summary,
+        string lifecyclePhase,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                lifecyclePhase,
+            }));
+
+            var evt = new ActivityEvent(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                agent,
+                ActivityEventType.StateChanged,
+                ActivitySeverity.Info,
+                summary,
+                doc.RootElement.Clone());
+
+            await bus.PublishAsync(evt, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Failed to publish lifecycle activity event for agent {Agent} ({Phase}).",
+                agent.Path, lifecyclePhase);
+        }
     }
 
     // -------------------------------------------------------------------------

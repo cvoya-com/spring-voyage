@@ -21,6 +21,16 @@ using Microsoft.Extensions.Logging;
 public static class DashboardEndpoints
 {
     /// <summary>
+    /// Per-actor wall-clock budget for the parallel status fan-out (#2584).
+    /// Mirrors <see cref="TenantTreeEndpoints"/>: a busy actor (typically
+    /// one whose container is starting in response to an inbound message)
+    /// is reported as <see cref="LifecycleStatus.Starting"/> instead of
+    /// stalling the dashboard. The next fetch picks up the real status
+    /// once the actor frees up.
+    /// </summary>
+    private static readonly TimeSpan StatusReadBudget = TimeSpan.FromSeconds(1.5);
+
+    /// <summary>
     /// Registers dashboard endpoints on the specified endpoint route builder.
     /// </summary>
     /// <param name="app">The endpoint route builder.</param>
@@ -72,24 +82,19 @@ public static class DashboardEndpoints
             .Where(e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
+        // #2584: parallel + budget-bounded fan-out for the per-unit status
+        // reads. A unit actor that is busy starting its container instance
+        // would previously stall the entire dashboard; now it is reported
+        // as Starting (with a per-card indicator on the portal) while the
+        // page renders.
+        var unitStatusPairs = await Task.WhenAll(unitEntries.Select(async e =>
+            (Entry: e,
+             Status: await TryReadUnitLifecycleStatusAsync(actorProxyFactory, e.ActorId, e.Address.Path, logger, cancellationToken))));
+
         var statusCounts = new Dictionary<LifecycleStatus, int>();
         var unitSummaries = new List<UnitDashboardSummary>(unitEntries.Count);
-        foreach (var e in unitEntries)
+        foreach (var (e, status) in unitStatusPairs)
         {
-            var status = LifecycleStatus.Draft;
-            try
-            {
-                var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                    new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(e.ActorId)), nameof(UnitActor));
-                status = await proxy.GetStatusAsync(cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "Failed to read status for unit {UnitName}; reporting Draft in dashboard summary.",
-                    e.Address.Path);
-            }
-
             statusCounts[status] = statusCounts.TryGetValue(status, out var count) ? count + 1 : 1;
             unitSummaries.Add(new UnitDashboardSummary(e.Address.Path, e.DisplayName, e.RegisteredAt, status));
         }
@@ -147,27 +152,84 @@ public static class DashboardEndpoints
             .Where(e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        var units = new List<UnitDashboardSummary>(unitEntries.Count);
-        foreach (var e in unitEntries)
-        {
-            var status = LifecycleStatus.Draft;
-            try
-            {
-                var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                    new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(e.ActorId)), nameof(UnitActor));
-                status = await proxy.GetStatusAsync(cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex,
-                    "Failed to read status for unit {UnitName}; reporting Draft in dashboard.",
-                    e.Address.Path);
-            }
+        // #2584: parallel + budget-bounded fan-out, same pattern as
+        // GetDashboardSummaryAsync above.
+        var unitStatusPairs = await Task.WhenAll(unitEntries.Select(async e =>
+            (Entry: e,
+             Status: await TryReadUnitLifecycleStatusAsync(actorProxyFactory, e.ActorId, e.Address.Path, logger, cancellationToken))));
 
-            units.Add(new UnitDashboardSummary(e.Address.Path, e.DisplayName, e.RegisteredAt, status));
-        }
+        var units = unitStatusPairs
+            .Select(p => new UnitDashboardSummary(p.Entry.Address.Path, p.Entry.DisplayName, p.Entry.RegisteredAt, p.Status))
+            .ToList();
 
         return Results.Ok(units);
+    }
+
+    /// <summary>
+    /// Read a unit's status from its actor with a wall-clock budget so a
+    /// busy actor never stalls the dashboard (#2584). Mirrors
+    /// <see cref="TenantTreeEndpoints"/> — same fallback semantics.
+    /// </summary>
+    private static async Task<LifecycleStatus> TryReadUnitLifecycleStatusAsync(
+        IActorProxyFactory actorProxyFactory,
+        Guid actorId,
+        string unitPath,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        Task<LifecycleStatus> statusTask;
+        try
+        {
+            var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+                new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorId)), nameof(UnitActor));
+            statusTask = proxy.GetStatusAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Failed to start status read for unit {UnitName}; reporting Draft.",
+                unitPath);
+            return LifecycleStatus.Draft;
+        }
+
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var timeoutTask = Task.Delay(StatusReadBudget, cts.Token);
+            var completed = await Task.WhenAny(statusTask, timeoutTask).ConfigureAwait(false);
+            if (completed == statusTask)
+            {
+                cts.Cancel();
+                return await statusTask.ConfigureAwait(false);
+            }
+
+            logger.LogInformation(
+                "Status read for unit {UnitName} exceeded {BudgetMs} ms; reporting Starting.",
+                unitPath, StatusReadBudget.TotalMilliseconds);
+
+            // Observe the still-running task so its late completion doesn't
+            // surface as an UnobservedTaskException.
+            _ = statusTask.ContinueWith(
+                t =>
+                {
+                    if (t.IsFaulted)
+                    {
+                        logger.LogDebug(t.Exception,
+                            "Late status read for unit {UnitName} faulted after timeout.",
+                            unitPath);
+                    }
+                },
+                TaskScheduler.Default);
+
+            return LifecycleStatus.Starting;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Failed to read status for unit {UnitName}; reporting Draft.",
+                unitPath);
+            return LifecycleStatus.Draft;
+        }
     }
 
     private static async Task<IResult> GetCostsSummaryAsync(
