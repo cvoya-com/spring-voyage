@@ -1,21 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "sv.messaging.send.input",
-  "description": "Input for sv.messaging.send — a one-way message-delivery tool (ADR-0049). It durably places one message in the target's mailbox; it does NOT wait for or return the recipient's reply. A reply, if any, arrives later as a separate message on the thread. The platform delivers messages, it does not orchestrate.",
+  "description": "Input for sv.messaging.send — a one-way message-delivery tool that places one message on the SINGLE SHARED THREAD identified by {caller} ∪ recipients. Every recipient sees the message on the same thread and sees the other recipients in the inbound envelope's `to` field. Supply exactly one of `recipients` or `scope`. The calling participant is auto-included in the thread's participant set — do not list yourself in `recipients`. Use sv.messaging.multicast when you want each recipient to receive the message on its own independent 1-1 thread. The platform delivers messages; it does NOT wait for or return the recipients' replies.",
   "type": "object",
   "properties": {
-    "address": {
+    "recipients": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Explicit recipient list. Each entry is a canonical address (`agent:<32-hex>`, `unit:<32-hex>`, `human:<32-hex>`) of a participant in the caller's tenant. Connectors (`connector:<32-hex>`) are non-routable and are rejected with an UnroutableTarget error. Mutually exclusive with `scope`.",
+      "items": {
+        "type": "string",
+        "description": "Canonical scheme:no-dash-hex address of a recipient."
+      }
+    },
+    "scope": {
       "type": "string",
-      "description": "Canonical scheme:no-dash-hex address of the target — an agent://, unit://, or human:// address in the caller's tenant."
+      "enum": ["unit-members", "siblings"],
+      "description": "Resolve the recipient set from the caller's position in the member graph: 'unit-members' (valid for a unit caller) targets the members of the calling unit; 'siblings' targets the caller's siblings under their parent unit(s). The resolved set forms the shared thread's participants together with the caller. Mutually exclusive with `recipients`."
     },
     "message": {
-      "description": "The message payload to deliver to the target. Opaque to the platform; a JSON string or object."
+      "description": "The message payload to deliver. Opaque to the platform; a JSON string or object."
     },
     "reason": {
       "type": ["string", "null"],
       "description": "Optional rationale recorded verbatim on the MessageSent activity. Never the model's hidden chain-of-thought."
     }
   },
-  "required": ["address", "message"],
+  "required": ["message"],
   "additionalProperties": false
 }

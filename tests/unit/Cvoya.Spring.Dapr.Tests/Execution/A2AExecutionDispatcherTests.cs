@@ -230,7 +230,32 @@ public class A2AExecutionDispatcherTests
             transportFactory,
             _connectorContext,
             _connectorPromptContext,
+            new StubInboundEnvelopeResolver(),
             _loggerFactory);
+    }
+
+    /// <summary>
+    /// Minimal <see cref="Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver"/>
+    /// stand-in for the dispatcher tests. The tests don't assert on the
+    /// rendered envelope (envelope contents are pinned by dedicated
+    /// InboundEnvelopeBuilder tests); they just need a resolver that
+    /// returns *something* string-shaped without throwing. Echoes the raw
+    /// payload string when present — enough to keep the dispatcher's
+    /// existing trace assertions working.
+    /// </summary>
+    private sealed class StubInboundEnvelopeResolver : Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver
+    {
+        public Task<string> RenderEnvelopeAsync(SvMessage inbound, CancellationToken cancellationToken)
+        {
+            var text = inbound.Payload.ValueKind switch
+            {
+                JsonValueKind.String => inbound.Payload.GetString() ?? string.Empty,
+                JsonValueKind.Object when inbound.Payload.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String => t.GetString() ?? string.Empty,
+                JsonValueKind.Object when inbound.Payload.TryGetProperty("Task", out var t) && t.ValueKind == JsonValueKind.String => t.GetString() ?? string.Empty,
+                _ => inbound.Payload.ToString(),
+            };
+            return Task.FromResult(text);
+        }
     }
 
     private static SvMessage CreateMessage(

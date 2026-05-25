@@ -84,20 +84,20 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvMemorySkillRegistry>(
             sp => sp.GetRequiredService<SvMemorySkillRegistry>()));
 
-        // Spring Voyage thread-inspection tools (#2683). Exposes
-        // sv.thread.list / sv.thread.get / sv.thread.search /
-        // sv.thread.participants so a runtime can inspect the threads it
-        // participates in — fetch the timeline, search across message
-        // bodies, enumerate participants — without baking thread state
-        // into the system prompt or shipping the full history on every
-        // turn. Singleton with a scope-factory dependency: the read
-        // services (IThreadQueryService, IThreadRegistry) live in a fresh
-        // DI scope per invocation, matching the SvDirectorySkillRegistry
-        // pattern. TryAddEnumerable so cloud hosts can layer a
-        // tenant-aware decorator without displacing the OSS default.
-        services.TryAddSingleton<SvThreadSkillRegistry>();
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvThreadSkillRegistry>(
-            sp => sp.GetRequiredService<SvThreadSkillRegistry>()));
+        // Spring Voyage shared-memory tools (#2683, reshaped by #2747).
+        // Exposes sv.memory.engagements / sv.memory.history_with /
+        // sv.memory.search_messages so a runtime can inspect the shared
+        // timelines it participates in — without ever naming a thread_id.
+        // The platform derives the thread id internally from the supplied
+        // participant set (caller auto-included) per ADR-0030. Singleton
+        // with a scope-factory dependency so IThreadQueryService /
+        // IThreadRegistry resolve from a fresh DI scope per call,
+        // matching the SvDirectorySkillRegistry pattern. TryAddEnumerable
+        // so cloud hosts can layer a tenant-aware decorator without
+        // displacing the OSS default.
+        services.TryAddSingleton<SvMemoryHistoryRegistry>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvMemoryHistoryRegistry>(
+            sp => sp.GetRequiredService<SvMemoryHistoryRegistry>()));
 
         // Spring Voyage runtime reflection tools (#2493 / #2581). Exposes
         // sv.runtime.report_decision so a runtime can annotate its
@@ -146,6 +146,15 @@ internal static class ServiceCollectionExtensionsRouting
         services.TryAddSingleton<SvProgressSkillRegistry>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, SvProgressSkillRegistry>(
             sp => sp.GetRequiredService<SvProgressSkillRegistry>()));
+
+        // #2746 — inbound-envelope renderer. Resolves the sender's display
+        // name and the thread's participant set from a fresh DI scope per
+        // call so the dispatcher (singleton) can inject it directly. Singleton
+        // with a scope-factory dependency, matching the pattern the
+        // SvDirectorySkillRegistry uses for its scoped collaborators. TryAdd
+        // so the cloud overlay can swap a tenant-aware variant in.
+        services.TryAddSingleton<Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver,
+            Cvoya.Spring.Dapr.Prompts.InboundEnvelopeResolver>();
 
         // Routing
         services.AddSingleton<DirectoryCache>();

@@ -182,7 +182,23 @@ public class PersistentDispatchIntegrationTests
             transportFactory,
             _connectorContext,
             _connectorPromptContext,
+            new PassthroughEnvelopeResolver(),
             _loggerFactory);
+    }
+
+    private sealed class PassthroughEnvelopeResolver : Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver
+    {
+        public Task<string> RenderEnvelopeAsync(SvMessage inbound, CancellationToken cancellationToken)
+        {
+            var text = inbound.Payload.ValueKind switch
+            {
+                JsonValueKind.String => inbound.Payload.GetString() ?? string.Empty,
+                JsonValueKind.Object when inbound.Payload.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String => t.GetString() ?? string.Empty,
+                JsonValueKind.Object when inbound.Payload.TryGetProperty("Task", out var t) && t.ValueKind == JsonValueKind.String => t.GetString() ?? string.Empty,
+                _ => inbound.Payload.ToString(),
+            };
+            return Task.FromResult(text);
+        }
     }
 
     private static SvMessage CreateMessage(string? threadId = null)

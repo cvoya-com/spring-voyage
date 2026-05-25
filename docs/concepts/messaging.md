@@ -92,9 +92,11 @@ The pub/sub infrastructure is broker-agnostic -- Redis for development, Kafka or
 
 A runtime delivers a domain message through two platform MCP tools. Both return a **delivery acknowledgement** — the message was durably placed in the recipient's mailbox — never the recipient's reply.
 
-| Tool | Delivers to |
-|------|-------------|
-| `sv.messaging.send` | One addressable target |
-| `sv.messaging.multicast` | Many targets — addressed explicitly, or by a directory-relationship `scope` (`unit-members`, `siblings`) |
+| Tool | Thread shape |
+|------|--------------|
+| `sv.messaging.send` | One SHARED thread for `{caller} ∪ recipients`. Use when every recipient should see the others. |
+| `sv.messaging.multicast` | N INDEPENDENT 1-1 threads `{caller, recipient_i}`. Use when recipients should not see each other. |
 
-There is no `delegate_to` / `fanout_to` tool. A runtime that wants to *delegate* sends a message whose content says so — "delegation" is message content the recipient's runtime interprets, not a platform mechanism. Multicast is useful for broadcast queries ("who can help with this Python issue?") or role-based work distribution. The delivery contract and the full `sv.<area>.<verb>` tool surface are described in [Architecture: Messaging](../architecture/messaging.md).
+Both tools take the same input shape — either an explicit `recipients` list or a relationship `scope` (`unit-members`, `siblings`) — and differ in thread identity, not input shape. The calling participant is auto-included in every participant set, so the runtime does not list itself in `recipients`. The runtime never names a `thread_id`: the platform derives it from the participant set (see [ADR-0030](../decisions/0030-thread-model.md)).
+
+There is no `delegate_to` / `fanout_to` tool. A runtime that wants to *delegate* sends a message whose content says so — "delegation" is message content the recipient's runtime interprets, not a platform mechanism. Multicast is useful for broadcast queries ("who can help with this Python issue?") or role-based work distribution when the recipients should not be aware of each other; `send` with a multi-element `recipients` list is the right tool when they should share a thread. The delivery contract and the full `sv.<area>.<verb>` tool surface are described in [Architecture: Messaging](../architecture/messaging.md).

@@ -14,11 +14,11 @@ using System.Text.Json;
 ///   <item><description><c>{ "text": "…" }</c> object (agent-turn wrappers).</description></item>
 ///   <item><description><c>{ "Task": "…" }</c> object (legacy task wrapper).</description></item>
 /// </list>
-/// Used by <see cref="ThreadContextBuilder"/> when rendering prior turns
-/// and by the A2A dispatcher when populating the user role's text part —
-/// keeping them in sync prevents a regression where the dispatcher leaks
-/// the assembled system prompt into the user slot for bare-string payloads
-/// (#2230).
+/// Used by <see cref="InboundEnvelopeBuilder"/> to render the payload
+/// line of the structured envelope the dispatcher hands to the runtime
+/// (#2746) — keeping this extraction in one place prevents the
+/// dispatcher from leaking the assembled system prompt into the user
+/// slot for bare-string payloads (#2230).
 /// </summary>
 internal static class MessagePayloadText
 {

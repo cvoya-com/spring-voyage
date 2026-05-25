@@ -58,36 +58,42 @@ public class MessageDeliveryDecisionIntegrationTests
         var harness = CreateHarness();
         var child = Substitute.For<IAgent>();
         var message = CreateMessage(ParentUnit);
-        var threadId = Guid.NewGuid();
+        var upstreamThread = Guid.NewGuid();
 
         harness.RegisterAgent(ChildOne, child);
         child.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
 
-        var ack = await harness.Handlers.HandleSendAsync(
+        var result = await harness.Handlers.HandleSendAsync(
             ParentUnit,
             TenantId,
-            ChildOne,
+            [ChildOne],
+            scope: null,
             message,
             reason: "route to the specialist",
-            threadId,
+            upstreamThread,
             TestContext.Current.CancellationToken);
 
-        // ADR-0049 — send returns a delivery acknowledgement.
-        ack.Delivered.ShouldBeTrue();
-        ack.Target.ShouldBe(ChildOne);
-        ack.MessageId.ShouldBe(message.Id);
+        // ADR-0049 — send returns a per-recipient delivery acknowledgement
+        // on the shared thread for {caller, recipients}.
+        result.Deliveries.Count.ShouldBe(1);
+        result.Deliveries[0].Delivered.ShouldBeTrue();
+        result.Deliveries[0].Target.ShouldBe(ChildOne);
+        result.MessageId.ShouldBe(message.Id);
 
         var activity = harness.ReadSingleActivity();
         activity.EventType.ShouldBe(ActivityEventType.MessageSent);
         activity.Source.ShouldBe(ParentUnit);
-        activity.CorrelationId.ShouldBe(threadId.ToString("D"));
+        activity.CorrelationId.ShouldBe(upstreamThread.ToString("D"));
     }
 
     [Fact]
-    public async Task HandleSend_DeliveryFails_ThrowsDeliveryFailed()
+    public async Task HandleSend_DeliveryFails_ReportsFailedRecipient()
     {
-        // A persistent transient ReceiveAsync failure (ADR-0049 §6).
+        // A persistent transient ReceiveAsync failure (ADR-0049 §6). After
+        // #2747 a single failed delivery surfaces as that recipient's
+        // outcome, not a thrown exception, so a partial-success multi-
+        // recipient send still acks the rest.
         var harness = CreateHarness();
         var child = Substitute.For<IAgent>();
         var message = CreateMessage(ParentUnit);
@@ -97,17 +103,19 @@ public class MessageDeliveryDecisionIntegrationTests
         child.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException(failureDescription));
 
-        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
-            harness.Handlers.HandleSendAsync(
-                ParentUnit,
-                TenantId,
-                ChildOne,
-                message,
-                reason: failureDescription,
-                Guid.NewGuid(),
-                TestContext.Current.CancellationToken));
+        var result = await harness.Handlers.HandleSendAsync(
+            ParentUnit,
+            TenantId,
+            [ChildOne],
+            scope: null,
+            message,
+            reason: failureDescription,
+            Guid.NewGuid(),
+            TestContext.Current.CancellationToken);
 
-        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.DeliveryFailed);
+        result.Deliveries.Count.ShouldBe(1);
+        result.Deliveries[0].Delivered.ShouldBeFalse();
+        result.Deliveries[0].Error.ShouldNotBeNull();
     }
 
     [Fact]

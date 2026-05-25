@@ -16,23 +16,12 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// Delivery acknowledgement for a single <c>sv.messaging.send</c>
-/// message-delivery tool call (ADR-0049). It confirms the message was
-/// durably placed in the recipient's mailbox — it never carries the
-/// recipient's response.
+/// Per-target outcome returned by
+/// <see cref="MessageDeliveryService.DeliverOutcomeAsync"/>. Reports
+/// whether the message reached the recipient's mailbox; the recipient's
+/// reply, if any, arrives later as a fresh inbound message (ADR-0049).
 /// </summary>
-public sealed record MessageDeliveryAck(
-    bool Delivered,
-    Guid MessageId,
-    Address Target,
-    Guid ThreadId);
-
-/// <summary>
-/// Per-target delivery outcome for a <c>sv.messaging.multicast</c> call
-/// (ADR-0049). Reports whether the message reached each recipient's mailbox
-/// — not the recipients' work products.
-/// </summary>
-public sealed record MulticastTargetAck(
+public sealed record DeliveryOutcome(
     Address Target,
     bool Delivered,
     string? Error);
@@ -120,6 +109,24 @@ public class MessageDeliveryService(
     }
 
     /// <summary>
+    /// Rejects a target whose scheme is non-routable. The
+    /// <see cref="Address.ConnectorScheme"/> is the sole v0.1 case (#2747):
+    /// connectors stamp message provenance on inbound webhook events but do
+    /// not host an actor mailbox and cannot receive messages.
+    /// </summary>
+    public static void EnsureCanReceive(Address target)
+    {
+        if (string.Equals(target.Scheme, Address.ConnectorScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new MessageDeliveryException(
+                MessageDeliveryException.RejectCodes.UnroutableTarget,
+                $"Cannot deliver to '{target}': the '{Address.ConnectorScheme}' scheme is non-routable. " +
+                "Connectors are senders only — they translate external events into inbound messages " +
+                "but do not receive replies. Pick a routable participant (agent, unit, or human).");
+        }
+    }
+
+    /// <summary>
     /// Increments the per-thread message-delivery hop counter (#2576) and
     /// throws <see cref="MessageDeliveryException"/> with
     /// <see cref="MessageDeliveryException.RejectCodes.DepthExceeded"/>
@@ -151,18 +158,22 @@ public class MessageDeliveryService(
     /// Delivers a message to one target with bounded retry (ADR-0049 §4),
     /// returning a per-target outcome rather than throwing on a transient
     /// failure. Used by the multicast path so one failed target does not
-    /// abort the rest.
+    /// abort the rest. The optional <paramref name="threadParticipants"/>
+    /// overrides the default <c>(caller, target)</c> participant set so a
+    /// shared-thread <c>sv.messaging.send</c> places every recipient's
+    /// delivery on the same thread (#2747).
     /// </summary>
-    public async Task<MulticastTargetAck> DeliverOutcomeAsync(
+    public async Task<DeliveryOutcome> DeliverOutcomeAsync(
         Address caller,
         Address target,
         Message message,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyCollection<Address>? threadParticipants = null)
     {
         try
         {
-            await DeliverWithRetryAsync(caller, target, message, ct);
-            return new MulticastTargetAck(target, true, null);
+            await DeliverWithRetryAsync(caller, target, message, ct, threadParticipants);
+            return new DeliveryOutcome(target, true, null);
         }
         catch (OperationCanceledException)
         {
@@ -170,7 +181,7 @@ public class MessageDeliveryService(
         }
         catch (Exception ex)
         {
-            return new MulticastTargetAck(target, false, ex.Message);
+            return new DeliveryOutcome(target, false, ex.Message);
         }
     }
 
@@ -183,26 +194,35 @@ public class MessageDeliveryService(
     /// <see cref="MessageDeliveryException"/> (validation) is never retried and
     /// propagates immediately. A retry budget exhausted by transient failures
     /// surfaces as a terminal <see cref="MessageDeliveryException"/>.
+    /// <para>
+    /// <paramref name="threadParticipants"/> overrides the per-hop default
+    /// <c>{caller, target}</c> participant set. <c>sv.messaging.multicast</c>
+    /// omits it (each recipient lands on its own 1-1 thread);
+    /// <c>sv.messaging.send</c> with multiple recipients passes the full
+    /// <c>{caller} ∪ recipients</c> set so every recipient's delivery is
+    /// keyed onto the same shared thread (#2747).
+    /// </para>
     /// </summary>
     public async Task DeliverWithRetryAsync(
         Address caller,
         Address target,
         Message message,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyCollection<Address>? threadParticipants = null)
     {
         var proxy = agentProxyResolver.Resolve(target.Scheme, GuidFormatter.Format(target.Id))
             ?? throw new MessageDeliveryException(
                 MessageDeliveryException.RejectCodes.DeliveryFailed,
                 $"Could not resolve message-delivery target '{target}'.");
 
-        // #2596 / ADR-0030 — this delivery is its own conversation hop:
-        // resolve the thread from the (caller, target) participant set so the
-        // outbound message lands on a thread distinct from the caller's
-        // upstream conversation. Inheriting message.ThreadId would collapse
-        // every unit→agent and agent→agent exchange triggered by one inbound
-        // event onto a single thread, colliding their mailbox FIFO channels
-        // and dispatch-cancellation scopes.
-        var threadId = await ResolveHopThreadAsync(caller, target, ct);
+        // #2596 / ADR-0030 — resolve the thread from the participant set so
+        // the outbound message lands on a thread distinct from the caller's
+        // upstream conversation. The default is the (caller, target) hop;
+        // #2747 lets sv.messaging.send share one thread across all recipients
+        // by passing the full participant set in threadParticipants.
+        var threadId = threadParticipants is { Count: > 0 }
+            ? await ResolveThreadAsync(threadParticipants, ct)
+            : await ResolveHopThreadAsync(caller, target, ct);
 
         var outbound = message with
         {
@@ -288,6 +308,20 @@ public class MessageDeliveryService(
         using var scope = scopeFactory.CreateScope();
         var threadRegistry = scope.ServiceProvider.GetRequiredService<IThreadRegistry>();
         return await threadRegistry.GetOrCreateAsync(new[] { caller, target }, ct);
+    }
+
+    /// <summary>
+    /// Resolves the thread id for an explicit participant set. The set may
+    /// include the caller and any subset of {agent, unit, human} recipients.
+    /// Order is irrelevant — <see cref="IThreadRegistry"/> canonicalises.
+    /// </summary>
+    private async Task<string> ResolveThreadAsync(
+        IReadOnlyCollection<Address> participants,
+        CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var threadRegistry = scope.ServiceProvider.GetRequiredService<IThreadRegistry>();
+        return await threadRegistry.GetOrCreateAsync(participants, ct);
     }
 
     private static bool AddressEquals(Address left, Address right) =>

@@ -54,5 +54,12 @@ public sealed class MessageDeliveryException : Exception
         // when applicable, the target). Any mismatch surfaces with this
         // reject code and an HTTP 403 from the dispatcher endpoint.
         public const string CrossTenant = nameof(CrossTenant);
+
+        // A messaging tool addressed a target whose scheme is non-routable.
+        // The connector:// scheme is the sole v0.1 case: connectors stamp
+        // message provenance on inbound webhook events but cannot receive
+        // messages. Surfaced before any delivery attempt so the calling
+        // model can pick a routable participant (agent / unit / human).
+        public const string UnroutableTarget = nameof(UnroutableTarget);
     }
 }

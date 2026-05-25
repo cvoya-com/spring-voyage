@@ -276,10 +276,11 @@ public class PlatformPromptProviderTests
     }
 
     /// <summary>
-    /// #2683: the envelope section names every field the platform
-    /// delivers on an inbound message — from, to, thread_id, message_id,
-    /// payload, timestamp. Renaming a field at the wire boundary requires
-    /// updating this list first.
+    /// #2746/#2747: the envelope section names every field the platform
+    /// delivers on an inbound message — from, to, message_id, timestamp,
+    /// payload. Renaming a field at the wire boundary requires updating
+    /// this list first. <c>thread_id</c> is intentionally NOT present —
+    /// the agent never names it (#2747).
     /// </summary>
     [Fact]
     public async Task GetPlatformPromptAsync_EnvelopeNamesEveryDeliveredField()
@@ -288,7 +289,7 @@ public class PlatformPromptProviderTests
 
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
-        foreach (var field in new[] { "`from`", "`to`", "`thread_id`", "`message_id`", "`payload`", "`timestamp`" })
+        foreach (var field in new[] { "`from`", "`to`", "`message_id`", "`payload`", "`timestamp`" })
         {
             result.ShouldContain(field, customMessage: $"envelope field {field} must be named in the inbound-messages section.");
         }
@@ -328,18 +329,92 @@ public class PlatformPromptProviderTests
     }
 
     /// <summary>
-    /// #2683: the envelope section points at sv.thread.* (via
-    /// sv.tools.list) so a runtime knows where to look for the rest of
-    /// the envelope when needed.
+    /// #2747: the envelope section points at the new shared-history surface
+    /// (sv.memory.history_with, sv.memory.engagements, sv.memory.search_messages)
+    /// and explicitly states that the agent never sees a thread_id — those
+    /// were the two affordances the retired sv.thread.* surface provided.
     /// </summary>
     [Fact]
-    public async Task GetPlatformPromptAsync_EnvelopePointsAtThreadTools()
+    public async Task GetPlatformPromptAsync_EnvelopePointsAtParticipantSetMemoryTools()
     {
         var provider = new PlatformPromptProvider();
 
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
-        result.ShouldContain("sv.thread.*");
-        result.ShouldContain("sv.tools.list(\"thread\")");
+        result.ShouldContain("sv.memory.history_with");
+        result.ShouldContain("sv.memory.engagements");
+        result.ShouldContain("never see a `thread_id`");
+        result.ShouldNotContain("sv.thread.");
+    }
+
+    /// <summary>
+    /// #2746: the envelope is described as a structured shape (bullet
+    /// header + JSON appendix) rather than a chat-style turn. This nudges
+    /// the runtime away from "answer this turn as text" toward "call the
+    /// messaging tool with the right recipients".
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_EnvelopeIsStructured()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("You received a message.");
+        result.ShouldContain("- from:");
+        result.ShouldContain("- to:");
+        result.ShouldContain("- message_id:");
+        result.ShouldContain("- timestamp:");
+        result.ShouldContain("- payload:");
+        result.ShouldContain("```json");
+    }
+
+    /// <summary>
+    /// #2747: send takes a recipients list (or scope) and auto-includes
+    /// the caller — the agent does not list itself in recipients. The
+    /// platform-contract framing must reflect this so a runtime cold-
+    /// reading the prompt forms the right tool-call shape on the first try.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_NamesRecipientsListAndAutoInclude()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("recipients");
+        result.ShouldContain("auto-include");
+    }
+
+    /// <summary>
+    /// #2747: send vs multicast are the same input shape but different
+    /// thread semantics (shared vs per-pair). The contract must explain
+    /// the distinction so the model picks the right tool.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_ContrastsSendVsMulticastThreadSemantics()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("SHARED thread");
+        result.ShouldContain("INDEPENDENT 1-1 threads");
+    }
+
+    /// <summary>
+    /// #2747: connector:// addresses can appear in inbound `from` but are
+    /// non-routable as recipients. The prompt names the UnroutableTarget
+    /// error so a runtime hitting it has the context to recover.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_ExplainsConnectorRecipientRejection()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldContain("UnroutableTarget");
+        result.ShouldContain("non-routable");
     }
 }

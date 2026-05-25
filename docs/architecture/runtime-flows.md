@@ -73,15 +73,15 @@ sequenceDiagram
     participant HOP as ThreadHopActor
     participant TA as Target actor
 
-    RT->>MCP: tools/call sv.messaging.send(address, message)
-    MCP->>MDS: invoke (caller, thread, messageId from session)
-    MDS->>MDS: validate target — tenant, not self, well-formed
-    MDS->>HOP: increment hop counter
+    RT->>MCP: tools/call sv.messaging.send(recipients, message)
+    MCP->>MDS: invoke (caller, upstream thread, messageId from session)
+    MDS->>MDS: validate each recipient — tenant, not self, routable (rejects connector://)
+    MDS->>HOP: increment hop counter (once per call)
     HOP-->>MDS: count (rejected if past the limit)
-    MDS->>TA: enqueue Message on the thread's FIFO channel
+    MDS->>TA: enqueue Message on the shared thread's FIFO channel (one per recipient)
     Note over TA: fast enqueue + detached dispatch;<br/>returns in milliseconds
     TA-->>MDS: durably enqueued
-    MDS-->>MCP: delivery acknowledgement
+    MDS-->>MCP: per-recipient delivery acknowledgements
     MCP-->>RT: ack (or a synchronous tool error)
 ```
 

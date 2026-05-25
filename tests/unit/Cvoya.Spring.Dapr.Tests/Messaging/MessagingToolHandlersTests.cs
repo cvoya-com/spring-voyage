@@ -30,10 +30,17 @@ using Xunit;
 
 /// <summary>
 /// Covers <see cref="MessagingToolHandlers"/> under the ADR-0048 / ADR-0049
-/// delivery contract: <c>sv.messaging.send</c> / <c>sv.messaging.multicast</c>
-/// return a delivery acknowledgement, never the target's response; each call
-/// emits a plain <see cref="ActivityEventType.MessageSent"/> activity (never a
-/// DecisionMade); multicast resolves a <c>scope</c> against the member graph.
+/// delivery contract reshaped by #2747:
+/// <list type="bullet">
+///   <item><c>sv.messaging.send</c> takes <c>recipients[]</c> (or scope) and
+///   delivers to all on the SHARED thread <c>{caller} ∪ recipients</c>.</item>
+///   <item><c>sv.messaging.multicast</c> takes the same input and delivers to
+///   each on its OWN 1-1 thread.</item>
+///   <item>Both reject <c>connector://</c> recipients with
+///   <see cref="MessageDeliveryException.RejectCodes.UnroutableTarget"/>.</item>
+///   <item>Each call emits a single
+///   <see cref="ActivityEventType.MessageSent"/> activity.</item>
+/// </list>
 /// </summary>
 public class MessagingToolHandlersTests
 {
@@ -77,55 +84,37 @@ public class MessagingToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleSend_DeliversAndReturnsAck()
+    public async Task HandleSend_SingleRecipient_DeliversAndReturnsAck()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
         var target = Agent(ChildAgentId);
         RegisterAgent(target);
-        var message = CreateMessage();
-        var threadId = Guid.NewGuid();
 
-        var ack = await handlers.HandleSendAsync(
-            caller, TenantId, target, message, reason: null, threadId, CancellationToken.None);
+        var result = await handlers.HandleSendAsync(
+            caller, TenantId, [target], scope: null, CreateMessage(),
+            reason: null, threadId: Guid.NewGuid(), CancellationToken.None);
 
-        // ADR-0049 — the ack is a delivery acknowledgement, not a reply.
-        ack.Delivered.ShouldBeTrue();
-        ack.Target.ShouldBe(target);
-        ack.MessageId.ShouldBe(message.Id);
-        ack.ThreadId.ShouldBe(threadId);
-    }
+        // ADR-0049 — the ack is a delivery acknowledgement, never the recipient's reply.
+        result.Deliveries.Count.ShouldBe(1);
+        result.Deliveries[0].Delivered.ShouldBeTrue();
+        result.Deliveries[0].Target.ShouldBe(target);
+        result.MessageId.ShouldNotBe(Guid.Empty);
 
-    [Fact]
-    public async Task HandleSend_DeliversMessageOnHopThread_NotUpstreamThread()
-    {
-        // #2596 — the delivered message lands on the (caller, target) hop
-        // thread, never the caller's upstream conversation thread.
-        var handlers = CreateHandlers();
-        var caller = Unit();
-        var target = Agent(ChildAgentId);
-        var agent = RegisterAgent(target);
-        Message? delivered = null;
-        agent.ReceiveAsync(Arg.Do<Message>(m => delivered = m), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
-        var message = CreateMessage();
-
-        await handlers.HandleSendAsync(
-            caller, TenantId, target, message, reason: null, Guid.NewGuid(), CancellationToken.None);
-
-        delivered.ShouldNotBeNull();
-        delivered!.ThreadId.ShouldNotBe(message.ThreadId);
-        var hopThread = await _threadRegistry.GetOrCreateAsync(
+        // The shared thread is {caller, target} for a single-recipient send.
+        var expectedThread = await _threadRegistry.GetOrCreateAsync(
             new[] { caller, target }, CancellationToken.None);
-        delivered.ThreadId.ShouldBe(hopThread);
+        result.Deliveries[0].ThreadId.ShouldBe(ParseGuid(expectedThread));
+        result.ThreadId.ShouldBe(ParseGuid(expectedThread));
     }
 
     [Fact]
-    public async Task HandleMulticast_DeliversPerTargetHopThread()
+    public async Task HandleSend_MultipleRecipients_AllLandOnSameSharedThread()
     {
-        // #2596 — a multicast fans one message out to N targets; each
-        // delivery is its own conversation hop and must land on the thread
-        // of its own (caller, target) participant set.
+        // #2747 — sv.messaging.send with multiple recipients delivers every
+        // copy onto the SINGLE shared thread {caller ∪ recipients}. Any one
+        // recipient sees the others on the same thread; sv.memory.history_with
+        // by any participant returns this thread's timeline.
         var handlers = CreateHandlers();
         var caller = Unit();
         var t1 = Agent(ChildAgentId);
@@ -139,19 +128,59 @@ public class MessagingToolHandlersTests
         a2.ReceiveAsync(Arg.Do<Message>(m => delivered2 = m), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
 
-        await handlers.HandleMulticastAsync(
-            caller, TenantId, [t1, t2], scope: null, CreateMessage(), reason: null,
-            Guid.NewGuid(), CancellationToken.None);
+        var result = await handlers.HandleSendAsync(
+            caller, TenantId, [t1, t2], scope: null, CreateMessage(),
+            reason: null, threadId: Guid.NewGuid(), CancellationToken.None);
 
         delivered1.ShouldNotBeNull();
         delivered2.ShouldNotBeNull();
-        delivered1!.ThreadId.ShouldNotBeNull();
-        delivered2!.ThreadId.ShouldNotBeNull();
-        delivered1.ThreadId.ShouldNotBe(delivered2.ThreadId);
+        delivered1!.ThreadId.ShouldBe(delivered2!.ThreadId);
+
+        var sharedThread = await _threadRegistry.GetOrCreateAsync(
+            new[] { caller, t1, t2 }, CancellationToken.None);
+        delivered1.ThreadId.ShouldBe(sharedThread);
+        delivered2.ThreadId.ShouldBe(sharedThread);
+        result.ThreadId.ShouldBe(ParseGuid(sharedThread));
+    }
+
+    [Fact]
+    public async Task HandleMulticast_DeliversPerRecipientHopThread()
+    {
+        // #2747 — sv.messaging.multicast keeps the per-pair-thread semantic:
+        // each recipient lands on its own 1-1 thread {caller, recipient}
+        // and never sees the others in its envelope.
+        var handlers = CreateHandlers();
+        var caller = Unit();
+        var t1 = Agent(ChildAgentId);
+        var t2 = Agent(OtherChildAgentId);
+        var a1 = RegisterAgent(t1);
+        var a2 = RegisterAgent(t2);
+        Message? delivered1 = null;
+        Message? delivered2 = null;
+        a1.ReceiveAsync(Arg.Do<Message>(m => delivered1 = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        a2.ReceiveAsync(Arg.Do<Message>(m => delivered2 = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+
+        var result = await handlers.HandleMulticastAsync(
+            caller, TenantId, [t1, t2], scope: null, CreateMessage(),
+            reason: null, threadId: Guid.NewGuid(), CancellationToken.None);
+
+        delivered1.ShouldNotBeNull();
+        delivered2.ShouldNotBeNull();
+        delivered1!.ThreadId.ShouldNotBe(delivered2!.ThreadId);
         delivered1.ThreadId.ShouldBe(
             await _threadRegistry.GetOrCreateAsync(new[] { caller, t1 }, CancellationToken.None));
         delivered2.ThreadId.ShouldBe(
             await _threadRegistry.GetOrCreateAsync(new[] { caller, t2 }, CancellationToken.None));
+
+        // The MulticastResult per-recipient row reports the pair thread the
+        // recipient landed on.
+        result.Deliveries.Count.ShouldBe(2);
+        result.Deliveries.Single(d => d.Target == t1).ThreadId
+            .ShouldBe(ParseGuid(delivered1.ThreadId!));
+        result.Deliveries.Single(d => d.Target == t2).ThreadId
+            .ShouldBe(ParseGuid(delivered2.ThreadId!));
     }
 
     [Fact]
@@ -163,7 +192,8 @@ public class MessagingToolHandlersTests
         RegisterAgent(target);
 
         await handlers.HandleSendAsync(
-            caller, TenantId, target, CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None);
+            caller, TenantId, [target], scope: null, CreateMessage(),
+            reason: null, threadId: Guid.NewGuid(), CancellationToken.None);
 
         _publishedEvents.Count.ShouldBe(1);
         _publishedEvents[0].EventType.ShouldBe(ActivityEventType.MessageSent);
@@ -171,35 +201,69 @@ public class MessagingToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleSend_IncrementsHopCounterOnce()
+    public async Task HandleSend_IncrementsHopCounterOnce_RegardlessOfRecipientCount()
     {
         var handlers = CreateHandlers();
-        var target = Agent(ChildAgentId);
-        RegisterAgent(target);
+        var t1 = Agent(ChildAgentId);
+        var t2 = Agent(OtherChildAgentId);
+        RegisterAgent(t1);
+        RegisterAgent(t2);
 
         await handlers.HandleSendAsync(
-            Unit(), TenantId, target, CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None);
+            Unit(), TenantId, [t1, t2], scope: null, CreateMessage(),
+            reason: null, threadId: Guid.NewGuid(), CancellationToken.None);
 
         await _hopActor.Received(1).IncrementAsync();
     }
 
     [Fact]
-    public async Task HandleSend_SelfTarget_ThrowsSelfDelegation()
+    public async Task HandleSend_SelfTarget_ThrowsSelfDelivery()
     {
         var handlers = CreateHandlers();
+        var caller = Unit();
 
         var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
             handlers.HandleSendAsync(
-                Unit(), TenantId, Unit(), CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None));
+                caller, TenantId, [caller], scope: null, CreateMessage(),
+                reason: null, threadId: Guid.NewGuid(), CancellationToken.None));
 
         ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.SelfDelivery);
     }
 
     [Fact]
+    public async Task HandleSend_ConnectorRecipient_ThrowsUnroutableTarget()
+    {
+        // #2747 — connector:// addresses are non-routable senders; sv.messaging.*
+        // rejects them with an explicit reject code so the calling model gets
+        // a usable error instead of a silent failure.
+        var handlers = CreateHandlers();
+        var connector = new Address(Address.ConnectorScheme, Guid.NewGuid());
+
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
+            handlers.HandleSendAsync(
+                Unit(), TenantId, [connector], scope: null, CreateMessage(),
+                reason: null, threadId: Guid.NewGuid(), CancellationToken.None));
+
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.UnroutableTarget);
+    }
+
+    [Fact]
+    public async Task HandleMulticast_ConnectorRecipient_ThrowsUnroutableTarget()
+    {
+        var handlers = CreateHandlers();
+        var connector = new Address(Address.ConnectorScheme, Guid.NewGuid());
+
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
+            handlers.HandleMulticastAsync(
+                Unit(), TenantId, [connector], scope: null, CreateMessage(),
+                reason: null, threadId: Guid.NewGuid(), CancellationToken.None));
+
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.UnroutableTarget);
+    }
+
+    [Fact]
     public async Task HandleSend_HopCycle_TerminatesAtMaxHopCount()
     {
-        // A delivery cycle: every send on the thread increments the same
-        // counter. The 17th hop on a limit-16 thread is rejected.
         var handlers = CreateHandlers(maxHopCount: 16);
         var target = Agent(ChildAgentId);
         RegisterAgent(target);
@@ -208,18 +272,20 @@ public class MessagingToolHandlersTests
         for (var i = 0; i < 16; i++)
         {
             await handlers.HandleSendAsync(
-                Unit(), TenantId, target, CreateMessage(), reason: null, threadId, CancellationToken.None);
+                Unit(), TenantId, [target], scope: null, CreateMessage(),
+                reason: null, threadId, CancellationToken.None);
         }
 
         var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
             handlers.HandleSendAsync(
-                Unit(), TenantId, target, CreateMessage(), reason: null, threadId, CancellationToken.None));
+                Unit(), TenantId, [target], scope: null, CreateMessage(),
+                reason: null, threadId, CancellationToken.None));
 
         ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.DepthExceeded);
     }
 
     [Fact]
-    public async Task HandleMulticast_ExplicitAddresses_DeliversToEach()
+    public async Task HandleMulticast_ExplicitRecipients_DeliversToEach()
     {
         var handlers = CreateHandlers();
         var caller = Unit();
@@ -229,7 +295,8 @@ public class MessagingToolHandlersTests
         RegisterAgent(t2);
 
         var result = await handlers.HandleMulticastAsync(
-            caller, TenantId, [t1, t2], scope: null, CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None);
+            caller, TenantId, [t1, t2], scope: null, CreateMessage(),
+            reason: null, threadId: Guid.NewGuid(), CancellationToken.None);
 
         result.Deliveries.Count.ShouldBe(2);
         result.Deliveries.ShouldAllBe(d => d.Delivered);
@@ -239,7 +306,7 @@ public class MessagingToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleMulticast_PartialFailure_ReportsPerTargetOutcome()
+    public async Task HandleMulticast_PartialFailure_ReportsPerRecipientOutcome()
     {
         var handlers = CreateHandlers(maxHopCount: 16);
         var t1 = Agent(ChildAgentId);
@@ -250,7 +317,8 @@ public class MessagingToolHandlersTests
             .Throws(new InvalidOperationException("target unreachable"));
 
         var result = await handlers.HandleMulticastAsync(
-            Unit(), TenantId, [t1, t2], scope: null, CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None);
+            Unit(), TenantId, [t1, t2], scope: null, CreateMessage(),
+            reason: null, threadId: Guid.NewGuid(), CancellationToken.None);
 
         result.Deliveries.Count.ShouldBe(2);
         result.Deliveries.Single(d => d.Target == t1).Delivered.ShouldBeTrue();
@@ -259,14 +327,14 @@ public class MessagingToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleMulticast_AddressesAndScope_ThrowsValidation()
+    public async Task HandleMulticast_RecipientsAndScope_ThrowsValidation()
     {
         var handlers = CreateHandlers();
 
         var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
             handlers.HandleMulticastAsync(
                 Unit(), TenantId, [Agent(ChildAgentId)], MulticastScope.UnitMembers,
-                CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None));
+                CreateMessage(), reason: null, threadId: Guid.NewGuid(), CancellationToken.None));
 
         ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.InvalidRequest);
     }
@@ -284,8 +352,8 @@ public class MessagingToolHandlersTests
             .Returns(new[] { m1, m2 });
 
         var result = await handlers.HandleMulticastAsync(
-            caller, TenantId, explicitTargets: null, MulticastScope.UnitMembers,
-            CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None);
+            caller, TenantId, explicitRecipients: null, MulticastScope.UnitMembers,
+            CreateMessage(), reason: null, threadId: Guid.NewGuid(), CancellationToken.None);
 
         result.Deliveries.Count.ShouldBe(2);
         result.Deliveries.Select(d => d.Target).ShouldBe(new[] { m1, m2 }, ignoreOrder: true);
@@ -294,7 +362,6 @@ public class MessagingToolHandlersTests
     [Fact]
     public async Task HandleMulticast_SiblingsScope_ResolvesParentMembersExcludingCaller()
     {
-        // The caller's parent unit's members, minus the caller itself.
         var parentId = new Guid("cccccccc-0000-0000-0000-000000000001");
         var caller = Agent(ChildAgentId);
         var sibling = Agent(OtherChildAgentId);
@@ -309,10 +376,9 @@ public class MessagingToolHandlersTests
         var handlers = CreateHandlers(membershipRepo: membershipRepo);
 
         var result = await handlers.HandleMulticastAsync(
-            caller, TenantId, explicitTargets: null, MulticastScope.Siblings,
-            CreateMessage(), reason: null, Guid.NewGuid(), CancellationToken.None);
+            caller, TenantId, explicitRecipients: null, MulticastScope.Siblings,
+            CreateMessage(), reason: null, threadId: Guid.NewGuid(), CancellationToken.None);
 
-        // Only the sibling — the caller is excluded from its own sibling set.
         result.Deliveries.Count.ShouldBe(1);
         result.Deliveries[0].Target.ShouldBe(sibling);
     }
@@ -365,6 +431,9 @@ public class MessagingToolHandlersTests
     private static Address Unit() => new(Address.UnitScheme, UnitId);
 
     private static Address Agent(Guid id) => new(Address.AgentScheme, id);
+
+    private static Guid ParseGuid(string raw) =>
+        GuidFormatter.TryParse(raw, out var g) ? g : Guid.Empty;
 
     private static Message CreateMessage() =>
         new(
