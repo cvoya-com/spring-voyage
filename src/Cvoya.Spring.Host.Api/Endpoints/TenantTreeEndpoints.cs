@@ -44,6 +44,19 @@ public static class TenantTreeEndpoints
     private const int CacheMaxAgeSeconds = 1;
 
     /// <summary>
+    /// Per-actor wall-clock budget for the parallel status fan-out (#2584).
+    /// An actor that is busy starting its container instance does not
+    /// respond to <c>GetStatusAsync</c> until the dispatch returns, which
+    /// can take many seconds. Without a budget the whole tree fetch — and
+    /// therefore the entire Dashboard / Explorer surface — stalls. With
+    /// the budget, the slow actor is reported as <c>Starting</c> (the
+    /// closest semantic for "busy / in transition") and the tree renders
+    /// promptly; the next 1-second-cached fetch picks up the real status
+    /// once the actor frees up.
+    /// </summary>
+    private static readonly TimeSpan StatusReadBudget = TimeSpan.FromSeconds(1.5);
+
+    /// <summary>
     /// Registers the tenant-tree endpoint. Call from <c>Program.cs</c>
     /// alongside <c>MapDashboardEndpoints</c>. Returns a single
     /// <see cref="RouteGroupBuilder"/> so callers can apply
@@ -418,53 +431,119 @@ public static class TenantTreeEndpoints
     /// policy in <see cref="DashboardEndpoints.GetUnitsSummaryAsync"/>: a
     /// missing or unreachable actor collapses to <see cref="LifecycleStatus.Draft"/>
     /// so the tree still renders rather than failing the whole fetch.
+    /// #2584: also bounded by <see cref="StatusReadBudget"/> so a busy
+    /// actor (typically one whose container is starting in response to an
+    /// inbound message) is reported as <see cref="LifecycleStatus.Starting"/>
+    /// instead of stalling the whole endpoint.
     /// </summary>
-    private static async Task<LifecycleStatus> TryGetUnitLifecycleStatusAsync(
+    private static Task<LifecycleStatus> TryGetUnitLifecycleStatusAsync(
         IActorProxyFactory actorProxyFactory,
         string actorId,
         ILogger logger,
         string unitPath,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(actorId), nameof(UnitActor));
-            return await proxy.GetStatusAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex,
-                "Failed to read persisted status for unit {UnitPath}; reporting Draft in tenant tree.",
-                unitPath);
-            return LifecycleStatus.Draft;
-        }
-    }
+        CancellationToken cancellationToken) =>
+        TryGetLifecycleStatusBoundedAsync(
+            () =>
+            {
+                var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+                    new ActorId(actorId), nameof(UnitActor));
+                return proxy.GetStatusAsync(cancellationToken);
+            },
+            logger,
+            kind: "unit",
+            subjectPath: unitPath,
+            cancellationToken);
 
     /// <summary>
     /// Agent twin of <see cref="TryGetUnitLifecycleStatusAsync"/> — reads the
     /// agent's persisted lifecycle status via the agent actor (#2371 / #2372).
     /// Falls back to <see cref="LifecycleStatus.Draft"/> on actor outage so
-    /// the tree still renders.
+    /// the tree still renders, or <see cref="LifecycleStatus.Starting"/> on
+    /// timeout (#2584).
     /// </summary>
-    private static async Task<LifecycleStatus> TryGetAgentLifecycleStatusAsync(
+    private static Task<LifecycleStatus> TryGetAgentLifecycleStatusAsync(
         IActorProxyFactory actorProxyFactory,
         string actorId,
         ILogger logger,
         string agentPath,
+        CancellationToken cancellationToken) =>
+        TryGetLifecycleStatusBoundedAsync(
+            () =>
+            {
+                var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+                    new ActorId(actorId), nameof(AgentActor));
+                return proxy.GetStatusAsync(cancellationToken);
+            },
+            logger,
+            kind: "agent",
+            subjectPath: agentPath,
+            cancellationToken);
+
+    /// <summary>
+    /// Race the per-actor <c>GetStatusAsync</c> call against
+    /// <see cref="StatusReadBudget"/>. On timeout we report
+    /// <see cref="LifecycleStatus.Starting"/> — the closest semantic for a
+    /// busy actor and exactly the rendering #2584 asks for ("starting…"
+    /// indicator per card). On exception we keep the pre-#2584 fallback
+    /// of <see cref="LifecycleStatus.Draft"/> so a flat actor outage still
+    /// renders predictably.
+    /// </summary>
+    private static async Task<LifecycleStatus> TryGetLifecycleStatusBoundedAsync(
+        Func<Task<LifecycleStatus>> readStatus,
+        ILogger logger,
+        string kind,
+        string subjectPath,
         CancellationToken cancellationToken)
     {
+        Task<LifecycleStatus> statusTask;
         try
         {
-            var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-                new ActorId(actorId), nameof(AgentActor));
-            return await proxy.GetStatusAsync(cancellationToken);
+            statusTask = readStatus();
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex,
-                "Failed to read persisted status for agent {AgentPath}; reporting Draft in tenant tree.",
-                agentPath);
+                "Failed to invoke status read for {Kind} {SubjectPath}; reporting Draft.",
+                kind, subjectPath);
+            return LifecycleStatus.Draft;
+        }
+
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var timeoutTask = Task.Delay(StatusReadBudget, cts.Token);
+            var completed = await Task.WhenAny(statusTask, timeoutTask).ConfigureAwait(false);
+            if (completed == statusTask)
+            {
+                cts.Cancel(); // free the delay task
+                return await statusTask.ConfigureAwait(false);
+            }
+
+            logger.LogInformation(
+                "Status read for {Kind} {SubjectPath} exceeded {BudgetMs} ms; reporting Starting.",
+                kind, subjectPath, StatusReadBudget.TotalMilliseconds);
+
+            // Observe the still-running status task so its eventual
+            // completion / failure does not surface as an UnobservedTaskException.
+            _ = statusTask.ContinueWith(
+                t =>
+                {
+                    if (t.IsFaulted)
+                    {
+                        logger.LogDebug(t.Exception,
+                            "Late status read for {Kind} {SubjectPath} faulted after timeout.",
+                            kind, subjectPath);
+                    }
+                },
+                TaskScheduler.Default);
+
+            return LifecycleStatus.Starting;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Failed to read persisted status for {Kind} {SubjectPath}; reporting Draft.",
+                kind, subjectPath);
             return LifecycleStatus.Draft;
         }
     }

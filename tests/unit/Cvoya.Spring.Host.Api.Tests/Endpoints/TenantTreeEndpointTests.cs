@@ -208,6 +208,40 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
+    public async Task GetTenantTree_BusyUnitActor_FallsBackToStartingWithoutStallingTheTree()
+    {
+        // #2584: a unit actor that is busy starting its container instance
+        // does not respond to GetStatusAsync until the dispatch returns,
+        // which can take many seconds. The endpoint races each status read
+        // against StatusReadBudget (1.5 s) and reports "starting" for the
+        // busy unit so the Dashboard / Explorer renders without stalling.
+        // Other units in the same fetch still report their real status —
+        // the budget is per-actor, not whole-endpoint.
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        ArrangeDirectoryEntries(
+            units: [("busy", "Busy Unit"), ("calm", "Calm Unit")]);
+
+        ArrangeLifecycleStatusHangs(_entryUuids["unit:busy"].ToString("N"));
+        ArrangeLifecycleStatus(_entryUuids["unit:calm"].ToString("N"), LifecycleStatus.Running);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var body = await FetchTreeAsync(ct);
+        sw.Stop();
+
+        // Loose upper bound — the per-actor budget is 1.5s, but parallel
+        // fan-out plus test scheduling can push wall-clock beyond that on
+        // slow CI runners. Assert "not pathologically slow" rather than a
+        // tight threshold the budget would imply, so the test stays robust.
+        sw.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(8));
+
+        var busyId = _entryUuids["unit:busy"].ToString("N");
+        var calmId = _entryUuids["unit:calm"].ToString("N");
+        body!.Tree.Children!.Single(u => u.Id == busyId).Status.ShouldBe("starting");
+        body.Tree.Children!.Single(u => u.Id == calmId).Status.ShouldBe("running");
+    }
+
+    [Fact]
     public async Task GetTenantTree_SurfacesAgentRoleFromDirectoryEntry()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -359,6 +393,24 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         var proxy = Substitute.For<IUnitActor>();
         proxy.GetStatusAsync(Arg.Any<CancellationToken>())
             .Returns<Task<LifecycleStatus>>(_ => throw new InvalidOperationException("actor unreachable"));
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IUnitActor>(
+                Arg.Is<ActorId>(a => a.GetId() == actorId),
+                Arg.Any<string>())
+            .Returns(proxy);
+    }
+
+    /// <summary>
+    /// Arranges an actor whose <c>GetStatusAsync</c> never completes,
+    /// simulating a busy actor whose dispatch lock is held (e.g. the
+    /// container-startup path in #2584). Used to exercise the per-actor
+    /// timeout fallback in <c>TryGetLifecycleStatusBoundedAsync</c>.
+    /// </summary>
+    private void ArrangeLifecycleStatusHangs(string actorId)
+    {
+        var proxy = Substitute.For<IUnitActor>();
+        var tcs = new TaskCompletionSource<LifecycleStatus>(TaskCreationOptions.RunContinuationsAsynchronously);
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(tcs.Task);
         _factory.ActorProxyFactory
             .CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == actorId),
