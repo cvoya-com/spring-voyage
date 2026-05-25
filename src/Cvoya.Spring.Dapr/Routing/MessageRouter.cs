@@ -95,13 +95,29 @@ public class MessageRouter : IMessageRouter
 
         var (actorId, actorScheme) = resolution.Value!;
 
-        // Permission check: if the destination is a unit and the sender is a human,
-        // verify the human has at least Viewer permission in the unit.
-        if (string.Equals(actorScheme, "unit", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(message.From.Scheme, "human", StringComparison.OrdinalIgnoreCase))
+        // Permission check: when the destination is a unit and the sender is
+        // a permission-bearing principal (human or tenant-user per ADR-0047
+        // §1 / #2768), verify the caller has at least Viewer permission on
+        // the unit. The OSS PermissionService short-circuits tenant-user to
+        // implicit Owner; the cloud overlay can swap in a per-tenant-user
+        // grant lookup via DI without touching this gate.
+        if (string.Equals(actorScheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(message.From.Scheme, Address.HumanScheme, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(message.From.Scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase)))
         {
+            if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(actorId, out var unitGuid))
+            {
+                // ResolveActorIdAsync always emits the canonical 32-hex form,
+                // so a parse failure here means a directory entry written by
+                // a non-canonical writer. Treat as not-found rather than
+                // throwing — the message would not reach the actor anyway.
+                _logger.LogWarning(
+                    "Permission gate: unit actor id {ActorId} did not parse as Guid; treating as not-found.",
+                    actorId);
+                return Result<Message?, RoutingError>.Failure(RoutingError.AddressNotFound(message.To));
+            }
             var permissionCheck = await CheckUnitPermissionAsync(
-                message.From.Path, actorId, PermissionLevel.Viewer, message.To, cancellationToken);
+                message.From, unitGuid, PermissionLevel.Viewer, message.To, cancellationToken);
             if (!permissionCheck.IsSuccess)
             {
                 return Result<Message?, RoutingError>.Failure(permissionCheck.Error!);
@@ -223,24 +239,28 @@ public class MessageRouter : IMessageRouter
     }
 
     /// <summary>
-    /// Checks that a human has at least the specified permission level in a unit.
+    /// Checks that a caller has at least the specified permission level on a
+    /// unit. The OSS <see cref="IPermissionService"/> short-circuits
+    /// tenant-user senders to implicit Owner; human senders fall through to
+    /// the existing unit_human_permissions lookup. Cloud overlays may swap
+    /// the permission service via DI to wire a per-tenant-user grant model.
     /// </summary>
     private async Task<Result<bool, RoutingError>> CheckUnitPermissionAsync(
-        string humanId, string unitId, PermissionLevel minimumLevel,
+        Address caller, Guid unitId, PermissionLevel minimumLevel,
         Address targetAddress, CancellationToken cancellationToken)
     {
-        // Hierarchy-aware check (#414): a human with Operator rights on a
+        // Hierarchy-aware check (#414): a caller with Operator rights on a
         // parent unit can address the parent's descendant units without a
         // direct grant on each one, subject to per-unit
         // UnitPermissionInheritance. Direct grants on the target unit still
         // take precedence.
-        var permission = await _permissionService.ResolveEffectivePermissionAsync(humanId, unitId, cancellationToken);
+        var permission = await _permissionService.ResolveEffectivePermissionAsync(caller, unitId, cancellationToken);
 
         if (permission is null || permission.Value < minimumLevel)
         {
             _logger.LogWarning(
-                "Permission denied: human {HumanId} requires {Required} but has {Actual} in unit {UnitId}",
-                humanId, minimumLevel, permission?.ToString() ?? "none", unitId);
+                "Permission denied: caller {Caller} requires {Required} but has {Actual} in unit {UnitId}",
+                caller, minimumLevel, permission?.ToString() ?? "none", unitId);
             return Result<bool, RoutingError>.Failure(RoutingError.PermissionDenied(targetAddress));
         }
 

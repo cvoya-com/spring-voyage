@@ -333,37 +333,40 @@ public class ThreadQueryService(
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<InboxItem>> ListInboxAsync(
-        string humanAddress,
+        IReadOnlyCollection<Guid> humanIds,
         IReadOnlyDictionary<string, DateTimeOffset>? lastReadAt,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(humanAddress))
+        ArgumentNullException.ThrowIfNull(humanIds);
+
+        if (humanIds.Count == 0)
         {
             return [];
         }
 
-        if (!Address.TryParse(ToParseable(humanAddress), out var parsed) || parsed is null)
-        {
-            return [];
-        }
+        // De-dup ahead of the EF Contains() so the resulting IN clause
+        // stays tight regardless of the resolver's emit shape.
+        var humanIdSet = humanIds.Distinct().ToList();
+        const string humanScheme = Address.HumanScheme;
 
-        var humanScheme = parsed.Scheme;
-        var humanId = parsed.Id;
-
-        // The inbox row predicate: a thread shows up when the human has
-        // received at least one message on the thread and has not replied
-        // since. Reduces to "MAX(sent_at WHERE recipient = me) >
-        // MAX(sent_at WHERE sender = me)" per (tenant, thread). Any thread
-        // where the human is not a recipient is excluded by the WHERE.
+        // The inbox row predicate: a thread shows up when one of the
+        // mapped humans has received at least one message on the thread
+        // and the same human has not replied since. Reduces to
+        // "MAX(sent_at WHERE recipient ∈ humans) > MAX(sent_at WHERE
+        // sender ∈ humans)" per (tenant, thread, human). Per-thread,
+        // per-human grouping is what lets MarkReadAsync resolve back to
+        // the specific HumanActor that received the message rather than
+        // the caller's login Human (#2766).
         var humanReceivedRows = await dbContext.Messages
             .AsNoTracking()
             .Where(m =>
                 m.RecipientScheme == humanScheme
-                && m.RecipientId == humanId)
-            .GroupBy(m => m.ThreadId)
+                && humanIdSet.Contains(m.RecipientId))
+            .GroupBy(m => new { m.ThreadId, m.RecipientId })
             .Select(g => new
             {
-                ThreadId = g.Key,
+                ThreadId = g.Key.ThreadId,
+                HumanId = g.Key.RecipientId,
                 LastReceived = g.Max(m => m.SentAt),
             })
             .ToListAsync(cancellationToken);
@@ -373,33 +376,37 @@ public class ThreadQueryService(
             return [];
         }
 
-        var threadIds = humanReceivedRows.Select(r => r.ThreadId).ToList();
+        var threadIds = humanReceivedRows.Select(r => r.ThreadId).Distinct().ToList();
 
         var humanSentRows = await dbContext.Messages
             .AsNoTracking()
             .Where(m =>
                 threadIds.Contains(m.ThreadId)
                 && m.SenderScheme == humanScheme
-                && m.SenderId == humanId)
-            .GroupBy(m => m.ThreadId)
+                && humanIdSet.Contains(m.SenderId))
+            .GroupBy(m => new { m.ThreadId, m.SenderId })
             .Select(g => new
             {
-                ThreadId = g.Key,
+                ThreadId = g.Key.ThreadId,
+                HumanId = g.Key.SenderId,
                 LastSent = g.Max(m => m.SentAt),
             })
             .ToListAsync(cancellationToken);
 
-        var humanSentByThread = humanSentRows.ToDictionary(r => r.ThreadId, r => r.LastSent);
+        var humanSentByPair = humanSentRows.ToDictionary(
+            r => (r.ThreadId, r.HumanId),
+            r => r.LastSent);
 
-        // Pending-since rows: the latest "to-the-human" message on each
-        // thread, with its summary + sender. Single query covers the page.
-        var pendingMessages = await dbContext.Messages
+        // Pending-since rows: the latest "to-any-mapped-human" message on
+        // each thread, with its summary + sender. Keyed by (thread, human)
+        // so we can pair each received row to its own pending message.
+        var pendingByPair = await dbContext.Messages
             .AsNoTracking()
             .Where(m =>
                 threadIds.Contains(m.ThreadId)
                 && m.RecipientScheme == humanScheme
-                && m.RecipientId == humanId)
-            .GroupBy(m => m.ThreadId)
+                && humanIdSet.Contains(m.RecipientId))
+            .GroupBy(m => new { m.ThreadId, m.RecipientId })
             .Select(g => g.OrderByDescending(m => m.SentAt).First())
             .ToListAsync(cancellationToken);
 
@@ -431,20 +438,31 @@ public class ThreadQueryService(
             t => t.Id,
             t => (IReadOnlyDictionary<string, string>)ParticipantNameSnapshotJson.Read(t.ParticipantNameSnapshots));
 
-        var humanRendered = RenderAddress(humanScheme, humanId);
+        // Bucket the latest pending-per-(thread,human) so the inbox row
+        // construction is a single dictionary lookup.
+        var pendingByLookup = pendingByPair.ToDictionary(
+            m => (m.ThreadId, m.RecipientId),
+            m => m);
+
+        // Fan-in: when multiple mapped humans share a thread, emit one
+        // inbox row per (thread, human) — the row's Human field
+        // identifies which HumanActor's cursor MarkReadAsync should
+        // advance. Display de-duplication happens client-side via the
+        // engagement-id grouping; the per-human granularity is what
+        // makes mark-read correct.
         var inbox = new List<InboxItem>(humanReceivedRows.Count);
 
         foreach (var received in humanReceivedRows)
         {
-            // Drop threads the human has already replied to.
-            if (humanSentByThread.TryGetValue(received.ThreadId, out var lastSent)
+            // Drop threads where THIS human has already replied to the
+            // last message they received.
+            if (humanSentByPair.TryGetValue((received.ThreadId, received.HumanId), out var lastSent)
                 && lastSent >= received.LastReceived)
             {
                 continue;
             }
 
-            var pending = pendingMessages.FirstOrDefault(m => m.ThreadId == received.ThreadId);
-            if (pending is null)
+            if (!pendingByLookup.TryGetValue((received.ThreadId, received.HumanId), out var pending))
             {
                 continue;
             }
@@ -460,7 +478,7 @@ public class ThreadQueryService(
             inbox.Add(new InboxItem(
                 ThreadId: threadIdString,
                 From: RenderAddress(pending.SenderScheme, pending.SenderId),
-                Human: humanRendered,
+                Human: RenderAddress(humanScheme, received.HumanId),
                 PendingSince: pending.SentAt,
                 Summary: pending.Body ?? string.Empty,
                 UnreadCount: unreadCount,

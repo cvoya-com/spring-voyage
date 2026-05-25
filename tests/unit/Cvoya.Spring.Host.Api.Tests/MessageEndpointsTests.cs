@@ -84,12 +84,11 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task SendMessage_UsesAuthenticatedCallerAsFromAddress()
     {
-        // #339: the endpoint must thread the authenticated subject through
-        // as the Message.From so MessageRouter's permission gate evaluates
-        // against the real caller rather than a synthetic human://api. In
-        // LocalDev mode (used by the test factory) the LocalDevAuthHandler
-        // surfaces 'local-dev-user' as the NameIdentifier — that's what the
-        // caller accessor should pick up.
+        // #339 / #2768: the endpoint must thread the authenticated subject
+        // through as the Message.From so MessageRouter's permission gate
+        // evaluates against the real caller. Per ADR-0047 §1 the caller
+        // identity is a TenantUser; in OSS the LocalDevAuthHandler
+        // resolves to the pinned operator id.
         var ct = TestContext.Current.CancellationToken;
 
         var entry = new DirectoryEntry(
@@ -123,10 +122,8 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         observed.ShouldNotBeNull();
-        observed!.From.Scheme.ShouldBe("human");
-        // #1491 / #1629: GetCallerAddressAsync resolves the username to a
-        // stable Guid via IHumanIdentityResolver and emits Address(human, id).
-        observed.From.Id.ShouldNotBe(Guid.Empty);
+        observed!.From.Scheme.ShouldBe(Address.TenantUserScheme);
+        observed.From.Id.ShouldBe(Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator);
     }
 
     [Fact]
@@ -253,10 +250,12 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // Human-to-unit routing runs a Viewer permission check in
         // MessageRouter; grant it on the mocked permission service so the
         // message reaches the actor rather than bouncing at the gate.
+        // #2768: the permission service now takes a typed Address caller and
+        // a Guid unitId instead of two strings.
         var permissionService = (Cvoya.Spring.Dapr.Auth.IPermissionService)_factory.Services
             .GetService(typeof(Cvoya.Spring.Dapr.Auth.IPermissionService))!;
         permissionService.ResolveEffectivePermissionAsync(
-                Arg.Any<string>(), EngineeringTeamId.ToString("N"), Arg.Any<CancellationToken>())
+                Arg.Any<Address>(), EngineeringTeamId, Arg.Any<CancellationToken>())
             .Returns(Cvoya.Spring.Dapr.Actors.PermissionLevel.Viewer);
 
         var unit = Substitute.For<IAgent>();

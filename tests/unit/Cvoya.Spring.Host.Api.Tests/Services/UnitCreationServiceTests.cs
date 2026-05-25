@@ -3,18 +3,16 @@
 
 namespace Cvoya.Spring.Host.Api.Tests.Services;
 
-using System.Security.Claims;
-
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Host.Api.Services;
 using Cvoya.Spring.Manifest;
@@ -22,7 +20,6 @@ using Cvoya.Spring.Manifest;
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -40,10 +37,6 @@ using Xunit;
 public class UnitCreationServiceTests
 {
     private static readonly Guid Agent_TechLead_Id = new("00000001-feed-1234-5678-000000000000");
-
-    // Stable UUIDs returned by the mock IHumanIdentityResolver.
-    private static readonly Guid FallbackGuid = new("00000000-0000-0000-0000-000000000001");
-    private static readonly Guid AliceGuid = new("aaaaaaaa-0000-0000-0000-000000000001");
 
     // #1666: helper for Arg.Is<> assertions that need to verify a string
     // is the actor Guid in GuidFormatter "N" form. Wrapped in a method
@@ -67,15 +60,15 @@ public class UnitCreationServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_NoHttpContext_FallsBackToApiIdentity()
+    public async Task CreateAsync_NoCallerAddress_SkipsHumanPermissionGrant()
     {
-        // When the service runs outside a request — no ambient HttpContext —
-        // the creator identity falls back to the synthetic "api" user so the
-        // Owner grant still lands on a deterministic, well-known id rather
-        // than an empty string or null. Matches the existing fallback used
-        // by MessageEndpoints / AgentEndpoints.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        // #2768: when the caller accessor returns null (out-of-request,
+        // background paths), there is no human to grant Owner to. The
+        // service must skip the unit_human_permissions write rather than
+        // auto-minting a phantom "api" Human row to back the grant.
+        var fixture = new Fixture();
+        fixture.CallerAccessor.GetCallerAddressAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Address?>(null));
 
         var result = await fixture.CreateAsync("no-ctx-unit");
 
@@ -83,76 +76,69 @@ public class UnitCreationServiceTests
         // request slug — DisplayName carries the human-readable label.
         result.Unit.DisplayName.ShouldBe("no-ctx-unit");
 
-        // The grant went to the UUID that the resolver returned for the fallback username.
-        await fixture.Proxy.Received(1).SetHumanPermissionAsync(
-            FallbackGuid,
-            Arg.Is<UnitPermissionEntry>(e =>
-                e.HumanId == FallbackGuid.ToString()
-                && e.Permission == PermissionLevel.Owner),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task CreateAsync_AuthenticatedUser_GrantsOwnerToNameIdentifierClaim()
-    {
-        // When the request arrives with an authenticated principal, the
-        // grant must land on that principal's resolved UUID — the same id
-        // PermissionHandler consults when evaluating subsequent permission
-        // checks after the #1491 migration.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        var identity = new ClaimsIdentity(
-            new[] { new Claim(ClaimTypes.NameIdentifier, "alice@example.com") },
-            authenticationType: "test");
-        var principal = new ClaimsPrincipal(identity);
-        var httpContext = new DefaultHttpContext { User = principal };
-        fixture.HttpContextAccessor.HttpContext.Returns(httpContext);
-
-        await fixture.CreateAsync("auth-unit");
-
-        await fixture.Proxy.Received(1).SetHumanPermissionAsync(
-            AliceGuid,
-            Arg.Is<UnitPermissionEntry>(e =>
-                e.HumanId == AliceGuid.ToString()
-                && e.Permission == PermissionLevel.Owner),
-            Arg.Any<CancellationToken>());
         await fixture.Proxy.DidNotReceive().SetHumanPermissionAsync(
-            FallbackGuid,
+            Arg.Any<Guid>(),
             Arg.Any<UnitPermissionEntry>(),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task CreateAsync_UnauthenticatedPrincipal_FallsBackToApi()
+    public async Task CreateAsync_TenantUserCaller_SkipsHumanPermissionGrant()
     {
-        // An HttpContext with an anonymous ClaimsPrincipal (Identity.IsAuthenticated == false)
-        // must NOT be treated as a real caller — fall back to "api" the same
-        // way we do when no HttpContext is present at all.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        var httpContext = new DefaultHttpContext
-        {
-            User = new ClaimsPrincipal(new ClaimsIdentity()),
-        };
-        fixture.HttpContextAccessor.HttpContext.Returns(httpContext);
+        // #2768: when the caller is a tenant-user (the OSS operator, or any
+        // cloud-overlay tenant user), the unit_human_permissions row carries
+        // no information — the OSS PermissionService short-circuits
+        // tenant-user to implicit Owner, and the cloud overlay keys
+        // authorisation off its own per-tenant-user model. Skip the grant
+        // rather than auto-minting a phantom Human to back it.
+        var fixture = new Fixture();
+        fixture.CallerAccessor.GetCallerAddressAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Address?>(
+                Address.ForIdentity(Address.TenantUserScheme, Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator)));
 
-        await fixture.CreateAsync("anon-unit");
+        await fixture.CreateAsync("operator-unit");
+
+        await fixture.Proxy.DidNotReceive().SetHumanPermissionAsync(
+            Arg.Any<Guid>(),
+            Arg.Any<UnitPermissionEntry>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateAsync_HumanCaller_GrantsOwnerToCallerHumanId()
+    {
+        // When a human-scheme caller creates a unit (the package-declared
+        // role-slot acting on its own behalf), Owner lands on that human's
+        // stable id so subsequent router-dispatched calls from the same
+        // caller pass the unit's permission gate.
+        var humanGuid = new Guid("aaaaaaaa-0000-0000-0000-000000000001");
+        var fixture = new Fixture();
+        fixture.CallerAccessor.GetCallerAddressAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Address?>(
+                Address.ForIdentity(Address.HumanScheme, humanGuid)));
+
+        await fixture.CreateAsync("human-unit");
 
         await fixture.Proxy.Received(1).SetHumanPermissionAsync(
-            FallbackGuid,
-            Arg.Any<UnitPermissionEntry>(),
+            humanGuid,
+            Arg.Is<UnitPermissionEntry>(e =>
+                e.HumanId == humanGuid.ToString()
+                && e.Permission == PermissionLevel.Owner),
             Arg.Any<CancellationToken>());
     }
 
     /// <summary>
     /// Minimal fixture wiring the <see cref="UnitCreationService"/> up with
     /// stubs for every collaborator so a single test can focus on one
-    /// behaviour at a time. <see cref="HttpContextAccessor"/> is exposed so
-    /// each test arranges the ambient context as needed.
+    /// behaviour at a time. <see cref="CallerAccessor"/> is exposed so each
+    /// test arranges the caller identity (tenant-user / human / null) as
+    /// needed.
     /// </summary>
     private sealed class Fixture
     {
         public IDirectoryService Directory { get; } = Substitute.For<IDirectoryService>();
         public IActorProxyFactory ActorProxyFactory { get; } = Substitute.For<IActorProxyFactory>();
-        public IHttpContextAccessor HttpContextAccessor { get; } = Substitute.For<IHttpContextAccessor>();
+        public IAuthenticatedCallerAccessor CallerAccessor { get; } = Substitute.For<IAuthenticatedCallerAccessor>();
         public IUnitConnectorConfigStore ConnectorConfigStore { get; } = Substitute.For<IUnitConnectorConfigStore>();
         public ISkillBundleResolver BundleResolver { get; } = Substitute.For<ISkillBundleResolver>();
         public ISkillBundleValidator BundleValidator { get; } = Substitute.For<ISkillBundleValidator>();
@@ -167,19 +153,18 @@ public class UnitCreationServiceTests
         public Cvoya.Spring.Core.Catalog.IRuntimeCatalog? RuntimeCatalog { get; }
         public UnitCreationService Service { get; }
 
-        /// <param name="fallbackGuid">UUID returned when the resolver is called with the fallback username ("api").</param>
-        /// <param name="aliceGuid">UUID returned when the resolver is called with any other username.</param>
         /// <param name="runtimeCatalog">
         /// Optional runtime catalogue. When supplied, the auto-start gate
         /// (#2204) wires up; without it the gate short-circuits to Draft
         /// for the same reason production wiring without a catalogue does.
         /// </param>
-        public Fixture(
-            Guid fallbackGuid,
-            Guid aliceGuid,
-            Cvoya.Spring.Core.Catalog.IRuntimeCatalog? runtimeCatalog = null)
+        public Fixture(Cvoya.Spring.Core.Catalog.IRuntimeCatalog? runtimeCatalog = null)
         {
             RuntimeCatalog = runtimeCatalog;
+            // Default to "out of request" — tests that exercise the
+            // creator-grant branch arrange the caller explicitly.
+            CallerAccessor.GetCallerAddressAsync(Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult<Address?>(null));
             Directory
                 .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
                 .Returns(Task.CompletedTask);
@@ -188,26 +173,11 @@ public class UnitCreationServiceTests
             ActorProxyFactory
                 .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
                 .Returns(Proxy);
-            // IHumanActor resolution is used for the mirror grant; returning
-            // null would throw NRE inside the service's try/catch — tests
-            // treat that as a non-fatal path and don't care about the mirror
-            // itself, but wiring a stub keeps logs clean.
             ActorProxyFactory
                 .CreateActorProxy<IHumanActor>(Arg.Any<ActorId>(), Arg.Any<string>())
                 .Returns(Substitute.For<IHumanActor>());
 
-            // Wire a real ServiceCollection so the scope factory returns a
-            // mock IHumanIdentityResolver without needing a real DbContext.
-            var identityResolver = Substitute.For<IHumanIdentityResolver>();
-            identityResolver
-                .ResolveByUsernameAsync(UnitCreationService.FallbackCreatorId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
-                .Returns(fallbackGuid);
-            identityResolver
-                .ResolveByUsernameAsync(Arg.Is<string>(s => s != UnitCreationService.FallbackCreatorId), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-                .Returns(aliceGuid);
-
             var services = new ServiceCollection();
-            services.AddScoped<IHumanIdentityResolver>(_ => identityResolver);
             var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
             TenantContext.CurrentTenantId.Returns(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
@@ -215,7 +185,7 @@ public class UnitCreationServiceTests
             Service = new UnitCreationService(
                 Directory,
                 ActorProxyFactory,
-                HttpContextAccessor,
+                CallerAccessor,
                 ConnectorConfigStore,
                 Array.Empty<IConnectorType>(),
                 BundleResolver,
@@ -275,8 +245,7 @@ public class UnitCreationServiceTests
         // by walking the directory's ListAllAsync result and matching on
         // DisplayName == slug. The test seeds those entries so the lookup
         // returns deterministic UUIDs.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        var fixture = new Fixture();
 
         var techLeadUuid = new Guid("aadaadaa-0000-0000-0000-000000000001");
         var backendUuid = new Guid("aadaadaa-0000-0000-0000-000000000002");
@@ -335,8 +304,7 @@ public class UnitCreationServiceTests
         // in unit_subunit_memberships under the actor's coordinator). The
         // template path forwards the add through the actor proxy regardless
         // of scheme, so the assertion is symmetric with the agent case.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        var fixture = new Fixture();
 
         var members = new[]
         {
@@ -360,8 +328,7 @@ public class UnitCreationServiceTests
         // Regression test for #374. Template-created agents should be
         // auto-registered in the directory so GET /api/v1/agents returns them
         // and the dashboard's Agents section populates.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        var fixture = new Fixture();
 
         var members = new[]
         {
@@ -398,8 +365,7 @@ public class UnitCreationServiceTests
         // Idempotency: if the agent already exists in the directory (e.g.
         // created via `spring agent create` before being added to the unit),
         // the existing entry is preserved — no duplicate, no error.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        var fixture = new Fixture();
 
         // Seed the directory so manifest slug "tech-lead" resolves to a
         // stable Guid and looks already-registered to the auto-register
@@ -454,8 +420,7 @@ public class UnitCreationServiceTests
         // Draft until the operator pushes a structured execution block
         // through `PUT /units/{id}/execution`. PR-2 will revisit the
         // direct-create flow to take the structured shape.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        var fixture = new Fixture();
 
         var result = await fixture.Service.CreateAsync(
             new CreateUnitRequest(
@@ -479,8 +444,7 @@ public class UnitCreationServiceTests
         // Model + provider supplied but no credential resolvable: the unit
         // cannot be validated end-to-end yet, so it stays in Draft. The
         // user finishes configuration and later calls /revalidate.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        var fixture = new Fixture();
         fixture.CredentialResolver
             .ResolveAsync(
                 Arg.Any<string>(), Arg.Any<Cvoya.Spring.Core.Catalog.AuthMethod>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
@@ -509,8 +473,7 @@ public class UnitCreationServiceTests
     [Fact]
     public async Task CreateAsync_WithoutModel_StatusIsDraft()
     {
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        var fixture = new Fixture();
 
         var result = await fixture.CreateAsync("no-model-unit");
 
@@ -550,8 +513,7 @@ public class UnitCreationServiceTests
                         CredentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN"),
                 }));
 
-        var fixture = new Fixture(FallbackGuid, AliceGuid, runtimeCatalog);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        var fixture = new Fixture(runtimeCatalog);
 
         // Simulate the execution row that PersistUnitExecutionAsync wrote
         // (manifest path), so the gate reads back a fully configured unit.
@@ -631,8 +593,7 @@ public class UnitCreationServiceTests
                         CredentialEnvVar: "CLAUDE_CODE_OAUTH_TOKEN"),
                 }));
 
-        var fixture = new Fixture(FallbackGuid, AliceGuid, runtimeCatalog);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        var fixture = new Fixture(runtimeCatalog);
         fixture.ExecutionStore
             .GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new Cvoya.Spring.Core.Execution.UnitExecutionDefaults(
@@ -690,8 +651,7 @@ public class UnitCreationServiceTests
         // hint and no provider, so a direct model-only create cannot form
         // a structured model and writes no execution block. Operators set
         // the structured model via the dedicated execution-set endpoint.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        var fixture = new Fixture();
 
         await fixture.Service.CreateAsync(
             new CreateUnitRequest(
@@ -727,8 +687,7 @@ public class UnitCreationServiceTests
     {
         // ADR-0038: provider was dropped from the unit-create wire shape;
         // hosting still flows through SetMetadataAsync.
-        var fixture = new Fixture(FallbackGuid, AliceGuid);
-        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        var fixture = new Fixture();
 
         await fixture.Service.CreateAsync(
             new CreateUnitRequest(

@@ -143,7 +143,7 @@ public static class UnitTeamMembershipEndpoints
 
     private static async Task<IResult> ListAsync(
         string id,
-        HttpContext httpContext,
+        [FromServices] IAuthenticatedCallerAccessor callerAccessor,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IPermissionService permissionService,
         [FromServices] IUnitHumanMembershipStore membershipStore,
@@ -154,7 +154,7 @@ public static class UnitTeamMembershipEndpoints
             PermissionLevel.Viewer,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {
@@ -168,7 +168,7 @@ public static class UnitTeamMembershipEndpoints
     private static async Task<IResult> AddAsync(
         string id,
         AddUnitHumanMemberRequest request,
-        HttpContext httpContext,
+        [FromServices] IAuthenticatedCallerAccessor callerAccessor,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IPermissionService permissionService,
         [FromServices] IUnitHumanMembershipStore membershipStore,
@@ -194,7 +194,7 @@ public static class UnitTeamMembershipEndpoints
             PermissionLevel.Owner,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {
@@ -233,7 +233,7 @@ public static class UnitTeamMembershipEndpoints
         string id,
         Guid humanId,
         UpdateUnitHumanMemberRequest request,
-        HttpContext httpContext,
+        [FromServices] IAuthenticatedCallerAccessor callerAccessor,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IPermissionService permissionService,
         [FromServices] IUnitHumanMembershipStore membershipStore,
@@ -253,7 +253,7 @@ public static class UnitTeamMembershipEndpoints
             PermissionLevel.Owner,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {
@@ -295,7 +295,7 @@ public static class UnitTeamMembershipEndpoints
     private static async Task<IResult> RemoveAsync(
         string id,
         Guid humanId,
-        HttpContext httpContext,
+        [FromServices] IAuthenticatedCallerAccessor callerAccessor,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IPermissionService permissionService,
         [FromServices] IUnitHumanMembershipStore membershipStore,
@@ -313,7 +313,7 @@ public static class UnitTeamMembershipEndpoints
             PermissionLevel.Owner,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {
@@ -326,7 +326,7 @@ public static class UnitTeamMembershipEndpoints
 
     private static async Task<IResult> ListSubUnitMembersAsync(
         string id,
-        HttpContext httpContext,
+        [FromServices] IAuthenticatedCallerAccessor callerAccessor,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IPermissionService permissionService,
         [FromServices] IUnitSubunitMembershipRepository subunitRepository,
@@ -337,7 +337,7 @@ public static class UnitTeamMembershipEndpoints
             PermissionLevel.Viewer,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {
@@ -352,7 +352,7 @@ public static class UnitTeamMembershipEndpoints
         string id,
         Guid agentId,
         UpdateUnitAgentMemberRequest request,
-        HttpContext httpContext,
+        [FromServices] IAuthenticatedCallerAccessor callerAccessor,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IPermissionService permissionService,
         [FromServices] IUnitMembershipRepository membershipRepository,
@@ -372,7 +372,7 @@ public static class UnitTeamMembershipEndpoints
             PermissionLevel.Owner,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {
@@ -419,7 +419,7 @@ public static class UnitTeamMembershipEndpoints
         string id,
         Guid subUnitId,
         UpdateUnitSubUnitMemberRequest request,
-        HttpContext httpContext,
+        [FromServices] IAuthenticatedCallerAccessor callerAccessor,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IPermissionService permissionService,
         [FromServices] IUnitSubunitMembershipRepository subunitRepository,
@@ -439,7 +439,7 @@ public static class UnitTeamMembershipEndpoints
             PermissionLevel.Owner,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {

@@ -453,7 +453,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
         _factory.ThreadQueryService
-            .ListInboxAsync(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, DateTimeOffset>?>(), Arg.Any<CancellationToken>())
+            .ListInboxAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<IReadOnlyDictionary<string, DateTimeOffset>?>(), Arg.Any<CancellationToken>())
             .Returns(new List<InboxItem>
             {
                 new("c-9", "agent://ada", "human://local-dev-user", now, "Approve merge?"),
@@ -480,6 +480,21 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
 
         public IMessageRouter MessageRouter { get; } = Substitute.For<IMessageRouter>();
 
+        /// <summary>
+        /// Substitute resolver (#2766) that maps the calling TenantUser to a
+        /// non-empty Human-id set so the inbox endpoint reaches the mocked
+        /// <see cref="ThreadQueryService"/> without needing real Human rows
+        /// seeded in the in-memory DbContext.
+        /// </summary>
+        public IInboxIdentityResolver InboxIdentityResolver { get; } = Substitute.For<IInboxIdentityResolver>();
+
+        public Factory()
+        {
+            InboxIdentityResolver
+                .ResolveHumanIdsAsync(Arg.Any<Cvoya.Spring.Core.Messaging.Address>(), Arg.Any<CancellationToken>())
+                .Returns(new[] { new Guid("11111111-2222-3333-4444-555555555555") });
+        }
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             base.ConfigureWebHost(builder);
@@ -487,7 +502,8 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
             {
                 var descriptors = services
                     .Where(d => d.ServiceType == typeof(IThreadQueryService)
-                             || d.ServiceType == typeof(IMessageRouter))
+                             || d.ServiceType == typeof(IMessageRouter)
+                             || d.ServiceType == typeof(IInboxIdentityResolver))
                     .ToList();
                 foreach (var d in descriptors)
                 {
@@ -496,6 +512,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
 
                 services.AddSingleton(ThreadQueryService);
                 services.AddSingleton(MessageRouter);
+                services.AddSingleton(InboxIdentityResolver);
             });
         }
     }

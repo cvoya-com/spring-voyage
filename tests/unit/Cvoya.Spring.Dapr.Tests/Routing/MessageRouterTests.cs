@@ -227,7 +227,10 @@ public class MessageRouterTests
         var expectedResponse = CreateResponse(message);
 
         _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
-        _permissionService.ResolveEffectivePermissionAsync(Hex(HumanAuthorisedId), Hex(UnitOneId), Arg.Any<CancellationToken>())
+        _permissionService.ResolveEffectivePermissionAsync(
+                Arg.Is<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanAuthorisedId),
+                UnitOneId,
+                Arg.Any<CancellationToken>())
             .Returns(PermissionLevel.Operator);
 
         var unitProxy = Substitute.For<IAgent>();
@@ -249,7 +252,10 @@ public class MessageRouterTests
         var message = CreateMessageFromHuman(destination, HumanUnauthorisedId);
 
         _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
-        _permissionService.ResolveEffectivePermissionAsync(Hex(HumanUnauthorisedId), Hex(UnitOneId), Arg.Any<CancellationToken>())
+        _permissionService.ResolveEffectivePermissionAsync(
+                Arg.Is<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanUnauthorisedId),
+                UnitOneId,
+                Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
         var result = await _router.RouteAsync(message, ct);
@@ -308,7 +314,7 @@ public class MessageRouterTests
         result.IsSuccess.ShouldBeTrue();
         // Permission service should NOT have been called for agent-to-unit routing.
         await _permissionService.DidNotReceive().ResolveEffectivePermissionAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+            Arg.Any<Address>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

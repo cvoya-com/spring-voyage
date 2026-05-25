@@ -75,6 +75,14 @@ internal static class ServiceCollectionExtensionsObservability
         // without touching the endpoints.
         services.TryAddScoped<IThreadQueryService, ThreadQueryService>();
 
+        // Inbox identity resolver (#2766). Maps the calling TenantUser to
+        // the set of HumanEntity ids the inbox query should match against.
+        // OSS default returns every Human in the tenant; the cloud overlay
+        // registers a tenant-aware variant via TryAddScoped that walks the
+        // explicit Human → TenantUser mapping rows ADR-0047 §7 defers to
+        // v0.2.
+        services.TryAddScoped<IInboxIdentityResolver, OssInboxIdentityResolver>();
+
         // Single-message lookup (#1209 / #2054). Backs
         // `GET /api/v1/messages/{id}` and `spring message show <id>`. Reads
         // from the `messages` table directly; cloud overlays can swap the

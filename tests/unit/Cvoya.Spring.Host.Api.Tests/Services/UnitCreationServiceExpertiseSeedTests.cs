@@ -93,7 +93,7 @@ public class UnitCreationServiceExpertiseSeedTests
         var service = new UnitCreationService(
             directory,
             actorProxyFactory,
-            Substitute.For<IHttpContextAccessor>(),
+            Substitute.For<Cvoya.Spring.Host.Api.Auth.IAuthenticatedCallerAccessor>(),
             Substitute.For<IUnitConnectorConfigStore>(),
             Array.Empty<IConnectorType>(),
             Substitute.For<ISkillBundleResolver>(),

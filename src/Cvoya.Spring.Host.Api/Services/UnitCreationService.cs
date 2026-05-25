@@ -6,7 +6,6 @@ namespace Cvoya.Spring.Host.Api.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -19,20 +18,19 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Manifest;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -58,7 +56,7 @@ public class UnitCreationService : IUnitCreationService
 
     private readonly IDirectoryService _directoryService;
     private readonly IActorProxyFactory _actorProxyFactory;
-    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IAuthenticatedCallerAccessor _callerAccessor;
     private readonly IUnitConnectorConfigStore _connectorConfigStore;
     private readonly IReadOnlyList<IConnectorType> _connectorTypes;
     private readonly ISkillBundleResolver _bundleResolver;
@@ -85,7 +83,7 @@ public class UnitCreationService : IUnitCreationService
     public UnitCreationService(
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
-        IHttpContextAccessor httpContextAccessor,
+        IAuthenticatedCallerAccessor callerAccessor,
         IUnitConnectorConfigStore connectorConfigStore,
         IEnumerable<IConnectorType> connectorTypes,
         ISkillBundleResolver bundleResolver,
@@ -107,7 +105,7 @@ public class UnitCreationService : IUnitCreationService
 
         _directoryService = directoryService;
         _actorProxyFactory = actorProxyFactory;
-        _httpContextAccessor = httpContextAccessor;
+        _callerAccessor = callerAccessor;
         _connectorConfigStore = connectorConfigStore;
         _connectorTypes = connectorTypes.ToList();
         _bundleResolver = bundleResolver;
@@ -801,9 +799,20 @@ public class UnitCreationService : IUnitCreationService
             // service-to-actor calls) so they don't need this grant, but the
             // creator will need it for every subsequent HTTP call they make
             // to this unit.
-            var creatorGuid = await ResolveCreatorGuidAsync(cancellationToken);
-            var creatorEntry = new UnitPermissionEntry(creatorGuid.ToString(), PermissionLevel.Owner);
-            await proxy.SetHumanPermissionAsync(creatorGuid, creatorEntry, cancellationToken);
+            //
+            // #2768: when the caller is a tenant-user (OSS operator, or a
+            // cloud-overlay tenant user), the unit_human_permissions row
+            // carries no information — the OSS PermissionService short-
+            // circuits tenant-user to implicit Owner, and the cloud overlay
+            // keys authorisation off its own per-tenant-user model. Skip the
+            // grant in that case rather than auto-minting a phantom Human
+            // row to back it.
+            var creator = await _callerAccessor.GetCallerAddressAsync(cancellationToken);
+            if (creator is { Scheme: Address.HumanScheme })
+            {
+                var creatorEntry = new UnitPermissionEntry(creator.Id.ToString(), PermissionLevel.Owner);
+                await proxy.SetHumanPermissionAsync(creator.Id, creatorEntry, cancellationToken);
+            }
 
             // #2044 / ADR-0040: the human-side mirror onto
             // HumanActor.SetPermissionForUnitAsync is gone. The
@@ -1362,35 +1371,6 @@ public class UnitCreationService : IUnitCreationService
         throw new UnitCreationBindingException(
             UnitCreationBindingFailureReason.UnknownConnectorType,
             $"Connector '{identifier}' is not registered on this server.");
-    }
-
-    /// <summary>
-    /// Resolves the stable UUID used to grant Owner on a freshly created unit.
-    /// Reads the authenticated user's <c>NameIdentifier</c> claim and converts
-    /// it to a UUID via <see cref="IHumanIdentityResolver"/> (upsert on first
-    /// contact). Falls back to <see cref="FallbackCreatorId"/> when no
-    /// authenticated principal is available — e.g. out-of-request contexts. In
-    /// local-dev mode the LocalDev auth handler surfaces <c>local-dev-user</c>,
-    /// so the grant lands on the right identity without needing the fallback.
-    /// </summary>
-    private async Task<Guid> ResolveCreatorGuidAsync(CancellationToken cancellationToken)
-    {
-        var username = FallbackCreatorId;
-        var user = _httpContextAccessor.HttpContext?.User;
-        if (user?.Identity?.IsAuthenticated == true)
-        {
-            var claim = user.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (!string.IsNullOrWhiteSpace(claim))
-            {
-                username = claim;
-            }
-        }
-
-        // Use a child scope so we get a fresh scoped IHumanIdentityResolver
-        // even when UnitCreationService is registered as transient / singleton.
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var resolver = scope.ServiceProvider.GetRequiredService<IHumanIdentityResolver>();
-        return await resolver.ResolveByUsernameAsync(username, null, cancellationToken);
     }
 
     private static (string Scheme, string Path)? ResolveMemberAddress(MemberManifest member)

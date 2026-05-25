@@ -302,7 +302,7 @@ public class ThreadQueryServiceTests : IDisposable
             });
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync(new[] { savasp.Id }, null, ct);
 
         inbox.Count.ShouldBe(1);
         inbox[0].Human.ShouldBe($"human:{savasp.Id:N}");
@@ -327,7 +327,7 @@ public class ThreadQueryServiceTests : IDisposable
             });
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync(new[] { savasp.Id }, null, ct);
 
         inbox.ShouldBeEmpty();
     }
@@ -346,7 +346,7 @@ public class ThreadQueryServiceTests : IDisposable
             new[] { NewMessage(ada, alice, "For alice", DateTimeOffset.UtcNow.AddMinutes(-1)) });
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync(new[] { savasp.Id }, null, ct);
 
         inbox.ShouldBeEmpty();
     }
@@ -371,7 +371,7 @@ public class ThreadQueryServiceTests : IDisposable
             });
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync(new[] { savasp.Id }, null, ct);
 
         inbox.Count.ShouldBe(1);
         inbox[0].From.ShouldBe($"agent:{ada.Id:N}");
@@ -401,7 +401,7 @@ public class ThreadQueryServiceTests : IDisposable
             participantKeyOverride: "fresh");
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync(new[] { savasp.Id }, null, ct);
 
         inbox.Count.ShouldBe(2);
         inbox[0].ThreadId.ShouldBe(GuidFormatter.Format(freshId));
@@ -427,7 +427,7 @@ public class ThreadQueryServiceTests : IDisposable
             });
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync(new[] { savasp.Id }, null, ct);
 
         inbox.Count.ShouldBe(1);
         inbox[0].UnreadCount.ShouldBe(3);
@@ -458,7 +458,7 @@ public class ThreadQueryServiceTests : IDisposable
         };
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", lastReadAt, ct);
+        var inbox = await svc.ListInboxAsync(new[] { savasp.Id }, lastReadAt, ct);
 
         inbox.Count.ShouldBe(1);
         inbox[0].UnreadCount.ShouldBe(1);
@@ -487,7 +487,7 @@ public class ThreadQueryServiceTests : IDisposable
         };
 
         var svc = BuildService();
-        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", lastReadAt, ct);
+        var inbox = await svc.ListInboxAsync(new[] { savasp.Id }, lastReadAt, ct);
 
         inbox.Count.ShouldBe(1);
         inbox[0].UnreadCount.ShouldBe(0);
@@ -506,7 +506,7 @@ public class ThreadQueryServiceTests : IDisposable
 
         using var otherDb = new SpringDbContext(_dbOptions, new StaticTenantContext(OtherTenantId));
         var svc = new ThreadQueryService(otherDb, _participantResolver);
-        var inbox = await svc.ListInboxAsync($"human:{savasp.Id:N}", null, ct);
+        var inbox = await svc.ListInboxAsync(new[] { savasp.Id }, null, ct);
 
         inbox.ShouldBeEmpty();
     }

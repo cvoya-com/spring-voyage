@@ -7,19 +7,18 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Services;
 using Cvoya.Spring.Manifest;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -44,8 +43,6 @@ using Xunit;
 /// </summary>
 public class UnitCreationServiceDisplayNameTests
 {
-    private static readonly Guid FallbackGuid = new("00000000-0000-0000-0000-000000000001");
-    private static readonly Guid AliceGuid = new("aaaaaaaa-0000-0000-0000-000000000001");
 
     [Fact]
     public async Task CreateFromManifestAsync_ManifestDisplayName_LandsOnDirectoryEntry()
@@ -147,7 +144,7 @@ public class UnitCreationServiceDisplayNameTests
     {
         public IDirectoryService Directory { get; } = Substitute.For<IDirectoryService>();
         public IActorProxyFactory ActorProxyFactory { get; } = Substitute.For<IActorProxyFactory>();
-        public IHttpContextAccessor HttpContextAccessor { get; } = Substitute.For<IHttpContextAccessor>();
+        public IAuthenticatedCallerAccessor CallerAccessor { get; } = Substitute.For<IAuthenticatedCallerAccessor>();
         public IUnitConnectorConfigStore ConnectorConfigStore { get; } = Substitute.For<IUnitConnectorConfigStore>();
         public ISkillBundleResolver BundleResolver { get; } = Substitute.For<ISkillBundleResolver>();
         public ISkillBundleValidator BundleValidator { get; } = Substitute.For<ISkillBundleValidator>();
@@ -159,7 +156,9 @@ public class UnitCreationServiceDisplayNameTests
 
         public Fixture()
         {
-            HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+            // Display-name tests run out-of-request; no caller address.
+            CallerAccessor.GetCallerAddressAsync(Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult<Address?>(null));
             Directory
                 .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
                 .Returns(Task.CompletedTask);
@@ -171,16 +170,7 @@ public class UnitCreationServiceDisplayNameTests
                 .CreateActorProxy<IHumanActor>(Arg.Any<ActorId>(), Arg.Any<string>())
                 .Returns(Substitute.For<IHumanActor>());
 
-            var identityResolver = Substitute.For<IHumanIdentityResolver>();
-            identityResolver
-                .ResolveByUsernameAsync(UnitCreationService.FallbackCreatorId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
-                .Returns(FallbackGuid);
-            identityResolver
-                .ResolveByUsernameAsync(Arg.Is<string>(s => s != UnitCreationService.FallbackCreatorId), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-                .Returns(AliceGuid);
-
             var services = new ServiceCollection();
-            services.AddScoped<IHumanIdentityResolver>(_ => identityResolver);
             var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
             TenantContext.CurrentTenantId.Returns(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
@@ -188,7 +178,7 @@ public class UnitCreationServiceDisplayNameTests
             Service = new UnitCreationService(
                 Directory,
                 ActorProxyFactory,
-                HttpContextAccessor,
+                CallerAccessor,
                 ConnectorConfigStore,
                 Array.Empty<IConnectorType>(),
                 BundleResolver,

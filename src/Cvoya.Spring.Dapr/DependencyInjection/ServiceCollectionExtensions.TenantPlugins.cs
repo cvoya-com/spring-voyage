@@ -95,6 +95,14 @@ internal static class ServiceCollectionExtensionsTenantPlugins
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<ITenantSeedProvider, DefaultTenantRecordSeedProvider>());
 
+        // Seed the OSS operator TenantUser pinned at OssTenantUserIds.Operator
+        // (#2768). Priority slot 7 runs the row in after the tenant-record
+        // seeder (priority 5) and before the plugin seeders (10 / 20) so any
+        // downstream seeder that wants to declare a soft FK to
+        // tenant_users.id has the row available.
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<ITenantSeedProvider, DefaultTenantUserSeedProvider>());
+
         // Credential-health store (#686). Scoped because it holds a
         // SpringDbContext. The DelegatingHandler that feeds this store at
         // use-time opens a child DI scope per write so it can be invoked

@@ -4,46 +4,44 @@
 namespace Cvoya.Spring.Dapr.Auth;
 
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Units;
 
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Default <see cref="IPermissionService"/>. Resolves (humanId, unitId) pairs
-/// by querying the <c>unit_human_permissions</c> EF table directly (#2044 /
-/// ADR-0040). Implements the hierarchy-aware resolver behind
-/// <see cref="ResolveEffectivePermissionAsync"/> (#414) by walking parent
-/// units via <see cref="IUnitHierarchyResolver"/> and consulting each unit's
-/// <see cref="UnitPermissionInheritance"/> setting so opaque sub-units block
-/// ancestor authority from cascading through them.
+/// Default <see cref="IPermissionService"/>. Resolves a caller's effective
+/// <see cref="PermissionLevel"/> on a unit, branching on the caller's
+/// <see cref="Address.Scheme"/>:
+///
+/// <list type="bullet">
+///   <item><description><c>tenant-user://&lt;operator&gt;</c> — OSS implicit
+///     <see cref="PermissionLevel.Owner"/> on every unit (#2768). The OSS
+///     deployment ships with exactly one TenantUser; an explicit grant row
+///     carries no information.</description></item>
+///   <item><description><c>human://&lt;id&gt;</c> — direct/inherited lookup
+///     against the <c>unit_human_permissions</c> EF table, walking ancestor
+///     units via <see cref="IUnitHierarchyResolver"/> and consulting each
+///     unit's <see cref="UnitPermissionInheritance"/> setting so opaque
+///     sub-units block ancestor authority from cascading through them.</description></item>
+///   <item><description>Any other scheme — <c>null</c> (no permission).</description></item>
+/// </list>
 /// </summary>
 /// <remarks>
-/// Pre-#2044 the service held an <see cref="Dapr.Actors.Client.IActorProxyFactory"/>
-/// and read every grant through a unit-actor proxy, cold-activating each
-/// ancestor on the walk. Post-#2044 grants are EF rows, so the resolution
-/// is a single indexed SQL read per hop. Per ADR-0040 / #2049 the
-/// <see cref="UnitPermissionInheritance"/> flag also lives on the
-/// <c>unit_live_config</c> EF row, so the inheritance lookup is a SQL
-/// read through <see cref="IUnitLiveConfigStore"/> — no actor proxy is
-/// required anywhere in the resolver.
-///
-/// <para>
-/// #1491: The <paramref name="scopeFactory"/> resolves a scoped
-/// <see cref="IHumanIdentityResolver"/> per call to convert the incoming
-/// username string (from <see cref="System.Security.Claims.ClaimTypes.NameIdentifier"/>)
-/// into a stable UUID before querying the unit's permission row.
-/// </para>
+/// Pre-#2768 this service accepted a string username and side-effect-upserted
+/// a HumanEntity via <c>IHumanIdentityResolver.ResolveByUsernameAsync</c>
+/// during the permission walk, which auto-minted a phantom "local-dev-user"
+/// row on every OSS request and produced the conflation that #2766
+/// surfaces. The Address-shaped contract removes the upsert: every caller
+/// arrives with a typed scheme + Guid identity, and only humans key into
+/// the grant table.
 /// </remarks>
 public class PermissionService(
     IUnitHumanPermissionStore permissionStore,
     IUnitHierarchyResolver hierarchyResolver,
     IUnitLiveConfigStore liveConfigStore,
-    ILoggerFactory loggerFactory,
-    IServiceScopeFactory scopeFactory) : IPermissionService
+    ILoggerFactory loggerFactory) : IPermissionService
 {
     /// <summary>
     /// Matches <c>UnitMembershipCoordinator.MaxCycleDetectionDepth</c> so the
@@ -57,59 +55,60 @@ public class PermissionService(
 
     /// <inheritdoc />
     public async Task<PermissionLevel?> ResolvePermissionAsync(
-        string humanId,
-        string unitId,
+        Address caller,
+        Guid unitId,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(caller);
+
+        if (IsTenantUserScheme(caller.Scheme))
+        {
+            // OSS implicit-owner rule (#2768): the single operator TenantUser
+            // has Owner everywhere by construction. Direct and effective
+            // resolve to the same value for the operator.
+            return PermissionLevel.Owner;
+        }
+
+        if (!IsHumanScheme(caller.Scheme))
+        {
+            return null;
+        }
+
         try
         {
-            var humanGuid = await ResolveHumanGuidAsync(humanId, cancellationToken);
-            if (humanGuid == Guid.Empty)
-            {
-                return null;
-            }
-
-            if (!TryParseUnitGuid(unitId, out var unitGuid))
-            {
-                return null;
-            }
-
-            return await permissionStore.GetPermissionAsync(unitGuid, humanGuid, cancellationToken);
+            return await permissionStore.GetPermissionAsync(unitId, caller.Id, cancellationToken);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "Failed to resolve direct permission for human {HumanId} in unit {UnitId}",
-                humanId, unitId);
+                "Failed to resolve direct permission for {Caller} in unit {UnitId}",
+                caller, unitId);
             return null;
         }
     }
 
     /// <inheritdoc />
     public async Task<PermissionLevel?> ResolveEffectivePermissionAsync(
-        string humanId,
-        string unitId,
+        Address caller,
+        Guid unitId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(humanId) || string.IsNullOrEmpty(unitId))
+        ArgumentNullException.ThrowIfNull(caller);
+
+        if (IsTenantUserScheme(caller.Scheme))
+        {
+            // OSS implicit-owner rule (#2768): no walk needed — the operator
+            // owns every unit in the tenant. Cloud overlays that wire a
+            // per-tenant-user permission model replace this service via DI.
+            return PermissionLevel.Owner;
+        }
+
+        if (!IsHumanScheme(caller.Scheme) || unitId == Guid.Empty)
         {
             return null;
         }
 
-        var humanGuid = await ResolveHumanGuidAsync(humanId, cancellationToken);
-        if (humanGuid == Guid.Empty)
-        {
-            return null;
-        }
-
-        if (!TryParseUnitGuid(unitId, out var unitGuid))
-        {
-            // The route-level id did not parse as a Guid — the unit does
-            // not exist in this deployment. Match the pre-#2044 directory-
-            // miss behaviour: surface as "no permission" rather than
-            // throwing, so a stale URL never leaks a 500 to the caller.
-            return null;
-        }
+        var humanGuid = caller.Id;
 
         // Step 1: explicit grant on the target unit always wins. A direct
         // grant is authoritative — including a deliberate downgrade. The
@@ -117,13 +116,13 @@ public class PermissionService(
         PermissionLevel? direct;
         try
         {
-            direct = await permissionStore.GetPermissionAsync(unitGuid, humanGuid, cancellationToken);
+            direct = await permissionStore.GetPermissionAsync(unitId, humanGuid, cancellationToken);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex,
                 "Effective-permission walk: direct read failed for human {HumanId} in unit {UnitId}",
-                humanId, unitId);
+                humanGuid, unitId);
             return null;
         }
 
@@ -142,8 +141,8 @@ public class PermissionService(
         //     silently promote a caller to admin;
         //   * a cycle is detected (defensive — membership should reject cycles
         //     on insertion, but a state-store anomaly must never loop us).
-        var visited = new HashSet<string>(StringComparer.Ordinal) { unitId };
-        var current = new Address("unit", unitGuid);
+        var visited = new HashSet<Guid> { unitId };
+        var current = new Address(Address.UnitScheme, unitId);
         var depth = 0;
 
         while (true)
@@ -152,7 +151,7 @@ public class PermissionService(
             {
                 _logger.LogWarning(
                     "Effective-permission walk exceeded max depth {MaxDepth} for human {HumanId} starting at {UnitId}; stopping.",
-                    MaxHierarchyDepth, humanId, unitId);
+                    MaxHierarchyDepth, humanGuid, unitId);
                 return null;
             }
 
@@ -165,7 +164,7 @@ public class PermissionService(
             {
                 _logger.LogWarning(ex,
                     "Effective-permission walk: parent lookup failed at {Current} for human {HumanId}; stopping walk.",
-                    current, humanId);
+                    current, humanGuid);
                 return null;
             }
 
@@ -183,7 +182,7 @@ public class PermissionService(
 
             foreach (var parent in parents)
             {
-                if (!visited.Add(ToKey(parent)))
+                if (!visited.Add(parent.Id))
                 {
                     continue;
                 }
@@ -198,7 +197,7 @@ public class PermissionService(
                 {
                     _logger.LogDebug(
                         "Effective-permission walk: unit {Current} is isolated; stopping ancestor walk for human {HumanId}.",
-                        current, humanId);
+                        current, humanGuid);
                     return best;
                 }
 
@@ -211,7 +210,7 @@ public class PermissionService(
                 {
                     _logger.LogWarning(ex,
                         "Effective-permission walk: direct read failed for human {HumanId} in ancestor {Parent}; continuing walk.",
-                        humanId, parent);
+                        humanGuid, parent);
                     continue;
                 }
 
@@ -244,47 +243,6 @@ public class PermissionService(
     }
 
     /// <summary>
-    /// Converts the incoming human identity string to a UUID. Creates a
-    /// short-lived scope to resolve a scoped <see cref="IHumanIdentityResolver"/>
-    /// and calls <c>ResolveByUsernameAsync</c> (upsert on first-contact).
-    /// Returns <see cref="Guid.Empty"/> when the resolver cannot map the
-    /// caller — surface as "no permission" rather than throw, matching the
-    /// pre-#2044 directory-miss behaviour.
-    /// </summary>
-    private async Task<Guid> ResolveHumanGuidAsync(
-        string humanId,
-        CancellationToken cancellationToken)
-    {
-        // #1695: identity-form callers (human:id:<uuid>) hand the GUID-hex
-        // through this seam directly. Without this guard the next branch
-        // calls ResolveByUsernameAsync(<guid-hex>) which doesn't match the
-        // canonical username row (e.g. "local-dev-user"), and the
-        // resolver's upsert-on-miss path creates a phantom humans row
-        // keyed by the GUID-hex. The phantom's distinct UUID never
-        // matches the unit's permission map → 403, plus a leaking row.
-        // Recognise the format and short-circuit so the lookup goes
-        // straight to the directory's id.
-        if (Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(humanId, out var identityFormGuid))
-        {
-            return identityFormGuid;
-        }
-
-        try
-        {
-            await using var scope = scopeFactory.CreateAsyncScope();
-            var resolver = scope.ServiceProvider.GetRequiredService<IHumanIdentityResolver>();
-            return await resolver.ResolveByUsernameAsync(humanId, null, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Could not resolve human UUID for username {HumanId}; treating as no permission.",
-                humanId);
-            return Guid.Empty;
-        }
-    }
-
-    /// <summary>
     /// Reads the unit's <see cref="UnitPermissionInheritance"/> flag from
     /// the <c>unit_live_config</c> EF row via
     /// <see cref="IUnitLiveConfigStore"/>. ADR-0040 / #2049 places the
@@ -312,8 +270,9 @@ public class PermissionService(
         }
     }
 
-    private static bool TryParseUnitGuid(string unitId, out Guid unitGuid)
-        => Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitId, out unitGuid);
+    private static bool IsTenantUserScheme(string? scheme)
+        => string.Equals(scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase);
 
-    private static string ToKey(Address address) => $"{address.Scheme}://{address.Path}";
+    private static bool IsHumanScheme(string? scheme)
+        => string.Equals(scheme, Address.HumanScheme, StringComparison.OrdinalIgnoreCase);
 }

@@ -1666,7 +1666,7 @@ public static class UnitEndpoints
         string id,
         string humanId,
         SetHumanPermissionRequest request,
-        HttpContext httpContext,
+        IAuthenticatedCallerAccessor callerAccessor,
         IDirectoryService directoryService,
         IPermissionService permissionService,
         IActorProxyFactory actorProxyFactory,
@@ -1678,7 +1678,7 @@ public static class UnitEndpoints
             PermissionLevel.Owner,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {
@@ -1717,7 +1717,7 @@ public static class UnitEndpoints
 
     private static async Task<IResult> GetHumanPermissionsAsync(
         string id,
-        HttpContext httpContext,
+        IAuthenticatedCallerAccessor callerAccessor,
         IDirectoryService directoryService,
         IPermissionService permissionService,
         IActorProxyFactory actorProxyFactory,
@@ -1728,7 +1728,7 @@ public static class UnitEndpoints
             PermissionLevel.Viewer,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {
@@ -1754,7 +1754,7 @@ public static class UnitEndpoints
     private static async Task<IResult> RemoveHumanPermissionAsync(
         string id,
         string humanId,
-        HttpContext httpContext,
+        IAuthenticatedCallerAccessor callerAccessor,
         IDirectoryService directoryService,
         IPermissionService permissionService,
         IActorProxyFactory actorProxyFactory,
@@ -1766,7 +1766,7 @@ public static class UnitEndpoints
             PermissionLevel.Owner,
             directoryService,
             permissionService,
-            httpContext,
+            callerAccessor,
             cancellationToken);
         if (!auth.Authorized)
         {

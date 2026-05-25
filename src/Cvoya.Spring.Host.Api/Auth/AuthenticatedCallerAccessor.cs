@@ -6,24 +6,50 @@ namespace Cvoya.Spring.Host.Api.Auth;
 using System.Security.Claims;
 
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Security;
+using Cvoya.Spring.Core.Tenancy;
 
 using Microsoft.AspNetCore.Http;
 
 /// <summary>
-/// Default <see cref="IAuthenticatedCallerAccessor"/> implementation. Reads
-/// the <see cref="ClaimTypes.NameIdentifier"/> claim from the ambient
-/// <see cref="HttpContext"/> to derive the caller's stable UUID, then emits
-/// the Guid-keyed address <c>human:&lt;uuid&gt;</c> via
-/// <see cref="IHumanIdentityResolver"/>. When no authenticated principal is
-/// present (out-of-request contexts, anonymous handlers) the accessor
-/// returns <see langword="null"/> — post-ADR-0036 there is no usable
-/// non-Guid fallback identity, and callers branch on null explicitly
-/// (#2405).
+/// Default <see cref="IAuthenticatedCallerAccessor"/> implementation. Per
+/// ADR-0047 §1 and #2768 the caller's identity in Spring Voyage is a
+/// <c>TenantUser</c> — an authenticated principal scoped to one tenant —
+/// not a <c>Human</c> (which models a unit team-member slot declared by a
+/// package). The accessor returns the canonical
+/// <c>tenant-user://&lt;OssTenantUserIds.Operator&gt;</c> address when the
+/// ambient <see cref="HttpContext"/> carries an authenticated principal in
+/// the OSS deployment.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Pre-#2768 this accessor side-effect-upserted a <see cref="Cvoya.Spring.Dapr.Data.Entities.HumanEntity"/>
+/// keyed on the JWT username on every authenticated request, then returned
+/// the synthetic <c>human://&lt;auto-minted-id&gt;</c> address as the
+/// caller identity. That conflated the caller with a package-declared
+/// team-member slot and left two HumanEntity rows on a fresh OSS install
+/// (the declared one + the auto-minted one) — the cause of the inbox bug
+/// #2766. Returning the OSS operator <c>tenant-user://</c> address
+/// directly removes the side effect and aligns the runtime model with
+/// ADR-0047 §1.
+/// </para>
+/// <para>
+/// When no authenticated principal is present (out-of-request contexts,
+/// anonymous handlers) the accessor returns <see langword="null"/> —
+/// post-ADR-0036 there is no usable non-Guid fallback identity and
+/// callers branch on null explicitly (#2405).
+/// </para>
+/// <para>
+/// The cloud overlay registers a tenant-aware variant via the
+/// <c>TryAdd*</c> seam on <see cref="IAuthenticatedCallerAccessor"/>:
+/// that implementation resolves <c>(tenant_id, auth_subject)</c> →
+/// existing/new <see cref="Cvoya.Spring.Dapr.Data.Entities.TenantUserEntity"/>
+/// row per ADR-0047 § 7, and returns the resulting
+/// <c>tenant-user://&lt;tenant-user-guid&gt;</c> address. This default
+/// stays the OSS single-operator shortcut.
+/// </para>
+/// </remarks>
 public sealed class AuthenticatedCallerAccessor(
-    IHttpContextAccessor httpContextAccessor,
-    IHumanIdentityResolver identityResolver) : IAuthenticatedCallerAccessor
+    IHttpContextAccessor httpContextAccessor) : IAuthenticatedCallerAccessor
 {
     /// <summary>
     /// Username surfaced by <see cref="GetUsername"/> when no authenticated
@@ -53,17 +79,27 @@ public sealed class AuthenticatedCallerAccessor(
     }
 
     /// <inheritdoc />
-    public async Task<Address?> GetCallerAddressAsync(CancellationToken cancellationToken = default)
+    public Task<Address?> GetCallerAddressAsync(CancellationToken cancellationToken = default)
     {
         var user = httpContextAccessor.HttpContext?.User;
         if (user?.Identity?.IsAuthenticated == true)
         {
+            // Defence-in-depth: require a NameIdentifier claim before
+            // accepting the principal. The OSS LocalDev auth handler always
+            // stamps one; a misconfigured upstream that authenticated without
+            // surfacing a subject should NOT silently grant the operator's
+            // identity.
             var claim = user.FindFirstValue(ClaimTypes.NameIdentifier);
             if (!string.IsNullOrWhiteSpace(claim))
             {
-                var displayName = user.FindFirstValue(ClaimTypes.Name);
-                var id = await identityResolver.ResolveByUsernameAsync(claim, displayName, cancellationToken);
-                return Address.ForIdentity("human", id);
+                // #2768: in the OSS deployment every authenticated request
+                // resolves to the single operator TenantUser pinned at
+                // OssTenantUserIds.Operator. The DefaultTenantUserSeedProvider
+                // materialises the row at host start, so there's no
+                // upsert/auto-mint here — the address returned is the seeded
+                // principal directly.
+                return Task.FromResult<Address?>(
+                    Address.ForIdentity(Address.TenantUserScheme, OssTenantUserIds.Operator));
             }
         }
 
@@ -71,6 +107,6 @@ public sealed class AuthenticatedCallerAccessor(
         // explicitly. Pre-#2405 we returned Address.For("human", "api"),
         // which throws InvalidAddressIdException post-ADR-0036 because
         // "api" is not a Guid — the fallback path was already dead.
-        return null;
+        return Task.FromResult<Address?>(null);
     }
 }

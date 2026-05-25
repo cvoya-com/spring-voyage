@@ -64,14 +64,19 @@ public interface IThreadQueryService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Lists inbox rows for the supplied human address — threads where
-    /// the human has received at least one message and has not replied
-    /// since. The predicate is a single SQL aggregate per (tenant, thread)
-    /// — "last received-by-human &gt; last sent-by-human" — so trailing
-    /// observability events such as <c>StateChanged</c> on the underlying
-    /// activity stream do not perturb the row (#1210). Rows drop off as
-    /// soon as the human's own <see cref="Cvoya.Spring.Core.Messaging.Message"/>
-    /// is dispatched on the thread.
+    /// Lists inbox rows for the supplied set of human ids — threads where
+    /// <em>any</em> of the named humans has received at least one message
+    /// and has not replied since. Per #2766 the inbox is keyed at the
+    /// <c>TenantUser</c> layer (ADR-0047 §1); callers resolve the calling
+    /// TenantUser's mapped Human set via
+    /// <see cref="IInboxIdentityResolver.ResolveHumanIdsAsync"/> and pass
+    /// the resulting collection here. The predicate becomes
+    /// <c>recipient_scheme = 'human' AND recipient_id IN (&lt;set&gt;)</c>
+    /// — a single SQL pass per (tenant, thread). Trailing observability
+    /// events such as <c>StateChanged</c> on the underlying activity stream
+    /// do not perturb the row (#1210). Rows drop off as soon as any of the
+    /// caller's mapped humans dispatches its own
+    /// <see cref="Cvoya.Spring.Core.Messaging.Message"/> on the thread.
     ///
     /// When <paramref name="lastReadAt"/> is supplied, each row's
     /// <see cref="InboxItem.UnreadCount"/> is set to the count of messages
@@ -79,15 +84,18 @@ public interface IThreadQueryService
     /// Missing entries mean "never read" (<see cref="DateTimeOffset.MinValue"/>),
     /// making every message count as unread.
     /// </summary>
-    /// <param name="humanAddress">The <c>scheme://path</c> of the human whose inbox to load.</param>
+    /// <param name="humanIds">
+    /// The set of <c>HumanEntity</c> ids the inbox query should match
+    /// recipient addresses against. An empty collection yields zero rows.
+    /// </param>
     /// <param name="lastReadAt">
     /// Optional per-thread read cursor — maps <c>threadId</c> to the last
-    /// time the human opened that thread. Pass <c>null</c> to skip unread
+    /// time the caller opened that thread. Pass <c>null</c> to skip unread
     /// computation (all rows get <c>UnreadCount = 0</c>).
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task<IReadOnlyList<InboxItem>> ListInboxAsync(
-        string humanAddress,
+        IReadOnlyCollection<Guid> humanIds,
         IReadOnlyDictionary<string, DateTimeOffset>? lastReadAt,
         CancellationToken cancellationToken);
 }
