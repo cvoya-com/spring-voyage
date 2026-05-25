@@ -404,12 +404,17 @@ public class SpringVoyageAgentLauncherTests
         // via SPRING_SYSTEM_PROMPT. The user's prompt body is preserved
         // as the tail. The universal response-discipline contract now
         // lives in the platform-prompt layer.
+        //
+        // #2738: the wrap is the deploy-persistent path's only delivery
+        // channel — context.Prompt here is raw definition.Instructions
+        // (no `## Platform Instructions` section to nest into) so the
+        // guard prepends as a top-of-body `### …` heading.
         var context = CreateContext() with { ConcurrentThreads = true };
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         var composed = prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"];
-        composed.ShouldStartWith("## Spring Voyage runtime guard — concurrent_threads is on");
+        composed.ShouldStartWith("### " + LauncherPromptFragments.ConcurrentThreadsGuardAnchor);
         composed.ShouldEndWith(context.Prompt);
     }
 
@@ -428,10 +433,37 @@ public class SpringVoyageAgentLauncherTests
     }
 
     /// <summary>
+    /// #2738: Compose is idempotent — when the ephemeral dispatch path
+    /// already rendered the guard in-band inside `## Platform
+    /// Instructions` the launcher's wrap must not double-apply.
+    /// </summary>
+    [Fact]
+    public async Task PrepareAsync_ConcurrentThreadsTrue_DoesNotDoubleApply_WhenPromptCarriesInBandGuard()
+    {
+        var assembled = "## Platform Instructions\n\n### About Spring Voyage\n\nintro\n\n"
+            + LauncherPromptFragments.ConcurrentThreadsGuard
+            + "\n\n## Role-specific instructions\n\nbody";
+        var context = CreateContext() with { ConcurrentThreads = true, Prompt = assembled };
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        var composed = prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"];
+        composed.ShouldBe(assembled);
+        var first = composed.IndexOf(
+            LauncherPromptFragments.ConcurrentThreadsGuardAnchor,
+            StringComparison.Ordinal);
+        var second = composed.IndexOf(
+            LauncherPromptFragments.ConcurrentThreadsGuardAnchor,
+            first + 1, StringComparison.Ordinal);
+        second.ShouldBe(-1);
+    }
+
+    /// <summary>
     /// #2682: the A2A-native Spring Voyage agent has no container /
     /// workspace concept, so the launcher returns null and the prompt
-    /// assembler omits the <c>## Container and workspace</c> section
-    /// entirely for runtimes that dispatch through this launcher.
+    /// assembler omits the <c>### Container and workspace</c> sub-
+    /// section entirely for runtimes that dispatch through this
+    /// launcher (heading level per #2738).
     /// </summary>
     [Fact]
     public void GetWorkspacePromptFragment_ReturnsNull()

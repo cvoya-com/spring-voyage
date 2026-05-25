@@ -9,8 +9,8 @@ using Cvoya.Spring.Core.Messaging;
 /// Resolves the launch subject's identity (kind, address, display name,
 /// declared role / expertise / parent units) into a pre-rendered
 /// markdown fragment the prompt assembler renders as the
-/// <c>## Who you are</c> section of the platform-instructions section
-/// (#2680).
+/// <c>### Who you are</c> sub-section inside
+/// <c>## Platform Instructions</c> (#2680, heading level per #2738).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -50,7 +50,7 @@ public interface IIdentityPromptContextResolver
     /// </param>
     /// <param name="cancellationToken">A token to cancel the resolution.</param>
     /// <returns>
-    /// A markdown fragment beginning with <c>## Who you are</c>, or
+    /// A markdown fragment beginning with <c>### Who you are</c>, or
     /// <c>null</c> when the subject has no identity to surface.
     /// </returns>
     Task<string?> ResolveAsync(Address subject, CancellationToken cancellationToken = default);

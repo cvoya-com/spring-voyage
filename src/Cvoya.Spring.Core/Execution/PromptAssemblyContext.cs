@@ -68,9 +68,23 @@ using Cvoya.Spring.Core.Skills;
 /// env vars, MCP discovery). Contributed by each
 /// <see cref="IAgentRuntimeLauncher"/> via
 /// <see cref="IAgentRuntimeLauncher.GetWorkspacePromptFragment"/>; the
-/// assembler renders it under a fixed <c>## Container and workspace</c>
+/// assembler renders it under a fixed <c>### Container and workspace</c>
 /// heading. <c>null</c> omits the section (the case for A2A-native
 /// runtimes that have no container/workspace concept).
+/// </param>
+/// <param name="ConcurrentThreadsGuard">
+/// When <c>true</c>, the assembler renders the platform-emitted
+/// <c>### Spring Voyage runtime guard — concurrent_threads is on</c>
+/// sub-section inside the <c>## Platform Instructions</c> section
+/// (ADR-0041 / #2096 / #2738). The guard names the contract every
+/// CLI-runtime agent must honour when N concurrent turns share a
+/// container — do not launch watchers, do not bind fixed ports, write
+/// thread-local state only, etc. Defaults to <c>false</c> so synthetic
+/// launch paths and tests that build a sparse context do not
+/// accidentally surface the guard; the two production callers
+/// (<see cref="IAgentBootstrapBundleProvider"/> for the bundle path
+/// and the per-actor dispatch context for the ephemeral path) set the
+/// flag from <see cref="AgentExecutionConfig.ConcurrentThreads"/>.
 /// </param>
 /// <remarks>
 /// <para>
@@ -106,4 +120,5 @@ public record PromptAssemblyContext(
     IReadOnlyList<PendingAmendment>? PendingAmendments = null,
     IReadOnlyList<string>? ConnectorPromptFragments = null,
     string? IdentityPromptFragment = null,
-    string? WorkspacePromptFragment = null);
+    string? WorkspacePromptFragment = null,
+    bool ConcurrentThreadsGuard = false);

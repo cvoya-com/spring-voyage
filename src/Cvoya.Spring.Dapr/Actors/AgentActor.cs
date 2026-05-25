@@ -637,13 +637,24 @@ public class AgentActor(
         // The always-on platform-tool catalog rides Layer 1
         // (IPlatformPromptProvider) since #2670, so no per-actor skill-
         // registry projection is required here.
+        //
+        // #2738: thread the resolved concurrent_threads flag through
+        // PromptAssemblyContext so the assembler can render the runtime
+        // guard in-band as a `### …` sub-section of `## Platform
+        // Instructions`. The actor caches the value via
+        // GetConcurrentThreadsAsync (single read of the agent
+        // definition); without it the assembler would never know the
+        // ephemeral SVA dispatch should see the guard.
+        var concurrentThreads = await GetConcurrentThreadsAsync(cancellationToken);
+
         return new PromptAssemblyContext(
             Policies: null,
             AgentInstructions: definition?.Instructions,
             EffectiveMetadata: effective,
             SkillBundles: unitBundles,
             AgentSkillBundles: agentBundles,
-            PendingAmendments: amendments);
+            PendingAmendments: amendments,
+            ConcurrentThreadsGuard: concurrentThreads);
     }
 
     /// <summary>

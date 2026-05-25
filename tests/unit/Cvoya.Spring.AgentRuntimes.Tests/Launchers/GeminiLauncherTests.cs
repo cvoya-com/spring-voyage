@@ -279,13 +279,16 @@ public class GeminiLauncherTests
         ex.Data[SpringException.IssueSourceDataKey].ShouldBe("credential");
     }
 
-    // #2668: the launcher-level ConcurrentThreadsGuard tests moved with
-    // the guard fold. The Gemini CLI never reads SPRING_SYSTEM_PROMPT —
-    // the guard now travels via GEMINI.md, which
-    // AgentBootstrapBundleProvider composes by calling
-    // LauncherPromptFragments.Compose against the assembled prompt before
-    // handing it to ContributeBundleAsync. The guard's delivery is
-    // therefore covered by AgentBootstrapBundleProviderTests.
+    // #2668 / #2738: the launcher-level ConcurrentThreadsGuard tests
+    // moved with the guard fold. The Gemini CLI never reads
+    // SPRING_SYSTEM_PROMPT — the guard now travels via GEMINI.md, which
+    // AgentBootstrapBundleProvider composes by threading
+    // `ConcurrentThreadsGuard: true` through PromptAssemblyContext
+    // (#2738 — was a post-assemble LauncherPromptFragments.Compose call
+    // pre-cutover) before handing the assembled body to
+    // ContributeBundleAsync. The guard's delivery is therefore covered
+    // by AgentBootstrapBundleProviderTests and the in-band render shape
+    // by PromptAssemblerTests.
 
     [Fact]
     public async Task PrepareAsync_SetsThreadIdBindingEnvVars_ToGeminiSessionFlags()

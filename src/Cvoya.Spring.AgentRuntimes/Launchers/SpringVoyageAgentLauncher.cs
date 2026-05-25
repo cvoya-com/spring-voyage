@@ -142,12 +142,20 @@ public class SpringVoyageAgentLauncher(
         //
         // SPRING_THREAD_ID and SPRING_SYSTEM_PROMPT have no D1-spec equivalents
         // and are retained as launcher-specific vars.
-        // Issue #2493: prepend the always-on ResponseDiscipline fragment
-        // (and the conditional ConcurrentThreadsGuard) before the user's
-        // assembled prompt. Same composition path the CLI launchers use,
-        // so every agent runtime sees the response-discipline instructions
-        // — including the Python reference agent that consumes
-        // SPRING_SYSTEM_PROMPT directly.
+        //
+        // #2738: the dispatch ephemeral path's assembler now renders the
+        // ConcurrentThreadsGuard fragment in-band inside `## Platform
+        // Instructions` (driven by AgentActor.BuildPromptAssemblyContextAsync
+        // setting ConcurrentThreadsGuard on the assembly context) so an
+        // ephemeral SVA already sees the guard via context.Prompt. The
+        // PersistentAgentLifecycle deploy path, however, calls this with
+        // context.Prompt = raw definition.Instructions (no `## Platform
+        // Instructions` section) — for that path the Compose helper still
+        // prepends the guard so a long-lived persistent SVA opting into
+        // concurrent_threads still sees the constraint at deploy time.
+        // The helper is idempotent: a prompt that already carries the
+        // in-band guard anchor is returned unchanged, so the ephemeral
+        // path does not double-apply.
         var assembledPrompt = LauncherPromptFragments.Compose(context.Prompt, context.ConcurrentThreads);
 
         var envVars = new Dictionary<string, string>
@@ -221,7 +229,8 @@ public class SpringVoyageAgentLauncher(
     /// own working directory rather than a per-agent workspace; there is
     /// no CLI surface for the prompt to describe, so this launcher
     /// returns <c>null</c> and the prompt assembler omits the
-    /// <c>## Container and workspace</c> section entirely (#2682).
+    /// <c>### Container and workspace</c> sub-section entirely (#2682,
+    /// heading level per #2738).
     /// </remarks>
     public string? GetWorkspacePromptFragment() => null;
 

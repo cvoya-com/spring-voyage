@@ -28,8 +28,10 @@ public class PlatformPromptProviderTests
     }
 
     /// <summary>
-    /// Pins the #2679 acceptance: the assembled prompt opens with the
-    /// <c>## About Spring Voyage</c> introduction so a runtime arriving
+    /// Pins the #2679 acceptance: the platform-prompt body opens with
+    /// the <c>### About Spring Voyage</c> introduction (level updated
+    /// per #2738 so it nests under the assembler-emitted
+    /// <c>## Platform Instructions</c> parent) so a runtime arriving
     /// cold has the participant model before the platform contract
     /// refers to "the human or agent who sent the message".
     /// </summary>
@@ -40,7 +42,7 @@ public class PlatformPromptProviderTests
 
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
-        result.ShouldStartWith("## About Spring Voyage");
+        result.ShouldStartWith("### About Spring Voyage");
     }
 
     /// <summary>
@@ -74,9 +76,14 @@ public class PlatformPromptProviderTests
     }
 
     /// <summary>
-    /// The non-negotiable contract block is the section that follows the
-    /// introduction — both markers must be present and the contract must
-    /// appear *after* the introduction.
+    /// The non-negotiable contract block is the sub-section that follows
+    /// the introduction. Per #2738 the contract is now a proper
+    /// <c>### …</c> heading (no longer the bracketed
+    /// <c>[PLATFORM CONTRACT — NON-NEGOTIABLE]</c> marker) so it shows
+    /// up in the document outline; the closing
+    /// <c>[END PLATFORM CONTRACT]</c> marker is dropped because
+    /// markdown section boundaries are implicit. The contract must
+    /// still appear *after* the introduction.
     /// </summary>
     [Fact]
     public async Task GetPlatformPromptAsync_PlatformContractBlockFollowsIntroduction()
@@ -85,11 +92,12 @@ public class PlatformPromptProviderTests
 
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
-        result.ShouldContain("[PLATFORM CONTRACT — NON-NEGOTIABLE]");
-        result.ShouldContain("[END PLATFORM CONTRACT]");
+        result.ShouldContain("### Platform Contract — Non-Negotiable");
+        result.ShouldNotContain("[PLATFORM CONTRACT — NON-NEGOTIABLE]");
+        result.ShouldNotContain("[END PLATFORM CONTRACT]");
 
-        var introIdx = result.IndexOf("## About Spring Voyage", StringComparison.Ordinal);
-        var contractIdx = result.IndexOf("[PLATFORM CONTRACT — NON-NEGOTIABLE]", StringComparison.Ordinal);
+        var introIdx = result.IndexOf("### About Spring Voyage", StringComparison.Ordinal);
+        var contractIdx = result.IndexOf("### Platform Contract — Non-Negotiable", StringComparison.Ordinal);
         contractIdx.ShouldBeGreaterThan(introIdx);
     }
 
@@ -256,10 +264,11 @@ public class PlatformPromptProviderTests
     }
 
     /// <summary>
-    /// #2683: the inbound-message envelope section renders after the
+    /// #2683: the inbound-message envelope sub-section renders after the
     /// platform contract so a runtime arriving cold sees what the
     /// platform actually delivers to its mailbox before the per-subject
-    /// sections.
+    /// sections. Per #2738 the heading is <c>### Inbound messages</c>
+    /// so it nests under <c>## Platform Instructions</c>.
     /// </summary>
     [Fact]
     public async Task GetPlatformPromptAsync_IncludesInboundMessageEnvelopeSection()
@@ -268,11 +277,11 @@ public class PlatformPromptProviderTests
 
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
-        result.ShouldContain("## Inbound messages");
+        result.ShouldContain("### Inbound messages");
 
-        var contractEndIdx = result.IndexOf("[END PLATFORM CONTRACT]", StringComparison.Ordinal);
-        var envelopeIdx = result.IndexOf("## Inbound messages", StringComparison.Ordinal);
-        envelopeIdx.ShouldBeGreaterThan(contractEndIdx);
+        var contractIdx = result.IndexOf("### Platform Contract — Non-Negotiable", StringComparison.Ordinal);
+        var envelopeIdx = result.IndexOf("### Inbound messages", StringComparison.Ordinal);
+        envelopeIdx.ShouldBeGreaterThan(contractIdx);
     }
 
     /// <summary>

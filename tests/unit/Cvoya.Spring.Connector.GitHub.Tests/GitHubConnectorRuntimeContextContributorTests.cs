@@ -249,7 +249,7 @@ public class GitHubConnectorRuntimeContextContributorTests
             Subject, OwnerUnit, binding, TestContext.Current.CancellationToken);
 
         fragment.ShouldNotBeNull();
-        fragment.ShouldContain("### GitHub binding — cvoya-com/spring-voyage");
+        fragment.ShouldContain("#### GitHub binding — cvoya-com/spring-voyage");
         fragment.ShouldContain("$SPRING_CONNECTOR_GITHUB_OWNER");
         fragment.ShouldContain("$SPRING_CONNECTOR_GITHUB_REPO");
         fragment.ShouldContain("$SPRING_CONNECTOR_GITHUB_TOKEN");
@@ -317,7 +317,7 @@ public class GitHubConnectorRuntimeContextContributorTests
             "cvoya-com", "spring-voyage");
 
         const string expected =
-            "### GitHub binding — cvoya-com/spring-voyage\n\n" +
+            "#### GitHub binding — cvoya-com/spring-voyage\n\n" +
             "Your container has GitHub credentials and repo identity injected as env-vars:\n\n" +
             "- $SPRING_CONNECTOR_GITHUB_OWNER       — repo owner (cvoya-com)\n" +
             "- $SPRING_CONNECTOR_GITHUB_REPO        — repo name (spring-voyage)\n" +

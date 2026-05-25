@@ -10,11 +10,15 @@ using Cvoya.Spring.Core.Execution;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Assembles the per-agent system prompt by composing three sections:
-/// platform instructions, unit context, and role-specific instructions.
-/// The platform-instructions section carries — in order — the
+/// Assembles the per-agent system prompt by composing three top-level
+/// sections — <c>## Platform Instructions</c>, <c>## Unit Context</c>,
+/// and <c>## Role-specific instructions</c> — and nests every platform-
+/// emitted sub-section inside the first one as <c>### …</c> children
+/// (#2738). The platform-instructions section carries — in order — the
 /// platform-contract block from <see cref="IPlatformPromptProvider"/>
-/// (#2679/#2681), the launch subject's identity section (#2680), the
+/// (#2679/#2681), the conditional <c>### Spring Voyage runtime guard
+/// — concurrent_threads is on</c> sub-section (ADR-0041 / #2096, in-
+/// band per #2738), the launch subject's identity section (#2680), the
 /// per-runtime container/workspace description (#2682), and the
 /// auto-injected connector context. Thread history is delivered by each
 /// runtime's session-resume mechanism rather than duplicated in the
@@ -31,26 +35,46 @@ public class PromptAssembler(
     private readonly ILogger _logger = loggerFactory.CreateLogger<PromptAssembler>();
 
     /// <summary>
-    /// Heading used for the platform-injected connector-context
-    /// subsection. Exposed as a constant so tests and downstream
-    /// docs can pin the exact rendered text.
+    /// Top-level heading the assembler emits for the platform-
+    /// instructions section (#2738). Every platform-emitted sub-section
+    /// (introduction, contract, inbound-envelope, runtime guard,
+    /// identity, container, connector context) nests under this as
+    /// <c>###</c>.
     /// </summary>
-    internal const string ConnectorContextHeading = "## Connector context (auto-injected by platform)";
+    internal const string PlatformInstructionsHeading = "## Platform Instructions";
+
+    /// <summary>
+    /// Heading used for the platform-injected connector-context
+    /// subsection inside <see cref="PlatformInstructionsHeading"/>.
+    /// Exposed as a constant so tests and downstream docs can pin the
+    /// exact rendered text. Per #2738 the section nests under the
+    /// platform-instructions parent as <c>###</c>.
+    /// </summary>
+    internal const string ConnectorContextHeading = "### Connector context (auto-injected by platform)";
 
     /// <summary>
     /// Heading used for the per-runtime container/workspace section
     /// (#2682). Exposed as a constant so tests and the launcher prose
     /// (which contributes the body, not the heading) can pin against
-    /// the same string.
+    /// the same string. Per #2738 the section nests under
+    /// <see cref="PlatformInstructionsHeading"/> as <c>###</c>.
     /// </summary>
-    internal const string ContainerAndWorkspaceHeading = "## Container and workspace";
+    internal const string ContainerAndWorkspaceHeading = "### Container and workspace";
+
+    /// <summary>
+    /// Top-level heading for the unit-context section. Sibling of
+    /// <see cref="PlatformInstructionsHeading"/> per #2738.
+    /// </summary>
+    internal const string UnitContextHeading = "## Unit Context";
 
     /// <summary>
     /// Heading used for the role-specific instructions section
     /// (#2684 — renamed from <c>## Agent Instructions</c>). Exposed as
     /// a constant so tests, docs, and downstream consumers can pin
     /// against the same string. Kind-neutral so unit-shaped subjects
-    /// see the same header as agent-shaped subjects.
+    /// see the same header as agent-shaped subjects. Remains a top-
+    /// level (<c>##</c>) sibling of
+    /// <see cref="PlatformInstructionsHeading"/> per #2738.
     /// </summary>
     internal const string RoleSpecificInstructionsHeading = "## Role-specific instructions";
 
@@ -66,19 +90,41 @@ public class PromptAssembler(
         // Platform instructions — platform introduction (#2679) +
         // platform contract (#2681 reads-vs-side-effects + messaging
         // emphasis integrated) + always-available tool catalog (#2670).
+        // Every platform-emitted sub-section nests inside this `##`
+        // heading as `###` so the document forms a single tree (#2738).
         var platform = await platformPromptProvider.GetPlatformPromptAsync(cancellationToken);
-        builder.AppendLine("## Platform Instructions");
+        builder.AppendLine(PlatformInstructionsHeading);
         builder.AppendLine(platform);
         builder.AppendLine();
 
         if (context is not null)
         {
+            // #2738 / ADR-0041 / #2096: when concurrent_threads is on
+            // (resolved upstream by the caller and threaded through the
+            // assembly context) render the runtime guard in-band as a
+            // `### …` sub-section of the platform-instructions parent.
+            // The pre-#2738 delivery prepended the guard above
+            // `## Platform Instructions`, breaking the heading tree;
+            // nesting it here keeps the section in the document outline
+            // and makes the platform-emitted-vs-author-emitted split
+            // visible. The launcher-side `LauncherPromptFragments.Compose`
+            // is now idempotent so any caller that also wraps the
+            // assembled prompt (e.g. the Spring Voyage agent launcher's
+            // SPRING_SYSTEM_PROMPT path) does not double-apply.
+            if (context.ConcurrentThreadsGuard)
+            {
+                builder.AppendLine(LauncherPromptFragments.ConcurrentThreadsGuard);
+                builder.AppendLine();
+            }
+
             // Identity (#2680). Pre-rendered by
             // IIdentityPromptContextResolver and handed in on the
             // assembly context. The fragment is expected to start with
-            // its own `## Who you are` heading; the assembler does NOT
-            // wrap it (the resolver owns layout choices). Omitted when
-            // the resolver returned null / empty.
+            // its own `### Who you are` heading (level updated per
+            // #2738 so it nests under the `## Platform Instructions`
+            // parent); the assembler does NOT wrap it (the resolver
+            // owns layout choices). Omitted when the resolver returned
+            // null / empty.
             if (!string.IsNullOrWhiteSpace(context.IdentityPromptFragment))
             {
                 builder.AppendLine(context.IdentityPromptFragment.TrimEnd());
@@ -103,10 +149,12 @@ public class PromptAssembler(
             // built upstream by IConnectorPromptContextResolver — one
             // per direct + inherited connector binding on the launch
             // subject. Each fragment is expected to start with a
-            // `### …` sub-heading naming the binding; the assembler
-            // wraps them in a single section header so multiple
-            // connectors render cleanly side-by-side. The section is
-            // omitted entirely when the resolver returned no fragments.
+            // `#### …` sub-heading naming the binding (level bumped
+            // per #2738 so it nests under the `### Connector context …`
+            // parent); the assembler wraps them in a single section
+            // header so multiple connectors render cleanly side-by-
+            // side. The section is omitted entirely when the resolver
+            // returned no fragments.
             if (context.ConnectorPromptFragments is { Count: > 0 } fragments)
             {
                 builder.AppendLine(ConnectorContextHeading);
@@ -135,7 +183,7 @@ public class PromptAssembler(
 
             if (!string.IsNullOrWhiteSpace(unitContext))
             {
-                builder.AppendLine("## Unit Context");
+                builder.AppendLine(UnitContextHeading);
                 builder.AppendLine(unitContext);
                 builder.AppendLine();
             }

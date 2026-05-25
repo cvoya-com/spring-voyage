@@ -78,12 +78,14 @@ public class ConversationalDefaultsBundleManifestTests
             DefaultAgentSkillBundles.ConversationalDefaults,
             TestContext.Current.CancellationToken);
 
-        // The `[PLATFORM CONTRACT — NON-NEGOTIABLE]` header is
-        // emitted once, in Layer 1 (PlatformPromptProvider). The
-        // bundle must not carry a parallel copy; it points the
-        // runtime at the platform-layer instructions at the top of
-        // the assembled prompt.
+        // The `### Platform Contract — Non-Negotiable` heading (promoted
+        // from the legacy bracketed `[PLATFORM CONTRACT — NON-NEGOTIABLE]`
+        // marker per #2738) is emitted once, in Layer 1
+        // (PlatformPromptProvider). The bundle must not carry a parallel
+        // copy under either spelling; it points the runtime at the
+        // platform-layer instructions at the top of the assembled prompt.
         bundle.Prompt.ShouldNotContain("[PLATFORM CONTRACT — NON-NEGOTIABLE]");
+        bundle.Prompt.ShouldNotContain("### Platform Contract — Non-Negotiable");
         bundle.Prompt.ShouldContain("platform's response contract");
         bundle.Prompt.ShouldContain("platform-layer instructions");
     }

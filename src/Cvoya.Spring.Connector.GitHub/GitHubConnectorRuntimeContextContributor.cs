@@ -280,9 +280,11 @@ public class GitHubConnectorRuntimeContextContributor(
     /// Builds the GitHub-side prompt-context fragment for the bound
     /// repository. Exposed as an internal static so a snapshot test can
     /// pin the exact rendered text against the issue body's contract.
-    /// The fragment opens with a <c>### …</c> sub-heading so multiple
-    /// connectors render cleanly side-by-side under the single
-    /// platform-emitted "Connector context" section heading.
+    /// The fragment opens with a <c>#### …</c> sub-heading (level bumped
+    /// per #2738 so it nests under the <c>### Connector context (auto-
+    /// injected by platform)</c> parent inside <c>## Platform
+    /// Instructions</c>) so multiple connectors render cleanly side-by-
+    /// side without breaking the document's heading tree.
     /// </summary>
     internal static string BuildPromptFragment(string owner, string repo)
     {
@@ -290,7 +292,7 @@ public class GitHubConnectorRuntimeContextContributor(
         ArgumentException.ThrowIfNullOrWhiteSpace(repo);
 
         return $$"""
-            ### GitHub binding — {{owner}}/{{repo}}
+            #### GitHub binding — {{owner}}/{{repo}}
 
             Your container has GitHub credentials and repo identity injected as env-vars:
 

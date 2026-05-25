@@ -171,11 +171,19 @@ public class RuntimeInvocationPath(
         var definition = await agentDefinitionProvider.GetByIdAsync(subject.Path, ct);
         _ = inbound;
 
+        // #2738: surface the resolved concurrent_threads flag so the
+        // assembler can render the platform-emitted runtime guard
+        // in-band as a `### …` sub-section of `## Platform
+        // Instructions`. Defaults to true (the platform default per
+        // ADR-0030 §3) when no execution config is present.
+        var concurrentThreads = definition?.Execution?.ConcurrentThreads ?? true;
+
         return new PromptAssemblyContext(
             Policies: null,
             AgentInstructions: definition?.Instructions,
             EffectiveMetadata: null,
-            PendingAmendments: null);
+            PendingAmendments: null,
+            ConcurrentThreadsGuard: concurrentThreads);
     }
 
     private static Func<ActivityEvent, CancellationToken, Task> CreateLeanActivityEmitter(

@@ -37,11 +37,13 @@ using Cvoya.Spring.Core.Messaging;
 /// <para>
 /// <b>Fragment shape.</b> The fragment is a markdown block. The
 /// platform layer wraps the concatenated fragments in a
-/// <c>## Connector context (auto-injected by platform)</c> heading.
-/// Each contributor is expected to start with a <c>### …</c> sub-
+/// <c>### Connector context (auto-injected by platform)</c> heading
+/// (a sub-section of <c>## Platform Instructions</c>, per #2738).
+/// Each contributor is expected to start with a <c>#### …</c> sub-
 /// heading that identifies the binding (e.g.
-/// <c>### GitHub binding — cvoya-com/spring-voyage</c>) so multiple
-/// connectors render cleanly side-by-side.
+/// <c>#### GitHub binding — cvoya-com/spring-voyage</c>) so multiple
+/// connectors render cleanly side-by-side without breaking the
+/// document's heading tree.
 /// </para>
 /// <para>
 /// <b>Authoring contract.</b> Implementers are typically registered as

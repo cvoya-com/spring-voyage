@@ -451,13 +451,16 @@ public class ClaudeCodeLauncherTests
             () => _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken));
     }
 
-    // #2668: the launcher-level ConcurrentThreadsGuard tests moved with
-    // the guard fold. The Claude Code CLI never reads SPRING_SYSTEM_PROMPT
-    // — the guard now travels via CLAUDE.md, which AgentBootstrapBundleProvider
-    // composes by calling LauncherPromptFragments.Compose against the
-    // assembled prompt before handing it to ContributeBundleAsync. The
-    // guard's delivery is therefore covered by
-    // AgentBootstrapBundleProviderTests.
+    // #2668 / #2738: the launcher-level ConcurrentThreadsGuard tests
+    // moved with the guard fold. The Claude Code CLI never reads
+    // SPRING_SYSTEM_PROMPT — the guard now travels via
+    // `.spring/system-prompt.md`, which AgentBootstrapBundleProvider
+    // composes by threading `ConcurrentThreadsGuard: true` through
+    // PromptAssemblyContext (#2738 — was a post-assemble
+    // LauncherPromptFragments.Compose call pre-cutover) before handing
+    // the assembled body to ContributeBundleAsync. The guard's delivery
+    // is therefore covered by AgentBootstrapBundleProviderTests and the
+    // in-band render shape by PromptAssemblerTests.
 
     /// <summary>
     /// #2682: the launcher contributes runtime-true workspace prose

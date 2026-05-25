@@ -15,8 +15,9 @@ namespace Cvoya.Spring.Core.Skills;
 /// agent ships with the <c>sv.conversational.defaults</c> bundle so it
 /// surfaces conversation-shaped guidance (and the <c>memory</c>
 /// category grant) on top of the always-on platform-tool catalog and
-/// the <c>[PLATFORM CONTRACT — NON-NEGOTIABLE]</c> prompt fragment,
-/// both of which now live in Layer 1
+/// the <c>### Platform Contract — Non-Negotiable</c> prompt fragment
+/// (rendered inside <c>## Platform Instructions</c>, heading level per
+/// #2738), both of which now live in Layer 1
 /// (<see cref="IPlatformPromptProvider"/>) since #2670 and are
 /// delivered to every agent regardless of equipped bundles. Rather
 /// than encoding the bundle name as a magic string in the agent-create

@@ -2021,14 +2021,15 @@ public static class AgentEndpoints
         // ADR-0056 §8 / #2657: a fresh agent created without explicit
         // skill bundles inherits the platform's default bundle list so
         // it ships conversational out of the box — the fundamental-core
-        // tool grants + the [PLATFORM CONTRACT — NON-NEGOTIABLE]
-        // platform-layer prompt fragment. The `--from-package` install
-        // path goes through PackageInstallService and never reaches this
-        // endpoint, so the binding here is unambiguously the "bare agent
-        // create" case. Best-effort: a missing bundle on disk (test
-        // environments that don't ship the packages tree, deployments
-        // that suppress the default bundle) logs a warning and lets the
-        // create succeed.
+        // tool grants + the `### Platform Contract — Non-Negotiable`
+        // platform-layer prompt fragment (rendered inside `## Platform
+        // Instructions`, heading level per #2738). The `--from-package`
+        // install path goes through PackageInstallService and never
+        // reaches this endpoint, so the binding here is unambiguously
+        // the "bare agent create" case. Best-effort: a missing bundle
+        // on disk (test environments that don't ship the packages tree,
+        // deployments that suppress the default bundle) logs a warning
+        // and lets the create succeed.
         await TryAddDefaultAgentSkillBundlesAsync(
             agentSkillBundleStore,
             actorId,

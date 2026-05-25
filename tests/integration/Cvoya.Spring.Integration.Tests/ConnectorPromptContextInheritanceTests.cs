@@ -97,7 +97,7 @@ public class ConnectorPromptContextInheritanceTests : IDisposable
         // Wire the resolver + assembler over the production binding store.
         var contributor = new StubPromptContributor(
             ConnectorTypeId,
-            "### GitHub binding — cvoya-com/spring-voyage\nYour container has env-vars set.");
+            "#### GitHub binding — cvoya-com/spring-voyage\nYour container has env-vars set.");
         var walker = new ConnectorBindingWalker(
             _services.GetRequiredService<IServiceScopeFactory>(),
             bindingStore,
@@ -124,8 +124,8 @@ public class ConnectorPromptContextInheritanceTests : IDisposable
         var prompt = await assembler.AssembleAsync(context, ct);
 
         prompt.ShouldContain("## Platform Instructions");
-        prompt.ShouldContain("## Connector context (auto-injected by platform)");
-        prompt.ShouldContain("### GitHub binding — cvoya-com/spring-voyage");
+        prompt.ShouldContain("### Connector context (auto-injected by platform)");
+        prompt.ShouldContain("#### GitHub binding — cvoya-com/spring-voyage");
         prompt.ShouldContain("Your container has env-vars set.");
         prompt.ShouldContain("## Role-specific instructions");
     }
