@@ -66,6 +66,8 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   REGISTRY: ghcr.io
   CLAUDE_CODE_IMAGE: ghcr.io/cvoya-com/spring-voyage-claude-code-base
+  GEMINI_BASE_IMAGE: ghcr.io/cvoya-com/spring-voyage-gemini-base
+  CODEX_BASE_IMAGE: ghcr.io/cvoya-com/spring-voyage-codex-base
   SPRING_VOYAGE_AGENT_IMAGE: ghcr.io/cvoya-com/spring-voyage-agent
   # #2172: platform image consumed by deploy.sh via SPRING_PLATFORM_IMAGE.
   SPRING_VOYAGE_PLATFORM_IMAGE: ghcr.io/cvoya-com/spring-voyage
@@ -333,14 +335,18 @@ jobs:
             echo "| --- | --- |"
             if [[ "$IS_PRERELEASE" == "false" ]]; then
               echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
               echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`              | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`     | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\`             | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\`              | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`                   | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
             else
               echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\` (pre-release) |"
               echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`              | \`${RELEASE_VERSION}\` (pre-release) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`     | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\`             | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\`              | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`                   | \`${RELEASE_VERSION}\` (pre-release) |"
             fi
             echo
             echo "### Release-attached files"
@@ -697,7 +703,7 @@ jobs:
 
   # ── 7. Publish remaining agent images ──────────────────────────────────────
   #
-  # Builds and pushes the claude-code-base, gemini-base, and
+  # Builds and pushes the claude-code-base, gemini-base, codex-base, and
   # spring-voyage-agent images via build-agent-images.sh. agent-base is
   # built and pushed multi-arch by the `publish-agent-base-image` job above;
   # this job skips it (--skip-agent-base) and pins the FROM to the
@@ -711,7 +717,7 @@ jobs:
   # and OSS images were multi-arch in #2229. The platform image is also
   # multi-arch as of #2233 — see publish-platform-image below.
   publish-agent-images:
-    name: Build and push agent images (claude-code, gemini, native)
+    name: Build and push agent images (claude-code, gemini, codex, native)
     runs-on: ubuntu-latest
     needs: [resolve, ci-gate, publish-agent-base-image]
     timeout-minutes: 30
@@ -773,6 +779,54 @@ jobs:
             echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for claude-code-base"
           fi
 
+      - name: Tag and push gemini-base
+        shell: bash
+        env:
+          TARGET_BASE: ${{ env.GEMINI_BASE_IMAGE }}
+        run: |
+          set -euo pipefail
+          # Immutable version tag — always pushed, stable and pre-release alike.
+          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
+          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
+
+          if [[ "$IS_PRERELEASE" == "false" ]]; then
+            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:${MAJOR_MINOR}"
+            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
+            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
+
+            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:latest"
+            docker push "${TARGET_BASE}:latest"
+            echo "Pushed ${TARGET_BASE}:latest"
+          else
+            echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for gemini-base"
+          fi
+
+      - name: Tag and push codex-base
+        shell: bash
+        env:
+          TARGET_BASE: ${{ env.CODEX_BASE_IMAGE }}
+        run: |
+          set -euo pipefail
+          # Immutable version tag — always pushed, stable and pre-release alike.
+          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
+          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
+
+          if [[ "$IS_PRERELEASE" == "false" ]]; then
+            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:${MAJOR_MINOR}"
+            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
+            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
+
+            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:latest"
+            docker push "${TARGET_BASE}:latest"
+            echo "Pushed ${TARGET_BASE}:latest"
+          else
+            echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for codex-base"
+          fi
+
       - name: Tag and push spring-voyage-agent (native A2A runtime)
         shell: bash
         env:
@@ -808,9 +862,13 @@ jobs:
             echo "| --- | --- |"
             if [[ "$IS_PRERELEASE" == "false" ]]; then
               echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
               echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
             else
               echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\` | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\` | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\` | \`${RELEASE_VERSION}\` (pre-release) |"
               echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | \`${RELEASE_VERSION}\` (pre-release) |"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
@@ -1018,15 +1076,20 @@ jobs:
           mkdir -p "${stage}/scripts"
 
           # eng/deploy/ — operator scripts and config.
-          cp eng/deploy/deploy.sh              "${stage}/"
-          cp eng/deploy/setup.sh               "${stage}/"
-          cp eng/deploy/spring-voyage-host.sh  "${stage}/"
-          cp eng/deploy/relay.sh               "${stage}/"
-          cp eng/deploy/gh-webhook-forward.sh  "${stage}/"
-          cp eng/deploy/Caddyfile              "${stage}/"
-          cp eng/deploy/Caddyfile.multi-host   "${stage}/"
-          cp eng/deploy/docker-compose.yml     "${stage}/"
-          cp eng/config/spring.env.example     "${stage}/"
+          cp eng/deploy/deploy.sh                 "${stage}/"
+          cp eng/deploy/setup.sh                  "${stage}/"
+          cp eng/deploy/spring-voyage-host.sh     "${stage}/"
+          cp eng/deploy/relay.sh                  "${stage}/"
+          cp eng/deploy/Caddyfile                 "${stage}/"
+          cp eng/deploy/Caddyfile.multi-host      "${stage}/"
+          cp eng/deploy/docker-compose.yml        "${stage}/"
+          cp eng/config/spring.env.example        "${stage}/"
+          # Operator helpers — webhook forwarding, replay, and the
+          # podman-machine clock workaround for #2595. Shipped in the bundle
+          # so operators have them next to deploy.sh without cloning the repo.
+          cp eng/deploy/gh-webhook-forward.sh     "${stage}/"
+          cp eng/deploy/replay-github-webhook.sh  "${stage}/"
+          cp eng/deploy/resync-container-clock.sh "${stage}/"
           cp eng/deploy/scripts/dispatcher-smoke.sh        "${stage}/scripts/"
           cp eng/deploy/scripts/test-spring-voyage-host.sh "${stage}/scripts/"
 
@@ -1099,6 +1162,9 @@ jobs:
           Caddyfile, Caddyfile.multi-host   Caddy reverse-proxy configuration
           docker-compose.yml                Docker-compatible runtime (Podman is the supported path)
           spring.env.example                Template for the per-deployment spring.env
+          gh-webhook-forward.sh             Forward live GitHub webhooks to the local API via \`gh CLI\`
+          replay-github-webhook.sh          Replay a saved GitHub webhook payload against the local API
+          resync-container-clock.sh         Resync the podman-machine container clock after host sleep (#2595)
           scripts/                          Smoke tests for the dispatcher and host wrapper
           dapr/components/                  Dapr component manifests consumed by the platform sidecar
           manifest.json                     Release version + platform-image pin (bundle schema v2)

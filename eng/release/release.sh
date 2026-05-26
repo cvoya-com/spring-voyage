@@ -43,6 +43,12 @@
 
 set -euo pipefail
 
+# `packages/**/*.yaml` is meant to walk every depth of `packages/`. Without
+# globstar, bash treats `**` as `*` and the verification step only sees
+# top-level `packages/*/package.yaml` files — silently missing image refs
+# in nested templates / units. Enable globstar before the glob is expanded.
+shopt -s globstar
+
 # ── Constants ────────────────────────────────────────────────────────────────
 
 REPO="cvoya-com/spring-voyage"
@@ -263,8 +269,11 @@ echo "▶  Verifying anonymous pull for all package-referenced images …"
 # Strip leading v for the image tag (registry convention: 1.0.0 not v1.0.0).
 IMAGE_TAG="${FULL_SEMVER}"
 
-# Collect unique base image refs from packages (strip :tag suffix).
+# Collect unique base image refs from packages (strip :tag suffix). The
+# `shopt -s globstar` at the top of the script makes `**` walk every depth;
+# `${PACKAGES_GLOB}` MUST stay unquoted so that glob actually expands.
 mapfile -t IMAGES < <(
+  # shellcheck disable=SC2086  # intentional glob expansion (see comment above)
   grep -rh 'image: ghcr.io/cvoya-com/' ${PACKAGES_GLOB} 2>/dev/null \
     | sed 's/.*image: //' \
     | sed 's/:.*//' \

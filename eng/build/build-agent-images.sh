@@ -4,13 +4,14 @@
 # #1096; OSS role images added in #1536; gemini-base added in #2108; OSS
 # role set collapsed from four to two in #1530-amend-2026-05-16).
 #
-# Builds six images, in dependency order:
+# Builds seven images, in dependency order:
 #   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>  (path-1 BYOI base)
 #   2. ghcr.io/cvoya-com/spring-voyage-claude-code-base:<tag>           (path-1 reference, FROMs #1)
 #   3. ghcr.io/cvoya-com/spring-voyage-gemini-base:<tag>                (path-1 reference, FROMs #1)
-#   4. ghcr.io/cvoya-com/spring-voyage-agent:<tag>        (path-3 native A2A)
-#   5. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #1)
-#   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:<tag>    (FROMs #1)
+#   4. ghcr.io/cvoya-com/spring-voyage-codex-base:<tag>                 (path-1 reference, FROMs #1)
+#   5. ghcr.io/cvoya-com/spring-voyage-agent:<tag>        (path-3 native A2A)
+#   6. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #1)
+#   7. ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:<tag>    (FROMs #1)
 #
 # Conformance paths are documented in
 # `docs/architecture/agent-runtime.md` § 7. The ghcr-namespaced images are
@@ -56,9 +57,10 @@ Builds, in order:
   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>
   2. ghcr.io/cvoya-com/spring-voyage-claude-code-base:<tag>
   3. ghcr.io/cvoya-com/spring-voyage-gemini-base:<tag>
-  4. ghcr.io/cvoya-com/spring-voyage-agent:<tag>
-  5. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #1)
-  6. ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:<tag>    (FROMs #1)
+  4. ghcr.io/cvoya-com/spring-voyage-codex-base:<tag>
+  5. ghcr.io/cvoya-com/spring-voyage-agent:<tag>
+  6. ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:<tag>  (FROMs #1)
+  7. ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:<tag>    (FROMs #1)
 
 Options:
   --tag <value>                Tag suffix for all images (default: dev).
@@ -74,7 +76,8 @@ Options:
                                push it to the registry. localhost/... aliases
                                are never pushed.
   --agent-base-image <ref>     Override the FROM line of the claude-code,
-                               gemini-base, and OSS role images. Defaults to
+                               gemini-base, codex-base, and OSS role images.
+                               Defaults to
                                ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>
                                (the tag built in step 1). Honors the
                                AGENT_BASE_IMAGE env var.
@@ -175,6 +178,8 @@ CLAUDE_IMAGE="ghcr.io/cvoya-com/spring-voyage-claude-code-base"
 CLAUDE_LOCAL_ALIAS="localhost/spring-voyage-agent-claude-code"
 GEMINI_IMAGE="ghcr.io/cvoya-com/spring-voyage-gemini-base"
 GEMINI_LOCAL_ALIAS="localhost/spring-voyage-agent-gemini"
+CODEX_IMAGE="ghcr.io/cvoya-com/spring-voyage-codex-base"
+CODEX_LOCAL_ALIAS="localhost/spring-voyage-agent-codex"
 SV_AGENT_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent"
 SV_AGENT_LOCAL_ALIAS="localhost/spring-voyage-agent"
 OSS_SE_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering"
@@ -241,7 +246,24 @@ log "building ${GEMINI_IMAGE}:${TAG} (FROM ${AGENT_BASE_OVERRIDE})"
     "${REPO_ROOT}"
 maybe_push "${GEMINI_IMAGE}:${TAG}"
 
-# ---- 4. spring-voyage-agent (path 3 — native A2A) -------------------------
+# ---- 4. codex-base (path 1) ----------------------------------------------
+# Mirrors gemini-base: FROMs agent-base, npm-installs the OpenAI Codex CLI.
+# The runtime catalogue points at this image (`eng/runtime-catalog/runtime-catalog.yaml`,
+# `agentRuntimes[id=codex].defaultImage`).
+codex_tags=(--tag "${CODEX_IMAGE}:${TAG}")
+if [[ "${TAG_LOCAL_ALIASES}" -eq 1 ]]; then
+    codex_tags+=(--tag "${CODEX_LOCAL_ALIAS}:${TAG}")
+fi
+
+log "building ${CODEX_IMAGE}:${TAG} (FROM ${AGENT_BASE_OVERRIDE})"
+"${DOCKER}" build \
+    --file "${SCRIPT_DIR}/Dockerfile.agent.codex" \
+    --build-arg "AGENT_BASE_IMAGE=${AGENT_BASE_OVERRIDE}" \
+    "${codex_tags[@]}" \
+    "${REPO_ROOT}"
+maybe_push "${CODEX_IMAGE}:${TAG}"
+
+# ---- 5. spring-voyage-agent (path 3 — native A2A) -------------------------
 sv_agent_tags=(--tag "${SV_AGENT_IMAGE}:${TAG}")
 if [[ "${TAG_LOCAL_ALIASES}" -eq 1 ]]; then
     sv_agent_tags+=(--tag "${SV_AGENT_LOCAL_ALIAS}:${TAG}")
@@ -257,7 +279,7 @@ maybe_push "${SV_AGENT_IMAGE}:${TAG}"
 if [[ "${SKIP_OSS}" -eq 1 ]]; then
     log "skipping OSS role image builds (--skip-oss)"
 else
-    # ---- 5. OSS software-engineering agent -------------------------------
+    # ---- 6. OSS software-engineering agent -------------------------------
     log "building ${OSS_SE_IMAGE}:${TAG} (FROM ${AGENT_BASE_OVERRIDE})"
     "${DOCKER}" build \
         --file "${SCRIPT_DIR}/Dockerfile.agent.oss-software-engineering" \
@@ -266,7 +288,7 @@ else
         "${REPO_ROOT}"
     maybe_push "${OSS_SE_IMAGE}:${TAG}"
 
-    # ---- 6. OSS program-management agent ---------------------------------
+    # ---- 7. OSS program-management agent ---------------------------------
     log "building ${OSS_PGMGMT_IMAGE}:${TAG} (FROM ${AGENT_BASE_OVERRIDE})"
     "${DOCKER}" build \
         --file "${SCRIPT_DIR}/Dockerfile.agent.oss-program-management" \
@@ -280,10 +302,12 @@ log "built agent images at tag :${TAG}"
 log "  ${AGENT_BASE_IMAGE}:${TAG}"
 log "  ${CLAUDE_IMAGE}:${TAG}"
 log "  ${GEMINI_IMAGE}:${TAG}"
+log "  ${CODEX_IMAGE}:${TAG}"
 log "  ${SV_AGENT_IMAGE}:${TAG}"
 if [[ "${TAG_LOCAL_ALIASES}" -eq 1 ]]; then
     log "  ${CLAUDE_LOCAL_ALIAS}:${TAG} (local alias)"
     log "  ${GEMINI_LOCAL_ALIAS}:${TAG} (local alias)"
+    log "  ${CODEX_LOCAL_ALIAS}:${TAG} (local alias)"
     log "  ${SV_AGENT_LOCAL_ALIAS}:${TAG} (local alias)"
 fi
 if [[ "${SKIP_OSS}" -eq 0 ]]; then
