@@ -1,0 +1,12 @@
+apiVersion: spring.voyage/v1
+kind: Package
+name: magazine
+description: >-
+  Magazine — a goal-driven editorial team that produces a daily online
+  edition. A user talks to the editor to kick off an edition; the editor
+  plans it, coordinates the team through pitching, reporting, fact-check,
+  copy-edit, packaging, and assembly, and presents the finished edition
+  to a human approver for sign-off before publication.
+version: 1.0.0
+readme: README.md
+# ADR-0043 §2: directory layout is the manifest — no `content:` block.

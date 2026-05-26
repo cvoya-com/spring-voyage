@@ -78,11 +78,17 @@ for pkg_dir in $CONNECTOR_GLOB; do
   [ -d "$pkg_dir" ] || continue
 
   pkg_name="${pkg_dir#src/Cvoya.Spring.Connector.}"
-  # Derive the slug from the package name — lowercase the first letter.
-  # This matches the GitHub connector (package: `GitHub`, slug: `github`)
-  # and every connector landing in the future is expected to follow the
-  # same convention; if it doesn't, add the mapping here and document it.
-  slug="$(echo "$pkg_name" | tr '[:upper:]' '[:lower:]')"
+  # Derive the slug from the package name. Default convention is
+  # lowercased package name (`GitHub` → `github`, `Arxiv` → `arxiv`).
+  # When the server-side `IConnectorType.Slug` deliberately differs
+  # from that default — e.g. a kebab-cased slug — add an explicit
+  # mapping below. The mapping table is the single point of drift
+  # between the .NET package layout and the web registry; keep it
+  # small and obvious.
+  case "$pkg_name" in
+    WebSearch) slug="web-search" ;;
+    *)         slug="$(echo "$pkg_name" | tr '[:upper:]' '[:lower:]')" ;;
+  esac
   web_dir="$pkg_dir/web"
 
   if [ ! -d "$web_dir" ]; then

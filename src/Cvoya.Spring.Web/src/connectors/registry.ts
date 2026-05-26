@@ -30,8 +30,13 @@ import type { ComponentType } from "react";
 
 import { GitHubConnectorTab } from "@connector-github/connector-tab";
 import { GitHubConnectorWizardStep } from "@connector-github/connector-wizard-step";
+import { WebSearchConnectorTab } from "@connector-web-search/connector-tab";
+import { WebSearchConnectorWizardStep } from "@connector-web-search/connector-wizard-step";
 
-import type { UnitGitHubConfigRequest } from "@/lib/api/types";
+import type {
+  UnitGitHubConfigRequest,
+  UnitWebSearchConfigRequest,
+} from "@/lib/api/types";
 
 export interface ConnectorTabProps {
   unitId: string;
@@ -80,12 +85,19 @@ interface ConnectorRegistryEntry {
 // of a polymorphic registry.
 const githubWizardStep =
   GitHubConnectorWizardStep as unknown as ComponentType<ConnectorWizardStepProps>;
+const webSearchWizardStep =
+  WebSearchConnectorWizardStep as unknown as ComponentType<ConnectorWizardStepProps>;
 
 const ENTRIES: ReadonlyArray<ConnectorRegistryEntry> = [
   {
     slug: "github",
     tab: GitHubConnectorTab,
     wizardStep: githubWizardStep,
+  },
+  {
+    slug: "web-search",
+    tab: WebSearchConnectorTab,
+    wizardStep: webSearchWizardStep,
   },
 ];
 
@@ -119,4 +131,4 @@ export function getRegisteredConnectorSlugs(): string[] {
 
 // Re-exports kept so the wizard doesn't need to pull the connector-
 // specific types directly.
-export type { UnitGitHubConfigRequest };
+export type { UnitGitHubConfigRequest, UnitWebSearchConfigRequest };

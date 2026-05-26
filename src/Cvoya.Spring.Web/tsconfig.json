@@ -17,7 +17,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@connectors/*": ["./src/connectors/*"],
-      "@connector-github/*": ["../Cvoya.Spring.Connector.GitHub/web/*"]
+      "@connector-github/*": ["../Cvoya.Spring.Connector.GitHub/web/*"],
+      "@connector-web-search/*": ["../Cvoya.Spring.Connector.WebSearch/web/*"]
     }
   },
   "include": [
@@ -26,6 +27,8 @@
     "**/*.tsx",
     "../Cvoya.Spring.Connector.GitHub/web/**/*.ts",
     "../Cvoya.Spring.Connector.GitHub/web/**/*.tsx",
+    "../Cvoya.Spring.Connector.WebSearch/web/**/*.ts",
+    "../Cvoya.Spring.Connector.WebSearch/web/**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
