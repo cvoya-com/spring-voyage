@@ -177,15 +177,16 @@ GitHub Apps require **publicly-reachable** webhook URLs — `localhost` will not
 
 ```bash
 # In one terminal: start the local platform so the API listens on :8080.
-./eng/deploy/deploy.sh up        # Podman
+./eng/deploy/deploy.sh up        # Podman (source tree)
 # (or, from eng/deploy/, `docker compose --env-file ../config/spring.env up -d` for Compose,
 #  or `dotnet run --project src/Cvoya.Spring.Host.Api` for a source-tree run.)
 
 # In another terminal: forward webhooks from your dev repo to the local API.
-./eng/deploy/gh-webhook-forward.sh --repo your-org/your-dev-repo
+voyage gh-webhook-forward --repo your-org/your-dev-repo            # installer-based deployments
+./eng/deploy/gh-webhook-forward.sh --repo your-org/your-dev-repo   # source-tree development
 ```
 
-The script defaults the forward URL to `http://localhost:8080/api/v1/webhooks/github` (override with `--url`) and reads `GitHub__WebhookSecret` from `eng/config/spring.env` (override with `--env`). See `./eng/deploy/gh-webhook-forward.sh --help` for the full flag list, and [`eng/deploy/README.md`](../../../eng/deploy/README.md#local-dev-webhook-forwarding-gh-webhook-forwardsh) for the corresponding operator-reference entry.
+Both paths invoke the same underlying script — `voyage gh-webhook-forward` is a thin wrapper that finds the bundled copy and points `--env` at this install's `spring.env` so you don't have to. The forwarder defaults the destination URL to `http://localhost:8080/api/v1/webhooks/github` (override with `--url`) and reads `GitHub__WebhookSecret` from `spring.env` (override with `--env`). See `voyage gh-webhook-forward --help` (or `./eng/deploy/gh-webhook-forward.sh --help`) for the full flag list, and [`eng/deploy/README.md`](../../../eng/deploy/README.md#local-dev-webhook-forwarding-gh-webhook-forwardsh) for the corresponding operator-reference entry.
 
 Stop with Ctrl-C; the forwarding hook GitHub registers is short-lived and tears down automatically when the `gh` process exits.
 

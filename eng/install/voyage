@@ -11,15 +11,17 @@
 #   SPRING_ENV_FILE      spring.env path. Default: ${SPRING_VOYAGE_HOME}/spring.env
 #
 # Subcommands:
-#   status          Show install version, container + dispatcher health,
-#                   web URL, and log paths. Pretty-printed.
-#   logs [service]  Tail container logs (no arg = all containers).
-#                   `logs dispatcher` tails the host-process dispatcher log.
-#   restart         Restart the stack (delegates to deploy.sh restart).
-#   install         (Re)install Spring Voyage from a release.
-#   uninstall       Uninstall (preserves operator data; --purge for factory reset).
-#   version         Print the installed version + platform image tag.
-#   help            Show usage.
+#   status              Show install version, container + dispatcher health,
+#                       web URL, and log paths. Pretty-printed.
+#   logs [service]      Tail container logs (no arg = all containers).
+#                       `logs dispatcher` tails the host-process dispatcher log.
+#   restart             Restart the stack (delegates to deploy.sh restart).
+#   install             (Re)install Spring Voyage from a release.
+#   uninstall           Uninstall (preserves operator data; --purge for factory reset).
+#   version             Print the installed version + platform image tag.
+#   gh-webhook-forward  Forward GitHub webhooks from a repo to the local API
+#                       (delegates to bundle/gh-webhook-forward.sh).
+#   help                Show usage.
 #
 # Tests:  eng/install/tests/test-install.sh
 # Design: docs/decisions/0042-local-operator-installer.md
@@ -65,14 +67,17 @@ usage() {
 Usage: voyage <command> [args...]
 
 Commands:
-  status          Show install version, container/dispatcher health, log paths.
-  logs [service]  Tail container or dispatcher logs.
-                  `voyage logs dispatcher` tails the host-process log.
-  restart         Restart the stack.
-  install         (Re)install Spring Voyage from a release.
-  uninstall       Uninstall (preserves operator data; use --purge for factory reset).
-  version         Print the installed version.
-  help            Show this help.
+  status              Show install version, container/dispatcher health, log paths.
+  logs [service]      Tail container or dispatcher logs.
+                      `voyage logs dispatcher` tails the host-process log.
+  restart             Restart the stack.
+  install             (Re)install Spring Voyage from a release.
+  uninstall           Uninstall (preserves operator data; use --purge for factory reset).
+  version             Print the installed version.
+  gh-webhook-forward  Forward GitHub webhooks from a repo to the local API.
+                      Pass-through flags: --repo owner/repo [--url URL] [--env PATH]
+                                          [--events list]
+  help                Show this help.
 
 Environment overrides:
   SPRING_VOYAGE_HOME   Install root (default: ~/.spring-voyage).
@@ -246,6 +251,30 @@ cmd_uninstall() {
   exit 1
 }
 
+cmd_gh_webhook_forward() {
+  require_bundle
+  local script="${BUNDLE}/gh-webhook-forward.sh"
+  if [[ ! -x "${script}" ]]; then
+    bad "gh-webhook-forward.sh not found in ${BUNDLE}."
+    info "This installation may pre-date the bundled forwarder. Run \`voyage install\` to refresh."
+    exit 1
+  fi
+  # The bundled script reads GitHub__WebhookSecret from --env (defaults to
+  # eng/config/spring.env in dev). Point it at this install's spring.env
+  # unless the caller has overridden it via --env on the command line.
+  local has_env_flag=0 arg
+  for arg in "$@"; do
+    if [[ "${arg}" == "--env" || "${arg}" == --env=* ]]; then
+      has_env_flag=1
+      break
+    fi
+  done
+  if [[ "${has_env_flag}" -eq 0 ]]; then
+    exec "${script}" --env "${SPRING_ENV}" "$@"
+  fi
+  exec "${script}" "$@"
+}
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -265,6 +294,9 @@ case "${1:-help}" in
   uninstall)
     shift
     cmd_uninstall "$@" ;;
+  gh-webhook-forward)
+    shift
+    cmd_gh_webhook_forward "$@" ;;
   version|--version|-V)
     shift || true
     cmd_version ;;

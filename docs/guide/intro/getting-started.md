@@ -1,159 +1,111 @@
 # Getting Started
 
-This guide walks you through setting up Spring Voyage and creating your first unit with agents.
+The smallest possible path: install Spring Voyage, drop in one LLM credential, create a unit, talk to it. About five minutes after the installer finishes.
 
-## Installation
+If you'd rather start with the built-in dev-team that picks up GitHub issues, see [Getting Started with Spring Voyage OSS](getting-started-spring-voyage-oss.md).
 
-Build the CLI from source (requires [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)):
+## 1. Install
 
-```
-git clone https://github.com/cvoya-com/spring-voyage.git
-cd spring-voyage
-dotnet build src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
+If you haven't already, run the one-command installer (Linux or macOS, Podman 4+):
 
-# Run the CLI directly
-dotnet run --project src/Cvoya.Spring.Cli -- <command>
-
-# Or publish a self-contained executable
-dotnet publish src/Cvoya.Spring.Cli -c Release -o ./out
-./out/spring <command>
+```bash
+curl -fSL https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh | bash
 ```
 
-The command name is `spring`.
+The installer asks for a hostname (default `localhost`) and offers to configure a GitHub App — skip it for this guide. When it finishes:
 
-## Authentication
-
-If you're connecting to a hosted Spring Voyage platform, authenticate first:
-
-```
-spring auth
+```bash
+voyage status
 ```
 
-This drives the browser-based login flow and persists an API token to `~/.spring/config.json`. All subsequent commands are authenticated. You can also mint and manage tokens directly with `spring auth token create` / `list` / `revoke`.
+Should print a green health check and the web URL. Open it in your browser — the portal is the same operations you'll do from the CLI below.
 
-A single-tenant OSS deployment seeds a default tenant on first boot; once authenticated against it, every command runs against that tenant.
+Full installer flags, TLS, and design notes are in the [operator deployment guide](../operator/deployment.md).
 
-## Creating Your First Unit
+## 2. Drop in an LLM credential
 
-A unit *is* an agent that has children. Create one and give it a runtime — when
-a message reaches a unit, the unit's own runtime runs and decides whether to
-answer directly or hand work to a member:
+Agents need an LLM to think with. The simplest choice is Anthropic's Claude Code, authenticated via an OAuth token (Spring Voyage runs the `claude-code` CLI on your behalf, so the OAuth flow is the natural fit).
 
-```
-spring unit create engineering-team --description "My engineering team" \
-  --runtime claude-code
-```
+Generate the token (`claude setup-token` in a terminal where Claude Code is installed) and store it at tenant scope so every unit you create inherits it:
 
-A unit does not declare a routing strategy: how a unit routes work across its
-members is decided by the unit's own runtime, not by platform configuration
-(see [ADR-0053](../../decisions/0053-units-are-agents-and-one-way-delivery.md)).
-
-### Set the Default Execution Environment
-
-The unit's execution block is the default inherited by member agents. Set the
-container image and other execution fields with `spring unit execution set`:
-
-```
-spring unit execution set engineering-team \
-  --image ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
+```bash
+spring secret create --scope tenant anthropic-oauth --value "<token>"
 ```
 
-## Creating Agents
+Verify:
 
-Create an agent and add it to the unit. Execution config (`--runtime`,
-`--model`, `--image`, `--hosting`) is inherited from the parent unit when
-omitted:
-
+```bash
+spring secret list --scope tenant
 ```
+
+Other supported credentials:
+
+```bash
+# Anthropic API key (for the platform's own LLM calls and the spring-voyage agent runtime)
+spring secret create --scope tenant anthropic-api-key --value "sk-ant-api03..."
+
+# OpenAI API key (for codex or OpenAI-powered agents)
+spring secret create --scope tenant openai-api-key --value "sk-..."
+```
+
+See [model providers](../operator/model-providers.md) for the full matrix of runtimes, providers, and credential shapes.
+
+## 3. Create your first unit
+
+A unit *is* an agent that has children, and at the start it has none — that's fine. Give it a runtime so it knows how to think:
+
+```bash
+spring unit create first-team --runtime claude-code
+```
+
+Start it:
+
+```bash
+spring unit start first-team
+```
+
+Verify it reached `Running`:
+
+```bash
+spring unit show first-team
+```
+
+## 4. Send it a message
+
+The `show` output above prints the unit's canonical `Guid`. Send a message to that address:
+
+```bash
+spring message send unit:<id> "Hello — introduce yourself and tell me what you can do."
+```
+
+Watch the activity stream while it works:
+
+```bash
+spring activity list --source unit:first-team --limit 20
+```
+
+The same conversation is visible in the portal under **Units → first-team → Threads**.
+
+## 5. Add an agent member (optional)
+
+A unit by itself is a useful conversational partner. To make it a *team*, attach members:
+
+```bash
 spring agent create \
-  --name ada \
-  --unit engineering-team \
-  --role backend-engineer \
-  --runtime claude-code \
-  --model claude-sonnet-4-6
+    --name ada \
+    --role engineer \
+    --unit first-team \
+    --runtime claude-code \
+    --image ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 ```
 
-You can add more agents the same way:
+When you message the unit again, the unit's runtime decides whether to answer directly, hand the work to Ada, or fan it out. That decision lives in the unit's runtime instructions, not in platform configuration — see [ADR-0053](../../decisions/0053-units-are-agents-and-one-way-delivery.md) for the model.
 
-```
-spring agent create --name kay --unit engineering-team --role frontend-engineer --runtime claude-code
-```
+## What's next
 
-## Adding a Connector
-
-Connectors bridge external systems. The GitHub connector is installed on the
-tenant, then bound to a unit:
-
-```
-spring connector install github
-spring connector bind --unit engineering-team --type github \
-  --owner your-org --repo your-repo
-```
-
-GitHub authenticates as a GitHub App the deployment owns — see
-[Register your GitHub App](../operator/github-app-setup.md).
-
-## Adding Yourself as Owner
-
-Grant yourself the owner permission on the unit, addressed by identity:
-
-```
-spring unit humans add engineering-team <your-identity> --permission owner
-```
-
-(`spring unit members humans add` is the parallel verb for adding a human as a
-team-role *member* of the unit, distinct from this ACL grant.)
-
-## Starting the Unit
-
-```
-spring unit start engineering-team
-```
-
-The unit and its agents are now active and ready to receive messages.
-
-## Your First Interaction
-
-Look up Ada's `Guid` (display-name search inside her unit):
-
-```
-spring agent show ada --unit engineering-team
-# prints the canonical 32-hex Guid
-```
-
-Then send a message to that id:
-
-```
-spring message send agent:<id> "Review the README and suggest improvements"
-```
-
-Watch the activity in real-time:
-
-```
-spring activity tail --unit engineering-team
-```
-
-Check agent status:
-
-```
-spring agent status --unit engineering-team
-```
-
-## See it in action
-
-Each step above has a matching end-to-end scenario you can read or run. Scenarios live under [`tests/e2e/cli/scenarios/`](../../../tests/e2e/cli/scenarios); see [`tests/e2e/cli/README.md`](../../../tests/e2e/cli/README.md) for prerequisites and the `./run.sh` runner.
-
-- [`api/api-health.sh`](../../../tests/e2e/cli/scenarios/api/api-health.sh) — a raw smoke check that `/api/v1/connectors` responds. Useful for validating that the stack is up before anything else.
-- [`cli-meta/cli-version-and-help.sh`](../../../tests/e2e/cli/scenarios/cli-meta/cli-version-and-help.sh) — verifies that `spring --help` starts cleanly and exposes the expected subcommands (`unit`, `agent`, `package`, …). Run this to confirm the CLI is wired correctly.
-- [`units/unit-create-scratch.sh`](../../../tests/e2e/cli/scenarios/units/unit-create-scratch.sh) — creates a minimal unit via `spring unit create` and asserts it shows up in `spring unit list`. This matches the "Creating Your First Unit" walkthrough above.
-- [`units/unit-create-and-start.sh`](../../../tests/e2e/cli/scenarios/units/unit-create-and-start.sh) — creates a unit and transitions it to `Running` with `spring unit start`, mirroring "Starting the Unit" above.
-- [`messaging/message-human-to-agent.sh`](../../../tests/e2e/cli/scenarios/messaging/message-human-to-agent.sh) — (`pool: llm`, requires Ollama) sends a human-authored message to an agent via `spring message send agent:<id>`, matching "Your First Interaction".
-
-## What's Next
-
-- [Managing Units and Agents](../user/units-and-agents.md) -- detailed configuration, policies, and lifecycle operations
-- [Messaging and Interaction](../user/messaging.md) -- sending messages on threads and interacting with agents
-- [Observing Activity](../user/observing.md) -- activity streams and cost tracking
-- [Web Portal Walkthrough](../user/portal.md) -- the same operations from a browser
-- [Declarative Configuration](../user/declarative.md) -- version-controlled YAML definitions
-- [Runnable Examples](../user/examples.md) -- catalog of e2e scenarios you can study or execute
+- [Spring Voyage OSS quickstart](getting-started-spring-voyage-oss.md) — install the built-in `spring-voyage-oss` package: a ready-made engineering + PM team that picks up work from a GitHub repository.
+- [Managing Units and Agents](../user/units-and-agents.md) — full configuration surface for units and agents.
+- [Messaging and Interaction](../user/messaging.md) — sending messages on threads.
+- [Connectors](../operator/connectors.md) — wire in GitHub, Slack, and other external systems.
+- [Declarative configuration](../user/declarative.md) — version-controlled YAML packages you can `spring package install`.
+- [Web Portal Walkthrough](../user/portal.md) — the same operations from the browser.

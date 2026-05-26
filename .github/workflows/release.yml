@@ -1022,6 +1022,7 @@ jobs:
           cp eng/deploy/setup.sh               "${stage}/"
           cp eng/deploy/spring-voyage-host.sh  "${stage}/"
           cp eng/deploy/relay.sh               "${stage}/"
+          cp eng/deploy/gh-webhook-forward.sh  "${stage}/"
           cp eng/deploy/Caddyfile              "${stage}/"
           cp eng/deploy/Caddyfile.multi-host   "${stage}/"
           cp eng/deploy/docker-compose.yml     "${stage}/"

@@ -8,6 +8,12 @@
 
 An open-source collaboration platform for teams of AI agents — and the humans they work with. Built on .NET and Dapr. Agents organize into composable **units**, connect to external systems through pluggable **connectors**, and communicate via typed **messages**. Orchestration is one mechanism inside a unit, not the whole of the platform.
 
+Project home: [spring.voyage](https://spring.voyage).
+
+## Vision
+
+The Spring Voyage platform does not prescribe a particular way of working. It does not have predefined workflows or orchestration logic for teams of agents. Instead, it offers the necessary primitives for teams of agents and humans to be defined by users. How they communicate, how they collaborate, how they organize to solve problems is left to the instructions that are given to the agents. The platform contributes the building blocks for teams of humans and AI agents to collaborate on any problem on any domain.
+
 ## Key Concepts
 
 | Concept       | Description                                                                                                        |
@@ -28,33 +34,11 @@ Spring Voyage runs on Linux or macOS with [Podman](https://podman.io/) 4+. One c
 curl -fSL https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh | bash
 ```
 
-The installer downloads the per-RID host archive (a single tarball bundling the deployment scripts, dispatcher, and `spring` CLI) for your platform; verifies it against `SHA256SUMS`; pulls the multi-arch platform image from GHCR; and brings the stack up. Two prompts only — `DEPLOY_HOSTNAME` (default `localhost`) and an optional GitHub-App registration flow. Pass `--yes` to skip both.
+The installer downloads a per-platform release archive, verifies it against `SHA256SUMS`, pulls the multi-arch platform image from GHCR, and brings the stack up. Two prompts only — `DEPLOY_HOSTNAME` (default `localhost`) and an optional GitHub-App registration. Pass `--yes` to skip both.
 
-See the [operator deployment guide](docs/guide/operator/deployment.md) for the walkthrough, flags, and design notes ([ADR-0042](docs/decisions/0042-local-operator-installer.md)).
+When it finishes, open the portal at `http://DEPLOY_HOSTNAME` (e.g. `http://localhost`) and continue with one of the getting-started guides below.
 
-## First Steps
-
-After the installer finishes, set your LLM provider credentials and create your first unit:
-
-```bash
-# LLM credentials live at tenant scope — units inherit them automatically.
-
-# If you are planning to use the Spring Voyage Agent Runtime with Anthropic's API
-spring secret create --scope tenant anthropic-api-key --value "sk-ant-api03..."
-
-# If you are planning to use the "Claude Code" CLI
-spring secret create --scope tenant anthropic-token --value "sk-ant-oat..."
-
-# If you are planning to use OpenAPI's API or codex
-spring secret create --scope tenant openai-api-key --value "sk-..."
-
-# First unit, using the Claude Code agent.
-spring unit create first-team --tool claude-code
-```
-
-The [Getting Started guide](docs/guide/intro/getting-started.md) walks through creating a unit, adding agents, wiring connectors, and sending the first message.
-
-The web portal is at the configured hostname (`http://localhost` by default).
+See the [operator deployment guide](docs/guide/operator/deployment.md) for the full walkthrough, flags, TLS, and design notes ([ADR-0042](docs/decisions/0042-local-operator-installer.md)).
 
 ### Alternative: install the CLI standalone
 
@@ -66,17 +50,25 @@ export SPRING_API_URL=https://your-spring-voyage-host
 spring --help
 ```
 
-The platform installer above already includes a self-contained `spring` binary for your platform; this alternative is for users who manage their CLI alongside other .NET tools or who don't run the platform locally.
+The platform installer above already bundles a self-contained `spring` binary; this alternative is for users who manage their CLI alongside other .NET tools or who don't run the platform locally.
+
+## Getting Started
+
+Two paths, depending on what you want to build:
+
+- **[Your first unit and agent](docs/guide/intro/getting-started.md)** — the smallest possible path: drop in one LLM credential, create a unit, send it a message. About five minutes after the installer finishes.
+- **[Spring Voyage OSS — a ready-made dev team](docs/guide/intro/getting-started-spring-voyage-oss.md)** — install the built-in `spring-voyage-oss` package: one unit with engineer and program-manager agents that pick up work from a GitHub repository. Adds a GitHub App, the `gh webhook forward` forwarder for local dev, and the `spring-voyage-team` label that scopes which issues the team acts on.
 
 ## Day-2 Operations
 
 ```bash
-voyage status               # version, container health, dispatcher health, web URL
-voyage logs [service]       # tail container logs (or 'dispatcher' for the host process)
-voyage restart              # restart the stack
-voyage version              # print installed version + platform image tag
-voyage uninstall            # tear down (preserves spring.env + workspaces)
-voyage uninstall --purge    # factory reset
+voyage status                              # version, container health, dispatcher health, web URL
+voyage logs [service]                      # tail container logs (or 'dispatcher' for the host process)
+voyage restart                             # restart the stack
+voyage version                             # print installed version + platform image tag
+voyage gh-webhook-forward --repo <repo>    # forward GitHub webhooks to this install (for local dev)
+voyage uninstall                           # tear down (preserves spring.env + workspaces)
+voyage uninstall --purge                   # factory reset
 ```
 
 For TLS, multi-host topology, secrets rotation, updates, and troubleshooting, see the [operator deployment guide](docs/guide/operator/deployment.md). The full three-tier secret model (platform / tenant / unit) is documented in [Secrets](docs/guide/operator/secrets.md).
@@ -92,7 +84,7 @@ Every release publishes the platform and agent images to GitHub Container Regist
 | `ghcr.io/cvoya-com/spring-voyage-claude-code-base` | Reference image for the `claude-code` tool.                                                                             |
 | `ghcr.io/cvoya-com/spring-voyage-gemini-base`      | Reference image for the `gemini` tool.                                                                                  |
 | `ghcr.io/cvoya-com/spring-voyage-agent`            | Path-3 native A2A agent (Python).                                                                                       |
-| `ghcr.io/cvoya-com/spring-voyage-agent-oss-*`      | OSS role agents (software-engineering, design, product-management, program-management).                                 |
+| `ghcr.io/cvoya-com/spring-voyage-agent-oss-*`      | OSS role agents (software-engineering, program-management) used by the `spring-voyage-oss` package.                     |
 
 Operators do not build images locally — the installer pulls them. Image tags follow [SemVer](docs/developer/releases.md#container-image-tagging-and-publishing): `:X.Y.Z` is immutable, `:X.Y` floats to the latest patch of that minor line, `:latest` floats to the latest stable.
 
@@ -111,31 +103,29 @@ The bundled bridge ENTRYPOINT runs the A2A sidecar on `:8999` automatically; you
 
 ## Documentation
 
-- [Getting Started](docs/guide/intro/getting-started.md) — first unit, first message, portal walkthrough
+- [Getting Started](docs/guide/intro/getting-started.md) — first unit, first message
+- [Spring Voyage OSS quickstart](docs/guide/intro/getting-started-spring-voyage-oss.md) — install the built-in dev-team package
 - [Operator guide](docs/guide/operator/deployment.md) — install, configure, day-2 ops, secrets, troubleshooting
 - [User guide](docs/guide/README.md) — `spring` CLI and web portal
 - [Concepts](docs/concepts/overview.md) — units, agents, connectors, messages, skills
 - [Architecture](docs/architecture/README.md) — how the concepts are realised as a running system
 - [Documentation index](docs/README.md) — everything
 
-## For Contributors
+## Project Status
 
-This repository contains the platform source. To build, run locally, or contribute changes:
+Spring Voyage is preparing for its first stable release. The platform is feature-complete for the v0.1 scope — agents, units, messaging, connectors, packages, dashboard — and is in active use developing itself ([dogfooding via the Spring Voyage OSS package](docs/guide/intro/getting-started-spring-voyage-oss.md)).
 
-```bash
-git clone https://github.com/cvoya-com/spring-voyage
-cd spring-voyage
-```
-
-Prerequisites (.NET 10 SDK, Dapr CLI, Podman, PostgreSQL, Redis; optional Node.js / Python) and the local-dev loop are documented in [docs/developer/setup.md](docs/developer/setup.md). The platform architecture, project layout, and where to put new code are in [docs/developer/overview.md](docs/developer/overview.md). Read [CONVENTIONS.md](CONVENTIONS.md) before writing code — it is mandatory.
-
-Operators do not need to clone the repository; the installer is the supported install path.
+Forward-looking narrative is published in [docs/roadmap/](docs/roadmap/README.md). Live progress — what's in flight, what's queued — lives on the GitHub [milestones](https://github.com/cvoya-com/spring-voyage/milestones) and in issues across [cvoya-com/spring-voyage](https://github.com/cvoya-com/spring-voyage/issues).
 
 ## Open Core Model
 
-Spring Voyage follows an open-core model. This repository contains the complete, fully functional platform: agents, units (which are agents that have children), messaging, routing, runtime-decided work delivery over the `sv.messaging.*` tool surface, execution, connectors, CLI, basic auth (API key), ephemeral cloning, observability, basic cost tracking, A2A, unit nesting, package system, and dashboard.
+Spring Voyage follows an open-core model. This repository contains the complete, fully functional platform: agents, units (which are agents that have children), messaging, routing, runtime-decided work delivery over the `sv.messaging.*` tool surface, execution, connectors, CLI, API-key authentication, ephemeral cloning, observability, basic cost tracking, A2A, unit nesting, the package system (including the built-in `spring-voyage-oss` package), and dashboard. The multi-tenancy infrastructure is also included, configured as a single-operator identity model.
 
-Commercial extensions (multi-tenancy, OAuth/SSO/SAML, billing, advanced features) are developed separately and are not part of this repository.
+Commercial extensions (multi-user OSS sign-in, OAuth/SSO/SAML, cloud-style tenant provisioning, billing, and advanced features) are developed separately and are not part of this repository.
+
+## Security
+
+Found a vulnerability? Please follow the responsible-disclosure process in [SECURITY.md](SECURITY.md) — do **not** open a public GitHub issue for security reports.
 
 ## Contributing
 
@@ -145,7 +135,19 @@ Contributions welcome. Please read:
 - [docs/developer/setup.md](docs/developer/setup.md) — prerequisites, building, running locally
 - [CONVENTIONS.md](CONVENTIONS.md) — coding patterns (mandatory)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — community standards
-- [SECURITY.md](SECURITY.md) — reporting security issues
+
+To build the platform from source or hack on it locally:
+
+```bash
+git clone https://github.com/cvoya-com/spring-voyage
+cd spring-voyage
+```
+
+Prerequisites (.NET 10 SDK, Dapr CLI, Podman, PostgreSQL, Redis; optional Node.js / Python) and the local-dev loop are in [docs/developer/setup.md](docs/developer/setup.md). Architecture, project layout, and where to put new code are in [docs/developer/overview.md](docs/developer/overview.md). Operators do not need to clone the repository; the installer is the supported install path.
+
+## About
+
+Spring Voyage is developed by [Cvoya](https://cvoya.com) and led by [Savas Parastatidis](https://savas.me). For news, examples, and the wider project, visit [spring.voyage](https://spring.voyage).
 
 ## License
 
