@@ -79,11 +79,13 @@ local_image_refs() {
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         "localhost/spring-voyage-agent-claude-code:${agent_tag}" \
         "localhost/spring-voyage-agent-gemini:${agent_tag}" \
+        "localhost/spring-voyage-agent-codex:${agent_tag}" \
         "localhost/spring-voyage-agent:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-claude-code-base:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-gemini-base:${agent_tag}" \
+        "ghcr.io/cvoya-com/spring-voyage-codex-base:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-agent:${agent_tag}" \
         "ghcr.io/cvoya-com/spring-voyage-agent-base:${agent_tag}"
 }

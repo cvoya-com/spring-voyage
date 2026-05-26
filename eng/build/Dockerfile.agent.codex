@@ -1,0 +1,69 @@
+# syntax=docker/dockerfile:1.7
+#
+# Spring Voyage — OpenAI Codex CLI agent image.
+#
+# Mirrors `Dockerfile.agent.gemini` / `Dockerfile.agent.claude-code` with
+# the Codex CLI substituted in. Conformance path is identical: BYOI path 1
+# from `docs/architecture/agent-runtime.md` § 7 — `FROM` the agent-base
+# image (which already bundles the A2A bridge sidecar on :8999) and
+# `RUN`-install the tool we want the bridge to spawn.
+#
+# Wire contract recap (full text in agent-runtime.md § 7; see also
+# `eng/build/Dockerfile.agent.claude-code` for an annotated copy):
+#
+#   * The base image's ENTRYPOINT runs the TypeScript A2A bridge on
+#     `${AGENT_PORT:-8999}`. We do NOT override it.
+#   * The dispatcher (CodexLauncher.PrepareAsync) stamps SPRING_AGENT_ARGV
+#     into the container env at launch time as a JSON array. The bridge
+#     appends [--conversation-id, <thread.id>] per the runtime catalogue's
+#     `threadBinding.argName` entry.
+#   * OpenAI Platform credentials are NOT baked into this image. The
+#     launcher injects them as `OPENAI_API_KEY` at dispatch time and the
+#     bridge forwards them unchanged.
+#   * Codex auto-discovers its system prompt from `AGENTS.md` and its MCP
+#     server set from `.mcp.json`, both written at the workspace root by
+#     CodexLauncher.ContributeBundleAsync.
+#
+# Build:
+#   eng/build/build-agent-images.sh
+#       (preferred — builds agent-base, claude-code-base, gemini-base,
+#        codex-base, and spring-voyage-agent together)
+#
+#   docker build \
+#     -f eng/build/Dockerfile.agent.codex \
+#     -t localhost/spring-voyage-agent-codex:latest \
+#     --build-arg AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:dev \
+#     .
+#
+# `AGENT_BASE_IMAGE` defaults to the agent-base tag shipped alongside this
+# release. Override it to point at a locally-built agent-base when the
+# published image isn't yet in your pull cache.
+
+ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:dev
+
+FROM ${AGENT_BASE_IMAGE}
+
+# Pin the Codex CLI explicitly so `docker build` is reproducible across
+# hosts. Renovate's `@openai/codex` rule (see `.github/renovate.json`)
+# bumps this pin on its weekly schedule. Override at build time with
+# --build-arg CODEX_CLI_VERSION=<x.y.z> to roll forward without editing
+# this file.
+ARG CODEX_CLI_VERSION=0.50.0
+
+# OpenAI distributes the CLI as @openai/codex on the public npm registry;
+# the package's binary is `codex`. The probe (`codex --version`) makes
+# any install regression fail the build loudly instead of producing a
+# silently broken image.
+#
+# We need root to write to npm's global prefix; the base image runs as
+# `agent`, so we drop down for the install and switch back so we keep
+# the non-root posture the dispatcher and the bridge sidecar expect.
+USER root
+RUN export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+ && npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
+ && command -v codex >/dev/null \
+ && codex --version
+USER agent
+
+# No CMD / ENTRYPOINT override — inherit the base image's bridge entrypoint
+# unchanged. The dispatcher's CodexLauncher supplies SPRING_AGENT_ARGV.
