@@ -23,6 +23,7 @@ lives at [`src/Cvoya.Spring.AgentSidecar/`](../../src/Cvoya.Spring.AgentSidecar/
 | ------------------------ | ----------------------------------------------------------------- |
 | `deploy.sh`              | Local Podman deployment lifecycle (network, containers). Delegates the dispatcher lifecycle to `spring-voyage-host.sh`. |
 | `spring-voyage-host.sh`  | Manages host-process services (`spring-dispatcher`). Used directly when bouncing the dispatcher in isolation; called by `deploy.sh up/down`. |
+| `reset.sh`               | Level-based reset of a local deployment (`state` / `platform` / `deep` / `total`). See [Resetting a deployment](#resetting-a-deployment) below. |
 | `setup.sh`               | First-run setup: copies `eng/config/spring.env.example` -> `eng/config/spring.env`, generates `SPRING_SECRETS_AES_KEY`. |
 | `Caddyfile`              | Single-host path-routed Caddy config (default).                   |
 | `Caddyfile.multi-host`   | Per-service hostnames variant (web / API / webhook each FQDN).    |
@@ -212,6 +213,40 @@ destructive clean slate; it removes only the service containers, platform
 runtime containers (`spring-persistent-*`, `spring-ephemeral-*`, and related
 dispatcher names), volumes, networks, and local Spring Voyage image refs owned
 by these scripts.
+
+### Resetting a deployment
+
+`./reset.sh <level>` is a level-based alternative to `deploy.sh clean` for
+when "tear it all down" wipes more than you need. Each level keeps the
+heavier caches (base container images, Ollama models, dispatcher publish
+output, etc.) intact unless the level explicitly removes them, so most
+resets don't trigger a multi-gigabyte re-download.
+
+| Level      | Removes                                                                                                                                                | Keeps                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `state`    | Platform containers and platform volumes (postgres, redis, dapr placement/scheduler state, dataprotection-keys, caddy data/config).                    | `spring-ollama-data` (LLM models), all images, all networks.         |
+| `platform` | `state` + runtime ephemeral/persistent containers, built `spring-voyage*` images, dispatcher publish output, all platform networks.                    | `spring-ollama-data`, base images (postgres, redis, dapr, caddy, ollama). |
+| `deep`     | `platform` + `spring-ollama-data` (LLM models). Equivalent in scope to today's `deploy.sh clean`.                                                      | Base images only.                                                    |
+| `total`    | `deep` + base images. Reproduces a from-zero install (every image is re-pulled, every LLM model is re-downloaded).                                     | Nothing podman-side.                                                 |
+
+Flags:
+
+| Flag             | Purpose                                                              |
+| ---------------- | -------------------------------------------------------------------- |
+| `-y`, `--yes`    | Skip the interactive confirmation prompt.                            |
+| `-n`, `--dry-run`| Print the actions that would be taken without changing anything.     |
+| `-h`, `--help`   | Show usage.                                                          |
+
+```bash
+./reset.sh state                    # wipe app data, keep everything else
+./reset.sh platform --yes           # rebuild Spring Voyage; keep base images + LLM models
+./reset.sh deep                     # full data wipe, keep base images
+./reset.sh total --dry-run          # preview a nuclear reset
+```
+
+Operator data outside Podman — `~/.spring-voyage/host/` (dispatcher state)
+and the rest of the install root — is intentionally out of scope. Use
+`eng/install/uninstall.sh --purge` to remove that as well.
 
 ### Host-process services (`spring-voyage-host.sh`)
 
