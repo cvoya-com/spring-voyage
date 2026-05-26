@@ -79,18 +79,17 @@ export function parseThreadSource(source: string): ParsedThreadSource {
 }
 
 /**
- * Returns true when the address belongs to the human scheme using the
- * navigation form (`human://`). Humans now also surface in canonical
- * `human:<hex>` form post-#1629; this helper continues to detect the
- * navigation legacy form for back-compat with persisted activity events.
+ * Returns true when the address represents a person — either a directory
+ * `human:<id>` actor or the authenticated `tenant-user:<id>` principal
+ * (ADR-0047 §1 / #2768). Both shapes are treated as human for inbox
+ * classification, engagement A2A-only filtering, and thread-bubble
+ * rendering: the operator-as-tenant-user is still a person typing into the
+ * conversation. Accepts every legacy wire form (navigation `scheme://`,
+ * identity `scheme:id:`, and canonical post-#1629 `scheme:<hex>`).
  */
 export function isHumanAddress(address: string): boolean {
-  return (
-    address.startsWith("human://") ||
-    address.toLowerCase().startsWith("human:") &&
-      !address.startsWith("human://") &&
-      address.length > "human:".length
-  );
+  const { scheme } = parseThreadSource(address);
+  return scheme === "human" || scheme === "tenant-user";
 }
 
 /**
@@ -200,6 +199,15 @@ export function runtimeKindOf(p: AddressLike): "agent" | "unit" | null {
  * Resolves the presentation role for a thread event. Tool-call events
  * (`DecisionMade`) get their own role so the thread view can render
  * them as collapsed call-outs (#410 § role attribution).
+ *
+ * Post-#2768 the authenticated principal of the portal is a
+ * `tenant-user:<id>` (ADR-0047 §1), not a `human:<id>`. The two render
+ * identically in the thread — both are a person typing into the
+ * conversation, both belong on the right with the human bubble — so the
+ * tenant-user scheme maps to the same `human` role here. Without this
+ * mapping the operator's own messages render as `system` (italic, muted,
+ * left-aligned with a "View in activity →" footer) instead of the
+ * sender's right-aligned blue bubble.
  */
 export function roleFromEvent(
   source: string,
@@ -209,7 +217,7 @@ export function roleFromEvent(
     return "tool";
   }
   const { scheme } = parseThreadSource(source);
-  if (scheme === "human") return "human";
+  if (scheme === "human" || scheme === "tenant-user") return "human";
   if (scheme === "agent") return "agent";
   if (scheme === "unit") return "unit";
   return "system";
@@ -253,8 +261,12 @@ export interface RoleStyle {
  * `human://<guid>: …` doesn't leak the platform's addressing scheme
  * into the chat UI (#2089).
  */
+// `tenant-user` must come before `tenant` in the alternation — the regex
+// engine tries left-to-right and would otherwise match `tenant` against
+// the `tenant-` prefix of a `tenant-user:<guid>` address, then bail on
+// the unexpected hyphen.
 const ADDRESS_FORM_REGEX =
-  /(?<![A-Za-z0-9_])(human|agent|unit|tenant)(:\/\/|:id:|:)([0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b/g;
+  /(?<![A-Za-z0-9_])(tenant-user|human|agent|unit|tenant)(:\/\/|:id:|:)([0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b/g;
 
 /**
  * Folds every raw `scheme:<guid>` / `scheme://<guid>` / `scheme:id:<uuid>`

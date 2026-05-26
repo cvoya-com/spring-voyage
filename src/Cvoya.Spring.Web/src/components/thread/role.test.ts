@@ -100,6 +100,23 @@ describe("isHumanAddress", () => {
   it("returns false for unit:// navigation form", () => {
     expect(isHumanAddress("unit://engineering")).toBe(false);
   });
+
+  // Post-#2768 the OSS operator's caller address is `tenant-user:<id>`
+  // (ADR-0047 §1). The tenant-user principal is still a person typing
+  // into the conversation, so callers that classify "is this a human?"
+  // — inbox row classification, engagement-list A2A-only filtering — must
+  // count tenant-user addresses too.
+  it("returns true for tenant-user:<id> canonical form", () => {
+    expect(
+      isHumanAddress("tenant-user:5c4c8e29aaaaaaaaaaaaaaaaaaaaaaaa"),
+    ).toBe(true);
+  });
+
+  it("returns true for tenant-user:// navigation form", () => {
+    expect(
+      isHumanAddress("tenant-user://5c4c8e29-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+    ).toBe(true);
+  });
 });
 
 describe("roleFromEvent", () => {
@@ -125,6 +142,25 @@ describe("roleFromEvent", () => {
   it("falls back to system for unknown schemes", () => {
     expect(roleFromEvent("scheduler", "StateChanged")).toBe("system");
     expect(roleFromEvent("foo://bar", "StateChanged")).toBe("system");
+  });
+
+  // Post-#2768 the operator's caller address is `tenant-user:<id>`. The
+  // thread row must render the bubble as if it were a human-sent message
+  // (right-aligned blue bubble, no role pill); otherwise the operator's
+  // own messages surface as "System / Operator" italic call-outs.
+  it("maps tenant-user:<id> to the human role for message events", () => {
+    expect(
+      roleFromEvent(
+        "tenant-user:5c4c8e29aaaaaaaaaaaaaaaaaaaaaaaa",
+        "MessageArrived",
+      ),
+    ).toBe("human");
+    expect(
+      roleFromEvent(
+        "tenant-user://5c4c8e29-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "MessageArrived",
+      ),
+    ).toBe("human");
   });
 });
 
@@ -444,6 +480,27 @@ describe("buildParticipantNameResolver + renderBodyWithResolvedAddresses", () =>
         resolve,
       ),
     ).toBe("owner engineering in Acme");
+  });
+
+  // Post-#2768 a noisy LLM that mimics the prompt-format may leak the
+  // operator's `tenant-user://<guid>` address into a reply body the same
+  // way it leaks `human://<guid>`. The regex must match the longer
+  // `tenant-user` scheme — without the `tenant-user` alternative coming
+  // first, the engine would greedily match `tenant` and bail on the
+  // unexpected hyphen, leaving the raw address in the bubble.
+  it("folds tenant-user:<guid> addresses inside body text", () => {
+    const operator = {
+      id: "5c4c8e29-1111-2222-3333-444444444444",
+      address: "tenant-user:5c4c8e29111122223333444444444444",
+      displayName: "Operator",
+    };
+    const resolve = buildParticipantNameResolver([operator]);
+    expect(
+      renderBodyWithResolvedAddresses(
+        "tenant-user://5c4c8e29-1111-2222-3333-444444444444: kicked off",
+        resolve,
+      ),
+    ).toBe("Operator: kicked off");
   });
 
   it("returns the body unchanged when the resolver finds no addresses", () => {
