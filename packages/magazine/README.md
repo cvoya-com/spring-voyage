@@ -73,6 +73,27 @@ approval gate at the end.
 The user does not need to schedule editions — each edition is initiated
 by a conversation with the editor.
 
+### Sharing what you find as you work
+
+The pipeline above is the spine, not the whole picture. As the team
+works, useful context turns up everywhere — a source the writer
+followed, a framing the audience editor tried, a number the fact-checker
+audited. Every member keeps their own working notes and shares anything
+that another member's piece can use, so the room operates as one team
+rather than seven silos.
+
+Members discover what their peers are doing three ways:
+
+- the team directory tells them who is on the desk and what each is
+  covering,
+- they can ask a peer directly when they need to know quickly, and
+- the editor's briefs and the managing editor's running budget make
+  most of the picture explicit without anyone having to chase it.
+
+The managing editor is the channel for routine cross-member notes —
+the editor sees connections across the room and routes the right
+information to the right member.
+
 ## Using the package
 
 Install via the CLI:
