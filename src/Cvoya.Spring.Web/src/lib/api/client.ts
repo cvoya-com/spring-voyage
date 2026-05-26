@@ -47,6 +47,9 @@ import type {
   UnitPolicyResponse,
   UnitResponse,
   UnitSubUnitMemberResponse,
+  UnitWebSearchConfigRequest,
+  UnitWebSearchConfigResponse,
+  WebSearchProviderDescriptor,
   UpdateAgentMetadataRequest,
   UpdateHumanRequest,
   UpdateUnitAgentMemberRequest,
@@ -1422,6 +1425,49 @@ export const api = {
     unwrap(
       await fetchClient.PUT(
         "/api/v1/tenant/connectors/github/units/{unitId}/config",
+        { params: { path: { unitId } }, body },
+      ),
+    ),
+
+  // Connectors — Web Search typed surface.
+  //
+  // Wraps the four endpoints exposed by Cvoya.Spring.Connector.WebSearch:
+  // the per-unit GET/PUT config, the provider catalogue (`actions/providers`),
+  // and the JSON Schema describing the request body (`config-schema`).
+  // The schema endpoint returns an opaque `unknown` — the connector tab
+  // does not render a generic schema form today; the provider catalogue
+  // is what populates the picker.
+  listWebSearchProviders: async (): Promise<WebSearchProviderDescriptor[]> =>
+    unwrap(
+      await fetchClient.GET(
+        "/api/v1/tenant/connectors/web-search/actions/providers",
+      ),
+    ),
+  getWebSearchConnectorConfigSchema: async (): Promise<unknown> =>
+    unwrap(
+      await fetchClient.GET(
+        "/api/v1/tenant/connectors/web-search/config-schema",
+      ),
+    ),
+  getUnitWebSearchConfig: async (
+    unitId: string,
+  ): Promise<UnitWebSearchConfigResponse | null> => {
+    const result = await fetchClient.GET(
+      "/api/v1/tenant/connectors/web-search/units/{unitId}/config",
+      { params: { path: { unitId } } },
+    );
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result);
+  },
+  putUnitWebSearchConfig: async (
+    unitId: string,
+    body: UnitWebSearchConfigRequest,
+  ) =>
+    unwrap(
+      await fetchClient.PUT(
+        "/api/v1/tenant/connectors/web-search/units/{unitId}/config",
         { params: { path: { unitId } }, body },
       ),
     ),

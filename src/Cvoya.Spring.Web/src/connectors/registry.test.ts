@@ -17,9 +17,10 @@ import {
 // package) and this file still compiles, the contract held.
 
 describe("connector registry", () => {
-  it("registers at least the GitHub connector", () => {
+  it("registers at least the GitHub and web-search connectors", () => {
     const slugs = getRegisteredConnectorSlugs();
     expect(slugs).toContain("github");
+    expect(slugs).toContain("web-search");
   });
 
   it("returns the Connector-tab component for every registered slug", () => {
@@ -31,6 +32,11 @@ describe("connector registry", () => {
 
   it("returns the wizard-step component for the GitHub connector", () => {
     const wizardStep = getConnectorWizardStep("github");
+    expect(wizardStep).toBeDefined();
+  });
+
+  it("returns the wizard-step component for the web-search connector", () => {
+    const wizardStep = getConnectorWizardStep("web-search");
     expect(wizardStep).toBeDefined();
   });
 

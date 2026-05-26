@@ -752,6 +752,29 @@ export type GitHubCollaboratorResponse = Schemas["GitHubCollaboratorResponse"];
  */
 export type GitHubMissingOAuthResponse = Schemas["GitHubMissingOAuthResponse"];
 
+/**
+ * PUT /api/v1/tenant/connectors/web-search/units/{unitId}/config request body.
+ * @public Consumed by `Cvoya.Spring.Connector.WebSearch/web/*` cross-workspace.
+ */
+export type UnitWebSearchConfigRequest =
+  Schemas["UnitWebSearchConfigRequest"];
+
+/**
+ * GET / PUT response body for the web-search per-unit config. Never
+ * carries plaintext key material — only the secret-name reference.
+ * @public Consumed by `Cvoya.Spring.Connector.WebSearch/web/*` cross-workspace.
+ */
+export type UnitWebSearchConfigResponse =
+  Schemas["UnitWebSearchConfigResponse"];
+
+/**
+ * GET /api/v1/tenant/connectors/web-search/actions/providers item.
+ * Drives the provider picker in the connector UI.
+ * @public Consumed by `Cvoya.Spring.Connector.WebSearch/web/*` cross-workspace.
+ */
+export type WebSearchProviderDescriptor =
+  Schemas["WebSearchProviderDescriptor"];
+
 /** GET /api/v1/units/{id}/readiness response. */
 export type UnitReadinessResponse = Schemas["UnitReadinessResponse"];
 

@@ -37,6 +37,10 @@ export default defineConfig({
         __dirname,
         "../Cvoya.Spring.Connector.GitHub/web",
       ),
+      "@connector-web-search": resolve(
+        __dirname,
+        "../Cvoya.Spring.Connector.WebSearch/web",
+      ),
       // Pin react/react-dom to the instance resolved above (see comment
       // at top of file). Without this, files outside the web project
       // (connector packages) pick up a different React copy, causing the

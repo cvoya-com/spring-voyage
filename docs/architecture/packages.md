@@ -83,7 +83,7 @@ The repository ships catalogue packages under `packages/`:
 | `example-simple` / `example-templated` | Authoring examples (plain and template-based) |
 | `software-engineering` | A software-engineering unit |
 | `product-management` | A product-management unit |
-| `research` / `newsroom` | Domain examples |
+| `research` / `magazine` | Domain examples |
 | `spring-voyage-oss` | The OSS dogfooding unit ([ADR-0034](../decisions/0034-oss-dogfooding-unit.md)) |
 
 `FileSystemPackageCatalogService` walks `packages/` so a new package appears in

@@ -99,8 +99,22 @@ const KB = 1024;
 //   Total uncompressed: ~3166 KB → cap 3220 KB
 //   Total gzipped:      ~ 900 KB → cap  925 KB
 //   Largest chunk (uncompressed): 356 KB → cap 450 KB (unchanged)
+//
+// Updated 2026-05-25 (#2779) when the web-search connector landed its
+// portal surface — two new React components (`WebSearchConnectorTab`
+// and `WebSearchConnectorWizardStep`) shipped under
+// `src/Cvoya.Spring.Connector.WebSearch/web/`, plus the registry
+// entry and the typed `api.*WebSearch*` wrappers in `lib/api/client.ts`.
+// No new dependencies; growth is the new component code (plain
+// React + the shared `@/components/ui/*` primitives already in the
+// bundle) and the additional typed surface in the API client.
+// Gzipped total went DOWN slightly (chunk shuffling rebalanced
+// existing modules) so only the uncompressed cap moves.
+//   Total uncompressed: ~3237 KB → cap 3260 KB
+//   Total gzipped:      ~ 918 KB → cap  925 KB (unchanged; still within)
+//   Largest chunk (uncompressed): 356 KB → cap 450 KB (unchanged)
 const BUDGETS = {
-  totalUncompressedKb: 3220,
+  totalUncompressedKb: 3260,
   totalGzippedKb: 925,
   maxChunkUncompressedKb: 450,
 };
