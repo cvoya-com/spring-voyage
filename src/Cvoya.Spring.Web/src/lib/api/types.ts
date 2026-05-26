@@ -316,6 +316,14 @@ export type PackageInputSummary = {
  */
 export type PackageConnectorBindings = Schemas["PackageConnectorBindings"];
 
+/**
+ * Issue #2780: package-author defaults for one connector entry on a
+ * package's <c>requires:</c> block. The install wizard projects this
+ * onto the relevant connector's wizard-step <c>initialValue</c> so
+ * installers don't have to re-type filters the package already declared.
+ */
+export type RequiredConnectorDefaults = Schemas["RequiredConnectorDefaults"];
+
 /** GET /api/v1/costs/agents/{id} or /units/{id} response. */
 export type CostSummaryResponse = Schemas["CostSummaryResponse"];
 

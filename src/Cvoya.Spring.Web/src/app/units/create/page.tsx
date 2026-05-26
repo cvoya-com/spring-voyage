@@ -54,7 +54,10 @@ import {
   formatTranslatedError,
   isCredentialsMissingError,
 } from "@/lib/api/translate-error";
-import { getConnectorWizardStep } from "@/connectors/registry";
+import {
+  getConnectorWizardInitialValueFromDefaults,
+  getConnectorWizardStep,
+} from "@/connectors/registry";
 import {
   useModelProviderModels,
   useModelProviders,
@@ -749,6 +752,29 @@ export default function CreateUnitPage() {
     () => requiredCredentialsQuery.data?.required ?? [],
     [requiredCredentialsQuery.data],
   );
+
+  // Issue #2780: project the selected catalog package's per-connector
+  // defaults block onto the wizard-step's `initialValue` shape, keyed by
+  // connector slug. The wizard renders this as the GitHub step's
+  // pre-populated include/exclude textareas so installers don't have to
+  // re-type filters the package author already declared.
+  const packageConnectorInitialValueBySlug = useMemo<
+    Record<string, Record<string, unknown> | null>
+  >(() => {
+    const declarations = selectedPackageQuery.data?.connectorDeclarations;
+    if (!declarations || declarations.length === 0) return {};
+    const result: Record<string, Record<string, unknown> | null> = {};
+    for (const decl of declarations) {
+      const seed = getConnectorWizardInitialValueFromDefaults(
+        decl.type,
+        decl.defaults ?? null,
+      );
+      if (seed !== null) {
+        result[decl.type] = seed;
+      }
+    }
+    return result;
+  }, [selectedPackageQuery.data]);
 
   // #1672: the legacy `githubPrefill` shim has been removed. The catalog
   // package now declares its connector dependency through the manifest's
@@ -2853,6 +2879,15 @@ export default function CreateUnitPage() {
               {connectorTypes?.map((c) => {
                 const isSelected = form.connectorSlug === c.typeSlug;
                 const WizardStep = getConnectorWizardStep(c.typeSlug);
+                // Issue #2780: the catalog branch reaches this render
+                // path, so wire up the package-defaults pre-seed. When the
+                // operator hasn't typed anything yet (connectorConfig
+                // still null) the wizard-step mounts with the
+                // package-declared values as its initialValue; once the
+                // operator's form is valid, connectorConfig holds the
+                // final shape and wins.
+                const packageSeed =
+                  packageConnectorInitialValueBySlug[c.typeSlug] ?? null;
                 return (
                   <label
                     key={c.typeId}
@@ -2886,7 +2921,7 @@ export default function CreateUnitPage() {
                     {isSelected && WizardStep && (
                       <WizardStep
                         onChange={handleConnectorConfigChange}
-                        initialValue={form.connectorConfig}
+                        initialValue={form.connectorConfig ?? packageSeed}
                       />
                     )}
                     {isSelected && !WizardStep && (

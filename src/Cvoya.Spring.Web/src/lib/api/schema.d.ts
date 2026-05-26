@@ -3864,9 +3864,17 @@ export interface components {
             /** Format: int32 */
             pruned: number;
         };
+        RequiredConnectorDefaults: {
+            labels?: null | components["schemas"]["RequiredConnectorLabels"];
+        };
+        RequiredConnectorLabels: {
+            include: string[];
+            exclude: string[];
+        };
         RequiredConnectorSummary: {
             type: string;
             required: boolean;
+            defaults?: null | components["schemas"]["RequiredConnectorDefaults"];
         };
         RequirementStatus: {
             requirementId: string;

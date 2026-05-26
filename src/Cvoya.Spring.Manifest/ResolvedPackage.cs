@@ -76,6 +76,18 @@ public class ResolvedPackage
         new Dictionary<string, IReadOnlyList<string>>();
 
     /// <summary>
+    /// Per-connector-slug map of package-author defaults the install
+    /// wizard pre-seeds onto the binding form (issue #2780). One entry
+    /// per slug that any contained artefact declared a <c>labels:</c>
+    /// sibling for. Two artefacts may declare the same slug; their
+    /// defaults must match or the package fails validation, so the
+    /// folded value is unambiguous. Empty when no artefact declared
+    /// connector defaults.
+    /// </summary>
+    public IReadOnlyDictionary<string, RequirementLabelsBlock> ConnectorLabelsBySlug { get; init; } =
+        new Dictionary<string, RequirementLabelsBlock>();
+
+    /// <summary>
     /// Resolved package-level <c>execution:</c> declaration (#1679),
     /// or <c>null</c> when the package author declared no
     /// <c>execution:</c> block. The install pipeline merges these

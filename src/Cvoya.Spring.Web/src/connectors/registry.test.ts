@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getConnectorComponent,
+  getConnectorWizardInitialValueFromDefaults,
   getConnectorWizardStep,
   getRegisteredConnectorSlugs,
 } from "./registry";
@@ -43,5 +44,63 @@ describe("connector registry", () => {
   it("returns undefined for an unknown slug on both lookups", () => {
     expect(getConnectorComponent("no-such-connector")).toBeUndefined();
     expect(getConnectorWizardStep("no-such-connector")).toBeUndefined();
+  });
+
+  // Issue #2780: per-connector defaults projector — package-author
+  // defaults from the requires: block become the wizard step's
+  // initialValue so installers don't have to re-type known filters.
+  describe("getConnectorWizardInitialValueFromDefaults (github)", () => {
+    it("projects include labels onto the wizard initialValue", () => {
+      const seed = getConnectorWizardInitialValueFromDefaults("github", {
+        labels: { include: ["spring-voyage-team"], exclude: [] },
+      });
+      expect(seed).toEqual({ include_labels: ["spring-voyage-team"] });
+    });
+
+    it("projects exclude labels onto the wizard initialValue", () => {
+      const seed = getConnectorWizardInitialValueFromDefaults("github", {
+        labels: { include: [], exclude: ["wip", "internal:*"] },
+      });
+      expect(seed).toEqual({ exclude_labels: ["wip", "internal:*"] });
+    });
+
+    it("merges include and exclude when both present", () => {
+      const seed = getConnectorWizardInitialValueFromDefaults("github", {
+        labels: { include: ["team"], exclude: ["wip"] },
+      });
+      expect(seed).toEqual({
+        include_labels: ["team"],
+        exclude_labels: ["wip"],
+      });
+    });
+
+    it("returns null when the defaults block carries no labels", () => {
+      const seed = getConnectorWizardInitialValueFromDefaults("github", {
+        labels: null,
+      });
+      expect(seed).toBeNull();
+    });
+
+    it("returns null when both include and exclude are empty", () => {
+      const seed = getConnectorWizardInitialValueFromDefaults("github", {
+        labels: { include: [], exclude: [] },
+      });
+      expect(seed).toBeNull();
+    });
+
+    it("returns null when defaults is null", () => {
+      const seed = getConnectorWizardInitialValueFromDefaults("github", null);
+      expect(seed).toBeNull();
+    });
+
+    it("returns null for connectors that ship no defaults projector", () => {
+      const seed = getConnectorWizardInitialValueFromDefaults(
+        "no-such-connector",
+        {
+          labels: { include: ["x"], exclude: [] },
+        },
+      );
+      expect(seed).toBeNull();
+    });
   });
 });
