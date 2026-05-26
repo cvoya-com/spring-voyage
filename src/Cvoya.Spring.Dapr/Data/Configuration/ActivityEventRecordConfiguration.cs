@@ -35,6 +35,12 @@ internal class ActivityEventRecordConfiguration : IEntityTypeConfiguration<Activ
 
         builder.HasIndex(e => e.Timestamp);
         builder.HasIndex(e => e.CorrelationId);
-        builder.HasIndex(e => e.TenantId);
+
+        // #2800: composite covering the Activity tab's REST query —
+        // filter by (tenant_id, source_id) then top-K by timestamp DESC.
+        // The leading tenant_id column subsumes the previous standalone
+        // tenant_id index, which was dropped in the same migration.
+        builder.HasIndex(e => new { e.TenantId, e.SourceId, e.Timestamp })
+            .IsDescending(false, false, true);
     }
 }
