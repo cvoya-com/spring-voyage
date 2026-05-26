@@ -53,15 +53,19 @@ approval gate at the end.
    confirms with the owner if anything is ambiguous, and briefs the
    managing editor.
 3. The managing editor assigns each slot to the staff writer with a
-   clear brief.
+   clear brief that includes the angle, the deadline, and **where
+   the finished work should be sent next** (the default is the next
+   stage in the pipeline; the brief can route differently).
 4. The staff writer reports the story using web search and consults
    the editor before going deep on any angle that materially differs
-   from the brief. They file a draft to the fact-checker.
+   from the brief. They send the draft to wherever their assignment
+   routes it — by default the fact-checker.
 5. The fact-checker verifies every claim and either returns the draft
-   with notes or hands the verified draft to the copy editor.
-6. The copy editor polishes language and sends to the audience editor.
+   with notes or sends the verified draft on (default: copy editor).
+6. The copy editor polishes language and sends the result on
+   (default: audience editor).
 7. The audience editor writes the final headline and promo line and
-   sends the packaged piece to the production editor.
+   sends the packaged piece on (default: production editor).
 8. When all stories are in, the managing editor signals the production
    editor that the edition is ready. The production editor assembles
    the running order and presents the edition to the editor.
@@ -73,14 +77,19 @@ approval gate at the end.
 The user does not need to schedule editions — each edition is initiated
 by a conversation with the editor.
 
-### Sharing what you find as you work
+### Local memory and information sharing
 
 The pipeline above is the spine, not the whole picture. As the team
 works, useful context turns up everywhere — a source the writer
 followed, a framing the audience editor tried, a number the fact-checker
-audited. Every member keeps their own working notes and shares anything
-that another member's piece can use, so the room operates as one team
-rather than seven silos.
+audited. Two rules govern how that context flows:
+
+1. **Each member has their own local memory.** They keep notes there
+   as they work — sources, decisions, framings, anything they may
+   need again. Memory is private to the member; peers don't read it.
+2. **Sharing happens via messaging.** When a member finds something
+   another member can use, they send it. The recipient folds it into
+   their own local memory and uses it when they author their piece.
 
 Members discover what their peers are doing three ways:
 
@@ -93,6 +102,17 @@ Members discover what their peers are doing three ways:
 The managing editor is the channel for routine cross-member notes —
 the editor sees connections across the room and routes the right
 information to the right member.
+
+### How assignments carry routing
+
+Every assignment a member receives carries four things: the brief
+(what to do), the deadline, anything non-negotiable from the editor,
+and **where to send the finished work**. The default routing is the
+linear pipeline described above, but each assignment states it
+explicitly so the member never has to guess. The editor can override
+the default — for example, "draft this and bring it straight back to
+me" — and the managing editor honours that override in the assignment
+they pass along.
 
 ## Using the package
 
