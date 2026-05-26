@@ -131,9 +131,43 @@ public record PackageContentEntry(
 /// required. Kept on the wire shape for forward compatibility when
 /// optional requirements (e.g. capability-typed) land.
 /// </param>
+/// <param name="Defaults">
+/// Optional connector-type-specific defaults the package author wants
+/// the install wizard to pre-seed onto the binding form (issue #2780).
+/// Null when the package declared no <c>labels:</c> sibling on any
+/// matching <c>requires:</c> entry. Pre-seed only — the operator can
+/// edit or remove the values before submitting; the persisted binding
+/// reflects the submission.
+/// </param>
 public record RequiredConnectorSummary(
     string Type,
-    bool Required);
+    bool Required,
+    RequiredConnectorDefaults? Defaults = null);
+
+/// <summary>
+/// Connector-type-specific defaults projected from a package's
+/// <c>requires:</c> blocks (issue #2780). For v0.1 only the GitHub
+/// connector consumes the <see cref="Labels"/> field; other connectors
+/// ignore values they don't recognise.
+/// </summary>
+/// <param name="Labels">
+/// Include / exclude label patterns to pre-seed on the binding's
+/// inbound-event filter. Patterns follow the existing wildcard grammar
+/// (<c>exact</c>, <c>*</c>, <c>prefix:*</c>) the GitHub connector's
+/// <c>GitHubEventFilter</c> already evaluates.
+/// </param>
+public record RequiredConnectorDefaults(
+    RequiredConnectorLabels? Labels = null);
+
+/// <summary>
+/// Include / exclude label patterns projected from a connector
+/// requirement's <c>labels:</c> sibling (issue #2780).
+/// </summary>
+/// <param name="Include">Allow-list patterns. Empty when the package declared no include filter.</param>
+/// <param name="Exclude">Block-list patterns. Empty when the package declared no exclude filter.</param>
+public record RequiredConnectorLabels(
+    IReadOnlyList<string> Include,
+    IReadOnlyList<string> Exclude);
 
 /// <summary>
 /// A single agent template declared by a package. The YAML under

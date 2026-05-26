@@ -213,7 +213,14 @@ public class FileSystemPackageCatalogService(
     private List<RequiredConnectorSummary> ReadConnectorDeclarations(
         IReadOnlyList<DiscoveredEntry> discovered)
     {
-        var union = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Fold per-slug labels across artefacts and reject conflicts so the
+        // wizard sees one consistent pre-seed (issue #2780). Order-preserving
+        // so the wire shape is stable across requests.
+        var order = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var labelsBySlug = new Dictionary<string, RequirementLabelsBlock>(StringComparer.OrdinalIgnoreCase);
+        var firstSourceBySlug = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         try
         {
             foreach (var d in discovered)
@@ -222,8 +229,39 @@ public class FileSystemPackageCatalogService(
                 {
                     continue;
                 }
-                var slugs = ExtractConnectorSlugs(d);
-                foreach (var s in slugs) union.Add(s);
+                foreach (var entry in ExtractConnectorRequires(d))
+                {
+                    var slug = entry.Identifier?.Trim();
+                    if (string.IsNullOrEmpty(slug)) continue;
+                    if (seen.Add(slug))
+                    {
+                        order.Add(slug);
+                    }
+
+                    if (entry.Labels is { IsEmpty: false } labels)
+                    {
+                        if (labelsBySlug.TryGetValue(slug, out var existing))
+                        {
+                            if (!LabelsEqual(existing, labels))
+                            {
+                                logger.LogWarning(
+                                    "Package '{Package}': artefacts '{First}' and '{Second}' declare conflicting `labels:` " +
+                                    "for `connector: {Slug}`. Dropping pre-seed; operator must enter the filter manually.",
+                                    Path.GetFileName(Path.GetDirectoryName(d.PackageYamlPath) ?? string.Empty),
+                                    firstSourceBySlug[slug],
+                                    d.Name,
+                                    slug);
+                                labelsBySlug.Remove(slug);
+                                firstSourceBySlug.Remove(slug);
+                            }
+                        }
+                        else
+                        {
+                            labelsBySlug[slug] = labels;
+                            firstSourceBySlug[slug] = d.Name;
+                        }
+                    }
+                }
             }
         }
         catch (Exception ex) when (ex is PackageParseException or YamlDotNet.Core.YamlException or IOException)
@@ -233,15 +271,39 @@ public class FileSystemPackageCatalogService(
             return [];
         }
 
-        var result = new List<RequiredConnectorSummary>(union.Count);
-        foreach (var slug in union)
+        var result = new List<RequiredConnectorSummary>(order.Count);
+        foreach (var slug in order)
         {
-            result.Add(new RequiredConnectorSummary(Type: slug, Required: true));
+            RequiredConnectorDefaults? defaults = null;
+            if (labelsBySlug.TryGetValue(slug, out var labels))
+            {
+                defaults = new RequiredConnectorDefaults(
+                    Labels: new RequiredConnectorLabels(
+                        Include: labels.Include,
+                        Exclude: labels.Exclude));
+            }
+            result.Add(new RequiredConnectorSummary(Type: slug, Required: true, Defaults: defaults));
         }
         return result;
     }
 
-    private static IEnumerable<string> ExtractConnectorSlugs(DiscoveredEntry entry)
+    private static bool LabelsEqual(RequirementLabelsBlock a, RequirementLabelsBlock b)
+    {
+        return SequenceEqualOrdered(a.Include, b.Include)
+            && SequenceEqualOrdered(a.Exclude, b.Exclude);
+    }
+
+    private static bool SequenceEqualOrdered(IReadOnlyList<string> a, IReadOnlyList<string> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (var i = 0; i < a.Count; i++)
+        {
+            if (!string.Equals(a[i], b[i], StringComparison.Ordinal)) return false;
+        }
+        return true;
+    }
+
+    private static IEnumerable<RequirementEntry> ExtractConnectorRequires(DiscoveredEntry entry)
     {
         var yaml = entry.RawYaml;
         if (string.IsNullOrWhiteSpace(yaml)) yield break;
@@ -277,9 +339,7 @@ public class FileSystemPackageCatalogService(
         foreach (var r in requires)
         {
             if (r.Type != RequirementType.Connector) continue;
-            var slug = r.Identifier?.Trim();
-            if (string.IsNullOrEmpty(slug)) continue;
-            yield return slug;
+            yield return r;
         }
     }
 

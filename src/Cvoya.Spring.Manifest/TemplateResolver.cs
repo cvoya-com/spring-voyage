@@ -201,6 +201,7 @@ public sealed class TemplateResolver : ITemplateResolver
             HumanTemplates = package.HumanTemplates,
             RequiredConnectorSlugs = package.RequiredConnectorSlugs,
             ConnectorRequiresByArtefact = package.ConnectorRequiresByArtefact,
+            ConnectorLabelsBySlug = package.ConnectorLabelsBySlug,
             Execution = package.Execution,
             Warnings = package.Warnings,
         };

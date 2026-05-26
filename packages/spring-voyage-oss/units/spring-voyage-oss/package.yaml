@@ -204,8 +204,18 @@ members:
 # process it. Member agents inherit $GITHUB_TOKEN and the other GitHub
 # env vars from the closest connector binding in the parent chain (#2380),
 # so individual agents do not bind the connector locally.
+#
+# Issue #2780: the `labels:` sibling pre-seeds the install wizard's
+# include-labels textarea with `spring-voyage-team` so the operator
+# installing the package doesn't have to remember the prose above —
+# the filter the orchestrator and members already assume gets persisted
+# on the binding by default. The operator can edit or remove it before
+# clicking Install; pre-seed only, never enforced.
 requires:
   - connector: github
+    labels:
+      include:
+        - spring-voyage-team
 # #2696: the team-leader role only ever calls `sv.messaging.*`, `sv.directory.*`,
 # `sv.runtime.report_decision`, `sv.progress.report`, and `gh` reads / issue-
 # level writes — it never invokes the Claude Code editing surface.

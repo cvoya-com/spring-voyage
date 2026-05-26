@@ -34,6 +34,7 @@ import { WebSearchConnectorTab } from "@connector-web-search/connector-tab";
 import { WebSearchConnectorWizardStep } from "@connector-web-search/connector-wizard-step";
 
 import type {
+  RequiredConnectorDefaults,
   UnitGitHubConfigRequest,
   UnitWebSearchConfigRequest,
 } from "@/lib/api/types";
@@ -72,6 +73,17 @@ interface ConnectorRegistryEntry {
    * absent, the wizard renders a "configure after creation" hint.
    */
   wizardStep?: ComponentType<ConnectorWizardStepProps>;
+  /**
+   * Issue #2780: maps the server-supplied package-level connector
+   * defaults onto the wizard-step's `initialValue` shape. The wizard
+   * passes the result as `initialValue` so the step's textareas start
+   * pre-populated. Optional — connectors that don't ship a wizard step
+   * (and connectors whose `RequiredConnectorDefaults` carries fields
+   * they don't consume) return `null`.
+   */
+  defaultsToInitialValue?: (
+    defaults: RequiredConnectorDefaults,
+  ) => Record<string, unknown> | null;
 }
 
 // The GitHub wizard step is typed against UnitGitHubConfigRequest; the
@@ -88,11 +100,32 @@ const githubWizardStep =
 const webSearchWizardStep =
   WebSearchConnectorWizardStep as unknown as ComponentType<ConnectorWizardStepProps>;
 
+/**
+ * Issue #2780: project the package-level `RequiredConnectorDefaults`
+ * onto the GitHub wizard-step's initial value. Today the only field a
+ * package may declare is `labels.include` / `labels.exclude`; future
+ * fields would extend this projection.
+ */
+function githubDefaultsToInitialValue(
+  defaults: RequiredConnectorDefaults,
+): Record<string, unknown> | null {
+  const labels = defaults.labels ?? null;
+  if (labels === null) return null;
+  const include = labels.include ?? [];
+  const exclude = labels.exclude ?? [];
+  if (include.length === 0 && exclude.length === 0) return null;
+  const initialValue: Record<string, unknown> = {};
+  if (include.length > 0) initialValue.include_labels = include;
+  if (exclude.length > 0) initialValue.exclude_labels = exclude;
+  return initialValue;
+}
+
 const ENTRIES: ReadonlyArray<ConnectorRegistryEntry> = [
   {
     slug: "github",
     tab: GitHubConnectorTab,
     wizardStep: githubWizardStep,
+    defaultsToInitialValue: githubDefaultsToInitialValue,
   },
   {
     slug: "web-search",
@@ -127,6 +160,22 @@ export function getConnectorWizardStep(
 /** Returns every registered slug. Useful for dev tooling / diagnostics. */
 export function getRegisteredConnectorSlugs(): string[] {
   return ENTRIES.map((e) => e.slug);
+}
+
+/**
+ * Issue #2780: returns the wizard-step `initialValue` shape derived from
+ * the package's per-connector defaults, or `null` when the connector
+ * has no defaults projector or the projector chose to return null
+ * (e.g. the defaults block carried only fields this connector ignores).
+ */
+export function getConnectorWizardInitialValueFromDefaults(
+  slug: string,
+  defaults: RequiredConnectorDefaults | null | undefined,
+): Record<string, unknown> | null {
+  if (defaults == null) return null;
+  const entry = ENTRIES.find((e) => e.slug === slug);
+  if (entry?.defaultsToInitialValue === undefined) return null;
+  return entry.defaultsToInitialValue(defaults);
 }
 
 // Re-exports kept so the wizard doesn't need to pull the connector-

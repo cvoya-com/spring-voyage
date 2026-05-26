@@ -132,6 +132,25 @@ requires:
 
 This presupposes that connectors (including platform defaults like `github`), orchestrators, and any future extension point become installable as packages, with platform-default ones simply being packages installed at platform bootstrap time. Once that lands, every requirement points at a versioned package artefact via the same `<pkg>/<name>@<version>` grammar — there is no special-cased "platform default connector" identity. ADR-0037 leaves the requirement-entry value as an opaque slug for v0.1 and the v0.2 follow-up generalises it.
 
+**Amendment — issue [#2780](https://github.com/cvoya-com/spring-voyage/issues/2780) (2026-05-25): connector-typed defaults sibling.** Each `requires:` entry whose discriminator is `connector:` may carry an optional connector-type-specific sibling that pre-seeds the install wizard's binding form. Today the only such sibling is `labels:` on the GitHub connector entry:
+
+```yaml
+requires:
+  - connector: github
+    labels:
+      include: [spring-voyage-team]
+      exclude: [wip]
+```
+
+Semantics:
+
+- **Pre-seed only.** The wizard's GitHub step renders the values in its include/exclude label textareas. The operator can edit or remove them before clicking Install; the persisted binding reflects the operator's submission, never the package default by itself.
+- **Connector-type-scoped.** Only sibling keys the consumer connector understands are accepted (today: `labels:` on `github`). Unknown siblings are rejected at parse time so the package author gets a clean error rather than a silent drop.
+- **Union with conflict rejection.** When two artefacts in the same package declare the same `(type, identifier)` requirement with differing `labels:` blocks, the package fails validation with a structured error naming both artefacts. Two artefacts with matching blocks fold to a single declaration. This keeps the install pipeline's "one binding per slug" rule intact (decision 3 above) and avoids implicit precedence.
+- **Out of scope for v0.1.** Other `UnitGitHubConfig` fields (`events`, `reviewer`, `add_on_assign`, `remove_on_assign`, `include_authors`, `include_paths`) and pre-seeding for non-GitHub connectors are deferred — when they land, the same sibling-key shape extends without changing the entry grammar.
+
+The `RequirementEntryYamlConverter` was loosened from "single-key only" to "first-key discriminator + known connector-type-specific siblings." The pre-amendment strict shape (`{ connector: github }`) remains valid; the new shape just adds optional siblings.
+
 ### 4. Cross-package cycle detection across the resolved graph
 
 Today's parser detects cycles within a package via `LocalSymbolMap`. After decisions 1+2 a per-artefact YAML in package A may reference an artefact in package B which references back into A — a cycle that no existing check catches.

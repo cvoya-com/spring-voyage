@@ -214,8 +214,10 @@ public static class PackageManifestParser
             .ToList();
 
         // ADR-0037 D3: compute the package-level requires union from each
-        // artefact's per-artefact `requires:` block.
-        var (requiredConnectorSlugs, connectorRequiresByArtefact) =
+        // artefact's per-artefact `requires:` block. Issue #2780 extends
+        // the fold to per-slug `labels:` defaults the install wizard
+        // pre-seeds onto the binding form.
+        var (requiredConnectorSlugs, connectorRequiresByArtefact, connectorLabelsBySlug) =
             ComputeRequiresUnion(units, agents, skills, humanTemplates);
 
         // #1679: project the package-level `execution:` block (when
@@ -238,6 +240,7 @@ public static class PackageManifestParser
             HumanTemplates = humanTemplates,
             RequiredConnectorSlugs = requiredConnectorSlugs,
             ConnectorRequiresByArtefact = connectorRequiresByArtefact,
+            ConnectorLabelsBySlug = connectorLabelsBySlug,
             Execution = execution,
         };
     }
@@ -871,7 +874,10 @@ public static class PackageManifestParser
 
     // ── Requires union ───────────────────────────────────────────────────
 
-    private static (IReadOnlyList<string> Slugs, IReadOnlyDictionary<string, IReadOnlyList<string>> ByArtefact) ComputeRequiresUnion(
+    private static (
+        IReadOnlyList<string> Slugs,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> ByArtefact,
+        IReadOnlyDictionary<string, RequirementLabelsBlock> LabelsBySlug) ComputeRequiresUnion(
         IReadOnlyList<ResolvedArtefact> units,
         IReadOnlyList<ResolvedArtefact> agents,
         IReadOnlyList<ResolvedArtefact> skills,
@@ -880,19 +886,24 @@ public static class PackageManifestParser
         var union = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var byArtefact = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        // labelsBySlug: per-slug folded labels; firstSourceBySlug: which artefact
+        // first contributed the labels block (used to render a useful conflict
+        // error pointing at both artefacts).
+        var labelsBySlug = new Dictionary<string, RequirementLabelsBlock>(StringComparer.OrdinalIgnoreCase);
+        var firstSourceBySlug = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var artefact in units)
         {
-            ExtractRequires<UnitManifest>(artefact, m => m?.Requires, union, seen, byArtefact);
+            ExtractRequires<UnitManifest>(artefact, m => m?.Requires, union, seen, byArtefact, labelsBySlug, firstSourceBySlug);
         }
         foreach (var artefact in agents)
         {
-            ExtractRequires<AgentManifest>(artefact, m => m?.Requires, union, seen, byArtefact);
+            ExtractRequires<AgentManifest>(artefact, m => m?.Requires, union, seen, byArtefact, labelsBySlug, firstSourceBySlug);
         }
         _ = skills;
         _ = humanTemplates;
 
-        return (union, byArtefact);
+        return (union, byArtefact, labelsBySlug);
     }
 
     private static void ExtractRequires<TManifest>(
@@ -900,7 +911,9 @@ public static class PackageManifestParser
         Func<TManifest?, List<RequirementEntry>?> getRequires,
         List<string> union,
         HashSet<string> seen,
-        Dictionary<string, IReadOnlyList<string>> byArtefact)
+        Dictionary<string, IReadOnlyList<string>> byArtefact,
+        Dictionary<string, RequirementLabelsBlock> labelsBySlug,
+        Dictionary<string, string> firstSourceBySlug)
         where TManifest : class
     {
         if (string.IsNullOrEmpty(artefact.Content))
@@ -941,12 +954,53 @@ public static class PackageManifestParser
             {
                 union.Add(slug);
             }
+
+            // Issue #2780: fold per-slug labels defaults. The first
+            // artefact wins the seed; later artefacts must match exactly
+            // or the package fails validation.
+            if (entry.Labels is { IsEmpty: false } labels)
+            {
+                if (labelsBySlug.TryGetValue(slug, out var existing))
+                {
+                    if (!LabelsEqual(existing, labels))
+                    {
+                        var firstArtefact = firstSourceBySlug[slug];
+                        throw new PackageParseException(
+                            $"Conflicting `labels:` defaults for `connector: {slug}` " +
+                            $"across artefacts '{firstArtefact}' and '{artefact.Name}'. " +
+                            "Two artefacts in the same package that declare the same connector " +
+                            "requirement must agree on their `labels:` block; consolidate them onto " +
+                            "one artefact (e.g. the top-level activatable) or remove the disagreement.");
+                    }
+                }
+                else
+                {
+                    labelsBySlug[slug] = labels;
+                    firstSourceBySlug[slug] = artefact.Name;
+                }
+            }
         }
 
         if (slugs.Count > 0)
         {
             byArtefact[artefact.Name] = slugs;
         }
+    }
+
+    private static bool LabelsEqual(RequirementLabelsBlock a, RequirementLabelsBlock b)
+    {
+        return SequenceEqualOrdered(a.Include, b.Include)
+            && SequenceEqualOrdered(a.Exclude, b.Exclude);
+    }
+
+    private static bool SequenceEqualOrdered(IReadOnlyList<string> a, IReadOnlyList<string> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (var i = 0; i < a.Count; i++)
+        {
+            if (!string.Equals(a[i], b[i], StringComparison.Ordinal)) return false;
+        }
+        return true;
     }
 
     // ── Name uniqueness ──────────────────────────────────────────────────

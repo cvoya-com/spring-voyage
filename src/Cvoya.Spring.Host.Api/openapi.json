@@ -14361,6 +14361,42 @@
           }
         }
       },
+      "RequiredConnectorDefaults": {
+        "type": "object",
+        "properties": {
+          "labels": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RequiredConnectorLabels"
+              }
+            ]
+          }
+        }
+      },
+      "RequiredConnectorLabels": {
+        "required": [
+          "include",
+          "exclude"
+        ],
+        "type": "object",
+        "properties": {
+          "include": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "RequiredConnectorSummary": {
         "required": [
           "type",
@@ -14373,6 +14409,16 @@
           },
           "required": {
             "type": "boolean"
+          },
+          "defaults": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RequiredConnectorDefaults"
+              }
+            ]
           }
         }
       },
