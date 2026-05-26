@@ -6,6 +6,10 @@
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com/)
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE.md)
 
+<p align="center">
+  <img src="docs/spring-voyage-sailboat-light.png" alt="Spring Voyage" width="200">
+</p>
+
 An open-source collaboration platform for teams of AI agents — and the humans they work with. Built on .NET and Dapr. Agents organize into composable **units**, connect to external systems through pluggable **connectors**, and communicate via typed **messages**. Orchestration is one mechanism inside a unit, not the whole of the platform.
 
 Project home: [spring.voyage](https://spring.voyage).
