@@ -1150,6 +1150,34 @@ export const api = {
     ),
   listInbox: async () => unwrap(await fetchClient.GET("/api/v1/tenant/inbox")),
 
+  // Observation (#2787) — tenant-wide read-only view over every thread.
+  // Mirrors the listThreads / getThread shape but hits the observation
+  // endpoint gated by `TenantObserver`. Backs the portal /conversations
+  // page and the `spring conversations` CLI verb family.
+  listConversations: async (filters?: ThreadListFilters) => {
+    const query: Record<string, string | number | boolean> = {};
+    if (filters?.unit) query.Unit = filters.unit;
+    if (filters?.agent) query.Agent = filters.agent;
+    if (filters?.participant) query.Participant = filters.participant;
+    if (filters?.limit !== undefined) query.Limit = filters.limit;
+    if (filters?.archived === true) query.Archived = true;
+    return unwrap(
+      await fetchClient.GET("/api/v1/tenant/observation/threads", {
+        params: { query: query as never },
+      }),
+    );
+  },
+  getConversation: async (id: string) => {
+    const result = await fetchClient.GET(
+      "/api/v1/tenant/observation/threads/{id}",
+      { params: { path: { id } } },
+    );
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result);
+  },
+
   /**
    * POST /api/v1/tenant/inbox/{threadId}/mark-read (#1477). Records now as
    * the read cursor for the thread on the calling human's actor. Returns the

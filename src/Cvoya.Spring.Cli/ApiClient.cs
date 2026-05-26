@@ -1959,6 +1959,45 @@ public class SpringApiClient
             $"Server returned an empty message response for thread '{threadId}'.");
     }
 
+    // Conversations (#2787) — tenant-wide read-only observation
+
+    /// <summary>
+    /// Lists every conversation thread in the tenant. Unlike
+    /// <see cref="ListThreadsAsync"/>, this method calls the observation
+    /// endpoint which does not filter by participant — the caller sees
+    /// threads they are not a participant of, gated by the
+    /// <c>TenantObserver</c> role. Backs <c>spring conversations list</c>.
+    /// </summary>
+    public async Task<IReadOnlyList<ThreadSummaryResponse>> ListConversationsAsync(
+        string? unit = null,
+        string? agent = null,
+        string? participant = null,
+        int? limit = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Observation.Threads.GetAsync(
+            config =>
+            {
+                config.QueryParameters.Unit = unit;
+                config.QueryParameters.Agent = agent;
+                config.QueryParameters.Participant = participant;
+                config.QueryParameters.Limit = limit;
+            },
+            cancellationToken: ct);
+        return result ?? new List<ThreadSummaryResponse>();
+    }
+
+    /// <summary>
+    /// Fetches a single conversation thread (summary + ordered events) via
+    /// the observation endpoint. Backs <c>spring conversations show</c>.
+    /// </summary>
+    public async Task<ThreadDetailResponse> GetConversationAsync(string id, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Observation.Threads[id].GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty response for conversation '{id}'.");
+    }
+
     // Engagements (E2.2 / #1421) — SSE stream
 
     /// <summary>

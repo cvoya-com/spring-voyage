@@ -11,7 +11,7 @@ namespace Cvoya.Spring.Core.Security;
 /// These names live in <c>Cvoya.Spring.Core</c> so both the OSS host and the
 /// private cloud overlay can reference the same identifiers without
 /// duplicating string constants. The OSS host's auth handlers grant every
-/// authenticated caller all three roles by default (single-user OSS
+/// authenticated caller every role by default (single-user OSS
 /// deployments). The cloud overlay swaps in its own role-claim source that
 /// scopes the granted subset per identity.
 /// </para>
@@ -46,8 +46,19 @@ public static class PlatformRoles
     public const string TenantUser = "TenantUser";
 
     /// <summary>
+    /// Read-only tenant-wide observation: surfaces every conversation
+    /// (thread + messages) between units and agents across the tenant,
+    /// including ones the caller is not a participant of. Holders cannot
+    /// send messages on the basis of this role — even into threads they
+    /// happen to participate in. The cloud overlay grants this role to
+    /// tenant administrators and auditors; the OSS overlay grants it to
+    /// every authenticated caller alongside the other three.
+    /// </summary>
+    public const string TenantObserver = "TenantObserver";
+
+    /// <summary>
     /// Read-only enumeration of every platform role name. Useful for OSS
-    /// overlays that need to grant all three claims and for tests that assert
+    /// overlays that need to grant all claims and for tests that assert
     /// the full set.
     /// </summary>
     public static IReadOnlyList<string> All { get; } = new[]
@@ -55,5 +66,6 @@ public static class PlatformRoles
         PlatformOperator,
         TenantOperator,
         TenantUser,
+        TenantObserver,
     };
 }

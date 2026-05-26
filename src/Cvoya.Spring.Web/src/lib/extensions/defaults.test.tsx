@@ -19,7 +19,7 @@ describe("defaultRoutes (IA §2)", () => {
     ]);
   });
 
-  it("groups the 11 v2 sidebar items into their clusters", () => {
+  it("groups the v2 sidebar items into their clusters", () => {
     const byPath = Object.fromEntries(
       defaultRoutes.map((r) => [r.path, r.navSection]),
     );
@@ -30,6 +30,9 @@ describe("defaultRoutes (IA §2)", () => {
     // #2512: Explorer moved from Orchestrate to Overview.
     // #2517: Explorer nav entry path changed from /units to /explorer.
     expect(byPath["/explorer"]).toBe("overview");
+    // #2787: tenant-wide read-only Conversations view sits in Overview
+    // between Activity and Analytics.
+    expect(byPath["/conversations"]).toBe("overview");
 
     expect(byPath["/inbox"]).toBe("orchestrate");
     expect(byPath["/discovery"]).toBe("orchestrate");
@@ -73,9 +76,12 @@ describe("defaultRoutes (IA §2)", () => {
     const paths = defaultRoutes.map((r) => r.path);
     // §2: deleted top-level entries (pages may still exist until DEL-*
     // issues land, but the sidebar manifest no longer surfaces them).
+    //
+    // #2787 reintroduces `/conversations` as a DISTINCT surface (the
+    // tenant-wide read-only observer view), so it is intentionally NOT
+    // in this retired list.
     for (const gone of [
       "/agents",
-      "/conversations",
       "/initiative",
       "/packages",
       "/system/configuration",
@@ -119,15 +125,27 @@ describe("defaultActions (palette)", () => {
     expect(discovery!.href).toBe("/discovery");
   });
 
-  it("routes agent- and conversation-list actions through the Explorer", () => {
-    // §4 folds the former `/agents` and `/conversations` surfaces into
-    // the Explorer's Agents + Messages tabs; the palette shortcuts now
-    // deep-link into `/units` instead.
+  it("routes agent- and thread-list actions through the Explorer", () => {
+    // §4 folds the former `/agents` surface into the Explorer's Agents tab
+    // and points the participant-scoped thread-list shortcut at the
+    // Explorer's Messages tab. The palette shortcuts deep-link into
+    // `/units` instead. #2787 reintroduces a separate
+    // `conversations.list` palette action that points at the new
+    // tenant-wide observation surface (`/conversations`) — verified
+    // below.
     expect(defaultActions.find((a) => a.id === "agent.list")!.href).toBe(
       "/units",
     );
     expect(
       defaultActions.find((a) => a.id === "thread.list")!.href,
     ).toBe("/units");
+  });
+
+  it("includes the tenant-wide conversations palette shortcut (#2787)", () => {
+    const conversations = defaultActions.find(
+      (a) => a.id === "conversations.list",
+    );
+    expect(conversations).toBeDefined();
+    expect(conversations!.href).toBe("/conversations");
   });
 });

@@ -267,8 +267,8 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     /// <summary>
     /// Spins up a separate factory with an <see cref="IRoleClaimSource"/>
     /// stub that emits no <see cref="PlatformRoles.PlatformOperator"/>
-    /// claim. The OSS default grants every authenticated caller all three
-    /// roles, so we have to pre-empt that registration to exercise the
+    /// claim. The OSS default grants every authenticated caller every
+    /// role, so we have to pre-empt that registration to exercise the
     /// 403 path on the platform-tenant endpoints.
     /// </summary>
     private static WebApplicationFactory<Program> BuildFactoryWithoutPlatformOperator()

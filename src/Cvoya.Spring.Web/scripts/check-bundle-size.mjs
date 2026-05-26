@@ -113,9 +113,22 @@ const KB = 1024;
 //   Total uncompressed: ~3237 KB → cap 3260 KB
 //   Total gzipped:      ~ 918 KB → cap  925 KB (unchanged; still within)
 //   Largest chunk (uncompressed): 356 KB → cap 450 KB (unchanged)
+//
+// Updated 2026-05-26 (#2787) when the tenant-wide read-only
+// /conversations view landed — a new full-page surface alongside Inbox
+// and Engagement that reuses `<ConversationView>` without the composer.
+// The increment is the new page itself (`app/conversations/page.tsx`),
+// the new `useConversations` / `useConversation` query hooks, and the
+// matching navigation + palette entries in `lib/extensions/defaults.tsx`.
+// No new dependencies; the shared bundle picks up an additional route
+// chunk plus its incremental client code. Gzipped total moved past the
+// previous 925 cap so both totals are bumped together.
+//   Total uncompressed: ~3355 KB → cap 3400 KB
+//   Total gzipped:      ~ 949 KB → cap  975 KB
+//   Largest chunk (uncompressed): 356 KB → cap 450 KB (unchanged)
 const BUDGETS = {
-  totalUncompressedKb: 3260,
-  totalGzippedKb: 925,
+  totalUncompressedKb: 3400,
+  totalGzippedKb: 975,
   maxChunkUncompressedKb: 450,
 };
 

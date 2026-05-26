@@ -6593,6 +6593,112 @@
         }
       }
     },
+    "/api/v1/tenant/observation/threads": {
+      "get": {
+        "tags": [
+          "Observation"
+        ],
+        "summary": "List every conversation thread in the tenant (tenant-wide observation)",
+        "operationId": "ListObservedThreads",
+        "parameters": [
+          {
+            "name": "Unit",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Agent",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Participant",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Limit",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "Archived",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ThreadSummaryResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/observation/threads/{id}": {
+      "get": {
+        "tags": [
+          "Observation"
+        ],
+        "summary": "Get a single observed thread (summary + ordered events) by id",
+        "operationId": "GetObservedThread",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/analytics/throughput": {
       "get": {
         "tags": [
@@ -16804,6 +16910,9 @@
     },
     {
       "name": "Inbox"
+    },
+    {
+      "name": "Observation"
     },
     {
       "name": "Analytics"

@@ -19,7 +19,7 @@ using Xunit;
 public class OssAllRolesClaimSourceTests
 {
     [Fact]
-    public void GetRoleClaims_AnyIdentity_ReturnsAllThreePlatformRoles()
+    public void GetRoleClaims_AnyIdentity_ReturnsEveryPlatformRole()
     {
         var sut = new OssAllRolesClaimSource();
         var identity = new ClaimsIdentity(
@@ -28,7 +28,7 @@ public class OssAllRolesClaimSourceTests
 
         var claims = sut.GetRoleClaims(identity).ToList();
 
-        claims.Count.ShouldBe(3);
+        claims.Count.ShouldBe(PlatformRoles.All.Count);
         claims.ShouldAllBe(c => c.Type == ClaimTypes.Role);
         claims.Select(c => c.Value).ShouldBe(
             new[]
@@ -36,14 +36,15 @@ public class OssAllRolesClaimSourceTests
                 PlatformRoles.PlatformOperator,
                 PlatformRoles.TenantOperator,
                 PlatformRoles.TenantUser,
+                PlatformRoles.TenantObserver,
             },
             ignoreOrder: true);
     }
 
     [Fact]
-    public void GetRoleClaims_AnonymousIdentity_StillReturnsAllThree()
+    public void GetRoleClaims_AnonymousIdentity_StillReturnsEveryRole()
     {
-        // OSS deployments emit all three roles unconditionally — even an
+        // OSS deployments emit every role unconditionally — even an
         // identity without a NameIdentifier claim still gets the full set.
         // Cloud overlays scope per identity in their own implementation.
         var sut = new OssAllRolesClaimSource();
@@ -51,7 +52,7 @@ public class OssAllRolesClaimSourceTests
 
         var claims = sut.GetRoleClaims(identity).ToList();
 
-        claims.Count.ShouldBe(3);
+        claims.Count.ShouldBe(PlatformRoles.All.Count);
     }
 
     [Fact]
@@ -82,6 +83,7 @@ public class OssAllRolesClaimSourceTests
                 PlatformRoles.PlatformOperator,
                 PlatformRoles.TenantOperator,
                 PlatformRoles.TenantUser,
+                PlatformRoles.TenantObserver,
             });
     }
 }

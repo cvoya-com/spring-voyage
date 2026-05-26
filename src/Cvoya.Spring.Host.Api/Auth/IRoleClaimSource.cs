@@ -15,8 +15,8 @@ using System.Security.Claims;
 /// <remarks>
 /// <para>
 /// The OSS host registers <see cref="OssAllRolesClaimSource"/> as the
-/// default, which grants every authenticated caller all three platform
-/// roles — that matches single-user OSS deployments where the operator and
+/// default, which grants every authenticated caller every platform
+/// role — that matches single-user OSS deployments where the operator and
 /// the user are the same person.
 /// </para>
 /// <para>
@@ -36,7 +36,7 @@ public interface IRoleClaimSource
     /// <param name="identity">
     /// The just-authenticated identity. Implementations MAY inspect existing
     /// claims (e.g. <see cref="ClaimTypes.NameIdentifier"/>) to scope the
-    /// result; the OSS implementation ignores it and returns all three roles
+    /// result; the OSS implementation ignores it and returns every role
     /// unconditionally.
     /// </param>
     /// <returns>

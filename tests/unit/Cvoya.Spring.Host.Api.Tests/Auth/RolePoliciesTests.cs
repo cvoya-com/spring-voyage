@@ -51,6 +51,7 @@ public class RolePoliciesTests
     [InlineData(RolePolicies.PlatformOperator, PlatformRoles.PlatformOperator)]
     [InlineData(RolePolicies.TenantOperator, PlatformRoles.TenantOperator)]
     [InlineData(RolePolicies.TenantUser, PlatformRoles.TenantUser)]
+    [InlineData(RolePolicies.TenantObserver, PlatformRoles.TenantObserver)]
     public async Task Authorize_PolicyMatchesPrincipalRole_Succeeds(string policyName, string roleClaim)
     {
         var service = BuildAuthorizationService();
@@ -65,6 +66,7 @@ public class RolePoliciesTests
     [InlineData(RolePolicies.PlatformOperator, PlatformRoles.TenantUser)]
     [InlineData(RolePolicies.TenantOperator, PlatformRoles.PlatformOperator)]
     [InlineData(RolePolicies.TenantUser, PlatformRoles.TenantOperator)]
+    [InlineData(RolePolicies.TenantObserver, PlatformRoles.TenantUser)]
     public async Task Authorize_PrincipalMissingRole_Fails(string policyName, string unrelatedRole)
     {
         var service = BuildAuthorizationService();
@@ -79,6 +81,7 @@ public class RolePoliciesTests
     [InlineData(RolePolicies.PlatformOperator)]
     [InlineData(RolePolicies.TenantOperator)]
     [InlineData(RolePolicies.TenantUser)]
+    [InlineData(RolePolicies.TenantObserver)]
     public async Task Authorize_AnonymousPrincipal_Fails(string policyName)
     {
         var service = BuildAuthorizationService();
@@ -90,22 +93,24 @@ public class RolePoliciesTests
     }
 
     [Fact]
-    public async Task Authorize_PrincipalWithAllThreeRoles_PassesEveryPolicy()
+    public async Task Authorize_PrincipalWithEveryRole_PassesEveryPolicy()
     {
-        // Mirror of the OSS overlay: a single principal carrying all three
-        // role claims passes every named policy. This exercises the
-        // OSS-grants-all path independent of the handler wiring.
+        // Mirror of the OSS overlay: a single principal carrying every role
+        // claim passes every named policy. This exercises the OSS-grants-all
+        // path independent of the handler wiring.
         var service = BuildAuthorizationService();
         var principal = PrincipalWithRoles(
             PlatformRoles.PlatformOperator,
             PlatformRoles.TenantOperator,
-            PlatformRoles.TenantUser);
+            PlatformRoles.TenantUser,
+            PlatformRoles.TenantObserver);
 
         var policyNames = new[]
         {
             RolePolicies.PlatformOperator,
             RolePolicies.TenantOperator,
             RolePolicies.TenantUser,
+            RolePolicies.TenantObserver,
         };
 
         foreach (var policy in policyNames)

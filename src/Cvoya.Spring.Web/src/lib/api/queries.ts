@@ -983,6 +983,63 @@ export function useInbox(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Tenant-wide observation (#2787)
+// ---------------------------------------------------------------------------
+//
+// `useConversations` / `useConversation` back the read-only /conversations
+// page. They hit the observation endpoints (`/api/v1/tenant/observation/...`)
+// which are gated by `TenantObserver` and skip the participant filter — the
+// caller sees every thread in the tenant. Live message updates inside a
+// selected thread continue to flow through the shared `useThreadStream`
+// hook (which subscribes to the per-thread activity SSE stream); this list
+// hook polls on a 60s interval as a backstop for new-thread discovery.
+
+const CONVERSATIONS_LIST_REFETCH_INTERVAL_MS = 60_000;
+
+export function useConversations(
+  filters?: ThreadListFilters,
+  opts?: SliceOptions<ThreadSummary[]>,
+): UseQueryResult<ThreadSummary[], Error> {
+  return useQuery({
+    queryKey: queryKeys.conversations.list(
+      filters as Record<string, unknown> | undefined,
+    ),
+    queryFn: () => api.listConversations(filters),
+    refetchInterval: opts?.refetchInterval ?? CONVERSATIONS_LIST_REFETCH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
+    staleTime: opts?.staleTime,
+    enabled: opts?.enabled,
+  });
+}
+
+/**
+ * Read one observed conversation thread by id. Surfaces a 404 as `null`
+ * so the right-pane detail can render a clean "not found" state instead
+ * of bubbling an ApiError.
+ */
+export function useConversation(
+  id: string,
+  opts?: SliceOptions<ThreadDetail | null>,
+): UseQueryResult<ThreadDetail | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.conversations.detail(id),
+    queryFn: async () => {
+      try {
+        return await api.getConversation(id);
+      } catch (err) {
+        if (err instanceof Error && /API error 404/.test(err.message)) {
+          return null;
+        }
+        throw err;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
 /**
  * Mark an inbox thread as read (#1477). Posts to
  * `POST /api/v1/tenant/inbox/{threadId}/mark-read` which writes the read

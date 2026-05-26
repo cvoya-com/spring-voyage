@@ -6,7 +6,7 @@
 // The v2 IA (plan §2 of umbrella #815) groups the sidebar into three
 // visible clusters:
 //
-//   • Overview     — Dashboard, Activity, Analytics, Explorer
+//   • Overview     — Dashboard, Explorer, Activity, Conversations, Analytics
 //   • Orchestrate  — Inbox, Discovery, Engagement
 //   • Control      — Connectors, Policies, Budgets, Settings
 //
@@ -109,6 +109,28 @@ export const defaultRoutes: readonly RouteEntry[] = [
     orderHint: 20,
     keywords: ["events", "log", "stream", "audit"],
     description: "Raw activity event stream with filters.",
+  },
+  // #2787: tenant-wide read-only observation view. Distinct from Activity
+  // (raw event stream) — this surface groups events into conversation
+  // threads with the same UI primitive used by Inbox / Engagement. Gated
+  // server-side by `TenantObserver`; in OSS every authenticated caller
+  // receives the role.
+  {
+    path: "/conversations",
+    label: "Conversations",
+    icon: MessagesSquare,
+    navSection: "overview",
+    orderHint: 25,
+    keywords: [
+      "threads",
+      "interactions",
+      "observe",
+      "audit",
+      "conversations",
+      "spring conversations list",
+    ],
+    description:
+      "Read-only view of every conversation between units and agents in the tenant.",
   },
   {
     path: "/analytics",
@@ -337,6 +359,28 @@ export const defaultActions: readonly PaletteAction[] = [
     ],
     description: "Engagements awaiting a response from you.",
     href: "/inbox",
+  },
+  {
+    // #2787: palette shortcut to the tenant-wide read-only conversations
+    // view. Distinct verb-family from `thread.list` because the underlying
+    // CLI verb (`spring conversations list`) and API endpoint are
+    // observer-gated rather than participant-scoped.
+    id: "conversations.list",
+    label: "Browse all conversations",
+    icon: MessagesSquare,
+    section: "actions",
+    orderHint: 57,
+    keywords: [
+      "spring conversations list",
+      "tenant",
+      "interactions",
+      "observe",
+      "audit",
+      "all threads",
+    ],
+    description:
+      "Read-only view of every conversation in the tenant. Requires TenantObserver.",
+    href: "/conversations",
   },
   {
     id: "budget.view",
