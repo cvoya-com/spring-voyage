@@ -177,6 +177,21 @@ export const queryKeys = {
     inbox: () => ["threads", "inbox"] as const,
   },
 
+  /**
+   * Tenant-wide read-only observation surface (#2787). Backs the
+   * /conversations portal page + `spring conversations list` CLI verb.
+   * Distinct from `threads.*` because the wire endpoints differ
+   * (`/api/v1/tenant/observation/threads`) and the role gate differs
+   * (`TenantObserver` vs. `TenantUser`). Per-thread streaming is shared
+   * with the participant-scoped views via `useThreadStream`.
+   */
+  conversations: {
+    all: ["conversations"] as const,
+    list: (filters?: Record<string, unknown>) =>
+      ["conversations", "list", filters ?? {}] as const,
+    detail: (id: string) => ["conversations", "detail", id] as const,
+  },
+
   tenant: {
     all: ["tenant"] as const,
     budget: () => ["tenant", "budget"] as const,

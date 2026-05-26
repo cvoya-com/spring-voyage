@@ -35,10 +35,10 @@ using Xunit;
 /// <summary>
 /// End-to-end tests verifying both OSS auth handlers
 /// (<see cref="LocalDevAuthHandler"/>, <see cref="ApiTokenAuthHandler"/>)
-/// emit all three platform-role claims for every authenticated caller via
+/// emit every platform-role claim for every authenticated caller via
 /// the registered <see cref="IRoleClaimSource"/>. Exercises C1.2a / #1257
-/// acceptance criterion (a): "every authenticated caller has all three
-/// claims under OSS".
+/// acceptance criterion (a): "every authenticated caller has every role
+/// claim under OSS".
 /// </summary>
 /// <remarks>
 /// The tests run the auth handler against a constructed <see cref="HttpContext"/>
@@ -67,7 +67,7 @@ public class AuthHandlerRoleClaimsTests : IDisposable
     }
 
     [Fact]
-    public async Task LocalDevAuthHandler_AnyRequest_EmitsAllThreeRoleClaims()
+    public async Task LocalDevAuthHandler_AnyRequest_EmitsEveryRoleClaim()
     {
         // Spin up the host so DI/auth registration mirrors production wiring.
         _ = _localDevFactory.CreateClient();
@@ -81,12 +81,13 @@ public class AuthHandlerRoleClaimsTests : IDisposable
                 PlatformRoles.PlatformOperator,
                 PlatformRoles.TenantOperator,
                 PlatformRoles.TenantUser,
+                PlatformRoles.TenantObserver,
             },
             ignoreOrder: true);
     }
 
     [Fact]
-    public async Task ApiTokenAuthHandler_ValidToken_EmitsAllThreeRoleClaims()
+    public async Task ApiTokenAuthHandler_ValidToken_EmitsEveryRoleClaim()
     {
         _ = _apiTokenFactory.CreateClient();
 
@@ -103,6 +104,7 @@ public class AuthHandlerRoleClaimsTests : IDisposable
                 PlatformRoles.PlatformOperator,
                 PlatformRoles.TenantOperator,
                 PlatformRoles.TenantUser,
+                PlatformRoles.TenantObserver,
             },
             ignoreOrder: true);
     }

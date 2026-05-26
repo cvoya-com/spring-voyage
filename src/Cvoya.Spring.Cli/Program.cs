@@ -62,6 +62,9 @@ public class Program
                 ThreadCommand.Create(outputOption),
                 EngagementCommand.Create(outputOption),
                 InboxCommand.Create(outputOption),
+                // #2787: tenant-wide read-only observation. Equivalent to the
+                // portal's /conversations page. Gated by TenantObserver.
+                ConversationsCommand.Create(outputOption),
                 ActivityCommand.Create(outputOption),
                 // ADR-0038: ModelProviderCommand replaces the legacy
                 // `agent-runtime` verb tree. No alias — the parser

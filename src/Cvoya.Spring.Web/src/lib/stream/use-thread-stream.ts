@@ -66,6 +66,18 @@ export function useThreadStream(threadId: string): UseThreadStreamResult {
         // Invalidate the thread list so the global badge and list update.
         queryClient.invalidateQueries({ queryKey: queryKeys.threads.all });
         queryClient.invalidateQueries({ queryKey: queryKeys.threads.inbox() });
+        // #2787: the tenant-wide observation surface caches under a
+        // separate root (queryKeys.conversations.*) because its wire
+        // endpoint and role gate differ from threads.*. Invalidate both
+        // the per-thread detail and the list so the /conversations page
+        // refreshes message-level updates without waiting for its 60s
+        // backstop poll.
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.conversations.detail(threadId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.conversations.all,
+        });
       } catch {
         // Ignore malformed SSE messages.
       }

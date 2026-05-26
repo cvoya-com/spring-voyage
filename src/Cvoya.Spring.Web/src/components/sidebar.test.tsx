@@ -138,6 +138,8 @@ describe("Sidebar chrome (IA-sidebar-chrome)", () => {
       "Activity",
       "Analytics",
       "Explorer",
+      // #2787: tenant-wide read-only Conversations view in Overview.
+      "Conversations",
       "Inbox",
       "Discovery",
       "Connectors",
@@ -151,9 +153,10 @@ describe("Sidebar chrome (IA-sidebar-chrome)", () => {
 
   it("does not surface retired top-level routes", () => {
     renderSidebar();
+    // #2787 reintroduces `/conversations` as a distinct surface, so it
+    // is no longer in this list.
     for (const gone of [
       "Agents",
-      "Conversations",
       "Initiative",
       "Packages",
       "Directory",

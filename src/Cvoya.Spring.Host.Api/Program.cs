@@ -557,6 +557,11 @@ public partial class Program
             app.MapTenantActivitySettingsEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
             app.MapThreadEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapInboxEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+            // #2787: tenant-wide read-only observation. Gated by TenantObserver
+            // — a strictly higher privilege than TenantUser, so OSS callers
+            // (granted every role) pass; cloud callers must hold the
+            // observer role to see threads they are not participants of.
+            app.MapObservationEndpoints().RequireAuthorization(RolePolicies.TenantObserver);
             app.MapAnalyticsEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapDashboardEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapTenantTreeEndpoints().RequireAuthorization(RolePolicies.TenantUser);

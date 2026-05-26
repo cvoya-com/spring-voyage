@@ -14,7 +14,7 @@ using Microsoft.AspNetCore.Authorization;
 /// <para>
 /// Each policy requires authentication AND that the caller carry the
 /// matching role claim emitted by <see cref="IRoleClaimSource"/>. The OSS
-/// overlay grants all three roles to every authenticated caller, so each
+/// overlay grants every role to every authenticated caller, so each
 /// policy passes uniformly there; the cloud overlay scopes the granted
 /// subset per identity, and policies deny when the role is absent.
 /// </para>
@@ -46,6 +46,13 @@ public static class RolePolicies
     public const string TenantUser = PlatformRoles.TenantUser;
 
     /// <summary>
+    /// Policy name requiring the <see cref="PlatformRoles.TenantObserver"/>
+    /// role. Reserved for tenant-wide read-only observation endpoints
+    /// (see <c>ObservationEndpoints</c>).
+    /// </summary>
+    public const string TenantObserver = PlatformRoles.TenantObserver;
+
+    /// <summary>
     /// Registers the platform-role policies on <paramref name="options"/>.
     /// Mirrors the shape of <see cref="PermissionPolicies.AddUnitPermissionPolicies"/>.
     /// </summary>
@@ -66,5 +73,10 @@ public static class RolePolicies
             policy
                 .RequireAuthenticatedUser()
                 .RequireRole(PlatformRoles.TenantUser));
+
+        options.AddPolicy(TenantObserver, policy =>
+            policy
+                .RequireAuthenticatedUser()
+                .RequireRole(PlatformRoles.TenantObserver));
     }
 }
