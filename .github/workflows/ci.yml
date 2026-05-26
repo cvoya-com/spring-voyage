@@ -46,6 +46,7 @@ jobs:
       packages: ${{ steps.filter.outputs.packages }}
       runtime_catalog: ${{ steps.filter.outputs.runtime_catalog }}
       sample: ${{ steps.filter.outputs.sample }}
+      platform_dockerfile: ${{ steps.filter.outputs.platform_dockerfile }}
     steps:
       - uses: actions/checkout@v6
 
@@ -171,6 +172,18 @@ jobs:
               - 'src/Cvoya.Spring.AgentSdk/**'
               - 'SpringVoyage.slnx'
               - '.github/workflows/ci.yml'
+            platform_dockerfile:
+              # #2783: the platform image's web-build stage
+              # (eng/build/Dockerfile) was previously only built in
+              # release.yml, so a missing connector COPY (e.g. the
+              # WebSearch gap fixed by #2784) surfaced at release
+              # time rather than on the PR that introduced it. The
+              # `docker-platform-web` job below builds that target on
+              # every PR that touches the Dockerfile, the npm-ci
+              # enforcement script it bakes in, or any web workspace
+              # input (web filter, gated on jointly below).
+              - 'eng/build/Dockerfile'
+              - 'eng/ci/enforce-npm.cjs'
 
   workflow-yaml:
     name: Workflow YAML syntax
@@ -1348,6 +1361,45 @@ jobs:
           SMOKE_IMAGE_TAG: dev
         run: bash tests/smoke/smoke-1087.sh --path all
 
+  docker-platform-web:
+    name: Build platform Dockerfile (web-build stage)
+    runs-on: ubuntu-latest
+    needs: changes
+    # #2783: build the platform image's `web-build` target on every PR
+    # that touches the Dockerfile or any input it consumes for the web
+    # layer. Catches missing connector COPYs (e.g. the WebSearch gap
+    # fixed by #2784) on the PR that introduces them rather than at
+    # release time. The runtime stage isn't built here — release.yml's
+    # publish-platform-image job covers the full multi-arch build —
+    # so this job stays bounded (~3 min) and skips the .NET hosts.
+    #
+    # Skipped in the merge queue: static-input check of the PR's own
+    # Dockerfile + workspace sources. A pass on the pull_request run
+    # stays valid through the queue.
+    if: >
+      github.event_name != 'merge_group' &&
+      (needs.changes.outputs.web == 'true' ||
+       needs.changes.outputs.platform_dockerfile == 'true' ||
+       needs.changes.outputs.ci_workflow == 'true')
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build platform Dockerfile (web-build stage)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: eng/build/Dockerfile
+          target: web-build
+          push: false
+          load: false
+          cache-from: type=gha,scope=docker-platform-web
+          cache-to: type=gha,mode=max,scope=docker-platform-web
+
   required-checks:
     name: Required checks
     runs-on: ubuntu-latest
@@ -1379,6 +1431,7 @@ jobs:
       - agent-images-smoke
       - docs-evergreen-framing
       - package-validate
+      - docker-platform-web
     # Always runs - branch protection depends on a single "Required checks"
     # context, so this job must report a status even when upstream jobs were
     # path-filtered out.
@@ -1414,6 +1467,7 @@ jobs:
           AGENT_IMAGES_RESULT: ${{ needs.agent-images-smoke.result }}
           DOCS_FRAMING_RESULT: ${{ needs.docs-evergreen-framing.result }}
           PACKAGE_VALIDATE_RESULT: ${{ needs.package-validate.result }}
+          DOCKER_PLATFORM_WEB_RESULT: ${{ needs.docker-platform-web.result }}
           WORKFLOW_YAML_RESULT: ${{ needs.workflow-yaml.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: |
@@ -1444,6 +1498,7 @@ jobs:
           echo "agent-images-smoke=$AGENT_IMAGES_RESULT"
           echo "docs-evergreen-framing=$DOCS_FRAMING_RESULT"
           echo "package-validate=$PACKAGE_VALIDATE_RESULT"
+          echo "docker-platform-web=$DOCKER_PLATFORM_WEB_RESULT"
 
           # The 'changes' gate itself must have run cleanly - if path detection
           # failed we can't trust the skip decisions downstream.
@@ -1482,4 +1537,5 @@ jobs:
           ok "$AGENT_IMAGES_RESULT"     || { echo "::error::agent-images-smoke failed"; exit 1; }
           ok "$DOCS_FRAMING_RESULT"     || { echo "::error::docs-evergreen-framing failed"; exit 1; }
           ok "$PACKAGE_VALIDATE_RESULT" || { echo "::error::package-validate failed"; exit 1; }
+          ok "$DOCKER_PLATFORM_WEB_RESULT" || { echo "::error::docker-platform-web failed"; exit 1; }
           ok "$WORKFLOW_YAML_RESULT"    || { echo "::error::workflow-yaml failed"; exit 1; }
