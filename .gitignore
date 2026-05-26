@@ -94,3 +94,5 @@ test-results/
 
 # new vs code cache files
 *.lscache
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks.json
