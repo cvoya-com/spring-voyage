@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.10
 #
 # Spring Voyage — platform image.
 #
@@ -42,26 +42,34 @@ RUN dotnet publish src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj \
 # The Web project is a member of the repo-root npm workspace alongside
 # sibling connector packages under src/Cvoya.Spring.Connector.*/web.
 # Copy workspace manifests first for cacheable `npm ci`, then sources.
+# The connector-web COPYs use `COPY --parents` with the same wildcard
+# the npm workspace itself globs on, so a new connector that ships a
+# web/ submodule is picked up automatically — no per-connector edit to
+# this Dockerfile, no silent drift between release-time builds and CI
+# (#2783).
 # Pinned to an exact patch so rebuilds are reproducible. Bump in lockstep
 # with eng/build/Dockerfile.agent-base when rolling Node forward.
 FROM docker.io/library/node:22.22.2-bookworm-slim AS web-build
 WORKDIR /build
 
+# Manifest layer for `npm ci` — `--parents` preserves each matched
+# file's directory structure so workspace members land at their real
+# paths under ./src/. Keeps the npm-ci RUN cacheable: it only re-fires
+# when a workspace manifest or the lockfile actually changes.
 COPY package.json package-lock.json ./
-COPY src/Cvoya.Spring.Web/package.json ./src/Cvoya.Spring.Web/
-COPY src/Cvoya.Spring.Connector.GitHub/web/package.json ./src/Cvoya.Spring.Connector.GitHub/web/
-COPY src/Cvoya.Spring.Connector.WebSearch/web/package.json ./src/Cvoya.Spring.Connector.WebSearch/web/
+COPY --parents src/Cvoya.Spring.Web/package.json ./
+COPY --parents src/Cvoya.Spring.Connector.*/web/package.json ./
 # preinstall hook needs this — keep the path narrow so unrelated eng/ci/
 # changes don't bust the npm-ci layer cache.
 COPY eng/ci/enforce-npm.cjs ./eng/ci/enforce-npm.cjs
 
 RUN npm ci
 
-# Web sources + the committed OpenAPI doc that the dashboard's `prebuild`
+# Web sources + every connector's web/ tree (picked up by the same
+# wildcard) + the committed OpenAPI doc that the dashboard's `prebuild`
 # hook consumes to regenerate typed API clients.
-COPY src/Cvoya.Spring.Web/ ./src/Cvoya.Spring.Web/
-COPY src/Cvoya.Spring.Connector.GitHub/web/ ./src/Cvoya.Spring.Connector.GitHub/web/
-COPY src/Cvoya.Spring.Connector.WebSearch/web/ ./src/Cvoya.Spring.Connector.WebSearch/web/
+COPY --parents src/Cvoya.Spring.Web/ ./
+COPY --parents src/Cvoya.Spring.Connector.*/web/ ./
 COPY src/Cvoya.Spring.Host.Api/openapi.json ./src/Cvoya.Spring.Host.Api/openapi.json
 
 # next.config.ts sets `output: 'standalone'` with outputFileTracingRoot
