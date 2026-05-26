@@ -1,16 +1,20 @@
-// Conversations page tests (#2787).
+// Conversations page tests (#2787 / #2790).
 //
 // Tests cover:
 //   - thread rows rendered in the left pane
-//   - empty state
+//   - empty state + filtered-empty state
 //   - error state
 //   - the read-only invariant: <MessageComposer> must NOT appear, even
 //     when a thread is selected and the right pane renders. The whole
 //     value proposition of /conversations vs /engagement and /inbox is
 //     "observe without sending" — a regression that re-introduces a
 //     composer here breaks the role boundary the view enforces in the UI.
+//   - filter bar (#2790): URL-synced search / since / archived / unit /
+//     agent / participant
+//   - time-aware grouping (#2790): Today / Yesterday / Earlier this week /
+//     Older bucket headers
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
@@ -19,6 +23,10 @@ import type { ThreadSummary } from "@/lib/api/types";
 let _conversationsData: ThreadSummary[] | null = null;
 let _conversationsError: Error | null = null;
 let _conversationsPending = false;
+// Mutable URL search-param string the mocked useSearchParams reads from.
+// Defaults to ?thread=obs-1 so tests that don't care about the filter
+// bar match the original pre-#2790 setup.
+let _searchParamString = "thread=obs-1";
 
 interface MockParticipantRef {
   id: string;
@@ -77,7 +85,7 @@ vi.mock("@/lib/stream/use-thread-stream", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockRouterReplace, push: vi.fn() }),
-  useSearchParams: () => new URLSearchParams("thread=obs-1"),
+  useSearchParams: () => new URLSearchParams(_searchParamString),
 }));
 
 vi.mock("next/link", () => ({
@@ -172,6 +180,7 @@ describe("ConversationsPage — tenant-wide read-only view (#2787)", () => {
     _conversationsError = null;
     _conversationsPending = false;
     _conversationData = null;
+    _searchParamString = "thread=obs-1";
     mockRouterReplace.mockReset();
   });
 
@@ -267,11 +276,221 @@ describe("ConversationsPage — tenant-wide read-only view (#2787)", () => {
     expect(screen.queryByTestId("inbox-composer")).not.toBeInTheDocument();
     expect(screen.queryByTestId("engagement-composer")).not.toBeInTheDocument();
 
-    // Belt-and-braces: textarea + send button are the composer's defining
-    // affordances. Their absence is the structural assertion of "read-only".
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    // Belt-and-braces: the composer's defining affordances are a
+    // `<textarea>` (message body) and a `<button>` labelled Send. The
+    // page DOES have plain `<input>` boxes for the filter bar, but a
+    // textarea-or-Send pairing would only come from MessageComposer.
+    // Querying narrowly so the new filter inputs don't false-trigger.
+    expect(
+      document.querySelector("textarea"),
+    ).toBeNull();
     expect(
       screen.queryByRole("button", { name: /send/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------
+  // #2790 — filter bar + URL-synced filter state
+  // ---------------------------------------------------------------------
+
+  it("renders the filter bar with empty inputs when no filters are set", async () => {
+    setupConversations(rows);
+    render(
+      <Wrapper>
+        <ConversationsPage />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("conversations-filter-bar")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("conversations-filter-search")).toHaveValue("");
+    expect(screen.getByTestId("conversations-filter-unit")).toHaveValue("");
+    expect(screen.getByTestId("conversations-filter-agent")).toHaveValue("");
+    expect(screen.getByTestId("conversations-filter-since")).toHaveValue("");
+    expect(screen.getByTestId("conversations-filter-archived")).not.toBeChecked();
+    // The "filtered" pill stays hidden until something narrows the view.
+    expect(
+      screen.queryByTestId("conversations-filters-active-pill"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("seeds the filter bar from URL search params on mount", async () => {
+    _searchParamString =
+      "search=migration&unit=engineering&since=2026-05-01&archived=true&thread=obs-1";
+    setupConversations(rows);
+    render(
+      <Wrapper>
+        <ConversationsPage />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("conversations-filter-search")).toHaveValue(
+        "migration",
+      );
+    });
+    expect(screen.getByTestId("conversations-filter-unit")).toHaveValue(
+      "engineering",
+    );
+    expect(screen.getByTestId("conversations-filter-since")).toHaveValue(
+      "2026-05-01",
+    );
+    expect(screen.getByTestId("conversations-filter-archived")).toBeChecked();
+    // With filters active the "filtered" pill in the header is shown.
+    expect(
+      screen.getByTestId("conversations-filters-active-pill"),
+    ).toBeInTheDocument();
+  });
+
+  it("syncs the search input to the URL via router.replace", async () => {
+    setupConversations(rows);
+    render(
+      <Wrapper>
+        <ConversationsPage />
+      </Wrapper>,
+    );
+
+    const searchInput = await screen.findByTestId(
+      "conversations-filter-search",
+    );
+    fireEvent.change(searchInput, { target: { value: "migration" } });
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith(
+        expect.stringContaining("search=migration"),
+      );
+    });
+    // The selected thread param must survive a filter edit.
+    expect(mockRouterReplace).toHaveBeenLastCalledWith(
+      expect.stringContaining("thread=obs-1"),
+    );
+  });
+
+  it("Clear button resets every filter and removes the active pill", async () => {
+    _searchParamString = "search=migration&archived=true&thread=obs-1";
+    setupConversations(rows);
+    render(
+      <Wrapper>
+        <ConversationsPage />
+      </Wrapper>,
+    );
+
+    const clearButton = await screen.findByTestId(
+      "conversations-filter-clear",
+    );
+    fireEvent.click(clearButton);
+
+    await waitFor(() => {
+      // Only the selected thread survives — every filter dropped.
+      expect(mockRouterReplace).toHaveBeenLastCalledWith(
+        "/conversations?thread=obs-1",
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // #2790 — time-aware grouping
+  // ---------------------------------------------------------------------
+
+  it("groups threads by activity bucket (Today / Yesterday / Earlier this week / Older)", async () => {
+    const now = Date.now();
+    const DAY = 24 * 60 * 60 * 1000;
+    const bucketed: ThreadSummary[] = [
+      {
+        id: "today-1",
+        participants: rows[0].participants,
+        lastActivity: new Date(now - 60 * 1000).toISOString(),
+        createdAt: rows[0].createdAt,
+        eventCount: 3,
+        origin: rows[0].origin,
+        summary: "Active today",
+        isArchived: false,
+      },
+      {
+        id: "yesterday-1",
+        participants: rows[0].participants,
+        lastActivity: new Date(now - 1.2 * DAY).toISOString(),
+        createdAt: rows[0].createdAt,
+        eventCount: 2,
+        origin: rows[0].origin,
+        summary: "Active yesterday",
+        isArchived: false,
+      },
+      {
+        id: "week-1",
+        participants: rows[0].participants,
+        lastActivity: new Date(now - 4 * DAY).toISOString(),
+        createdAt: rows[0].createdAt,
+        eventCount: 1,
+        origin: rows[0].origin,
+        summary: "Earlier this week",
+        isArchived: false,
+      },
+      {
+        id: "older-1",
+        participants: rows[0].participants,
+        lastActivity: new Date(now - 30 * DAY).toISOString(),
+        createdAt: rows[0].createdAt,
+        eventCount: 1,
+        origin: rows[0].origin,
+        summary: "Old",
+        isArchived: false,
+      },
+    ];
+    _searchParamString = "thread=today-1";
+    setupConversations(bucketed);
+    render(
+      <Wrapper>
+        <ConversationsPage />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("conversations-bucket-label-today"),
+      ).toHaveTextContent(/Today/i);
+    });
+    expect(
+      screen.getByTestId("conversations-bucket-label-yesterday"),
+    ).toHaveTextContent(/Yesterday/i);
+    expect(
+      screen.getByTestId("conversations-bucket-label-thisWeek"),
+    ).toHaveTextContent(/Earlier this week/i);
+    expect(
+      screen.getByTestId("conversations-bucket-label-older"),
+    ).toHaveTextContent(/Older/i);
+
+    // Each thread lives inside its expected bucket section.
+    const todayBucket = screen.getByTestId("conversations-bucket-today");
+    expect(
+      todayBucket.querySelector("[data-testid='conversations-thread-row-today-1']"),
+    ).not.toBeNull();
+    const olderBucket = screen.getByTestId("conversations-bucket-older");
+    expect(
+      olderBucket.querySelector("[data-testid='conversations-thread-row-older-1']"),
+    ).not.toBeNull();
+  });
+
+  it("shows the filtered-empty state when filters reduce the list to zero", async () => {
+    _searchParamString = "search=nomatch&thread=obs-1";
+    setupConversations([]);
+    render(
+      <Wrapper>
+        <ConversationsPage />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("conversations-empty-filtered"),
+      ).toBeInTheDocument();
+    });
+    // The original "no conversations in this tenant yet" wording does NOT
+    // apply when the user has narrowed the lens — surfacing it would be
+    // misleading and hide the fact that the filter is what's hiding rows.
+    expect(
+      screen.queryByTestId("conversations-empty"),
     ).not.toBeInTheDocument();
   });
 });

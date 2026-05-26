@@ -88,6 +88,19 @@ public static class ConversationsCommand
         {
             Description = "Maximum rows to return (default 50)",
         };
+        // #2790: keyword + recency filters drive the Conversations polish pass.
+        var searchOption = new Option<string?>("--search")
+        {
+            Description = "Case-insensitive substring match against summary text, participant display names, and canonical addresses",
+        };
+        var sinceOption = new Option<DateTimeOffset?>("--since")
+        {
+            Description = "Only show conversations whose last activity is at or after this instant (ISO-8601, e.g. 2026-05-01 or 2026-05-01T00:00:00Z)",
+        };
+        var archivedOption = new Option<bool?>("--archived")
+        {
+            Description = "Show only archived conversations (omit for the default live list)",
+        };
 
         var command = new Command(
             "list",
@@ -96,6 +109,9 @@ public static class ConversationsCommand
         command.Options.Add(agentOption);
         command.Options.Add(participantOption);
         command.Options.Add(limitOption);
+        command.Options.Add(searchOption);
+        command.Options.Add(sinceOption);
+        command.Options.Add(archivedOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -132,6 +148,9 @@ public static class ConversationsCommand
                     agent: agentId,
                     participant: parseResult.GetValue(participantOption),
                     limit: parseResult.GetValue(limitOption),
+                    search: parseResult.GetValue(searchOption),
+                    since: parseResult.GetValue(sinceOption),
+                    archived: parseResult.GetValue(archivedOption),
                     ct: ct);
 
                 Console.WriteLine(output == "json"

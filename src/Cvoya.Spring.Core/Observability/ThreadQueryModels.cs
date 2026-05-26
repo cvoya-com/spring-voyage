@@ -142,12 +142,20 @@ public record InboxItem(
 /// threads — drives the portal's separate archive surface. The check is
 /// derived per-thread from <see cref="ThreadSummary.IsArchived"/>.
 /// </param>
+/// <param name="Since">
+/// Lower bound on <see cref="ThreadSummary.LastActivity"/> (#2790).
+/// When supplied, only threads whose last activity is at or after this
+/// instant are returned. Omitted matches every thread regardless of
+/// recency. Drives the portal Conversations view's "since" date filter
+/// and the matching <c>spring conversations list --since</c> CLI flag.
+/// </param>
 public record ThreadQueryFilters(
     string? Unit = null,
     string? Agent = null,
     string? Participant = null,
     int? Limit = null,
-    bool? Archived = null);
+    bool? Archived = null,
+    DateTimeOffset? Since = null);
 
 /// <summary>
 /// One hit returned by <see cref="IThreadQueryService.SearchAsync"/>. Mirrors

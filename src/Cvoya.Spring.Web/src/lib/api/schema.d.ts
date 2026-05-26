@@ -9336,6 +9336,8 @@ export interface operations {
                 Participant?: string;
                 Limit?: null | number;
                 Archived?: boolean;
+                Search?: string;
+                Since?: string;
             };
             header?: never;
             path?: never;

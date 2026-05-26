@@ -32,6 +32,43 @@ public record ThreadListQuery(
     bool? Archived = null);
 
 /// <summary>
+/// Query-string binding for <c>GET /api/v1/tenant/observation/threads</c>
+/// (#2787 / #2790). Extends the engagement-side <see cref="ThreadListQuery"/>
+/// shape with optional <see cref="Search"/> and <see cref="Since"/>
+/// filters that drive the Conversations view's filter bar + the
+/// <c>spring conversations list</c> CLI flags. Kept distinct from
+/// <see cref="ThreadListQuery"/> so the participant-scoped endpoint's
+/// API surface stays stable.
+/// </summary>
+/// <param name="Unit">Narrow to threads involving this unit.</param>
+/// <param name="Agent">Narrow to threads involving this agent.</param>
+/// <param name="Participant">Narrow to threads where the given canonical address appears.</param>
+/// <param name="Limit">Optional row cap (default 50).</param>
+/// <param name="Archived">
+/// Archive-state filter. <c>null</c> / <c>false</c> excludes archived
+/// threads (default); <c>true</c> returns only archived threads.
+/// </param>
+/// <param name="Search">
+/// Optional case-insensitive substring filter applied to the thread
+/// summary text, each participant's display name, and the canonical
+/// address. Implemented at the API host layer because participant
+/// display-name resolution happens after the query service returns.
+/// </param>
+/// <param name="Since">
+/// Optional lower bound on <c>LastActivity</c>. Accepts any ISO-8601
+/// timestamp (e.g. <c>2026-05-25</c> or <c>2026-05-25T00:00:00Z</c>);
+/// threads with last activity before this instant are excluded.
+/// </param>
+public record ObservationListQuery(
+    string? Unit,
+    string? Agent,
+    string? Participant,
+    int? Limit,
+    bool? Archived = null,
+    string? Search = null,
+    DateTimeOffset? Since = null);
+
+/// <summary>
 /// Semantic kind of a thread message. The discriminator is convention-driven —
 /// the platform accepts and persists the value without enforcing it; units and
 /// agents are expected to set the appropriate kind when sending.

@@ -1973,6 +1973,9 @@ public class SpringApiClient
         string? agent = null,
         string? participant = null,
         int? limit = null,
+        string? search = null,
+        DateTimeOffset? since = null,
+        bool? archived = null,
         CancellationToken ct = default)
     {
         var result = await _client.Api.V1.Tenant.Observation.Threads.GetAsync(
@@ -1982,6 +1985,9 @@ public class SpringApiClient
                 config.QueryParameters.Agent = agent;
                 config.QueryParameters.Participant = participant;
                 config.QueryParameters.Limit = limit;
+                config.QueryParameters.Search = search;
+                config.QueryParameters.Since = since;
+                config.QueryParameters.Archived = archived;
             },
             cancellationToken: ct);
         return result ?? new List<ThreadSummaryResponse>();

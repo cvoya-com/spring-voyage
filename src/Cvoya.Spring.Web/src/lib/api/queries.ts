@@ -39,6 +39,7 @@ import type {
   AnalyticsCostTimeseriesResponse,
   BudgetResponse,
   CloneResponse,
+  ConversationListFilters,
   CostBreakdownResponse,
   EquippedSkillsResponse,
   EquipSkillRequest,
@@ -998,7 +999,7 @@ export function useInbox(
 const CONVERSATIONS_LIST_REFETCH_INTERVAL_MS = 60_000;
 
 export function useConversations(
-  filters?: ThreadListFilters,
+  filters?: ConversationListFilters,
   opts?: SliceOptions<ThreadSummary[]>,
 ): UseQueryResult<ThreadSummary[], Error> {
   return useQuery({

@@ -100,6 +100,64 @@ public class ConversationsCommandTests
     }
 
     // -----------------------------------------------------------------------
+    // #2790 — keyword + recency + archived flags
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void ConversationsList_SearchFlag_ParsesSearchTerm()
+    {
+        var (root, _) = BuildCommandTree();
+        var result = root.Parse("conversations list --search migration");
+        result.Errors.ShouldBeEmpty();
+        result.GetValue<string>("--search").ShouldBe("migration");
+    }
+
+    [Fact]
+    public void ConversationsList_SinceFlag_ParsesIsoInstant()
+    {
+        var (root, _) = BuildCommandTree();
+        var result = root.Parse("conversations list --since 2026-05-01T00:00:00Z");
+        result.Errors.ShouldBeEmpty();
+        result.GetValue<DateTimeOffset?>("--since").ShouldBe(
+            new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero));
+    }
+
+    [Fact]
+    public void ConversationsList_SinceFlag_ParsesDateOnly()
+    {
+        // The CLI flag mirrors the API: any ISO-8601 form parses.
+        var (root, _) = BuildCommandTree();
+        var result = root.Parse("conversations list --since 2026-05-01");
+        result.Errors.ShouldBeEmpty();
+        result.GetValue<DateTimeOffset?>("--since").ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void ConversationsList_ArchivedFlag_ParsesAsTrue()
+    {
+        var (root, _) = BuildCommandTree();
+        var result = root.Parse("conversations list --archived");
+        result.Errors.ShouldBeEmpty();
+        result.GetValue<bool?>("--archived").ShouldBe(true);
+    }
+
+    [Fact]
+    public void ConversationsList_PolishFlags_ComposeWithExistingFlags()
+    {
+        // Regression guard: --search + --since + --archived stay
+        // independent from --unit / --agent / --participant / --limit.
+        var (root, _) = BuildCommandTree();
+        var result = root.Parse(
+            "conversations list --unit eng-team --search migration --since 2026-05-01 --archived --limit 25");
+        result.Errors.ShouldBeEmpty();
+        result.GetValue<string>("--unit").ShouldBe("eng-team");
+        result.GetValue<string>("--search").ShouldBe("migration");
+        result.GetValue<DateTimeOffset?>("--since").ShouldNotBeNull();
+        result.GetValue<bool?>("--archived").ShouldBe(true);
+        result.GetValue<int?>("--limit").ShouldBe(25);
+    }
+
+    // -----------------------------------------------------------------------
     // Parse tests — conversations show
     // -----------------------------------------------------------------------
 

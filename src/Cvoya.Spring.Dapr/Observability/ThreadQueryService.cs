@@ -623,6 +623,16 @@ public class ThreadQueryService(
             false => query.Where(s => !s.IsArchived),
         };
 
+        // #2790: "since" lower bound on LastActivity drives the
+        // Conversations view date filter + the matching CLI flag. The
+        // comparison is on the activity timestamp (not CreatedAt) so a
+        // long-lived thread with recent traffic surfaces above an
+        // old-but-quiet thread, matching the sort order.
+        if (filters.Since is DateTimeOffset since)
+        {
+            query = query.Where(s => s.LastActivity >= since);
+        }
+
         return query.ToList();
     }
 
