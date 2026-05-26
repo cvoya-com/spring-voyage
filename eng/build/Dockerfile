@@ -50,6 +50,7 @@ WORKDIR /build
 COPY package.json package-lock.json ./
 COPY src/Cvoya.Spring.Web/package.json ./src/Cvoya.Spring.Web/
 COPY src/Cvoya.Spring.Connector.GitHub/web/package.json ./src/Cvoya.Spring.Connector.GitHub/web/
+COPY src/Cvoya.Spring.Connector.WebSearch/web/package.json ./src/Cvoya.Spring.Connector.WebSearch/web/
 # preinstall hook needs this — keep the path narrow so unrelated eng/ci/
 # changes don't bust the npm-ci layer cache.
 COPY eng/ci/enforce-npm.cjs ./eng/ci/enforce-npm.cjs
@@ -60,6 +61,7 @@ RUN npm ci
 # hook consumes to regenerate typed API clients.
 COPY src/Cvoya.Spring.Web/ ./src/Cvoya.Spring.Web/
 COPY src/Cvoya.Spring.Connector.GitHub/web/ ./src/Cvoya.Spring.Connector.GitHub/web/
+COPY src/Cvoya.Spring.Connector.WebSearch/web/ ./src/Cvoya.Spring.Connector.WebSearch/web/
 COPY src/Cvoya.Spring.Host.Api/openapi.json ./src/Cvoya.Spring.Host.Api/openapi.json
 
 # next.config.ts sets `output: 'standalone'` with outputFileTracingRoot
