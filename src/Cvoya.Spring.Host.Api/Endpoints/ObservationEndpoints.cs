@@ -58,7 +58,7 @@ public static class ObservationEndpoints
     }
 
     private static async Task<IResult> ListObservedThreadsAsync(
-        [AsParameters] ThreadListQuery query,
+        [AsParameters] ObservationListQuery query,
         IThreadQueryService queryService,
         IParticipantDisplayNameResolver resolver,
         CancellationToken cancellationToken)
@@ -66,20 +66,101 @@ public static class ObservationEndpoints
         // The observation endpoint deliberately does NOT inject a caller
         // participant filter — the privilege of holding TenantObserver is
         // precisely "see every thread in the tenant". The optional
-        // unit/agent/participant query params remain available as
-        // narrowing hints (e.g., observe one unit's traffic) without
-        // changing the privilege boundary. Tenant scoping is applied
-        // automatically by the EF query filter on SpringDbContext.
+        // unit/agent/participant/since/search/archived query params are
+        // narrowing hints (#2790: scan thousands of threads by activity
+        // window or keyword) without changing the privilege boundary.
+        // Tenant scoping is applied automatically by the EF query filter
+        // on SpringDbContext.
         var filters = new ThreadQueryFilters(
             Unit: query.Unit,
             Agent: query.Agent,
             Participant: query.Participant,
             Limit: query.Limit,
-            Archived: query.Archived);
+            Archived: query.Archived,
+            Since: query.Since);
 
         var summaries = await queryService.ListAsync(filters, cancellationToken);
         var enriched = await ThreadEndpoints.EnrichSummariesAsync(summaries, resolver, cancellationToken);
+
+        // #2790: text search runs AFTER enrichment so it can match the
+        // resolved participant display names (the in-memory list is
+        // small for v0.1 — for v0.2+ this would move into the query
+        // service with a database FTS pass).
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            enriched = FilterBySearch(enriched, query.Search!);
+        }
+
         return Results.Ok(enriched);
+    }
+
+    /// <summary>
+    /// Substring filter (case-insensitive) applied across each enriched
+    /// summary's thread-summary text, participant display names, and
+    /// participant canonical addresses. Caller-supplied whitespace is
+    /// trimmed; an empty / whitespace-only term is rejected upstream.
+    /// </summary>
+    internal static IReadOnlyList<ThreadSummaryResponse> FilterBySearch(
+        IReadOnlyList<ThreadSummaryResponse> summaries,
+        string term)
+    {
+        var trimmed = term.Trim();
+        if (trimmed.Length == 0)
+        {
+            return summaries;
+        }
+
+        var result = new List<ThreadSummaryResponse>(summaries.Count);
+        foreach (var s in summaries)
+        {
+            if (Matches(s, trimmed))
+            {
+                result.Add(s);
+            }
+        }
+        return result;
+    }
+
+    private static bool Matches(ThreadSummaryResponse summary, string term)
+    {
+        if (!string.IsNullOrEmpty(summary.Summary)
+            && summary.Summary.Contains(term, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (summary.Participants is { } participants)
+        {
+            foreach (var p in participants)
+            {
+                if (p.DisplayName is { } name
+                    && name.Contains(term, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                if (p.Address is { } addr
+                    && addr.Contains(term, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        if (summary.Origin is { } origin)
+        {
+            if (origin.DisplayName is { } originName
+                && originName.Contains(term, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            if (origin.Address is { } originAddr
+                && originAddr.Contains(term, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static async Task<IResult> GetObservedThreadAsync(

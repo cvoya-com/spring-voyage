@@ -8,6 +8,7 @@ import type {
   AgentExecutionResponse,
   AgentResponse,
   AgentRuntimeStatusResponse,
+  ConversationListFilters,
   EquippedSkillsResponse,
   EquipSkillRequest,
   ThreadListFilters,
@@ -1154,13 +1155,16 @@ export const api = {
   // Mirrors the listThreads / getThread shape but hits the observation
   // endpoint gated by `TenantObserver`. Backs the portal /conversations
   // page and the `spring conversations` CLI verb family.
-  listConversations: async (filters?: ThreadListFilters) => {
+  listConversations: async (filters?: ConversationListFilters) => {
     const query: Record<string, string | number | boolean> = {};
     if (filters?.unit) query.Unit = filters.unit;
     if (filters?.agent) query.Agent = filters.agent;
     if (filters?.participant) query.Participant = filters.participant;
     if (filters?.limit !== undefined) query.Limit = filters.limit;
     if (filters?.archived === true) query.Archived = true;
+    // #2790: keyword + recency narrowing for the Conversations filter bar.
+    if (filters?.search) query.Search = filters.search;
+    if (filters?.since) query.Since = filters.since;
     return unwrap(
       await fetchClient.GET("/api/v1/tenant/observation/threads", {
         params: { query: query as never },

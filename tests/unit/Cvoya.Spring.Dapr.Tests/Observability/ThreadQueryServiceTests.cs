@@ -151,6 +151,38 @@ public class ThreadQueryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ListAsync_SinceFilter_ExcludesOlderThreads()
+    {
+        // #2790: Since narrows the result set to threads whose last
+        // activity is at or after the given instant. Anchors a fixed
+        // "now" so the assertions stay deterministic — the bucketing
+        // logic in the portal uses the same comparison.
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+        var now = DateTimeOffset.UtcNow;
+
+        var (recentId, _) = await SeedThreadAsync(
+            new[] { ada, savasp },
+            now.AddHours(-1),
+            new[] { NewMessage(ada, savasp, "fresh", now.AddHours(-1)) },
+            participantKeyOverride: "since-recent");
+        await SeedThreadAsync(
+            new[] { ada, savasp },
+            now.AddDays(-30),
+            new[] { NewMessage(ada, savasp, "ancient", now.AddDays(-30)) },
+            participantKeyOverride: "since-old");
+
+        var svc = BuildService();
+        var result = await svc.ListAsync(
+            new ThreadQueryFilters(Since: now.AddDays(-1)),
+            ct);
+
+        result.Count.ShouldBe(1);
+        result[0].Id.ShouldBe(GuidFormatter.Format(recentId));
+    }
+
+    [Fact]
     public async Task ListAsync_LimitCapsResultCount()
     {
         var ct = TestContext.Current.CancellationToken;

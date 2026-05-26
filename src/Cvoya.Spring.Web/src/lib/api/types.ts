@@ -469,6 +469,26 @@ export interface ThreadListFilters {
   archived?: boolean;
 }
 
+/**
+ * Query-string filters accepted by `GET /api/v1/tenant/observation/threads`
+ * (#2790). Extends {@link ThreadListFilters} with the search + recency
+ * knobs that power the Conversations filter bar. Kept distinct from the
+ * engagement filter so the participant-scoped surface stays unchanged.
+ */
+export interface ConversationListFilters extends ThreadListFilters {
+  /**
+   * Case-insensitive substring filter applied against summary text,
+   * participant display names, and canonical addresses.
+   */
+  search?: string;
+  /**
+   * ISO-8601 timestamp. Only conversations with last activity at or
+   * after this instant are returned. The CLI flag (`--since`) accepts
+   * the same shape.
+   */
+  since?: string;
+}
+
 /** Matches Cvoya.Spring.Core.Initiative.InitiativeLevel enum. */
 export type InitiativeLevel = Schemas["InitiativeLevel"];
 

@@ -173,6 +173,144 @@ public class ObservationEndpointsTests : IClassFixture<ObservationEndpointsTests
         detail.Events!.Count.ShouldBe(1);
     }
 
+    // -----------------------------------------------------------------------
+    // #2790 — Search + Since filters drive the Conversations polish pass.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ListObservedThreads_SinceFilter_PassesThroughToService()
+    {
+        // The endpoint forwards ?since=<iso-instant> into ThreadQueryFilters.Since.
+        // The service is mocked so we only assert the parameter binding here;
+        // the actual filter behaviour is covered by ThreadQueryServiceTests.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>());
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/threads?since=2026-05-01T00:00:00Z",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await _factory.ThreadQueryService.Received(1)
+            .ListAsync(
+                Arg.Is<ThreadQueryFilters>(f =>
+                    f.Since.HasValue &&
+                    f.Since.Value == new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero)),
+                Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ListObservedThreads_SearchFilter_NarrowsToMatchingSummaryText()
+    {
+        // Search is applied at the API host layer AFTER enrichment so the
+        // term can match resolved participant display names. We arrange
+        // three rows where only one has a matching summary.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ThreadQueryService.ClearSubstitute();
+        var now = DateTimeOffset.UtcNow;
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
+            {
+                new("obs-match", new[] { "agent://ada" }, now, now, 1, "agent://ada", "Migration plan review"),
+                new("obs-other", new[] { "agent://grace" }, now, now, 1, "agent://grace", "Status update"),
+                new("obs-yet-another", new[] { "agent://hopper" }, now, now, 1, "agent://hopper", "Routine ping"),
+            });
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/threads?search=Migration",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummaryResponse>>(ct);
+        rows.ShouldNotBeNull();
+        rows!.Select(r => r.Id).ShouldBe(new[] { "obs-match" });
+    }
+
+    [Fact]
+    public async Task ListObservedThreads_SearchFilter_IsCaseInsensitive()
+    {
+        // The substring match is case-insensitive so the filter is
+        // resilient to typing/casing variation.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ThreadQueryService.ClearSubstitute();
+        var now = DateTimeOffset.UtcNow;
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
+            {
+                new("obs-1", new[] { "agent://ada" }, now, now, 1, "agent://ada", "MIGRATION plan"),
+                new("obs-2", new[] { "agent://grace" }, now, now, 1, "agent://grace", "routine"),
+            });
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/threads?search=migration",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummaryResponse>>(ct);
+        rows.ShouldNotBeNull();
+        rows!.Select(r => r.Id).ShouldBe(new[] { "obs-1" });
+    }
+
+    [Fact]
+    public async Task ListObservedThreads_SearchFilter_MatchesParticipantAddress()
+    {
+        // Searching by canonical address surfaces threads that reference a
+        // specific actor by Guid — important for "find every thread agent
+        // <uuid> touched" observation flows where the display name might
+        // be missing or stale.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ThreadQueryService.ClearSubstitute();
+        var now = DateTimeOffset.UtcNow;
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
+            {
+                new("obs-ada", new[] { "agent://ada" }, now, now, 1, "agent://ada", "Hand-off"),
+                new("obs-grace", new[] { "agent://grace" }, now, now, 1, "agent://grace", "Routine"),
+            });
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/threads?search=ada",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummaryResponse>>(ct);
+        rows.ShouldNotBeNull();
+        rows!.Select(r => r.Id).ShouldBe(new[] { "obs-ada" });
+    }
+
+    [Fact]
+    public async Task ListObservedThreads_EmptySearch_DoesNotNarrow()
+    {
+        // A whitespace-only ?search= must behave the same as no search at
+        // all — otherwise overzealous URL-state pruning would silently
+        // hide every row.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ThreadQueryService.ClearSubstitute();
+        var now = DateTimeOffset.UtcNow;
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
+            {
+                new("obs-1", new[] { "agent://ada" }, now, now, 1, "agent://ada", "Hand-off"),
+                new("obs-2", new[] { "agent://grace" }, now, now, 1, "agent://grace", "Routine"),
+            });
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/threads?search=%20%20",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummaryResponse>>(ct);
+        rows.ShouldNotBeNull();
+        rows!.Count.ShouldBe(2);
+    }
+
     [Fact]
     public async Task ObservationEndpoints_AreDistinctFromThreadsEndpoints()
     {
