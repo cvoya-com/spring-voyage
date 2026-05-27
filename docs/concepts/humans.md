@@ -16,7 +16,18 @@ A single operator — one `TenantUser` row, one authenticated principal — can 
 
 **Per-unit display name.** A Hat's display name is contextual to the unit it appears in. "Bob" in Magazine and "Alice" in Newsletter are not aliases — they are distinct Hats with distinct names, and the operator chooses which Hat to present in each unit when the package is installed (or later, through the editing surfaces below). The Hat that other team members see is the Hat that received their message.
 
-**The inbox shows the Hat.** Every inbox item is rendered with a Hat chip indicating which Hat received it — `As Bob (designer in Magazine)`, `As Alice (developer in Newsletter)`. The operator always sees which identity received which message, even when both Hats funnel into the same inbox view. This is what makes the model coherent: items received as different Hats remain distinguishable.
+**The inbox shows the Hat.** Every inbox item is rendered with a Hat chip indicating which Hat received it — `As Bob`, `As Alice`. The operator always sees which identity received which message, even when both Hats funnel into the same inbox view. This is what makes the model coherent: items received as different Hats remain distinguishable.
+
+**Disambiguating same-name Hats.** Two Hats can legitimately share a display name — `Bob the designer` in *Magazine* and `Bob the reviewer` in *Magazine* are both valid, as is `Bob` in *Magazine* and `Bob` in *Newsroom*. The server computes a **disambiguated label** per Hat against the caller's bound set, priority order:
+
+1. **No collision** → use the raw display name (`Bob`).
+2. **Same name, different role** → append the role: `Bob — designer` vs `Bob — reviewer`.
+3. **Same name, same role, different unit** → append the unit: `Bob (Magazine)` vs `Bob (Newsroom)`.
+4. **Same name, same role, same unit** → append a 4-hex-char `humans.id` prefix: `Bob #12ab` vs `Bob #34cd`. Always disambiguates.
+
+Every surface that renders a Hat label — the inbox chip, engagement-list chip, unit/agent messaging-tab banner, the from-selector dropdown, the "Your Hats" panel on `/settings/user-identity`, and the CLI's ambiguity prompt — renders the same server-supplied string. Operators can type the disambiguated label verbatim into `spring message send --as "Bob — designer"` and the CLI resolves it without a prompt.
+
+**Filtering the inbox by Hat.** When the operator wears two or more Hats, the inbox toolbar surfaces a per-Hat filter chip group sourced from the same bound-set used by the from-selector. `All Hats` is the default; selecting `As Bob — designer` narrows the list to threads that came in on that Hat. The filter is local to the inbox view in v0.1 (no URL / localStorage persistence); a reload restores the default.
 
 **Reply defaults to the thread's Hat.** When the operator replies inside an existing thread, the composer's from-selector is pinned to the Hat the thread came in on. Replies do not silently change identity mid-thread; the operator can override via the from-selector, but the default keeps the conversation consistent. For a **new outbound** message (composer launched fresh from a unit, an agent, or `spring message send` without an explicit Hat), the from-selector defaults to the operator's **primary Hat** — the `Human` pinned by `tenant_users.primary_human_id` ([ADR-0062 §§ 2, 5](../decisions/0062-tenant-user-human-explicit-binding.md)). The primary Hat is set automatically on the first binding and can be repinned from the portal's identity settings or via `spring user identity set-primary <human-ref>`.
 

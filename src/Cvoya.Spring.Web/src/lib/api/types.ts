@@ -163,18 +163,12 @@ export type TenantUserConnectorIdentityResponse =
 /**
  * One row of the calling caller's bound-Human ("Hat") set from
  * `GET /api/v1/tenant/users/me/humans` (ADR-0062 §§ 3, 5). Drives the
- * portal's `<HumanFromSelector>` and per-Hat inbox rendering.
+ * portal's `<HumanFromSelector>`, `<YourHatsPanel>`, per-Hat inbox
+ * chip, and the inbox-toolbar filter chip (#2826 Part 2). The
+ * `disambiguatedLabel` field (#2829) is server-computed; consumers
+ * render it verbatim — no client-side derivation.
  */
 export type CallerHumanResponse = Schemas["CallerHumanResponse"];
-
-/**
- * One per-unit row of {@link CallerHumanResponse.memberships}. Carries
- * the unit display name + the membership row's free-form roles list so
- * the from-selector can render the "designer in Magazine" context
- * label without a second round-trip.
- */
-export type CallerHumanMembershipResponse =
-  Schemas["CallerHumanMembershipResponse"];
 
 /**
  * Request body for `PATCH /api/v1/tenant/humans/{humanId}/binding`

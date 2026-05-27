@@ -881,6 +881,26 @@ export interface paths {
         patch: operations["UpdateTenantUser"];
         trace?: never;
     };
+    "/api/v1/tenant/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find a tenant user by OAuth subject within the current tenant (ADR-0062 § 6).
+         * @description Returns the TenantUser whose auth_subject matches the supplied query parameter in the current tenant, or 404 when no row matches. The query parameter is required; an empty value surfaces as 400. Used by the CLI to resolve `<tenant-user-ref>` shapes typed as OAuth subjects (#2827).
+         */
+        get: operations["FindTenantUserByAuthSubject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/users/{tenantUserId}/identities": {
         parameters: {
             query?: never;
@@ -3232,6 +3252,7 @@ export interface components {
             /** Format: uuid */
             humanId: string;
             displayName: string;
+            disambiguatedLabel: string;
             isPrimary: boolean;
             memberships: components["schemas"]["CallerHumanMembershipResponse"][];
         };
@@ -3891,6 +3912,10 @@ export interface components {
             installId?: null | string;
             withValues?: boolean;
         };
+        PackageHumanOverride: {
+            /** Format: uuid */
+            tenantUserRef: string;
+        };
         PackageInstallRequest: {
             targets: components["schemas"]["PackageInstallTarget"][];
         };
@@ -3904,6 +3929,9 @@ export interface components {
             credentials?: null | components["schemas"]["CredentialBindingPayload"][];
             intoUnit?: null | string;
             displayName?: null | string;
+            humanOverrides?: null | {
+                [key: string]: components["schemas"]["PackageHumanOverride"];
+            };
         };
         PackageRequiredCredentialEntryResponse: {
             provider: string;
@@ -4244,6 +4272,7 @@ export interface components {
             /** Format: uuid */
             recipientHumanId?: null | string;
             recipientHumanDisplayName?: null | string;
+            recipientHumanDisambiguatedLabel?: null | string;
         };
         ThroughputEntryResponse: {
             source: string;
@@ -7209,6 +7238,46 @@ export interface operations {
                 "application/json": null | components["schemas"]["UpdateTenantUserRequest"];
             };
         };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantUserResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    FindTenantUserByAuthSubject: {
+        parameters: {
+            query?: {
+                authSubject?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description OK */
             200: {

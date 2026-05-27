@@ -939,5 +939,47 @@ describe("EngagementList", () => {
       const chip = screen.getByTestId("engagement-hat-chip-thread-sidebar");
       expect(chip).toHaveTextContent("As ada");
     });
+
+    // ── #2829: disambiguated label ──────────────────────────────────────────
+    it("renders the server-supplied disambiguated label when present (#2829)", () => {
+      mockUseThreads.mockReturnValue({
+        data: [
+          makeThread({
+            id: "thread-disambig",
+            recipientHumanId: "44444444-4444-4444-4444-444444444444",
+            recipientHumanDisplayName: "Bob",
+            recipientHumanDisambiguatedLabel: "Bob — designer",
+          }),
+        ],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      const chip = screen.getByTestId("engagement-hat-chip-thread-disambig");
+      expect(chip).toHaveTextContent("As Bob — designer");
+      expect(chip).toHaveAttribute("title", "Received as Bob — designer");
+    });
+
+    it("falls back to the raw display name when the disambiguated label is null (#2829)", () => {
+      mockUseThreads.mockReturnValue({
+        data: [
+          makeThread({
+            id: "thread-fallback",
+            recipientHumanId: "55555555-5555-5555-5555-555555555555",
+            recipientHumanDisplayName: "Carol",
+            recipientHumanDisambiguatedLabel: null,
+          }),
+        ],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      const chip = screen.getByTestId("engagement-hat-chip-thread-fallback");
+      expect(chip).toHaveTextContent("As Carol");
+    });
   });
 });

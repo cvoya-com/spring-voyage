@@ -503,6 +503,102 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
     }
 
     [Fact]
+    public async Task ListThreads_RecipientHumanDisambiguatedLabel_PopulatedWhenInBoundSet()
+    {
+        // ADR-0062 § 5 / #2829: the server-computed disambiguated label
+        // surfaces on the response when the recipient Hat is in the
+        // calling caller's bound set. Bind the seeded Hat to the
+        // operator TenantUser so it lands in /me/humans, then verify
+        // the label appears verbatim on the wire row.
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+        var humanGuid = Guid.NewGuid();
+        var humanAddress = $"human:{humanGuid:N}";
+        var uniqueName = $"Bob-{Guid.NewGuid():N}";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.Humans.Add(new HumanEntity
+            {
+                Id = humanGuid,
+                DisplayName = uniqueName,
+                TenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+                TenantUserId = Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator,
+                CreatedAt = now,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
+            {
+                new(
+                    Id: "c-hat-disambig",
+                    Participants: new[] { "agent://ada", humanAddress },
+                    LastActivity: now,
+                    CreatedAt: now,
+                    EventCount: 1,
+                    Origin: "agent://ada",
+                    Summary: "Hi",
+                    ParticipantNameSnapshots: null,
+                    IsArchived: false,
+                    RecipientHumanId: humanGuid),
+            });
+
+        var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummaryResponse>>(ct);
+        rows.ShouldNotBeNull();
+        var row = rows!.Single(r => r.Id == "c-hat-disambig");
+        row.RecipientHumanId.ShouldBe(humanGuid);
+        // The seeded Hat has a unique name so the disambiguator finds
+        // no siblings — the disambiguated label collapses to the raw
+        // display name. The wire field MUST still be populated (not
+        // null), distinguishing "in the caller's bound set" from "not
+        // bound".
+        row.RecipientHumanDisambiguatedLabel.ShouldBe(uniqueName);
+    }
+
+    [Fact]
+    public async Task ListThreads_RecipientHumanDisambiguatedLabel_NullForA2AThread()
+    {
+        // Pure A2A: no recipient Hat → the disambiguated label wire
+        // field is null alongside RecipientHumanId / RecipientHumanDisplayName.
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
+            {
+                new(
+                    Id: "c-a2a-disambig",
+                    Participants: new[] { "agent://ada", "agent://grace" },
+                    LastActivity: now,
+                    CreatedAt: now,
+                    EventCount: 1,
+                    Origin: "agent://ada",
+                    Summary: "ada → grace",
+                    ParticipantNameSnapshots: null,
+                    IsArchived: false,
+                    RecipientHumanId: null),
+            });
+
+        var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummaryResponse>>(ct);
+        rows.ShouldNotBeNull();
+        var row = rows!.Single(r => r.Id == "c-a2a-disambig");
+        row.RecipientHumanDisambiguatedLabel.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task ListThreads_RecipientHumanIdNull_SurfacesAsNullDisplayName()
     {
         // Pure A2A thread: RecipientHumanId is null on the upstream

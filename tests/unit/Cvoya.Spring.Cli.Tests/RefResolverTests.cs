@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Cli.Tests;
 
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -109,16 +110,20 @@ public class RefResolverTests
     }
 
     [Fact]
-    public async Task ResolveHumanRefAsync_DisplayNameMultipleMatches_ThrowsWithDisambiguationHint()
+    public async Task ResolveHumanRefAsync_DisplayNameMultipleMatches_NonTty_ThrowsStructuredHint()
     {
+        // #2829: with stdin redirected (CI / piped input / scripted
+        // invocation) ambiguous matches surface as a structured error
+        // listing the candidate disambiguated labels — never an
+        // interactive prompt the script can't answer.
         var ct = TestContext.Current.CancellationToken;
         var firstId = Guid.Parse("aaaaaaaa-1111-1111-1111-000000000001");
         var secondId = Guid.Parse("aaaaaaaa-1111-1111-1111-000000000002");
         var responseBody =
             $$"""
             [
-              {"humanId":"{{firstId:D}}","displayName":"Bob","isPrimary":true,"memberships":[]},
-              {"humanId":"{{secondId:D}}","displayName":"Bob","isPrimary":false,"memberships":[]}
+              {"humanId":"{{firstId:D}}","displayName":"Bob","disambiguatedLabel":"Bob (Magazine)","isPrimary":true,"memberships":[]},
+              {"humanId":"{{secondId:D}}","displayName":"Bob","disambiguatedLabel":"Bob (Newsletter)","isPrimary":false,"memberships":[]}
             ]
             """;
         var handler = new MockHttpMessageHandler(
@@ -128,12 +133,172 @@ public class RefResolverTests
         var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
 
         var ex = await Should.ThrowAsync<CliRefResolutionException>(
-            () => RefResolver.ResolveHumanRefAsync(client, "Bob", "--as", ct));
+            () => RefResolver.ResolveHumanRefAsync(
+                client,
+                input: "Bob",
+                flagDescription: "--as",
+                stdin: new StringReader(string.Empty),
+                stdout: new StringWriter(),
+                isInputRedirected: true,
+                ct));
 
-        ex.Message.ShouldContain("matches more than one Hat");
-        ex.Message.ShouldContain("disambiguate");
-        ex.Message.ShouldContain(firstId.ToString("N"));
-        ex.Message.ShouldContain(secondId.ToString("N"));
+        ex.Message.ShouldContain("matched multiple Hats");
+        ex.Message.ShouldContain("--as \"Bob (Magazine)\"");
+        ex.Message.ShouldContain("--as \"Bob (Newsletter)\"");
+    }
+
+    [Fact]
+    public async Task ResolveHumanRefAsync_DisplayNameMultipleMatches_Tty_PromptsAndResolvesChoice()
+    {
+        // #2829: on a real TTY the resolver renders a numbered list
+        // using the server's disambiguatedLabel values and resolves
+        // the chosen index to the corresponding Hat's Guid.
+        var ct = TestContext.Current.CancellationToken;
+        var firstId = Guid.Parse("aaaaaaaa-1111-1111-1111-000000000001");
+        var secondId = Guid.Parse("aaaaaaaa-1111-1111-1111-000000000002");
+        var responseBody =
+            $$"""
+            [
+              {"humanId":"{{firstId:D}}","displayName":"Bob","disambiguatedLabel":"Bob (Magazine)","isPrimary":true,"memberships":[]},
+              {"humanId":"{{secondId:D}}","displayName":"Bob","disambiguatedLabel":"Bob (Newsletter)","isPrimary":false,"memberships":[]}
+            ]
+            """;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/users/me/humans",
+            expectedMethod: HttpMethod.Get,
+            responseBody: responseBody);
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+
+        // Operator picks "2" → resolves to secondId.
+        var stdin = new StringReader("2\n");
+        var stdout = new StringWriter();
+
+        var resolved = await RefResolver.ResolveHumanRefAsync(
+            client,
+            input: "Bob",
+            flagDescription: "--as",
+            stdin: stdin,
+            stdout: stdout,
+            isInputRedirected: false,
+            ct);
+
+        resolved.ShouldBe(secondId);
+
+        var rendered = stdout.ToString();
+        rendered.ShouldContain("which \"Bob\"?");
+        rendered.ShouldContain("1. Bob (Magazine)");
+        rendered.ShouldContain("2. Bob (Newsletter)");
+        rendered.ShouldContain("pick one [1-2]:");
+    }
+
+    [Fact]
+    public async Task ResolveHumanRefAsync_DisplayNameMultipleMatches_Tty_InvalidInputReprompts()
+    {
+        // Invalid input must NOT abort — the operator gets a hint and
+        // the prompt re-fires. Only EOF / explicit cancel terminates
+        // the loop.
+        var ct = TestContext.Current.CancellationToken;
+        var firstId = Guid.Parse("aaaaaaaa-1111-1111-1111-000000000001");
+        var secondId = Guid.Parse("aaaaaaaa-1111-1111-1111-000000000002");
+        var responseBody =
+            $$"""
+            [
+              {"humanId":"{{firstId:D}}","displayName":"Bob","disambiguatedLabel":"Bob (Magazine)","isPrimary":true,"memberships":[]},
+              {"humanId":"{{secondId:D}}","displayName":"Bob","disambiguatedLabel":"Bob (Newsletter)","isPrimary":false,"memberships":[]}
+            ]
+            """;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/users/me/humans",
+            expectedMethod: HttpMethod.Get,
+            responseBody: responseBody);
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+
+        // "foo" (not a number) → reprompt; "9" (out of range) → reprompt;
+        // "1" → resolve.
+        var stdin = new StringReader("foo\n9\n1\n");
+        var stdout = new StringWriter();
+
+        var resolved = await RefResolver.ResolveHumanRefAsync(
+            client,
+            input: "Bob",
+            flagDescription: "--as",
+            stdin: stdin,
+            stdout: stdout,
+            isInputRedirected: false,
+            ct);
+
+        resolved.ShouldBe(firstId);
+
+        var rendered = stdout.ToString();
+        rendered.ShouldContain("invalid choice 'foo'");
+        rendered.ShouldContain("invalid choice '9'");
+    }
+
+    [Fact]
+    public async Task ResolveHumanRefAsync_DisplayNameMultipleMatches_Tty_EofAborts()
+    {
+        // EOF on stdin (operator pressed ^D / the input stream closed
+        // without a pick) aborts with a non-zero exit so scripts don't
+        // silently pick a Hat.
+        var ct = TestContext.Current.CancellationToken;
+        var firstId = Guid.Parse("aaaaaaaa-1111-1111-1111-000000000001");
+        var secondId = Guid.Parse("aaaaaaaa-1111-1111-1111-000000000002");
+        var responseBody =
+            $$"""
+            [
+              {"humanId":"{{firstId:D}}","displayName":"Bob","disambiguatedLabel":"Bob (Magazine)","isPrimary":true,"memberships":[]},
+              {"humanId":"{{secondId:D}}","displayName":"Bob","disambiguatedLabel":"Bob (Newsletter)","isPrimary":false,"memberships":[]}
+            ]
+            """;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/users/me/humans",
+            expectedMethod: HttpMethod.Get,
+            responseBody: responseBody);
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+
+        var stdin = new StringReader(string.Empty); // immediate EOF
+        var stdout = new StringWriter();
+
+        var ex = await Should.ThrowAsync<CliRefResolutionException>(
+            () => RefResolver.ResolveHumanRefAsync(
+                client,
+                input: "Bob",
+                flagDescription: "--as",
+                stdin: stdin,
+                stdout: stdout,
+                isInputRedirected: false,
+                ct));
+
+        ex.Message.ShouldContain("Aborted");
+        ex.Message.ShouldContain("Bob");
+    }
+
+    [Fact]
+    public async Task ResolveHumanRefAsync_DisambiguatedLabelMatch_ResolvesWithoutPrompt()
+    {
+        // #2829: typing the exact server-rendered disambiguated label
+        // resolves to a single Hat without an ambiguity prompt — even
+        // when other bound Hats share the raw display name.
+        var ct = TestContext.Current.CancellationToken;
+        var firstId = Guid.Parse("aaaaaaaa-1111-1111-1111-000000000001");
+        var secondId = Guid.Parse("aaaaaaaa-1111-1111-1111-000000000002");
+        var responseBody =
+            $$"""
+            [
+              {"humanId":"{{firstId:D}}","displayName":"Bob","disambiguatedLabel":"Bob (Magazine)","isPrimary":true,"memberships":[]},
+              {"humanId":"{{secondId:D}}","displayName":"Bob","disambiguatedLabel":"Bob (Newsletter)","isPrimary":false,"memberships":[]}
+            ]
+            """;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/users/me/humans",
+            expectedMethod: HttpMethod.Get,
+            responseBody: responseBody);
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+
+        var resolved = await RefResolver.ResolveHumanRefAsync(
+            client, "Bob (Newsletter)", "--as", ct);
+
+        resolved.ShouldBe(secondId);
     }
 
     // ── ResolveTenantUserRefAsync ────────────────────────────────────────────

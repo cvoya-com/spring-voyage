@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Host.Api.Services;
@@ -19,6 +20,7 @@ using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 /// <summary>
 /// Maps the thread read + send endpoints introduced by #452. Threads
@@ -66,6 +68,8 @@ public static class ThreadEndpoints
         [AsParameters] ThreadListQuery query,
         IThreadQueryService queryService,
         IParticipantDisplayNameResolver resolver,
+        IAuthenticatedCallerAccessor callerAccessor,
+        SpringDbContext db,
         CancellationToken cancellationToken)
     {
         var filters = new ThreadQueryFilters(
@@ -76,7 +80,14 @@ public static class ThreadEndpoints
             Archived: query.Archived);
 
         var summaries = await queryService.ListAsync(filters, cancellationToken);
-        var enriched = await EnrichSummariesAsync(summaries, resolver, cancellationToken);
+        // ADR-0062 § 5 / #2829: resolve the disambiguated Hat labels for
+        // the recipient column once per page against the caller's
+        // bound-Hats set. The same lookup powers both the chip rendering
+        // and the inbox-toolbar filter (the latter sources its options
+        // from /me/humans directly, so the strings match).
+        var recipientLabels = await BuildRecipientHumanLabelsAsync(
+            callerAccessor, db, cancellationToken);
+        var enriched = await EnrichSummariesAsync(summaries, resolver, recipientLabels, cancellationToken);
         return Results.Ok(enriched);
     }
 
@@ -84,6 +95,8 @@ public static class ThreadEndpoints
         string id,
         IThreadQueryService queryService,
         IParticipantDisplayNameResolver resolver,
+        IAuthenticatedCallerAccessor callerAccessor,
+        SpringDbContext db,
         CancellationToken cancellationToken)
     {
         var detail = await queryService.GetAsync(id, cancellationToken);
@@ -94,8 +107,88 @@ public static class ThreadEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        var enriched = await EnrichDetailAsync(detail, resolver, cancellationToken);
+        var recipientLabels = await BuildRecipientHumanLabelsAsync(
+            callerAccessor, db, cancellationToken);
+        var enriched = await EnrichDetailAsync(detail, resolver, recipientLabels, cancellationToken);
         return Results.Ok(enriched);
+    }
+
+    /// <summary>
+    /// Resolves the calling caller's bound-Hats set and computes the
+    /// disambiguated label for each (ADR-0062 § 5 / #2829). Returns a
+    /// <c>HumanId → disambiguatedLabel</c> map used by
+    /// <see cref="EnrichSummaryAsync"/> to stamp
+    /// <c>ThreadSummaryResponse.RecipientHumanDisambiguatedLabel</c>.
+    /// Returns an empty map for a non-TenantUser caller or when the
+    /// caller has no bound Hats — both cases collapse to "render the
+    /// raw display name without disambiguation" on the chip surface.
+    /// </summary>
+    internal static async Task<IReadOnlyDictionary<Guid, string>> BuildRecipientHumanLabelsAsync(
+        IAuthenticatedCallerAccessor callerAccessor,
+        SpringDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var callerAddress = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (callerAddress is null
+            || !string.Equals(callerAddress.Scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            return new Dictionary<Guid, string>();
+        }
+
+        var callerTenantUserId = callerAddress.Id;
+
+        // Pull the caller's bound Humans and the first-membership data
+        // each Hat carries. Same shape as TenantUserIdentityEndpoints
+        // ListCallerHumansAsync — the from-selector and the chip
+        // surface read the same set so the labels match across
+        // surfaces.
+        var humans = await db.Humans
+            .AsNoTracking()
+            .Where(h => h.TenantUserId == callerTenantUserId)
+            .Select(h => new { h.Id, h.Username, h.DisplayName })
+            .ToListAsync(cancellationToken);
+
+        if (humans.Count == 0)
+        {
+            return new Dictionary<Guid, string>();
+        }
+
+        var humanIds = humans.Select(h => h.Id).ToList();
+
+        var memberships = await (
+            from m in db.UnitMembershipsHumans.AsNoTracking()
+            where humanIds.Contains(m.HumanId)
+            join u in db.UnitDefinitions.AsNoTracking() on m.UnitId equals u.Id into uj
+            from u in uj.DefaultIfEmpty()
+            select new
+            {
+                m.HumanId,
+                m.UnitId,
+                UnitDisplayName = u != null ? u.DisplayName : string.Empty,
+                m.Roles,
+            }).ToListAsync(cancellationToken);
+
+        var firstMembershipByHuman = memberships
+            .GroupBy(m => m.HumanId)
+            .ToDictionary(
+                g => g.Key,
+                g => g
+                    .OrderBy(x => x.UnitDisplayName, StringComparer.OrdinalIgnoreCase)
+                    .First());
+
+        var candidates = humans
+            .Select(h =>
+            {
+                firstMembershipByHuman.TryGetValue(h.Id, out var first);
+                return new HatLabelCandidate(
+                    HumanId: h.Id,
+                    BaseName: string.IsNullOrWhiteSpace(h.DisplayName) ? h.Username : h.DisplayName,
+                    UnitDisplayName: first?.UnitDisplayName,
+                    Roles: first?.Roles);
+            })
+            .ToList();
+
+        return HatLabelDisambiguator.DisambiguateAll(candidates);
     }
 
     private static async Task<IResult> PostThreadMessageAsync(
@@ -272,12 +365,13 @@ public static class ThreadEndpoints
     internal static async Task<IReadOnlyList<ThreadSummaryResponse>> EnrichSummariesAsync(
         IReadOnlyList<Cvoya.Spring.Core.Observability.ThreadSummary> summaries,
         IParticipantDisplayNameResolver resolver,
+        IReadOnlyDictionary<Guid, string> recipientHumanLabels,
         CancellationToken ct)
     {
         var result = new List<ThreadSummaryResponse>(summaries.Count);
         foreach (var s in summaries)
         {
-            result.Add(await EnrichSummaryAsync(s, resolver, ct));
+            result.Add(await EnrichSummaryAsync(s, resolver, recipientHumanLabels, ct));
         }
         return result;
     }
@@ -285,6 +379,7 @@ public static class ThreadEndpoints
     internal static async Task<ThreadSummaryResponse> EnrichSummaryAsync(
         Cvoya.Spring.Core.Observability.ThreadSummary s,
         IParticipantDisplayNameResolver resolver,
+        IReadOnlyDictionary<Guid, string> recipientHumanLabels,
         CancellationToken ct)
     {
         var snapshots = s.ParticipantNameSnapshots;
@@ -303,12 +398,23 @@ public static class ThreadEndpoints
         // the resolver picks the right row.
         Guid? recipientHumanId = null;
         string? recipientHumanDisplayName = null;
+        string? recipientHumanDisambiguatedLabel = null;
         if (s.RecipientHumanId is Guid humanId)
         {
             recipientHumanId = humanId;
             var canonical = $"{Address.HumanScheme}:{GuidFormatter.Format(humanId)}";
             var hatRef = await ToRefAsync(canonical, resolver, snapshots, ct);
             recipientHumanDisplayName = hatRef.DisplayName;
+            // ADR-0062 § 5 / #2829: stamp the disambiguated label when
+            // the recipient Hat is in the caller's bound set. Outside
+            // that scope (a Hat the caller isn't bound to) the chip
+            // falls back to the raw display name; there is no
+            // operator-facing surface that disambiguates names beyond
+            // the caller's own Hats.
+            if (recipientHumanLabels.TryGetValue(humanId, out var label))
+            {
+                recipientHumanDisambiguatedLabel = label;
+            }
         }
 
         return new ThreadSummaryResponse(
@@ -321,15 +427,17 @@ public static class ThreadEndpoints
             s.Summary,
             s.IsArchived,
             recipientHumanId,
-            recipientHumanDisplayName);
+            recipientHumanDisplayName,
+            recipientHumanDisambiguatedLabel);
     }
 
     internal static async Task<ThreadDetailResponse> EnrichDetailAsync(
         Cvoya.Spring.Core.Observability.ThreadDetail detail,
         IParticipantDisplayNameResolver resolver,
+        IReadOnlyDictionary<Guid, string> recipientHumanLabels,
         CancellationToken ct)
     {
-        var summary = await EnrichSummaryAsync(detail.Summary, resolver, ct);
+        var summary = await EnrichSummaryAsync(detail.Summary, resolver, recipientHumanLabels, ct);
         var snapshots = detail.Summary.ParticipantNameSnapshots;
         var events = new List<ThreadEventResponse>(detail.Events.Count);
         foreach (var e in detail.Events)

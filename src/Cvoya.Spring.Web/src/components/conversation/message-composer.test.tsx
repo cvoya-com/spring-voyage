@@ -420,6 +420,11 @@ describe("MessageComposer — from-selector (ADR-0062)", () => {
   const PRIMARY = {
     humanId: "00000000-0000-0000-0000-000000000001",
     displayName: "Bob",
+    // #2829: the from-selector renders the server-supplied
+    // disambiguatedLabel verbatim. When the bound set has no
+    // collisions the label equals displayName; the test rig pins it
+    // explicitly so the assertions are deterministic.
+    disambiguatedLabel: "Bob",
     isPrimary: true,
     memberships: [
       {
@@ -432,6 +437,7 @@ describe("MessageComposer — from-selector (ADR-0062)", () => {
   const SECONDARY = {
     humanId: "00000000-0000-0000-0000-000000000002",
     displayName: "Alice",
+    disambiguatedLabel: "Alice",
     isPrimary: false,
     memberships: [
       {
@@ -473,7 +479,7 @@ describe("MessageComposer — from-selector (ADR-0062)", () => {
     );
     const selector = await screen.findByTestId("message-composer-from");
     expect(selector).toHaveAttribute("data-mode", "static");
-    expect(selector).toHaveTextContent("Bob (designer in Magazine)");
+    expect(selector).toHaveTextContent("Bob");
   });
 
   it("forwards the selected Hat as the explicit `from` field on a thread send", async () => {

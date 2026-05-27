@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Security;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.AspNetCore.Mvc;
@@ -61,6 +62,8 @@ public static class ObservationEndpoints
         [AsParameters] ObservationListQuery query,
         IThreadQueryService queryService,
         IParticipantDisplayNameResolver resolver,
+        IAuthenticatedCallerAccessor callerAccessor,
+        Cvoya.Spring.Dapr.Data.SpringDbContext db,
         CancellationToken cancellationToken)
     {
         // The observation endpoint deliberately does NOT inject a caller
@@ -80,7 +83,12 @@ public static class ObservationEndpoints
             Since: query.Since);
 
         var summaries = await queryService.ListAsync(filters, cancellationToken);
-        var enriched = await ThreadEndpoints.EnrichSummariesAsync(summaries, resolver, cancellationToken);
+        // ADR-0062 § 5 / #2829: resolve disambiguated Hat labels against
+        // the calling caller's bound set so the chip on the observation
+        // surface matches the inbox / engagement chip strings.
+        var recipientLabels = await ThreadEndpoints.BuildRecipientHumanLabelsAsync(
+            callerAccessor, db, cancellationToken);
+        var enriched = await ThreadEndpoints.EnrichSummariesAsync(summaries, resolver, recipientLabels, cancellationToken);
 
         // #2790: text search runs AFTER enrichment so it can match the
         // resolved participant display names (the in-memory list is
@@ -167,6 +175,8 @@ public static class ObservationEndpoints
         string id,
         IThreadQueryService queryService,
         IParticipantDisplayNameResolver resolver,
+        IAuthenticatedCallerAccessor callerAccessor,
+        Cvoya.Spring.Dapr.Data.SpringDbContext db,
         CancellationToken cancellationToken)
     {
         var detail = await queryService.GetAsync(id, cancellationToken);
@@ -177,7 +187,9 @@ public static class ObservationEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        var enriched = await ThreadEndpoints.EnrichDetailAsync(detail, resolver, cancellationToken);
+        var recipientLabels = await ThreadEndpoints.BuildRecipientHumanLabelsAsync(
+            callerAccessor, db, cancellationToken);
+        var enriched = await ThreadEndpoints.EnrichDetailAsync(detail, resolver, recipientLabels, cancellationToken);
         return Results.Ok(enriched);
     }
 }

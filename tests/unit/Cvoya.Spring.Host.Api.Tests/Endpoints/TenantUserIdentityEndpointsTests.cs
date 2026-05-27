@@ -484,6 +484,184 @@ public class TenantUserIdentityEndpointsTests : IClassFixture<CustomWebApplicati
         return id;
     }
 
+    // ── #2829: GET /me/humans surfaces disambiguatedLabel ─────────────────
+
+    [Fact]
+    public async Task ListCallerHumans_NoCollision_DisambiguatedLabelEqualsDisplayName()
+    {
+        // Baseline: a Hat with a unique display name across the
+        // bound set finds no siblings; the disambiguatedLabel collapses
+        // to the raw display name. We assert on a freshly-seeded Hat
+        // with a Guid-derived name so it is guaranteed unique even
+        // when sibling tests have planted other Hats on the same
+        // shared operator TenantUser (the fixture is reused class-wide).
+        var ct = TestContext.Current.CancellationToken;
+        var uniqueName = $"UniqueHat-{Guid.NewGuid():N}";
+        var unitId = await SeedUnitAsync("SoloUnit");
+        var humanId = await SeedHumanWithMembershipAsync(
+            OssTenantUserIds.Operator, uniqueName, unitId, new[] { "designer" });
+
+        var response = await _client.GetAsync("/api/v1/tenant/users/me/humans", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<List<CallerHumanResponse>>(ct);
+        body.ShouldNotBeNull();
+        var row = body!.SingleOrDefault(r => r.HumanId == humanId);
+        row.ShouldNotBeNull();
+        row!.DisplayName.ShouldBe(uniqueName);
+        row.DisambiguatedLabel.ShouldBe(uniqueName);
+    }
+
+    [Fact]
+    public async Task ListCallerHumans_SameNameDifferentRoles_AppendsRole()
+    {
+        // Seed two extra Hats with the same display name bound to the
+        // operator, both in the same unit but with different roles.
+        // The endpoint should surface "<name> — designer" / "<name> —
+        // reviewer" on the wire. Display name is per-test unique so a
+        // sibling test that adds more colliding Hats can't perturb
+        // the expected count.
+        var ct = TestContext.Current.CancellationToken;
+        var name = $"Bob-{Guid.NewGuid():N}";
+        await SeedCollidingHatsAsync(
+            tenantUserId: OssTenantUserIds.Operator,
+            firstName: name, firstRole: "designer", firstUnitName: "Magazine",
+            secondName: name, secondRole: "reviewer", secondUnitName: "Magazine");
+
+        var response = await _client.GetAsync("/api/v1/tenant/users/me/humans", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<List<CallerHumanResponse>>(ct);
+        body.ShouldNotBeNull();
+        var rows = body!.Where(r => r.DisplayName == name).ToList();
+        rows.Count.ShouldBe(2);
+        rows.Select(r => r.DisambiguatedLabel)
+            .ShouldBe(new[] { $"{name} — designer", $"{name} — reviewer" }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task ListCallerHumans_SameNameSameRoleDifferentUnits_AppendsUnit()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var name = $"Carol-{Guid.NewGuid():N}";
+        await SeedCollidingHatsAsync(
+            tenantUserId: OssTenantUserIds.Operator,
+            firstName: name, firstRole: "designer", firstUnitName: "Magazine",
+            secondName: name, secondRole: "designer", secondUnitName: "Newsletter");
+
+        var response = await _client.GetAsync("/api/v1/tenant/users/me/humans", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<List<CallerHumanResponse>>(ct);
+        body.ShouldNotBeNull();
+        var rows = body!.Where(r => r.DisplayName == name).ToList();
+        rows.Count.ShouldBe(2);
+        rows.Select(r => r.DisambiguatedLabel)
+            .ShouldBe(new[] { $"{name} (Magazine)", $"{name} (Newsletter)" }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task ListCallerHumans_SameNameSameRoleSameUnit_AppendsGuidSuffix()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var name = $"Diana-{Guid.NewGuid():N}";
+        var unitId = await SeedUnitAsync("Magazine");
+        var firstHumanId = await SeedHumanWithMembershipAsync(
+            OssTenantUserIds.Operator, name, unitId, new[] { "designer" });
+        var secondHumanId = await SeedHumanWithMembershipAsync(
+            OssTenantUserIds.Operator, name, unitId, new[] { "designer" });
+
+        var response = await _client.GetAsync("/api/v1/tenant/users/me/humans", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<List<CallerHumanResponse>>(ct);
+        body.ShouldNotBeNull();
+        var rows = body!.Where(r => r.DisplayName == name).ToList();
+        rows.Count.ShouldBe(2);
+        foreach (var row in rows)
+        {
+            row.DisambiguatedLabel.ShouldStartWith($"{name} #");
+            row.DisambiguatedLabel.Length.ShouldBe($"{name} #".Length + 4);
+            var suffix = row.HumanId.ToString("N")[..4];
+            row.DisambiguatedLabel.ShouldBe($"{name} #{suffix}");
+        }
+        _ = firstHumanId;
+        _ = secondHumanId;
+    }
+
+    /// <summary>
+    /// Seeds two Humans bound to <paramref name="tenantUserId"/>, each
+    /// with one unit membership carrying the supplied role. Used by the
+    /// disambiguation tests to plant the collision tiers without a
+    /// per-test rats-nest of EF setup. Returns the (first, second) ids.
+    /// </summary>
+    private async Task<(Guid First, Guid Second)> SeedCollidingHatsAsync(
+        Guid tenantUserId,
+        string firstName, string firstRole, string firstUnitName,
+        string secondName, string secondRole, string secondUnitName)
+    {
+        var firstUnitId = await SeedUnitAsync(firstUnitName);
+        var secondUnitId = firstUnitName == secondUnitName
+            ? firstUnitId
+            : await SeedUnitAsync(secondUnitName);
+
+        var first = await SeedHumanWithMembershipAsync(
+            tenantUserId, firstName, firstUnitId, new[] { firstRole });
+        var second = await SeedHumanWithMembershipAsync(
+            tenantUserId, secondName, secondUnitId, new[] { secondRole });
+        return (first, second);
+    }
+
+    private async Task<Guid> SeedUnitAsync(string displayName)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var id = Guid.NewGuid();
+        db.UnitDefinitions.Add(new Cvoya.Spring.Dapr.Data.Entities.UnitDefinitionEntity
+        {
+            Id = id,
+            TenantId = OssTenantIds.Default,
+            DisplayName = displayName,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync(ct);
+        return id;
+    }
+
+    private async Task<Guid> SeedHumanWithMembershipAsync(
+        Guid tenantUserId,
+        string displayName,
+        Guid unitId,
+        IReadOnlyList<string> roles)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var humanId = Guid.NewGuid();
+        db.Humans.Add(new HumanEntity
+        {
+            Id = humanId,
+            TenantId = OssTenantIds.Default,
+            TenantUserId = tenantUserId,
+            Username = $"hat-{humanId:N}",
+            DisplayName = displayName,
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        db.UnitMembershipsHumans.Add(new Cvoya.Spring.Dapr.Data.Entities.UnitMembershipHumanEntity
+        {
+            Id = Guid.NewGuid(),
+            TenantId = OssTenantIds.Default,
+            UnitId = unitId,
+            HumanId = humanId,
+            Roles = new List<string>(roles),
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync(ct);
+        return humanId;
+    }
+
     private static string NewLogin() => $"login-{Guid.NewGuid():N}";
 
     private async Task<Guid> SeedTenantUserAsync(string displayName)

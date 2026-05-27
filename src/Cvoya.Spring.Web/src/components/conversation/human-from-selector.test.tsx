@@ -1,18 +1,22 @@
-// Tests for <HumanFromSelector> (ADR-0062 § 5, #2807).
+// Tests for <HumanFromSelector> (ADR-0062 § 5, #2807 + #2829).
 //
 // The selector is presentation-only — consumers pass the resolved
 // caller-Hats set and own the selected-id state. These tests pin the
-// three rendering modes (zero / one / many) plus the helper exports
-// (label / context / default-pick rule) so the composers and inbox
-// chip can rely on stable formatting.
+// three rendering modes (zero / one / many) plus the helper export
+// (default-pick rule) so the composers and inbox chip can rely on
+// stable formatting.
+//
+// #2829: the selector renders the server-supplied `disambiguatedLabel`
+// verbatim. The old `formatHumanContext` / `formatHumanLabel` helpers
+// are gone with their tests — the disambiguation rule lives server-
+// side and is covered by `HatLabelDisambiguator` unit tests + the
+// `TenantUserIdentityEndpoints` integration tests.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   HumanFromSelector,
-  formatHumanContext,
-  formatHumanLabel,
   pickDefaultHumanId,
 } from "./human-from-selector";
 import type { CallerHumanResponse } from "@/lib/api/types";
@@ -20,6 +24,7 @@ import type { CallerHumanResponse } from "@/lib/api/types";
 const BOB: CallerHumanResponse = {
   humanId: "00000000-0000-0000-0000-0000000000b0",
   displayName: "Bob",
+  disambiguatedLabel: "Bob",
   isPrimary: true,
   memberships: [
     {
@@ -33,6 +38,7 @@ const BOB: CallerHumanResponse = {
 const ALICE: CallerHumanResponse = {
   humanId: "00000000-0000-0000-0000-0000000000a1",
   displayName: "Alice",
+  disambiguatedLabel: "Alice",
   isPrimary: false,
   memberships: [
     {
@@ -46,47 +52,10 @@ const ALICE: CallerHumanResponse = {
 const PLAIN: CallerHumanResponse = {
   humanId: "00000000-0000-0000-0000-0000000000c0",
   displayName: "Casey",
+  disambiguatedLabel: "Casey",
   isPrimary: false,
   memberships: [],
 };
-
-describe("formatHumanContext / formatHumanLabel", () => {
-  it("renders 'role in unit' for one membership", () => {
-    expect(formatHumanContext(BOB)).toBe("designer in Magazine");
-    expect(formatHumanLabel(BOB)).toBe("Bob (designer in Magazine)");
-  });
-
-  it("renders 'in unit + unit' for multiple memberships", () => {
-    const two: CallerHumanResponse = {
-      ...BOB,
-      memberships: [
-        { ...BOB.memberships[0] },
-        {
-          unitId: "u2",
-          unitDisplayName: "Editorial",
-          roles: ["lead"],
-        },
-      ],
-    };
-    expect(formatHumanContext(two)).toBe("in Magazine + Editorial");
-  });
-
-  it("uses 'in unit' when the role list is empty", () => {
-    const noRole: CallerHumanResponse = {
-      ...BOB,
-      memberships: [
-        { unitId: "u", unitDisplayName: "Magazine", roles: [] },
-      ],
-    };
-    expect(formatHumanContext(noRole)).toBe("in Magazine");
-    expect(formatHumanLabel(noRole)).toBe("Bob (in Magazine)");
-  });
-
-  it("returns an empty context and a plain label for a tenant-scoped Hat", () => {
-    expect(formatHumanContext(PLAIN)).toBe("");
-    expect(formatHumanLabel(PLAIN)).toBe("Casey");
-  });
-});
 
 describe("pickDefaultHumanId", () => {
   it("returns null when the bound set is empty", () => {
@@ -129,8 +98,25 @@ describe("HumanFromSelector — rendering modes", () => {
     const root = screen.getByTestId("human-from-selector");
     expect(root).toHaveAttribute("data-mode", "static");
     expect(root).toHaveTextContent("As");
-    expect(root).toHaveTextContent("Bob (designer in Magazine)");
+    expect(root).toHaveTextContent("Bob");
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("renders the server-supplied disambiguated label verbatim (collapsed)", () => {
+    const colliding: CallerHumanResponse = {
+      ...BOB,
+      disambiguatedLabel: "Bob — designer",
+    };
+    render(
+      <HumanFromSelector
+        humans={[colliding]}
+        value={colliding.humanId}
+        onChange={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("human-from-selector")).toHaveTextContent(
+      "Bob — designer",
+    );
   });
 
   it("renders a picker for 2+ bound Hats and emits the chosen id", () => {
@@ -150,6 +136,32 @@ describe("HumanFromSelector — rendering modes", () => {
 
     fireEvent.change(select, { target: { value: ALICE.humanId } });
     expect(onChange).toHaveBeenCalledWith(ALICE.humanId);
+  });
+
+  it("renders each picker option's disambiguatedLabel verbatim", () => {
+    const bobDesigner: CallerHumanResponse = {
+      ...BOB,
+      isPrimary: false,
+      disambiguatedLabel: "Bob — designer",
+    };
+    const bobReviewer: CallerHumanResponse = {
+      ...BOB,
+      humanId: "00000000-0000-0000-0000-0000000000b1",
+      isPrimary: false,
+      disambiguatedLabel: "Bob — reviewer",
+    };
+    render(
+      <HumanFromSelector
+        humans={[bobDesigner, bobReviewer]}
+        value={bobDesigner.humanId}
+        onChange={() => {}}
+      />,
+    );
+    const options = screen
+      .getAllByRole("option")
+      .map((el) => (el as HTMLOptionElement).textContent);
+    expect(options).toContain("Bob — designer");
+    expect(options).toContain("Bob — reviewer");
   });
 
   it("orders primary Hat first then alphabetical", () => {
