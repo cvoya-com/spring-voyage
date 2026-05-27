@@ -280,6 +280,66 @@ public class TenantUserIdentityEndpointsTests : IClassFixture<CustomWebApplicati
     }
 
     [Fact]
+    public async Task FindByAuthSubject_KnownSubject_Returns200_WithEnvelope()
+    {
+        // ADR-0062 § 6 / #2827: the CLI's `<tenant-user-ref>` parser
+        // calls this endpoint when the operator passes a non-Guid,
+        // non-`me` string (an OAuth subject). The route must scope to
+        // the current tenant via the standard query filter.
+        var ct = TestContext.Current.CancellationToken;
+        var tenantUserId = Guid.NewGuid();
+        var subject = $"alice-{Guid.NewGuid():N}@example.com";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            var now = DateTimeOffset.UtcNow;
+            db.TenantUsers.Add(new TenantUserEntity
+            {
+                Id = tenantUserId,
+                TenantId = OssTenantIds.Default,
+                AuthSubject = subject,
+                DisplayName = "Alice",
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/users/?authSubject={Uri.EscapeDataString(subject)}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<TenantUserResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Id.ShouldBe(tenantUserId);
+        body.AuthSubject.ShouldBe(subject);
+        body.DisplayName.ShouldBe("Alice");
+    }
+
+    [Fact]
+    public async Task FindByAuthSubject_UnknownSubject_Returns404()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subject = $"nobody-{Guid.NewGuid():N}@example.com";
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/users/?authSubject={Uri.EscapeDataString(subject)}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task FindByAuthSubject_MissingQueryParam_Returns400()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/users/?authSubject=", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task PatchTenantUser_UpdatesEditableFields()
     {
         var ct = TestContext.Current.CancellationToken;

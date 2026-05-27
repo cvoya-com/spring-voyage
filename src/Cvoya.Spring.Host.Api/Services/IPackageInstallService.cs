@@ -111,6 +111,16 @@ public interface IPackageInstallService
 /// top-level activatables surface an
 /// <see cref="AmbiguousDisplayNameException"/> when this is set.
 /// </param>
+/// <param name="HumanOverrides">
+/// Optional per-declaration <c>Human → TenantUser</c> binding overrides
+/// (ADR-0062 § 6, #2822). Keyed by the <c>- human:</c> declaration's
+/// <c>displayName</c> (case-sensitive) within this package. Routed
+/// through to <see cref="Cvoya.Spring.Core.Packages.IPackageHumanResolutionPolicy"/>
+/// as the per-declaration explicit binding; declarations without a
+/// matching override fall through to <c>ITenantUserDefaultResolver</c>.
+/// Anonymous declarations (no <c>displayName</c>) cannot be overridden
+/// and always flow through the resolver.
+/// </param>
 public record InstallTarget(
     string PackageName,
     IReadOnlyDictionary<string, string> Inputs,
@@ -120,7 +130,8 @@ public record InstallTarget(
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? UnitBindings = null,
     IReadOnlyList<CredentialBinding>? Credentials = null,
     string? IntoUnit = null,
-    string? DisplayName = null);
+    string? DisplayName = null,
+    IReadOnlyDictionary<string, Guid>? HumanOverrides = null);
 
 /// <summary>
 /// Outcome of a single <c>IPackageInstallService.InstallAsync</c> call.

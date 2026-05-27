@@ -65,6 +65,20 @@ public sealed record PackageInstallRequest(
 /// reject the override with a 400
 /// (<c>code: AmbiguousDisplayName</c>).
 /// </param>
+/// <param name="HumanOverrides">
+/// Optional per-declaration <c>Human → TenantUser</c> binding overrides
+/// (ADR-0062 § 6, #2822). Keyed by the <c>- human:</c> declaration's
+/// <c>displayName</c> (case-sensitive) within this package. When a
+/// declaration's display-name key matches, the supplied
+/// <see cref="PackageHumanOverride.TenantUserRef"/> wins over
+/// <c>ITenantUserDefaultResolver</c>; declarations without a matching
+/// override fall through to the resolver. The CLI's <c>spring package
+/// install --as-human &lt;display-name&gt;=&lt;tenant-user-ref&gt;</c> flag
+/// surfaces this. Anonymous declarations (no <c>displayName</c>) cannot
+/// be overridden and always flow through the resolver. An override
+/// referencing a tenant user that does not exist in the current tenant
+/// surfaces a structured 400 naming the offending declaration.
+/// </param>
 public sealed record PackageInstallTarget(
     string PackageName,
     IReadOnlyDictionary<string, string>? Inputs,
@@ -72,7 +86,26 @@ public sealed record PackageInstallTarget(
     string? Version = null,
     IReadOnlyList<CredentialBindingPayload>? Credentials = null,
     string? IntoUnit = null,
-    string? DisplayName = null);
+    string? DisplayName = null,
+    IReadOnlyDictionary<string, PackageHumanOverride>? HumanOverrides = null);
+
+/// <summary>
+/// One per-declaration <c>Human → TenantUser</c> binding override on a
+/// <see cref="PackageInstallTarget.HumanOverrides"/> map (ADR-0062 § 6,
+/// #2822). The map key is the <c>- human:</c> declaration's
+/// <c>displayName</c> within the package; this payload carries the
+/// override target.
+/// </summary>
+/// <param name="TenantUserRef">
+/// The target <c>TenantUser</c> id (dashed or no-dash hex form). The
+/// server validates that the id exists in the current tenant; a non-
+/// matching id surfaces a structured 400 naming the offending
+/// declaration. The CLI accepts a Guid, the literal <c>me</c> (=
+/// authenticated caller), or an OAuth subject; the latter two forms
+/// are resolved on the CLI before this wire field is populated.
+/// </param>
+public sealed record PackageHumanOverride(
+    Guid TenantUserRef);
 
 /// <summary>
 /// Operator-supplied connector bindings for a single package install

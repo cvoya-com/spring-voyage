@@ -126,6 +126,15 @@ public interface IPackageHumanResolutionPolicy
 /// it mints a fresh <c>HumanEntity</c> per declaration — but the field
 /// remains on the request for hosted policies that bind by claim.
 /// </param>
+/// <param name="ExplicitTenantUserId">
+/// Optional per-declaration <c>Human → TenantUser</c> binding override
+/// supplied by the caller (ADR-0062 § 6, #2822). When set, the OSS
+/// policy stamps this id on the minted <c>HumanEntity.TenantUserId</c>
+/// instead of asking <c>ITenantUserDefaultResolver</c>; the cloud overlay
+/// uses the same field for its own override path. The endpoint validates
+/// the id exists in the current tenant before reaching the policy, so
+/// the policy may assume the id is a valid <c>TenantUser</c> in scope.
+/// </param>
 public sealed record PackageHumanResolutionRequest(
     Guid TenantId,
     Guid UnitId,
@@ -135,7 +144,8 @@ public sealed record PackageHumanResolutionRequest(
     IReadOnlyList<string> Notifications,
     string? DisplayName,
     string? Description,
-    Guid? InstallCallerHumanId);
+    Guid? InstallCallerHumanId,
+    Guid? ExplicitTenantUserId = null);
 
 /// <summary>
 /// Output of <see cref="IPackageHumanResolutionPolicy.ResolveAsync"/>. The

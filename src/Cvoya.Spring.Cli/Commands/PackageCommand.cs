@@ -222,6 +222,28 @@ public static class PackageCommand
                 "Applies to every target in a multi-target install.",
         };
 
+        // ADR-0062 § 6 / #2822: --as-human <decl>=<tenant-user-ref>
+        // assigns an explicit `Human → TenantUser` binding for a
+        // package-declared `- human:` slot at install time. The
+        // declaration key is the manifest's `- human: { displayName:
+        // ... }` field (case-sensitive). Repeatable; declarations
+        // without a matching override fall through to the deployment-
+        // default resolver. The <tenant-user-ref> half accepts the
+        // TenantUser UUID, `me`, or an OAuth subject — same parser
+        // as `spring unit members humans add --as`.
+        var asHumanOption = new Option<string[]>("--as-human")
+        {
+            Description =
+                "Per-declaration Human → TenantUser binding override (ADR-0062 § 6 / #2822). " +
+                "Form: --as-human <declaration-display-name>=<tenant-user-ref>. " +
+                "Repeatable for multiple slots. The declaration key matches the package's " +
+                "`- human: { displayName: ... }` field case-sensitively. <tenant-user-ref> " +
+                "accepts a UUID, 'me' (= calling caller), or an OAuth subject of an existing " +
+                "TenantUser in the current tenant. " +
+                "For multi-target installs, namespace by package: --as-human <pkg>.<decl>=<ref>.",
+            AllowMultipleArgumentsPerToken = false,
+        };
+
         // #2310: --as <display-name> overrides the display name of the
         // package's single top-level activatable. Useful when installing
         // the same package multiple times so the resulting units / agents
@@ -283,6 +305,7 @@ public static class PackageCommand
         command.Options.Add(secretOption);
         command.Options.Add(intoOption);
         command.Options.Add(asOption);
+        command.Options.Add(asHumanOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -292,6 +315,7 @@ public static class PackageCommand
             var inputFile = parseResult.GetValue(inputFileOption);
             var connectorTokens = parseResult.GetValue(connectorOption) ?? Array.Empty<string>();
             var secretTokens = parseResult.GetValue(secretOption) ?? Array.Empty<string>();
+            var asHumanTokens = parseResult.GetValue(asHumanOption) ?? Array.Empty<string>();
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             var client = ClientFactory.Create();
@@ -415,6 +439,36 @@ public static class PackageCommand
             // target's package has more than one top-level activatable.
             var asName = parseResult.GetValue(asOption);
 
+            // ADR-0062 § 6 / #2822: parse --as-human tokens into a
+            // per-package map of declaration-key → tenant-user-ref.
+            // The <tenant-user-ref> half is resolved via the shared
+            // ref-resolver before the wire call so the server only
+            // ever sees a TenantUser UUID.
+            Dictionary<string, Dictionary<string, string>> rawHumanOverrides;
+            try
+            {
+                rawHumanOverrides = ParseAsHumanTokens(asHumanTokens, names);
+            }
+            catch (ArgumentException ex)
+            {
+                await Console.Error.WriteLineAsync(ex.Message);
+                Environment.Exit(2);
+                return;
+            }
+
+            Dictionary<string, Dictionary<string, SpringApiClient.PackageHumanOverrideRequest>> perPackageHumanOverrides;
+            try
+            {
+                perPackageHumanOverrides = await ResolveHumanOverridesAsync(
+                    client, rawHumanOverrides, ct);
+            }
+            catch (CliRefResolutionException ex)
+            {
+                await Console.Error.WriteLineAsync(ex.Message);
+                Environment.Exit(1);
+                return;
+            }
+
             List<SpringApiClient.PackageInstallTargetRequest> BuildTargets() => names
                 .Select(n => new SpringApiClient.PackageInstallTargetRequest(
                     PackageName: n,
@@ -426,7 +480,10 @@ public static class PackageCommand
                         ? s.ToList()
                         : null,
                     IntoUnit: string.IsNullOrWhiteSpace(intoRef) ? null : intoRef,
-                    DisplayName: string.IsNullOrWhiteSpace(asName) ? null : asName))
+                    DisplayName: string.IsNullOrWhiteSpace(asName) ? null : asName,
+                    HumanOverrides: perPackageHumanOverrides.TryGetValue(n, out var h) && h.Count > 0
+                        ? h
+                        : null))
                 .ToList();
 
             SpringApiClient.PackageInstallResponse catalogResult;
@@ -1605,4 +1662,157 @@ public static class PackageCommand
         string AuthMethod,
         string? SecretName,
         string? CredentialEnvVar);
+
+    /// <summary>
+    /// ADR-0062 § 6 / #2822: parses <c>--as-human</c> tokens into a
+    /// per-package map of declaration-key → raw tenant-user-ref. The
+    /// ref half is left as a string here; <see cref="ResolveHumanOverridesAsync"/>
+    /// resolves it via the shared ref-resolver before the wire call so
+    /// the server only ever sees a TenantUser UUID. Mirrors the
+    /// <c>--input</c> / <c>--secret</c> namespacing convention:
+    /// <list type="bullet">
+    ///   <item>Bare <c>decl=ref</c> on single-target installs.</item>
+    ///   <item><c>&lt;pkg&gt;.decl=ref</c> on multi-target installs.</item>
+    /// </list>
+    /// </summary>
+    public static Dictionary<string, Dictionary<string, string>> ParseAsHumanTokens(
+        IReadOnlyList<string> tokens,
+        IReadOnlyList<string> packageNames)
+    {
+        var perPackage = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        foreach (var pkg in packageNames)
+        {
+            perPackage[pkg] = new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        if (tokens.Count == 0)
+        {
+            return perPackage;
+        }
+
+        if (packageNames.Count == 0)
+        {
+            throw new ArgumentException(
+                "--as-human requires at least one positional package name.");
+        }
+
+        foreach (var raw in tokens)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+            var eqIdx = raw.IndexOf('=');
+            if (eqIdx <= 0)
+            {
+                throw new ArgumentException(
+                    $"--as-human '{raw}' is not in <declaration>=<tenant-user-ref> form.");
+            }
+            var keyPart = raw[..eqIdx];
+            var valuePart = raw[(eqIdx + 1)..];
+            if (string.IsNullOrWhiteSpace(valuePart))
+            {
+                throw new ArgumentException(
+                    $"--as-human '{raw}': value after '=' is empty.");
+            }
+
+            // Multi-target: peel off the package prefix when the
+            // leading <pkg>. matches one of the install batch names.
+            // Single-target: tokens are bare <decl>=<ref>; mid-token
+            // dots (e.g. "Bob Smith" with a dotted nickname) are part
+            // of the declaration key when they don't match a package.
+            string targetPackage = packageNames[0];
+            string declarationKey = keyPart;
+            if (packageNames.Count > 1)
+            {
+                var dotIdx = keyPart.IndexOf('.');
+                if (dotIdx <= 0 || !packageNames.Contains(keyPart[..dotIdx], StringComparer.Ordinal))
+                {
+                    throw new ArgumentException(
+                        $"--as-human '{raw}': multi-target installs require a package prefix " +
+                        $"(<pkg>.<declaration>=<tenant-user-ref>). " +
+                        $"Available packages: {string.Join(", ", packageNames)}");
+                }
+                targetPackage = keyPart[..dotIdx];
+                declarationKey = keyPart[(dotIdx + 1)..];
+            }
+            else
+            {
+                // Single-target: allow but do not require the package
+                // prefix (operator may copy a multi-target line into a
+                // single-target call). Peel it off when the prefix
+                // matches.
+                var dotIdx = keyPart.IndexOf('.');
+                if (dotIdx > 0
+                    && string.Equals(keyPart[..dotIdx], packageNames[0], StringComparison.Ordinal))
+                {
+                    declarationKey = keyPart[(dotIdx + 1)..];
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(declarationKey))
+            {
+                throw new ArgumentException(
+                    $"--as-human '{raw}': declaration key is empty.");
+            }
+
+            var bucket = perPackage[targetPackage];
+            if (bucket.ContainsKey(declarationKey))
+            {
+                throw new ArgumentException(
+                    $"--as-human '{raw}': declaration '{declarationKey}' on package " +
+                    $"'{targetPackage}' was supplied more than once. Each declaration accepts one override.");
+            }
+            bucket[declarationKey] = valuePart;
+        }
+
+        return perPackage;
+    }
+
+    /// <summary>
+    /// ADR-0062 § 6 / #2822: resolves the raw &lt;tenant-user-ref&gt;
+    /// halves of <c>--as-human</c> tokens via the shared
+    /// <see cref="RefResolver"/> so the wire body carries
+    /// <c>TenantUser</c> UUIDs only. UUID / <c>me</c> shapes
+    /// short-circuit; OAuth subjects go through the server lookup. Any
+    /// failure surfaces as a single <see cref="CliRefResolutionException"/>
+    /// naming the offending declaration.
+    /// </summary>
+    private static async Task<Dictionary<string, Dictionary<string, SpringApiClient.PackageHumanOverrideRequest>>>
+        ResolveHumanOverridesAsync(
+            SpringApiClient client,
+            IReadOnlyDictionary<string, Dictionary<string, string>> raw,
+            CancellationToken ct)
+    {
+        var result = new Dictionary<string, Dictionary<string, SpringApiClient.PackageHumanOverrideRequest>>(
+            StringComparer.Ordinal);
+        foreach (var (pkg, overrides) in raw)
+        {
+            if (overrides.Count == 0)
+            {
+                continue;
+            }
+            var bucket = new Dictionary<string, SpringApiClient.PackageHumanOverrideRequest>(StringComparer.Ordinal);
+            foreach (var (declarationKey, refText) in overrides)
+            {
+                Guid resolvedId;
+                try
+                {
+                    resolvedId = await RefResolver.ResolveTenantUserRefAsync(
+                        client,
+                        refText,
+                        $"--as-human '{declarationKey}'",
+                        ct);
+                }
+                catch (CliRefResolutionException ex)
+                {
+                    throw new CliRefResolutionException(
+                        $"Could not bind Hat for declaration '{declarationKey}' to '{refText}': {ex.Message}");
+                }
+                bucket[declarationKey] = new SpringApiClient.PackageHumanOverrideRequest(resolvedId);
+            }
+            result[pkg] = bucket;
+        }
+        return result;
+    }
 }

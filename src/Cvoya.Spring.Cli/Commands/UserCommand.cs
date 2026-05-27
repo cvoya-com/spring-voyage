@@ -274,9 +274,9 @@ public static class UserCommand
         var humanArg = new Argument<string>("human-ref")
         {
             Description =
-                "The Human (Hat) UUID to pin as your primary sender (dashed or no-dash hex form). " +
-                "Display-name lookup is a follow-up — for v0.1 pass the UUID; list your bound Hats via " +
-                "`spring user identity list` once the bound-set surface lands.",
+                "The Human (Hat) to pin as your primary sender. Accepts the Hat UUID (dashed or no-dash) " +
+                "or a Hat display name (case-insensitive, must be unambiguous within your bound Hats). " +
+                "Run `spring user identity list` to see your bound Hats.",
         };
         var userOption = new Option<string?>("--user")
         {
@@ -307,15 +307,25 @@ public static class UserCommand
                 return;
             }
 
-            if (!Guid.TryParse(humanRef, out var humanId) || humanId == Guid.Empty)
+            var client = ClientFactory.Create();
+
+            // ADR-0062 § 6 / #2827: accept the Hat UUID or display name.
+            // RefResolver short-circuits on bare Guids and falls back
+            // to /me/humans for the name path; matches the parallel
+            // resolution on `spring message send --as`.
+            Guid humanId;
+            try
             {
-                await Console.Error.WriteLineAsync(
-                    $"'{humanRef}' is not a valid Human UUID. Pass the dashed or no-dash hex form.");
+                humanId = await RefResolver.ResolveHumanRefAsync(
+                    client, humanRef, "<human-ref>", ct);
+            }
+            catch (CliRefResolutionException ex)
+            {
+                await Console.Error.WriteLineAsync(ex.Message);
                 Environment.Exit(1);
                 return;
             }
 
-            var client = ClientFactory.Create();
             try
             {
                 var response = await client.SetPrimaryHumanAsync(tenantUserId, humanId, ct);

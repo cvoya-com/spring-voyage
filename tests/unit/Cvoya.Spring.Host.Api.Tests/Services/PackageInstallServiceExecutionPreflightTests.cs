@@ -204,6 +204,7 @@ public class PackageInstallServiceExecutionPreflightTests
             ResolvedExecutionDefaults? executionDefaults = null,
             string? displayNameOverride = null,
             string? inheritedAgentHosting = null,
+            IReadOnlyDictionary<string, Guid>? humanOverrides = null,
             CancellationToken cancellationToken = default)
         {
             if (artefact.Kind == ArtefactKind.Unit)

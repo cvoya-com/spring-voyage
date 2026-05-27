@@ -89,12 +89,33 @@ For **new outbound** (not a reply — composer launched from a unit/agent page, 
 
 ### 6. CLI: every message-send and member-add command accepts `--as`
 
-The CLI gains two parallel `--as` flags, distinct surfaces with distinct meanings:
+The CLI gains three parallel surfaces, distinct in meaning:
 
 - **`spring message send --as <human-ref>`**: explicit `From` Hat for an outbound message. Default = `PrimaryHumanId` resolution per § 3.
-- **`spring unit member add human --as <tenant-user-ref>`** (and the equivalent on `package install`): explicit binding for a newly created Human row. Default = the default resolver in § 1.
+- **`spring user identity set-primary <human-ref>`**: pins the calling user's default Hat for new outbound (§ 2).
+- **`spring unit member add human --as <tenant-user-ref>`**: explicit binding for a newly minted Human row. Default = the default resolver in § 1.
+- **`spring package install --as-human <declaration-key>=<tenant-user-ref>` (repeatable)**: per-declaration binding override for package-declared `- human:` slots. Default for each declaration = the default resolver in § 1.
 
-`<human-ref>` accepts the Human id (dashed or no-dash) or the display name when unambiguous within the calling user's bound set. `<tenant-user-ref>` accepts the TenantUser id, the OAuth subject, or the literal `me` (the calling caller).
+#### `--as-human` declaration-key shape
+
+The declaration key is the manifest entry's **`displayName:`** field (case-sensitive), matched on the rendered package's `- human: { displayName: ... }` value. Rationale:
+
+- The `HumanManifest` shape (`src/Cvoya.Spring.Manifest/UnitManifest.cs`) carries no `name:` or `id:` field — declarations are anonymous on the model. The package author's only operator-meaningful identifier on each `- human:` entry is `displayName`, and that's the field the wizard / portal already surfaces.
+- `(unit-name, position-index)` would be unstable across manifest edits (a re-ordered declaration silently re-binds).
+- `roles` is multi-valued and routinely collides across declarations in the same unit (two `[reviewer]` Hats are a legitimate shape).
+
+Anonymous declarations (no `displayName`) cannot be overridden through `--as-human` — there is no operator-referenceable key to pin against, and the deployment-default resolver always handles them. Operators who want explicit binding on every slot author `displayName:` on the manifest entry. The wire-level validation rejects overrides whose `<tenant-user-ref>` does not resolve to an existing TenantUser in the current tenant; the response surfaces the offending declaration key so the operator sees a precise error rather than a generic Phase-2 failure.
+
+#### Ref-shape parsing (CLI-side)
+
+`<human-ref>` accepts:
+- A Hat UUID (dashed or no-dash hex) — passes through with no round-trip.
+- A display name (case-insensitive, exact match) — resolved via `GET /api/v1/tenant/users/me/humans` against the calling caller's bound-Hat set. Zero matches surface a CLI-friendly error pointing at `spring user identity list`; multiple matches surface a disambiguation prompt naming each candidate UUID.
+
+`<tenant-user-ref>` accepts:
+- A TenantUser UUID (dashed or no-dash hex) — passes through with no round-trip.
+- The literal `me` — resolves to the calling caller (`OssTenantUserIds.Operator` in OSS; cloud overlays plug in a /me-equivalent through the same accessor).
+- An OAuth subject — resolved via `GET /api/v1/tenant/users?authSubject=<...>` (the same query the cloud overlay uses for its claim-by-subject lookup). 404 surfaces a CLI-friendly "no such user" error.
 
 CLI parity with the portal is a hard requirement. If the portal surfaces a from-selector on inbox / engagement / unit-messaging-tab, the CLI surfaces `--as` on the equivalent verb. The reverse also holds.
 
