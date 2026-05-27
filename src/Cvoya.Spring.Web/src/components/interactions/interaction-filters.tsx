@@ -9,7 +9,7 @@
 //   - Live mode: toggles the SSE stream.
 
 import Link from "next/link";
-import { Loader2, Radio, Square } from "lucide-react";
+import { History, Loader2, Radio, Square } from "lucide-react";
 
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,8 @@ import { useTenantTree } from "@/lib/api/queries";
 import { cn } from "@/lib/utils";
 
 import {
+  toggleLive,
+  toggleRewind,
   type InteractionsUrlState,
   type InteractionsViewMode,
 } from "./url-state";
@@ -91,7 +93,8 @@ export function InteractionFilters({
 }: InteractionFiltersProps) {
   const setView = (view: InteractionsViewMode) =>
     onChange({ ...state, view });
-  const setLive = (live: boolean) => onChange({ ...state, live });
+  const setLive = (live: boolean) => onChange(toggleLive(state, live));
+  const setRewind = (rewind: boolean) => onChange(toggleRewind(state, rewind));
   const setNeighbours = (n: 0 | 1 | 2) =>
     onChange({ ...state, neighbours: n });
   const setBucket = (bucket: "hour" | "day") =>
@@ -149,6 +152,18 @@ export function InteractionFilters({
                 Snapshot
               </>
             )}
+          </Button>
+
+          <Button
+            size="sm"
+            variant={state.rewind ? "default" : "outline"}
+            onClick={() => setRewind(!state.rewind)}
+            data-testid="interaction-filters-rewind-toggle"
+            aria-pressed={state.rewind}
+            className="h-7"
+          >
+            <History className="mr-1 h-3 w-3" aria-hidden="true" />
+            Rewind
           </Button>
         </div>
 
