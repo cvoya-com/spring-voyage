@@ -61,9 +61,10 @@ caller (tenant-user://T) → ITenantUserHumanResolver.PickFromAsync(T, request.f
 - The Human named by an explicit `from` field on the request (if supplied), after validating that it is one of T's bound Humans.
 - Otherwise the Human bound to the thread on the inbound side (reply default — see § 5).
 - Otherwise `T.PrimaryHumanId`.
+- Otherwise **any bound Human** of T (deterministic pick — lowest Guid wins). Covers the intermediate state where Humans exist for T but `PrimaryHumanId` is not yet pinned: a fresh cloud `TenantUser` between "first Human inserted" and "next seed pass that pins primary," test fixtures that seed Humans without setting primary, and the brief window during package install where multiple Hat declarations land before the seed pass closes. The "primary not yet pinned" state is mid-onboarding, not an error state — falling back to any bound Human keeps the send flowing and matches the next clause's framing ("400 only when the caller is truly unbound").
 - Otherwise a 400 with the structured code `NoBoundHuman`, hinting at the bind / claim flow.
 
-The "or 400" branch is unreachable in OSS (the operator always has at least one bound Human via the default resolver in § 1) but is the correct error for a cloud `TenantUser` who has not yet been bound to any Human.
+The "or 400" branch is unreachable in OSS (the operator always has at least one bound Human via the default resolver in § 1) but is the correct error for a cloud `TenantUser` who has not yet been bound to any Human at all. The "any bound Human" branch above absorbs the "bound but no primary yet" intermediate state; the 400 only fires when the bound set is empty.
 
 **The wire shape of `Message.From` is unchanged for downstream consumers.** Routing, the directory, the agent-facing tool surface (`sv.messaging.send`, `sv.directory.lookup`), and the portal's `roleFromEvent` continue to see `human://<id>` on every message, exactly as before #2768. The activity-log incident in Context disappears as a structural consequence: the agent never sees `tenant-user://` in a `From` field, so it never tries to send to or look up that scheme.
 
