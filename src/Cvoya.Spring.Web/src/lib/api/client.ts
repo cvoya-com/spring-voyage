@@ -1500,8 +1500,8 @@ export const api = {
   //     try/catch.
   //   * `beginSlackOAuthAuthorize` — request the Slack consent URL the
   //     popup navigates to. The `clientState` echoes back via the
-  //     callback so a future HTML-handoff response can target the
-  //     opener; v0.1 polls instead.
+  //     callback so the HTML-handoff response (#2837) can target the
+  //     opener's exact origin via `postMessage` — never `*`.
   //   * `disconnectSlackBinding` — revoke the bot token via Slack's
   //     `auth.revoke` and delete the binding + tenant secrets in one
   //     server-side transaction.

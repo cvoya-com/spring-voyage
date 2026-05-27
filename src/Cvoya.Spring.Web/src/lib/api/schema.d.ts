@@ -2660,7 +2660,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Consume the Slack OAuth callback and persist the tenant binding */
+        /** Consume the Slack OAuth callback and notify the portal opener */
         get: operations["HandleSlackOAuthCallback"];
         put?: never;
         post?: never;
@@ -4253,11 +4253,6 @@ export interface components {
         SlackAuthorizeResponse: {
             authorizeUrl: string;
             state: string;
-        };
-        SlackCallbackResponse: {
-            teamId: string;
-            botUserId: string;
-            installerUserId: string;
         };
         SubsystemConfigurationReport: {
             subsystemName: string;
@@ -11474,7 +11469,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SlackCallbackResponse"];
+                    "text/html": string;
                 };
             };
             /** @description Bad Request */
@@ -11483,7 +11478,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "text/html": string;
                 };
             };
             /** @description Conflict */
@@ -11492,7 +11487,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "text/html": string;
                 };
             };
             /** @description Unprocessable Entity */
@@ -11501,7 +11496,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "text/html": string;
                 };
             };
             /** @description Bad Gateway */
@@ -11510,7 +11505,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "text/html": string;
                 };
             };
         };

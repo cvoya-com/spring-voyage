@@ -88,6 +88,193 @@ test.describe("Slack connector panel", () => {
     await expect(page.getByTestId("slack-panel-error-retry")).toHaveCount(0);
   });
 
+  // Issue #2837: the OAuth callback now fires a postMessage at the
+  // popup's opener. The portal listens for `sv:slack:oauth:done` and
+  // refetches the binding on success. We intercept the authorize URL
+  // to return a same-origin stub page that posts the success message
+  // immediately, simulating the backend's HTML callback in a stable
+  // way (real network targets aren't reachable from this smoke
+  // suite, and posting from the parent window wouldn't satisfy the
+  // listener's strict-source check). Confirms the polling path is
+  // gone — the panel reaches the bound state on postMessage alone.
+  test("postMessage handoff flips empty → bound on success", async ({
+    page,
+    context,
+  }) => {
+    let bound = false;
+    // Use context.route — page.route only intercepts the main page's
+    // requests; child popups go through context-level interception.
+    // The OAuth flow opens a popup, so the stub HTML page must be
+    // served via context.
+    await context.route(
+      "**/api/v1/tenant/connectors/slack/binding",
+      async (route) => {
+        if (!bound) {
+          await route.fulfill({
+            status: 404,
+            contentType: "application/problem+json",
+            body: JSON.stringify({
+              title: "Not Found",
+              status: 404,
+              detail: "No tenant binding exists.",
+            }),
+          });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            connectorSlug: "slack",
+            typeId: "2c8d5b1f-9a4e-4f8b-b7c3-3e1d4a5b6c70",
+            boundAt: "2026-05-26T10:00:00Z",
+            config: {
+              team_id: "T-pm",
+              team_name: "PM Workspace",
+              bot_user_id: "U_BOT_PM",
+              bot_token_secret_name: "x",
+              signing_secret_secret_name: "y",
+              installer_user_id: "U_OP_PM",
+              single_user_mode: true,
+              mode: "Workspace",
+              bound_users: [
+                {
+                  slack_user_id: "U_OP_PM",
+                  tenant_user_id: "22222222-3333-4444-5555-666666666666",
+                },
+              ],
+            },
+          }),
+        });
+      },
+    );
+    // Point the authorize URL at a same-origin stub that mimics the
+    // real backend callback's HTML postMessage page. Loading it in
+    // the popup matches what production does — the popup navigates
+    // to an HTML page, that page fires postMessage back to opener.
+    await context.route(
+      "**/api/v1/tenant/connectors/slack/oauth/authorize",
+      async (route) => {
+        const baseUrl = new URL(route.request().url()).origin;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            authorizeUrl: `${baseUrl}/__e2e/slack-stub-success`,
+            state: "abc",
+          }),
+        });
+      },
+    );
+    await context.route("**/__e2e/slack-stub-success", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: `<!doctype html>
+<html><body>
+<script>
+  // Small delay so the parent's awaitSlackOAuthHandoff listener has
+  // a chance to attach. In production the backend's HTML callback
+  // takes longer than this just doing the token exchange, so the
+  // race never surfaces; the e2e stub returns instantly so we
+  // explicitly defer.
+  setTimeout(function () {
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(
+        { type: "sv:slack:oauth:done", status: "success" },
+        window.location.origin
+      );
+    }
+  }, 100);
+</script>
+</body></html>`,
+      });
+    });
+
+    await page.goto("/settings");
+    // The initial binding query must see "not bound" so the panel
+    // renders the install CTA; we wait for that before flipping the
+    // stub to bound.
+    await expect(page.getByTestId("slack-panel-install")).toBeVisible();
+    bound = true;
+    await page.getByTestId("slack-panel-install").click();
+
+    await expect(page.getByTestId("slack-panel-bound")).toBeVisible();
+    await expect(page.getByTestId("slack-panel-bound-workspace")).toHaveText(
+      "PM Workspace",
+    );
+  });
+
+  // Issue #2837: a postMessage carrying the Grid error code must
+  // render the actionable Grid banner, NOT the generic retry — same
+  // as the authorize-error path. The user has to disconnect off-
+  // portal before retrying.
+  test("postMessage error with Grid code renders Grid banner", async ({
+    page,
+    context,
+  }) => {
+    await context.route(
+      "**/api/v1/tenant/connectors/slack/binding",
+      async (route) => {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            title: "Not Found",
+            status: 404,
+            detail: "No tenant binding exists.",
+          }),
+        });
+      },
+    );
+    await context.route(
+      "**/api/v1/tenant/connectors/slack/oauth/authorize",
+      async (route) => {
+        const baseUrl = new URL(route.request().url()).origin;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            authorizeUrl: `${baseUrl}/__e2e/slack-stub-grid`,
+            state: "abc",
+          }),
+        });
+      },
+    );
+    await context.route("**/__e2e/slack-stub-grid", async (route) => {
+      await route.fulfill({
+        status: 422,
+        contentType: "text/html",
+        body: `<!doctype html>
+<html><body>
+<script>
+  setTimeout(function () {
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(
+        {
+          type: "sv:slack:oauth:done",
+          status: "error",
+          error: "SlackEnterpriseGridUnsupported",
+          message: "Slack Enterprise Grid installs are not supported in v0.1."
+        },
+        window.location.origin
+      );
+    }
+  }, 100);
+</script>
+</body></html>`,
+      });
+    });
+
+    await page.goto("/settings");
+    await page.getByTestId("slack-panel-install").click();
+
+    await expect(
+      page.getByTestId("slack-panel-error-enterprise-grid"),
+    ).toBeVisible();
+    await expect(page.getByTestId("slack-panel-error-retry")).toHaveCount(0);
+  });
+
   test("bound state surfaces workspace facts and the disconnect modal", async ({
     page,
   }) => {

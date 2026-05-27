@@ -9204,7 +9204,7 @@
         "tags": [
           "Connectors.Slack.OAuth"
         ],
-        "summary": "Consume the Slack OAuth callback and persist the tenant binding",
+        "summary": "Consume the Slack OAuth callback and notify the portal opener",
         "operationId": "HandleSlackOAuthCallback",
         "parameters": [
           {
@@ -9233,9 +9233,9 @@
           "200": {
             "description": "OK",
             "content": {
-              "application/json": {
+              "text/html": {
                 "schema": {
-                  "$ref": "#/components/schemas/SlackCallbackResponse"
+                  "type": "string"
                 }
               }
             }
@@ -9243,9 +9243,9 @@
           "400": {
             "description": "Bad Request",
             "content": {
-              "application/problem+json": {
+              "text/html": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "type": "string"
                 }
               }
             }
@@ -9253,9 +9253,9 @@
           "409": {
             "description": "Conflict",
             "content": {
-              "application/problem+json": {
+              "text/html": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "type": "string"
                 }
               }
             }
@@ -9263,9 +9263,9 @@
           "422": {
             "description": "Unprocessable Entity",
             "content": {
-              "application/problem+json": {
+              "text/html": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "type": "string"
                 }
               }
             }
@@ -9273,9 +9273,9 @@
           "502": {
             "description": "Bad Gateway",
             "content": {
-              "application/problem+json": {
+              "text/html": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "type": "string"
                 }
               }
             }
@@ -15701,25 +15701,6 @@
             "type": "string"
           },
           "state": {
-            "type": "string"
-          }
-        }
-      },
-      "SlackCallbackResponse": {
-        "required": [
-          "teamId",
-          "botUserId",
-          "installerUserId"
-        ],
-        "type": "object",
-        "properties": {
-          "teamId": {
-            "type": "string"
-          },
-          "botUserId": {
-            "type": "string"
-          },
-          "installerUserId": {
             "type": "string"
           }
         }

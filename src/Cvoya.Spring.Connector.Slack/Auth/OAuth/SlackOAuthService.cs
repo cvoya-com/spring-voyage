@@ -111,7 +111,7 @@ public class SlackOAuthService : ISlackOAuthService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Slack OAuth code exchange failed");
-            return new SlackCallbackOutcome.ExchangeFailed(ex.Message);
+            return new SlackCallbackOutcome.ExchangeFailed(ex.Message) { ClientState = entry.ClientState };
         }
 
         if (!exchange.Ok)
@@ -119,7 +119,11 @@ public class SlackOAuthService : ISlackOAuthService
             _logger.LogWarning(
                 "Slack oauth.v2.access returned not-ok (error={Error})",
                 exchange.Error);
-            return new SlackCallbackOutcome.ExchangeFailed(exchange.Error ?? "oauth.v2.access returned ok=false");
+            return new SlackCallbackOutcome.ExchangeFailed(
+                exchange.Error ?? "oauth.v2.access returned ok=false")
+            {
+                ClientState = entry.ClientState,
+            };
         }
 
         // Enterprise Grid detection — per ADR-0061 §2.3 / §7.6 the v0.1
@@ -135,7 +139,7 @@ public class SlackOAuthService : ISlackOAuthService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Slack team.info probe failed");
-            return new SlackCallbackOutcome.ExchangeFailed(ex.Message);
+            return new SlackCallbackOutcome.ExchangeFailed(ex.Message) { ClientState = entry.ClientState };
         }
 
         var enterpriseId = exchange.EnterpriseId ?? teamInfo.EnterpriseId;
@@ -146,7 +150,10 @@ public class SlackOAuthService : ISlackOAuthService
                 enterpriseId);
             return new SlackCallbackOutcome.EnterpriseGridUnsupported(
                 enterpriseId,
-                "Slack Enterprise Grid installs are not supported in v0.1.");
+                "Slack Enterprise Grid installs are not supported in v0.1.")
+            {
+                ClientState = entry.ClientState,
+            };
         }
 
         // ADR-0061 §2.5: one workspace per OSS install. If a binding
@@ -160,7 +167,10 @@ public class SlackOAuthService : ISlackOAuthService
                 ExpectedTeamId: existing.TeamId,
                 ReceivedTeamId: exchange.TeamId,
                 Reason: $"This tenant is already bound to Slack workspace '{existing.TeamId}'. " +
-                        "Disconnect the existing binding before installing a different workspace.");
+                        "Disconnect the existing binding before installing a different workspace.")
+            {
+                ClientState = entry.ClientState,
+            };
         }
 
         await _installStore.PersistInstallAsync(
@@ -181,7 +191,10 @@ public class SlackOAuthService : ISlackOAuthService
         return new SlackCallbackOutcome.Success(
             TeamId: exchange.TeamId,
             BotUserId: exchange.BotUserId,
-            InstallerUserId: exchange.AuthedUserId);
+            InstallerUserId: exchange.AuthedUserId)
+        {
+            ClientState = entry.ClientState,
+        };
     }
 
     /// <inheritdoc />
