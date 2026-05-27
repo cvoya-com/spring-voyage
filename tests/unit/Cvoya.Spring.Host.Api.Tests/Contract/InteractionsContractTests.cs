@@ -93,4 +93,75 @@ public class InteractionsContractTests : IClassFixture<InteractionsEndpointsTest
         OpenApiContract.AssertResponse(
             "/api/v1/tenant/observation/interactions", "get", "200", body);
     }
+
+    [Fact]
+    public async Task GetInteractionsHistory_HappyPath_MatchesContract()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+
+        var fromId = Guid.NewGuid();
+        var toId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+        var threadId = Guid.NewGuid();
+        var history = new InteractionsHistory(
+            Nodes: new List<InteractionsNode>
+            {
+                new(GuidFormatter.Format(fromId), "agent", "Ada", Sent: 1, Received: 0),
+                new(GuidFormatter.Format(toId), "unit", "Engineering", Sent: 0, Received: 1),
+            },
+            Edges: new List<InteractionsEdge>
+            {
+                new(GuidFormatter.Format(fromId), GuidFormatter.Format(toId),
+                    Count: 1, FirstAt: now, LastAt: now,
+                    Channels: new[] { "unit" }),
+            },
+            Pulses: new List<InteractionsPulse>
+            {
+                new(GuidFormatter.Format(messageId),
+                    GuidFormatter.Format(fromId),
+                    GuidFormatter.Format(toId),
+                    now,
+                    GuidFormatter.Format(threadId),
+                    "unit"),
+            },
+            Truncated: null);
+
+        _factory.InteractionsQueryService
+            .GetHistoryAsync(Arg.Any<InteractionsHistoryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(history);
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        OpenApiContract.AssertResponse(
+            "/api/v1/tenant/observation/interactions/history", "get", "200", body);
+    }
+
+    [Fact]
+    public async Task GetInteractionsHistory_WithDualTruncation_MatchesContract()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var history = new InteractionsHistory(
+            Nodes: Array.Empty<InteractionsNode>(),
+            Edges: Array.Empty<InteractionsEdge>(),
+            Pulses: Array.Empty<InteractionsPulse>(),
+            Truncated: new InteractionsHistoryTruncation(
+                Total: 200, Kept: 50,
+                Pulses: new InteractionsPulseTruncation(Total: 12000, Kept: 5000)));
+
+        _factory.InteractionsQueryService
+            .GetHistoryAsync(Arg.Any<InteractionsHistoryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(history);
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        OpenApiContract.AssertResponse(
+            "/api/v1/tenant/observation/interactions/history", "get", "200", body);
+    }
 }

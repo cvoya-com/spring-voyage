@@ -1916,6 +1916,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/observation/interactions/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the tenant-wide interactions history (nodes / edges / per-message pulses) for a time window */
+        get: operations["GetInteractionsHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/analytics/throughput": {
         parameters: {
             query?: never;
@@ -3861,6 +3878,19 @@ export interface components {
             timeline: components["schemas"]["InteractionsTimelineBucketResponse"][];
             truncated: null | components["schemas"]["InteractionsTruncationResponse"];
         };
+        InteractionsHistoryResponse: {
+            nodes: components["schemas"]["InteractionsNodeResponse"][];
+            edges: components["schemas"]["InteractionsEdgeResponse"][];
+            pulses: components["schemas"]["InteractionsPulseResponse"][];
+            truncated: null | components["schemas"]["InteractionsHistoryTruncationResponse"];
+        };
+        InteractionsHistoryTruncationResponse: {
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            kept: number;
+            pulses: null | components["schemas"]["InteractionsPulseTruncationResponse"];
+        };
         InteractionsNodeResponse: {
             id: string;
             kind: string;
@@ -3869,6 +3899,21 @@ export interface components {
             sent: number;
             /** Format: int64 */
             received: number;
+        };
+        InteractionsPulseResponse: {
+            messageId: string;
+            fromId: string;
+            toId: string;
+            /** Format: date-time */
+            timestamp: string;
+            threadId: null | string;
+            channel: string;
+        };
+        InteractionsPulseTruncationResponse: {
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            kept: number;
         };
         InteractionsTimelineBucketResponse: {
             /** Format: date-time */
@@ -9973,6 +10018,34 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    GetInteractionsHistory: {
+        parameters: {
+            query?: {
+                Since?: string;
+                Until?: string;
+                Unit?: string;
+                Participant?: string;
+                Neighbours?: null | number;
+                MaxPulses?: null | number;
+                Cap?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractionsHistoryResponse"];
+                };
             };
         };
     };

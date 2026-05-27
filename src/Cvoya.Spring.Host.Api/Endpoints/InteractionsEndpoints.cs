@@ -37,6 +37,9 @@ public static class InteractionsEndpoints
     /// <summary>Default <c>cap</c> when omitted.</summary>
     private const int DefaultCap = 50;
 
+    /// <summary>Default <c>maxPulses</c> budget for the history endpoint when omitted.</summary>
+    private const int DefaultMaxPulses = 5000;
+
     /// <summary>Default per-edge coalesce window for the SSE stream.</summary>
     private const int DefaultCoalesceMs = 250;
 
@@ -64,6 +67,11 @@ public static class InteractionsEndpoints
         group.MapGet("/stream", StreamInteractionsAsync)
             .WithName("StreamInteractions")
             .WithSummary("Stream live interactions via SSE (pulse / node-added / edge-added / throttled frames)");
+
+        group.MapGet("/history", GetInteractionsHistoryAsync)
+            .WithName("GetInteractionsHistory")
+            .WithSummary("Get the tenant-wide interactions history (nodes / edges / per-message pulses) for a time window")
+            .Produces<InteractionsHistoryResponse>(StatusCodes.Status200OK);
 
         return group;
     }
@@ -116,6 +124,65 @@ public static class InteractionsEndpoints
                 .ToList(),
             Truncated: graph.Truncated is { } t
                 ? new InteractionsTruncationResponse(t.Total, t.Kept)
+                : null);
+
+        return Results.Ok(response);
+    }
+
+    private static async Task<IResult> GetInteractionsHistoryAsync(
+        [AsParameters] InteractionsHistoryQuery query,
+        IInteractionsQueryService interactionsService,
+        CancellationToken cancellationToken)
+    {
+        // Window defaults mirror the snapshot endpoint: 10 minutes ending
+        // at now. The history endpoint is the rewind affordance; the
+        // default window matches what the operator sees in the live view
+        // so toggling rewind doesn't yank them to a different time slice.
+        var until = query.Until ?? DateTimeOffset.UtcNow;
+        var since = query.Since ?? until - DefaultWindow;
+
+        var unitGuid = TryParseScopeId(query.Unit);
+        var participantGuid = TryParseScopeId(query.Participant);
+
+        var neighbours = query.Neighbours switch
+        {
+            null => 2,
+            < 0 => 0,
+            > 2 => 2,
+            { } n => n,
+        };
+
+        var cap = ParseCap(query.Cap);
+        var maxPulses = query.MaxPulses is { } mp && mp > 0 ? mp : DefaultMaxPulses;
+
+        var filters = new InteractionsHistoryFilters(
+            Since: since,
+            Until: until,
+            Unit: unitGuid,
+            Participant: participantGuid,
+            Neighbours: neighbours,
+            Cap: cap,
+            MaxPulses: maxPulses);
+
+        var history = await interactionsService.GetHistoryAsync(filters, cancellationToken);
+
+        var response = new InteractionsHistoryResponse(
+            Nodes: history.Nodes
+                .Select(n => new InteractionsNodeResponse(n.Id, n.Kind, n.DisplayName, n.Sent, n.Received))
+                .ToList(),
+            Edges: history.Edges
+                .Select(e => new InteractionsEdgeResponse(e.FromId, e.ToId, e.Count, e.FirstAt, e.LastAt, e.Channels))
+                .ToList(),
+            Pulses: history.Pulses
+                .Select(p => new InteractionsPulseResponse(p.Id, p.FromId, p.ToId, p.Timestamp, p.ThreadId, p.Channel))
+                .ToList(),
+            Truncated: history.Truncated is { } t
+                ? new InteractionsHistoryTruncationResponse(
+                    t.Total,
+                    t.Kept,
+                    t.Pulses is { } pt
+                        ? new InteractionsPulseTruncationResponse(pt.Total, pt.Kept)
+                        : null)
                 : null);
 
         return Results.Ok(response);

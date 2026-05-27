@@ -7120,6 +7120,88 @@
         }
       }
     },
+    "/api/v1/tenant/observation/interactions/history": {
+      "get": {
+        "tags": [
+          "Observation"
+        ],
+        "summary": "Get the tenant-wide interactions history (nodes / edges / per-message pulses) for a time window",
+        "operationId": "GetInteractionsHistory",
+        "parameters": [
+          {
+            "name": "Since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "Until",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "Unit",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Participant",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Neighbours",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "MaxPulses",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "Cap",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InteractionsHistoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/analytics/throughput": {
       "get": {
         "tags": [
@@ -14096,6 +14178,73 @@
           }
         }
       },
+      "InteractionsHistoryResponse": {
+        "required": [
+          "nodes",
+          "edges",
+          "pulses",
+          "truncated"
+        ],
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InteractionsNodeResponse"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InteractionsEdgeResponse"
+            }
+          },
+          "pulses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InteractionsPulseResponse"
+            }
+          },
+          "truncated": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InteractionsHistoryTruncationResponse"
+              }
+            ]
+          }
+        }
+      },
+      "InteractionsHistoryTruncationResponse": {
+        "required": [
+          "total",
+          "kept",
+          "pulses"
+        ],
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kept": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pulses": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InteractionsPulseTruncationResponse"
+              }
+            ]
+          }
+        }
+      },
       "InteractionsNodeResponse": {
         "required": [
           "id",
@@ -14120,6 +14269,58 @@
             "format": "int64"
           },
           "received": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "InteractionsPulseResponse": {
+        "required": [
+          "messageId",
+          "fromId",
+          "toId",
+          "timestamp",
+          "threadId",
+          "channel"
+        ],
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "fromId": {
+            "type": "string"
+          },
+          "toId": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "threadId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "channel": {
+            "type": "string"
+          }
+        }
+      },
+      "InteractionsPulseTruncationResponse": {
+        "required": [
+          "total",
+          "kept"
+        ],
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kept": {
             "type": "integer",
             "format": "int64"
           }

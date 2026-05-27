@@ -39,4 +39,38 @@ public interface IInteractionsQueryService
     Task<InteractionsGraph> GetAsync(
         InteractionsQueryFilters filters,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Builds a per-message history slice for the rewind / scrub mode in
+    /// the portal's Interactions view (#2872). Returns the same nodes /
+    /// edges as <see cref="GetAsync"/> for the window, plus one
+    /// <see cref="InteractionsPulse"/> per Domain message so the portal
+    /// can animate the activity message by message.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Pulses are sorted ascending by timestamp; ties are broken by the
+    /// canonical no-dash 32-hex message id so the response is deterministic
+    /// for two messages that share a wall-clock millisecond.
+    /// </para>
+    /// <para>
+    /// When the window contains more pulses than
+    /// <see cref="InteractionsHistoryFilters.MaxPulses"/>, the OLDEST
+    /// pulses are dropped — the rewind affordance benefits more from
+    /// recent context than from a complete prefix — and the response
+    /// carries an <see cref="InteractionsPulseTruncation"/> reporting the
+    /// totals. Node-level truncation via
+    /// <see cref="InteractionsHistoryFilters.Cap"/> remains independent;
+    /// both branches can fire on the same response.
+    /// </para>
+    /// </remarks>
+    /// <param name="filters">The time window, scoping, cap, and pulse budget.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// The history slice — nodes, edges, ordered pulses, and an optional
+    /// truncation envelope when either truncation branch fired.
+    /// </returns>
+    Task<InteractionsHistory> GetHistoryAsync(
+        InteractionsHistoryFilters filters,
+        CancellationToken cancellationToken = default);
 }
