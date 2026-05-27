@@ -409,7 +409,7 @@ public class PackageInstallService : IPackageInstallService
             var parentUnitId = resolvedScopes.TryGetValue(pkg.Name, out var p) ? p : null;
             var (outcome, error) = await ActivatePackageAsync(
                 pkg, installId, symbolMap[pkg.Name], pkgBindings, pkgExec,
-                target.DisplayName, cancellationToken);
+                target.DisplayName, target.HumanOverrides, cancellationToken);
 
             // ADR-0043 §6: re-bind top-level artefacts to the chosen
             // parent unit (when `--into` was supplied). Runs after the
@@ -656,9 +656,16 @@ public class PackageInstallService : IPackageInstallService
             // install row carries every input the resolver requires.
             var rehydratedExec = ExecutionDefaultsResolver.Resolve(pkg);
 
+            // ADR-0062 § 6 / #2822: retry does not rehydrate the original
+            // install's `--as-human` overrides — they live on the request
+            // and are not persisted to staging rows. Retry re-applies the
+            // deployment-default resolver for any still-unresolved Hat
+            // declarations. The original install's already-active Hats
+            // are untouched; only Phase-2-failed re-runs flow here and
+            // those rarely involve human declarations in OSS.
             var (outcome, error) = await ActivatePackageAsync(
                 pkg, installId, retryMap, rehydratedResolution.Bindings, rehydratedExec.ByUnit,
-                retryTopLevelDisplayName, cancellationToken);
+                retryTopLevelDisplayName, humanOverrides: null, cancellationToken);
 
             // #2246: surface created artefact identities so clients can
             // take post-retry actions (auto-start / auto-deploy).
@@ -1326,6 +1333,7 @@ public class PackageInstallService : IPackageInstallService
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? perUnitBindings,
         IReadOnlyDictionary<string, ResolvedExecutionDefaults>? perUnitExecution,
         string? displayNameOverride,
+        IReadOnlyDictionary<string, Guid>? humanOverrides,
         CancellationToken cancellationToken)
     {
         string? firstError = null;
@@ -1408,7 +1416,7 @@ public class PackageInstallService : IPackageInstallService
             {
                 await _activator.ActivateAsync(
                     pkg.Name, artefact, installId, symbolMap, unitBindings, unitExecution,
-                    perArtefactDisplayName, inheritedAgentHosting, cancellationToken);
+                    perArtefactDisplayName, inheritedAgentHosting, humanOverrides, cancellationToken);
                 await FlipArtefactStateToActiveAsync(artefact, artefactId, cancellationToken);
             }
             catch (OperationCanceledException)

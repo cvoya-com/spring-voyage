@@ -89,9 +89,11 @@ public static class UnitMembersCommand
         {
             Description =
                 "Explicit TenantUser binding for a newly-minted Hat (ADR-0062 § 1). Accepts " +
-                "a TenantUser UUID, the literal 'me' (= the authenticated caller; in OSS the " +
-                "operator), or the OAuth subject (cloud only). Default = the deployment-default " +
-                "resolver (OSS: operator; cloud: calling caller). Ignored when --human is supplied.",
+                "a TenantUser UUID (dashed or no-dash), the literal 'me' (= the authenticated " +
+                "caller; in OSS the operator), or the OAuth subject of an existing TenantUser " +
+                "in the current tenant (resolved server-side via GET /api/v1/tenant/users?authSubject=). " +
+                "Default = the deployment-default resolver (OSS: operator; cloud: calling caller). " +
+                "Ignored when --human is supplied.",
         };
         var rolesOption = new Option<string[]?>("--roles")
         {
@@ -181,9 +183,15 @@ public static class UnitMembersCommand
                 Guid? tenantUserId;
                 try
                 {
-                    tenantUserId = ResolveTenantUserRef(asArg);
+                    tenantUserId = await ResolveTenantUserRefAsync(client, asArg, ct);
                 }
                 catch (InvalidOperationException ex)
+                {
+                    await Console.Error.WriteLineAsync(ex.Message);
+                    Environment.Exit(1);
+                    return;
+                }
+                catch (CliRefResolutionException ex)
                 {
                     await Console.Error.WriteLineAsync(ex.Message);
                     Environment.Exit(1);
@@ -265,49 +273,67 @@ public static class UnitMembersCommand
     }
 
     /// <summary>
-    /// Resolves a <c>&lt;tenant-user-ref&gt;</c> per ADR-0062 § 6. Accepts:
+    /// Local fast-path for <c>&lt;tenant-user-ref&gt;</c> resolution
+    /// (ADR-0062 § 6). Handles the no-network shapes:
     /// <list type="bullet">
-    ///   <item><description>A TenantUser UUID (dashed or no-dash hex).</description></item>
-    ///   <item><description>The literal <c>me</c> — resolves to the calling
-    ///   caller. In OSS this is <see cref="Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator"/>;
-    ///   in cloud the API stamps the authenticated principal on the
-    ///   server when this method returns <see langword="null"/>.</description></item>
-    ///   <item><description><see langword="null"/> / empty — return <see langword="null"/>
+    ///   <item><description>Empty / null → returns <see langword="null"/>
     ///   so the server's <c>ITenantUserDefaultResolver</c> picks the
     ///   deployment default.</description></item>
+    ///   <item><description>Literal <c>me</c> → resolves to
+    ///   <see cref="Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator"/>
+    ///   on OSS; cloud overlays plug in a <c>/me</c>-equivalent through
+    ///   the same accessor pathway.</description></item>
+    ///   <item><description>Parseable Guid → use directly.</description></item>
     /// </list>
-    /// <para>OAuth-subject lookup is documented on the <c>--as</c> flag
-    /// for cloud parity but not implemented yet — needs a server-side
-    /// <c>GET /api/v1/tenant/users?authSubject=&lt;...&gt;</c> lookup
-    /// (filed as a follow-up issue from #2808).</para>
+    /// Returns <c>(true, value)</c> when the input resolved locally and
+    /// the call site can skip the network round-trip; returns
+    /// <c>(false, null)</c> when the input needs the OAuth-subject
+    /// lookup in <see cref="ResolveTenantUserRefAsync"/>.
     /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when the input is non-empty, not <c>me</c>, and not a
-    /// parseable Guid — the operator gets a precise error before any
-    /// wire call.
-    /// </exception>
-    internal static Guid? ResolveTenantUserRef(string? input)
+    internal static (bool Resolved, Guid? Value) TryResolveTenantUserRefSync(string? input)
     {
         if (string.IsNullOrWhiteSpace(input))
         {
-            return null;
+            return (true, null);
         }
         if (string.Equals(input, "me", StringComparison.OrdinalIgnoreCase))
         {
-            // OSS: the operator UUID is deterministic; cloud overlays will
-            // ship a future /me-equivalent that returns the calling caller's
-            // TenantUser id (umbrella #2487 OUT1). Surfacing the OSS
-            // operator unconditionally is correct for v0.1 (one tenant
-            // user per OSS deployment).
-            return Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator;
+            return (true, Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator);
         }
         if (Guid.TryParse(input, out var parsed) && parsed != Guid.Empty)
         {
-            return parsed;
+            return (true, parsed);
         }
-        throw new InvalidOperationException(
-            $"--as '{input}' is not a valid TenantUser reference. Use a UUID (dashed or no-dash hex) " +
-            "or the literal 'me'.");
+        return (false, null);
+    }
+
+    /// <summary>
+    /// Resolves a <c>&lt;tenant-user-ref&gt;</c> per ADR-0062 § 6 / #2827.
+    /// Accepts a TenantUser UUID (dashed or no-dash), the literal
+    /// <c>me</c>, an OAuth subject (resolved server-side via
+    /// <c>GET /api/v1/tenant/users?authSubject=&lt;...&gt;</c>), or
+    /// <see langword="null"/> / empty (falls through to the server's
+    /// default resolver). Throws <see cref="CliRefResolutionException"/>
+    /// when an OAuth-subject lookup returns 404 so the call site emits
+    /// a single-line operator-friendly error.
+    /// </summary>
+    internal static async Task<Guid?> ResolveTenantUserRefAsync(
+        SpringApiClient client,
+        string? input,
+        CancellationToken ct)
+    {
+        var (resolved, value) = TryResolveTenantUserRefSync(input);
+        if (resolved)
+        {
+            return value;
+        }
+
+        // Non-Guid non-`me` non-empty input → OAuth-subject lookup. The
+        // RefResolver throws CliRefResolutionException for unresolved
+        // subjects so callers render the same single-line error as the
+        // sibling Guid-shape parse failure path.
+        var id = await RefResolver.ResolveTenantUserRefAsync(client, input!, "--as", ct);
+        return id;
     }
 
     private static Command CreateListCommand(Option<string> outputOption)

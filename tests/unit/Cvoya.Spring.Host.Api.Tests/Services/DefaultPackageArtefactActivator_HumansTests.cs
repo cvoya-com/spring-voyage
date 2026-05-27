@@ -163,6 +163,87 @@ public class DefaultPackageArtefactActivator_HumansTests
     }
 
     [Fact]
+    public async Task ActivateUnitAsync_HumanOverrideMatchesDisplayName_FlowsExplicitTenantUserIdToPolicy()
+    {
+        // ADR-0062 § 6 / #2822: a `- human:` declaration with a
+        // `displayName: bob` entry whose key matches a supplied
+        // `humanOverrides` map fires the policy with
+        // ExplicitTenantUserId set.
+        var fx = new Fixture();
+        fx.PolicyResolvesTo(Guid.NewGuid());
+        PackageHumanResolutionRequest? captured = null;
+        fx.PolicyCapturesRequest(req => captured = req);
+        var unitId = Guid.NewGuid();
+        var overrideTenantUserId = Guid.Parse("11111111-2222-2222-2222-000000000001");
+        var manifest = BuildManifestWithDisplayNames(unitId, "engineering",
+            ("Bob", new[] { "owner" }, Array.Empty<string>(), Array.Empty<string>()));
+
+        await fx.RunActivateAsync(
+            manifest,
+            unitId,
+            humanOverrides: new Dictionary<string, Guid> { ["Bob"] = overrideTenantUserId });
+
+        captured.ShouldNotBeNull();
+        captured!.ExplicitTenantUserId.ShouldBe(overrideTenantUserId);
+        captured.DisplayName.ShouldBe("Bob");
+    }
+
+    [Fact]
+    public async Task ActivateUnitAsync_HumanOverrideMissesDeclaration_NoExplicitOverridePassedToPolicy()
+    {
+        // ADR-0062 § 6 / #2822: an override key that does not match any
+        // declaration's displayName leaves the policy request's
+        // ExplicitTenantUserId at null, so the deployment-default
+        // resolver remains in control for that declaration.
+        var fx = new Fixture();
+        fx.PolicyResolvesTo(Guid.NewGuid());
+        PackageHumanResolutionRequest? captured = null;
+        fx.PolicyCapturesRequest(req => captured = req);
+        var unitId = Guid.NewGuid();
+        var manifest = BuildManifestWithDisplayNames(unitId, "engineering",
+            ("Bob", new[] { "owner" }, Array.Empty<string>(), Array.Empty<string>()));
+
+        await fx.RunActivateAsync(
+            manifest,
+            unitId,
+            humanOverrides: new Dictionary<string, Guid>
+            {
+                ["Alice"] = Guid.Parse("11111111-2222-2222-2222-000000000099"),
+            });
+
+        captured.ShouldNotBeNull();
+        captured!.ExplicitTenantUserId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ActivateUnitAsync_AnonymousDeclaration_OverrideMapHasNoEffect()
+    {
+        // ADR-0062 § 6 / #2822: declarations without a `displayName`
+        // are unreferenceable by the override map (there is no key to
+        // pin against) and always fall through to the default resolver,
+        // even when a `humanOverrides` map is supplied.
+        var fx = new Fixture();
+        fx.PolicyResolvesTo(Guid.NewGuid());
+        PackageHumanResolutionRequest? captured = null;
+        fx.PolicyCapturesRequest(req => captured = req);
+        var unitId = Guid.NewGuid();
+        var manifest = BuildManifest(unitId, "engineering",
+            (new[] { "owner" }, Array.Empty<string>(), Array.Empty<string>()));
+
+        await fx.RunActivateAsync(
+            manifest,
+            unitId,
+            humanOverrides: new Dictionary<string, Guid>
+            {
+                ["anything"] = Guid.Parse("11111111-2222-2222-2222-000000000099"),
+            });
+
+        captured.ShouldNotBeNull();
+        captured!.DisplayName.ShouldBeNull();
+        captured.ExplicitTenantUserId.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task ActivateUnitAsync_RolesAndExpertiseFlowToPolicyRequest()
     {
         // ADR-0046 §3: roles + expertise + notifications are multi-valued
@@ -208,6 +289,57 @@ public class DefaultPackageArtefactActivator_HumansTests
             Description = name + " description",
             Members = members,
         };
+    }
+
+    /// <summary>
+    /// Builds a unit manifest with one or more `- human:` declarations
+    /// that carry an explicit `displayName:` field — needed by the
+    /// ADR-0062 § 6 override path (#2822) which keys on displayName.
+    /// </summary>
+    private static UnitManifest BuildManifestWithDisplayNames(
+        Guid unitId,
+        string name,
+        params (string DisplayName, string[] Roles, string[] Expertise, string[] Notifications)[] humans)
+    {
+        var members = humans
+            .Select(h => new MemberManifest
+            {
+                Human = InlineArtefactDefinition.FromInline(
+                    inlineName: "human",
+                    inlineBody: BuildHumanInlineBodyWithDisplayName(
+                        h.DisplayName, h.Roles, h.Expertise, h.Notifications)),
+            })
+            .ToList();
+
+        return new UnitManifest
+        {
+            ApiVersion = "spring.voyage/v1",
+            Kind = "Unit",
+            Name = name,
+            DisplayName = name,
+            Description = name + " description",
+            Members = members,
+        };
+    }
+
+    private static string BuildHumanInlineBodyWithDisplayName(
+        string displayName, string[] roles, string[] expertise, string[] notifications)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"displayName: \"{displayName}\"");
+        if (roles.Length > 0)
+        {
+            sb.AppendLine($"roles: [{string.Join(", ", roles)}]");
+        }
+        if (expertise.Length > 0)
+        {
+            sb.AppendLine($"expertise: [{string.Join(", ", expertise)}]");
+        }
+        if (notifications.Length > 0)
+        {
+            sb.AppendLine($"notifications: [{string.Join(", ", notifications)}]");
+        }
+        return sb.ToString();
     }
 
     private static string BuildHumanInlineBody(string[] roles, string[] expertise, string[] notifications)
@@ -327,7 +459,10 @@ public class DefaultPackageArtefactActivator_HumansTests
                 Reason: reason);
         }
 
-        public async Task RunActivateAsync(UnitManifest manifest, Guid unitId)
+        public async Task RunActivateAsync(
+            UnitManifest manifest,
+            Guid unitId,
+            IReadOnlyDictionary<string, Guid>? humanOverrides = null)
         {
             var services = new ServiceCollection();
             services.AddDbContext<SpringDbContext>(opt => opt
@@ -368,6 +503,7 @@ public class DefaultPackageArtefactActivator_HumansTests
                 artefact: artefact,
                 installId: Guid.NewGuid(),
                 symbolMap: symbolMap,
+                humanOverrides: humanOverrides,
                 cancellationToken: TestContext.Current.CancellationToken);
 
             _scopeFactory = scopeFactory;

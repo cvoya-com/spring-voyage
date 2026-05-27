@@ -70,14 +70,17 @@ public sealed class OssPackageHumanResolutionPolicy(
         var humanId = Guid.NewGuid();
         var username = $"oss-position-{humanId:N}";
 
-        // ADR-0062 § 1: stamp the deployment-default TenantUser at insert
-        // time so the NOT NULL FK is satisfied without each call site
-        // re-implementing the OSS-vs-cloud rule. OSS: operator literal.
-        // Cloud: calling principal. Explicit `--as` overrides live at the
-        // CLI / portal call site, not here.
-        var tenantUserId = await tenantUserDefaultResolver
-            .ResolveDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
+        // ADR-0062 § 1 / § 6 / #2822: the explicit per-declaration override
+        // wins over the deployment default when supplied — the endpoint
+        // validates the id exists in the current tenant before reaching
+        // this policy, so we can trust the value here. Absent the override
+        // (the common path), call the resolver. OSS resolver: operator
+        // literal. Cloud resolver: calling principal.
+        var tenantUserId = request.ExplicitTenantUserId is { } overrideId
+            ? overrideId
+            : await tenantUserDefaultResolver
+                .ResolveDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
 
         var entity = new HumanEntity
         {

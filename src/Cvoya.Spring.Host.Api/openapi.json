@@ -3551,6 +3551,57 @@
         }
       }
     },
+    "/api/v1/tenant/users": {
+      "get": {
+        "tags": [
+          "TenantUsers"
+        ],
+        "summary": "Find a tenant user by OAuth subject within the current tenant (ADR-0062 § 6).",
+        "description": "Returns the TenantUser whose auth_subject matches the supplied query parameter in the current tenant, or 404 when no row matches. The query parameter is required; an empty value surfaces as 400. Used by the CLI to resolve `<tenant-user-ref>` shapes typed as OAuth subjects (#2827).",
+        "operationId": "FindTenantUserByAuthSubject",
+        "parameters": [
+          {
+            "name": "authSubject",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantUserResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/users/{tenantUserId}/identities": {
       "post": {
         "tags": [
@@ -14346,6 +14397,18 @@
           }
         }
       },
+      "PackageHumanOverride": {
+        "required": [
+          "tenantUserRef"
+        ],
+        "type": "object",
+        "properties": {
+          "tenantUserRef": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "PackageInstallRequest": {
         "required": [
           "targets"
@@ -14415,6 +14478,15 @@
               "null",
               "string"
             ]
+          },
+          "humanOverrides": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PackageHumanOverride"
+            }
           }
         }
       },

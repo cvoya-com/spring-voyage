@@ -53,7 +53,8 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
         string[]? roles = null,
         string? displayName = null,
         string? description = null,
-        Guid? callerHumanId = null) =>
+        Guid? callerHumanId = null,
+        Guid? explicitTenantUserId = null) =>
         new(
             TenantId: TenantA,
             UnitId: Guid.Parse("bbbbbbbb-2222-2222-2222-000000000001"),
@@ -63,7 +64,8 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
             Notifications: Array.Empty<string>(),
             DisplayName: displayName,
             Description: description,
-            InstallCallerHumanId: callerHumanId);
+            InstallCallerHumanId: callerHumanId,
+            ExplicitTenantUserId: explicitTenantUserId);
 
     [Fact]
     public async Task ResolveAsync_DefaultBranch_MintsFreshHumanWithRoleDisplayName()
@@ -135,6 +137,48 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
         first.HumanIds.ShouldHaveSingleItem();
         second.HumanIds.ShouldHaveSingleItem();
         first.HumanIds[0].ShouldNotBe(second.HumanIds[0]);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ExplicitTenantUserId_WinsOverDefaultResolver()
+    {
+        // ADR-0062 § 6 / #2822: when the caller supplies an explicit
+        // per-declaration TenantUser override, the policy stamps that
+        // id on the minted HumanEntity.TenantUserId instead of asking
+        // ITenantUserDefaultResolver. The endpoint validated the id
+        // exists in tenant before reaching the policy.
+        var ct = TestContext.Current.CancellationToken;
+        var policy = CreatePolicy();
+        var explicitId = Guid.Parse("dddddddd-4444-4444-4444-000000000001");
+
+        var resolution = await policy.ResolveAsync(
+            CreateRequest(explicitTenantUserId: explicitId), ct);
+
+        var humanId = resolution.HumanIds.ShouldHaveSingleItem();
+        using var scope = _provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await db.Humans.AsNoTracking().FirstOrDefaultAsync(h => h.Id == humanId, ct);
+        row.ShouldNotBeNull();
+        row!.TenantUserId.ShouldBe(explicitId);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_NoExplicitOverride_FallsBackToDeploymentDefaultResolver()
+    {
+        // The default branch — verified separately from the OSS-default
+        // operator value test above so the absence of the override is
+        // explicit in the contract.
+        var ct = TestContext.Current.CancellationToken;
+        var policy = CreatePolicy();
+
+        var resolution = await policy.ResolveAsync(
+            CreateRequest(explicitTenantUserId: null), ct);
+
+        var humanId = resolution.HumanIds.ShouldHaveSingleItem();
+        using var scope = _provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await db.Humans.AsNoTracking().FirstOrDefaultAsync(h => h.Id == humanId, ct);
+        row!.TenantUserId.ShouldBe(OssTenantUserIds.Operator);
     }
 
     [Fact]

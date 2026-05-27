@@ -234,6 +234,7 @@ public class PackageInstallServiceIntoUnitTests
             ResolvedExecutionDefaults? executionDefaults = null,
             string? displayNameOverride = null,
             string? inheritedAgentHosting = null,
+            IReadOnlyDictionary<string, Guid>? humanOverrides = null,
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
     }

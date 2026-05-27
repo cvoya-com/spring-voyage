@@ -73,6 +73,16 @@ public interface IPackageArtefactActivator
     /// under <c>execution.hosting</c> only when the agent's own
     /// declarative shape (its YAML's <c>execution.hosting</c>) is absent.
     /// </param>
+    /// <param name="humanOverrides">
+    /// Optional per-declaration <c>Human → TenantUser</c> binding override
+    /// map (ADR-0062 § 6, #2822). Keyed by the <c>- human:</c>
+    /// declaration's <c>displayName</c> (case-sensitive) within this
+    /// package. When a unit-manifest member's human declaration matches a
+    /// key, the activator passes the supplied <c>TenantUser</c> id to
+    /// <see cref="Cvoya.Spring.Core.Packages.IPackageHumanResolutionPolicy"/>
+    /// as the explicit binding override; declarations without a match
+    /// fall through to the deployment-default resolver.
+    /// </param>
     /// <param name="cancellationToken">A cancellation token.</param>
     Task ActivateAsync(
         string packageName,
@@ -83,5 +93,6 @@ public interface IPackageArtefactActivator
         ResolvedExecutionDefaults? executionDefaults = null,
         string? displayNameOverride = null,
         string? inheritedAgentHosting = null,
+        IReadOnlyDictionary<string, System.Guid>? humanOverrides = null,
         CancellationToken cancellationToken = default);
 }

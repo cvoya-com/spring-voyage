@@ -131,6 +131,7 @@ public static class PackageInstallEndpoints
         [FromServices] IPackageInstallService installService,
         [FromServices] IPackageCatalogService catalogService,
         [FromServices] PackageCatalogOptions catalogOptions,
+        [FromServices] SpringDbContext db,
         CancellationToken cancellationToken)
     {
         if (request.Targets is null || request.Targets.Count == 0)
@@ -138,6 +139,18 @@ public static class PackageInstallEndpoints
             return Results.Problem(
                 detail: "At least one install target is required.",
                 statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // ADR-0062 § 6 / #2822: validate every supplied `humanOverrides`
+        // target points at an existing TenantUser in the current tenant
+        // BEFORE Phase 1 starts. Surfaces a structured 400 with the
+        // offending declaration key + tenant-user id so the CLI can
+        // render a precise error rather than a Phase-2 failure detail.
+        var humanOverrideValidation = await ValidateHumanOverridesAsync(
+            request.Targets, db, cancellationToken);
+        if (humanOverrideValidation is not null)
+        {
+            return humanOverrideValidation;
         }
 
         // Resolve YAML for each catalog-sourced target.
@@ -163,6 +176,94 @@ public static class PackageInstallEndpoints
         }
 
         return await ExecuteInstallAsync(installService, targets, cancellationToken);
+    }
+
+    /// <summary>
+    /// ADR-0062 § 6 / #2822: validates every <c>humanOverrides</c> entry
+    /// on the incoming request maps to a real <c>TenantUser</c> row in
+    /// the current tenant. Returns <see langword="null"/> when every
+    /// supplied id resolves; otherwise an
+    /// <c>InvalidHumanOverrideTarget</c> 400 naming the first offending
+    /// (package, declaration, tenant-user) tuple. Runs once across the
+    /// whole batch so multi-target installs surface a clean failure
+    /// before any DB writes.
+    /// </summary>
+    private static async Task<IResult?> ValidateHumanOverridesAsync(
+        IReadOnlyList<PackageInstallTarget> requestTargets,
+        SpringDbContext db,
+        CancellationToken cancellationToken)
+    {
+        // Collect every distinct id across all targets in one pass so we
+        // can validate with a single DB round-trip per batch.
+        var idToContext = new Dictionary<Guid, (string PackageName, string DeclarationKey)>();
+        foreach (var t in requestTargets)
+        {
+            if (t.HumanOverrides is null || t.HumanOverrides.Count == 0)
+            {
+                continue;
+            }
+            foreach (var (declarationKey, payload) in t.HumanOverrides)
+            {
+                if (payload is null || payload.TenantUserRef == Guid.Empty)
+                {
+                    return Results.Problem(
+                        title: "Bad Request",
+                        detail:
+                            $"Package '{t.PackageName}' human override for declaration " +
+                            $"'{declarationKey}' is missing a TenantUser id (got Guid.Empty).",
+                        statusCode: StatusCodes.Status400BadRequest,
+                        type: "https://cvoya.com/problems/invalid-human-override",
+                        extensions: new Dictionary<string, object?>
+                        {
+                            ["code"] = "InvalidHumanOverrideTarget",
+                            ["packageName"] = t.PackageName,
+                            ["declarationKey"] = declarationKey,
+                            ["tenantUserId"] = null,
+                        });
+                }
+                if (!idToContext.ContainsKey(payload.TenantUserRef))
+                {
+                    idToContext[payload.TenantUserRef] = (t.PackageName, declarationKey);
+                }
+            }
+        }
+
+        if (idToContext.Count == 0)
+        {
+            return null;
+        }
+
+        var ids = idToContext.Keys.ToList();
+        var found = await db.TenantUsers
+            .AsNoTracking()
+            .Where(u => ids.Contains(u.Id))
+            .Select(u => u.Id)
+            .ToListAsync(cancellationToken);
+        var foundSet = found.ToHashSet();
+
+        foreach (var (id, ctx) in idToContext)
+        {
+            if (foundSet.Contains(id))
+            {
+                continue;
+            }
+            return Results.Problem(
+                title: "Bad Request",
+                detail:
+                    $"Package '{ctx.PackageName}' human override for declaration " +
+                    $"'{ctx.DeclarationKey}' targets TenantUser '{id:N}' which does not exist in the current tenant.",
+                statusCode: StatusCodes.Status400BadRequest,
+                type: "https://cvoya.com/problems/invalid-human-override",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "InvalidHumanOverrideTarget",
+                    ["packageName"] = ctx.PackageName,
+                    ["declarationKey"] = ctx.DeclarationKey,
+                    ["tenantUserId"] = id.ToString("N"),
+                });
+        }
+
+        return null;
     }
 
     private static async Task<IResult> InstallPackageFromFileAsync(
@@ -602,6 +703,24 @@ public static class PackageInstallEndpoints
             // strict-typed.
             var credentials = ProjectCredentials(t.Credentials);
 
+            // ADR-0062 § 6 / #2822: project the wire `humanOverrides` map
+            // into the service-layer `IReadOnlyDictionary<string, Guid>`
+            // shape consumed by the activator. Wire validation already
+            // checked each id resolves to a TenantUser in tenant; here we
+            // just shape-translate. The keys (declaration displayName)
+            // pass through unchanged so the activator can match against
+            // the manifest's `- human: { displayName: ... }` field.
+            IReadOnlyDictionary<string, Guid>? humanOverrides = null;
+            if (t.HumanOverrides is { Count: > 0 } overrides)
+            {
+                var projected = new Dictionary<string, Guid>(overrides.Count, StringComparer.Ordinal);
+                foreach (var (declarationKey, payload) in overrides)
+                {
+                    projected[declarationKey] = payload.TenantUserRef;
+                }
+                humanOverrides = projected;
+            }
+
             result.Add(new InstallTarget(
                 PackageName: t.PackageName,
                 Inputs: t.Inputs ?? new Dictionary<string, string>(),
@@ -611,7 +730,8 @@ public static class PackageInstallEndpoints
                 UnitBindings: unitBindings,
                 Credentials: credentials,
                 IntoUnit: t.IntoUnit,
-                DisplayName: t.DisplayName));
+                DisplayName: t.DisplayName,
+                HumanOverrides: humanOverrides));
         }
 
         return result;

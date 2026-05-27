@@ -1532,6 +1532,46 @@ public class SpringApiClient
             cancellationToken: ct);
 
     /// <summary>
+    /// Lists the calling caller's bound Humans (Hats) with per-unit
+    /// context. GET <c>/api/v1/tenant/users/me/humans</c>
+    /// (ADR-0062 §§ 3, 5). Used by the CLI's <c>&lt;human-ref&gt;</c>
+    /// parser when the operator passes a display name — the parser
+    /// matches case-insensitively against this list to resolve the
+    /// underlying Hat UUID (ADR-0062 § 6 / #2827).
+    /// </summary>
+    public async Task<IReadOnlyList<CallerHumanResponse>> ListCallerHumansAsync(
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Users.Me.Humans.GetAsync(cancellationToken: ct);
+        return result ?? new List<CallerHumanResponse>();
+    }
+
+    /// <summary>
+    /// Finds a <c>TenantUser</c> in the current tenant by OAuth subject.
+    /// GET <c>/api/v1/tenant/users?authSubject=&lt;...&gt;</c>
+    /// (ADR-0062 § 6 / #2827). Returns <see langword="null"/> when no
+    /// row matches (HTTP 404). Used by the CLI's
+    /// <c>&lt;tenant-user-ref&gt;</c> parser when the operator passes a
+    /// non-Guid, non-<c>me</c> string (e.g.
+    /// <c>alice@example.com</c>).
+    /// </summary>
+    public async Task<TenantUserResponse?> FindTenantUserByAuthSubjectAsync(
+        string authSubject,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.Api.V1.Tenant.Users.GetAsync(
+                config => config.QueryParameters.AuthSubject = authSubject,
+                cancellationToken: ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Pins the tenant user's primary Human ("default Hat") for new
     /// outbound messages (ADR-0062 § 2). PATCH
     /// <c>/api/v1/tenant/users/{tenantUserId}/primary-human</c>. The server
@@ -3771,7 +3811,20 @@ public class SpringApiClient
         string? Version = null,
         IReadOnlyList<CredentialBindingPayloadRequest>? Credentials = null,
         string? IntoUnit = null,
-        string? DisplayName = null);
+        string? DisplayName = null,
+        IReadOnlyDictionary<string, PackageHumanOverrideRequest>? HumanOverrides = null);
+
+    /// <summary>
+    /// ADR-0062 § 6 / #2822: one per-declaration <c>Human → TenantUser</c>
+    /// binding override on a
+    /// <see cref="PackageInstallTargetRequest.HumanOverrides"/> map. The
+    /// map key is the <c>- human:</c> declaration's <c>displayName</c>
+    /// within the package; this payload carries the override target as
+    /// a <c>TenantUser</c> UUID. The CLI resolves <c>me</c> / display-
+    /// name / OAuth-subject inputs before populating this wire field.
+    /// </summary>
+    public sealed record PackageHumanOverrideRequest(
+        Guid TenantUserRef);
 
     /// <summary>
     /// Wire shape for one operator-supplied LLM credential at install

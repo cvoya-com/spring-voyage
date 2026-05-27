@@ -58,6 +58,21 @@ public static class TenantUserIdentityEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // ADR-0062 § 6 / #2827: lookup-by-auth-subject so the CLI can
+        // resolve a `<tenant-user-ref>` typed as the operator's OAuth
+        // subject (e.g. an email or provider sub) without first knowing
+        // the TenantUser UUID. Backs `spring unit member add human --as
+        // alice@example.com` and `spring package install --as-human
+        // <decl>=alice@example.com` parity. Scoped to the current tenant
+        // by the standard ITenantContext query filter on TenantUsers.
+        group.MapGet("/", FindTenantUserByAuthSubjectAsync)
+            .WithName("FindTenantUserByAuthSubject")
+            .WithSummary("Find a tenant user by OAuth subject within the current tenant (ADR-0062 § 6).")
+            .WithDescription("Returns the TenantUser whose auth_subject matches the supplied query parameter in the current tenant, or 404 when no row matches. The query parameter is required; an empty value surfaces as 400. Used by the CLI to resolve `<tenant-user-ref>` shapes typed as OAuth subjects (#2827).")
+            .Produces<TenantUserResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapPatch("/{tenantUserId:guid}", UpdateTenantUserAsync)
             .WithName("UpdateTenantUser")
             .WithSummary("Update a tenant user's editable identity fields (display name, description).")
@@ -136,6 +151,40 @@ public static class TenantUserIdentityEndpoints
         {
             return Results.Problem(
                 detail: $"Tenant user '{tenantUserId:N}' was not found in the current tenant.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Ok(ToResponse(row));
+    }
+
+    /// <summary>
+    /// ADR-0062 § 6 / #2827: resolve a <c>TenantUser</c> by its OAuth
+    /// <c>auth_subject</c> claim. Returns 404 when no row matches in the
+    /// current tenant. Used by the CLI's <c>&lt;tenant-user-ref&gt;</c>
+    /// parser when the operator passes a non-Guid, non-<c>me</c> string
+    /// (e.g. <c>alice@example.com</c>) so the CLI can stamp the resolved
+    /// id on a Hat-bind / package-install override.
+    /// </summary>
+    private static async Task<IResult> FindTenantUserByAuthSubjectAsync(
+        [FromQuery] string? authSubject,
+        SpringDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var subject = (authSubject ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(subject))
+        {
+            return Results.Problem(
+                detail: "Query parameter 'authSubject' is required and must not be empty.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var row = await db.TenantUsers
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.AuthSubject == subject, cancellationToken);
+        if (row is null)
+        {
+            return Results.Problem(
+                detail: $"No tenant user with auth subject '{subject}' was found in the current tenant.",
                 statusCode: StatusCodes.Status404NotFound);
         }
 

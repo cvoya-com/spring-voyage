@@ -102,6 +102,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         ResolvedExecutionDefaults? executionDefaults = null,
         string? displayNameOverride = null,
         string? inheritedAgentHosting = null,
+        IReadOnlyDictionary<string, Guid>? humanOverrides = null,
         CancellationToken cancellationToken = default)
     {
         if (artefact.Content is null)
@@ -114,7 +115,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         switch (artefact.Kind)
         {
             case ArtefactKind.Unit:
-                await ActivateUnitAsync(artefact, symbolMap, connectorBindings, executionDefaults, displayNameOverride, cancellationToken);
+                await ActivateUnitAsync(artefact, symbolMap, connectorBindings, executionDefaults, displayNameOverride, humanOverrides, cancellationToken);
                 break;
 
             case ArtefactKind.Agent:
@@ -147,6 +148,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings,
         ResolvedExecutionDefaults? executionDefaults,
         string? displayNameOverride,
+        IReadOnlyDictionary<string, Guid>? humanOverrides,
         CancellationToken ct)
     {
         var manifest = ManifestParser.Parse(artefact.Content!);
@@ -238,7 +240,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         // (typically a freshly-minted HumanEntity for the OSS default),
         // then upsert a single (unit, human) membership row carrying the
         // multi-valued roles / expertise / notifications.
-        await ResolveAndPersistHumansAsync(manifest, actorId, ct);
+        await ResolveAndPersistHumansAsync(manifest, actorId, humanOverrides, ct);
     }
 
     /// <summary>
@@ -258,6 +260,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
     private async Task ResolveAndPersistHumansAsync(
         UnitManifest manifest,
         Guid unitId,
+        IReadOnlyDictionary<string, Guid>? humanOverrides,
         CancellationToken ct)
     {
         if (manifest.Members is not { Count: > 0 })
@@ -310,6 +313,22 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
             var expertise = NormaliseStringList(human.Expertise);
             var notifications = NormaliseStringList(human.Notifications);
 
+            // ADR-0062 § 6 / #2822: per-declaration override is keyed by
+            // the manifest's `displayName:` on the `- human:` entry. The
+            // endpoint validated each override target exists in the
+            // tenant before Phase 2; declarations whose displayName does
+            // not appear in the map fall through to the policy's
+            // deployment-default resolver. Anonymous declarations (no
+            // displayName) cannot be overridden — there is no operator-
+            // referenceable key for the package author to pin against.
+            Guid? explicitTenantUserId = null;
+            if (humanOverrides is { Count: > 0 }
+                && !string.IsNullOrWhiteSpace(human.DisplayName)
+                && humanOverrides.TryGetValue(human.DisplayName!, out var overrideId))
+            {
+                explicitTenantUserId = overrideId;
+            }
+
             var request = new PackageHumanResolutionRequest(
                 TenantId: tenantId,
                 UnitId: unitId,
@@ -319,7 +338,8 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
                 Notifications: notifications,
                 DisplayName: human.DisplayName,
                 Description: human.Description,
-                InstallCallerHumanId: callerHumanId);
+                InstallCallerHumanId: callerHumanId,
+                ExplicitTenantUserId: explicitTenantUserId);
 
             var resolution = await _humanResolutionPolicy.ResolveAsync(request, ct);
 

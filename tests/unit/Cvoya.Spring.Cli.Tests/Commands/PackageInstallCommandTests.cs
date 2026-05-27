@@ -841,6 +841,147 @@ public class PackageInstallCommandTests
         binding.Config["installation-id"].ShouldBe(12345L);
     }
 
+    // ── ParseAsHumanTokens — ADR-0062 § 6 / #2822 ────────────────────────────
+
+    [Fact]
+    public void PackageInstall_ParsesAsHumanFlag_OnSingleTarget()
+    {
+        // Parser-level: the verb accepts a single bare `--as-human
+        // <decl>=<ref>` token. Resolution happens later via the
+        // ref-resolver.
+        var outputOption = CreateOutputOption();
+        var packageCommand = PackageCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(packageCommand);
+
+        var parseResult = rootCommand.Parse(
+            "package install my-pkg --as-human Bob=11111111-1111-1111-1111-111111111111");
+
+        parseResult.Errors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void PackageInstall_ParsesAsHumanFlag_Repeatable()
+    {
+        var outputOption = CreateOutputOption();
+        var packageCommand = PackageCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(packageCommand);
+
+        var parseResult = rootCommand.Parse(
+            "package install my-pkg --as-human Bob=me --as-human Alice=alice@example.com");
+
+        parseResult.Errors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void ParseAsHumanTokens_SingleTargetBareForm_AppliedToPackage()
+    {
+        var result = PackageCommand.ParseAsHumanTokens(
+            new[] { "Bob=11111111-1111-1111-1111-111111111111" },
+            new[] { "my-pkg" });
+
+        result["my-pkg"]["Bob"].ShouldBe("11111111-1111-1111-1111-111111111111");
+    }
+
+    [Fact]
+    public void ParseAsHumanTokens_SingleTarget_AcceptsPackagePrefix()
+    {
+        // Operator may copy a multi-target line into a single-target
+        // call; the parser peels the prefix when it matches.
+        var result = PackageCommand.ParseAsHumanTokens(
+            new[] { "my-pkg.Bob=me" },
+            new[] { "my-pkg" });
+
+        result["my-pkg"]["Bob"].ShouldBe("me");
+    }
+
+    [Fact]
+    public void ParseAsHumanTokens_MultiTarget_NamespacedAppliedToCorrectPackage()
+    {
+        var result = PackageCommand.ParseAsHumanTokens(
+            new[]
+            {
+                "pkg-a.Bob=11111111-1111-1111-1111-111111111111",
+                "pkg-b.Alice=alice@example.com",
+            },
+            new[] { "pkg-a", "pkg-b" });
+
+        result["pkg-a"]["Bob"].ShouldBe("11111111-1111-1111-1111-111111111111");
+        result["pkg-b"]["Alice"].ShouldBe("alice@example.com");
+        result["pkg-a"].ShouldNotContainKey("Alice");
+        result["pkg-b"].ShouldNotContainKey("Bob");
+    }
+
+    [Fact]
+    public void ParseAsHumanTokens_MultiTarget_BareToken_ThrowsError()
+    {
+        var ex = Should.Throw<ArgumentException>(() =>
+            PackageCommand.ParseAsHumanTokens(
+                new[] { "Bob=me" },
+                new[] { "pkg-a", "pkg-b" }));
+
+        ex.Message.ShouldContain("package prefix");
+    }
+
+    [Fact]
+    public void ParseAsHumanTokens_DuplicateDeclaration_ThrowsError()
+    {
+        // Each declaration accepts one override — a duplicate is
+        // ambiguous and surfaces as a clean parse-time error.
+        var ex = Should.Throw<ArgumentException>(() =>
+            PackageCommand.ParseAsHumanTokens(
+                new[] { "Bob=me", "Bob=alice@example.com" },
+                new[] { "my-pkg" }));
+
+        ex.Message.ShouldContain("more than once");
+    }
+
+    [Fact]
+    public void ParseAsHumanTokens_MalformedToken_ThrowsError()
+    {
+        var ex = Should.Throw<ArgumentException>(() =>
+            PackageCommand.ParseAsHumanTokens(
+                new[] { "BobButNoEquals" },
+                new[] { "my-pkg" }));
+
+        ex.Message.ShouldContain("<declaration>=<tenant-user-ref>");
+    }
+
+    [Fact]
+    public void ParseAsHumanTokens_EmptyDeclarationKey_ThrowsError()
+    {
+        var ex = Should.Throw<ArgumentException>(() =>
+            PackageCommand.ParseAsHumanTokens(
+                new[] { "=me" },
+                new[] { "my-pkg" }));
+
+        ex.Message.ShouldContain("not in <declaration>=<tenant-user-ref> form");
+    }
+
+    [Fact]
+    public void ParseAsHumanTokens_EmptyValue_ThrowsError()
+    {
+        var ex = Should.Throw<ArgumentException>(() =>
+            PackageCommand.ParseAsHumanTokens(
+                new[] { "Bob=" },
+                new[] { "my-pkg" }));
+
+        ex.Message.ShouldContain("value after '=' is empty");
+    }
+
+    [Fact]
+    public void ParseAsHumanTokens_NoTokens_ReturnsEmptyBuckets()
+    {
+        var result = PackageCommand.ParseAsHumanTokens(
+            Array.Empty<string>(),
+            new[] { "pkg-a", "pkg-b" });
+
+        result.Count.ShouldBe(2);
+        result["pkg-a"].ShouldBeEmpty();
+        result["pkg-b"].ShouldBeEmpty();
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>

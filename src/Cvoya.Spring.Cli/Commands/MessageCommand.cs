@@ -33,17 +33,17 @@ public static class MessageCommand
         var addressArg = new Argument<string>("address") { Description = "Destination address in canonical form scheme:<guid> (e.g. agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7)" };
         var textArg = new Argument<string>("text") { Description = "Message text" };
         var conversationOption = new Option<string?>("--thread") { Description = "Thread identifier" };
-        // ADR-0062 § 3 / § 6: explicit "speaking-as" Hat. The CLI does
-        // NOT pre-resolve the human-ref to a UUID — the server owns the
-        // bound-set validation so the CLI never has to mirror the resolver.
-        // Accepts dashed or no-dash Guid form. (The display-name lookup
-        // surface is a follow-up — for v0.1 the CLI requires the Guid;
-        // bound-Humans listing arrives with the cloud overlay.)
+        // ADR-0062 § 3 / § 6: explicit "speaking-as" Hat. The CLI resolves
+        // display-name input (#2827) against the calling caller's bound-
+        // Hat set via GET /api/v1/tenant/users/me/humans before sending;
+        // bare Guids pass through without a round-trip.
         var asOption = new Option<string?>("--as")
         {
             Description =
-                "Explicit 'speaking-as' Hat (Human UUID). Defaults to your primary Hat per ADR-0062 § 3 when omitted. " +
-                "Accepts dashed or no-dash Guid form. An unbound Hat returns a CLI-friendly 400.",
+                "Explicit 'speaking-as' Hat. Accepts the Hat UUID (dashed or no-dash) or a Hat " +
+                "display name (case-insensitive, must be unambiguous within your bound Hats). " +
+                "Defaults to your primary Hat per ADR-0062 § 3 when omitted. An unbound Hat " +
+                "returns a CLI-friendly 400.",
         };
         var command = new Command("send", "Send a message to an address");
         command.Arguments.Add(addressArg);
@@ -93,14 +93,21 @@ public static class MessageCommand
             Guid? fromHumanId = null;
             if (!string.IsNullOrWhiteSpace(asInput))
             {
-                if (!Guid.TryParse(asInput, out var parsedFrom) || parsedFrom == Guid.Empty)
+                // ADR-0062 § 6 / #2827: accept the Hat UUID or the
+                // display name. RefResolver short-circuits on bare
+                // Guids (no round-trip) and falls back to /me/humans
+                // for the name path.
+                try
                 {
-                    await Console.Error.WriteLineAsync(
-                        $"--as '{asInput}' is not a valid Human UUID. Pass the dashed or no-dash hex form.");
+                    fromHumanId = await RefResolver.ResolveHumanRefAsync(
+                        client, asInput, "--as", ct);
+                }
+                catch (CliRefResolutionException ex)
+                {
+                    await Console.Error.WriteLineAsync(ex.Message);
                     Environment.Exit(1);
                     return;
                 }
-                fromHumanId = parsedFrom;
             }
 
             MessageResponse result;

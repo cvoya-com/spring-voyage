@@ -216,59 +216,76 @@ public class UnitMembersCommandTests
     }
 
     [Fact]
-    public void ResolveTenantUserRef_Null_ReturnsNullForServerDefault()
+    public void TryResolveTenantUserRefSync_Null_ResolvesToServerDefault()
     {
         // ADR-0062 § 1: when --as is omitted the CLI sends no override
         // and the server's ITenantUserDefaultResolver picks the
         // deployment default (OSS: operator; cloud: calling caller).
-        UnitMembersCommand.ResolveTenantUserRef(null).ShouldBeNull();
-        UnitMembersCommand.ResolveTenantUserRef("   ").ShouldBeNull();
+        var (resolved, value) = UnitMembersCommand.TryResolveTenantUserRefSync(null);
+        resolved.ShouldBeTrue();
+        value.ShouldBeNull();
+
+        (resolved, value) = UnitMembersCommand.TryResolveTenantUserRefSync("   ");
+        resolved.ShouldBeTrue();
+        value.ShouldBeNull();
     }
 
     [Fact]
-    public void ResolveTenantUserRef_Me_ReturnsOssOperatorId()
+    public void TryResolveTenantUserRefSync_Me_ReturnsOssOperatorId()
     {
         // ADR-0062 § 6 + ADR-0047 §3: `--as me` resolves to the OSS
         // operator UUID in v0.1 (one tenant user per OSS deployment).
         // Cloud overlays plug a /me-equivalent in front (#2487 OUT1).
-        UnitMembersCommand.ResolveTenantUserRef("me")
-            .ShouldBe(Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator);
-        UnitMembersCommand.ResolveTenantUserRef("ME")
-            .ShouldBe(Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator);
+        var (resolved, value) = UnitMembersCommand.TryResolveTenantUserRefSync("me");
+        resolved.ShouldBeTrue();
+        value.ShouldBe(Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator);
+
+        (resolved, value) = UnitMembersCommand.TryResolveTenantUserRefSync("ME");
+        resolved.ShouldBeTrue();
+        value.ShouldBe(Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator);
     }
 
     [Fact]
-    public void ResolveTenantUserRef_DashedGuid_Parses()
+    public void TryResolveTenantUserRefSync_DashedGuid_Parses()
     {
         var input = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
-        UnitMembersCommand.ResolveTenantUserRef(input)
-            .ShouldBe(System.Guid.Parse(input));
+        var (resolved, value) = UnitMembersCommand.TryResolveTenantUserRefSync(input);
+        resolved.ShouldBeTrue();
+        value.ShouldBe(System.Guid.Parse(input));
     }
 
     [Fact]
-    public void ResolveTenantUserRef_NoDashGuid_Parses()
+    public void TryResolveTenantUserRefSync_NoDashGuid_Parses()
     {
         // CONVENTIONS.md § Identifiers: lenient parse accepts both
         // dashed and no-dash hex forms.
         var hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        UnitMembersCommand.ResolveTenantUserRef(hex)
-            .ShouldBe(System.Guid.Parse(hex));
+        var (resolved, value) = UnitMembersCommand.TryResolveTenantUserRefSync(hex);
+        resolved.ShouldBeTrue();
+        value.ShouldBe(System.Guid.Parse(hex));
     }
 
     [Fact]
-    public void ResolveTenantUserRef_Garbage_Throws()
+    public void TryResolveTenantUserRefSync_OAuthSubject_FallsThroughToAsyncLookup()
     {
-        Should.Throw<System.InvalidOperationException>(() =>
-            UnitMembersCommand.ResolveTenantUserRef("not-a-guid"));
+        // ADR-0062 § 6 / #2827: non-Guid non-`me` inputs need the
+        // server-side OAuth-subject lookup. The sync helper reports
+        // "not resolved" so the async wrapper drives the round-trip;
+        // it does not raise (the lookup may legitimately succeed).
+        var (resolved, value) = UnitMembersCommand.TryResolveTenantUserRefSync("alice@example.com");
+        resolved.ShouldBeFalse();
+        value.ShouldBeNull();
     }
 
     [Fact]
-    public void ResolveTenantUserRef_GuidEmpty_Throws()
+    public void TryResolveTenantUserRefSync_GuidEmpty_FallsThroughToAsyncLookup()
     {
-        // Defensive: an all-zero Guid is the canonical "no value" sentinel
-        // on the wire — surface it as a parse error rather than letting it
-        // through as a "valid" tenant user reference.
-        Should.Throw<System.InvalidOperationException>(() =>
-            UnitMembersCommand.ResolveTenantUserRef(System.Guid.Empty.ToString()));
+        // Defensive: an all-zero Guid is the canonical "no value"
+        // sentinel on the wire. The sync helper reports "not resolved"
+        // so the OAuth-subject path runs — and the server returns 404
+        // for a literal zero-Guid subject, surfacing a clean error.
+        var (resolved, _) = UnitMembersCommand.TryResolveTenantUserRefSync(
+            System.Guid.Empty.ToString());
+        resolved.ShouldBeFalse();
     }
 }
