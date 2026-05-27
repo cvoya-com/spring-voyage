@@ -43,7 +43,7 @@ public static class SlackForwardCommand
     public const string SigningSecretEnvVar = "Slack__OAuth__SigningSecret";
 
     /// <summary>Default local target the bridge replays inbound deliveries to.</summary>
-    public const string DefaultTarget = "http://localhost:5000";
+    public const string DefaultTarget = "http://localhost";
 
     /// <summary>
     /// Builds the <c>forward</c> verb. Wired into <c>spring connector

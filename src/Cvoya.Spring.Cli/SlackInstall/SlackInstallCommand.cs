@@ -54,7 +54,8 @@ public static class SlackInstallCommand
             Description =
                 "Override the Spring Voyage base URL the manifest embeds in " +
                 "every redirect / event / slash-command URL. Defaults to " +
-                "SPRING_API_URL, then the CLI config endpoint, then http://localhost:5000.",
+                "SPRING_API_URL, then the CLI config endpoint, then http://localhost " +
+                "(matching the Caddy-fronted local OSS deploy).",
         };
         var writeEnvOption = new Option<bool>("--write-env")
         {
@@ -364,24 +365,24 @@ public static class SlackInstallCommand
             return fromConfig;
         }
 
-        return "http://localhost:5000";
+        return "http://localhost";
     }
 
     /// <summary>
     /// Shape-checks the resolved Spring Voyage host before it is baked into
-    /// the manifest. Catches the two classes of misconfig that produced
+    /// the manifest. Catches the classes of misconfig that produced
     /// silently-broken installs against ~/.spring/config.json:
     /// <list type="bullet">
-    ///   <item>Loopback host with no explicit port — the URL parses as
-    ///   port-80/443, which is almost never where a dev SV API actually
-    ///   listens (the default is <c>:5000</c>).</item>
-    ///   <item>Loopback host with a port, but <c>--socket-mode</c> was not
-    ///   requested — Slack cannot reach <c>localhost</c> from its own infra,
-    ///   so the events / commands / interactions URLs in the manifest are
-    ///   non-functional.</item>
+    ///   <item>Loopback host without <c>--socket-mode</c> — Slack cannot
+    ///   reach <c>localhost</c> from its own infra, so the events / commands
+    ///   / interactions URLs in the manifest are non-functional.</item>
+    ///   <item>Non-loopback HTTP host — Slack accepts the manifest, but
+    ///   the OAuth handshake and inbound deliveries will fail in production
+    ///   unless TLS is terminated in front of the URL.</item>
     /// </list>
-    /// Non-loopback HTTP hosts get a warning so production deployments
-    /// notice they are missing TLS.
+    /// <c>http://localhost</c> (port 80) is accepted as the canonical
+    /// Caddy-fronted local OSS deploy; <c>http://localhost:5000</c> remains
+    /// valid for operators running the API directly via <c>dotnet run</c>.
     /// </summary>
     internal static void ValidateSvHost(string host, bool socketMode, TextWriter stdout)
     {
@@ -410,17 +411,6 @@ public static class SlackInstallCommand
             || hostName == "[::1]"
             || hostName == "::1";
 
-        var hasExplicitPort = HostHasExplicitPort(host);
-
-        if (isLoopback && !hasExplicitPort)
-        {
-            throw new SlackInstallException(
-                $"--sv-host '{host}' resolves to {hostName} with the default port " +
-                $"({uri.Port}). Spring Voyage's API listens on :5000 by default — " +
-                "specify the port explicitly. Pass `--sv-host http://localhost:5000`, " +
-                "set SPRING_API_URL, or fix the Endpoint in ~/.spring/config.json.");
-        }
-
         if (isLoopback && !socketMode)
         {
             stdout.WriteLine(
@@ -439,49 +429,6 @@ public static class SlackInstallCommand
                 "in production unless TLS is terminated in front of this URL.");
             stdout.WriteLine();
         }
-    }
-
-    /// <summary>
-    /// True if the original <paramref name="host"/> string ends with
-    /// <c>:&lt;digits&gt;</c> on its authority component. <see cref="Uri.IsDefaultPort"/>
-    /// can't be used because it returns <c>true</c> whether the default port
-    /// was implicit or written out explicitly.
-    /// </summary>
-    private static bool HostHasExplicitPort(string host)
-    {
-        var schemeIdx = host.IndexOf("://", StringComparison.Ordinal);
-        var authorityStart = schemeIdx >= 0 ? schemeIdx + 3 : 0;
-        var pathStart = host.IndexOf('/', authorityStart);
-        var authority = pathStart >= 0
-            ? host[authorityStart..pathStart]
-            : host[authorityStart..];
-
-        // IPv6 authorities are bracketed: [::1]:8080 — match a `:digits` suffix
-        // outside any brackets.
-        var lastColon = authority.LastIndexOf(':');
-        if (lastColon < 0)
-        {
-            return false;
-        }
-        var afterColon = authority[(lastColon + 1)..];
-        if (afterColon.Length == 0)
-        {
-            return false;
-        }
-        var lastBracket = authority.LastIndexOf(']');
-        if (lastColon < lastBracket)
-        {
-            // colon is inside the bracketed IPv6 address; no explicit port.
-            return false;
-        }
-        foreach (var c in afterColon)
-        {
-            if (c < '0' || c > '9')
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     private static Persistence ResolvePersistence(

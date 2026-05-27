@@ -4,7 +4,7 @@
 # Bridges Slack Socket Mode (a WebSocket Slack pushes events / slash
 # commands / interactions over) to a locally-running Spring Voyage API.
 # This is the Slack equivalent of `gh-webhook-forward.sh`: it lets an
-# operator receive Slack deliveries on `http://localhost:5000` without
+# operator receive Slack deliveries on `http://localhost` without
 # provisioning a public HTTPS tunnel.
 #
 # How it works:
@@ -13,7 +13,7 @@
 #                       |
 #                       | spring connector slack forward
 #                       v
-#                  HTTP POST to http://localhost:5000/api/v1/tenant/connectors/slack/{events,commands,interactions}
+#                  HTTP POST to http://localhost/api/v1/tenant/connectors/slack/{events,commands,interactions}
 #                       |
 #                       v
 #                  spring-api on the dev machine
@@ -37,7 +37,7 @@
 # Usage:
 #
 #   ./slack-events-forward.sh
-#   ./slack-events-forward.sh --target http://localhost:8080
+#   ./slack-events-forward.sh --target http://localhost:5000
 #   ./slack-events-forward.sh --env /custom/path/spring.env
 #
 # Stop with Ctrl-C.
@@ -48,7 +48,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 CONFIG_DIR="${REPO_ROOT}/eng/config"
 
-TARGET="${SV_SLACK_TARGET:-http://localhost:5000}"
+TARGET="${SV_SLACK_TARGET:-http://localhost}"
 ENV_FILE="${SV_SLACK_ENV_FILE:-${CONFIG_DIR}/spring.env}"
 CLI_PROJECT="${SV_SLACK_CLI_PROJECT:-${REPO_ROOT}/src/Cvoya.Spring.Cli}"
 
@@ -75,7 +75,7 @@ Usage: slack-events-forward.sh [--target URL] [--env PATH]
 
 Optional:
   --target URL    Local Spring Voyage API base URL to deliver to.
-                  Default: http://localhost:5000
+                  Default: http://localhost
                   (or $SV_SLACK_TARGET).
   --env PATH      Path to the env file holding Slack__SocketMode__AppToken
                   and Slack__OAuth__SigningSecret.

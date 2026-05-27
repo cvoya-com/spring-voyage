@@ -426,7 +426,7 @@ spring system configuration --json           # JSON (for jq pipelines)
 spring system configuration "GitHub Connector"  # drill into one subsystem
 
 # HTTP
-curl http://localhost:5000/api/v1/system/configuration | jq .
+curl http://localhost/api/v1/system/configuration | jq .
 
 # Portal
 # Visit /system/configuration in your browser.
