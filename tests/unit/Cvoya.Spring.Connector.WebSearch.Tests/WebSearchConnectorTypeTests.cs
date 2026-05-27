@@ -27,6 +27,15 @@ public class WebSearchConnectorTypeTests
     }
 
     [Fact]
+    public void BindingScope_IsUnit()
+    {
+        // ADR-0061 §1: only workspace-shaped connectors bind at the
+        // tenant scope. Web-search stays per-unit.
+        var sut = BuildConnector(Array.Empty<IWebSearchProvider>());
+        sut.BindingScope.ShouldBe(BindingScope.Unit);
+    }
+
+    [Fact]
     public void BuildConfigSchema_EnumerateRegisteredProviders()
     {
         var providers = new IWebSearchProvider[]

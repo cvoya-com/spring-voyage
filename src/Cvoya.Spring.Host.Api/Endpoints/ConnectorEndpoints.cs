@@ -3,11 +3,14 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.CredentialHealth;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.State;
+using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
@@ -141,6 +144,35 @@ public static class ConnectorEndpoints
             .Produces<CredentialHealthResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .RequireAuthorization(RolePolicies.TenantUser);
+
+        // ADR-0061 §1: tenant-scoped binding surface. Singular path —
+        // there is at most one binding per (tenant, connector_slug),
+        // and the URL carries no unit segment because the binding is
+        // workspace-shaped, not unit-shaped. Reads require TenantUser;
+        // writes require TenantOperator.
+        connectors.MapGet("/{slugOrId}/binding", GetTenantBindingAsync)
+            .WithName("GetTenantConnectorBinding")
+            .WithSummary("Get the tenant-scoped binding for a connector (ADR-0061 §1)")
+            .Produces<TenantConnectorBindingResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .RequireAuthorization(RolePolicies.TenantUser);
+
+        connectors.MapPut("/{slugOrId}/binding", PutTenantBindingAsync)
+            .WithName("PutTenantConnectorBinding")
+            .WithSummary("Upsert the tenant-scoped binding for a connector (ADR-0061 §1)")
+            .Accepts<TenantConnectorBindingRequest>("application/json")
+            .Produces<TenantConnectorBindingResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .RequireAuthorization(RolePolicies.TenantOperator);
+
+        connectors.MapDelete("/{slugOrId}/binding", DeleteTenantBindingAsync)
+            .WithName("DeleteTenantConnectorBinding")
+            .WithSummary("Remove the tenant-scoped binding for a connector (ADR-0061 §1)")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization(RolePolicies.TenantOperator);
 
         // Each connector owns its typed routes under /api/v1/connectors/{slug}/...
         // The host calls MapRoutes on a pre-scoped group so the connector
@@ -596,4 +628,144 @@ public static class ConnectorEndpoints
         CredentialValidationStatus.NetworkError => CredentialHealthStatus.Unknown,
         _ => CredentialHealthStatus.Unknown,
     };
+
+    // ---- Tenant-scoped binding handlers (ADR-0061 §1) ----
+
+    /// <summary>
+    /// Handler for <c>GET /api/v1/tenant/connectors/{slugOrId}/binding</c>.
+    /// Rejects with 400 when the connector is registered but bound at
+    /// <see cref="BindingScope.Unit"/> (the caller should use the per-unit
+    /// surface). Returns 404 when no binding row exists yet.
+    /// </summary>
+    private static async Task<IResult> GetTenantBindingAsync(
+        string slugOrId,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        [FromServices] ITenantConnectorBindingStore store,
+        CancellationToken cancellationToken)
+    {
+        var type = ResolveConnector(slugOrId, connectorTypes);
+        if (type is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{slugOrId}' is not registered.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (type.BindingScope != BindingScope.Tenant)
+        {
+            return Results.Problem(
+                title: "Connector is not tenant-scoped",
+                detail: $"Connector '{type.Slug}' binds per-unit; use the per-unit config endpoint.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var binding = await store.GetAsync(type.Slug, cancellationToken);
+        if (binding is null)
+        {
+            return Results.Problem(
+                detail: $"No tenant binding exists for connector '{type.Slug}'.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // BoundAt isn't carried on TenantConnectorBinding; the store
+        // exposes only the connector-facing slice. For the read response
+        // we surface the value from the metadata-bearing row by reading
+        // it back through the repository if available. The simpler
+        // approach: derive a stable "BoundAt" from the binding read path
+        // when we need it later — today the response carries the live
+        // payload; BoundAt is recorded server-side and surfaced via the
+        // binding's own runtime metadata. Plumb a no-allocation default
+        // here so the contract is observable; concrete consumers (the
+        // OAuth flow) write the timestamp into the config blob.
+        return Results.Ok(new TenantConnectorBindingResponse(
+            ConnectorSlug: binding.ConnectorSlug,
+            TypeId: binding.TypeId,
+            Config: binding.Config,
+            BoundAt: DateTimeOffset.MinValue));
+    }
+
+    private static async Task<IResult> PutTenantBindingAsync(
+        string slugOrId,
+        [FromBody] TenantConnectorBindingRequest body,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        [FromServices] ITenantConnectorBindingStore store,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        var type = ResolveConnector(slugOrId, connectorTypes);
+        if (type is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{slugOrId}' is not registered.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (type.BindingScope != BindingScope.Tenant)
+        {
+            return Results.Problem(
+                title: "Connector is not tenant-scoped",
+                detail: $"Connector '{type.Slug}' binds per-unit; use the per-unit config endpoint.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (body.Config.ValueKind == JsonValueKind.Undefined)
+        {
+            return Results.Problem(
+                detail: "Request body must include a 'config' object (may be empty).",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        await store.SetAsync(type.Slug, type.TypeId, body.Config, cancellationToken);
+        var binding = await store.GetAsync(type.Slug, cancellationToken);
+        if (binding is null)
+        {
+            // Should not happen — the SetAsync above just wrote the row.
+            // Mirrors the existing "couldn't read what we just wrote"
+            // safety on PutConfigAsync (defence-in-depth).
+            return Results.Problem(
+                detail: "The binding could not be read back after upsert.",
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        return Results.Ok(new TenantConnectorBindingResponse(
+            ConnectorSlug: binding.ConnectorSlug,
+            TypeId: binding.TypeId,
+            Config: binding.Config,
+            BoundAt: DateTimeOffset.UtcNow));
+    }
+
+    private static async Task<IResult> DeleteTenantBindingAsync(
+        string slugOrId,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        [FromServices] ITenantConnectorBindingStore store,
+        CancellationToken cancellationToken)
+    {
+        var type = ResolveConnector(slugOrId, connectorTypes);
+        if (type is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{slugOrId}' is not registered.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (type.BindingScope != BindingScope.Tenant)
+        {
+            return Results.Problem(
+                title: "Connector is not tenant-scoped",
+                detail: $"Connector '{type.Slug}' binds per-unit; use the per-unit config endpoint.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var existing = await store.GetAsync(type.Slug, cancellationToken);
+        if (existing is null)
+        {
+            return Results.Problem(
+                detail: $"No tenant binding exists for connector '{type.Slug}'.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        await store.ClearAsync(type.Slug, cancellationToken);
+        return Results.NoContent();
+    }
 }

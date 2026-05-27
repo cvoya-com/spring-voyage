@@ -8177,6 +8177,148 @@
         }
       }
     },
+    "/api/v1/tenant/connectors/{slugOrId}/binding": {
+      "get": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Get the tenant-scoped binding for a connector (ADR-0061 §1)",
+        "operationId": "GetTenantConnectorBinding",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantConnectorBindingResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Upsert the tenant-scoped binding for a connector (ADR-0061 §1)",
+        "operationId": "PutTenantConnectorBinding",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantConnectorBindingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantConnectorBindingResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Remove the tenant-scoped binding for a connector (ADR-0061 §1)",
+        "operationId": "DeleteTenantConnectorBinding",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/connectors/github/units/{unitId}/config": {
       "get": {
         "tags": [
@@ -15400,6 +15542,42 @@
                 "$ref": "#/components/schemas/ExternalForwardDto"
               }
             ]
+          }
+        }
+      },
+      "TenantConnectorBindingRequest": {
+        "required": [
+          "config"
+        ],
+        "type": "object",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        }
+      },
+      "TenantConnectorBindingResponse": {
+        "required": [
+          "connectorSlug",
+          "typeId",
+          "config",
+          "boundAt"
+        ],
+        "type": "object",
+        "properties": {
+          "connectorSlug": {
+            "type": "string"
+          },
+          "typeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "config": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "boundAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

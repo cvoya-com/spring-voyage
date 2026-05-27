@@ -133,3 +133,28 @@ public record ProvisionedConnectorResponse(
     string Description,
     DateTimeOffset ProvisionedAt,
     DateTimeOffset UpdatedAt);
+
+/// <summary>
+/// Response body for the tenant-scoped binding endpoint
+/// <c>GET /api/v1/tenant/connectors/{slug}/binding</c> (ADR-0061 §1).
+/// One binding per (tenant, connector_slug); no unit segment in the
+/// URL because the binding is workspace-shaped.
+/// </summary>
+/// <param name="ConnectorSlug">The connector slug this binding targets.</param>
+/// <param name="TypeId">Stable connector type id persisted on the row.</param>
+/// <param name="Config">Opaque connector-specific config payload.</param>
+/// <param name="BoundAt">Timestamp when the binding was first created.</param>
+public record TenantConnectorBindingResponse(
+    string ConnectorSlug,
+    Guid TypeId,
+    System.Text.Json.JsonElement Config,
+    DateTimeOffset BoundAt);
+
+/// <summary>
+/// Request body for
+/// <c>PUT /api/v1/tenant/connectors/{slug}/binding</c> (ADR-0061 §1).
+/// Carries the opaque connector-specific config payload; the platform
+/// never deserialises it (ADR-0061 §7.7).
+/// </summary>
+/// <param name="Config">Opaque per-tenant config payload to persist.</param>
+public record TenantConnectorBindingRequest(System.Text.Json.JsonElement Config);

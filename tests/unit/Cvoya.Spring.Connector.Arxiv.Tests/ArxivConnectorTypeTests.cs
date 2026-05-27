@@ -6,6 +6,12 @@ namespace Cvoya.Spring.Connector.Arxiv.Tests;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.Arxiv;
+using Cvoya.Spring.Connectors;
+
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+
+using NSubstitute;
 
 using Shouldly;
 
@@ -20,6 +26,18 @@ public class ArxivConnectorTypeTests
         // drift guard so accidental renames get caught in review.
         ArxivConnectorType.ArxivTypeId.ShouldBe(
             new Guid("b3c2f5a1-1d38-4a56-8c18-9ac8b2b2d401"));
+    }
+
+    [Fact]
+    public void BindingScope_IsUnit()
+    {
+        // ADR-0061 §1: only workspace-shaped connectors bind at the
+        // tenant scope. Arxiv stays per-unit.
+        var sut = new ArxivConnectorType(
+            Substitute.For<IUnitConnectorConfigStore>(),
+            Options.Create(new ArxivConnectorOptions()),
+            NullLoggerFactory.Instance);
+        sut.BindingScope.ShouldBe(BindingScope.Unit);
     }
 
     [Fact]
