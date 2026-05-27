@@ -65,6 +65,7 @@ import type {
   PersistentAgentLogsResponse,
   PlatformInfoResponse,
   SkillSummary,
+  TenantConnectorBindingResponse,
   TenantCostTimeseriesResponse,
   ThroughputRollupResponse,
   TokenResponse,
@@ -1380,6 +1381,29 @@ export function useConnectorBindings(
       }));
     },
     enabled: opts?.enabled ?? Boolean(slugOrId),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Reads the tenant-scoped Slack connector binding (ADR-0061 §1). Returns
+ * `null` when no binding row exists (the empty state — the operator has
+ * not completed the OAuth install yet). Refetches honour `refetchInterval`
+ * so the settings panel can poll while the OAuth popup is open and snap
+ * to the bound state without a manual refresh.
+ *
+ * @public Consumed by `Cvoya.Spring.Connector.Slack/web/*` cross-workspace
+ * (knip's path-alias resolver doesn't follow `@/*` from outside this
+ * workspace, so the import is invisible to it).
+ */
+export function useTenantSlackBinding(
+  opts?: SliceOptions<TenantConnectorBindingResponse | null>,
+): UseQueryResult<TenantConnectorBindingResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.connectors.tenantBinding("slack"),
+    queryFn: () => api.getTenantSlackBinding(),
+    enabled: opts?.enabled ?? true,
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,
   });

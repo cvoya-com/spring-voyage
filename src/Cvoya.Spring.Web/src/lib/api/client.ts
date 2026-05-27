@@ -37,6 +37,9 @@ import type {
   ScalePersistentAgentRequest,
   SendMessageRequest,
   SetBudgetRequest,
+  SlackAuthorizeRequest,
+  SlackAuthorizeResponse,
+  TenantConnectorBindingResponse,
   TenantUserConnectorIdentityRequest,
   TenantUserConnectorIdentityResponse,
   TenantUserResponse,
@@ -1482,6 +1485,55 @@ export const api = {
         { params: { path: { unitId } }, body },
       ),
     ),
+
+  // Connectors — Slack typed surface (ADR-0061).
+  //
+  // The Slack connector binds at TENANT scope, not per-unit, so the
+  // portal surface lives in `/settings` (not on a unit's Connector tab).
+  // The CLI mirror is `spring connector slack …`. Only three round-trips
+  // are needed for the v0.1 portal flow:
+  //
+  //   * `getTenantSlackBinding` — read the current binding (or `null`)
+  //     so the settings panel can pick between empty-state and
+  //     bound-state. 404 collapses to null the same way the per-unit
+  //     connector pointer endpoint does, so call sites don't need a
+  //     try/catch.
+  //   * `beginSlackOAuthAuthorize` — request the Slack consent URL the
+  //     popup navigates to. The `clientState` echoes back via the
+  //     callback so a future HTML-handoff response can target the
+  //     opener; v0.1 polls instead.
+  //   * `disconnectSlackBinding` — revoke the bot token via Slack's
+  //     `auth.revoke` and delete the binding + tenant secrets in one
+  //     server-side transaction.
+  getTenantSlackBinding: async (): Promise<TenantConnectorBindingResponse | null> => {
+    const result = await fetchClient.GET(
+      "/api/v1/tenant/connectors/{slugOrId}/binding",
+      { params: { path: { slugOrId: "slack" } } },
+    );
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result);
+  },
+  beginSlackOAuthAuthorize: async (
+    body?: SlackAuthorizeRequest,
+  ): Promise<SlackAuthorizeResponse> =>
+    unwrap(
+      await fetchClient.POST(
+        "/api/v1/tenant/connectors/slack/oauth/authorize",
+        {
+          body: { clientState: body?.clientState ?? null },
+        },
+      ),
+    ),
+  disconnectSlackBinding: async (): Promise<void> => {
+    assertOk(
+      await fetchClient.POST(
+        "/api/v1/tenant/connectors/slack/disconnect",
+        {},
+      ),
+    );
+  },
 
   // Connectors — Web Search typed surface.
   //

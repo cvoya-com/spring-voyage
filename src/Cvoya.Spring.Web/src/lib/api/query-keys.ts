@@ -282,6 +282,12 @@ export const queryKeys = {
       ["connectors", "github", "installations"] as const,
     githubInstallUrl: () =>
       ["connectors", "github", "install-url"] as const,
+    // ADR-0061 §1: tenant-scoped binding query. One row per
+    // (tenant, connector_slug) — keyed on the slug so the Slack
+    // settings panel and any future tenant-scoped connectors share
+    // the same cache slice.
+    tenantBinding: (slug: string) =>
+      ["connectors", "tenant-binding", slug] as const,
   },
 
   templates: {

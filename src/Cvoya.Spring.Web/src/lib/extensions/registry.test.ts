@@ -134,7 +134,7 @@ describe("extension registry", () => {
     ).toThrow(/already owns/);
   });
 
-  it("ships Budget / Tenant defaults / Agent overrides / Auth / About as the default drawer panels", () => {
+  it("ships Budget / Tenant defaults / Agent overrides / Auth / Slack / About as the default drawer panels", () => {
     const merged = computeMergedExtensions();
     const ids = merged.drawerPanels.map((p) => p.id);
     // #615 added "tenant-defaults" (orderHint 15, between Budget at 10
@@ -142,11 +142,14 @@ describe("extension registry", () => {
     // #1744 added "agent-overrides" (orderHint 17) directly under the
     // tenant-defaults panel — agent scope is the narrowest tier of the
     // resolver chain so it sits next to its broader siblings.
+    // #2820 added "slack-connector" (orderHint 25) between Auth at 20
+    // and About at 90 — tenant-scoped connector binding (ADR-0061).
     expect(ids).toEqual([
       "budget",
       "tenant-defaults",
       "agent-overrides",
       "auth",
+      "slack-connector",
       "about",
     ]);
     expect(merged.drawerPanels).toEqual(defaultDrawerPanels);
@@ -173,6 +176,7 @@ describe("extension registry", () => {
       "tenant-defaults",
       "agent-overrides",
       "auth",
+      "slack-connector",
       "about",
       "tenants",
     ]);

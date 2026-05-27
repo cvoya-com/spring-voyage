@@ -37,6 +37,10 @@ export default defineConfig({
         __dirname,
         "../Cvoya.Spring.Connector.GitHub/web",
       ),
+      "@connector-slack": resolve(
+        __dirname,
+        "../Cvoya.Spring.Connector.Slack/web",
+      ),
       "@connector-web-search": resolve(
         __dirname,
         "../Cvoya.Spring.Connector.WebSearch/web",
