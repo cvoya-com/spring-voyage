@@ -21,6 +21,21 @@ public class HumanEntity : ITenantScopedEntity
     public Guid TenantId { get; set; }
 
     /// <summary>
+    /// Gets or sets the <c>TenantUserEntity</c> id this Human is bound to
+    /// (ADR-0062 § 1). The Human → TenantUser relation is many-to-one: one
+    /// TenantUser can be bound to many Human "hats" across (and within)
+    /// units, but each Human is filled by exactly one TenantUser. The
+    /// column is NOT NULL — every Human-insert path stamps a value through
+    /// <see cref="Cvoya.Spring.Core.Tenancy.ITenantUserDefaultResolver"/>
+    /// at insert time. The OSS implementation always returns
+    /// <see cref="OssTenantUserIds.Operator"/>; the cloud overlay returns
+    /// the calling principal. The seeded default-tenant Human rows backfill
+    /// to the operator's <c>TenantUser</c> via
+    /// <c>DefaultTenantUserSeedProvider</c>.
+    /// </summary>
+    public Guid TenantUserId { get; set; }
+
+    /// <summary>
     /// Gets or sets the JWT subject claim (NameIdentifier). Unique within
     /// a tenant. Used to look up the UUID at every authenticated boundary.
     /// </summary>

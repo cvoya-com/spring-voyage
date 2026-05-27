@@ -40,6 +40,11 @@ internal static class ServiceCollectionExtensionsStateTenancySecrets
         services.AddOptions<SecretsOptions>().BindConfiguration(SecretsOptions.SectionName);
         services.AddOptions<TenancyOptions>().BindConfiguration(TenancyOptions.SectionName);
         services.TryAddSingleton<ITenantContext, ConfiguredTenantContext>();
+        // ADR-0062 § 1: deployment-default Human → TenantUser binding.
+        // OSS returns the operator literal; cloud overlays register a
+        // scoped resolver that returns the calling principal. TryAdd so
+        // the overlay's pre-registration wins.
+        services.TryAddSingleton<ITenantUserDefaultResolver, OssTenantUserDefaultResolver>();
         // Cross-tenant bypass helper (#677). AsyncLocal-backed nesting-safe
         // scope with structured audit logging on open / close — the
         // EF query filters introduced in the #675 sibling PR consult its

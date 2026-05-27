@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Auth;
 
 using Cvoya.Spring.Core.Security;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 
@@ -19,6 +20,7 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 internal sealed class HumanIdentityResolver(
     SpringDbContext db,
+    ITenantUserDefaultResolver tenantUserDefaultResolver,
     ILogger<HumanIdentityResolver> logger)
     : IHumanIdentityResolver
 {
@@ -58,9 +60,13 @@ internal sealed class HumanIdentityResolver(
         // unique index on (tenant_id, username); the losing writer simply
         // re-reads the row.
         var newId = Guid.NewGuid();
+        var tenantUserId = await tenantUserDefaultResolver
+            .ResolveDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
         var entity = new HumanEntity
         {
             Id = newId,
+            TenantUserId = tenantUserId,
             Username = username,
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? username : displayName,
         };

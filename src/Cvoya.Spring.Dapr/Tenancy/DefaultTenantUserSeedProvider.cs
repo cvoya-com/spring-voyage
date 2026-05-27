@@ -70,28 +70,106 @@ public sealed class DefaultTenantUserSeedProvider(
             .FirstOrDefaultAsync(e => e.Id == OssTenantUserIds.Operator, cancellationToken)
             .ConfigureAwait(false);
 
-        if (existing is not null)
+        var now = DateTimeOffset.UtcNow;
+        if (existing is null)
+        {
+            dbContext.TenantUsers.Add(new TenantUserEntity
+            {
+                Id = OssTenantUserIds.Operator,
+                TenantId = tenantId,
+                AuthSubject = null,
+                DisplayName = DefaultDisplayName,
+                Description = null,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            logger.LogInformation(
+                "Tenant '{TenantId}' operator user seed: inserted operator row {OperatorId}.",
+                tenantId, OssTenantUserIds.Operator);
+        }
+        else
         {
             logger.LogInformation(
                 "Tenant '{TenantId}' operator user seed: row already exists; skipped.",
                 tenantId);
+        }
+
+        // ADR-0062 § 9: backfill `humans.tenant_user_id` on every existing
+        // Human row to the OSS operator, and set the seeded `TenantUser`'s
+        // `primary_human_id` to the first such Human if any. The
+        // forward-only migration adds the FK column with a NOT NULL
+        // constraint; this backfill closes the gap for rows that pre-date
+        // the migration without resorting to a SQL row-migration script.
+        // Idempotent: the WHERE clauses match only rows that need the
+        // update.
+        await BackfillHumansTenantUserIdAsync(dbContext, tenantId, cancellationToken)
+            .ConfigureAwait(false);
+        await BackfillPrimaryHumanIdAsync(dbContext, tenantId, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task BackfillHumansTenantUserIdAsync(
+        SpringDbContext dbContext,
+        Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        // Match rows whose FK is unset (Guid.Empty) — these are pre-ADR
+        // rows that landed before the FK column existed.
+        var unbound = await dbContext.Humans
+            .Where(h => h.TenantUserId == Guid.Empty)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (unbound.Count == 0)
+        {
             return;
         }
 
-        var now = DateTimeOffset.UtcNow;
-        dbContext.TenantUsers.Add(new TenantUserEntity
+        foreach (var row in unbound)
         {
-            Id = OssTenantUserIds.Operator,
-            TenantId = tenantId,
-            AuthSubject = null,
-            DisplayName = DefaultDisplayName,
-            Description = null,
-            CreatedAt = now,
-            UpdatedAt = now,
-        });
+            row.TenantUserId = OssTenantUserIds.Operator;
+        }
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         logger.LogInformation(
-            "Tenant '{TenantId}' operator user seed: inserted operator row {OperatorId}.",
-            tenantId, OssTenantUserIds.Operator);
+            "Tenant '{TenantId}' operator user seed: backfilled humans.tenant_user_id on " +
+            "{Count} pre-existing row(s) to operator '{OperatorId}'.",
+            tenantId, unbound.Count, OssTenantUserIds.Operator);
+    }
+
+    private async Task BackfillPrimaryHumanIdAsync(
+        SpringDbContext dbContext,
+        Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        var operatorRow = await dbContext.TenantUsers
+            .FirstOrDefaultAsync(u => u.Id == OssTenantUserIds.Operator, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (operatorRow is null || operatorRow.PrimaryHumanId is not null)
+        {
+            return;
+        }
+
+        var firstHumanId = await dbContext.Humans
+            .AsNoTracking()
+            .Where(h => h.TenantUserId == OssTenantUserIds.Operator)
+            .OrderBy(h => h.CreatedAt)
+            .Select(h => (Guid?)h.Id)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (firstHumanId is null)
+        {
+            return;
+        }
+
+        operatorRow.PrimaryHumanId = firstHumanId;
+        operatorRow.UpdatedAt = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        logger.LogInformation(
+            "Tenant '{TenantId}' operator user seed: set primary_human_id={HumanId} on " +
+            "operator '{OperatorId}'.",
+            tenantId, firstHumanId, OssTenantUserIds.Operator);
     }
 }

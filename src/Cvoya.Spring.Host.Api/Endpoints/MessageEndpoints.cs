@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
@@ -63,6 +64,8 @@ public static class MessageEndpoints
         IMessageRouter messageRouter,
         IAuthenticatedCallerAccessor callerAccessor,
         IThreadRegistry threadRegistry,
+        ITenantUserHumanResolver tenantUserHumanResolver,
+        IActivityEventBus activityEventBus,
         CancellationToken cancellationToken)
     {
         // #339: Use the authenticated subject's identity as the From address
@@ -72,8 +75,8 @@ public static class MessageEndpoints
         // request but did not surface a NameIdentifier claim — surface that
         // as a structured 401 rather than fabricating a synthetic identity
         // (#2405; ADR-0036 removed the non-Guid `human://api` fallback).
-        var from = await callerAccessor.GetCallerAddressAsync(cancellationToken);
-        if (from is null)
+        var callerAddress = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (callerAddress is null)
         {
             return Results.Problem(
                 detail: "No authenticated caller identity available.",
@@ -87,6 +90,50 @@ public static class MessageEndpoints
 
         var to = Address.For(request.To.Scheme, request.To.Path);
         var messageId = Guid.NewGuid();
+
+        // ADR-0062 § 3: Message.From must be a routable scheme
+        // (agent / unit / human). The auth principal is tenant-user://,
+        // which is non-routable. Resolve to the speaking-as Hat at the
+        // API boundary so every downstream consumer (routing, directory,
+        // agent-facing tool surface, portal render) sees a uniform
+        // human://<id> sender. Control messages skip the rewrite — they
+        // never carry a domain From; the caller principal travels in the
+        // audit envelope instead.
+        Address from;
+        Guid? resolvedThreadGuid = null;
+        if (messageType == MessageType.Domain
+            && string.Equals(callerAddress.Scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(request.ThreadId)
+                && GuidFormatter.TryParse(request.ThreadId, out var parsedThreadId))
+            {
+                resolvedThreadGuid = parsedThreadId;
+            }
+
+            try
+            {
+                from = await tenantUserHumanResolver.PickFromAsync(
+                    callerAddress.Id,
+                    request.From,
+                    resolvedThreadGuid,
+                    cancellationToken);
+            }
+            catch (NoBoundHumanException ex)
+            {
+                return Results.Problem(
+                    title: "Bad Request",
+                    detail: ex.Message,
+                    statusCode: StatusCodes.Status400BadRequest,
+                    extensions: new Dictionary<string, object?>
+                    {
+                        ["code"] = ITenantUserHumanResolver.NoBoundHumanCode,
+                    });
+            }
+        }
+        else
+        {
+            from = callerAddress;
+        }
 
         // #2047 / ADR-0030: every Domain message must carry a participant-set
         // thread id so the activity-event CorrelationId is populated and
@@ -127,6 +174,16 @@ public static class MessageEndpoints
             threadId,
             request.Payload,
             DateTimeOffset.UtcNow);
+
+        // ADR-0062 § 4: dual-stamp the audit envelope so the auth principal
+        // (the TenantUser that drove the send) is reconstructible from
+        // observation alone, alongside the routable `human://` From on the
+        // message. Best-effort: a publish failure must not block the send.
+        await OutboundMessageAuditEmitter.EmitAsync(
+            activityEventBus,
+            message,
+            callerAddress,
+            cancellationToken);
 
         var result = await messageRouter.RouteAsync(message, cancellationToken);
 

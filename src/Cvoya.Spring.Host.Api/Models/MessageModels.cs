@@ -19,11 +19,21 @@ public record AddressDto(string Scheme, string Path);
 /// <param name="Type">The message type.</param>
 /// <param name="ThreadId">An optional thread identifier.</param>
 /// <param name="Payload">The message payload as a JSON element.</param>
+/// <param name="From">
+/// Optional explicit "speaking-as" Human id (ADR-0062 § 3). When supplied,
+/// the API validates that the named Human is bound to the caller's
+/// <c>TenantUser</c> and stamps it on <see cref="Cvoya.Spring.Core.Messaging.Message.From"/>.
+/// When omitted, the API resolves the default Hat per the resolution
+/// order (thread-pinned reply hat → <c>TenantUser.PrimaryHumanId</c> →
+/// any bound Human). An invalid or unbound id returns 400 with the
+/// <c>NoBoundHuman</c> code.
+/// </param>
 public record SendMessageRequest(
     AddressDto To,
     string Type,
     string? ThreadId,
-    JsonElement Payload);
+    JsonElement Payload,
+    Guid? From = null);
 
 /// <summary>
 /// Response body after sending a message.

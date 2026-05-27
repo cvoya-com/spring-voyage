@@ -30,6 +30,17 @@ internal class TenantUserEntityConfiguration : IEntityTypeConfiguration<TenantUs
         builder.Property(e => e.AuthSubject).HasColumnName("auth_subject").HasMaxLength(512);
         builder.Property(e => e.DisplayName).HasColumnName("display_name").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Description).HasColumnName("description").HasColumnType("text");
+        // ADR-0062 § 2: optional FK to humans.id pinning the "primary"
+        // Hat for new outbound. Nullable so a freshly seeded TenantUser
+        // can exist before any Human is bound. The FK is intentionally
+        // declared as a plain Guid column (not a navigation) to keep the
+        // entity shape narrow — the relation is many-to-one Human→TenantUser
+        // with the FK on `humans`, and PrimaryHumanId is an orthogonal
+        // pointer to the user's preferred sender, not the inverse of the
+        // many-to-one binding.
+        builder.Property(e => e.PrimaryHumanId)
+            .HasColumnName("primary_human_id")
+            .HasColumnType("uuid");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
 

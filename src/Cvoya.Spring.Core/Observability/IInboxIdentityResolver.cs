@@ -17,16 +17,13 @@ using Cvoya.Spring.Core.Messaging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>OSS default</b> (<c>Cvoya.Spring.Dapr.Observability.OssInboxIdentityResolver</c>):
-/// the deployment ships with exactly one TenantUser, the operator; every
-/// HumanEntity in the tenant maps to that single principal. The resolver
-/// returns the full set of <c>humans.id</c> in the current tenant.
-/// </para>
-/// <para>
-/// <b>Cloud overlay</b>: replaces the OSS impl via DI (<c>TryAddScoped</c>)
-/// to walk the explicit <c>Human → TenantUser</c> mapping rows ADR-0047 §7
-/// defers to v0.2 — returns only the Humans whose mapping row names the
-/// calling TenantUser id.
+/// <b>Default implementation</b> (<c>Cvoya.Spring.Dapr.Observability.InboxIdentityResolver</c>):
+/// walks the FK on <c>humans.tenant_user_id</c> (ADR-0062 § 1) and returns
+/// every Human bound to the calling <c>TenantUser</c>. OSS and cloud
+/// share the same query — the OSS-only resolver is gone (ADR-0062 § 7)
+/// because the FK collapses the two deployments to one rule. Cloud
+/// overlays can still decorate via <c>TryAddScoped</c> if they want to
+/// layer audit / cross-tenant guards on top.
 /// </para>
 /// <para>
 /// <b>Where this seam lives.</b> The "You-badge" check (<c>useCurrentUser</c>

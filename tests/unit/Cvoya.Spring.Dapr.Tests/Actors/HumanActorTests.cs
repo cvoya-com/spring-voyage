@@ -50,6 +50,7 @@ public class HumanActorTests : IDisposable
         var services = new ServiceCollection();
         var dbName = $"HumanActorTest-{Guid.NewGuid()}";
         services.AddSingleton<ITenantContext>(new StaticTenantContext(OssTenantIds.Default));
+        services.AddSingleton<ITenantUserDefaultResolver, OssTenantUserDefaultResolver>();
         services.AddDbContext<SpringDbContext>(options =>
             options.UseInMemoryDatabase(dbName));
         _serviceProvider = services.BuildServiceProvider();
@@ -84,6 +85,7 @@ public class HumanActorTests : IDisposable
         {
             Id = _humanId,
             TenantId = tenantId ?? OssTenantIds.Default,
+            TenantUserId = OssTenantUserIds.Operator,
             Username = username,
             DisplayName = username,
             PermissionLevel = permission ?? PermissionLevel.Operator,

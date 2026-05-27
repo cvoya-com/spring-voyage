@@ -3,6 +3,10 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
+using System.Text.Json;
+
+using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Security;
@@ -99,6 +103,8 @@ public static class ThreadEndpoints
         ThreadMessageRequest request,
         IMessageRouter messageRouter,
         IAuthenticatedCallerAccessor callerAccessor,
+        ITenantUserHumanResolver tenantUserHumanResolver,
+        IActivityEventBus activityEventBus,
         CancellationToken cancellationToken)
     {
         if (request is null || request.To is null || string.IsNullOrWhiteSpace(request.To.Scheme))
@@ -115,8 +121,8 @@ public static class ThreadEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var from = await callerAccessor.GetCallerAddressAsync(cancellationToken);
-        if (from is null)
+        var callerAddress = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (callerAddress is null)
         {
             // Endpoint sits behind RequireAuthorization(TenantUser); a null
             // caller means the auth pipeline accepted the request but did
@@ -127,11 +133,49 @@ public static class ThreadEndpoints
                 statusCode: StatusCodes.Status401Unauthorized);
         }
 
+        // ADR-0062 § 3: rewrite the auth principal to the speaking-as Hat
+        // before constructing the outbound. The thread id from the path
+        // pins the reply default (the Hat that received the inbound on
+        // this thread), with optional explicit From override.
+        Address from;
+        Guid? threadGuid = null;
+        if (string.Equals(callerAddress.Scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            if (GuidFormatter.TryParse(id, out var parsedThreadId))
+            {
+                threadGuid = parsedThreadId;
+            }
+
+            try
+            {
+                from = await tenantUserHumanResolver.PickFromAsync(
+                    callerAddress.Id,
+                    request.From,
+                    threadGuid,
+                    cancellationToken);
+            }
+            catch (NoBoundHumanException ex)
+            {
+                return Results.Problem(
+                    title: "Bad Request",
+                    detail: ex.Message,
+                    statusCode: StatusCodes.Status400BadRequest,
+                    extensions: new Dictionary<string, object?>
+                    {
+                        ["code"] = ITenantUserHumanResolver.NoBoundHumanCode,
+                    });
+            }
+        }
+        else
+        {
+            from = callerAddress;
+        }
+
         var to = Address.For(request.To.Scheme, request.To.Path ?? string.Empty);
         var messageId = Guid.NewGuid();
 
         // Wrap the text as a Domain payload — same shape as SendMessage.
-        var payload = System.Text.Json.JsonSerializer.SerializeToElement(request.Text ?? string.Empty);
+        var payload = JsonSerializer.SerializeToElement(request.Text ?? string.Empty);
         var message = new Message(
             messageId,
             from,
@@ -140,6 +184,13 @@ public static class ThreadEndpoints
             id,
             payload,
             DateTimeOffset.UtcNow);
+
+        // ADR-0062 § 4: dual-stamp the audit envelope.
+        await OutboundMessageAuditEmitter.EmitAsync(
+            activityEventBus,
+            message,
+            callerAddress,
+            cancellationToken);
 
         var result = await messageRouter.RouteAsync(message, cancellationToken);
         if (!result.IsSuccess)

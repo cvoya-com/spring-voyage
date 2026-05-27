@@ -39,6 +39,7 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
     {
         var services = new ServiceCollection();
         services.AddSingleton<ITenantContext>(new StaticTenantContext(TenantA));
+        services.AddSingleton<ITenantUserDefaultResolver, OssTenantUserDefaultResolver>();
         services.AddDbContext<SpringDbContext>(o => o.UseInMemoryDatabase(_dbName));
         _provider = services.BuildServiceProvider();
     }
@@ -82,6 +83,10 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
         var row = await db.Humans.AsNoTracking().FirstOrDefaultAsync(h => h.Id == humanId, ct);
         row.ShouldNotBeNull();
         row!.DisplayName.ShouldBe("Operator · owner");
+        // ADR-0062 § 1: the resolver must stamp the deployment-default
+        // TenantUser FK on every minted Human row so the column is never
+        // null on the wire. OSS impl returns the operator literal.
+        row.TenantUserId.ShouldBe(OssTenantUserIds.Operator);
     }
 
     [Fact]

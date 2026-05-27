@@ -14782,6 +14782,13 @@
           },
           "payload": {
             "$ref": "#/components/schemas/JsonElement"
+          },
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -15336,6 +15343,13 @@
               "null",
               "string"
             ]
+          },
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
