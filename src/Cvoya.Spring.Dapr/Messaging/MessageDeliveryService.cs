@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Messaging;
 
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
@@ -257,6 +258,23 @@ public class MessageDeliveryService(
             try
             {
                 await proxy.ReceiveAsync(outbound, ct);
+
+                // #2818 — notify every registered connector observer that a
+                // delivery just landed in the recipient's mailbox. Resolved
+                // from a scope (not constructor-injected) so observers can
+                // transitively depend on the binding store without inducing
+                // the singleton-vs-scoped-binding-store DI cycle (memory:
+                // singleton DI cycle via IConnectorType ↔ binding store).
+                // Observers run sequentially so a single thread's deliveries
+                // appear in arrival order on the downstream surface; any
+                // observer exception is logged and the next observer runs.
+                await NotifyDeliveryObserversAsync(
+                    caller,
+                    target,
+                    outbound,
+                    threadParticipants ?? new[] { caller, target },
+                    ct);
+
                 return;
             }
             catch (OperationCanceledException)
@@ -354,6 +372,63 @@ public class MessageDeliveryService(
         using var scope = scopeFactory.CreateScope();
         var writer = scope.ServiceProvider.GetRequiredService<IMessageWriter>();
         await writer.WriteAsync(message, cancellationToken);
+    }
+
+    /// <summary>
+    /// Fans out a successful delivery to every registered
+    /// <see cref="IConnectorDeliveryObserver"/>. Best-effort: an observer
+    /// that throws is logged and the next observer is invoked. The
+    /// platform's delivery contract is already satisfied by the time
+    /// this method runs.
+    /// </summary>
+    private async Task NotifyDeliveryObserversAsync(
+        Address caller,
+        Address target,
+        Message message,
+        IReadOnlyCollection<Address> threadParticipants,
+        CancellationToken cancellationToken)
+    {
+        using var scope = scopeFactory.CreateScope();
+
+        // Resolve the observer enumeration tolerantly: a test scope factory
+        // that does not register IEnumerable<IConnectorDeliveryObserver>
+        // (the older message-delivery integration harness predates the
+        // observer seam) returns null on GetService, and the strict
+        // GetServices<T> extension would then throw and propagate as a
+        // transient delivery failure. The contract for "no observers
+        // registered" is "do nothing" — match that explicitly.
+        var enumeration = scope.ServiceProvider.GetService(
+            typeof(IEnumerable<IConnectorDeliveryObserver>));
+        if (enumeration is not IEnumerable<IConnectorDeliveryObserver> observers)
+        {
+            return;
+        }
+
+        foreach (var observer in observers)
+        {
+            try
+            {
+                await observer.OnDeliveredAsync(
+                    caller,
+                    target,
+                    message,
+                    threadParticipants,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Connector delivery observer {Observer} threw for message {MessageId} to {Target}; continuing.",
+                    observer.GetType().FullName,
+                    message.Id,
+                    target);
+            }
+        }
     }
 
     private static bool AddressEquals(Address left, Address right) =>

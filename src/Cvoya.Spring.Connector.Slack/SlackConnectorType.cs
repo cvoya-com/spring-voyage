@@ -29,12 +29,13 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
-/// Scope of <em>this</em> file: only the connector identity surface
-/// (slug, type id, binding scope, scaffolding endpoints, no-op
-/// lifecycle hooks). OAuth install / disconnect lifecycle is handled
-/// in <see cref="SlackOAuthEndpoints"/>; inbound event handling
-/// (signature verification, auto-leave) is deferred to issue #2817;
-/// outbound delivery is issue #2818; slash commands #2819.
+/// Scope of <em>this</em> file: connector identity surface (slug,
+/// type id, binding scope, no-op lifecycle hooks) and route mounting.
+/// OAuth install / disconnect lifecycle lives in
+/// <see cref="SlackOAuthEndpoints"/>; outbound delivery in
+/// <see cref="Outbound.SlackOutboundDispatcher"/>. The inbound Events
+/// API endpoint and slash-command surface land in follow-on commits
+/// (issues #2817 and #2819 respectively).
 /// </para>
 /// </summary>
 public class SlackConnectorType : IConnectorType
@@ -130,9 +131,6 @@ public class SlackConnectorType : IConnectorType
             .WithSummary("Get the JSON Schema describing the Slack tenant-binding config body")
             .WithTags("Connectors.Slack")
             .Produces<JsonElement>(StatusCodes.Status200OK);
-
-        // TODO(#2819): slash-command endpoints (/sv-thread, /sv-threads, /sv-help).
-        // TODO(#2817): events endpoint with signature verification.
     }
 
     /// <inheritdoc />

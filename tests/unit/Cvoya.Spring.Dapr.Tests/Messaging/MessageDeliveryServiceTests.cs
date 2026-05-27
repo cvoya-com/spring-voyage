@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Tests.Messaging;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
@@ -41,6 +42,7 @@ public class MessageDeliveryServiceTests
     private readonly IMessageTenantResolver _tenantResolver = Substitute.For<IMessageTenantResolver>();
     private readonly RecordingThreadRegistry _threadRegistry = new();
     private readonly RecordingMessageWriter _messageWriter = new();
+    private readonly List<RecordingDeliveryObserver> _deliveryObservers = new();
     private readonly ILogger<MessageDeliveryService> _logger =
         Substitute.For<ILogger<MessageDeliveryService>>();
 
@@ -275,6 +277,121 @@ public class MessageDeliveryServiceTests
     }
 
     [Fact]
+    public async Task DeliverWithRetry_SuccessfulEnqueue_NotifiesEveryObserver()
+    {
+        // #2818 — the platform-side delivery wire-up: every registered
+        // IConnectorDeliveryObserver is invoked once per successful mailbox
+        // enqueue with the same caller / target / envelope / participant set
+        // the delivery loop resolved. Multiple observers all fire (the Slack
+        // connector registers one; future connectors register their own).
+        var caller = new Address(Address.UnitScheme, Guid.NewGuid());
+        var target = new Address(Address.AgentScheme, Guid.NewGuid());
+        var agent = Substitute.For<IAgent>();
+        _agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns(agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+
+        var observerA = new RecordingDeliveryObserver();
+        var observerB = new RecordingDeliveryObserver();
+        _deliveryObservers.Add(observerA);
+        _deliveryObservers.Add(observerB);
+
+        var service = CreateService();
+        var inbound = CreateMessage();
+        await service.DeliverWithRetryAsync(caller, target, inbound, CancellationToken.None);
+
+        observerA.Calls.Count.ShouldBe(1);
+        observerB.Calls.Count.ShouldBe(1);
+
+        observerA.Calls[0].Caller.ShouldBe(caller);
+        observerA.Calls[0].Target.ShouldBe(target);
+        observerA.Calls[0].Message.Id.ShouldBe(inbound.Id);
+        // Default per-hop participant set is {caller, target}.
+        observerA.Calls[0].Participants.Count.ShouldBe(2);
+        observerA.Calls[0].Participants.ShouldContain(caller);
+        observerA.Calls[0].Participants.ShouldContain(target);
+    }
+
+    [Fact]
+    public async Task DeliverWithRetry_ObserverThrows_DeliveryStillSucceeds()
+    {
+        // Observers are best-effort — an observer that throws must not break
+        // the delivery contract; the next observer must still fire. The
+        // platform's delivery has already landed in the mailbox by the time
+        // observers are invoked, so observer failures cannot un-deliver a
+        // message.
+        var caller = new Address(Address.UnitScheme, Guid.NewGuid());
+        var target = new Address(Address.AgentScheme, Guid.NewGuid());
+        var agent = Substitute.For<IAgent>();
+        _agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns(agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+
+        var throwing = new RecordingDeliveryObserver { ToThrow = new InvalidOperationException("slack down") };
+        var quiet = new RecordingDeliveryObserver();
+        _deliveryObservers.Add(throwing);
+        _deliveryObservers.Add(quiet);
+
+        var service = CreateService();
+        await Should.NotThrowAsync(() => service.DeliverWithRetryAsync(
+            caller, target, CreateMessage(), CancellationToken.None));
+
+        // The throwing observer was still called; the quiet one fired after
+        // the throw was swallowed.
+        throwing.Calls.Count.ShouldBe(1);
+        quiet.Calls.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DeliverWithRetry_SharedThreadParticipants_PassedToObservers()
+    {
+        // sv.messaging.send shares a thread across all recipients. The
+        // observer must see the full participant set the thread was keyed
+        // against, not just the (caller, target) hop.
+        var caller = new Address(Address.UnitScheme, Guid.NewGuid());
+        var targetA = new Address(Address.AgentScheme, Guid.NewGuid());
+        var targetB = new Address(Address.HumanScheme, Guid.NewGuid());
+        var agent = Substitute.For<IAgent>();
+        _agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns(agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+
+        var observer = new RecordingDeliveryObserver();
+        _deliveryObservers.Add(observer);
+
+        var sharedSet = new[] { caller, targetA, targetB };
+        var service = CreateService();
+        await service.DeliverWithRetryAsync(
+            caller, targetA, CreateMessage(), CancellationToken.None, sharedSet);
+
+        observer.Calls.Count.ShouldBe(1);
+        observer.Calls[0].Participants.Count.ShouldBe(3);
+        observer.Calls[0].Participants.ShouldContain(targetB);
+    }
+
+    [Fact]
+    public async Task DeliverWithRetry_RetryExhausted_DoesNotNotifyObservers()
+    {
+        // The observer represents successful delivery — a delivery that
+        // fails every retry must not invoke any observer.
+        var caller = new Address(Address.UnitScheme, Guid.NewGuid());
+        var target = new Address(Address.AgentScheme, Guid.NewGuid());
+        var agent = Substitute.For<IAgent>();
+        _agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns(agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns<Task<Message?>>(_ => throw new InvalidOperationException("dapr is down"));
+
+        var observer = new RecordingDeliveryObserver();
+        _deliveryObservers.Add(observer);
+
+        var service = CreateService();
+        await Should.ThrowAsync<MessageDeliveryException>(() =>
+            service.DeliverWithRetryAsync(caller, target, CreateMessage(), CancellationToken.None));
+
+        observer.Calls.Count.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task DeliverWithRetry_SameCallerAndTarget_ReuseHopThread()
     {
         // #2596 / ADR-0030 — the same participant set always resolves to the
@@ -311,12 +428,19 @@ public class MessageDeliveryServiceTests
                 MaxHopCount = maxHopCount,
             }));
 
-    private static IServiceScopeFactory ScopeFactoryWith(
+    private IServiceScopeFactory ScopeFactoryWith(
         IThreadRegistry registry, IMessageWriter writer)
     {
         var services = new ServiceCollection();
         services.AddScoped<IThreadRegistry>(_ => registry);
         services.AddScoped<IMessageWriter>(_ => writer);
+        foreach (var observer in _deliveryObservers)
+        {
+            // Snapshot the observer reference so the registration shares
+            // the same instance the tests assert against.
+            var captured = observer;
+            services.AddSingleton<IConnectorDeliveryObserver>(_ => captured);
+        }
         return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
 
@@ -347,6 +471,32 @@ public class MessageDeliveryServiceTests
                 Written.Add(message);
             }
 
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Records every <see cref="IConnectorDeliveryObserver.OnDeliveredAsync"/>
+    /// invocation so #2818 tests can assert the delivery wire-up fires
+    /// once per successful enqueue with the resolved participant set.
+    /// </summary>
+    private sealed class RecordingDeliveryObserver : IConnectorDeliveryObserver
+    {
+        public List<(Address Caller, Address Target, Message Message, IReadOnlyCollection<Address> Participants)> Calls { get; } = new();
+        public Exception? ToThrow { get; set; }
+
+        public Task OnDeliveredAsync(
+            Address caller,
+            Address target,
+            Message message,
+            IReadOnlyCollection<Address> threadParticipants,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add((caller, target, message, threadParticipants));
+            if (ToThrow is not null)
+            {
+                throw ToThrow;
+            }
             return Task.CompletedTask;
         }
     }

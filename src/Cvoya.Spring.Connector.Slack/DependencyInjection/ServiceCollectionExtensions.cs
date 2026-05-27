@@ -6,7 +6,10 @@ namespace Cvoya.Spring.Connector.Slack.DependencyInjection;
 using Cvoya.Spring.Connector.Slack;
 using Cvoya.Spring.Connector.Slack.Auth.OAuth;
 using Cvoya.Spring.Connector.Slack.Configuration;
+using Cvoya.Spring.Connector.Slack.Outbound;
+using Cvoya.Spring.Connector.Slack.Routing;
 using Cvoya.Spring.Connector.Slack.Slug;
+using Cvoya.Spring.Connector.Slack.WebApi;
 using Cvoya.Spring.Connectors;
 
 using Microsoft.Extensions.Configuration;
@@ -46,6 +49,7 @@ public static class ServiceCollectionExtensions
         // host wires the credential-health watchdog onto this name
         // per CONVENTIONS §16 / §15.
         services.AddHttpClient(SlackOAuthHttpClient.HttpClientName);
+        services.AddHttpClient(SlackWebApiClient.HttpClientName);
 
         // In-memory state store is OSS-default; cloud overlays
         // substitute a Redis-backed implementation via TryAddSingleton.
@@ -60,6 +64,22 @@ public static class ServiceCollectionExtensions
         // (ITenantUserHumanResolver, IParticipantDisplayNameResolver)
         // are resolved per call through the scope factory.
         services.TryAddSingleton<ISlackThreadSlugBuilder, SlackThreadSlugBuilder>();
+
+        // Slack runtime-loop services (ADR-0061 §3 / §7.2 / §7.8 / #2818).
+        // All singletons; scoped collaborators resolve per call.
+        services.TryAddSingleton<ISlackContainerRouter, SlackContainerRouter>();
+        services.TryAddSingleton<ISlackPersonaBuilder, SlackPersonaBuilder>();
+        services.TryAddSingleton<ISlackWebApiClient, SlackWebApiClient>();
+        services.TryAddSingleton<ISlackOutboundDispatcher, SlackOutboundDispatcher>();
+
+        // Platform-side delivery wire-up (#2818) — registered as an
+        // enumerable IConnectorDeliveryObserver so MessageDeliveryService
+        // calls it once per successful mailbox enqueue. The observer is a
+        // thin adapter onto ISlackOutboundDispatcher; the dispatcher decides
+        // whether the thread has a Slack-bound participant and short-circuits
+        // when it does not.
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IConnectorDeliveryObserver, SlackOutboundDeliveryObserver>());
 
         // Bound-user extractor — registered as an enumerable
         // ITenantBoundUserExtractor so the platform's
