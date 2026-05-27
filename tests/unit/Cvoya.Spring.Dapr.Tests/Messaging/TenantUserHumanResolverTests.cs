@@ -12,6 +12,7 @@ using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Messaging;
 using Cvoya.Spring.Dapr.Tenancy;
+using Cvoya.Spring.Dapr.Threads;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,6 +41,7 @@ public class TenantUserHumanResolverTests : IDisposable
         var services = new ServiceCollection();
         services.AddSingleton<ITenantContext>(new StaticTenantContext(TenantId));
         services.AddDbContext<SpringDbContext>(o => o.UseInMemoryDatabase(_dbName));
+        services.AddScoped<IThreadRegistry, EfThreadRegistry>();
         _provider = services.BuildServiceProvider();
     }
 
@@ -90,13 +92,14 @@ public class TenantUserHumanResolverTests : IDisposable
     public async Task PickFromAsync_ThreadPinnedHat_ReturnsHatThatReceivedInbound()
     {
         var ct = TestContext.Current.CancellationToken;
-        // Caller is bound to two Hats; one received the inbound on the
-        // thread, the other did not. The resolver must pick the one that
-        // received the inbound.
+        // Multi-Hat thread (both bound Hats are canonical participants);
+        // hatA received the inbound, hatB did not. ADR-0062 § 5 says
+        // reply as the Hat that received the inbound, so the resolver
+        // must tie-break to hatA — even though hatB is the primary.
         var hatA = await SeedBoundHumanAsync();
         var hatB = await SeedBoundHumanAsync();
         var threadId = Guid.NewGuid();
-        await SeedThreadWithInboundToAsync(threadId, hatA);
+        await SeedThreadWithInboundToAsync(threadId, hatA, additionalParticipants: hatB);
         // Also set a different primary so the test can prove
         // thread-pinned wins over primary.
         await SetPrimaryAsync(hatB);
@@ -111,6 +114,95 @@ public class TenantUserHumanResolverTests : IDisposable
 
         address.Scheme.ShouldBe(Address.HumanScheme);
         address.Id.ShouldBe(hatA);
+    }
+
+    [Fact]
+    public async Task PickFromAsync_OriginatedAsHat_ReturnsThreadParticipantHat()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // #2865: regression for the "thread split" bug. The caller has
+        // two bound Hats. The thread's canonical participant set
+        // contains hatA but NOT hatB. PrimaryHumanId is hatB. The old
+        // resolver fell through to PrimaryHumanId (hatB), which is not
+        // a thread participant — and the message landed on a thread
+        // whose canonical set excluded its sender, splitting the
+        // conversation. The new resolver intersects bound Hats with
+        // the canonical participant set and returns hatA — the only
+        // bound Hat that is a thread participant. The thread has no
+        // prior inbound (originated-as case): the resolver does NOT
+        // need a received-as message to pin the right Hat.
+        var hatA = await SeedBoundHumanAsync();
+        var hatB = await SeedBoundHumanAsync();
+        await SetPrimaryAsync(hatB);
+        var threadId = Guid.NewGuid();
+        await SeedThreadAsync(threadId, hatA);
+
+        var resolver = await CreateResolverAsync();
+
+        var address = await resolver.PickFromAsync(
+            CallerTenantUserId,
+            explicitFromHumanId: null,
+            threadId: threadId,
+            ct);
+
+        address.Scheme.ShouldBe(Address.HumanScheme);
+        address.Id.ShouldBe(hatA);
+    }
+
+    [Fact]
+    public async Task PickFromAsync_OriginatedAsHat_MultipleBoundParticipants_TieBreaksToLastSent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // Multi-Hat thread the caller originated (no received-as
+        // inbound). Two bound Hats are both canonical participants;
+        // hatA is the more recent sender on the thread. The resolver
+        // tie-breaks to hatA (the originated-as fallback).
+        var hatA = await SeedBoundHumanAsync();
+        var hatB = await SeedBoundHumanAsync();
+        var threadId = Guid.NewGuid();
+        await SeedThreadAsync(threadId, hatA, hatB);
+        await SeedOutboundFromAsync(threadId, hatB);
+        await Task.Delay(5, ct); // ensure SentAt ordering is deterministic
+        await SeedOutboundFromAsync(threadId, hatA);
+
+        var resolver = await CreateResolverAsync();
+
+        var address = await resolver.PickFromAsync(
+            CallerTenantUserId,
+            explicitFromHumanId: null,
+            threadId: threadId,
+            ct);
+
+        address.Scheme.ShouldBe(Address.HumanScheme);
+        address.Id.ShouldBe(hatA);
+    }
+
+    [Fact]
+    public async Task PickFromAsync_NoBoundHatInThreadParticipants_FallsBackToPrimary()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // The thread's canonical participant set has no Hat the caller
+        // is bound to. The resolver must NOT pick from the thread —
+        // it falls through to PrimaryHumanId. The endpoint-level
+        // SenderNotInThread gate (MessageEndpoints / ThreadEndpoints)
+        // catches the resulting mismatch; the resolver does not
+        // pre-empt that decision.
+        var primary = await SeedBoundHumanAsync();
+        await SetPrimaryAsync(primary);
+        var threadId = Guid.NewGuid();
+        var outsiderHat = Guid.NewGuid();
+        await SeedThreadAsync(threadId, outsiderHat);
+
+        var resolver = await CreateResolverAsync();
+
+        var address = await resolver.PickFromAsync(
+            CallerTenantUserId,
+            explicitFromHumanId: null,
+            threadId: threadId,
+            ct);
+
+        address.Scheme.ShouldBe(Address.HumanScheme);
+        address.Id.ShouldBe(primary);
     }
 
     [Fact]
@@ -194,10 +286,11 @@ public class TenantUserHumanResolverTests : IDisposable
     {
         var scope = _provider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var threadRegistry = scope.ServiceProvider.GetRequiredService<IThreadRegistry>();
         // Hold the scope alive by detaching the DbContext from disposal;
         // tests are single-threaded and the in-memory DB shares state by
         // name regardless.
-        return await Task.FromResult(new TenantUserHumanResolver(db));
+        return await Task.FromResult(new TenantUserHumanResolver(db, threadRegistry));
     }
 
     private async Task<Guid> SeedBoundHumanAsync()
@@ -271,16 +364,27 @@ public class TenantUserHumanResolverTests : IDisposable
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
-    private async Task SeedThreadWithInboundToAsync(Guid threadId, Guid humanId)
+    private async Task SeedThreadWithInboundToAsync(Guid threadId, Guid humanId, params Guid[] additionalParticipants)
     {
         await using var scope = _provider.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        // #2865: the resolver now reads the thread's canonical participant
+        // set, so the seed has to render the participants array the same
+        // way EfThreadRegistry would (lowercased scheme + no-dash hex,
+        // sorted, joined). Include the inbound recipient and any extra
+        // bound Hats the test wants in the canonical set.
+        var addresses = new List<string> { $"{Address.HumanScheme}:{humanId:N}" };
+        foreach (var extra in additionalParticipants)
+        {
+            addresses.Add($"{Address.HumanScheme}:{extra:N}");
+        }
+        addresses.Sort(StringComparer.Ordinal);
         db.Threads.Add(new ThreadEntity
         {
             Id = threadId,
             TenantId = TenantId,
-            ParticipantKey = $"k-{threadId:N}",
-            Participants = "[]",
+            ParticipantKey = string.Join('|', addresses),
+            Participants = System.Text.Json.JsonSerializer.Serialize(addresses),
             ParticipantNameSnapshots = "{}",
             CreatedAt = DateTimeOffset.UtcNow,
             LastActivityAt = DateTimeOffset.UtcNow,
@@ -294,6 +398,47 @@ public class TenantUserHumanResolverTests : IDisposable
             SenderId = Guid.NewGuid(),
             RecipientScheme = Address.HumanScheme,
             RecipientId = humanId,
+            MessageType = MessageType.Domain.ToString(),
+            Payload = "null",
+            SentAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+    }
+
+    private async Task SeedThreadAsync(Guid threadId, params Guid[] humanParticipants)
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var addresses = humanParticipants
+            .Select(h => $"{Address.HumanScheme}:{h:N}")
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ToList();
+        db.Threads.Add(new ThreadEntity
+        {
+            Id = threadId,
+            TenantId = TenantId,
+            ParticipantKey = string.Join('|', addresses),
+            Participants = System.Text.Json.JsonSerializer.Serialize(addresses),
+            ParticipantNameSnapshots = "{}",
+            CreatedAt = DateTimeOffset.UtcNow,
+            LastActivityAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+    }
+
+    private async Task SeedOutboundFromAsync(Guid threadId, Guid senderHumanId)
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        db.Messages.Add(new MessageEntity
+        {
+            Id = Guid.NewGuid(),
+            TenantId = TenantId,
+            ThreadId = threadId,
+            SenderScheme = Address.HumanScheme,
+            SenderId = senderHumanId,
+            RecipientScheme = Address.UnitScheme,
+            RecipientId = Guid.NewGuid(),
             MessageType = MessageType.Domain.ToString(),
             Payload = "null",
             SentAt = DateTimeOffset.UtcNow,
