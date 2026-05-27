@@ -31,6 +31,19 @@ export interface InteractionsUrlState {
   bucket: "hour" | "day";
   view: InteractionsViewMode;
   live: boolean;
+  /**
+   * Rewind mode (#2872). Mutually exclusive with `live`. When `true`, the
+   * page swaps the SSE subscription for a history fetch and shows a
+   * transport bar that drives a virtual cursor through the window.
+   *
+   * Mutual exclusion is enforced by the toggle helpers in this module:
+   * {@link toggleLive} forces `rewind` off; {@link toggleRewind} forces
+   * `live` off. Hand-rolling a state object with both `live: true` and
+   * `rewind: true` is a programming error — the writer normalises by
+   * dropping `rewind` (live wins) but neither caller in the page does
+   * this.
+   */
+  rewind: boolean;
 }
 
 export const EMPTY_URL_STATE: InteractionsUrlState = {
@@ -42,6 +55,7 @@ export const EMPTY_URL_STATE: InteractionsUrlState = {
   bucket: DEFAULT_BUCKET,
   view: DEFAULT_VIEW,
   live: false,
+  rewind: false,
 };
 
 export function parseNeighbours(raw: string | null): 0 | 1 | 2 {
@@ -59,6 +73,12 @@ export function parseView(raw: string | null): InteractionsViewMode {
 }
 
 export function readUrlState(params: URLSearchParams): InteractionsUrlState {
+  const live = params.get("live") === "true";
+  // Live wins on the rare case both arrive in the URL (hand-edited deep
+  // link). The toggle helpers below enforce mutual exclusion on every
+  // operator-driven transition so this branch is the only place we have
+  // to defend against a malformed input.
+  const rewind = !live && params.get("rewind") === "true";
   return {
     unit: params.get("unit") ?? "",
     participant: params.get("participant") ?? "",
@@ -67,7 +87,8 @@ export function readUrlState(params: URLSearchParams): InteractionsUrlState {
     neighbours: parseNeighbours(params.get("neighbours")),
     bucket: parseBucket(params.get("bucket")),
     view: parseView(params.get("view")),
-    live: params.get("live") === "true",
+    live,
+    rewind,
   };
 }
 
@@ -82,8 +103,41 @@ export function writeUrlState(state: InteractionsUrlState): string {
   }
   if (state.bucket !== DEFAULT_BUCKET) out.set("bucket", state.bucket);
   if (state.view !== DEFAULT_VIEW) out.set("view", state.view);
-  if (state.live) out.set("live", "true");
+  // Live wins if both are accidentally set; we never emit both flags.
+  if (state.live) {
+    out.set("live", "true");
+  } else if (state.rewind) {
+    out.set("rewind", "true");
+  }
   return out.toString();
+}
+
+/**
+ * Flip live mode on/off — turning live on forces rewind off (mutual
+ * exclusion). Use this from the filters / page reducer so the two flags
+ * can never both be true at once.
+ */
+export function toggleLive(
+  state: InteractionsUrlState,
+  next: boolean,
+): InteractionsUrlState {
+  return next
+    ? { ...state, live: true, rewind: false }
+    : { ...state, live: false };
+}
+
+/**
+ * Flip rewind mode on/off — turning rewind on forces live off (mutual
+ * exclusion). Same contract as {@link toggleLive}; pick whichever helper
+ * matches the verb the operator just pressed.
+ */
+export function toggleRewind(
+  state: InteractionsUrlState,
+  next: boolean,
+): InteractionsUrlState {
+  return next
+    ? { ...state, rewind: true, live: false }
+    : { ...state, rewind: false };
 }
 
 /**

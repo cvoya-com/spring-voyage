@@ -307,6 +307,315 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
         Array.Empty<InteractionsTimelineBucket>(),
         Truncated: null);
 
+    // ---- History endpoint (#2872) -----------------------------------------
+    // The /history surface is the rewind affordance for the Interactions
+    // view. Tests focus on the HTTP plumbing — query-string binding,
+    // defaults, cap/maxPulses parsing, truncation envelope shape — and
+    // mock the query service. Aggregation correctness lives in
+    // InteractionsQueryServiceTests.
+
+    [Fact]
+    public async Task GetInteractionsHistory_NoParams_AppliesDefaultsServerSide()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.InteractionsQueryService.ClearSubstitute();
+        _factory.InteractionsQueryService
+            .GetHistoryAsync(Arg.Any<InteractionsHistoryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyHistory());
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
+            Arg.Is<InteractionsHistoryFilters>(f =>
+                f.Cap == 50 &&
+                f.Neighbours == 2 &&
+                f.MaxPulses == 5000 &&
+                f.Unit == null &&
+                f.Participant == null &&
+                Math.Abs((f.Until - f.Since).TotalMinutes - 10) < 1.0),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetInteractionsHistory_MaxPulsesProvided_ForwardsValue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.InteractionsQueryService.ClearSubstitute();
+        _factory.InteractionsQueryService
+            .GetHistoryAsync(Arg.Any<InteractionsHistoryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyHistory());
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history?maxPulses=5", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
+            Arg.Is<InteractionsHistoryFilters>(f => f.MaxPulses == 5),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetInteractionsHistory_MaxPulsesZeroOrNegative_FallsBackToDefault()
+    {
+        // `maxPulses=0` would silently disable truncation if forwarded —
+        // surfaces neither a 400 nor an infinite-result hazard; we
+        // explicitly fall back to the default to keep the contract
+        // forgiving in the spirit of the snapshot endpoint.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.InteractionsQueryService.ClearSubstitute();
+        _factory.InteractionsQueryService
+            .GetHistoryAsync(Arg.Any<InteractionsHistoryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyHistory());
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history?maxPulses=0", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
+            Arg.Is<InteractionsHistoryFilters>(f => f.MaxPulses == 5000),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetInteractionsHistory_NeighboursOutOfRange_ClampedToMax()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.InteractionsQueryService.ClearSubstitute();
+        _factory.InteractionsQueryService
+            .GetHistoryAsync(Arg.Any<InteractionsHistoryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyHistory());
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history?neighbours=5", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
+            Arg.Is<InteractionsHistoryFilters>(f => f.Neighbours == 2),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetInteractionsHistory_CapNone_DisablesNodeTruncation()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.InteractionsQueryService.ClearSubstitute();
+        _factory.InteractionsQueryService
+            .GetHistoryAsync(Arg.Any<InteractionsHistoryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyHistory());
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history?cap=none", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
+            Arg.Is<InteractionsHistoryFilters>(f => f.Cap == null),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetInteractionsHistory_CapNonInteger_FallsBackToDefault()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.InteractionsQueryService.ClearSubstitute();
+        _factory.InteractionsQueryService
+            .GetHistoryAsync(Arg.Any<InteractionsHistoryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyHistory());
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history?cap=banana", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await _factory.InteractionsQueryService.Received(1).GetHistoryAsync(
+            Arg.Is<InteractionsHistoryFilters>(f => f.Cap == 50),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetInteractionsHistory_ResponseShape_MirrorsServiceHistory()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var fromId = Guid.NewGuid();
+        var toId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+        var threadId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+
+        var history = new InteractionsHistory(
+            Nodes: new List<InteractionsNode>
+            {
+                new(GuidFormatter.Format(fromId), "agent", "Ada", Sent: 1, Received: 0),
+                new(GuidFormatter.Format(toId), "unit", "Engineering", Sent: 0, Received: 1),
+            },
+            Edges: new List<InteractionsEdge>
+            {
+                new(GuidFormatter.Format(fromId), GuidFormatter.Format(toId),
+                    Count: 1, FirstAt: now, LastAt: now,
+                    Channels: new[] { "unit" }),
+            },
+            Pulses: new List<InteractionsPulse>
+            {
+                new(GuidFormatter.Format(messageId),
+                    GuidFormatter.Format(fromId),
+                    GuidFormatter.Format(toId),
+                    now,
+                    GuidFormatter.Format(threadId),
+                    "unit"),
+            },
+            Truncated: null);
+
+        _factory.InteractionsQueryService.ClearSubstitute();
+        _factory.InteractionsQueryService
+            .GetHistoryAsync(Arg.Any<InteractionsHistoryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(history);
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<InteractionsHistoryResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Nodes.Count.ShouldBe(2);
+        body.Edges.Count.ShouldBe(1);
+        body.Pulses.Count.ShouldBe(1);
+        body.Pulses[0].MessageId.ShouldBe(GuidFormatter.Format(messageId));
+        body.Pulses[0].FromId.ShouldBe(GuidFormatter.Format(fromId));
+        body.Pulses[0].ToId.ShouldBe(GuidFormatter.Format(toId));
+        body.Pulses[0].ThreadId.ShouldBe(GuidFormatter.Format(threadId));
+        body.Pulses[0].Channel.ShouldBe("unit");
+        body.Truncated.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetInteractionsHistory_TruncationEnvelope_BothBranchesRoundTrip()
+    {
+        // Service returns both node-level and pulse-level truncation; the
+        // host DTO must round-trip the nested pulses block.
+        var ct = TestContext.Current.CancellationToken;
+
+        var history = new InteractionsHistory(
+            Nodes: Array.Empty<InteractionsNode>(),
+            Edges: Array.Empty<InteractionsEdge>(),
+            Pulses: Array.Empty<InteractionsPulse>(),
+            Truncated: new InteractionsHistoryTruncation(
+                Total: 200, Kept: 50,
+                Pulses: new InteractionsPulseTruncation(Total: 12000, Kept: 5000)));
+
+        _factory.InteractionsQueryService.ClearSubstitute();
+        _factory.InteractionsQueryService
+            .GetHistoryAsync(Arg.Any<InteractionsHistoryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(history);
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<InteractionsHistoryResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Truncated.ShouldNotBeNull();
+        body.Truncated!.Total.ShouldBe(200);
+        body.Truncated.Kept.ShouldBe(50);
+        body.Truncated.Pulses.ShouldNotBeNull();
+        body.Truncated.Pulses!.Total.ShouldBe(12000);
+        body.Truncated.Pulses.Kept.ShouldBe(5000);
+    }
+
+    [Fact]
+    public async Task GetInteractionsHistory_TruncationEnvelope_PulseBranchOnly()
+    {
+        // Only pulse truncation fired; node total == kept.
+        var ct = TestContext.Current.CancellationToken;
+
+        var history = new InteractionsHistory(
+            Nodes: Array.Empty<InteractionsNode>(),
+            Edges: Array.Empty<InteractionsEdge>(),
+            Pulses: Array.Empty<InteractionsPulse>(),
+            Truncated: new InteractionsHistoryTruncation(
+                Total: 7, Kept: 7,
+                Pulses: new InteractionsPulseTruncation(Total: 100, Kept: 50)));
+
+        _factory.InteractionsQueryService.ClearSubstitute();
+        _factory.InteractionsQueryService
+            .GetHistoryAsync(Arg.Any<InteractionsHistoryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(history);
+
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<InteractionsHistoryResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Truncated.ShouldNotBeNull();
+        body.Truncated!.Total.ShouldBe(7);
+        body.Truncated.Kept.ShouldBe(7);
+        body.Truncated.Pulses.ShouldNotBeNull();
+        body.Truncated.Pulses!.Kept.ShouldBe(50);
+    }
+
+    [Fact]
+    public async Task GetInteractionsHistory_WithoutTenantObserverRole_Returns403()
+    {
+        // Spin up a separate factory whose IRoleClaimSource emits TenantUser
+        // (no TenantObserver). The endpoint's RequireAuthorization gate
+        // must reject. This is the only assertion on the policy gate
+        // because the gating itself is exercised at the IAuthorizationService
+        // level in RolePoliciesTests; here we verify the endpoint chains
+        // through it.
+        var ct = TestContext.Current.CancellationToken;
+        using var nonObserverFactory = BuildFactoryWithoutTenantObserver();
+        using var client = nonObserverFactory.CreateClient();
+
+        var response = await client.GetAsync(
+            "/api/v1/tenant/observation/interactions/history", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    private static InteractionsHistory EmptyHistory() => new(
+        Array.Empty<InteractionsNode>(),
+        Array.Empty<InteractionsEdge>(),
+        Array.Empty<InteractionsPulse>(),
+        Truncated: null);
+
+    /// <summary>
+    /// Spins up a separate factory with an <see cref="Cvoya.Spring.Host.Api.Auth.IRoleClaimSource"/>
+    /// stub that omits the <see cref="Cvoya.Spring.Core.Security.PlatformRoles.TenantObserver"/>
+    /// claim. The OSS default grants every role; this factory exercises
+    /// the 403 branch for the /history endpoint without touching the
+    /// shared singleton factory used by the other tests in this class.
+    /// </summary>
+    private static Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> BuildFactoryWithoutTenantObserver()
+    {
+        return new CustomWebApplicationFactory()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureServices(services =>
+                {
+                    var existing = services
+                        .Where(d => d.ServiceType == typeof(Cvoya.Spring.Host.Api.Auth.IRoleClaimSource))
+                        .ToList();
+                    foreach (var d in existing)
+                    {
+                        services.Remove(d);
+                    }
+                    services.AddSingleton<Cvoya.Spring.Host.Api.Auth.IRoleClaimSource, NonObserverClaimSource>();
+                });
+            });
+    }
+
+    private sealed class NonObserverClaimSource : Cvoya.Spring.Host.Api.Auth.IRoleClaimSource
+    {
+        public IEnumerable<System.Security.Claims.Claim> GetRoleClaims(System.Security.Claims.ClaimsIdentity identity)
+        {
+            // Grant TenantUser only — TenantObserver gates /interactions.
+            yield return new System.Security.Claims.Claim(
+                System.Security.Claims.ClaimTypes.Role,
+                Cvoya.Spring.Core.Security.PlatformRoles.TenantUser);
+        }
+    }
+
     // ---- SSE stream tests -------------------------------------------------
     // The stream subscribes to IActivityEventBus.ActivityStream, filters for
     // MessageArrived events whose Details JSON carries the (from, messageId)

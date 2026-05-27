@@ -28,7 +28,10 @@ import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useInteractionsSnapshot } from "@/lib/api/queries";
+import {
+  useInteractionsHistory,
+  useInteractionsSnapshot,
+} from "@/lib/api/queries";
 import type {
   InteractionsEdgeResponse,
   InteractionsGraphResponse,
@@ -40,6 +43,10 @@ import { InteractionFilters } from "@/components/interactions/interaction-filter
 import { InteractionGraph, type LivePulse } from "@/components/interactions/interaction-graph";
 import { InteractionLive } from "@/components/interactions/interaction-live";
 import { InteractionMatrix } from "@/components/interactions/interaction-matrix";
+import {
+  InteractionRewind,
+  type RewindPulseFrame,
+} from "@/components/interactions/interaction-rewind";
 import { InteractionTimeline } from "@/components/interactions/interaction-timeline";
 import {
   readUrlState,
@@ -76,7 +83,31 @@ function InteractionsPageContent() {
   );
 
   const filters = useMemo(() => toSnapshotFilters(state), [state]);
-  const snapshotQuery = useInteractionsSnapshot(filters);
+  // Pause the snapshot query while rewind is active — rewind drives the
+  // canvas from the history endpoint instead. The cache stays warm so
+  // toggling rewind off resumes the live snapshot without a flash.
+  const snapshotQuery = useInteractionsSnapshot(filters, {
+    enabled: !state.rewind,
+  });
+
+  // History query — only runs when rewind is on. Mirrors the snapshot
+  // filters so a deep link reproduces the operator's chosen window
+  // exactly. `maxPulses` is fixed at 5000 here per the spec; raising it
+  // would require a control surface we don't have in v0.1.
+  const historyFilters = useMemo(
+    () => ({
+      since: filters.since,
+      until: filters.until,
+      unit: filters.unit,
+      participant: filters.participant,
+      neighbours: filters.neighbours,
+      maxPulses: 5000,
+    }),
+    [filters],
+  );
+  const historyQuery = useInteractionsHistory(historyFilters, {
+    enabled: state.rewind,
+  });
 
   // Local mirror of the snapshot that SSE pulses splice into. We deep-
   // copy the immutable response into mutable arrays so node-added /
@@ -95,6 +126,26 @@ function InteractionsPageContent() {
       });
     }
   }, [snapshotQuery.data]);
+
+  // Rewind: materialise the history response's nodes/edges into the same
+  // local snapshot mirror the graph + matrix consume. We borrow the
+  // timeline from the most recently rendered snapshot so the timeline
+  // strip + scrubber stay populated — the history endpoint doesn't run
+  // the timeline rollup itself.
+  useEffect(() => {
+    if (!state.rewind || !historyQuery.data) return;
+    setLiveSnapshot((prev) => ({
+      nodes: historyQuery.data.nodes ?? [],
+      edges: historyQuery.data.edges ?? [],
+      timeline: prev?.timeline ?? [],
+      truncated: historyQuery.data.truncated
+        ? {
+            total: historyQuery.data.truncated.total,
+            kept: historyQuery.data.truncated.kept,
+          }
+        : null,
+    }));
+  }, [state.rewind, historyQuery.data]);
 
   const [livePulses, setLivePulses] = useState<LivePulse[]>([]);
   const [droppedCount, setDroppedCount] = useState(0);
@@ -209,11 +260,48 @@ function InteractionsPageContent() {
     if (!state.live) setDroppedCount(0);
   }, [state.live]);
 
+  // Resolve the window once per state change — both rewind-mode controls
+  // and the timeline footer caption reference it.
+  const window = useMemo(() => resolveWindow(state), [state]);
+  const windowSinceMs = useMemo(() => new Date(window.since).getTime(), [window]);
+  const windowUntilMs = useMemo(() => new Date(window.until).getTime(), [window]);
+
+  // Rewind cursor lives in page state (not URL — re-loading a deep-link
+  // intentionally resets the cursor to 0 so the operator always starts
+  // from the beginning of the window). The timeline brush and the
+  // rewind transport bar both control this value.
+  const [rewindCursorMs, setRewindCursorMs] = useState<number>(0);
+  useEffect(() => {
+    // Reset the cursor whenever the operator changes the window.
+    setRewindCursorMs(0);
+  }, [state.rewind, windowSinceMs, windowUntilMs]);
+
+  // Rewind dispatch — feeds the same pulse queue the live SSE stream
+  // does. The page never has to know which side drove the pulse; the
+  // graph + matrix render off `livePulses` either way.
+  const handleRewindPulse = useCallback(
+    (frame: RewindPulseFrame) => handlePulse(frame),
+    [handlePulse],
+  );
+
   const handleBrush = useCallback(
     (windowMs: { since: string; until: string }) => {
+      // In rewind mode the brush becomes a scrubber: dragging the right
+      // edge seeks `cursorMs` to that point instead of refetching the
+      // history window. The left edge stays pinned at `since` (the spec
+      // requires the window itself to be stable during replay).
+      if (state.rewind) {
+        const untilAt = new Date(windowMs.until).getTime();
+        const nextCursor = Math.max(
+          0,
+          Math.min(untilAt - windowSinceMs, windowUntilMs - windowSinceMs),
+        );
+        setRewindCursorMs(nextCursor);
+        return;
+      }
       applyState({ ...state, since: windowMs.since, until: windowMs.until });
     },
-    [state, applyState],
+    [state, applyState, windowSinceMs, windowUntilMs],
   );
 
   const graph = liveSnapshot ?? null;
@@ -248,26 +336,47 @@ function InteractionsPageContent() {
             unless narrowed below.
           </p>
         </div>
-        <InteractionLive
-          enabled={state.live}
-          unit={state.unit || undefined}
-          neighbours={state.neighbours}
-          onPulse={handlePulse}
-          onNodeAdded={handleNodeAdded}
-          onEdgeAdded={handleEdgeAdded}
-          droppedCount={droppedCount}
-          onThrottled={handleThrottled}
-        />
+        {state.rewind ? (
+          <InteractionRewind
+            since={new Date(window.since)}
+            until={new Date(window.until)}
+            pulses={historyQuery.data?.pulses ?? []}
+            cursorMs={rewindCursorMs}
+            onCursorChange={setRewindCursorMs}
+            onPulse={handleRewindPulse}
+          />
+        ) : (
+          <InteractionLive
+            enabled={state.live}
+            unit={state.unit || undefined}
+            neighbours={state.neighbours}
+            onPulse={handlePulse}
+            onNodeAdded={handleNodeAdded}
+            onEdgeAdded={handleEdgeAdded}
+            droppedCount={droppedCount}
+            onThrottled={handleThrottled}
+          />
+        )}
       </header>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
         <InteractionFilters state={state} onChange={applyState} />
         <div className="space-y-4">
-          {snapshotQuery.error ? (
-            <ApiErrorMessage error={snapshotQuery.error} />
-          ) : null}
+          {state.rewind
+            ? historyQuery.error
+              ? (
+                <ApiErrorMessage error={historyQuery.error} />
+              )
+              : null
+            : snapshotQuery.error
+              ? (
+                <ApiErrorMessage error={snapshotQuery.error} />
+              )
+              : null}
 
-          {snapshotQuery.isPending && !graph ? (
+          {(state.rewind
+            ? historyQuery.isPending && !graph
+            : snapshotQuery.isPending && !graph) ? (
             <Skeleton className="h-48" />
           ) : (
             <>
@@ -300,6 +409,12 @@ function InteractionsPageContent() {
                     buckets={timeline}
                     brushDisabled={state.live}
                     onBrush={handleBrush}
+                    scrubMode={state.rewind}
+                    cursorIso={
+                      state.rewind
+                        ? new Date(windowSinceMs + rewindCursorMs).toISOString()
+                        : undefined
+                    }
                   />
                 </CardContent>
               </Card>
@@ -349,8 +464,8 @@ function InteractionsPageContent() {
       {/* Window summary tucked in the corner so deep-link consumers can
           see the materialised since/until they're looking at. */}
       <p className="text-[10px] text-muted-foreground">
-        Window: {new Date(resolveWindow(state).since).toLocaleString()} →{" "}
-        {new Date(resolveWindow(state).until).toLocaleString()}
+        Window: {new Date(window.since).toLocaleString()} →{" "}
+        {new Date(window.until).toLocaleString()}
       </p>
 
       {/* Hidden refresh button so tests + a11y users can refetch.

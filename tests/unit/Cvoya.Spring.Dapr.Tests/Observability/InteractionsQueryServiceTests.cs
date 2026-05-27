@@ -527,12 +527,366 @@ public class InteractionsQueryServiceTests : IDisposable
         edge.Channels.ShouldBe(new[] { Address.UnitScheme });
     }
 
+    // ---- GetHistoryAsync (rewind mode, #2872) ----------------------------
+    // These tests live in this file because the history path reuses the
+    // same projection, scope, and cap helpers as the snapshot — keeping
+    // both surfaces in one suite makes regressions in shared helpers fail
+    // loudly on every assertion that touches them.
+
+    [Fact]
+    public async Task GetHistoryAsync_NoMessages_ReturnsEmptyHistory()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var svc = BuildService();
+
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: null, Participant: null,
+            Neighbours: 2, Cap: 50, MaxPulses: 5000),
+            ct);
+
+        history.Nodes.ShouldBeEmpty();
+        history.Edges.ShouldBeEmpty();
+        history.Pulses.ShouldBeEmpty();
+        history.Truncated.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_OnePulsePerMessage_NeverCoalesced()
+    {
+        // Five messages on the same (from, to) edge → five pulses. The
+        // snapshot path would collapse these to one edge with count = 5;
+        // history keeps each message individually addressable so the
+        // rewind UI can animate them one by one.
+        var ct = TestContext.Current.CancellationToken;
+        var ada = Guid.NewGuid();
+        var grace = Guid.NewGuid();
+
+        for (var i = 0; i < 5; i++)
+        {
+            await SeedMessageAsync(
+                (Address.AgentScheme, ada),
+                (Address.AgentScheme, grace),
+                Base.AddMinutes(i + 1));
+        }
+
+        var svc = BuildService();
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: null, Participant: null,
+            Neighbours: 2, Cap: 50, MaxPulses: 5000),
+            ct);
+
+        history.Pulses.Count.ShouldBe(5);
+        history.Pulses.Select(p => p.FromId).ShouldAllBe(id => id == GuidFormatter.Format(ada));
+        history.Pulses.Select(p => p.ToId).ShouldAllBe(id => id == GuidFormatter.Format(grace));
+        history.Edges.Count.ShouldBe(1);
+        history.Edges.Single().Count.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_PulsesSortedAscending_TieBrokenByMessageId()
+    {
+        // Two messages with the exact same timestamp → ordered by canonical
+        // 32-hex message id ascending. We seed the larger id first so the
+        // dictionary iteration order would emit it first; the sort enforces
+        // (timestamp asc, id asc).
+        var ct = TestContext.Current.CancellationToken;
+        var ada = Guid.NewGuid();
+        var grace = Guid.NewGuid();
+
+        var sameInstant = Base.AddMinutes(1);
+        // Two ids — pick the comparator order deterministically.
+        var idA = new Guid("aaaaaaaa-0000-0000-0000-000000000001");
+        var idB = new Guid("ffffffff-0000-0000-0000-000000000002");
+
+        await SeedMessageAsync(
+            (Address.AgentScheme, ada), (Address.AgentScheme, grace),
+            sameInstant, messageId: idB);
+        await SeedMessageAsync(
+            (Address.AgentScheme, ada), (Address.AgentScheme, grace),
+            sameInstant, messageId: idA);
+
+        // Plus one strictly-later message so ordering across timestamps is
+        // also exercised.
+        var idC = Guid.NewGuid();
+        await SeedMessageAsync(
+            (Address.AgentScheme, ada), (Address.AgentScheme, grace),
+            sameInstant.AddSeconds(1), messageId: idC);
+
+        var svc = BuildService();
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: null, Participant: null,
+            Neighbours: 2, Cap: 50, MaxPulses: 5000),
+            ct);
+
+        history.Pulses.Count.ShouldBe(3);
+        // First two share the timestamp; idA < idB lexically in 32-hex.
+        history.Pulses[0].Id.ShouldBe(GuidFormatter.Format(idA));
+        history.Pulses[1].Id.ShouldBe(GuidFormatter.Format(idB));
+        history.Pulses[2].Id.ShouldBe(GuidFormatter.Format(idC));
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_MaxPulsesExceeded_DropsOldest_PopulatesPulseTruncation()
+    {
+        // 10 messages, budget = 4 → keep the 4 most recent, report
+        // total = 10 / kept = 4. The brief: "drops the OLDEST pulses
+        // (keeping the most recent activity)."
+        var ct = TestContext.Current.CancellationToken;
+        var ada = Guid.NewGuid();
+        var grace = Guid.NewGuid();
+
+        var ids = Enumerable.Range(0, 10).Select(_ => Guid.NewGuid()).ToList();
+        for (var i = 0; i < 10; i++)
+        {
+            await SeedMessageAsync(
+                (Address.AgentScheme, ada), (Address.AgentScheme, grace),
+                Base.AddMinutes(i + 1), messageId: ids[i]);
+        }
+
+        var svc = BuildService();
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: null, Participant: null,
+            Neighbours: 2, Cap: 50, MaxPulses: 4),
+            ct);
+
+        history.Pulses.Count.ShouldBe(4);
+        // The four most recent message ids (indices 6..9) survive.
+        history.Pulses.Select(p => p.Id).ShouldBe(
+            ids.Skip(6).Select(GuidFormatter.Format).ToList());
+
+        history.Truncated.ShouldNotBeNull();
+        history.Truncated!.Pulses.ShouldNotBeNull();
+        history.Truncated.Pulses!.Total.ShouldBe(10);
+        history.Truncated.Pulses.Kept.ShouldBe(4);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_PulsesFitInBudget_PulseTruncationOmitted()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = Guid.NewGuid();
+        var grace = Guid.NewGuid();
+
+        await SeedMessageAsync(
+            (Address.AgentScheme, ada), (Address.AgentScheme, grace),
+            Base.AddMinutes(1));
+
+        var svc = BuildService();
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: null, Participant: null,
+            Neighbours: 2, Cap: 50, MaxPulses: 5000),
+            ct);
+
+        history.Pulses.Count.ShouldBe(1);
+        history.Truncated.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_NodeCapStillApplies_OnHistoryPath()
+    {
+        // Two "hot" nodes with heavy traffic + three "cold" nodes each
+        // touched once. Cap = 2 keeps the two hot nodes; pulses
+        // referencing dropped endpoints disappear. The cap counts NODES
+        // (not pulses); the two budgets are independent.
+        var ct = TestContext.Current.CancellationToken;
+        var hot = Guid.NewGuid();
+        var med = Guid.NewGuid();
+        var cold1 = Guid.NewGuid();
+        var cold2 = Guid.NewGuid();
+        var cold3 = Guid.NewGuid();
+
+        for (var i = 0; i < 5; i++)
+        {
+            await SeedMessageAsync(
+                (Address.AgentScheme, hot), (Address.AgentScheme, med),
+                Base.AddMinutes(i));
+            await SeedMessageAsync(
+                (Address.AgentScheme, med), (Address.AgentScheme, hot),
+                Base.AddMinutes(i + 30));
+        }
+        await SeedMessageAsync((Address.AgentScheme, cold1), (Address.AgentScheme, cold2), Base.AddMinutes(10));
+        await SeedMessageAsync((Address.AgentScheme, cold2), (Address.AgentScheme, cold3), Base.AddMinutes(11));
+
+        var svc = BuildService();
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: null, Participant: null,
+            Neighbours: 2, Cap: 2, MaxPulses: 5000),
+            ct);
+
+        history.Nodes.Count.ShouldBe(2);
+        history.Nodes.Select(n => n.Id).ShouldBe(
+            new[] { GuidFormatter.Format(hot), GuidFormatter.Format(med) },
+            ignoreOrder: true);
+
+        history.Truncated.ShouldNotBeNull();
+        history.Truncated!.Total.ShouldBe(5);
+        history.Truncated.Kept.ShouldBe(2);
+        history.Truncated.Pulses.ShouldBeNull(); // node-only branch
+
+        // Every surviving pulse touches one of the two hot endpoints.
+        var keptIds = new[] { GuidFormatter.Format(hot), GuidFormatter.Format(med) };
+        history.Pulses.ShouldAllBe(p =>
+            keptIds.Contains(p.FromId) && keptIds.Contains(p.ToId));
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_OtherTenantRows_Excluded()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = Guid.NewGuid();
+        var grace = Guid.NewGuid();
+
+        await SeedMessageAsync(
+            sender: (Address.AgentScheme, ada),
+            recipient: (Address.AgentScheme, grace),
+            sentAt: Base.AddMinutes(1),
+            tenantOverride: OtherTenantId);
+
+        var svc = BuildService();
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: null, Participant: null,
+            Neighbours: 2, Cap: 50, MaxPulses: 5000),
+            ct);
+
+        history.Nodes.ShouldBeEmpty();
+        history.Pulses.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_ConnectorRecipient_NoConnectorToIdOnPulse()
+    {
+        // The defensive ADR-0048 filter applies on the history path too:
+        // a synthetic agent → connector row would be dropped before any
+        // pulse is emitted. Connector → agent is legitimate (provenance).
+        var ct = TestContext.Current.CancellationToken;
+        var ada = Guid.NewGuid();
+        var connector = Guid.NewGuid();
+
+        await SeedMessageAsync(
+            (Address.ConnectorScheme, connector), (Address.AgentScheme, ada),
+            Base.AddMinutes(1));
+        await SeedMessageAsync(
+            (Address.AgentScheme, ada), (Address.ConnectorScheme, connector),
+            Base.AddMinutes(2));
+
+        var svc = BuildService();
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: null, Participant: null,
+            Neighbours: 2, Cap: 50, MaxPulses: 5000),
+            ct);
+
+        history.Pulses.Count.ShouldBe(1);
+        var pulse = history.Pulses.Single();
+        pulse.FromId.ShouldBe(GuidFormatter.Format(connector));
+        pulse.ToId.ShouldBe(GuidFormatter.Format(ada));
+
+        // No pulse should ever name a connector as the recipient.
+        var connectorHex = GuidFormatter.Format(connector);
+        history.Pulses.ShouldNotContain(p => p.ToId == connectorHex);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_WindowBounds_SinceInclusiveUntilExclusive()
+    {
+        // Seed three messages: one before the window, one at the
+        // `since` boundary (should be included — inclusive), one at the
+        // `until` boundary (should be excluded — exclusive).
+        var ct = TestContext.Current.CancellationToken;
+        var ada = Guid.NewGuid();
+        var grace = Guid.NewGuid();
+
+        var since = Base.AddMinutes(10);
+        var until = Base.AddMinutes(20);
+
+        // 1 minute before since — excluded.
+        await SeedMessageAsync(
+            (Address.AgentScheme, ada), (Address.AgentScheme, grace),
+            since.AddMinutes(-1));
+        // Exactly at since — included (inclusive lower bound).
+        await SeedMessageAsync(
+            (Address.AgentScheme, ada), (Address.AgentScheme, grace),
+            since);
+        // Exactly at until — excluded (exclusive upper bound).
+        await SeedMessageAsync(
+            (Address.AgentScheme, ada), (Address.AgentScheme, grace),
+            until);
+
+        var svc = BuildService();
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: since, Until: until,
+            Unit: null, Participant: null,
+            Neighbours: 2, Cap: 50, MaxPulses: 5000),
+            ct);
+
+        history.Pulses.Count.ShouldBe(1);
+        history.Pulses.Single().Timestamp.ShouldBe(since);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_DepthFilter_NeighboursAroundFocus()
+    {
+        // Topology: ada → grace, grace → hopper, hopper → lovelace.
+        // Focus = grace; hops = 1 keeps the first two edges (ada↔grace,
+        // grace↔hopper) and excludes hopper→lovelace.
+        var ct = TestContext.Current.CancellationToken;
+        var (ada, grace, hopper, lovelace) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        await SeedMessageAsync((Address.AgentScheme, ada), (Address.AgentScheme, grace), Base.AddMinutes(1));
+        await SeedMessageAsync((Address.AgentScheme, grace), (Address.AgentScheme, hopper), Base.AddMinutes(2));
+        await SeedMessageAsync((Address.AgentScheme, hopper), (Address.AgentScheme, lovelace), Base.AddMinutes(3));
+
+        var svc = BuildService();
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: null, Participant: grace,
+            Neighbours: 1, Cap: 50, MaxPulses: 5000),
+            ct);
+
+        history.Pulses.Count.ShouldBe(2);
+        history.Pulses.Select(p => p.ToId).ShouldNotContain(GuidFormatter.Format(lovelace));
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_PulseTimestampThreadIdChannelPopulated()
+    {
+        // Verify the per-pulse fields are populated from the message row
+        // and the recipient scheme (the "channel" hint mirrors the
+        // snapshot edge's Channels list).
+        var ct = TestContext.Current.CancellationToken;
+        var ada = Guid.NewGuid();
+        var eng = Guid.NewGuid();
+        var ts = Base.AddMinutes(7);
+
+        await SeedMessageAsync((Address.AgentScheme, ada), (Address.UnitScheme, eng), ts);
+
+        var svc = BuildService();
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: null, Participant: null,
+            Neighbours: 2, Cap: 50, MaxPulses: 5000),
+            ct);
+
+        var pulse = history.Pulses.Single();
+        pulse.Timestamp.ShouldBe(ts);
+        pulse.Channel.ShouldBe(Address.UnitScheme);
+        pulse.ThreadId.ShouldNotBeNullOrEmpty();
+    }
+
     private async Task SeedMessageAsync(
         (string Scheme, Guid Id) sender,
         (string Scheme, Guid Id) recipient,
         DateTimeOffset sentAt,
         string messageType = "Domain",
-        Guid? tenantOverride = null)
+        Guid? tenantOverride = null,
+        Guid? messageId = null)
     {
         // For a tenant-override seed we use the shared DbContext options
         // with a tenant-scoped context pointing at the override id, so
@@ -555,7 +909,7 @@ public class InteractionsQueryServiceTests : IDisposable
 
         ctxTenant.Messages.Add(new MessageEntity
         {
-            Id = Guid.NewGuid(),
+            Id = messageId ?? Guid.NewGuid(),
             TenantId = tenantOverride ?? TenantId,
             ThreadId = thread.Id,
             SenderScheme = sender.Scheme,

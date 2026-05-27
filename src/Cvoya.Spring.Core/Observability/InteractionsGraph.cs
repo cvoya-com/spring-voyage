@@ -118,6 +118,109 @@ public record InteractionsTruncation(
     long Kept);
 
 /// <summary>
+/// Pulse-level truncation payload — populated only on the history
+/// endpoint and only when the caller-supplied <c>maxPulses</c> budget
+/// was exceeded. The history endpoint truncates from the oldest end of
+/// the window so the most recent activity is preserved.
+/// </summary>
+/// <param name="Total">Total pulses the window contained before truncation.</param>
+/// <param name="Kept">Pulses kept after truncation (always &lt;= <c>maxPulses</c>).</param>
+public record InteractionsPulseTruncation(
+    long Total,
+    long Kept);
+
+/// <summary>
+/// One pulse in the history endpoint's per-message timeline — the
+/// individual record of a single message landing on an edge. Distinct
+/// from the snapshot's edge aggregate (which carries <c>count</c>) and
+/// from the SSE pulse frame (which coalesces bursts on a per-edge
+/// timer): the rewind-mode timeline animates messages one by one so
+/// the operator can scrub backwards through the activity exactly as
+/// it happened.
+/// </summary>
+/// <param name="Id">
+/// Canonical no-dash 32-hex Guid of the message id (matches the
+/// <c>messages.id</c> column persisted by ADR-0030 / ADR-0040). Stable
+/// across reloads — the portal uses it as a React key.
+/// </param>
+/// <param name="FromId">Canonical no-dash 32-hex Guid of the sender.</param>
+/// <param name="ToId">
+/// Canonical no-dash 32-hex Guid of the recipient. Never a connector id
+/// — per ADR-0048 the connector scheme is source-only.
+/// </param>
+/// <param name="Timestamp">Wall-clock UTC timestamp the dispatcher accepted the message.</param>
+/// <param name="ThreadId">
+/// Thread the message landed on. <c>null</c> for the (rare) legacy
+/// message rows that pre-date the thread foreign key — the column is
+/// non-null on new dispatches but reading is forgiving.
+/// </param>
+/// <param name="Channel">
+/// Recipient scheme (<c>agent</c>, <c>unit</c>, <c>human</c>) — the
+/// portal renders it as the edge's channel hint. Mirrors the edge
+/// aggregate's per-row contribution to <see cref="InteractionsEdge.Channels"/>.
+/// </param>
+public record InteractionsPulse(
+    string Id,
+    string FromId,
+    string ToId,
+    DateTimeOffset Timestamp,
+    string? ThreadId,
+    string Channel);
+
+/// <summary>
+/// History snapshot returned by
+/// <see cref="IInteractionsQueryService.GetHistoryAsync"/> — the same
+/// nodes / edges as the snapshot endpoint produces, plus a per-message
+/// pulse stream for the requested window so the portal's rewind mode
+/// can scrub through the activity message by message.
+/// </summary>
+/// <param name="Nodes">
+/// One row per unique addressable that appeared as sender or recipient.
+/// Same shape and truncation rule as the snapshot endpoint — the
+/// node-level <c>cap</c> still applies independently of the pulse budget.
+/// </param>
+/// <param name="Edges">
+/// One row per unique directed <c>(fromId, toId)</c> pair. Same shape and
+/// connector-source-only rule as the snapshot endpoint.
+/// </param>
+/// <param name="Pulses">
+/// One entry per individual message — never coalesced. Sorted by
+/// <see cref="InteractionsPulse.Timestamp"/> ascending; ties broken by
+/// <see cref="InteractionsPulse.Id"/> lexically (canonical no-dash
+/// 32-hex form) for determinism.
+/// </param>
+/// <param name="Truncated">
+/// Truncation envelope. Carries the node-level total / kept counters
+/// (same as the snapshot endpoint) and, when pulse truncation also
+/// fires, a nested <see cref="InteractionsPulseTruncation"/> reporting
+/// the pulse-level totals. <c>null</c> when neither truncation branch
+/// fired.
+/// </param>
+public record InteractionsHistory(
+    IReadOnlyList<InteractionsNode> Nodes,
+    IReadOnlyList<InteractionsEdge> Edges,
+    IReadOnlyList<InteractionsPulse> Pulses,
+    InteractionsHistoryTruncation? Truncated);
+
+/// <summary>
+/// Truncation envelope for the history endpoint. Same node-level total /
+/// kept as <see cref="InteractionsTruncation"/>, plus an optional nested
+/// pulse-truncation block so a single payload covers both branches —
+/// either or both can fire on the same response.
+/// </summary>
+/// <param name="Total">Distinct nodes observed before node-level truncation.</param>
+/// <param name="Kept">Nodes kept after applying the node cap.</param>
+/// <param name="Pulses">
+/// Populated when pulse truncation also fired; <c>null</c> when only the
+/// node cap fired (or neither did and the envelope was suppressed
+/// upstream).
+/// </param>
+public record InteractionsHistoryTruncation(
+    long Total,
+    long Kept,
+    InteractionsPulseTruncation? Pulses);
+
+/// <summary>
 /// Bucket granularity for <see cref="InteractionsGraph.Timeline"/>.
 /// </summary>
 public enum InteractionsBucket
@@ -169,3 +272,43 @@ public record InteractionsQueryFilters(
     int Neighbours,
     InteractionsBucket Bucket,
     int? Cap);
+
+/// <summary>
+/// Filter parameters for <see cref="IInteractionsQueryService.GetHistoryAsync"/>.
+/// Same scoping + window + cap fields as <see cref="InteractionsQueryFilters"/>,
+/// plus a per-pulse <see cref="MaxPulses"/> budget. The history surface
+/// does not carry a <see cref="InteractionsBucket"/> — the per-message
+/// pulse stream is the timeline and bucketing is the snapshot's job.
+/// </summary>
+/// <param name="Since">Inclusive lower bound of the time window.</param>
+/// <param name="Until">Exclusive upper bound of the time window.</param>
+/// <param name="Unit">
+/// Optional scope: include only rows touching this addressable id. Same
+/// semantics as <see cref="InteractionsQueryFilters.Unit"/>.
+/// </param>
+/// <param name="Participant">
+/// Optional scope: include only rows touching this addressable id. Same
+/// semantics as <see cref="InteractionsQueryFilters.Participant"/>.
+/// </param>
+/// <param name="Neighbours">
+/// Hop depth applied around <see cref="Unit"/> / <see cref="Participant"/>.
+/// Same semantics as <see cref="InteractionsQueryFilters.Neighbours"/>.
+/// </param>
+/// <param name="Cap">
+/// Maximum number of nodes returned. Same semantics as
+/// <see cref="InteractionsQueryFilters.Cap"/>; <c>null</c> disables.
+/// </param>
+/// <param name="MaxPulses">
+/// Maximum pulses returned. When the window contains more pulses than
+/// <see cref="MaxPulses"/>, the OLDEST pulses are dropped so the most
+/// recent activity stays in the returned slice; the response carries an
+/// <see cref="InteractionsPulseTruncation"/> reporting the totals.
+/// </param>
+public record InteractionsHistoryFilters(
+    DateTimeOffset Since,
+    DateTimeOffset Until,
+    Guid? Unit,
+    Guid? Participant,
+    int Neighbours,
+    int? Cap,
+    int MaxPulses);

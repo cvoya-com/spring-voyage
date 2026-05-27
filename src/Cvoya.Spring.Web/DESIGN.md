@@ -541,6 +541,15 @@ The Tenant Budgets and Tenant Activity tabs render *summary* rollups and cross-l
 
 **Timeline brush ↔ live mode.** The recharts `<Brush>` lets the operator narrow `since` / `until` by dragging. Live mode disables the brush — the snapshot window pins to "now" so a sustained burst doesn't fight the operator's brush handle. The brush is conditionally rendered (not visually disabled) so a screen-reader user doesn't get a non-interactive control in the focus order; the `data-brush-enabled` attribute on the timeline wrapper carries the state for tests.
 
+**Rewind mode (#2872).** A second toggle next to the Live button switches the page into a replay surface for the same `[since, until]` window. Mutually exclusive with Live: clicking either toggle flips the other off (the URL never carries both `live=true` and `rewind=true`; the writer drops `rewind` if both are accidentally set). The live SSE subscription unmounts, the snapshot fetch pauses, and a one-shot history fetch (`GET /api/v1/tenant/observation/interactions/history`) materialises the topology plus the ordered pulse list. In place of the Live status indicator, the header renders the rewind transport bar (`<InteractionRewind>`):
+
+- **Play / Pause** — icon-only `Button` with `aria-label`; the default starts paused.
+- **Speed segmented control** — `1x` / `5x` / `30x` (default) / `100x` / `1000x` rendered as the same brand-blue pill family the view-mode toggle uses (`bg-primary/15 text-primary` when selected). Arrow keys nudge between presets when the segment is focused.
+- **Elapsed / total readout** — `mm:ss / mm:ss` in `font-mono tabular-nums text-muted-foreground` plus a slim primary-tinted progress sliver to the right.
+- **Restart** — ghost button (`<RotateCcw>` icon) that's disabled until the cursor reaches `until` once.
+
+The replay engine reuses the live pulse animation pipeline — the rewind component dispatches per-pulse frames through the same `onPulse` callback the SSE handler feeds, so the graph dot motion and the matrix cell flash are identical. While playing, dragging the right edge of the timeline brush becomes a *scrubber*: the left edge stays pinned at `since` and the right edge seeks the virtual cursor. A dashed `<ReferenceLine>` painted in `--color-primary` shows where in the window playback currently sits. Speed-change and scrub events rebase the realtime anchor so the cursor never jumps mid-burst.
+
 ---
 
 ## 12. Component patterns

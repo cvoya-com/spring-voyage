@@ -59,6 +59,8 @@ import type {
   InitiativePolicy,
   InteractionsFilters,
   InteractionsGraphResponse,
+  InteractionsHistoryFilters,
+  InteractionsHistoryResponse,
   MemoriesResponse,
   PackageDetail,
   PackageRequiredCredentialsResponse,
@@ -1088,6 +1090,32 @@ export function useInteractionsSnapshot(
     queryFn: () => api.getInteractionsSnapshot(filters),
     refetchInterval: opts?.refetchInterval ?? INTERACTIONS_REFETCH_INTERVAL_MS,
     refetchOnWindowFocus: true,
+    staleTime: opts?.staleTime,
+    enabled: opts?.enabled,
+  });
+}
+
+/**
+ * History fetch backing rewind mode (#2872). One-shot fetch keyed on the
+ * full filter set (since / until / unit / participant / neighbours /
+ * maxPulses / cap); we deliberately turn refetch-on-window-focus and the
+ * periodic refetch interval OFF. The rewind player walks a fixed pulse
+ * array, so a mid-replay refetch would silently reset the cursor and
+ * confuse the operator. The cache is keyed independently from the
+ * snapshot so flipping between live and rewind never thrashes either
+ * slice.
+ */
+export function useInteractionsHistory(
+  filters?: InteractionsHistoryFilters,
+  opts?: SliceOptions<InteractionsHistoryResponse>,
+): UseQueryResult<InteractionsHistoryResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.interactions.history(
+      filters as Record<string, unknown> | undefined,
+    ),
+    queryFn: () => api.getInteractionsHistory(filters),
+    refetchInterval: opts?.refetchInterval ?? false,
+    refetchOnWindowFocus: false,
     staleTime: opts?.staleTime,
     enabled: opts?.enabled,
   });

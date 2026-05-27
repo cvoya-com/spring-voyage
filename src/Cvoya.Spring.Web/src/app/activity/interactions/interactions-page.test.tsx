@@ -6,15 +6,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   InteractionsGraphResponse,
+  InteractionsHistoryResponse,
 } from "@/lib/api/types";
 
 // Stub the openapi-fetch-backed client so the page hits a static
 // fixture instead of the network. The mocks are reset per-test.
 const mockSnapshot = vi.fn();
+const mockHistory = vi.fn();
 const mockTree = vi.fn();
 vi.mock("@/lib/api/client", () => ({
   api: {
     getInteractionsSnapshot: (...args: unknown[]) => mockSnapshot(...args),
+    getInteractionsHistory: (...args: unknown[]) => mockHistory(...args),
     getTenantTree: (...args: unknown[]) => mockTree(...args),
   },
 }));
@@ -188,8 +191,33 @@ function renderPage(Component: React.ComponentType): ReturnType<typeof render> {
   return render(<Component />, { wrapper: Wrapper });
 }
 
+const HISTORY_FIXTURE: InteractionsHistoryResponse = {
+  nodes: FIXTURE.nodes,
+  edges: FIXTURE.edges,
+  pulses: [
+    {
+      messageId: "msg-1",
+      fromId: "agent-1",
+      toId: "unit-1",
+      timestamp: "2026-05-27T10:00:00.500Z",
+      threadId: null,
+      channel: "unit",
+    },
+    {
+      messageId: "msg-2",
+      fromId: "connector-1",
+      toId: "agent-1",
+      timestamp: "2026-05-27T10:00:30.000Z",
+      threadId: null,
+      channel: "agent",
+    },
+  ],
+  truncated: null,
+};
+
 beforeEach(() => {
   mockSnapshot.mockReset();
+  mockHistory.mockReset();
   mockTree.mockReset();
   mockReplace = vi.fn();
   mockSearch = "";
@@ -200,6 +228,7 @@ beforeEach(() => {
     globalThis as unknown as { EventSource: typeof FakeEventSource }
   ).EventSource = FakeEventSource;
   mockSnapshot.mockResolvedValue(FIXTURE);
+  mockHistory.mockResolvedValue(HISTORY_FIXTURE);
   mockTree.mockResolvedValue({
     id: "tenant",
     name: "tenant",
@@ -423,6 +452,94 @@ describe("InteractionsPage", () => {
       expect(
         screen.getByTestId("interaction-live-throttle-indicator").textContent,
       ).toContain("+7 more dropped");
+    });
+  });
+
+  describe("rewind mode", () => {
+    it("seeded with rewind=true unmounts the live indicator and renders the transport bar", async () => {
+      mockSearch = "rewind=true&since=2026-05-27T10:00:00.000Z&until=2026-05-27T10:10:00.000Z";
+      const InteractionsPage = (await import("./page")).default;
+      renderPage(InteractionsPage);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("interaction-rewind")).toBeInTheDocument();
+      });
+      // Live status indicator is absent — InteractionLive returns null
+      // when `enabled` is false.
+      expect(
+        screen.queryByTestId("interaction-live-status"),
+      ).not.toBeInTheDocument();
+      // History endpoint was hit.
+      await waitFor(() => {
+        expect(mockHistory).toHaveBeenCalled();
+      });
+    });
+
+    it("rewind toggle activates the rewind flow and writes rewind=true to the URL", async () => {
+      const InteractionsPage = (await import("./page")).default;
+      renderPage(InteractionsPage);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("interaction-filters")).toBeInTheDocument(),
+      );
+      fireEvent.click(screen.getByTestId("interaction-filters-rewind-toggle"));
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith(
+          expect.stringContaining("rewind=true"),
+        );
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId("interaction-rewind")).toBeInTheDocument();
+      });
+    });
+
+    it("turning live on while rewind is active forces rewind off and reconnects SSE", async () => {
+      mockSearch = "rewind=true&since=2026-05-27T10:00:00.000Z&until=2026-05-27T10:10:00.000Z";
+      const InteractionsPage = (await import("./page")).default;
+      renderPage(InteractionsPage);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("interaction-rewind")).toBeInTheDocument(),
+      );
+      // Flip Live on — the helper writes `live=true` and drops `rewind`.
+      fireEvent.click(screen.getByTestId("interaction-filters-live-toggle"));
+      await waitFor(() => {
+        const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1][0];
+        expect(call).toContain("live=true");
+        expect(call).not.toContain("rewind=true");
+      });
+    });
+
+    it("turning rewind on while live is active forces live off", async () => {
+      mockSearch = "live=true";
+      const InteractionsPage = (await import("./page")).default;
+      renderPage(InteractionsPage);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("interaction-filters")).toBeInTheDocument(),
+      );
+      fireEvent.click(screen.getByTestId("interaction-filters-rewind-toggle"));
+      await waitFor(() => {
+        const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1][0];
+        expect(call).toContain("rewind=true");
+        expect(call).not.toContain("live=true");
+      });
+    });
+
+    it("toggling rewind off restores the live indicator + snapshot fetch", async () => {
+      mockSearch = "rewind=true";
+      const InteractionsPage = (await import("./page")).default;
+      renderPage(InteractionsPage);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("interaction-rewind")).toBeInTheDocument(),
+      );
+      fireEvent.click(screen.getByTestId("interaction-filters-rewind-toggle"));
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("interaction-rewind"),
+        ).not.toBeInTheDocument();
+      });
     });
   });
 });

@@ -9,13 +9,21 @@
 // Brush is disabled when live mode is on — the window pins to "now" so
 // the operator can watch the stream tick by without the brush fighting
 // the auto-scroll.
+//
+// In rewind mode (#2872) the brush becomes a *scrubber*: the left edge
+// pins to the first bucket and dragging the right edge seeks the
+// virtual playback cursor instead of narrowing the window. The
+// component still reports through `onBrush`; the page reducer routes
+// the call into either "refetch with a new window" (default) or "seek
+// cursor" (rewind) based on its own URL state.
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   Area,
   AreaChart,
   Brush,
   CartesianGrid,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -35,6 +43,21 @@ export interface InteractionTimelineProps {
   onBrush?: (windowMs: { since: string; until: string }) => void;
   /** Chart height in px. */
   height?: number;
+  /**
+   * Rewind-mode scrub (#2872). When `true` the brush is rendered but
+   * the left edge stays pinned at the first bucket — dragging the
+   * right edge seeks the cursor via `onBrush` instead of narrowing the
+   * window. Mutually exclusive with `brushDisabled` (live mode); if
+   * both are set, `brushDisabled` wins.
+   */
+  scrubMode?: boolean;
+  /**
+   * Current cursor position in rewind mode, ISO 8601. Renders as a
+   * vertical reference line on the chart so the operator can see where
+   * playback is at relative to the buckets. No-op when `scrubMode` is
+   * false.
+   */
+  cursorIso?: string;
 }
 
 interface TimelineRow {
@@ -100,6 +123,8 @@ export function InteractionTimeline({
   brushDisabled = false,
   onBrush,
   height = 200,
+  scrubMode = false,
+  cursorIso,
 }: InteractionTimelineProps) {
   const data = useMemo<TimelineRow[]>(() => {
     return buckets.map((b) => ({
@@ -116,6 +141,13 @@ export function InteractionTimeline({
   // includes the brush, even if neither bound moved.
   const lastBrush = useRef<{ start: number; end: number } | null>(null);
 
+  // Reset the brush-deduplication ledger when the scrub-mode flips so a
+  // rewind→snapshot transition (or vice versa) doesn't silently swallow
+  // the first user-driven brush event after the toggle.
+  useEffect(() => {
+    lastBrush.current = null;
+  }, [scrubMode]);
+
   if (buckets.length === 0) {
     return (
       <p
@@ -130,14 +162,19 @@ export function InteractionTimeline({
   const handleBrush = (range: { startIndex?: number; endIndex?: number }) => {
     if (brushDisabled || !onBrush) return;
     if (range.startIndex === undefined || range.endIndex === undefined) return;
+    // In scrub mode the left edge is pinned to the first bucket — the
+    // operator only steers `until`. We still emit `since` so the
+    // callback shape stays stable; the page reducer figures out
+    // whether to seek or refetch from its own state.
+    const startIndex = scrubMode ? 0 : range.startIndex;
     if (
-      lastBrush.current?.start === range.startIndex &&
+      lastBrush.current?.start === startIndex &&
       lastBrush.current?.end === range.endIndex
     ) {
       return;
     }
-    lastBrush.current = { start: range.startIndex, end: range.endIndex };
-    const startBucket = data[range.startIndex];
+    lastBrush.current = { start: startIndex, end: range.endIndex };
+    const startBucket = data[startIndex];
     const endBucket = data[range.endIndex];
     if (!startBucket || !endBucket) return;
     onBrush({ since: startBucket.bucket, until: endBucket.bucket });
@@ -147,6 +184,7 @@ export function InteractionTimeline({
     <div
       data-testid="interaction-timeline"
       data-brush-enabled={!brushDisabled || undefined}
+      data-scrub-mode={scrubMode || undefined}
       style={{ height }}
       role="img"
       aria-label="Messages over time, stacked by participant kind"
@@ -192,6 +230,16 @@ export function InteractionTimeline({
               isAnimationActive={false}
             />
           ))}
+          {scrubMode && cursorIso ? (
+            <ReferenceLine
+              x={cursorIso}
+              stroke="var(--color-primary)"
+              strokeWidth={2}
+              strokeDasharray="3 3"
+              ifOverflow="extendDomain"
+              data-testid="interaction-timeline-cursor"
+            />
+          ) : null}
           {brushDisabled ? null : (
             <Brush
               dataKey="bucket"
