@@ -791,6 +791,119 @@ public class ThreadQueryServiceTests : IDisposable
     // -------------------------------------------------------------------
     // ToParseable
     // -------------------------------------------------------------------
+    // RecipientHumanId — ADR-0062 § 5 / #2826 read-side Hat resolution
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task ListAsync_RecipientHumanId_TakesLatestHumanRecipient()
+    {
+        // The recipient Hat is the Human id on the most recent message
+        // addressed to a human recipient. Seed a multi-message thread
+        // where the latest human-addressed message picks `savasp`; the
+        // earlier human-addressed message picks a different (also
+        // human) recipient that must NOT win.
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+        var other = NewActor("human", "other");
+        var now = DateTimeOffset.UtcNow;
+
+        var (threadId, _) = await SeedThreadAsync(
+            new[] { ada, savasp, other },
+            now.AddMinutes(-30),
+            new[]
+            {
+                NewMessage(ada, other, "older", now.AddMinutes(-20)),
+                NewMessage(ada, savasp, "newer", now.AddMinutes(-5)),
+                // A subsequent A2A message must NOT clear the human pick —
+                // RecipientHumanId is "latest message addressed to a
+                // human", not "latest message overall".
+                NewMessage(ada, ada, "self-a2a", now.AddMinutes(-1)),
+            });
+
+        var svc = BuildService();
+        var result = await svc.ListAsync(new ThreadQueryFilters(), ct);
+
+        var summary = result.Single(s => s.Id == GuidFormatter.Format(threadId));
+        summary.RecipientHumanId.ShouldBe(savasp.Id);
+    }
+
+    [Fact]
+    public async Task ListAsync_RecipientHumanId_NullForPureA2aThread()
+    {
+        // Pure A2A thread: no message is addressed to a human:
+        // recipient. RecipientHumanId must surface as null so the
+        // portal hides the chip.
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var grace = NewActor("agent", "grace");
+        var now = DateTimeOffset.UtcNow;
+
+        var (threadId, _) = await SeedThreadAsync(
+            new[] { ada, grace },
+            now.AddMinutes(-10),
+            new[]
+            {
+                NewMessage(ada, grace, "hi", now.AddMinutes(-9)),
+                NewMessage(grace, ada, "hi back", now.AddMinutes(-8)),
+            });
+
+        var svc = BuildService();
+        var result = await svc.ListAsync(new ThreadQueryFilters(), ct);
+
+        var summary = result.Single(s => s.Id == GuidFormatter.Format(threadId));
+        summary.RecipientHumanId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetAsync_RecipientHumanId_TakesLatestHumanRecipient()
+    {
+        // The per-thread `GetAsync` walks the already-fetched in-memory
+        // message list rather than re-querying. Same contract as the
+        // list path — most recent message addressed to a human wins.
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+        var other = NewActor("human", "other");
+        var now = DateTimeOffset.UtcNow;
+
+        var (threadId, _) = await SeedThreadAsync(
+            new[] { ada, savasp, other },
+            now.AddMinutes(-30),
+            new[]
+            {
+                NewMessage(ada, other, "older", now.AddMinutes(-20)),
+                NewMessage(ada, savasp, "newer", now.AddMinutes(-5)),
+            });
+
+        var svc = BuildService();
+        var detail = await svc.GetAsync(GuidFormatter.Format(threadId), ct);
+
+        detail.ShouldNotBeNull();
+        detail!.Summary.RecipientHumanId.ShouldBe(savasp.Id);
+    }
+
+    [Fact]
+    public async Task GetAsync_RecipientHumanId_NullForPureA2aThread()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var grace = NewActor("agent", "grace");
+        var now = DateTimeOffset.UtcNow;
+
+        var (threadId, _) = await SeedThreadAsync(
+            new[] { ada, grace },
+            now.AddMinutes(-10),
+            new[] { NewMessage(ada, grace, "hi", now.AddMinutes(-9)) });
+
+        var svc = BuildService();
+        var detail = await svc.GetAsync(GuidFormatter.Format(threadId), ct);
+
+        detail.ShouldNotBeNull();
+        detail!.Summary.RecipientHumanId.ShouldBeNull();
+    }
+
+    // -------------------------------------------------------------------
 
     [Fact]
     public void ToParseable_IdentityForm_ReducesToCanonicalForm()

@@ -48,6 +48,21 @@ public record InboxItemResponse(
 /// "Archived" surface (<c>IsArchived = true</c>). Solo-human threads
 /// stay live.
 /// </param>
+/// <param name="RecipientHumanId">
+/// ADR-0062 § 5 (#2826): stable Guid id of the Hat that received the
+/// latest inbound on this thread. <c>null</c> for pure A2A threads or
+/// threads whose only human-addressed messages were sent by the human
+/// themselves. The portal pairs this with <see cref="RecipientHumanDisplayName"/>
+/// to render the per-row Hat chip on the engagement list and the unit /
+/// agent messaging-tab — the same chip the inbox surface ships today.
+/// </param>
+/// <param name="RecipientHumanDisplayName">
+/// Resolved display name for <see cref="RecipientHumanId"/>, derived
+/// the same way as the other participant labels on this row — the
+/// participant resolver, with the per-message-write snapshot as a
+/// fallback (#2533). <c>null</c> when <see cref="RecipientHumanId"/>
+/// is <c>null</c>.
+/// </param>
 public record ThreadSummaryResponse(
     string Id,
     IReadOnlyList<ParticipantRef> Participants,
@@ -56,7 +71,9 @@ public record ThreadSummaryResponse(
     int EventCount,
     ParticipantRef Origin,
     string Summary,
-    bool IsArchived);
+    bool IsArchived,
+    Guid? RecipientHumanId = null,
+    string? RecipientHumanDisplayName = null);
 
 /// <summary>
 /// API-layer enriched version of <see cref="ThreadEvent"/>. The <c>source</c>,

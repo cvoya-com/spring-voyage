@@ -294,6 +294,23 @@ public static class ThreadEndpoints
             participants.Add(await ToRefAsync(p, resolver, snapshots, ct));
         }
         var origin = await ToRefAsync(s.Origin, resolver, snapshots, ct);
+
+        // ADR-0062 § 5 (#2826): resolve the recipient Hat's display name
+        // through the same snapshot-aware path the participant labels
+        // use so the chip on the engagement list / messaging-tab matches
+        // the name the rest of the row already shows. `s.RecipientHumanId`
+        // is a typed Guid; render it through the canonical wire form so
+        // the resolver picks the right row.
+        Guid? recipientHumanId = null;
+        string? recipientHumanDisplayName = null;
+        if (s.RecipientHumanId is Guid humanId)
+        {
+            recipientHumanId = humanId;
+            var canonical = $"{Address.HumanScheme}:{GuidFormatter.Format(humanId)}";
+            var hatRef = await ToRefAsync(canonical, resolver, snapshots, ct);
+            recipientHumanDisplayName = hatRef.DisplayName;
+        }
+
         return new ThreadSummaryResponse(
             s.Id,
             participants,
@@ -302,7 +319,9 @@ public static class ThreadEndpoints
             s.EventCount,
             origin,
             s.Summary,
-            s.IsArchived);
+            s.IsArchived,
+            recipientHumanId,
+            recipientHumanDisplayName);
     }
 
     internal static async Task<ThreadDetailResponse> EnrichDetailAsync(

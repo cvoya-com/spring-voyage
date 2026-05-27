@@ -37,6 +37,16 @@ namespace Cvoya.Spring.Core.Observability;
 /// "every non-human" set is vacuously true, but the orphan rule
 /// requires at least one non-human participant on the thread.
 /// </param>
+/// <param name="RecipientHumanId">
+/// ADR-0062 § 5 (#2826): the Hat that received the latest inbound on
+/// this thread. Resolved from the most recent persisted message whose
+/// recipient scheme is <c>human:</c>. <c>null</c> when no message on
+/// the thread was addressed to a human recipient (pure A2A threads, or
+/// threads whose only human-addressed messages were sent by the human
+/// themselves). The portal reads this field to render the per-row Hat
+/// chip — the same chip the inbox surface already shows — on the
+/// engagement list and the unit / agent messaging-tab.
+/// </param>
 public record ThreadSummary(
     string Id,
     IReadOnlyList<string> Participants,
@@ -46,7 +56,8 @@ public record ThreadSummary(
     string Origin,
     string Summary,
     IReadOnlyDictionary<string, string>? ParticipantNameSnapshots = null,
-    bool IsArchived = false);
+    bool IsArchived = false,
+    Guid? RecipientHumanId = null);
 
 /// <summary>
 /// Detailed thread payload for <c>GET /api/v1/threads/{id}</c>.

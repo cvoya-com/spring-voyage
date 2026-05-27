@@ -79,6 +79,16 @@ public class ThreadQueryService(
             .Select(g => g.OrderBy(m => m.SentAt).FirstOrDefault())
             .ToListAsync(cancellationToken);
 
+        // ADR-0062 § 5 (#2826): resolve the recipient Hat per thread —
+        // the Human id on the most recent message addressed to a human
+        // recipient. Drives the portal's per-row Hat chip on the
+        // engagement list and the unit / agent messaging-tab. The same
+        // (tenant_id, thread_id, sent_at) composite index covers the
+        // grouped scan; threads with no human-addressed message yield
+        // no row and surface as `null` on the wire.
+        var latestHumanRecipientByThread = await ResolveRecipientHumanIdsAsync(
+            threadIds, cancellationToken);
+
         var countByThread = counts.ToDictionary(c => c.ThreadId, c => c.Count);
         var firstByThread = firstMessages
             .Where(m => m is not null)
@@ -100,6 +110,9 @@ public class ThreadQueryService(
             summary = summary with
             {
                 IsArchived = await ComputeIsArchivedAsync(summary.Participants, cancellationToken),
+                RecipientHumanId = latestHumanRecipientByThread.TryGetValue(thread.Id, out var humanId)
+                    ? humanId
+                    : null,
             };
             summaries.Add(summary);
         }
@@ -145,13 +158,72 @@ public class ThreadQueryService(
         // #2732: derive IsArchived once we know the canonical
         // participant set. GetAsync is the per-thread surface so a
         // single async pass is fine — there is no fan-out to amortise.
+        // #2826: stamp the latest human-recipient on the summary so the
+        // single-thread surface (`GET /api/v1/threads/{id}`) carries the
+        // same Hat-chip data the list view does. The pick reuses the
+        // already-fetched in-memory message list — no extra DB round-trip.
         summary = summary with
         {
             IsArchived = await ComputeIsArchivedAsync(summary.Participants, cancellationToken),
+            RecipientHumanId = PickLatestHumanRecipient(messages),
         };
 
         var events = messages.Select(BuildThreadEvent).ToList();
         return new ThreadDetail(summary, events);
+    }
+
+    /// <summary>
+    /// Resolves the latest human-recipient Hat per thread for a bulk
+    /// list (#2826). Issues one grouped query against the messages
+    /// table: per thread, pick the recipient id of the most recent
+    /// message whose recipient scheme is <c>human:</c>. Threads with no
+    /// human-addressed message do not appear in the result map; callers
+    /// treat the absence as <c>null</c> on the wire.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<Guid, Guid>> ResolveRecipientHumanIdsAsync(
+        IReadOnlyCollection<Guid> threadIds,
+        CancellationToken cancellationToken)
+    {
+        if (threadIds.Count == 0)
+        {
+            return new Dictionary<Guid, Guid>();
+        }
+
+        const string humanScheme = Address.HumanScheme;
+
+        var latestHumanRecipients = await dbContext.Messages
+            .AsNoTracking()
+            .Where(m =>
+                threadIds.Contains(m.ThreadId)
+                && m.RecipientScheme == humanScheme)
+            .GroupBy(m => m.ThreadId)
+            .Select(g => g.OrderByDescending(m => m.SentAt).First())
+            .ToListAsync(cancellationToken);
+
+        return latestHumanRecipients.ToDictionary(m => m.ThreadId, m => m.RecipientId);
+    }
+
+    /// <summary>
+    /// Picks the recipient id of the most recent message addressed to a
+    /// <c>human:</c> recipient from an in-memory, ordered (oldest-first)
+    /// message list. Returns <c>null</c> when no message in the list is
+    /// addressed to a human (pure A2A threads). Used by
+    /// <see cref="GetAsync"/> to avoid a second DB round-trip when the
+    /// caller has already paid for the per-thread message scan.
+    /// </summary>
+    private static Guid? PickLatestHumanRecipient(IReadOnlyList<MessageEntity> messages)
+    {
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(
+                messages[i].RecipientScheme,
+                Address.HumanScheme,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return messages[i].RecipientId;
+            }
+        }
+        return null;
     }
 
     /// <summary>

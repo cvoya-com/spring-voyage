@@ -878,4 +878,66 @@ describe("EngagementList", () => {
       expect(panel.className).toContain("opacity-70");
     });
   });
+
+  // ── Hat chip (ADR-0062 § 5, #2826) ───────────────────────────────────────
+
+  describe("per-row Hat chip (ADR-0062 § 5)", () => {
+    it("renders the chip with the receiving Hat's display name when the wire field is set", () => {
+      mockUseThreads.mockReturnValue({
+        data: [
+          makeThread({
+            id: "thread-hat",
+            recipientHumanId: "33333333-3333-3333-3333-333333333333",
+            recipientHumanDisplayName: "savas",
+          }),
+        ],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      const chip = screen.getByTestId("engagement-hat-chip-thread-hat");
+      expect(chip).toHaveTextContent("As savas");
+      expect(chip).toHaveAttribute("title", "Received as savas");
+    });
+
+    it("hides the chip when recipientHumanDisplayName is null (pure A2A thread)", () => {
+      mockUseThreads.mockReturnValue({
+        data: [
+          makeThread({
+            id: "thread-a2a",
+            recipientHumanId: null,
+            recipientHumanDisplayName: null,
+          }),
+        ],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      expect(
+        screen.queryByTestId("engagement-hat-chip-thread-a2a"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("renders the chip on the sidebar variant as well as the page variant", () => {
+      mockUseThreads.mockReturnValue({
+        data: [
+          makeThread({
+            id: "thread-sidebar",
+            recipientHumanDisplayName: "ada",
+          }),
+        ],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" variant="sidebar" />);
+      const chip = screen.getByTestId("engagement-hat-chip-thread-sidebar");
+      expect(chip).toHaveTextContent("As ada");
+    });
+  });
 });

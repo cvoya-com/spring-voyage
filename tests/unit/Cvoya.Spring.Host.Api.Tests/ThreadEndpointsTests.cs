@@ -448,6 +448,98 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
     }
 
     [Fact]
+    public async Task ListThreads_RecipientHumanId_SurfacesOnResponseWithResolvedDisplayName()
+    {
+        // ADR-0062 § 5 (#2826): ThreadSummary.RecipientHumanId projects
+        // onto the enriched response, with the display name resolved
+        // through the same snapshot-aware path the participant labels
+        // use. The test seeds a Human row so the live resolver returns
+        // the real name; this is the path the portal hits when the
+        // operator looks at their engagement list.
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+        var humanGuid = Guid.NewGuid();
+        var humanAddress = $"human:{humanGuid:N}";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.Humans.Add(new HumanEntity
+            {
+                Id = humanGuid,
+                DisplayName = "savas",
+                TenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+                CreatedAt = now,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
+            {
+                new(
+                    Id: "c-hat",
+                    Participants: new[] { "agent://ada", humanAddress },
+                    LastActivity: now,
+                    CreatedAt: now,
+                    EventCount: 1,
+                    Origin: "agent://ada",
+                    Summary: "Hi savas",
+                    ParticipantNameSnapshots: null,
+                    IsArchived: false,
+                    RecipientHumanId: humanGuid),
+            });
+
+        var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummaryResponse>>(ct);
+        rows.ShouldNotBeNull();
+        var row = rows!.Single(r => r.Id == "c-hat");
+        row.RecipientHumanId.ShouldBe(humanGuid);
+        row.RecipientHumanDisplayName.ShouldBe("savas");
+    }
+
+    [Fact]
+    public async Task ListThreads_RecipientHumanIdNull_SurfacesAsNullDisplayName()
+    {
+        // Pure A2A thread: RecipientHumanId is null on the upstream
+        // shape so both wire fields must be null. The portal hides the
+        // chip entirely in this case (#2826 Part 1).
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
+            {
+                new(
+                    Id: "c-a2a",
+                    Participants: new[] { "agent://ada", "agent://grace" },
+                    LastActivity: now,
+                    CreatedAt: now,
+                    EventCount: 1,
+                    Origin: "agent://ada",
+                    Summary: "ada → grace",
+                    ParticipantNameSnapshots: null,
+                    IsArchived: false,
+                    RecipientHumanId: null),
+            });
+
+        var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummaryResponse>>(ct);
+        rows.ShouldNotBeNull();
+        var row = rows!.Single(r => r.Id == "c-a2a");
+        row.RecipientHumanId.ShouldBeNull();
+        row.RecipientHumanDisplayName.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task ListInbox_ReturnsQueryServiceRows()
     {
         var ct = TestContext.Current.CancellationToken;
