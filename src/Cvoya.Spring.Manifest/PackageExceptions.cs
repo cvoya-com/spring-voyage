@@ -42,6 +42,22 @@ public static class Adr0043ParseErrors
     public const string ArtefactFolderNameMismatch =
         "ArtefactFolderNameMismatch: the folder name must equal the name: field of its " +
         "package.yaml; rename one to match.";
+
+    /// <summary>
+    /// ADR-0043 §3: a unit's <c>members:</c> bare <c>- agent:</c> /
+    /// <c>- unit:</c> reference must resolve to an artefact owned by that
+    /// unit — either nested under the unit's own <c>agents/</c> / <c>units/</c>
+    /// folder, or synthesised from an inline body (ADR-0043 §5g). Bare names
+    /// that resolve up to a top-level artefact or sideways into a sibling
+    /// unit are rejected so the membership graph and the filesystem layout
+    /// stay in agreement. Cross-package qualified references and template
+    /// instantiation (<c>from:</c>) ride through unchanged.
+    /// </summary>
+    public const string UnitMemberOutOfScope =
+        "UnitMemberOutOfScope: a unit's `- agent:` / `- unit:` member must resolve to an " +
+        "artefact owned by that unit (nested under the unit's own agents/ or units/ folder, " +
+        "or declared inline). Move the artefact under the unit's folder, declare it inline, " +
+        "or qualify the reference as cross-package.";
 }
 
 /// <summary>

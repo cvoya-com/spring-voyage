@@ -105,6 +105,9 @@ public class ExamplePackageTests
     [InlineData("spring-voyage-oss")]
     [InlineData("example-simple")]
     [InlineData("example-templated")]
+    [InlineData("magazine")]
+    [InlineData("conversational-defaults")]
+    [InlineData("engineer-defaults")]
     public async Task EveryInRepoPackage_ParsesUnderRecursiveLayout(string packageName)
     {
         // Smoke: every in-repo package must walk cleanly under the

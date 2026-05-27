@@ -15,17 +15,31 @@ There is no `content:` block.
 
 ```
 packages/<domain-name>/
-  package.yaml          # kind: Package — name, description, version, inputs
-  agents/               # agent definition folders
-  units/                # unit definition folders
-  skills/               # skill bundles (prompt fragment + optional tools)
-  templates/            # AgentTemplate / UnitTemplate / HumanTemplate
-  execution/            # Dockerfiles for agent execution images (source, not runtime)
+  package.yaml                     # kind: Package — name, description, version, inputs
+  units/
+    <unit-name>/
+      package.yaml                  # kind: Unit
+      agents/                       # member agents nested under the unit
+        <agent-name>/package.yaml   # kind: Agent — member of <unit-name>
+      skills/                       # unit-scoped skills (optional)
+  agents/                           # top-level / tenant-scope agents (optional)
+  skills/                           # package-scoped skills (optional)
+  templates/                        # AgentTemplate / UnitTemplate / HumanTemplate (optional)
+  execution/                        # Dockerfiles for agent execution images (source, not runtime)
 ```
 
 Every standalone artefact is itself a folder rooted at a `package.yaml` carrying
 its own `kind:` discriminator. Folders compose recursively — a unit folder can
 contain its own `agents/`, `units/`, `skills/`, and `templates/` subdirectories.
+
+**Position carries semantics.** Agents under `units/<u>/agents/<a>/` are members
+of unit `<u>` and activate only as part of that unit. Agents at the package
+root's `agents/` are top-level entries that install as tenant-scoped (or get
+re-parented when the operator passes `--into <unit>`). A unit's bare
+`- agent:` / `- unit:` member must resolve to an artefact owned by that unit;
+a bare reference that resolves to a top-level peer raises `UnitMemberOutOfScope`
+at parse time. For fan-out of many similar instances, use inline `from:` bodies
+under `members:` (see [Templates](#templates) and ADR-0043 §5g).
 
 `connectors/` and `workflows/` are **not** package-vocabulary directories.
 Connector *bindings* are expressed through a `requires:` block and supplied at
@@ -46,11 +60,12 @@ readme: README.md
 
 ## Creating Agents
 
-Each agent is a folder under `agents/` rooted at a `package.yaml` with
-`kind: Agent`:
+Each agent is a folder rooted at a `package.yaml` with `kind: Agent`. Member
+agents live under their owning unit's `agents/` directory; top-level (tenant-
+scoped) agents live under the package root's `agents/`.
 
 ```yaml
-# packages/my-domain/agents/researcher/package.yaml
+# packages/my-domain/units/research-cell/agents/researcher/package.yaml
 apiVersion: spring.voyage/v1
 kind: Agent
 name: researcher
@@ -109,6 +124,9 @@ instructions: |
   You coordinate a research cell. Route incoming work to the most
   appropriate member based on their expertise.
 members:
+  # `researcher` is the folder agent at
+  # packages/my-domain/units/research-cell/agents/researcher/ —
+  # member resolution looks inside the unit's own agents/ folder.
   - agent: researcher
   - human:
       roles: [owner]

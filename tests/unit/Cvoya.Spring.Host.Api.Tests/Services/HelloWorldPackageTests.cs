@@ -69,8 +69,10 @@ public class HelloWorldPackageTests
         resolved.Units.Count.ShouldBe(1, "hello-world ships exactly one unit");
         resolved.Units[0].Name.ShouldBe("hello-world");
 
-        File.Exists(Path.Combine(packageRoot, "agents", "greeter", "package.yaml"))
-            .ShouldBeTrue("hello-world ships a greeter agent on disk (ADR-0043 recursive layout)");
+        // ADR-0043 §3: the greeter is a member of the hello-world unit and
+        // lives nested under it, not at the package root.
+        File.Exists(Path.Combine(packageRoot, "units", "hello-world", "agents", "greeter", "package.yaml"))
+            .ShouldBeTrue("hello-world ships a greeter agent nested under its unit (ADR-0043 §3)");
 
         // The unit's resolved YAML body must reference the greeter so the
         // activator's directory fall-back can wire the membership.
