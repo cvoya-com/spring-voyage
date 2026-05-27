@@ -47,6 +47,7 @@ public class SlackThreadStateIntegrationTests : IDisposable
     {
         var services = new ServiceCollection();
         services.AddSingleton<ITenantContext>(new StaticTenantContext(TenantId));
+        // In-memory EF here — Testcontainers Postgres migration tracked in #2845.
         services.AddDbContext<SpringDbContext>(o => o.UseInMemoryDatabase(_dbName));
         services.AddSingleton<ISlackThreadMapStore, EfSlackThreadMapStore>();
         services.AddLogging();
