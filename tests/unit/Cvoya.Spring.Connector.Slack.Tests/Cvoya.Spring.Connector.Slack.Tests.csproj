@@ -13,6 +13,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\Cvoya.Spring.Connector.Slack\Cvoya.Spring.Connector.Slack.csproj" />
+    <!--
+      The test harness wires the connector against an in-memory
+      SpringDbContext + the EF-backed binding repository / store. That
+      makes the SlackInstallStore exercise the same persistence
+      composition the production host uses without the connector
+      project itself ever referencing Cvoya.Spring.Dapr (CONVENTIONS §16).
+    -->
+    <ProjectReference Include="..\..\..\src\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
   </ItemGroup>
 
   <ItemGroup>

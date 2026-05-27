@@ -1104,6 +1104,11 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("connector_type");
 
+                    b.Property<string>("ExternalIdentity")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("external_identity");
+
                     b.Property<JsonElement?>("Metadata")
                         .HasColumnType("jsonb")
                         .HasColumnName("metadata");
@@ -1113,6 +1118,11 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnName("tenant_id");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ConnectorSlug", "ExternalIdentity")
+                        .IsUnique()
+                        .HasDatabaseName("ux_tenant_connector_bindings_slug_external")
+                        .HasFilter("\"external_identity\" IS NOT NULL");
 
                     b.HasIndex("TenantId", "ConnectorSlug")
                         .IsUnique()
@@ -1288,44 +1298,6 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("tenant_skill_bundle_bindings", "spring");
-                });
-
-            modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.TenantSlackWorkspaceMapEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("TeamId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("team_id");
-
-                    b.Property<string>("TeamName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("team_name");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TeamId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_tenant_slack_workspace_map_team_id");
-
-                    b.HasIndex("TenantId")
-                        .HasDatabaseName("ix_tenant_slack_workspace_map_tenant_id");
-
-                    b.ToTable("tenant_slack_workspace_map", "spring");
                 });
 
             modelBuilder.Entity("Cvoya.Spring.Dapr.Data.Entities.TenantUserConnectorIdentityEntity", b =>

@@ -11,15 +11,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Cvoya.Spring.Connectors.Abstractions\Cvoya.Spring.Connectors.Abstractions.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
-    <!--
-      Slack-specific EF surfaces (the tenant_slack_workspace_map table, its
-      repository, the install-store implementation) live in Cvoya.Spring.Dapr
-      so the EF migration can compose with the rest of the SpringDbContext
-      model. The connector references Dapr to consume those surfaces; the
-      OSS pattern from GitHub (which has no dedicated table) does not apply
-      because the workspace-map needs cross-tenant team_id lookups.
-    -->
-    <ProjectReference Include="..\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
   </ItemGroup>
 
   <ItemGroup>

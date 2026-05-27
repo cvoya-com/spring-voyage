@@ -60,14 +60,70 @@ public class TenantConnectorBindingRepositoryTests : IDisposable
             bot_user_id = "U999",
         });
 
-        await _repository.SetAsync(SlackSlug, SlackType, config, ct);
+        await _repository.SetAsync(SlackSlug, SlackType, config, externalIdentity: "T123", ct);
 
         var fetched = await _repository.GetAsync(SlackSlug, ct);
         fetched.ShouldNotBeNull();
         fetched.ConnectorSlug.ShouldBe(SlackSlug);
         fetched.TypeId.ShouldBe(SlackType);
+        fetched.ExternalIdentity.ShouldBe("T123");
         fetched.Config.GetProperty("team_id").GetString().ShouldBe("T123");
         fetched.Config.GetProperty("bot_user_id").GetString().ShouldBe("U999");
+    }
+
+    [Fact]
+    public async Task GetByExternalIdentityAsync_Hit_ReturnsBinding()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var config = JsonSerializer.SerializeToElement(new { team_id = "T-ext-hit" });
+
+        await _repository.SetAsync(SlackSlug, SlackType, config, externalIdentity: "T-ext-hit", ct);
+
+        var fetched = await _repository.GetByExternalIdentityAsync(SlackSlug, "T-ext-hit", ct);
+        fetched.ShouldNotBeNull();
+        fetched.ConnectorSlug.ShouldBe(SlackSlug);
+        fetched.TypeId.ShouldBe(SlackType);
+        fetched.ExternalIdentity.ShouldBe("T-ext-hit");
+    }
+
+    [Fact]
+    public async Task GetByExternalIdentityAsync_Miss_ReturnsNull()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var fetched = await _repository.GetByExternalIdentityAsync(SlackSlug, "never-bound", ct);
+        fetched.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetByExternalIdentityAsync_Hit_IsTenantAgnostic()
+    {
+        // The cross-tenant resolver does not require an ambient tenant
+        // context — the inbound webhook hasn't resolved one yet. With
+        // the InMemory provider's query-filter behaviour, IgnoreQueryFilters
+        // is what makes the call work for a tenant the writer never set.
+        // Inserting under the default tenant and reading under a fresh
+        // context backed by the same database name proves the bypass.
+        var ct = TestContext.Current.CancellationToken;
+        var dbName = Guid.NewGuid().ToString();
+        var options = new DbContextOptionsBuilder<SpringDbContext>()
+            .UseInMemoryDatabase(databaseName: dbName)
+            .Options;
+
+        var config = JsonSerializer.SerializeToElement(new { team_id = "T-cross" });
+
+        await using (var write = new SpringDbContext(options))
+        {
+            var writer = new TenantConnectorBindingRepository(write);
+            await writer.SetAsync(SlackSlug, SlackType, config, externalIdentity: "T-cross", ct);
+        }
+
+        await using (var read = new SpringDbContext(options))
+        {
+            var reader = new TenantConnectorBindingRepository(read);
+            var binding = await reader.GetByExternalIdentityAsync(SlackSlug, "T-cross", ct);
+            binding.ShouldNotBeNull();
+            binding.ExternalIdentity.ShouldBe("T-cross");
+        }
     }
 
     [Fact]
@@ -80,10 +136,10 @@ public class TenantConnectorBindingRepositoryTests : IDisposable
         var config2 = JsonSerializer.SerializeToElement(new { team_id = "T456" });
         var metadata1 = JsonSerializer.SerializeToElement(new { auth_revoke_attempts = 1 });
 
-        await _repository.SetAsync(SlackSlug, SlackType, config1, ct);
+        await _repository.SetAsync(SlackSlug, SlackType, config1, externalIdentity: "T123", ct);
         await _repository.SetMetadataAsync(SlackSlug, metadata1, ct);
 
-        await _repository.SetAsync(SlackSlug, SlackType, config2, ct);
+        await _repository.SetAsync(SlackSlug, SlackType, config2, externalIdentity: "T456", ct);
 
         var fetched = await _repository.GetAsync(SlackSlug, ct);
         fetched.ShouldNotBeNull();
@@ -100,7 +156,7 @@ public class TenantConnectorBindingRepositoryTests : IDisposable
         var config = JsonSerializer.SerializeToElement(new { team_id = "T123" });
         var metadata = JsonSerializer.SerializeToElement(new { revoke_attempts = 0 });
 
-        await _repository.SetAsync(SlackSlug, SlackType, config, ct);
+        await _repository.SetAsync(SlackSlug, SlackType, config, externalIdentity: null, ct);
         await _repository.SetMetadataAsync(SlackSlug, metadata, ct);
 
         await _repository.ClearAsync(SlackSlug, ct);
@@ -122,7 +178,7 @@ public class TenantConnectorBindingRepositoryTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var config = JsonSerializer.SerializeToElement(new { team_id = "T123" });
 
-        await _repository.SetAsync(SlackSlug, SlackType, config, ct);
+        await _repository.SetAsync(SlackSlug, SlackType, config, externalIdentity: null, ct);
 
         var metadata = await _repository.GetMetadataAsync(SlackSlug, ct);
         metadata.ShouldBeNull();
@@ -135,7 +191,7 @@ public class TenantConnectorBindingRepositoryTests : IDisposable
         var config = JsonSerializer.SerializeToElement(new { team_id = "T123" });
         var metadata = JsonSerializer.SerializeToElement(new { revoke_attempts = 2 });
 
-        await _repository.SetAsync(SlackSlug, SlackType, config, ct);
+        await _repository.SetAsync(SlackSlug, SlackType, config, externalIdentity: null, ct);
         await _repository.SetMetadataAsync(SlackSlug, metadata, ct);
 
         var fetched = await _repository.GetMetadataAsync(SlackSlug, ct);
@@ -160,7 +216,7 @@ public class TenantConnectorBindingRepositoryTests : IDisposable
         var config = JsonSerializer.SerializeToElement(new { team_id = "T123" });
         var metadata = JsonSerializer.SerializeToElement(new { revoke_attempts = 1 });
 
-        await _repository.SetAsync(SlackSlug, SlackType, config, ct);
+        await _repository.SetAsync(SlackSlug, SlackType, config, externalIdentity: null, ct);
         await _repository.SetMetadataAsync(SlackSlug, metadata, ct);
 
         await _repository.ClearMetadataAsync(SlackSlug, ct);
@@ -185,8 +241,8 @@ public class TenantConnectorBindingRepositoryTests : IDisposable
         var slackConfig = JsonSerializer.SerializeToElement(new { team_id = "T123" });
         var calendarConfig = JsonSerializer.SerializeToElement(new { calendar_id = "primary" });
 
-        await _repository.SetAsync(SlackSlug, SlackType, slackConfig, ct);
-        await _repository.SetAsync(OtherSlug, CalendarType, calendarConfig, ct);
+        await _repository.SetAsync(SlackSlug, SlackType, slackConfig, externalIdentity: null, ct);
+        await _repository.SetAsync(OtherSlug, CalendarType, calendarConfig, externalIdentity: null, ct);
 
         var slack = await _repository.GetAsync(SlackSlug, ct);
         var calendar = await _repository.GetAsync(OtherSlug, ct);
@@ -214,7 +270,7 @@ public class TenantConnectorBindingRepositoryTests : IDisposable
         await using (var write = new SpringDbContext(options))
         {
             var writer = new TenantConnectorBindingRepository(write);
-            await writer.SetAsync(SlackSlug, SlackType, slackConfig, ct);
+            await writer.SetAsync(SlackSlug, SlackType, slackConfig, externalIdentity: null, ct);
             await writer.SetMetadataAsync(SlackSlug, metadata, ct);
         }
 

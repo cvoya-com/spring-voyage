@@ -34,11 +34,25 @@ internal class TenantConnectorBindingEntityConfiguration : IEntityTypeConfigurat
         builder.Property(e => e.Config).HasColumnName("config").IsRequired().HasColumnType("jsonb");
         builder.Property(e => e.Metadata).HasColumnName("metadata").HasColumnType("jsonb");
         builder.Property(e => e.BoundAt).HasColumnName("bound_at").IsRequired();
+        builder.Property(e => e.ExternalIdentity)
+            .HasColumnName("external_identity")
+            .HasMaxLength(128);
 
         // Unique index enforces "at most one binding per tenant per
         // connector slug". Rebinds upsert into this row.
         builder.HasIndex(e => new { e.TenantId, e.ConnectorSlug })
             .IsUnique()
             .HasDatabaseName("ux_tenant_connector_bindings_tenant_slug");
+
+        // Cross-tenant uniqueness on (connector_slug, external_identity):
+        // the same external resource (e.g. Slack team_id) cannot be
+        // claimed by two tenants. NULL external identities are excluded
+        // from the index — connectors that do not surface an external
+        // identity are unaffected. Preserves the pre-cleanup
+        // tenant_slack_workspace_map invariant on the binding row.
+        builder.HasIndex(e => new { e.ConnectorSlug, e.ExternalIdentity })
+            .IsUnique()
+            .HasFilter("\"external_identity\" IS NOT NULL")
+            .HasDatabaseName("ux_tenant_connector_bindings_slug_external");
     }
 }

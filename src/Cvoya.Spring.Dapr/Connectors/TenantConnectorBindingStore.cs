@@ -54,15 +54,36 @@ public class TenantConnectorBindingStore(
     }
 
     /// <inheritdoc />
+    public async Task<TenantConnectorBinding?> GetByExternalIdentityAsync(
+        string connectorSlug,
+        string externalIdentity,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectorSlug);
+        ArgumentException.ThrowIfNullOrWhiteSpace(externalIdentity);
+
+        var sw = Stopwatch.StartNew();
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var repo = scope.ServiceProvider.GetRequiredService<ITenantConnectorBindingRepository>();
+        var result = await repo.GetByExternalIdentityAsync(connectorSlug, externalIdentity, cancellationToken);
+        sw.Stop();
+        logger.LogDebug(
+            "TenantConnectorBinding.GetByExternalIdentity slug={Slug} bound={Bound} elapsedMs={ElapsedMs}",
+            connectorSlug, result is not null, sw.Elapsed.TotalMilliseconds);
+        return result;
+    }
+
+    /// <inheritdoc />
     public async Task SetAsync(
         string connectorSlug,
         Guid connectorTypeId,
         JsonElement config,
+        string? externalIdentity = null,
         CancellationToken cancellationToken = default)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<ITenantConnectorBindingRepository>();
-        await repo.SetAsync(connectorSlug, connectorTypeId, config, cancellationToken);
+        await repo.SetAsync(connectorSlug, connectorTypeId, config, externalIdentity, cancellationToken);
         logger.LogInformation(
             "Tenant bound to connector {Slug} (type {TypeId})",
             connectorSlug, connectorTypeId);

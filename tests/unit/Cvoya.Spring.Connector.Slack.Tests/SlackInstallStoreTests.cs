@@ -12,7 +12,6 @@ using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Data;
-using Cvoya.Spring.Dapr.Data.Entities;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,8 +28,11 @@ using Xunit;
 /// Integration coverage for <see cref="SlackInstallStore"/>. Exercises
 /// the EF-backed persistence path against an in-memory SpringDbContext
 /// and a fake secret store / registry — the unit-level integration
-/// proves the install / disconnect contracts the OAuth service relies
-/// on (ADR-0061 §2.3 / §2.5 / §7.5).
+/// proves the install / disconnect / cross-tenant-resolver contracts
+/// the OAuth service relies on (ADR-0061 §2.3 / §2.5 / §7.5). The
+/// cross-tenant <c>team_id → tenant</c> lookup is served by the
+/// generic <c>tenant_connector_bindings.external_identity</c> column
+/// (cleanup absorbed the standalone workspace_map table).
 /// </summary>
 public class SlackInstallStoreTests
 {
@@ -39,7 +41,7 @@ public class SlackInstallStoreTests
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     [Fact]
-    public async Task PersistInstallAsync_WritesBindingAndWorkspaceMapAndSecrets()
+    public async Task PersistInstallAsync_WritesBindingWithExternalIdentityAndSecrets()
     {
         var ct = TestContext.Current.CancellationToken;
         var harness = TestHarness.Create();
@@ -55,10 +57,12 @@ public class SlackInstallStoreTests
 
         await harness.Store.PersistInstallAsync(payload, ct);
 
-        // Binding row landed.
+        // Binding row landed with the team_id riding the external_identity column.
         var binding = await harness.BindingStore.GetAsync("slack", ct);
         binding.ShouldNotBeNull();
         binding!.TypeId.ShouldBe(SlackConnectorType.SlackTypeId);
+        binding.ExternalIdentity.ShouldBe("T-install");
+
         var config = binding.Config.Deserialize<TenantSlackConfig>(JsonOptions);
         config.ShouldNotBeNull();
         config!.TeamId.ShouldBe("T-install");
@@ -69,18 +73,6 @@ public class SlackInstallStoreTests
         config.BoundUsers.Count.ShouldBe(1);
         config.BoundUsers[0].SlackUserId.ShouldBe("U-installer");
         config.BoundUsers[0].TenantUserId.ShouldBe(OssTenantUserIds.Operator);
-
-        // Workspace map row landed.
-        using (var scope = harness.Provider.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-            var mapRow = await db.TenantSlackWorkspaceMap
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(m => m.TeamId == "T-install", ct);
-            mapRow.ShouldNotBeNull();
-            mapRow!.TenantId.ShouldBe(TestTenantId);
-            mapRow.TeamName.ShouldBe("Test Workspace");
-        }
 
         // Secrets persisted under expected names.
         harness.FakeSecretStore.Stored.ShouldContainKey(config.BotTokenSecretName);
@@ -123,7 +115,35 @@ public class SlackInstallStoreTests
     }
 
     [Fact]
-    public async Task DeleteInstallAsync_RemovesBindingAndWorkspaceMapAndSecrets()
+    public async Task GetByTeamIdAsync_Hit_ReturnsSnapshot()
+    {
+        // Cross-tenant resolver: an inbound Slack delivery arrives
+        // with a team_id and no tenant context. The store finds the
+        // binding via the external_identity index.
+        var ct = TestContext.Current.CancellationToken;
+        var harness = TestHarness.Create();
+
+        var payload = new SlackInstallPayload(
+            "T-resolve", null, "U-bot", "xoxb", "sig", "U-installer", null);
+        await harness.Store.PersistInstallAsync(payload, ct);
+
+        var snapshot = await harness.Store.GetByTeamIdAsync("T-resolve", ct);
+        snapshot.ShouldNotBeNull();
+        snapshot!.TeamId.ShouldBe("T-resolve");
+    }
+
+    [Fact]
+    public async Task GetByTeamIdAsync_Miss_ReturnsNull()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var harness = TestHarness.Create();
+
+        var snapshot = await harness.Store.GetByTeamIdAsync("T-not-installed", ct);
+        snapshot.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task DeleteInstallAsync_RemovesBindingAndSecrets()
     {
         var ct = TestContext.Current.CancellationToken;
         var harness = TestHarness.Create();
@@ -144,26 +164,19 @@ public class SlackInstallStoreTests
         await harness.Store.DeleteInstallAsync(snapshot!, ct);
 
         (await harness.BindingStore.GetAsync("slack", ct)).ShouldBeNull();
-
-        using (var scope = harness.Provider.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-            var mapRow = await db.TenantSlackWorkspaceMap
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(m => m.TeamId == "T-delete", ct);
-            mapRow.ShouldBeNull();
-        }
+        // The team_id slot frees with the row (no separate map table).
+        (await harness.Store.GetByTeamIdAsync("T-delete", ct)).ShouldBeNull();
 
         harness.FakeSecretStore.Stored.ShouldNotContainKey(snapshot!.BotTokenSecretName);
         harness.FakeSecretStore.Stored.ShouldNotContainKey(snapshot.SigningSecretSecretName);
     }
 
     [Fact]
-    public async Task PersistInstallAsync_RebindSameTeamId_UpsertsBindingAndMap()
+    public async Task PersistInstallAsync_RebindSameTeamId_UpsertsBinding()
     {
         // Re-bind without a delete is unusual but legal — the same
-        // team_id refresh path. The map row's UpdatedAt would shift
-        // but the row count stays at 1.
+        // team_id refresh path. The binding row is upserted in place;
+        // the external_identity stays pinned.
         var ct = TestContext.Current.CancellationToken;
         var harness = TestHarness.Create();
 
@@ -175,12 +188,17 @@ public class SlackInstallStoreTests
 
         using var scope = harness.Provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-        var rows = await db.TenantSlackWorkspaceMap
+        var rows = await db.TenantConnectorBindings
             .IgnoreQueryFilters()
-            .Where(m => m.TeamId == "T-re")
+            .Where(b => b.ConnectorSlug == "slack" && b.ExternalIdentity == "T-re")
             .ToListAsync(ct);
         rows.Count.ShouldBe(1);
-        rows[0].TeamName.ShouldBe("Second");
+        rows[0].ConnectorSlug.ShouldBe("slack");
+
+        // The config payload reflects the second install.
+        var config = rows[0].Config.Deserialize<TenantSlackConfig>(JsonOptions);
+        config.ShouldNotBeNull();
+        config!.TeamName.ShouldBe("Second");
     }
 
     [Fact]

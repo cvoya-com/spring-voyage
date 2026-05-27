@@ -31,7 +31,32 @@ public class TenantConnectorBindingRepository(SpringDbContext context) : ITenant
 
         return row is null
             ? null
-            : new TenantConnectorBinding(row.ConnectorSlug, row.ConnectorType, row.Config);
+            : new TenantConnectorBinding(row.ConnectorSlug, row.ConnectorType, row.Config, row.ExternalIdentity);
+    }
+
+    /// <inheritdoc />
+    public async Task<TenantConnectorBinding?> GetByExternalIdentityAsync(
+        string connectorSlug,
+        string externalIdentity,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectorSlug);
+        ArgumentException.ThrowIfNullOrWhiteSpace(externalIdentity);
+
+        // Cross-tenant lookup: an inbound webhook delivery has no tenant
+        // context yet — it carries only the connector-native identifier
+        // (e.g. Slack team_id). The per-tenant query filter would hide
+        // every binding except the current tenant's, so we bypass it.
+        var row = await context.TenantConnectorBindings
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                b => b.ConnectorSlug == connectorSlug && b.ExternalIdentity == externalIdentity,
+                cancellationToken);
+
+        return row is null
+            ? null
+            : new TenantConnectorBinding(row.ConnectorSlug, row.ConnectorType, row.Config, row.ExternalIdentity);
     }
 
     /// <inheritdoc />
@@ -39,6 +64,7 @@ public class TenantConnectorBindingRepository(SpringDbContext context) : ITenant
         string connectorSlug,
         Guid connectorTypeId,
         JsonElement config,
+        string? externalIdentity,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectorSlug);
@@ -60,6 +86,7 @@ public class TenantConnectorBindingRepository(SpringDbContext context) : ITenant
                 Config = config,
                 Metadata = null,
                 BoundAt = now,
+                ExternalIdentity = externalIdentity,
             });
         }
         else
@@ -67,11 +94,15 @@ public class TenantConnectorBindingRepository(SpringDbContext context) : ITenant
             // Re-bind — preserve the row id and wipe metadata: it
             // belonged to the previous install and would mislead the
             // new install's teardown path. Mirrors
-            // UnitConnectorBindingRepository's rebind shape.
+            // UnitConnectorBindingRepository's rebind shape. The
+            // external identity refreshes too, so a re-bind that
+            // targets a different external resource (e.g. a different
+            // Slack workspace) lands cleanly.
             row.ConnectorType = connectorTypeId;
             row.Config = config;
             row.Metadata = null;
             row.BoundAt = now;
+            row.ExternalIdentity = externalIdentity;
         }
 
         await context.SaveChangesAsync(cancellationToken);

@@ -5,10 +5,17 @@ namespace Cvoya.Spring.Connector.Slack.Auth.OAuth;
 
 /// <summary>
 /// Connector-side facade for persisting and removing the Slack tenant
-/// binding plus its tenant secrets and workspace-map row. Owns the
-/// tenant-scoped transactional shape so the OAuth service stays free
-/// of EF / secret-store specifics.
+/// binding plus its tenant secrets. Owns the tenant-scoped
+/// transactional shape so the OAuth service stays free of EF /
+/// secret-store specifics.
 /// </summary>
+/// <remarks>
+/// The <c>team_id ↔ tenant</c> cross-tenant lookup the inbound webhook
+/// handler needs (ADR-0061 §7.5) is served by the generic
+/// <c>ITenantConnectorBindingStore.GetByExternalIdentityAsync</c> path —
+/// the binding row carries the <c>team_id</c> on its
+/// <c>external_identity</c> column, indexed unique across tenants.
+/// </remarks>
 public interface ISlackInstallStore
 {
     /// <summary>
@@ -21,6 +28,15 @@ public interface ISlackInstallStore
     Task<SlackBindingSnapshot?> GetExistingBindingAsync(CancellationToken cancellationToken);
 
     /// <summary>
+    /// Cross-tenant lookup: returns the Slack binding that claims
+    /// <paramref name="teamId"/>, regardless of which tenant owns it,
+    /// or <c>null</c> when no tenant is bound to that workspace. Backs
+    /// inbound-webhook routing where the delivery carries only the
+    /// Slack <c>team_id</c> (ADR-0061 §7.5).
+    /// </summary>
+    Task<SlackBindingSnapshot?> GetByTeamIdAsync(string teamId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Reads the bot OAuth access token out of the secret store via
     /// the secret name persisted on the binding row.
     /// </summary>
@@ -28,16 +44,17 @@ public interface ISlackInstallStore
 
     /// <summary>
     /// Persists a fresh Slack install — writes the bot token + signing
-    /// secret to the tenant secret store, upserts the tenant binding
-    /// row, and writes (or upserts) the
-    /// <c>tenant_slack_workspace_map</c> row that maps <c>team_id ↔
-    /// tenant_id</c> for the inbound-routing path (ADR-0061 §7.5).
+    /// secret to the tenant secret store and upserts the tenant
+    /// binding row. The Slack <c>team_id</c> is stored on the binding's
+    /// <c>external_identity</c> column, indexed cross-tenant so a
+    /// second tenant cannot claim the same workspace (ADR-0061 §7.5).
     /// </summary>
     Task PersistInstallAsync(SlackInstallPayload payload, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Deletes the tenant binding row, the workspace-map row, and the
-    /// stored tenant secrets for <paramref name="binding"/>. Idempotent.
+    /// Deletes the tenant binding row (which also frees the
+    /// <c>team_id</c> slot on the cross-tenant index) and the stored
+    /// tenant secrets for <paramref name="binding"/>. Idempotent.
     /// </summary>
     Task DeleteInstallAsync(SlackBindingSnapshot binding, CancellationToken cancellationToken);
 }

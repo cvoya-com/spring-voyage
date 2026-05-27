@@ -249,19 +249,13 @@ public class SpringDbContext : DbContext
     /// Gets the set of per-tenant connector binding rows
     /// (<see href="https://github.com/cvoya-com/spring-voyage/blob/main/docs/decisions/0061-slack-connector-oss-shape.md">ADR-0061</see>
     /// §1). One row per <c>(tenant, connector_slug)</c>; carries the
-    /// connector type id, typed config, and connector-owned runtime
-    /// metadata for connectors whose external resource is naturally
-    /// workspace-shaped (currently the Slack connector).
+    /// connector type id, typed config, connector-owned runtime
+    /// metadata, and an optional connector-native <c>external_identity</c>
+    /// (e.g. the Slack <c>team_id</c>) indexed unique cross-tenant so
+    /// inbound webhook routing resolves a delivery to a single tenant
+    /// binding (ADR-0061 §7.5).
     /// </summary>
     public DbSet<TenantConnectorBindingEntity> TenantConnectorBindings => Set<TenantConnectorBindingEntity>();
-
-    /// <summary>
-    /// Gets the Slack workspace map (ADR-0061 §7.5). One row per
-    /// installed Slack workspace; the inbound webhook handler uses
-    /// this to resolve <c>team_id → tenant_id</c> without a query
-    /// filter. OSS has length 1; cloud grows to many.
-    /// </summary>
-    public DbSet<TenantSlackWorkspaceMapEntity> TenantSlackWorkspaceMap => Set<TenantSlackWorkspaceMapEntity>();
 
     /// <summary>
     /// Gets the set of agent / tenant cloning-policy rows (#2051 /
@@ -345,7 +339,6 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new UnitExpertiseEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitConnectorBindingEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantConnectorBindingEntityConfiguration());
-        modelBuilder.ApplyConfiguration(new TenantSlackWorkspaceMapEntityConfiguration());
         modelBuilder.ApplyConfiguration(new CloningPolicyEntityConfiguration());
         modelBuilder.ApplyConfiguration(new MemoryEntityConfiguration());
         modelBuilder.ApplyConfiguration(new PersistentAgentRuntimeEntityConfiguration());

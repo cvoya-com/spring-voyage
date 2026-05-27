@@ -34,6 +34,19 @@ public interface ITenantConnectorBindingRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns the binding addressed by
+    /// <c>(connectorSlug, externalIdentity)</c> cross-tenant, or
+    /// <c>null</c> when no binding holds that external identity. Backs
+    /// <see cref="ITenantConnectorBindingStore.GetByExternalIdentityAsync"/>.
+    /// The unique index on <c>(connector_slug, external_identity)</c>
+    /// guarantees the result is either one row or none.
+    /// </summary>
+    Task<TenantConnectorBinding?> GetByExternalIdentityAsync(
+        string connectorSlug,
+        string externalIdentity,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Upserts the tenant's binding atomically. If the tenant was
     /// previously bound to the same slug, the existing row is updated
     /// in place to preserve <c>id</c> stability for cross-table joins.
@@ -41,10 +54,16 @@ public interface ITenantConnectorBindingRepository
     /// install cannot inherit the previous install's state (parallels
     /// the unit-binding repository's behaviour on rebind).
     /// </summary>
+    /// <param name="externalIdentity">
+    /// Connector-native identifier persisted on the row so an inbound
+    /// webhook can resolve back to it. <c>null</c> when the connector
+    /// does not surface one.
+    /// </param>
     Task SetAsync(
         string connectorSlug,
         Guid connectorTypeId,
         JsonElement config,
+        string? externalIdentity,
         CancellationToken cancellationToken = default);
 
     /// <summary>

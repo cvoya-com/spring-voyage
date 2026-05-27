@@ -82,4 +82,22 @@ public class TenantConnectorBindingEntity : ITenantScopedEntity
     /// active row's lifetime.
     /// </summary>
     public DateTimeOffset BoundAt { get; set; }
+
+    /// <summary>
+    /// Connector-native identifier of the external resource the binding
+    /// addresses (e.g. the Slack <c>team_id</c>). Used by inbound-
+    /// webhook routing to resolve a delivery to a tenant when the
+    /// delivery only carries the external identifier. <c>null</c> for
+    /// connectors that do not surface one.
+    ///
+    /// <para>
+    /// The platform applies a UNIQUE index on
+    /// <c>(connector_slug, external_identity)</c> (where
+    /// <c>external_identity IS NOT NULL</c>) — the same external
+    /// resource cannot be claimed by two tenants. This preserves the
+    /// pre-cleanup <c>tenant_slack_workspace_map</c> invariant on the
+    /// binding row itself.
+    /// </para>
+    /// </summary>
+    public string? ExternalIdentity { get; set; }
 }

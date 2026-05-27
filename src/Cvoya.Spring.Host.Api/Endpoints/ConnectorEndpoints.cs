@@ -716,7 +716,7 @@ public static class ConnectorEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        await store.SetAsync(type.Slug, type.TypeId, body.Config, cancellationToken);
+        await store.SetAsync(type.Slug, type.TypeId, body.Config, externalIdentity: null, cancellationToken);
         var binding = await store.GetAsync(type.Slug, cancellationToken);
         if (binding is null)
         {

@@ -39,11 +39,43 @@ public interface ITenantConnectorBindingStore
         string connectorSlug,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Returns the active binding addressed by
+    /// <c>(connectorSlug, externalIdentity)</c> regardless of tenant.
+    /// Backs the inbound-webhook routing path: a delivery arrives with
+    /// only the connector-native identifier (e.g. the Slack
+    /// <c>team_id</c>) and the platform needs to find which tenant
+    /// binding owns it. The underlying index is unique on
+    /// <c>(connector_slug, external_identity)</c>, so the result is
+    /// either one binding or <c>null</c>.
+    /// </summary>
+    /// <remarks>
+    /// The lookup intentionally bypasses the per-tenant query filter —
+    /// the caller has no tenant context yet (that is the point of the
+    /// call). Call sites must treat the result as cross-tenant and
+    /// stamp the resolved tenant id before invoking any tenant-scoped
+    /// surface.
+    /// </remarks>
+    Task<TenantConnectorBinding?> GetByExternalIdentityAsync(
+        string connectorSlug,
+        string externalIdentity,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Upserts the tenant's binding atomically.</summary>
+    /// <param name="externalIdentity">
+    /// Optional connector-native identifier (e.g. the Slack
+    /// <c>team_id</c>) persisted on the row so an inbound webhook
+    /// arriving with only that identifier can resolve back to this
+    /// binding via <see cref="GetByExternalIdentityAsync"/>. The
+    /// <c>(connector_slug, external_identity)</c> tuple is unique
+    /// cross-tenant — two tenants cannot bind the same connector to
+    /// the same external resource.
+    /// </param>
     Task SetAsync(
         string connectorSlug,
         Guid connectorTypeId,
         JsonElement config,
+        string? externalIdentity = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Removes the tenant's binding row if present.</summary>

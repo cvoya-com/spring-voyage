@@ -40,7 +40,8 @@ public partial class TenantConnectorBindings : Migration
                 connector_type = table.Column<Guid>(type: "uuid", nullable: false),
                 config = table.Column<JsonElement>(type: "jsonb", nullable: false),
                 metadata = table.Column<JsonElement>(type: "jsonb", nullable: true),
-                bound_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                bound_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                external_identity = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true)
             },
             constraints: table =>
             {
@@ -53,6 +54,21 @@ public partial class TenantConnectorBindings : Migration
             table: "tenant_connector_bindings",
             columns: new[] { "tenant_id", "connector_slug" },
             unique: true);
+
+        // Cross-tenant uniqueness on (connector_slug, external_identity).
+        // Backs ITenantConnectorBindingStore.GetByExternalIdentityAsync —
+        // an inbound webhook arrives with only an external identifier
+        // (e.g. Slack team_id) and the platform resolves the single
+        // tenant binding that claims it. The partial filter excludes
+        // NULL external identities so connectors that do not surface one
+        // are unaffected.
+        migrationBuilder.CreateIndex(
+            name: "ux_tenant_connector_bindings_slug_external",
+            schema: "spring",
+            table: "tenant_connector_bindings",
+            columns: new[] { "connector_slug", "external_identity" },
+            unique: true,
+            filter: "\"external_identity\" IS NOT NULL");
     }
 
     /// <inheritdoc />

@@ -26,8 +26,17 @@ using System.Text.Json;
 /// <param name="ConnectorSlug">The connector slug (matches <see cref="IConnectorType.Slug"/>).</param>
 /// <param name="TypeId">The connector type id (matches <see cref="IConnectorType.TypeId"/>).</param>
 /// <param name="Config">The serialised typed config; opaque to the store.</param>
+/// <param name="ExternalIdentity">
+/// Connector-native identifier of the external resource the binding addresses
+/// (e.g. the Slack <c>team_id</c>). Indexed cross-tenant: at most one tenant
+/// per <c>(connector_slug, external_identity)</c> tuple, so an inbound webhook
+/// arriving with only that identifier can resolve a single tenant binding.
+/// <c>null</c> for connectors that do not surface an external identity
+/// (or have not yet been bound to one).
+/// </param>
 [DataContract]
 public record TenantConnectorBinding(
     [property: DataMember(Order = 0)] string ConnectorSlug,
     [property: DataMember(Order = 1)] Guid TypeId,
-    [property: DataMember(Order = 2)] JsonElement Config);
+    [property: DataMember(Order = 2)] JsonElement Config,
+    [property: DataMember(Order = 3)] string? ExternalIdentity = null);

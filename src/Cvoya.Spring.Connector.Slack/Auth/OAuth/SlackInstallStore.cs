@@ -8,10 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;
-using Cvoya.Spring.Dapr.Data;
-using Cvoya.Spring.Dapr.Data.Entities;
 
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -19,34 +16,42 @@ using Microsoft.Extensions.Logging;
 /// Default <see cref="ISlackInstallStore"/> implementation. The Slack
 /// connector is the only consumer of this surface today; future
 /// workspace-shaped connectors that need a cross-tenant team-id-like
-/// lookup will get their own table or generalise this one.
+/// lookup reuse the same
+/// <see cref="ITenantConnectorBindingStore.GetByExternalIdentityAsync"/>
+/// surface — no per-connector storage code needed.
 ///
 /// <para>
 /// Wraps:
 /// </para>
 /// <list type="bullet">
-///   <item><description><see cref="ITenantConnectorBindingStore"/> — the per-tenant binding row.</description></item>
-///   <item><description><see cref="SpringDbContext"/> — the cross-tenant <c>tenant_slack_workspace_map</c> table.</description></item>
+///   <item><description><see cref="ITenantConnectorBindingStore"/> — the per-tenant binding row, including the <c>external_identity</c> (the Slack <c>team_id</c>) used for cross-tenant inbound-webhook routing.</description></item>
 ///   <item><description><see cref="ISecretStore"/> + <see cref="ISecretRegistry"/> — bot token + signing secret persistence per ADR-0003.</description></item>
 /// </list>
 ///
 /// <para>
 /// The class is registered as a singleton so the OAuth service (also
 /// a singleton) can take a constant dependency. Scoped peers
-/// (<see cref="SpringDbContext"/>, <see cref="ISecretStore"/>,
-/// <see cref="ISecretRegistry"/>, <see cref="ITenantContext"/>) are
-/// resolved through an <see cref="IServiceScopeFactory"/> per call —
-/// the same singleton-safety pattern the GitHub connector's
+/// (<see cref="ISecretStore"/>, <see cref="ISecretRegistry"/>,
+/// <see cref="ITenantContext"/>) are resolved through an
+/// <see cref="IServiceScopeFactory"/> per call — the same
+/// singleton-safety pattern the GitHub connector's
 /// <c>OAuthTokenPersister</c> uses.
+/// </para>
+///
+/// <para>
+/// CONVENTIONS §16: this connector references
+/// <c>Cvoya.Spring.Connectors.Abstractions</c> only. Cross-tenant
+/// <c>team_id → tenant</c> resolution previously sat in a
+/// Slack-specific EF table behind a Dapr reference; the cleanup in
+/// the slack-foundation series moved it onto the generic
+/// <c>tenant_connector_bindings.external_identity</c> column so the
+/// connector talks only to the Abstractions surface.
 /// </para>
 /// </summary>
 public class SlackInstallStore : ISlackInstallStore
 {
     /// <summary>The connector slug Slack binding rows are keyed by.</summary>
     public const string ConnectorSlug = "slack";
-
-    private const string BotTokenSecretSuffix = "/slack/bot-token";
-    private const string SigningSecretSuffix = "/slack/signing-secret";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -87,6 +92,34 @@ public class SlackInstallStore : ISlackInstallStore
     }
 
     /// <inheritdoc />
+    public async Task<SlackBindingSnapshot?> GetByTeamIdAsync(string teamId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(teamId);
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var bindingStore = scope.ServiceProvider.GetRequiredService<ITenantConnectorBindingStore>();
+
+        // Cross-tenant lookup: an inbound Slack delivery arrives with a
+        // team_id and no tenant context. The binding store's
+        // (connector_slug, external_identity) index resolves it to the
+        // single binding row that claims the workspace.
+        var binding = await bindingStore.GetByExternalIdentityAsync(ConnectorSlug, teamId, cancellationToken);
+        if (binding is null)
+        {
+            return null;
+        }
+
+        var config = binding.Config.Deserialize<TenantSlackConfig>(JsonOptions)
+            ?? throw new InvalidOperationException(
+                "Slack binding config payload is not TenantSlackConfig-shaped.");
+
+        return new SlackBindingSnapshot(
+            TeamId: config.TeamId,
+            BotTokenSecretName: config.BotTokenSecretName,
+            SigningSecretSecretName: config.SigningSecretSecretName);
+    }
+
+    /// <inheritdoc />
     public async Task<string?> ReadBotTokenAsync(
         SlackBindingSnapshot binding, CancellationToken cancellationToken)
     {
@@ -107,7 +140,6 @@ public class SlackInstallStore : ISlackInstallStore
         var sp = scope.ServiceProvider;
         var tenantContext = sp.GetRequiredService<ITenantContext>();
         var bindingStore = sp.GetRequiredService<ITenantConnectorBindingStore>();
-        var db = sp.GetRequiredService<SpringDbContext>();
 
         var tenantId = tenantContext.CurrentTenantId;
 
@@ -140,29 +172,16 @@ public class SlackInstallStore : ISlackInstallStore
 
         var configJson = JsonSerializer.SerializeToElement(config, JsonOptions);
 
-        // Upsert the binding row.
-        await bindingStore.SetAsync(ConnectorSlug, SlackConnectorType.SlackTypeId, configJson, cancellationToken);
-
-        // Upsert the workspace-map row (cross-tenant lookup table).
-        var existingMap = await db.TenantSlackWorkspaceMap
-            .FirstOrDefaultAsync(m => m.TeamId == payload.TeamId, cancellationToken);
-        if (existingMap is null)
-        {
-            db.TenantSlackWorkspaceMap.Add(new TenantSlackWorkspaceMapEntity
-            {
-                Id = Guid.NewGuid(),
-                TeamId = payload.TeamId,
-                TenantId = tenantId,
-                TeamName = payload.TeamName,
-                CreatedAt = DateTimeOffset.UtcNow,
-            });
-        }
-        else
-        {
-            existingMap.TenantId = tenantId;
-            existingMap.TeamName = payload.TeamName;
-        }
-        await db.SaveChangesAsync(cancellationToken);
+        // Upsert the binding row. The team_id rides on the
+        // external_identity column so the cross-tenant unique index
+        // refuses an install from a second tenant claiming the same
+        // workspace (ADR-0061 §7.5 invariant preserved).
+        await bindingStore.SetAsync(
+            ConnectorSlug,
+            SlackConnectorType.SlackTypeId,
+            configJson,
+            externalIdentity: payload.TeamId,
+            cancellationToken);
 
         _logger.LogInformation(
             "Persisted Slack install for tenant {TenantId} (team_id={TeamId}, bot_user_id={BotUserId})",
@@ -177,22 +196,14 @@ public class SlackInstallStore : ISlackInstallStore
         await using var scope = _scopeFactory.CreateAsyncScope();
         var sp = scope.ServiceProvider;
         var bindingStore = sp.GetRequiredService<ITenantConnectorBindingStore>();
-        var db = sp.GetRequiredService<SpringDbContext>();
 
-        // 1. Binding row + the connector's runtime metadata go first.
+        // 1. Binding row + the connector's runtime metadata. The row
+        //    carries the external_identity (team_id) directly; deleting
+        //    the row frees both the per-tenant slot and the cross-tenant
+        //    team_id slot atomically.
         await bindingStore.ClearAsync(ConnectorSlug, cancellationToken);
 
-        // 2. Workspace-map row (cross-tenant table; the binding store
-        //    cannot reach it because the row has no tenant filter).
-        var mapRow = await db.TenantSlackWorkspaceMap
-            .FirstOrDefaultAsync(m => m.TeamId == binding.TeamId, cancellationToken);
-        if (mapRow is not null)
-        {
-            db.TenantSlackWorkspaceMap.Remove(mapRow);
-            await db.SaveChangesAsync(cancellationToken);
-        }
-
-        // 3. Tenant secrets. The registry rows must come first (they
+        // 2. Tenant secrets. The registry rows must come first (they
         //    point at store keys); the store rows are deleted after so
         //    a partial failure leaves dangling registry entries rather
         //    than an unreachable opaque blob.

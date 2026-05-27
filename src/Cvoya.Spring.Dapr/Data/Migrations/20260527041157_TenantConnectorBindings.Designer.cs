@@ -1107,6 +1107,11 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("connector_type");
 
+                    b.Property<string>("ExternalIdentity")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("external_identity");
+
                     b.Property<JsonElement?>("Metadata")
                         .HasColumnType("jsonb")
                         .HasColumnName("metadata");
@@ -1116,6 +1121,11 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnName("tenant_id");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ConnectorSlug", "ExternalIdentity")
+                        .IsUnique()
+                        .HasDatabaseName("ux_tenant_connector_bindings_slug_external")
+                        .HasFilter("\"external_identity\" IS NOT NULL");
 
                     b.HasIndex("TenantId", "ConnectorSlug")
                         .IsUnique()
