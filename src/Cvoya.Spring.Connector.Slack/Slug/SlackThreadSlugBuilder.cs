@@ -98,10 +98,15 @@ public sealed class SlackThreadSlugBuilder : ISlackThreadSlugBuilder
 
         var hatToDropId = hatAddress.Id;
 
-        // 2. Order participants by canonical wire form. Matches the
-        //    EfThreadRegistry canonicalisation so the slug-rule never
-        //    disagrees with the thread-identity layer on what the
-        //    participant set is.
+        // 2. Order participants deterministically by Address.Id (the
+        //    actor's stable Guid). Stable across calls for the same
+        //    participant set, and set-uniqueness is preserved because
+        //    the same set always sorts the same way. The slug is a
+        //    display string in a Slack message — it does not name
+        //    thread identity (the registry's canonical-wire-form key
+        //    does that). Sorting by Guid here keeps the rule simple
+        //    and decouples the slug from the registry's ordering
+        //    choice.
         var ordered = participants
             .Where(p => p is not null)
             .Select(p => new
@@ -110,7 +115,7 @@ public sealed class SlackThreadSlugBuilder : ISlackThreadSlugBuilder
                 Canonical = p.ToString(),
             })
             .DistinctBy(x => x.Canonical, StringComparer.Ordinal)
-            .OrderBy(x => x.Canonical, StringComparer.Ordinal)
+            .OrderBy(x => x.Address.Id)
             .ToList();
 
         // 3. Drop the Hat (when present) and resolve display names for
