@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Connector.Slack;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.Slack.Auth.OAuth;
+using Cvoya.Spring.Connector.Slack.Commands;
 using Cvoya.Spring.Connector.Slack.Inbound;
 using Cvoya.Spring.Connectors;
 
@@ -34,9 +35,9 @@ using Microsoft.Extensions.Logging;
 /// type id, binding scope, no-op lifecycle hooks) and route mounting.
 /// OAuth install / disconnect lifecycle lives in
 /// <see cref="SlackOAuthEndpoints"/>; the inbound Events API endpoint
-/// in <see cref="SlackEventEndpoints"/>; outbound delivery in
-/// <see cref="Outbound.SlackOutboundDispatcher"/>. The slash-command
-/// surface lands in a follow-on commit (issue #2819).
+/// in <see cref="SlackEventEndpoints"/>; slash commands +
+/// interactions in <see cref="SlackCommandEndpoints"/>; outbound
+/// delivery in <see cref="Outbound.SlackOutboundDispatcher"/>.
 /// </para>
 /// </summary>
 public class SlackConnectorType : IConnectorType
@@ -126,6 +127,10 @@ public class SlackConnectorType : IConnectorType
 
         // Inbound Slack Events API endpoint (#2817 / ADR-0061 §2.2 / §3).
         group.MapSlackEventEndpoints();
+
+        // Slash-command + Block Kit interaction endpoints
+        // (#2819 / ADR-0061 §5).
+        group.MapSlackCommandEndpoints();
 
         // Config-schema parity with the other connectors so portal /
         // CLI clients can introspect the shape they should send when

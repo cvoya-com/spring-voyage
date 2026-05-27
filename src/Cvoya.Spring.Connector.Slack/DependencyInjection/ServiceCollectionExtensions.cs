@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Connector.Slack.DependencyInjection;
 
 using Cvoya.Spring.Connector.Slack;
 using Cvoya.Spring.Connector.Slack.Auth.OAuth;
+using Cvoya.Spring.Connector.Slack.Commands;
 using Cvoya.Spring.Connector.Slack.Configuration;
 using Cvoya.Spring.Connector.Slack.Inbound;
 using Cvoya.Spring.Connector.Slack.Outbound;
@@ -87,6 +88,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IUnboundUserRefusalGate, InMemoryUnboundUserRefusalGate>();
         services.TryAddSingleton<ISlackInboundAuditLog, LoggerSlackInboundAuditLog>();
         services.TryAddSingleton<ISlackEventDispatcher, SlackEventDispatcher>();
+
+        // Slash-command surface (#2819).
+        services.TryAddSingleton<ISlackCommandDispatcher, SlackCommandDispatcher>();
 
         // Bound-user extractor — registered as an enumerable
         // ITenantBoundUserExtractor so the platform's
