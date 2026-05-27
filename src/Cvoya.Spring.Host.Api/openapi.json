@@ -15743,6 +15743,19 @@
           },
           "isArchived": {
             "type": "boolean"
+          },
+          "recipientHumanId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "recipientHumanDisplayName": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

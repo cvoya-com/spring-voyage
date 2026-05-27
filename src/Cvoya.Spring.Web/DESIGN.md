@@ -418,6 +418,8 @@ The Messages tab renders all threads involving the hosting unit/agent via `GET /
 
 **Message bubble source label (#1482).** The per-event meta-header row (in both `<InboxEventRow>` and `<ThreadEventRow>`) now shows the **display name** (address path, e.g. `ada` from `agent://ada`) instead of the full address string. The full address is available via the `(i)` metadata toggle or the "View in activity" link. `data-testid="inbox-event-source-name"` / `data-testid="conversation-event-source-name"` on the name span.
 
+**Hat banner above the canonical timeline (ADR-0062 § 5, #2826).** When the canonical thread carries a `recipientHumanDisplayName` on the wire, `<UnitAgentMessagesView>` renders a thin `border-b border-border px-3 py-1.5` strip directly above the timeline that hosts a single `<HatChip />` (see § 12.15). The banner is hidden for pure A2A threads. `data-testid="tab-{unit|agent}-messages-hat-banner"` on the wrapper; `data-testid="tab-{unit|agent}-messages-hat-chip-<threadId>"` on the chip itself.
+
 ---
 
 ## 10. Memory tab contract
@@ -791,6 +793,21 @@ The participant name element carries `data-testid="participant-name-<address>"`.
 
 **Blocker.** Agent replies do not surface in the timeline until #1476 (HumanActor default permission) is fixed.
 
+**Per-row Hat chip (ADR-0062 § 5, #2807).** Each inbox row carries a low-key chip identifying which of the operator's bound Humans actually received the inbound. The chip slots **below the summary line** so it does not contend with the row's primary affordances (label + timestamp + unread badge). Sourced from `InboxItemResponse.human.displayName` and rendered via `<HatChip />` (see § 12.15). `data-testid="inbox-hat-chip-<threadId>"`. Hidden when no display name is supplied.
+
+### 12.15 Hat chip — `src/components/conversation/hat-chip.tsx` (ADR-0062 § 5, #2807 / #2826)
+
+`<HatChip />` is the canonical visual treatment for "this row was received as Hat X". Shared between the inbox list, the engagement list, and the unit / agent messaging-tab so the three surfaces match. ADR-0062 § 5 ships the v0.1 minimum bar (chip-per-row); larger treatments (lane / filter / column) are a separate design call tracked under #2826 Part 2.
+
+**Visual contract.** Outline badge, `h-4 px-1.5 text-[10px] font-normal`. Copy reads `As <Hat name>` with a `title` of `Received as <Hat name>`. Returns `null` when no display name is supplied so callers can pass the wire field straight through without an outer `&&` gate.
+
+**API.** `displayName: string | null | undefined` (renders nothing when blank); `testId?: string` (surface-scoped so each consumer can stamp its own `data-testid` such as `inbox-hat-chip-<threadId>` / `engagement-hat-chip-<threadId>` / `tab-unit-messages-hat-chip-<threadId>`); `className?: string` (spacing overrides for surfaces that need extra room).
+
+**Sources.**
+- Inbox row → `InboxItemResponse.human.displayName` (#2807).
+- Engagement card → `ThreadSummaryResponse.recipientHumanDisplayName` (#2826).
+- Unit / agent messaging-tab → `ThreadSummaryResponse.recipientHumanDisplayName` on the canonical (most-recently-active) thread; rendered as a thin border-bottom strip directly above the timeline so the chip is visible without occupying composer space.
+
 ---
 
 ## 13. Icons, layout primitives, and spacing
@@ -896,6 +913,8 @@ Do not use `text-voyage` / `--color-voyage` tokens for any management-portal sur
 - Pending question: `<Badge variant="warning">Question</Badge>` + `MessageCircleQuestion` icon in `text-warning`. Sourced from `useInbox()` cross-matched by `threadId`.
 - A2A-only: `<Badge variant="secondary">A2A</Badge>`.
 - Freshness: `<Badge variant="success">` for threads active within 24 h, `<Badge variant="outline">` otherwise — shows the `formatDistanceToNow` string.
+
+**Per-row Hat chip (ADR-0062 § 5, #2826).** When the thread carries a `recipientHumanDisplayName` on the wire, the card renders a `<HatChip />` (see § 12.15) below the summary line. `data-testid="engagement-hat-chip-<threadId>"`. Hidden for pure A2A threads or threads where the human never received an inbound (the wire field is `null`). Same minimum-bar treatment shipped on the inbox under #2807; Part 2 of #2826 (lane / filter treatments) remains open for design review.
 
 **Empty / loading / error states.** Empty: `<Card>` with centered `MessagesSquare h-10 w-10 text-muted-foreground` hero. Loading: three `<Skeleton className="h-28 w-full rounded-lg" />` items. Error: `role="alert"` destructive banner with `AlertCircle` icon.
 

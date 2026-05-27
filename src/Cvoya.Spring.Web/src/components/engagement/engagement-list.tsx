@@ -52,6 +52,7 @@ import {
   isHumanAddress as sharedIsHumanAddress,
   participantDisplayName,
 } from "@/components/thread/role";
+import { HatChip } from "@/components/conversation/hat-chip";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -389,6 +390,20 @@ function EngagementCard({
           <p className="line-clamp-2 text-sm text-muted-foreground">
             {thread.summary}
           </p>
+        )}
+
+        {/* ADR-0062 § 5 (#2826): per-row Hat chip — identifies which of
+            the operator's bound Humans received the latest inbound on
+            this thread. The chip slots into the same affordance the
+            inbox already uses; <HatChip /> returns null when the wire
+            field is absent (pure A2A threads), so no extra gate here. */}
+        {thread.recipientHumanDisplayName && (
+          <div>
+            <HatChip
+              displayName={thread.recipientHumanDisplayName}
+              testId={`engagement-hat-chip-${thread.id}`}
+            />
+          </div>
         )}
 
         {/* Footer */}

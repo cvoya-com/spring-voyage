@@ -789,6 +789,26 @@ export interface paths {
         patch: operations["UpdateUnitSubUnitMember"];
         trace?: never;
     };
+    "/api/v1/tenant/humans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a new Human (Hat) row outside of the package-install path.
+         * @description Allocates a fresh Guid, sets the explicit `tenantUserId` (or resolves the deployment default via ITenantUserDefaultResolver) and persists the row. DisplayName is validated via DisplayNameProblems.ValidateOrProblem. Returns the post-write HumanResponse so callers can render the row without a follow-up GET.
+         */
+        post: operations["CreateHuman"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/humans/{humanId}": {
         parameters: {
             query?: never;
@@ -878,6 +898,26 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/users/{tenantUserId}/primary-human": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Pin the tenant user's primary Human (the default 'speaking-as' Hat for new outbound messages).
+         * @description ADR-0062 § 2: writes `tenant_users.primary_human_id`. The supplied Human must be bound to the target TenantUser via `humans.tenant_user_id`; an unbound Human returns 400 with a CLI-friendly message. Returns the post-write (tenantUserId, primaryHumanId) tuple.
+         */
+        patch: operations["SetPrimaryHuman"];
         trace?: never;
     };
     "/api/v1/tenant/users/me/humans": {
@@ -3317,6 +3357,12 @@ export interface components {
             cloneType: components["schemas"]["CloningPolicy"];
             attachmentMode: components["schemas"]["AttachmentMode"];
         };
+        CreateHumanRequest: {
+            displayName: string;
+            description?: null | string;
+            /** Format: uuid */
+            tenantUserId?: null | string;
+        };
         CreateSecretRequest: {
             name: string;
             value?: null | string;
@@ -4042,6 +4088,16 @@ export interface components {
             humanId: string;
             permission: components["schemas"]["PermissionLevel"];
         };
+        SetPrimaryHumanRequest: {
+            /** Format: uuid */
+            humanId: string;
+        };
+        SetPrimaryHumanResponse: {
+            /** Format: uuid */
+            tenantUserId: string;
+            /** Format: uuid */
+            primaryHumanId: string;
+        };
         /** @enum {unknown} */
         SeverityLevel: "Information" | "Warning" | "Error";
         SkillCatalogEntry: {
@@ -4185,6 +4241,9 @@ export interface components {
             origin: components["schemas"]["ParticipantRef"];
             summary: string;
             isArchived: boolean;
+            /** Format: uuid */
+            recipientHumanId?: null | string;
+            recipientHumanDisplayName?: null | string;
         };
         ThroughputEntryResponse: {
             source: string;
@@ -6897,6 +6956,39 @@ export interface operations {
             };
         };
     };
+    CreateHuman: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["CreateHumanRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HumanResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     GetHuman: {
         parameters: {
             query?: never;
@@ -7245,6 +7337,50 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    SetPrimaryHuman: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenantUserId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["SetPrimaryHumanRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetPrimaryHumanResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

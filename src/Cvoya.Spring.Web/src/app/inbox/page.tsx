@@ -57,6 +57,7 @@ import {
   ConversationView,
   type ConversationViewHeaderApi,
 } from "@/components/conversation/conversation-view";
+import { HatChip } from "@/components/conversation/hat-chip";
 import {
   MessageComposer,
   type MessageRecipient,
@@ -286,14 +287,10 @@ function ThreadRow({ item, selected, onSelect }: ThreadRowProps) {
       )}
       {hatName && (
         <div className="mt-1">
-          <Badge
-            variant="outline"
-            className="h-4 px-1.5 text-[10px] font-normal"
-            data-testid={`inbox-hat-chip-${item.threadId}`}
-            title={`Received as ${hatName}`}
-          >
-            As {hatName}
-          </Badge>
+          <HatChip
+            displayName={hatName}
+            testId={`inbox-hat-chip-${item.threadId}`}
+          />
         </div>
       )}
     </button>
