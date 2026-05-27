@@ -209,6 +209,64 @@ public static class SlackCredentialWriter
             MissingFields: missing);
     }
 
+    /// <summary>
+    /// Writes Slack credentials as tenant-scoped secrets via the Spring
+    /// API. The runtime connector resolves OAuth credentials through a
+    /// tenant → platform → env precedence chain (issue #2849), so this
+    /// path is the recommended persistence target on a multi-user or
+    /// multi-tenant deployment. Atomic-rollback contract matches
+    /// <see cref="WriteSecretsAsync"/> — any failure rolls back every
+    /// secret already written in this call.
+    /// </summary>
+    public static async Task<WriteOutcome> WriteTenantSecretsAsync(
+        CredentialBundle credentials,
+        SpringApiClient apiClient,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(credentials);
+        ArgumentNullException.ThrowIfNull(apiClient);
+
+        var (pairs, missing) = BuildSecretPairs(credentials);
+
+        var written = new List<string>();
+        try
+        {
+            foreach (var (name, value) in pairs)
+            {
+                await apiClient.CreateTenantSecretAsync(
+                    name: name,
+                    value: value,
+                    externalStoreKey: null,
+                    ct: cancellationToken).ConfigureAwait(false);
+                written.Add(name);
+            }
+        }
+        catch
+        {
+            // Roll back what we've already written so the operator's
+            // tenant-secret store doesn't end up half-populated. Each
+            // rollback is best-effort — we re-throw the original error
+            // either way, so the operator sees the actual failure.
+            foreach (var name in written)
+            {
+                try
+                {
+                    await apiClient.DeleteTenantSecretAsync(name, cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // best-effort
+                }
+            }
+            throw;
+        }
+
+        return new WriteOutcome(
+            Target: "tenant secrets (scope=tenant)",
+            WrittenKeys: written,
+            MissingFields: missing);
+    }
+
     private static (IReadOnlyList<(string Key, string Value)> Pairs, IReadOnlyList<string> Missing)
         BuildEnvPairs(CredentialBundle c)
     {

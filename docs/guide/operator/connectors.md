@@ -99,7 +99,7 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 Some connectors require the operator to register an app on the third-party side before SV can drive an OAuth flow against it. The per-connector setup guides cover that registration step:
 
 - [GitHub App setup](github-app-setup.md) — per-deployment GitHub App, webhook URL, App ID / slug / private key, and the `gh webhook forward` local-dev recipe.
-- [Slack app setup](slack-app-setup.md) — per-deployment Slack app, OAuth scopes, redirect URL, event-subscription URL, slash-command URLs, signing secret, and a paste-ready manifest YAML.
+- [Slack app setup](slack-app-setup.md) — per-deployment Slack app, OAuth scopes, redirect URL, event-subscription URL, slash-command URLs, signing secret, and a paste-ready manifest YAML. The OAuth credentials persist via `spring connector slack install` with one of three flags: `--write-env` (default; Tier-1 deployment config), `--write-secrets` (platform scope), or `--write-tenant-secrets` (tenant scope — recommended on a multi-tenant deployment so rotation is per-tenant, per [issue #2849](https://github.com/cvoya-com/spring-voyage/issues/2849)).
 
 ## See also
 

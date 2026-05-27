@@ -46,7 +46,7 @@ binding surfaces pick up a new connector automatically. The contract carries:
 | `github` | Unit | App / PAT auth, webhook ingest + filtering, binding lifecycle, label-roundtrip, per-launch runtime-context contribution. **Event-only at the platform-MCP boundary** — no `github.*` MCP tools; agents run `gh` / `git` directly in-container. |
 | `arxiv` | Unit | Read-only literature search; no auth, no webhooks |
 | `web-search` | Unit | A façade over a pluggable `IWebSearchProvider` (Brave by default); API keys resolved by secret name at invoke time |
-| `slack` | Tenant | One Slack workspace per tenant; OAuth install + bot identity + signing-secret persistence per [ADR-0061](../decisions/0061-slack-connector-oss-shape.md). OSS v0.1 is single-bound-user, DM-only, with Enterprise Grid refused at install time. Event handling / outbound delivery / slash commands are tracked in follow-up issues. |
+| `slack` | Tenant | One Slack workspace per tenant; OAuth install + bot identity + signing-secret persistence per [ADR-0061](../decisions/0061-slack-connector-oss-shape.md). OAuth credentials (`ClientId`, `ClientSecret`, `SigningSecret`, `RedirectUri`) resolve at runtime through the chain **tenant-secret → platform-secret → env-config** ([issue #2849](https://github.com/cvoya-com/spring-voyage/issues/2849)); persisted by `spring connector slack install` (`--write-env` / `--write-secrets` / `--write-tenant-secrets`). OSS v0.1 is single-bound-user, DM-only, with Enterprise Grid refused at install time. |
 
 ## Connector binding scopes
 

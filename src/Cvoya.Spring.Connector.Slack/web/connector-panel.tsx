@@ -171,7 +171,7 @@ function describeSlackError(err: unknown): SlackError {
         detail:
           typeof err.problem.detail === "string"
             ? err.problem.detail
-            : "An operator needs to register a Slack app and set Slack:OAuth:ClientId / ClientSecret / SigningSecret / RedirectUri in spring.env before this surface can start an install.",
+            : "An operator needs to register a Slack app and persist the four OAuth credentials (ClientId, ClientSecret, SigningSecret, RedirectUri). Run `spring connector slack install` with one of `--write-env`, `--write-secrets`, or `--write-tenant-secrets` before this surface can start an install.",
       };
     }
   }
@@ -220,7 +220,7 @@ function describeCallbackError(error: string, message: string): SlackError {
       title: "Slack OAuth isn't configured on this deployment.",
       detail:
         message ||
-        "An operator needs to register a Slack app and set Slack:OAuth:ClientId / ClientSecret / SigningSecret / RedirectUri in spring.env before this surface can start an install.",
+        "An operator needs to register a Slack app and persist the four OAuth credentials (ClientId, ClientSecret, SigningSecret, RedirectUri). Run `spring connector slack install` with one of `--write-env`, `--write-secrets`, or `--write-tenant-secrets` before this surface can start an install.",
     };
   }
   return {
