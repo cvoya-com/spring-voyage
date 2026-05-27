@@ -77,6 +77,10 @@ vi.mock("@/lib/api/queries", () => ({
     isPending: false,
     error: null,
   }),
+  // ADR-0062 § 5: <MessageComposer> reads the caller's bound Hats so
+  // the from-selector can render. The tests don't exercise the
+  // selector path; a stable empty list keeps it hidden.
+  useCallerHumans: () => ({ data: [], isLoading: false, isError: false }),
 }));
 
 vi.mock("@/lib/stream/use-activity-stream", () => ({
@@ -684,5 +688,36 @@ describe("InboxPage — unread badge and mark-read (#1477)", () => {
       expect(rows[0]).toHaveAttribute("data-testid", "inbox-thread-row-unread-thread");
       expect(rows[1]).toHaveAttribute("data-testid", "inbox-thread-row-read-thread");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0062 § 5 — per-Hat inbox chip
+// ---------------------------------------------------------------------------
+
+describe("InboxPage — per-Hat chip (ADR-0062 § 5, #2807)", () => {
+  beforeEach(() => {
+    _inboxData = null;
+    _inboxError = null;
+    _inboxPending = false;
+    _threadData = null;
+    mockRouterReplace.mockReset();
+    _markReadMutate.mockReset();
+  });
+
+  it("renders a Hat chip per row labelled with the receiving Human's display name", async () => {
+    setupInbox(rows);
+    render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+
+    const chip1 = await screen.findByTestId("inbox-hat-chip-conv-1");
+    expect(chip1).toHaveTextContent("As savas");
+    expect(chip1).toHaveAttribute("title", "Received as savas");
+
+    const chip2 = await screen.findByTestId("inbox-hat-chip-conv-2");
+    expect(chip2).toHaveTextContent("As savas");
   });
 });

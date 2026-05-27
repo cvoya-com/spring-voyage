@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConnectorIdentityCard } from "@/components/user-identity/connector-card";
 import { OrphanSecretsPanel } from "@/components/user-identity/orphan-secrets";
+import { YourHatsPanel } from "@/components/user-identity/your-hats-panel";
 import {
   useConnectorTypes,
   useTenantUser,
@@ -94,6 +95,24 @@ export default function UserIdentityPage() {
           </CardHeader>
         </Card>
       )}
+
+      <section
+        aria-labelledby="user-identity-hats-heading"
+        className="space-y-3"
+      >
+        <h2
+          id="user-identity-hats-heading"
+          className="text-sm font-medium uppercase tracking-wide text-muted-foreground"
+        >
+          Your Hats
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          The Humans bound to your account (ADR-0062). Each Hat is a
+          role-slot you can receive messages on and reply as. Claim
+          unbound Hats from a unit&apos;s Members tab.
+        </p>
+        <YourHatsPanel />
+      </section>
 
       <section
         aria-labelledby="user-identity-connectors-heading"

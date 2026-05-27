@@ -99,6 +99,21 @@ public static class TenantUserIdentityEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // ADR-0062 §§ 3, 5: the portal's <HumanFromSelector> and per-Hat
+        // inbox rendering both need the calling caller's bound-Human set
+        // — every Human row whose `tenant_user_id` FK points at the
+        // caller — plus the `IsPrimary` flag (from
+        // `TenantUser.PrimaryHumanId`) so the new-outbound default
+        // selection lights up the right Hat without a second round-trip.
+        // The per-unit Memberships sub-list lets the selector render the
+        // "designer in Magazine" context label inline.
+        group.MapGet("/me/humans", ListCallerHumansAsync)
+            .WithName("ListCallerHumans")
+            .WithSummary("List the calling caller's bound Humans (Hats) with per-unit context (ADR-0062 §§ 3, 5).")
+            .WithDescription("Returns every Human row whose tenant_user_id FK points at the authenticated caller, with the IsPrimary flag set on the row that matches TenantUser.PrimaryHumanId. Each row carries a Memberships sub-list — one entry per UnitMembershipHuman row the Human appears on — so the portal's from-selector can render the per-Hat context label (e.g. designer in Magazine) in one round-trip.")
+            .Produces<IReadOnlyList<CallerHumanResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
+
         return group;
     }
 
@@ -388,6 +403,91 @@ public static class TenantUserIdentityEndpoints
         await db.SaveChangesAsync(cancellationToken);
 
         return Results.Ok(new SetPrimaryHumanResponse(tenantUserId, request.HumanId));
+    }
+
+    private static async Task<IResult> ListCallerHumansAsync(
+        IAuthenticatedCallerAccessor callerAccessor,
+        SpringDbContext db,
+        CancellationToken cancellationToken)
+    {
+        // The route is gated to `TenantUser`, so a missing caller here
+        // means the auth pipeline accepted the request without
+        // surfacing a NameIdentifier claim — surface as 401 rather than
+        // returning an empty list that would look like "no Hats yet".
+        var callerAddress = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (callerAddress is null
+            || !string.Equals(callerAddress.Scheme, Cvoya.Spring.Core.Messaging.Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Problem(
+                detail: "No authenticated TenantUser caller identity available.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        var callerTenantUserId = callerAddress.Id;
+
+        // The TenantUser row drives the IsPrimary flag; load it once so
+        // the result-shaping step can stamp the flag in the same pass.
+        var primaryHumanId = await db.TenantUsers
+            .AsNoTracking()
+            .Where(u => u.Id == callerTenantUserId)
+            .Select(u => u.PrimaryHumanId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var humans = await db.Humans
+            .AsNoTracking()
+            .Where(h => h.TenantUserId == callerTenantUserId)
+            .Select(h => new { h.Id, h.Username, h.DisplayName })
+            .ToListAsync(cancellationToken);
+
+        if (humans.Count == 0)
+        {
+            return Results.Ok(Array.Empty<CallerHumanResponse>());
+        }
+
+        var humanIds = humans.Select(h => h.Id).ToList();
+
+        // One round-trip for the membership rows so we can render the
+        // per-Hat context label (e.g. "designer in Magazine") inline.
+        // The join to `UnitDefinitions` resolves the unit's display
+        // name; the membership table holds the role list verbatim.
+        var memberships = await (
+            from m in db.UnitMembershipsHumans.AsNoTracking()
+            where humanIds.Contains(m.HumanId)
+            join u in db.UnitDefinitions.AsNoTracking() on m.UnitId equals u.Id into uj
+            from u in uj.DefaultIfEmpty()
+            select new
+            {
+                m.HumanId,
+                m.UnitId,
+                UnitDisplayName = u != null ? u.DisplayName : string.Empty,
+                m.Roles,
+            }).ToListAsync(cancellationToken);
+
+        var membershipsByHuman = memberships
+            .GroupBy(m => m.HumanId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<CallerHumanMembershipResponse>)g
+                    .OrderBy(x => x.UnitDisplayName, StringComparer.OrdinalIgnoreCase)
+                    .Select(x => new CallerHumanMembershipResponse(
+                        x.UnitId,
+                        string.IsNullOrWhiteSpace(x.UnitDisplayName) ? "Unknown unit" : x.UnitDisplayName,
+                        x.Roles ?? new List<string>()))
+                    .ToList());
+
+        // Ordering: primary Hat first, then alphabetical by display name
+        // so the selector reads predictably even when no Hat is pinned.
+        var rows = humans
+            .Select(h => new CallerHumanResponse(
+                h.Id,
+                string.IsNullOrWhiteSpace(h.DisplayName) ? h.Username : h.DisplayName,
+                primaryHumanId is { } pid && pid == h.Id,
+                membershipsByHuman.TryGetValue(h.Id, out var ms) ? ms : Array.Empty<CallerHumanMembershipResponse>()))
+            .OrderByDescending(r => r.IsPrimary)
+            .ThenBy(r => r.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return Results.Ok(rows);
     }
 
     private static TenantUserResponse ToResponse(TenantUserEntity row) =>

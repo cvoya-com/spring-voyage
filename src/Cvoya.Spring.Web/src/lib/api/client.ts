@@ -8,6 +8,7 @@ import type {
   AgentExecutionResponse,
   AgentResponse,
   AgentRuntimeStatusResponse,
+  CallerHumanResponse,
   ConversationListFilters,
   EquippedSkillsResponse,
   EquipSkillRequest,
@@ -52,6 +53,7 @@ import type {
   UnitWebSearchConfigResponse,
   WebSearchProviderDescriptor,
   UpdateAgentMetadataRequest,
+  UpdateHumanBindingRequest,
   UpdateHumanRequest,
   UpdateUnitAgentMemberRequest,
   UpdateUnitHumanMemberRequest,
@@ -486,6 +488,26 @@ export const api = {
         params: { path: { humanId } },
         body,
       }),
+    ) as HumanResponse,
+
+  /**
+   * Rebind a Human row to a TenantUser (ADR-0062 § 1). Powers the
+   * portal's "Claim this Human" affordance on the unit member list
+   * and on the user-identity page. `tenantUserId` is the calling
+   * TenantUser's id for the canonical "claim for myself" flow.
+   */
+  updateHumanBinding: async (
+    humanId: string,
+    body: UpdateHumanBindingRequest,
+  ): Promise<HumanResponse> =>
+    unwrap(
+      await fetchClient.PATCH(
+        "/api/v1/tenant/humans/{humanId}/binding",
+        {
+          params: { path: { humanId } },
+          body,
+        },
+      ),
     ) as HumanResponse,
 
   // ADR-0047 §§ 2, 14: connector-identity relocates onto the TenantUser
@@ -2209,6 +2231,19 @@ export const api = {
         { params: { path: { tenantUserId } } },
       ),
     ) as TenantUserConnectorIdentityResponse[],
+
+  /**
+   * List the calling caller's bound Humans ("Hats") with per-unit
+   * context (ADR-0062 §§ 3, 5). The portal's `<HumanFromSelector>`,
+   * inbox Hat chip, and "Claim this Human" affordance all read from
+   * this slice. Each row carries `isPrimary` (matches
+   * `TenantUser.PrimaryHumanId`) plus a `memberships` sub-list so the
+   * "designer in Magazine" context label renders in one round-trip.
+   */
+  listCallerHumans: async (): Promise<CallerHumanResponse[]> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/users/me/humans"),
+    ) as CallerHumanResponse[],
   upsertTenantUserIdentity: async (
     tenantUserId: string,
     body: TenantUserConnectorIdentityRequest,

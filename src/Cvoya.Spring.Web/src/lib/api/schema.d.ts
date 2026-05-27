@@ -817,6 +817,26 @@ export interface paths {
         patch: operations["UpdateHuman"];
         trace?: never;
     };
+    "/api/v1/tenant/humans/{humanId}/binding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rebind a Human row to a different TenantUser (ADR-0062 § 1).
+         * @description Sets `humans.tenant_user_id = <body.tenantUserId>` and clears the old TenantUser's PrimaryHumanId pin when it pointed at this Human (so the operator does not silently retain a default Hat they no longer own). The replacement TenantUser must exist in the current tenant; an unknown id returns 404. Returns the post-write HumanResponse.
+         */
+        patch: operations["UpdateHumanBinding"];
+        trace?: never;
+    };
     "/api/v1/tenant/users/{tenantUserId}": {
         parameters: {
             query?: never;
@@ -855,6 +875,26 @@ export interface paths {
         post: operations["UpsertTenantUserConnectorIdentity"];
         /** Remove a connector identity mapping by (tenantUser, connector, username). Idempotent — returns 204 even when nothing matched. */
         delete: operations["RemoveTenantUserConnectorIdentity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/users/me/humans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the calling caller's bound Humans (Hats) with per-unit context (ADR-0062 §§ 3, 5).
+         * @description Returns every Human row whose tenant_user_id FK points at the authenticated caller, with the IsPrimary flag set on the row that matches TenantUser.PrimaryHumanId. Each row carries a Memberships sub-list — one entry per UnitMembershipHuman row the Human appears on — so the portal's from-selector can render the per-Hat context label (e.g. designer in Magazine) in one round-trip.
+         */
+        get: operations["ListCallerHumans"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3142,6 +3182,19 @@ export interface components {
             /** Format: double */
             dailyBudget: number;
         };
+        CallerHumanMembershipResponse: {
+            /** Format: uuid */
+            unitId: string;
+            unitDisplayName: string;
+            roles: string[];
+        };
+        CallerHumanResponse: {
+            /** Format: uuid */
+            humanId: string;
+            displayName: string;
+            isPrimary: boolean;
+            memberships: components["schemas"]["CallerHumanMembershipResponse"][];
+        };
         CloneResponse: {
             cloneId: string;
             parentAgentId: string;
@@ -3969,6 +4022,8 @@ export interface components {
             type: string;
             threadId: null | string;
             payload: components["schemas"]["JsonElement"];
+            /** Format: uuid */
+            from?: null | string;
         };
         SetBudgetRequest: {
             /** Format: double */
@@ -4107,6 +4162,8 @@ export interface components {
             to: components["schemas"]["AddressDto"];
             text: string;
             kind?: null | string;
+            /** Format: uuid */
+            from?: null | string;
         };
         ThreadMessageResponse: {
             /** Format: uuid */
@@ -4383,6 +4440,10 @@ export interface components {
             instructions?: null | string;
             systemPromptMode?: null | string;
         };
+        UpdateHumanBindingRequest: {
+            /** Format: uuid */
+            tenantUserId: string;
+        };
         UpdateHumanRequest: {
             displayName?: null | string;
             description?: null | string;
@@ -4437,6 +4498,8 @@ export interface components {
             /** Format: uuid */
             id: string;
             address?: null | string;
+            /** Format: uuid */
+            tenantUserId?: null | string;
         };
         WaitTimeEntryResponse: {
             source: string;
@@ -6956,6 +7019,50 @@ export interface operations {
             };
         };
     };
+    UpdateHumanBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                humanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["UpdateHumanBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HumanResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     GetTenantUser: {
         parameters: {
             query?: never;
@@ -7138,6 +7245,35 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    ListCallerHumans: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallerHumanResponse"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

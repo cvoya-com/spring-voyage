@@ -95,3 +95,24 @@ public sealed record CreateHumanRequest(
     [property: Required] string DisplayName,
     string? Description = null,
     Guid? TenantUserId = null);
+
+/// <summary>
+/// Request body for
+/// <c>PATCH /api/v1/tenant/humans/{humanId}/binding</c> (ADR-0062 § 1).
+/// Rewrites the Human row's <c>tenant_user_id</c> FK so the calling
+/// TenantUser can "claim" a package-declared placeholder Human (an
+/// unbound Hat) and start receiving messages addressed to that role.
+/// </summary>
+/// <remarks>
+/// The portal's "Claim this Human" affordance posts the calling
+/// TenantUser's id here; the CLI's <c>spring unit member add human
+/// --as me</c> verb does the same on the create path.
+/// </remarks>
+/// <param name="TenantUserId">
+/// The <c>TenantUser</c> the Human is now bound to. Must reference an
+/// existing TenantUser in the current tenant; an unknown id returns
+/// 404. Pass the calling TenantUser's id for the canonical
+/// "claim this Hat for myself" action.
+/// </param>
+public sealed record UpdateHumanBindingRequest(
+    [property: System.ComponentModel.DataAnnotations.Required] Guid TenantUserId);

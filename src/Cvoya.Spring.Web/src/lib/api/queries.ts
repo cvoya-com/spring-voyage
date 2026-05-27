@@ -69,6 +69,7 @@ import type {
   ThroughputRollupResponse,
   TokenResponse,
   SecretMetadata,
+  CallerHumanResponse,
   TenantUserConnectorIdentityResponse,
   TenantUserResponse,
   UnitBoundaryResponse,
@@ -785,6 +786,26 @@ export function useTenantUserIdentities(
     queryKey: queryKeys.tenantUsers.identities(tenantUserId),
     queryFn: async () => api.listTenantUserIdentities(tenantUserId),
     enabled: opts?.enabled ?? Boolean(tenantUserId),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * GET /api/v1/tenant/users/me/humans — the calling caller's bound Hats
+ * (ADR-0062 §§ 3, 5). Powers `<HumanFromSelector>`, the inbox Hat
+ * chip's display-name lookup, and the user-identity / unit-member
+ * "Claim this Human" affordance. The result is stable for the
+ * session; invalidate `queryKeys.tenantUsers.callerHumans()` after a
+ * binding patch.
+ */
+export function useCallerHumans(
+  opts?: SliceOptions<CallerHumanResponse[]>,
+): UseQueryResult<CallerHumanResponse[], Error> {
+  return useQuery({
+    queryKey: queryKeys.tenantUsers.callerHumans(),
+    queryFn: async () => api.listCallerHumans(),
+    enabled: opts?.enabled,
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,
   });

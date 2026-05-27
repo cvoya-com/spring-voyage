@@ -21,13 +21,22 @@
 // dialog wiring.
 
 import Link from "next/link";
-import { Pencil, Trash2, UserRound } from "lucide-react";
+import { useMemo } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { HandIcon, Loader2, Pencil, Trash2, UserRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { useHuman } from "@/lib/api/queries";
-import type { UnitHumanMemberResponse } from "@/lib/api/types";
+import { useToast } from "@/components/ui/toast";
+import { api } from "@/lib/api/client";
+import { useCallerHumans, useHuman } from "@/lib/api/queries";
+import { queryKeys } from "@/lib/api/query-keys";
+import { formatTranslatedError } from "@/lib/api/translate-error";
+import type {
+  HumanResponse,
+  UnitHumanMemberResponse,
+} from "@/lib/api/types";
 
 interface HumanMemberCardProps {
   row: UnitHumanMemberResponse;
@@ -39,6 +48,15 @@ interface HumanMemberCardProps {
    * exactly one human).
    */
   operatorHumanId: string | null;
+  /**
+   * The currently-authenticated caller's TenantUser id, or `null`
+   * while `/auth/me` is loading. Used by the "Claim this Human"
+   * affordance (ADR-0062 § 1) to PATCH the Human row's
+   * `tenant_user_id` FK so the caller starts receiving messages
+   * addressed to this Hat. The button is hidden when the caller
+   * already owns the Hat (per `useCallerHumans`).
+   */
+  operatorTenantUserId: string | null;
   onEdit: () => void;
   onRemove: () => void;
 }
@@ -46,6 +64,7 @@ interface HumanMemberCardProps {
 export function HumanMemberCard({
   row,
   operatorHumanId,
+  operatorTenantUserId,
   onEdit,
   onRemove,
 }: HumanMemberCardProps) {
@@ -60,6 +79,64 @@ export function HumanMemberCard({
     operatorHumanId !== null && operatorHumanId === row.humanId;
 
   const href = `/humans/${encodeURIComponent(row.humanId)}`;
+
+  // ADR-0062 § 1: render a "Claim this Human" button when the caller
+  // is not yet bound to this Hat. The bound-Hat set comes from
+  // `useCallerHumans` and is the authoritative answer to "do I own
+  // this Hat?" — `isMe` only catches the JWT-username-resolved Human,
+  // not the (potentially many) package-declared placeholder Humans the
+  // caller could still claim. Hidden in OSS once the single Hat is
+  // claimed; surfaces on cloud + on the initial OSS install before
+  // the operator binds the package-declared placeholder.
+  const callerHumansQuery = useCallerHumans({
+    enabled: operatorTenantUserId !== null,
+  });
+  const alreadyBoundToCaller = useMemo(() => {
+    const hats = callerHumansQuery.data ?? [];
+    return hats.some((h) => h.humanId === row.humanId);
+  }, [callerHumansQuery.data, row.humanId]);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const claimMutation = useMutation<HumanResponse, Error, void>({
+    mutationFn: async () => {
+      if (!operatorTenantUserId) {
+        throw new Error("No authenticated TenantUser caller available.");
+      }
+      return api.updateHumanBinding(row.humanId, {
+        tenantUserId: operatorTenantUserId,
+      });
+    },
+    onSuccess: () => {
+      // Invalidate every dependent surface: the human envelope, the
+      // caller's bound-Hat set (drives the from-selector + chips), and
+      // the unit's member list (so any "You" hint flips to reflect
+      // the new ownership). Inbox lists also re-read because the
+      // routing-target set changed.
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.humans.detail(row.humanId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tenantUsers.callerHumans(),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.threads.inbox() });
+      toast({
+        title: `Claimed ${displayName}`,
+        description: "You are now bound to this Hat.",
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: "Claim failed",
+        description: formatTranslatedError(err),
+        variant: "destructive",
+      });
+    },
+  });
+  const canClaim =
+    operatorTenantUserId !== null
+    && !alreadyBoundToCaller
+    && !callerHumansQuery.isLoading;
 
   return (
     <Card
@@ -119,6 +196,24 @@ export function HumanMemberCard({
             in-footer action buttons.
           */}
           <div className="pointer-events-auto relative z-[1] flex shrink-0 items-center gap-1">
+            {canClaim && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => claimMutation.mutate()}
+                disabled={claimMutation.isPending}
+                aria-label={`Claim ${displayName} as one of your Hats`}
+                title="Claim this Human as one of your Hats"
+                data-testid={`unit-human-member-claim-${row.membershipId}`}
+                className="h-7 w-7"
+              >
+                {claimMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <HandIcon className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"

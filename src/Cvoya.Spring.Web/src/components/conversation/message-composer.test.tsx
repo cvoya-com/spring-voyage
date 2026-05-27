@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendThreadMessageMock = vi.fn();
 const sendMessageMock = vi.fn();
+const listCallerHumansMock = vi.fn(async () => [] as unknown[]);
 vi.mock("@/lib/api/client", async () => {
   const actual =
     await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client");
@@ -22,6 +23,7 @@ vi.mock("@/lib/api/client", async () => {
       sendThreadMessage: (id: string, body: unknown) =>
         sendThreadMessageMock(id, body),
       sendMessage: (body: unknown) => sendMessageMock(body),
+      listCallerHumans: () => listCallerHumansMock(),
     },
   };
 });
@@ -47,6 +49,11 @@ beforeEach(() => {
   sendThreadMessageMock.mockReset();
   sendMessageMock.mockReset();
   toastMock.mockReset();
+  listCallerHumansMock.mockReset();
+  // Default: no bound Hats so the selector renders nothing and the
+  // existing tests pin the legacy composer chrome. Tests that exercise
+  // the from-selector replace this default in their own beforeEach.
+  listCallerHumansMock.mockResolvedValue([]);
 });
 
 describe("MessageComposer — initial render", () => {
@@ -402,5 +409,155 @@ describe("MessageComposer — answer mode", () => {
       }),
     );
     expect(onKindChange).toHaveBeenCalledWith("information");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0062 § 5 — Hat from-selector wiring.
+// ---------------------------------------------------------------------------
+
+describe("MessageComposer — from-selector (ADR-0062)", () => {
+  const PRIMARY = {
+    humanId: "00000000-0000-0000-0000-000000000001",
+    displayName: "Bob",
+    isPrimary: true,
+    memberships: [
+      {
+        unitId: "00000000-0000-0000-0000-0000000000a0",
+        unitDisplayName: "Magazine",
+        roles: ["designer"],
+      },
+    ],
+  };
+  const SECONDARY = {
+    humanId: "00000000-0000-0000-0000-000000000002",
+    displayName: "Alice",
+    isPrimary: false,
+    memberships: [
+      {
+        unitId: "00000000-0000-0000-0000-0000000000a1",
+        unitDisplayName: "Editorial",
+        roles: ["reviewer"],
+      },
+    ],
+  };
+
+  it("hides the selector when the caller has no bound Hats", async () => {
+    listCallerHumansMock.mockResolvedValue([]);
+    render(
+      wrap(
+        <MessageComposer
+          threadId="t-1"
+          recipient={{ scheme: "agent", path: "ada" }}
+        />,
+      ),
+    );
+    // Give react-query a tick to settle.
+    await waitFor(() => {
+      expect(listCallerHumansMock).toHaveBeenCalled();
+    });
+    expect(
+      screen.queryByTestId("message-composer-from"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("collapses to a static badge with a single bound Hat", async () => {
+    listCallerHumansMock.mockResolvedValue([PRIMARY]);
+    render(
+      wrap(
+        <MessageComposer
+          threadId="t-1"
+          recipient={{ scheme: "agent", path: "ada" }}
+        />,
+      ),
+    );
+    const selector = await screen.findByTestId("message-composer-from");
+    expect(selector).toHaveAttribute("data-mode", "static");
+    expect(selector).toHaveTextContent("Bob (designer in Magazine)");
+  });
+
+  it("forwards the selected Hat as the explicit `from` field on a thread send", async () => {
+    listCallerHumansMock.mockResolvedValue([PRIMARY, SECONDARY]);
+    sendThreadMessageMock.mockResolvedValue({});
+    render(
+      wrap(
+        <MessageComposer
+          threadId="t-1"
+          recipient={{ scheme: "agent", path: "ada" }}
+        />,
+      ),
+    );
+    const select = (await screen.findByTestId(
+      "message-composer-from-select",
+    )) as HTMLSelectElement;
+    // Default lands on the primary Hat per ADR-0062 § 5.
+    await waitFor(() => {
+      expect(select.value).toBe(PRIMARY.humanId);
+    });
+
+    // Switch to Alice and send.
+    fireEvent.change(select, { target: { value: SECONDARY.humanId } });
+    fireEvent.change(screen.getByTestId("message-composer-input"), {
+      target: { value: "ping" },
+    });
+    fireEvent.click(screen.getByTestId("message-composer-send"));
+
+    await waitFor(() => {
+      expect(sendThreadMessageMock).toHaveBeenCalled();
+    });
+    const [, body] = sendThreadMessageMock.mock.calls[0];
+    expect(body).toMatchObject({
+      to: { scheme: "agent", path: "ada" },
+      text: "ping",
+      from: SECONDARY.humanId,
+    });
+  });
+
+  it("forwards the selected Hat as `from` on a new-thread send", async () => {
+    listCallerHumansMock.mockResolvedValue([PRIMARY, SECONDARY]);
+    sendMessageMock.mockResolvedValue({});
+    render(
+      wrap(
+        <MessageComposer
+          threadId={null}
+          recipient={{ scheme: "agent", path: "ada" }}
+        />,
+      ),
+    );
+    await screen.findByTestId("message-composer-from-select");
+    fireEvent.change(screen.getByTestId("message-composer-input"), {
+      target: { value: "hi" },
+    });
+    fireEvent.click(screen.getByTestId("message-composer-send"));
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalled();
+    });
+    const [body] = sendMessageMock.mock.calls[0];
+    expect(body).toMatchObject({
+      to: { scheme: "agent", path: "ada" },
+      type: "Domain",
+      threadId: null,
+      payload: "hi",
+      from: PRIMARY.humanId,
+    });
+  });
+
+  it("seeds the default selection from `defaultHumanId` when supplied (reply pin)", async () => {
+    listCallerHumansMock.mockResolvedValue([PRIMARY, SECONDARY]);
+    render(
+      wrap(
+        <MessageComposer
+          threadId="t-1"
+          recipient={{ scheme: "agent", path: "ada" }}
+          defaultHumanId={SECONDARY.humanId}
+        />,
+      ),
+    );
+    const select = (await screen.findByTestId(
+      "message-composer-from-select",
+    )) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(select.value).toBe(SECONDARY.humanId);
+    });
   });
 });

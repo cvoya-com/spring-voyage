@@ -29,6 +29,11 @@ vi.mock("@tanstack/react-query", () => ({
     },
     isPending: false,
   }),
+  // The shared MessageComposer reads `useCallerHumans()` (ADR-0062 §§ 3, 5)
+  // which sits on `useQuery`. Stub a stable empty-list response so the
+  // composer renders without the from-selector — the engagement-composer
+  // tests do not exercise the from-selector path.
+  useQuery: () => ({ data: [], isLoading: false, isError: false }),
   useQueryClient: () => ({
     invalidateQueries: mockInvalidateQueries,
     getQueryData: () => null,
@@ -59,7 +64,18 @@ vi.mock("@/lib/api/query-keys", () => ({
     activity: {
       all: ["activity", "all"],
     },
+    tenantUsers: {
+      callerHumans: () => ["tenantUsers", "callerHumans"],
+    },
   },
+}));
+
+// ADR-0062 § 5: the shared <MessageComposer> reads the caller's
+// bound Hats so the from-selector can render. The engagement-composer
+// tests do not exercise the selector path; a stable empty list keeps
+// it hidden.
+vi.mock("@/lib/api/queries", () => ({
+  useCallerHumans: () => ({ data: [], isLoading: false, isError: false }),
 }));
 
 vi.mock("@/components/thread/role", () => ({

@@ -127,3 +127,55 @@ public sealed record SetPrimaryHumanRequest(
 public sealed record SetPrimaryHumanResponse(
     Guid TenantUserId,
     Guid PrimaryHumanId);
+
+/// <summary>
+/// One row of the calling caller's bound-Human ("Hat") set
+/// (ADR-0062 § 5). Returned by
+/// <c>GET /api/v1/tenant/users/me/humans</c> and consumed by the portal's
+/// <c>HumanFromSelector</c> + per-Hat inbox rendering. Mirrors the
+/// CLI's <c>spring user hats list</c> shape so both surfaces speak the
+/// same vocabulary.
+/// </summary>
+/// <param name="HumanId">Stable UUID of the bound <c>Human</c> row.</param>
+/// <param name="DisplayName">
+/// The Human row's display name (the "Bob" half of "Bob — designer in
+/// Magazine"). Used by the from-selector and by the per-Hat inbox
+/// chip.
+/// </param>
+/// <param name="IsPrimary">
+/// True when this Hat is the caller's <c>TenantUser.PrimaryHumanId</c>
+/// (ADR-0062 § 2). The portal's new-outbound composer defaults to the
+/// primary Hat when the caller has no thread context.
+/// </param>
+/// <param name="Memberships">
+/// The set of unit-memberships this Hat is a member of, with each
+/// row's team-role list. Empty when the Human is a tenant-scoped row
+/// with no unit attachments (rare; surfaces in OSS dev when a Human is
+/// seeded outside a package install).
+/// </param>
+public sealed record CallerHumanResponse(
+    Guid HumanId,
+    string DisplayName,
+    bool IsPrimary,
+    IReadOnlyList<CallerHumanMembershipResponse> Memberships);
+
+/// <summary>
+/// One per-unit row of a Hat's membership set
+/// (<see cref="CallerHumanResponse.Memberships"/>). Carries the unit
+/// the Hat is bound to and the team roles the membership row records,
+/// so the portal's from-selector can render the per-Hat context label
+/// (e.g. "designer in Magazine") without a second round-trip.
+/// </summary>
+/// <param name="UnitId">Stable UUID of the unit the Hat is a member of.</param>
+/// <param name="UnitDisplayName">
+/// The unit's display name (the "Magazine" half of the per-Hat label).
+/// </param>
+/// <param name="Roles">
+/// The membership row's free-form team-role list (e.g. <c>[designer]</c>,
+/// <c>[reviewer, security_lead]</c>). Empty when the membership has no
+/// roles assigned.
+/// </param>
+public sealed record CallerHumanMembershipResponse(
+    Guid UnitId,
+    string UnitDisplayName,
+    IReadOnlyList<string> Roles);

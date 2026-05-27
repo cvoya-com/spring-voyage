@@ -28,7 +28,7 @@
 // screen-reader users discover it too. The hint is no longer rendered as
 // inline body text — the row stays a single line.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, MessageCircleQuestion, Send } from "lucide-react";
 
@@ -36,9 +36,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
+import { useCallerHumans } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatTranslatedError } from "@/lib/api/translate-error";
 import type { ThreadDetail } from "@/lib/api/types";
+import {
+  HumanFromSelector,
+  pickDefaultHumanId,
+} from "./human-from-selector";
 
 export type MessageKind = "information" | "answer";
 
@@ -79,6 +84,15 @@ export interface MessageComposerProps {
    * "no non-human participant" message that fits the engagement surface.
    */
   recipientMissingMessage?: string;
+  /**
+   * Optional "speaking as" Hat hint (ADR-0062 § 5). For reply
+   * composers this is the Hat the thread came in on (resolved by the
+   * parent from the thread's inbound `Message.To`); for new-outbound
+   * composers leave undefined so the selector defaults to the
+   * caller's primary Hat. When the caller has only one bound Hat the
+   * selector collapses to a static badge and this hint is ignored.
+   */
+  defaultHumanId?: string | null;
 }
 
 /**
@@ -94,12 +108,49 @@ export function MessageComposer({
   placeholder,
   testId = "message-composer",
   recipientMissingMessage,
+  defaultHumanId,
 }: MessageComposerProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
   const [isQueuing, setIsQueuing] = useState(false);
+
+  // ADR-0062 § 3 + § 5: pull the caller's bound-Hat set so the user
+  // can pick which Hat the outbound is stamped with. The selected id
+  // is forwarded as `from: <guid>` on the POST body; the server
+  // validates membership in the caller's bound set. The query is
+  // cheap (one round-trip per session) and the selector hides itself
+  // for callers with one or zero Hats so the composer's chrome stays
+  // minimal in the OSS single-operator case.
+  const callerHumansQuery = useCallerHumans();
+  const callerHumans = useMemo(
+    () => callerHumansQuery.data ?? [],
+    [callerHumansQuery.data],
+  );
+
+  // The selected Hat id. The default-resolution rule is "thread Hat
+  // wins (reply default) → primary Hat (new-outbound default) →
+  // first bound Hat (fallback)". `pickDefaultHumanId` encodes it; the
+  // computed default repins whenever the bound set or thread hint
+  // changes so opening a different thread seeds the selector with
+  // that thread's pinned Hat. User overrides land on `overrideHumanId`
+  // and are scoped per-thread via the keyed reset below.
+  const computedDefaultHumanId = useMemo(
+    () => pickDefaultHumanId(callerHumans, defaultHumanId ?? null),
+    [callerHumans, defaultHumanId],
+  );
+  const [overrideByThread, setOverrideByThread] = useState<{
+    threadId: string | null;
+    humanId: string;
+  } | null>(null);
+  const selectedHumanId =
+    overrideByThread !== null && overrideByThread.threadId === threadId
+      ? overrideByThread.humanId
+      : computedDefaultHumanId;
+  const handleSelectHuman = (humanId: string) => {
+    setOverrideByThread({ threadId, humanId });
+  };
 
   // Focus the textarea when the parent flips into answer mode so the
   // user can start typing the answer without an extra click.
@@ -122,6 +173,11 @@ export function MessageComposer({
             "No recipient available — the conversation has no addressable participant.",
         );
       }
+      // ADR-0062 § 3: stamp the selected Hat as the explicit `from`
+      // field. The server validates it against the caller's bound
+      // set; null/omitted falls back to the server-side resolution
+      // (thread-pinned → primary → any bound → 400 NoBoundHuman).
+      const fromHumanId = selectedHumanId ?? undefined;
       if (threadId) {
         // Only attach `kind` when the caller has explicitly opted into
         // a non-default mode (currently just engagement answer). Default
@@ -132,11 +188,13 @@ export function MessageComposer({
             ? {
                 to: { scheme: recipient.scheme, path: recipient.path },
                 text: trimmed,
+                from: fromHumanId,
               }
             : {
                 to: { scheme: recipient.scheme, path: recipient.path },
                 text: trimmed,
                 kind,
+                from: fromHumanId,
               };
         return api.sendThreadMessage(threadId, body) as Promise<
           Awaited<ReturnType<typeof api.sendMessage>>
@@ -147,6 +205,7 @@ export function MessageComposer({
         type: "Domain",
         threadId: null,
         payload: trimmed,
+        from: fromHumanId,
       });
     },
     onMutate: async ({ trimmed }) => {
@@ -296,6 +355,21 @@ export function MessageComposer({
             Send as regular message instead
           </button>
         </div>
+      )}
+
+      {/* ADR-0062 § 5: from-selector strip. Renders nothing when the
+          caller has no bound Hats; collapses to a static badge when
+          the caller has one Hat; renders the dropdown when 2+. The
+          strip sits above the textarea so it reads as a "speaking
+          as ..." prefix to the message body. */}
+      {callerHumans.length > 0 && (
+        <HumanFromSelector
+          humans={callerHumans}
+          value={selectedHumanId}
+          onChange={handleSelectHuman}
+          testId={`${testId}-from`}
+          disabled={isQueuing || !recipient}
+        />
       )}
 
       {/* Single-row composer: 2-line textarea on the left, full-height
