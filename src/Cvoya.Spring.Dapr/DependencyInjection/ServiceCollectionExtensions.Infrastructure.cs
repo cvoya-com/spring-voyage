@@ -219,6 +219,13 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // can read/write through it from singleton call sites.
         services.TryAddScoped<IUnitConnectorBindingRepository, UnitConnectorBindingRepository>();
 
+        // ADR-0061 §1: per-tenant connector binding repository
+        // (tenant_connector_bindings). Scoped sibling of
+        // IUnitConnectorBindingRepository; first consumer is the Slack
+        // connector. ADR-0061 §7.7: the surface is generic, future
+        // workspace-shaped connectors reuse it.
+        services.TryAddScoped<ITenantConnectorBindingRepository, TenantConnectorBindingRepository>();
+
         // ADR-0040 / #2052: the EF-backed unit member graph store is the
         // singleton seam UnitActor uses to read / write the
         // unit_memberships + unit_subunit_memberships tables on every

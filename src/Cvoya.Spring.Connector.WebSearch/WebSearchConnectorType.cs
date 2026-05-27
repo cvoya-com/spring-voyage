@@ -63,6 +63,14 @@ public class WebSearchConnectorType : IConnectorType
     public string Slug => "web-search";
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Web-search bindings are per-unit: each unit pins its own provider
+    /// and api-key secret name. ADR-0061 §1's per-tenant scope is reserved
+    /// for workspace-shaped connectors.
+    /// </remarks>
+    public BindingScope BindingScope => BindingScope.Unit;
+
+    /// <inheritdoc />
     public string DisplayName => "Web Search";
 
     /// <inheritdoc />

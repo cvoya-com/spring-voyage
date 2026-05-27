@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Worker.Composition;
 using Cvoya.Spring.AgentRuntimes.DependencyInjection;
 using Cvoya.Spring.Connector.Arxiv.DependencyInjection;
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
+using Cvoya.Spring.Connector.Slack.DependencyInjection;
 using Cvoya.Spring.Connector.WebSearch.DependencyInjection;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.DependencyInjection;
@@ -127,7 +128,8 @@ public static class WorkerComposition
             .AddCvoyaSpringOllamaLlm(configuration)
             .AddCvoyaSpringConnectorGitHub(configuration)
             .AddCvoyaSpringConnectorArxiv(configuration)
-            .AddCvoyaSpringConnectorWebSearch(configuration);
+            .AddCvoyaSpringConnectorWebSearch(configuration)
+            .AddCvoyaSpringConnectorSlack(configuration);
 
         // DataProtection registration is gated by design-time tooling to avoid
         // noisy ephemeral-key warnings during build-time OpenAPI generation. The

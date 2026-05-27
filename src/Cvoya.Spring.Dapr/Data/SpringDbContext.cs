@@ -246,6 +246,18 @@ public class SpringDbContext : DbContext
     public DbSet<UnitConnectorBindingEntity> UnitConnectorBindings => Set<UnitConnectorBindingEntity>();
 
     /// <summary>
+    /// Gets the set of per-tenant connector binding rows
+    /// (<see href="https://github.com/cvoya-com/spring-voyage/blob/main/docs/decisions/0061-slack-connector-oss-shape.md">ADR-0061</see>
+    /// §1). One row per <c>(tenant, connector_slug)</c>; carries the
+    /// connector type id, typed config, connector-owned runtime
+    /// metadata, and an optional connector-native <c>external_identity</c>
+    /// (e.g. the Slack <c>team_id</c>) indexed unique cross-tenant so
+    /// inbound webhook routing resolves a delivery to a single tenant
+    /// binding (ADR-0061 §7.5).
+    /// </summary>
+    public DbSet<TenantConnectorBindingEntity> TenantConnectorBindings => Set<TenantConnectorBindingEntity>();
+
+    /// <summary>
     /// Gets the set of agent / tenant cloning-policy rows (#2051 /
     /// ADR-0040). One row per <c>(tenant_id, scope_type, scope_id)</c>;
     /// replaces the actor-state <c>Agent:CloningPolicy:{agentId}</c> and
@@ -326,6 +338,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new UnitLiveConfigEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitExpertiseEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitConnectorBindingEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantConnectorBindingEntityConfiguration());
         modelBuilder.ApplyConfiguration(new CloningPolicyEntityConfiguration());
         modelBuilder.ApplyConfiguration(new MemoryEntityConfiguration());
         modelBuilder.ApplyConfiguration(new PersistentAgentRuntimeEntityConfiguration());
@@ -455,6 +468,14 @@ public class SpringDbContext : DbContext
         // Cleared bindings are deleted outright; rebinds upsert into the
         // existing row to preserve id stability.
         modelBuilder.Entity<UnitConnectorBindingEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Tenant connector bindings: tenant-scoped, no soft-delete
+        // (ADR-0061 §1). Same shape as unit_connector_bindings but
+        // keyed by (tenant, connector_slug) instead of (tenant, unit).
+        // First consumer is the Slack connector; future workspace-
+        // shaped connectors reuse the same row.
+        modelBuilder.Entity<TenantConnectorBindingEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
 
         // Cloning policies: tenant-scoped, no soft-delete (#2051 / ADR-0040).

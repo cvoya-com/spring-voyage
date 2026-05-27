@@ -185,6 +185,15 @@ public class GitHubConnectorType : IConnectorType
     public string Slug => "github";
 
     /// <inheritdoc />
+    /// <remarks>
+    /// GitHub bindings are per-unit: each unit pins one repository plus its
+    /// auth context. The per-tenant scope introduced in ADR-0061 §1 is for
+    /// workspace-shaped connectors (Slack, calendar) — GitHub stays
+    /// <see cref="BindingScope.Unit"/>.
+    /// </remarks>
+    public BindingScope BindingScope => BindingScope.Unit;
+
+    /// <inheritdoc />
     public string DisplayName => "GitHub";
 
     /// <inheritdoc />

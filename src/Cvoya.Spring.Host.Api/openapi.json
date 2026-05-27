@@ -8177,6 +8177,148 @@
         }
       }
     },
+    "/api/v1/tenant/connectors/{slugOrId}/binding": {
+      "get": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Get the tenant-scoped binding for a connector (ADR-0061 §1)",
+        "operationId": "GetTenantConnectorBinding",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantConnectorBindingResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Upsert the tenant-scoped binding for a connector (ADR-0061 §1)",
+        "operationId": "PutTenantConnectorBinding",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantConnectorBindingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantConnectorBindingResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Remove the tenant-scoped binding for a connector (ADR-0061 §1)",
+        "operationId": "DeleteTenantConnectorBinding",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/connectors/github/units/{unitId}/config": {
       "get": {
         "tags": [
@@ -8977,6 +9119,211 @@
         ],
         "summary": "Get the JSON Schema describing the web-search connector config body",
         "operationId": "GetWebSearchConnectorConfigSchema",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonElement"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/connectors/slack/healthz": {
+      "get": {
+        "tags": [
+          "Connectors.Slack"
+        ],
+        "summary": "Liveness probe — confirms the Slack connector is registered with the host",
+        "operationId": "SlackConnectorHealth",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/connectors/slack/oauth/authorize": {
+      "post": {
+        "tags": [
+          "Connectors.Slack.OAuth"
+        ],
+        "summary": "Start a Slack OAuth install flow and return the consent URL",
+        "operationId": "BeginSlackOAuthAuthorization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SlackAuthorizeRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackAuthorizeResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/connectors/slack/oauth/callback": {
+      "get": {
+        "tags": [
+          "Connectors.Slack.OAuth"
+        ],
+        "summary": "Consume the Slack OAuth callback and persist the tenant binding",
+        "operationId": "HandleSlackOAuthCallback",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackCallbackResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/connectors/slack/disconnect": {
+      "post": {
+        "tags": [
+          "Connectors.Slack"
+        ],
+        "summary": "Revoke the Slack OAuth token and delete the tenant binding",
+        "operationId": "DisconnectSlackBinding",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/connectors/slack/config-schema": {
+      "get": {
+        "tags": [
+          "Connectors.Slack"
+        ],
+        "summary": "Get the JSON Schema describing the Slack tenant-binding config body",
+        "operationId": "GetSlackConnectorConfigSchema",
         "responses": {
           "200": {
             "description": "OK",
@@ -15329,6 +15676,54 @@
           }
         }
       },
+      "SlackAuthorizeRequest": {
+        "required": [
+          "clientState"
+        ],
+        "type": "object",
+        "properties": {
+          "clientState": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SlackAuthorizeResponse": {
+        "required": [
+          "authorizeUrl",
+          "state"
+        ],
+        "type": "object",
+        "properties": {
+          "authorizeUrl": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "SlackCallbackResponse": {
+        "required": [
+          "teamId",
+          "botUserId",
+          "installerUserId"
+        ],
+        "type": "object",
+        "properties": {
+          "teamId": {
+            "type": "string"
+          },
+          "botUserId": {
+            "type": "string"
+          },
+          "installerUserId": {
+            "type": "string"
+          }
+        }
+      },
       "SubsystemConfigurationReport": {
         "required": [
           "subsystemName",
@@ -15400,6 +15795,42 @@
                 "$ref": "#/components/schemas/ExternalForwardDto"
               }
             ]
+          }
+        }
+      },
+      "TenantConnectorBindingRequest": {
+        "required": [
+          "config"
+        ],
+        "type": "object",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        }
+      },
+      "TenantConnectorBindingResponse": {
+        "required": [
+          "connectorSlug",
+          "typeId",
+          "config",
+          "boundAt"
+        ],
+        "type": "object",
+        "properties": {
+          "connectorSlug": {
+            "type": "string"
+          },
+          "typeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "config": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "boundAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -17407,6 +17838,12 @@
     },
     {
       "name": "Connectors.WebSearch"
+    },
+    {
+      "name": "Connectors.Slack"
+    },
+    {
+      "name": "Connectors.Slack.OAuth"
     },
     {
       "name": "ModelProviders"

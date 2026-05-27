@@ -11,6 +11,7 @@ using Cvoya.Spring.Connector.GitHub;
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
+using Cvoya.Spring.Connector.Slack.DependencyInjection;
 using Cvoya.Spring.Connector.WebSearch.DependencyInjection;
 using Cvoya.Spring.Core.CredentialHealth;
 using Cvoya.Spring.Dapr.Auth;
@@ -71,6 +72,7 @@ public partial class Program
                 .AddCvoyaSpringConnectorGitHub(builder.Configuration)
                 .AddCvoyaSpringConnectorArxiv(builder.Configuration)
                 .AddCvoyaSpringConnectorWebSearch(builder.Configuration)
+                .AddCvoyaSpringConnectorSlack(builder.Configuration)
                 .AddCvoyaSpringApiServices(builder.Configuration);
 
             // Attach the credential-health watchdog to every plugin-owned named

@@ -58,6 +58,14 @@ public class ArxivConnectorType : IConnectorType
     public string Slug => "arxiv";
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Arxiv bindings are per-unit: each research-flavoured unit pins its
+    /// own default categories and result cap. ADR-0061 §1's per-tenant
+    /// scope is reserved for workspace-shaped connectors.
+    /// </remarks>
+    public BindingScope BindingScope => BindingScope.Unit;
+
+    /// <inheritdoc />
     public string DisplayName => "arxiv";
 
     /// <inheritdoc />
