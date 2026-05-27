@@ -63,6 +63,19 @@ public record InboxItemResponse(
 /// fallback (#2533). <c>null</c> when <see cref="RecipientHumanId"/>
 /// is <c>null</c>.
 /// </param>
+/// <param name="RecipientHumanDisambiguatedLabel">
+/// ADR-0062 § 5 / #2829: server-computed disambiguated label for
+/// <see cref="RecipientHumanId"/>. Resolved against the calling
+/// caller's bound-Hats set (the same set
+/// <c>GET /api/v1/tenant/users/me/humans</c> returns) so the chip on
+/// the engagement list / messaging-tab agrees with the label the
+/// from-selector and the inbox toolbar filter chip show for the same
+/// Hat. <c>null</c> when <see cref="RecipientHumanId"/> is <c>null</c>
+/// (pure A2A threads) or when the recipient Hat is not in the
+/// caller's bound set (the caller's view drops out of the disambiguation
+/// scope and the raw <see cref="RecipientHumanDisplayName"/> is the
+/// only label available).
+/// </param>
 public record ThreadSummaryResponse(
     string Id,
     IReadOnlyList<ParticipantRef> Participants,
@@ -73,7 +86,8 @@ public record ThreadSummaryResponse(
     string Summary,
     bool IsArchived,
     Guid? RecipientHumanId = null,
-    string? RecipientHumanDisplayName = null);
+    string? RecipientHumanDisplayName = null,
+    string? RecipientHumanDisambiguatedLabel = null);
 
 /// <summary>
 /// API-layer enriched version of <see cref="ThreadEvent"/>. The <c>source</c>,

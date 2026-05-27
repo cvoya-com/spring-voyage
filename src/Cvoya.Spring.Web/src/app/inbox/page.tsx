@@ -45,6 +45,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, timeAgo } from "@/lib/utils";
 import {
+  useCallerHumans,
   useCurrentUser,
   useInbox,
   useMarkInboxRead,
@@ -63,7 +64,11 @@ import {
   type MessageRecipient,
 } from "@/components/conversation/message-composer";
 import { isHumanAddress as sharedIsHumanAddress } from "@/components/thread/role";
-import type { InboxItem, ParticipantRef } from "@/lib/api/types";
+import type {
+  CallerHumanResponse,
+  InboxItem,
+  ParticipantRef,
+} from "@/lib/api/types";
 
 // ---------------------------------------------------------------------------
 // Address / display-name helpers
@@ -222,6 +227,79 @@ function ParticipantPopover({
 }
 
 // ---------------------------------------------------------------------------
+// Toolbar Hat filter (#2826 Part 2)
+// ---------------------------------------------------------------------------
+
+interface HatFilterBarProps {
+  hats: CallerHumanResponse[];
+  selectedHumanId: string | null;
+  onSelect: (humanId: string | null) => void;
+}
+
+/**
+ * Single-select chip group rendered in the inbox toolbar (#2826
+ * Part 2, Option A from the design call). One chip per bound Hat using
+ * the server-supplied `disambiguatedLabel` plus an "All Hats" reset.
+ * Selecting a chip filters the inbox list to that Hat's
+ * `recipientHumanId`; "All Hats" restores the full list. The component
+ * is presentation only — the parent owns the `selectedHumanId` state
+ * and decides whether to render the bar at all (it's hidden when the
+ * caller has 0 or 1 bound Hats — no value to a single-option filter).
+ */
+function HatFilterBar({ hats, selectedHumanId, onSelect }: HatFilterBarProps) {
+  if (hats.length < 2) {
+    return null;
+  }
+  return (
+    <div
+      className="flex items-center gap-1.5 flex-wrap"
+      data-testid="inbox-hat-filter"
+      role="group"
+      aria-label="Filter inbox by Hat"
+    >
+      <span className="text-xs font-medium text-muted-foreground mr-1">
+        Filter:
+      </span>
+      <button
+        type="button"
+        onClick={() => onSelect(null)}
+        aria-pressed={selectedHumanId === null}
+        data-testid="inbox-hat-filter-chip-all"
+        className={cn(
+          "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          selectedHumanId === null
+            ? "border-primary/40 bg-primary/10 text-foreground"
+            : "border-border bg-background text-muted-foreground hover:bg-accent",
+        )}
+      >
+        All Hats
+      </button>
+      {hats.map((hat) => {
+        const active = selectedHumanId === hat.humanId;
+        return (
+          <button
+            key={hat.humanId}
+            type="button"
+            onClick={() => onSelect(active ? null : hat.humanId)}
+            aria-pressed={active}
+            data-testid={`inbox-hat-filter-chip-${hat.humanId}`}
+            className={cn(
+              "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              active
+                ? "border-primary/40 bg-primary/10 text-foreground"
+                : "border-border bg-background text-muted-foreground hover:bg-accent",
+            )}
+            title={`Show only threads received as ${hat.disambiguatedLabel}`}
+          >
+            As {hat.disambiguatedLabel}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Thread row (left pane)
 // ---------------------------------------------------------------------------
 
@@ -229,20 +307,29 @@ interface ThreadRowProps {
   item: InboxItem;
   selected: boolean;
   onSelect: () => void;
+  /**
+   * ADR-0062 § 5 / #2829: pre-resolved disambiguated label for the
+   * receiving Hat on this row, looked up by the parent via
+   * <c>useCallerHumans()</c> against <c>item.human?.id</c>. The parent
+   * owns the lookup so a single hook call serves the row chip and the
+   * toolbar filter chip (#2826 Part 2). Falls back to the row's raw
+   * display name when the Hat is not in the caller's bound set (rare;
+   * an inbox item should never surface a Hat the caller isn't bound
+   * to, but the fallback keeps the row legible if it does).
+   */
+  hatLabel?: string | null;
 }
 
-function ThreadRow({ item, selected, onSelect }: ThreadRowProps) {
+function ThreadRow({ item, selected, onSelect, hatLabel }: ThreadRowProps) {
   const label = otherParticipantsFromInboxItem(item);
   const summary = item.summary?.trim();
   const unread = (item.unreadCount ?? 0) as number;
-  // ADR-0062 § 5: each inbox row carries a "Hat" chip indicating which
-  // of the caller's bound Humans actually received the item. The
-  // inbox-list contract stamps `item.human` (a ParticipantRef whose
-  // `displayName` is the receiving Human's name) so the chip text
-  // reads "As Bob" without a second lookup. The chip is the v0.1
-  // minimum bar — a per-Hat lane / column treatment is a separate
-  // design call tracked under #2807's optional task.
-  const hatName = item.human?.displayName?.trim();
+  // ADR-0062 § 5 / #2829: each inbox row carries a Hat chip indicating
+  // which of the caller's bound Humans received the item. The chip
+  // renders the parent-supplied disambiguated label when available so
+  // same-named Hats (e.g. two Bobs in different units) stay distinct;
+  // falls back to the row's raw display name as a safety net.
+  const chipLabel = hatLabel?.trim() || item.human?.displayName?.trim() || null;
 
   return (
     <button
@@ -285,10 +372,10 @@ function ThreadRow({ item, selected, onSelect }: ThreadRowProps) {
           {summary}
         </p>
       )}
-      {hatName && (
+      {chipLabel && (
         <div className="mt-1">
           <HatChip
-            displayName={hatName}
+            label={chipLabel}
             testId={`inbox-hat-chip-${item.threadId}`}
           />
         </div>
@@ -547,15 +634,50 @@ function InboxPageContent() {
   const profileQuery = useCurrentUser();
   const selfAddress = profileQuery.data?.address ?? null;
 
+  // ADR-0062 § 5 / #2829 + #2826 Part 2: the caller's bound Hats drive
+  // both the per-row chip's disambiguated label and the toolbar filter
+  // chip's options. One hook serves both so the strings stay in sync
+  // and the server is only asked once per page load.
+  const callerHumansQuery = useCallerHumans();
+  const callerHumans = useMemo(
+    () => callerHumansQuery.data ?? [],
+    [callerHumansQuery.data],
+  );
+  const hatLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const hat of callerHumans) {
+      map.set(hat.humanId, hat.disambiguatedLabel);
+    }
+    return map;
+  }, [callerHumans]);
+
+  // #2826 Part 2 (Option A): toolbar filter chip — a single-select
+  // chip group sourced from useCallerHumans. "All Hats" is the
+  // default; selecting a chip narrows the list to that Hat's
+  // recipientHumanId. Local React state, no URL persistence in v0.1
+  // (follow-up tracked in the PR body).
+  const [hatFilterHumanId, setHatFilterHumanId] = useState<string | null>(
+    null,
+  );
+
   const items = useMemo(
     () => inboxQuery.data ?? [],
     [inboxQuery.data],
   );
 
+  // Narrow the items by the toolbar filter selection before sorting.
+  // The chip filters on item.human?.id so unmatched rows drop out.
+  const filteredItems = useMemo(() => {
+    if (!hatFilterHumanId) {
+      return items;
+    }
+    return items.filter((i) => i.human?.id === hatFilterHumanId);
+  }, [items, hatFilterHumanId]);
+
   // Sort: unread-first, then by pendingSince descending (#1477).
   const sortedItems = useMemo(
     () =>
-      [...items].sort((a, b) => {
+      [...filteredItems].sort((a, b) => {
         const aUnread = (a.unreadCount ?? 0) as number;
         const bUnread = (b.unreadCount ?? 0) as number;
         const aHasUnread = aUnread > 0 ? 1 : 0;
@@ -568,7 +690,7 @@ function InboxPageContent() {
           new Date(a.pendingSince).getTime()
         );
       }),
-    [items],
+    [filteredItems],
   );
 
   const firstThreadId = sortedItems[0]?.threadId ?? null;
@@ -588,41 +710,53 @@ function InboxPageContent() {
   return (
     <div className="flex flex-col h-full space-y-0" data-testid="inbox-page">
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between pb-4 border-b border-border mb-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <InboxIcon className="h-5 w-5" aria-hidden="true" /> Inbox
-            {stream.connected && (
-              <Badge
-                variant="outline"
-                className="font-mono text-[10px]"
-                data-testid="inbox-live-pill"
-              >
-                live
-              </Badge>
-            )}
-          </h1>
-          <p
-            className="text-sm text-muted-foreground"
-            data-testid="inbox-subtitle"
+      <div className="flex flex-col gap-3 pb-4 border-b border-border mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <InboxIcon className="h-5 w-5" aria-hidden="true" /> Inbox
+              {stream.connected && (
+                <Badge
+                  variant="outline"
+                  className="font-mono text-[10px]"
+                  data-testid="inbox-live-pill"
+                >
+                  live
+                </Badge>
+              )}
+            </h1>
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid="inbox-subtitle"
+            >
+              Engagements with you as a participant
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => inboxQuery.refetch()}
+            disabled={inboxQuery.isFetching}
+            data-testid="inbox-refresh"
+            className="self-start sm:self-auto"
           >
-            Engagements with you as a participant
-          </p>
+            <RefreshCw
+              className={`h-4 w-4 mr-1 ${inboxQuery.isFetching ? "animate-spin" : ""}`}
+              aria-hidden="true"
+            />
+            Refresh
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => inboxQuery.refetch()}
-          disabled={inboxQuery.isFetching}
-          data-testid="inbox-refresh"
-          className="self-start sm:self-auto"
-        >
-          <RefreshCw
-            className={`h-4 w-4 mr-1 ${inboxQuery.isFetching ? "animate-spin" : ""}`}
-            aria-hidden="true"
-          />
-          Refresh
-        </Button>
+        {/* #2826 Part 2: per-Hat filter chip group. Hidden when the
+            caller has 0 or 1 bound Hats — there is no meaningful filter
+            with a single option. The chips source their label from the
+            same useCallerHumans() query the per-row chip uses, so the
+            strings match across surfaces. */}
+        <HatFilterBar
+          hats={callerHumans}
+          selectedHumanId={hatFilterHumanId}
+          onSelect={setHatFilterHumanId}
+        />
       </div>
 
       {/* Error banner */}
@@ -677,6 +811,9 @@ function InboxPageContent() {
                   item={item}
                   selected={item.threadId === selectedThreadId}
                   onSelect={() => handleSelectThread(item.threadId)}
+                  hatLabel={
+                    item.human?.id ? hatLabelById.get(item.human.id) ?? null : null
+                  }
                 />
               ))}
             </div>

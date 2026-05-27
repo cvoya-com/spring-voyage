@@ -139,8 +139,19 @@ public sealed record SetPrimaryHumanResponse(
 /// <param name="HumanId">Stable UUID of the bound <c>Human</c> row.</param>
 /// <param name="DisplayName">
 /// The Human row's display name (the "Bob" half of "Bob — designer in
-/// Magazine"). Used by the from-selector and by the per-Hat inbox
-/// chip.
+/// Magazine"). Carries the raw row value (with the existing
+/// null/whitespace → username fallback applied); the
+/// <see cref="DisambiguatedLabel"/> field is the one consumers should
+/// render so same-name Hats stay distinguishable.
+/// </param>
+/// <param name="DisambiguatedLabel">
+/// ADR-0062 § 5 / #2829: server-computed label that distinguishes this
+/// Hat from same-named siblings in the caller's bound set. The portal
+/// (<c>HatChip</c>, <c>HumanFromSelector</c>, <c>YourHatsPanel</c>,
+/// inbox-toolbar filter chip) and the CLI (<c>RefResolver</c>
+/// ambiguity prompt) render this string verbatim. No collision →
+/// equal to <see cref="DisplayName"/>; otherwise carries the
+/// role / unit / Guid-suffix suffix per the disambiguation rule.
 /// </param>
 /// <param name="IsPrimary">
 /// True when this Hat is the caller's <c>TenantUser.PrimaryHumanId</c>
@@ -156,6 +167,7 @@ public sealed record SetPrimaryHumanResponse(
 public sealed record CallerHumanResponse(
     Guid HumanId,
     string DisplayName,
+    string DisambiguatedLabel,
     bool IsPrimary,
     IReadOnlyList<CallerHumanMembershipResponse> Memberships);
 

@@ -392,15 +392,18 @@ function EngagementCard({
           </p>
         )}
 
-        {/* ADR-0062 § 5 (#2826): per-row Hat chip — identifies which of
-            the operator's bound Humans received the latest inbound on
-            this thread. The chip slots into the same affordance the
-            inbox already uses; <HatChip /> returns null when the wire
-            field is absent (pure A2A threads), so no extra gate here. */}
-        {thread.recipientHumanDisplayName && (
+        {/* ADR-0062 § 5 (#2826, #2829): per-row Hat chip — identifies
+            which of the operator's bound Humans received the latest
+            inbound on this thread. Renders the server-computed
+            disambiguated label (e.g. "Bob — designer") so same-named
+            siblings stay distinct; falls back to the raw display name
+            when the recipient is outside the caller's bound set.
+            <HatChip /> returns null when the wire field is absent
+            (pure A2A threads), so no extra gate here. */}
+        {(thread.recipientHumanDisambiguatedLabel ?? thread.recipientHumanDisplayName) && (
           <div>
             <HatChip
-              displayName={thread.recipientHumanDisplayName}
+              label={thread.recipientHumanDisambiguatedLabel ?? thread.recipientHumanDisplayName}
               testId={`engagement-hat-chip-${thread.id}`}
             />
           </div>

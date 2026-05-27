@@ -100,13 +100,16 @@ export function UnitAgentMessagesView({
   }
 
   const threadId = canonical?.id ?? null;
-  // ADR-0062 § 5 (#2826): show the receiving Hat for the canonical
-  // thread inline above the timeline. The wire field already carries
-  // the snapshot-aware display name so the chip matches the rest of
-  // the row's labels even after the underlying Human is renamed or
-  // soft-deleted. <HatChip /> returns null for pure A2A threads, so
-  // there's no extra "is this human-addressed?" gate here.
-  const hatName = canonical?.recipientHumanDisplayName ?? null;
+  // ADR-0062 § 5 (#2826, #2829): show the receiving Hat for the
+  // canonical thread inline above the timeline. Render the server-
+  // computed disambiguated label so same-named Hats stay distinct;
+  // fall back to the raw display name when the recipient is outside
+  // the caller's bound set. <HatChip /> returns null for pure A2A
+  // threads, so there's no extra "is this human-addressed?" gate.
+  const hatLabel =
+    canonical?.recipientHumanDisambiguatedLabel ??
+    canonical?.recipientHumanDisplayName ??
+    null;
 
   return (
     // h-full + min-h-0 anchors the column to the explorer tab panel's
@@ -118,13 +121,13 @@ export function UnitAgentMessagesView({
       className="flex h-full min-h-[28rem] flex-col"
       data-testid={rootTestId}
     >
-      {hatName && threadId && (
+      {hatLabel && threadId && (
         <div
           className="border-b border-border px-3 py-1.5"
           data-testid={`${rootTestId}-hat-banner`}
         >
           <HatChip
-            displayName={hatName}
+            label={hatLabel}
             testId={`${rootTestId}-hat-chip-${threadId}`}
           />
         </div>

@@ -81,11 +81,27 @@ The same dual-stamping applies to thread-level annotations: a thread's "sent by"
 
 ### 5. Inbox is rendered per Hat; reply pins the Hat the thread came in on
 
-The inbox list-view labels each item with the Human (Hat) that received the message — `As Bob (designer in Magazine)` — without conflating items received as different Hats. The current "fan-in inbox" rendering (every Human in the tenant maps to the operator, items pile into one list) is preserved as the default OSS view, but the per-Hat lane MUST be visible (a column, a chip, or a filterable badge — exact treatment is a UX call by design-engineer in the implementation).
+The inbox list-view labels each item with the Human (Hat) that received the message — `As Bob` — without conflating items received as different Hats. The fan-in inbox rendering (every Human bound to the calling caller maps into one list) is preserved as the default; the per-Hat lane MUST be visible. The v0.1 implementation ships a per-row chip on every inbox / engagement / unit-messaging-tab row plus a toolbar **filter chip group** in the inbox header (sourced from `useCallerHumans()`, single-select with "All Hats" as default) that narrows the list to one Hat (#2826 Part 2).
 
 When the operator opens a thread, the reply composer's `From` is **pinned** to the Hat that received the inbound message for the duration of that thread. The user can override by switching Hat via the from-selector, but the default is "reply as the Hat you were addressed as." This is the rule that makes the model earn its keep: replies do not silently change identity mid-thread.
 
 For **new outbound** (not a reply — composer launched from a unit/agent page, from `spring message send`, from the engagement-list compose action), the `From` defaults to `T.PrimaryHumanId` (§ 2) with the same from-selector available.
+
+#### 5a. `disambiguatedLabel` — server-computed Hat label (#2829)
+
+Two Hats can share a display name; rendering just the name conflates them everywhere. The server computes a `disambiguatedLabel` per Hat in each context-scoped result set and ships it on the wire:
+
+- `CallerHumanResponse.disambiguatedLabel: string` (on `GET /api/v1/tenant/users/me/humans`).
+- `ThreadSummaryResponse.recipientHumanDisambiguatedLabel: string?` (on `GET /api/v1/tenant/threads` and the observation surface). Null for pure A2A threads or when the recipient Hat is not in the caller's bound set.
+
+The rule, in priority order, applied per result-set scope:
+
+1. **No collision** → raw display name (`Bob`).
+2. **Same name, different role** → append role (`Bob — designer` vs `Bob — reviewer`).
+3. **Same name, same role, different unit** → append unit (`Bob (Magazine)` vs `Bob (Newsroom)`).
+4. **Same name, same role, same unit** → append first 4 hex chars of `humans.id` (`Bob #12ab` vs `Bob #34cd`). Always disambiguates.
+
+Every consumer renders the string verbatim — the portal's `<HatChip>` / `<HumanFromSelector>` / `<YourHatsPanel>` / inbox-toolbar filter chip, and the CLI's ambiguity prompt. No client-side re-derivation. The previous portal-only `"Bob — designer in Magazine"` context label is gone; the server's label is now the single source of truth.
 
 ### 6. CLI: every message-send and member-add command accepts `--as`
 
@@ -110,7 +126,8 @@ Anonymous declarations (no `displayName`) cannot be overridden through `--as-hum
 
 `<human-ref>` accepts:
 - A Hat UUID (dashed or no-dash hex) — passes through with no round-trip.
-- A display name (case-insensitive, exact match) — resolved via `GET /api/v1/tenant/users/me/humans` against the calling caller's bound-Hat set. Zero matches surface a CLI-friendly error pointing at `spring user identity list`; multiple matches surface a disambiguation prompt naming each candidate UUID.
+- A display name OR the server-supplied `disambiguatedLabel` (case-insensitive, exact match against either field in one pass — #2829) — resolved via `GET /api/v1/tenant/users/me/humans` against the calling caller's bound-Hat set. Zero matches surface a CLI-friendly error pointing at `spring user identity list`.
+- **Ambiguous matches branch on TTY detection (#2829)**: when stdin is a real TTY (`Console.IsInputRedirected == false`) the CLI prints a numbered list using the server's `disambiguatedLabel` values and prompts the operator to pick one (1–N); invalid input re-prompts, EOF aborts with a non-zero exit. When stdin is redirected (CI / piped input / scripted invocation), the CLI falls back to a structured error listing the candidate disambiguated labels (`--as "Bob — designer"` / `--as "Bob — reviewer"`) so the operator can re-run with the unambiguous form.
 
 `<tenant-user-ref>` accepts:
 - A TenantUser UUID (dashed or no-dash hex) — passes through with no round-trip.

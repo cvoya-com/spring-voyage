@@ -16,7 +16,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
-import type { InboxItem } from "@/lib/api/types";
+import type { CallerHumanResponse, InboxItem } from "@/lib/api/types";
 
 // Mutable state captured by vi.mock factory closures.
 // Each test calls setupInbox() to control what useInbox() returns.
@@ -48,6 +48,7 @@ interface MockThreadDetail {
   }>;
 }
 let _threadData: MockThreadDetail | null = null;
+let _callerHumans: CallerHumanResponse[] = [];
 
 const mockRouterReplace = vi.fn();
 
@@ -77,10 +78,14 @@ vi.mock("@/lib/api/queries", () => ({
     isPending: false,
     error: null,
   }),
-  // ADR-0062 § 5: <MessageComposer> reads the caller's bound Hats so
-  // the from-selector can render. The tests don't exercise the
-  // selector path; a stable empty list keeps it hidden.
-  useCallerHumans: () => ({ data: [], isLoading: false, isError: false }),
+  // ADR-0062 § 5: the inbox page (and <MessageComposer>) reads the
+  // caller's bound Hats. The default is an empty list to keep the
+  // selector hidden; toolbar-filter tests override via setCallerHumans.
+  useCallerHumans: () => ({
+    data: _callerHumans,
+    isLoading: false,
+    isError: false,
+  }),
 }));
 
 vi.mock("@/lib/stream/use-activity-stream", () => ({
@@ -166,6 +171,10 @@ function setupThread(data: MockThreadDetail | null) {
   _threadData = data;
 }
 
+function setCallerHumans(data: CallerHumanResponse[]) {
+  _callerHumans = data;
+}
+
 import InboxPage from "./page";
 
 describe("InboxPage — layout and navigation (#1474)", () => {
@@ -176,6 +185,7 @@ describe("InboxPage — layout and navigation (#1474)", () => {
     _threadData = null;
     mockRouterReplace.mockReset();
     _markReadMutate.mockReset();
+    _callerHumans = [];
   });
 
   it("renders one thread row per inbox item in the left pane", async () => {
@@ -256,6 +266,7 @@ describe("InboxPage — header copy (#1482)", () => {
     _threadData = null;
     mockRouterReplace.mockReset();
     _markReadMutate.mockReset();
+    _callerHumans = [];
   });
 
   it("renders the Inbox heading without a count badge", async () => {
@@ -298,6 +309,7 @@ describe("InboxPage — thread row label uses display names (#1482)", () => {
     _threadData = null;
     mockRouterReplace.mockReset();
     _markReadMutate.mockReset();
+    _callerHumans = [];
   });
 
   it("shows the display name as the row label", async () => {
@@ -329,6 +341,7 @@ describe("InboxPage — timeline participant popover (#1482)", () => {
     _threadData = null;
     mockRouterReplace.mockReset();
     _markReadMutate.mockReset();
+    _callerHumans = [];
   });
 
   it("renders participant names in the timeline header when thread has participants", async () => {
@@ -394,6 +407,7 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
     _threadData = null;
     mockRouterReplace.mockReset();
     _markReadMutate.mockReset();
+    _callerHumans = [];
   });
 
   it("renders the filter dropdown defaulting to Messages", async () => {
@@ -526,6 +540,7 @@ describe("InboxPage — user's own message renders text, not placeholder (#1482)
     _threadData = null;
     mockRouterReplace.mockReset();
     _markReadMutate.mockReset();
+    _callerHumans = [];
   });
 
   it("renders the body text of a user MessageArrived event", async () => {
@@ -573,6 +588,7 @@ describe("InboxPage — unread badge and mark-read (#1477)", () => {
     _threadData = null;
     mockRouterReplace.mockReset();
     _markReadMutate.mockReset();
+    _callerHumans = [];
   });
 
   it("renders the (N) unread badge when unreadCount > 0", async () => {
@@ -703,6 +719,7 @@ describe("InboxPage — per-Hat chip (ADR-0062 § 5, #2807)", () => {
     _threadData = null;
     mockRouterReplace.mockReset();
     _markReadMutate.mockReset();
+    _callerHumans = [];
   });
 
   it("renders a Hat chip per row labelled with the receiving Human's display name", async () => {
@@ -719,5 +736,189 @@ describe("InboxPage — per-Hat chip (ADR-0062 § 5, #2807)", () => {
 
     const chip2 = await screen.findByTestId("inbox-hat-chip-conv-2");
     expect(chip2).toHaveTextContent("As savas");
+  });
+
+  it("renders the server-supplied disambiguated label on each row when available (#2829)", async () => {
+    const savasId = "11111111-1111-1111-1111-111111111111";
+    setupInbox(rows);
+    setCallerHumans([
+      {
+        humanId: savasId,
+        displayName: "savas",
+        disambiguatedLabel: "savas — designer",
+        isPrimary: true,
+        memberships: [],
+      },
+      {
+        humanId: "22222222-2222-2222-2222-222222222222",
+        displayName: "savas",
+        disambiguatedLabel: "savas — reviewer",
+        isPrimary: false,
+        memberships: [],
+      },
+    ]);
+    render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+
+    const chip = await screen.findByTestId("inbox-hat-chip-conv-1");
+    expect(chip).toHaveTextContent("As savas — designer");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0062 § 5 + #2826 Part 2 — inbox toolbar Hat filter
+// ---------------------------------------------------------------------------
+
+describe("InboxPage — toolbar Hat filter (#2826 Part 2)", () => {
+  beforeEach(() => {
+    _inboxData = null;
+    _inboxError = null;
+    _inboxPending = false;
+    _threadData = null;
+    mockRouterReplace.mockReset();
+    _markReadMutate.mockReset();
+    _callerHumans = [];
+  });
+
+  it("hides the filter bar when the caller has fewer than 2 bound Hats", async () => {
+    setupInbox(rows);
+    setCallerHumans([
+      {
+        humanId: "11111111-1111-1111-1111-111111111111",
+        displayName: "savas",
+        disambiguatedLabel: "savas",
+        isPrimary: true,
+        memberships: [],
+      },
+    ]);
+    render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-page")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("inbox-hat-filter")).not.toBeInTheDocument();
+  });
+
+  it("renders the filter bar with one chip per bound Hat plus All Hats", async () => {
+    const bobId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const aliceId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+    setupInbox(rows);
+    setCallerHumans([
+      {
+        humanId: bobId,
+        displayName: "Bob",
+        disambiguatedLabel: "Bob — designer",
+        isPrimary: true,
+        memberships: [],
+      },
+      {
+        humanId: aliceId,
+        displayName: "Alice",
+        disambiguatedLabel: "Alice — reviewer",
+        isPrimary: false,
+        memberships: [],
+      },
+    ]);
+    render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+
+    const bar = await screen.findByTestId("inbox-hat-filter");
+    expect(bar).toBeInTheDocument();
+    expect(
+      screen.getByTestId("inbox-hat-filter-chip-all"),
+    ).toHaveTextContent("All Hats");
+    expect(
+      screen.getByTestId(`inbox-hat-filter-chip-${bobId}`),
+    ).toHaveTextContent("As Bob — designer");
+    expect(
+      screen.getByTestId(`inbox-hat-filter-chip-${aliceId}`),
+    ).toHaveTextContent("As Alice — reviewer");
+  });
+
+  it("filters the inbox list to only the chosen Hat's threads, restores on All Hats", async () => {
+    const bobId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const aliceId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+    const filterRows: InboxItem[] = [
+      {
+        threadId: "thread-bob",
+        from: { id: ADA_ID, address: `agent:id:${ADA_ID}`, displayName: "ada" },
+        human: { id: bobId, address: `human:${bobId.replace(/-/g, "")}`, displayName: "Bob" },
+        pendingSince: new Date().toISOString(),
+        summary: "Bob got a question",
+        unreadCount: 0,
+      },
+      {
+        threadId: "thread-alice",
+        from: { id: ADA_ID, address: `agent:id:${ADA_ID}`, displayName: "ada" },
+        human: { id: aliceId, address: `human:${aliceId.replace(/-/g, "")}`, displayName: "Alice" },
+        pendingSince: new Date().toISOString(),
+        summary: "Alice got pinged",
+        unreadCount: 0,
+      },
+    ];
+    setupInbox(filterRows);
+    setCallerHumans([
+      {
+        humanId: bobId,
+        displayName: "Bob",
+        disambiguatedLabel: "Bob — designer",
+        isPrimary: true,
+        memberships: [],
+      },
+      {
+        humanId: aliceId,
+        displayName: "Alice",
+        disambiguatedLabel: "Alice — reviewer",
+        isPrimary: false,
+        memberships: [],
+      },
+    ]);
+    render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+
+    // Both rows visible by default ("All Hats").
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("inbox-thread-row-thread-bob"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId("inbox-thread-row-thread-alice"),
+      ).toBeInTheDocument();
+    });
+
+    // Pick Bob → Alice's row drops.
+    fireEvent.click(screen.getByTestId(`inbox-hat-filter-chip-${bobId}`));
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("inbox-thread-row-thread-bob"),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("inbox-thread-row-thread-alice"),
+      ).not.toBeInTheDocument();
+    });
+
+    // Click All Hats → both rows return.
+    fireEvent.click(screen.getByTestId("inbox-hat-filter-chip-all"));
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("inbox-thread-row-thread-bob"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId("inbox-thread-row-thread-alice"),
+      ).toBeInTheDocument();
+    });
   });
 });

@@ -793,20 +793,22 @@ The participant name element carries `data-testid="participant-name-<address>"`.
 
 **Blocker.** Agent replies do not surface in the timeline until #1476 (HumanActor default permission) is fixed.
 
-**Per-row Hat chip (ADR-0062 § 5, #2807).** Each inbox row carries a low-key chip identifying which of the operator's bound Humans actually received the inbound. The chip slots **below the summary line** so it does not contend with the row's primary affordances (label + timestamp + unread badge). Sourced from `InboxItemResponse.human.displayName` and rendered via `<HatChip />` (see § 12.15). `data-testid="inbox-hat-chip-<threadId>"`. Hidden when no display name is supplied.
+**Per-row Hat chip (ADR-0062 § 5, #2807 / #2826 / #2829).** Each inbox row carries a low-key chip identifying which of the operator's bound Humans actually received the inbound. The chip slots **below the summary line** so it does not contend with the row's primary affordances (label + timestamp + unread badge). The chip text is the server-supplied `disambiguatedLabel` (looked up by `item.human.id` against `useCallerHumans()`), falling back to `InboxItemResponse.human.displayName` when the lookup misses. Rendered via `<HatChip />` (see § 12.15). `data-testid="inbox-hat-chip-<threadId>"`. Hidden when no label is available.
 
-### 12.15 Hat chip — `src/components/conversation/hat-chip.tsx` (ADR-0062 § 5, #2807 / #2826)
+**Toolbar Hat filter (ADR-0062 § 5, #2826 Part 2).** When the caller wears two or more Hats the inbox header surfaces a single-select chip group sourced from `useCallerHumans()`. The default chip is **All Hats**; selecting `As <disambiguatedLabel>` narrows the inbox list to threads where `recipientHumanId === <pickedHumanId>`. Toggle the active chip to re-collapse, or click `All Hats` to restore the full list. The bar is hidden for callers with 0 or 1 bound Hat (single-option filter has no value). Visual: pill-shaped buttons (`rounded-full px-2.5 py-0.5 text-[11px]`), the active chip uses the primary tint (`bg-primary/10 border-primary/40`), inactive chips read `text-muted-foreground` and hover-flash into the accent surface. `data-testid="inbox-hat-filter"` on the bar, `inbox-hat-filter-chip-all` / `inbox-hat-filter-chip-<humanId>` per chip. State is local to the inbox view in v0.1 — no URL or `localStorage` persistence; a reload restores the default.
 
-`<HatChip />` is the canonical visual treatment for "this row was received as Hat X". Shared between the inbox list, the engagement list, and the unit / agent messaging-tab so the three surfaces match. ADR-0062 § 5 ships the v0.1 minimum bar (chip-per-row); larger treatments (lane / filter / column) are a separate design call tracked under #2826 Part 2.
+### 12.15 Hat chip — `src/components/conversation/hat-chip.tsx` (ADR-0062 § 5, #2807 / #2826 / #2829)
 
-**Visual contract.** Outline badge, `h-4 px-1.5 text-[10px] font-normal`. Copy reads `As <Hat name>` with a `title` of `Received as <Hat name>`. Returns `null` when no display name is supplied so callers can pass the wire field straight through without an outer `&&` gate.
+`<HatChip />` is the canonical visual treatment for "this row was received as Hat X". Shared between the inbox list, the engagement list, the unit / agent messaging-tab, and the inbox toolbar filter chip (#2826 Part 2) so every surface matches. The label rendered is always the server-computed `disambiguatedLabel` — the portal never derives the suffix client-side (#2829).
 
-**API.** `displayName: string | null | undefined` (renders nothing when blank); `testId?: string` (surface-scoped so each consumer can stamp its own `data-testid` such as `inbox-hat-chip-<threadId>` / `engagement-hat-chip-<threadId>` / `tab-unit-messages-hat-chip-<threadId>`); `className?: string` (spacing overrides for surfaces that need extra room).
+**Visual contract.** Outline badge, `h-4 px-1.5 text-[10px] font-normal`. Copy reads `As <label>` with a `title` of `Received as <label>`. Returns `null` when no label is supplied so callers can pass the wire field straight through without an outer `&&` gate.
+
+**API.** `label: string | null | undefined` (renders nothing when blank — the value is the server's `disambiguatedLabel` field, e.g. `Bob` / `Bob — designer` / `Bob (Magazine)` / `Bob #12ab`); `testId?: string` (surface-scoped so each consumer can stamp its own `data-testid` such as `inbox-hat-chip-<threadId>` / `engagement-hat-chip-<threadId>` / `tab-unit-messages-hat-chip-<threadId>`); `className?: string` (spacing overrides for surfaces that need extra room).
 
 **Sources.**
-- Inbox row → `InboxItemResponse.human.displayName` (#2807).
-- Engagement card → `ThreadSummaryResponse.recipientHumanDisplayName` (#2826).
-- Unit / agent messaging-tab → `ThreadSummaryResponse.recipientHumanDisplayName` on the canonical (most-recently-active) thread; rendered as a thin border-bottom strip directly above the timeline so the chip is visible without occupying composer space.
+- Inbox row → `useCallerHumans()` lookup by `InboxItemResponse.human.id` for the `disambiguatedLabel`, with `InboxItemResponse.human.displayName` as a fallback.
+- Engagement card → `ThreadSummaryResponse.recipientHumanDisambiguatedLabel ?? ThreadSummaryResponse.recipientHumanDisplayName` (#2826 + #2829).
+- Unit / agent messaging-tab → same wire fields on the canonical (most-recently-active) thread; rendered as a thin border-bottom strip directly above the timeline so the chip is visible without occupying composer space.
 
 ---
 
@@ -914,7 +916,7 @@ Do not use `text-voyage` / `--color-voyage` tokens for any management-portal sur
 - A2A-only: `<Badge variant="secondary">A2A</Badge>`.
 - Freshness: `<Badge variant="success">` for threads active within 24 h, `<Badge variant="outline">` otherwise — shows the `formatDistanceToNow` string.
 
-**Per-row Hat chip (ADR-0062 § 5, #2826).** When the thread carries a `recipientHumanDisplayName` on the wire, the card renders a `<HatChip />` (see § 12.15) below the summary line. `data-testid="engagement-hat-chip-<threadId>"`. Hidden for pure A2A threads or threads where the human never received an inbound (the wire field is `null`). Same minimum-bar treatment shipped on the inbox under #2807; Part 2 of #2826 (lane / filter treatments) remains open for design review.
+**Per-row Hat chip (ADR-0062 § 5, #2826 / #2829).** When the thread carries a recipient Hat on the wire, the card renders a `<HatChip />` (see § 12.15) below the summary line. The label is the server-computed `recipientHumanDisambiguatedLabel` (falling back to `recipientHumanDisplayName` when the recipient Hat is outside the caller's bound set). `data-testid="engagement-hat-chip-<threadId>"`. Hidden for pure A2A threads or threads where the human never received an inbound (both wire fields are `null`). The inbox-toolbar filter chip (#2826 Part 2) lives on the inbox surface only — the engagement / messaging-tab surfaces stay chip-per-row.
 
 **Empty / loading / error states.** Empty: `<Card>` with centered `MessagesSquare h-10 w-10 text-muted-foreground` hero. Loading: three `<Skeleton className="h-28 w-full rounded-lg" />` items. Error: `role="alert"` destructive banner with `AlertCircle` icon.
 

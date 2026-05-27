@@ -8,6 +8,7 @@ using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
+using Cvoya.Spring.Host.Api.Services;
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -524,14 +525,44 @@ public static class TenantUserIdentityEndpoints
                         x.Roles ?? new List<string>()))
                     .ToList());
 
+        // ADR-0062 § 5 / #2829: compute the disambiguated label once,
+        // server-side, so the portal and the CLI render identical
+        // strings. The scope is the caller's full bound set — the same
+        // set the from-selector / CLI ambiguity prompt walks — so a
+        // collision is detected the same way regardless of which surface
+        // the operator is looking at. Pick the first membership's
+        // (role, unit) for the disambiguator since the panel itself
+        // orders memberships alphabetically by unit; same row also wins
+        // the tie-break for the membership tier of the rule.
+        var candidates = humans
+            .Select(h =>
+            {
+                var ms = membershipsByHuman.TryGetValue(h.Id, out var msList)
+                    ? msList
+                    : Array.Empty<CallerHumanMembershipResponse>();
+                var first = ms.Count > 0 ? ms[0] : null;
+                return new HatLabelCandidate(
+                    HumanId: h.Id,
+                    BaseName: string.IsNullOrWhiteSpace(h.DisplayName) ? h.Username : h.DisplayName,
+                    UnitDisplayName: first?.UnitDisplayName,
+                    Roles: first?.Roles);
+            })
+            .ToList();
+        var labels = HatLabelDisambiguator.DisambiguateAll(candidates);
+
         // Ordering: primary Hat first, then alphabetical by display name
         // so the selector reads predictably even when no Hat is pinned.
         var rows = humans
-            .Select(h => new CallerHumanResponse(
-                h.Id,
-                string.IsNullOrWhiteSpace(h.DisplayName) ? h.Username : h.DisplayName,
-                primaryHumanId is { } pid && pid == h.Id,
-                membershipsByHuman.TryGetValue(h.Id, out var ms) ? ms : Array.Empty<CallerHumanMembershipResponse>()))
+            .Select(h =>
+            {
+                var displayName = string.IsNullOrWhiteSpace(h.DisplayName) ? h.Username : h.DisplayName;
+                return new CallerHumanResponse(
+                    h.Id,
+                    displayName,
+                    labels.TryGetValue(h.Id, out var label) ? label : displayName,
+                    primaryHumanId is { } pid && pid == h.Id,
+                    membershipsByHuman.TryGetValue(h.Id, out var ms) ? ms : Array.Empty<CallerHumanMembershipResponse>());
+            })
             .OrderByDescending(r => r.IsPrimary)
             .ThenBy(r => r.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();

@@ -11799,6 +11799,7 @@
         "required": [
           "humanId",
           "displayName",
+          "disambiguatedLabel",
           "isPrimary",
           "memberships"
         ],
@@ -11809,6 +11810,9 @@
             "format": "uuid"
           },
           "displayName": {
+            "type": "string"
+          },
+          "disambiguatedLabel": {
             "type": "string"
           },
           "isPrimary": {
@@ -15824,6 +15828,12 @@
             "format": "uuid"
           },
           "recipientHumanDisplayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "recipientHumanDisambiguatedLabel": {
             "type": [
               "null",
               "string"

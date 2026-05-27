@@ -150,6 +150,38 @@ describe("UnitAgentMessagesView — Hat banner (ADR-0062 § 5, #2826)", () => {
     expect(chip).toHaveAttribute("title", "Received as savas");
   });
 
+  it("renders the disambiguated label when the canonical thread carries it (#2829)", () => {
+    useThreadsMock.mockReturnValue({
+      data: [
+        makeThread({
+          id: "thread-disambig",
+          recipientHumanId: "44444444-4444-4444-4444-444444444444",
+          recipientHumanDisplayName: "Bob",
+          recipientHumanDisambiguatedLabel: "Bob — designer",
+        }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+
+    render(
+      wrap(
+        <UnitAgentMessagesView
+          targetScheme="agent"
+          targetPath="ada"
+          targetName="Ada"
+          rootTestId="tab-agent-messages"
+        />,
+      ),
+    );
+
+    const chip = screen.getByTestId(
+      "tab-agent-messages-hat-chip-thread-disambig",
+    );
+    expect(chip).toHaveTextContent("As Bob — designer");
+    expect(chip).toHaveAttribute("title", "Received as Bob — designer");
+  });
+
   it("does not render the Hat banner when the canonical thread is pure A2A (no human recipient)", () => {
     useThreadsMock.mockReturnValue({
       data: [
