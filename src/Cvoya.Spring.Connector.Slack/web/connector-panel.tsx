@@ -48,11 +48,10 @@ import { formatTranslatedError } from "@/lib/api/translate-error";
 import type { TenantConnectorBindingResponse } from "@/lib/api/types";
 
 import {
+  awaitSlackOAuthHandoff,
   buildSlackOAuthClientState,
-  pollForSlackBinding,
-  SLACK_OAUTH_POLL_INTERVAL_MS,
-  SLACK_OAUTH_POLL_TIMEOUT_MS,
-  type SlackOAuthPollOutcome,
+  SLACK_OAUTH_HANDOFF_TIMEOUT_MS,
+  type SlackOAuthHandoffOutcome,
 } from "./slack-oauth-browser";
 
 /**
@@ -183,6 +182,9 @@ function describeSlackError(err: unknown): SlackError {
   };
 }
 
+/** Notice kinds the panel surfaces for client-side observations. */
+type SlackOAuthNotice = "popup-closed" | "timed-out" | "aborted";
+
 interface InstallState {
   status: "idle" | "starting" | "awaiting" | "failed";
   error: SlackError | null;
@@ -191,7 +193,41 @@ interface InstallState {
    * from `error` because these don't carry a ProblemDetails — they're
    * client-side observations about the popup window.
    */
-  notice: SlackOAuthPollOutcome | null;
+  notice: SlackOAuthNotice | null;
+}
+
+/**
+ * Maps the postMessage error code from the backend's HTML handoff
+ * into the panel's three-way error palette. The error code matches
+ * the discriminator the backend uses (see
+ * `SlackOAuthEndpoints.CallbackMessageType`); the messages it
+ * carries are the same human-readable strings the previous JSON
+ * ProblemDetails carried.
+ */
+function describeCallbackError(error: string, message: string): SlackError {
+  if (error === "SlackEnterpriseGridUnsupported") {
+    return {
+      kind: "enterprise-grid",
+      title: "Slack Enterprise Grid isn't supported in v0.1.",
+      detail:
+        message ||
+        "ADR-0061 §2.4 — workspace installs are the only path that lands a binding. The Grid org-level install is a forward-compat slot tracked for a later release.",
+    };
+  }
+  if (error === "oauth_not_configured") {
+    return {
+      kind: "not-configured",
+      title: "Slack OAuth isn't configured on this deployment.",
+      detail:
+        message ||
+        "An operator needs to register a Slack app and set Slack:OAuth:ClientId / ClientSecret / SigningSecret / RedirectUri in spring.env before this surface can start an install.",
+    };
+  }
+  return {
+    kind: "generic",
+    title: "Couldn't complete the Slack install.",
+    detail: message || `Slack returned error code '${error}'.`,
+  };
 }
 
 const INITIAL_INSTALL_STATE: InstallState = {
@@ -283,44 +319,26 @@ export function SlackConnectorPanel() {
     abortRef.current?.abort();
     abortRef.current = abortController;
 
-    let outcome: SlackOAuthPollOutcome;
-    try {
-      outcome = await pollForSlackBinding({
-        isBound: async () => {
-          const current = await api.getTenantSlackBinding();
-          return current !== null;
-        },
-        popup,
-        signal: abortController.signal,
-      });
-    } catch (err) {
-      // pollForSlackBinding absorbs transient errors; a throw here is
-      // unexpected. Surface it the same way we'd surface a fatal
-      // authorize-start failure.
-      try {
-        popup.close();
-      } catch {
-        // The popup may already be closed by the OAuth callback.
-      }
-      popupRef.current = null;
-      abortRef.current = null;
-      setInstallState({
-        status: "failed",
-        error: describeSlackError(err),
-        notice: null,
-      });
-      return;
-    }
+    // Issue #2837: the OAuth callback page posts a structured message
+    // back to this window with the outcome. No more polling — the
+    // handoff is synchronous from the popup, with the popup-closed /
+    // timed-out / aborted observations as safety nets.
+    const outcome: SlackOAuthHandoffOutcome = await awaitSlackOAuthHandoff({
+      popup,
+      signal: abortController.signal,
+    });
 
     try {
       popup.close();
     } catch {
-      // Same as above — the popup is allowed to close itself first.
+      // The popup is allowed to close itself first via the callback
+      // HTML's `window.close()` call — the second close here is a
+      // no-op when the window is already gone.
     }
     popupRef.current = null;
     abortRef.current = null;
 
-    if (outcome === "connected") {
+    if (outcome.kind === "success") {
       setInstallState(INITIAL_INSTALL_STATE);
       await refreshBinding();
       toast({
@@ -330,13 +348,26 @@ export function SlackConnectorPanel() {
       return;
     }
 
-    // For "popup-closed" we still re-fetch — the OAuth callback might
-    // have returned a 422 (Enterprise Grid) or 502 (token exchange
-    // failure). The fresh binding query lets the bound-state UI replace
-    // this panel automatically if it's actually bound; otherwise the
-    // notice tells the user what happened.
+    if (outcome.kind === "error") {
+      // Server-side error from the OAuth callback — Enterprise Grid,
+      // workspace conflict, exchange failure, etc. Still refresh the
+      // binding so any successfully persisted state replaces this
+      // panel; the error banner is what the user actually reads.
+      await refreshBinding();
+      setInstallState({
+        status: "failed",
+        error: describeCallbackError(outcome.error, outcome.message),
+        notice: null,
+      });
+      return;
+    }
+
+    // Client-side observation — popup closed, deadline elapsed, or
+    // the listener was aborted. Re-fetch the binding so a successful
+    // install that landed before the popup-closed signal fired still
+    // flips the panel to bound state.
     await refreshBinding();
-    setInstallState({ status: "failed", error: null, notice: outcome });
+    setInstallState({ status: "failed", error: null, notice: outcome.kind });
   }, [refreshBinding, toast]);
 
   const disconnect = useCallback(async () => {
@@ -742,10 +773,9 @@ function NoticeBanner({
   notice,
   onDismiss,
 }: {
-  notice: SlackOAuthPollOutcome;
+  notice: SlackOAuthNotice;
   onDismiss: () => void;
 }) {
-  if (notice === "connected") return null;
   const message = noticeMessageFor(notice);
   return (
     <div
@@ -766,19 +796,13 @@ function NoticeBanner({
   );
 }
 
-function noticeMessageFor(notice: SlackOAuthPollOutcome): string {
+function noticeMessageFor(notice: SlackOAuthNotice): string {
   switch (notice) {
     case "popup-closed":
       return "Slack install cancelled. Click Install in Slack workspace to try again.";
     case "timed-out":
-      return `Slack install didn't complete within ${Math.round(SLACK_OAUTH_POLL_TIMEOUT_MS / 60000)} minutes. Click Install in Slack workspace to retry.`;
+      return `Slack install didn't complete within ${Math.round(SLACK_OAUTH_HANDOFF_TIMEOUT_MS / 60000)} minutes. Click Install in Slack workspace to retry.`;
     case "aborted":
       return "Slack install was interrupted. Click Install in Slack workspace to retry.";
-    case "connected":
-      return "Slack workspace connected.";
   }
 }
-
-// Re-export for the bound state's "We poll every Ns" comments / tests so
-// consumers don't need to import the helper module separately.
-export { SLACK_OAUTH_POLL_INTERVAL_MS };

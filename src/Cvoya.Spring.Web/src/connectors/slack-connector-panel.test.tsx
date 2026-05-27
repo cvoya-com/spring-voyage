@@ -33,22 +33,22 @@ vi.mock("@/lib/api/client", async () => {
   };
 });
 
-// Mock the polling helper so tests don't wait two seconds between
-// probes. Each test wires its own outcome.
+// Mock the OAuth-handoff helper so tests don't actually wait for a
+// real postMessage dispatch. Each test wires its own outcome.
 vi.mock("@connector-slack/slack-oauth-browser", () => ({
+  awaitSlackOAuthHandoff: vi.fn(),
   buildSlackOAuthClientState: vi.fn(() => null),
-  pollForSlackBinding: vi.fn(),
-  SLACK_OAUTH_POLL_INTERVAL_MS: 1,
-  SLACK_OAUTH_POLL_TIMEOUT_MS: 1,
+  SLACK_OAUTH_CALLBACK_MESSAGE_TYPE: "sv:slack:oauth:done",
+  SLACK_OAUTH_HANDOFF_TIMEOUT_MS: 1,
 }));
 
 import { ApiError, api } from "@/lib/api/client";
 import type { TenantConnectorBindingResponse } from "@/lib/api/types";
 import { SlackConnectorPanel } from "@connector-slack/connector-panel";
-import { pollForSlackBinding } from "@connector-slack/slack-oauth-browser";
+import { awaitSlackOAuthHandoff } from "@connector-slack/slack-oauth-browser";
 
 const mockedApi = vi.mocked(api);
-const mockedPoll = vi.mocked(pollForSlackBinding);
+const mockedHandoff = vi.mocked(awaitSlackOAuthHandoff);
 
 function makeBinding(
   config: Record<string, unknown>,
@@ -106,8 +106,8 @@ describe("SlackConnectorPanel", () => {
   });
 
   // ADR-0061 §2.4 — Grid is refused at install time with a structured
-  // ProblemDetails. Surface it with a labelled error instead of an
-  // "unknown error" fallback.
+  // ProblemDetails (HTTP authorize start path). Surface it with a
+  // labelled error instead of an "unknown error" fallback.
   it("renders the Enterprise-Grid error when the OAuth start fails with that code", async () => {
     mockedApi.getTenantSlackBinding.mockResolvedValue(null);
     mockedApi.beginSlackOAuthAuthorize.mockRejectedValue(
@@ -372,12 +372,12 @@ describe("SlackConnectorPanel", () => {
     await screen.findByTestId("slack-panel-empty");
   });
 
-  // The success path of the install flow — the poller returns
-  // "connected" and the cache invalidation flips us to bound state.
-  it("flips to bound state when the install poller reports connected", async () => {
+  // The success path of the install flow — the handoff reports
+  // `success` via postMessage; the cache invalidation flips us to
+  // bound state.
+  it("flips to bound state when the postMessage handoff reports success", async () => {
     // First call (binding-query mount): empty.
-    // Second call (poller's `isBound`): bound.
-    // Third call (cache invalidation on success): bound.
+    // Subsequent calls (after the handoff resolves): bound.
     let callCount = 0;
     mockedApi.getTenantSlackBinding.mockImplementation(() => {
       callCount++;
@@ -400,7 +400,7 @@ describe("SlackConnectorPanel", () => {
       authorizeUrl: "https://slack.com/oauth/v2/authorize?state=abc",
       state: "abc",
     });
-    mockedPoll.mockResolvedValue("connected");
+    mockedHandoff.mockResolvedValue({ kind: "success" });
 
     const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
     const openSpy = vi
@@ -416,8 +416,90 @@ describe("SlackConnectorPanel", () => {
       fireEvent.click(await screen.findByTestId("slack-panel-install"));
     });
 
-    expect(mockedPoll).toHaveBeenCalledOnce();
+    expect(mockedHandoff).toHaveBeenCalledOnce();
     await screen.findByTestId("slack-panel-bound");
+
+    openSpy.mockRestore();
+  });
+
+  // Issue #2837: server-side Grid refusal arrives via postMessage,
+  // NOT via the authorize endpoint. The error code on the message is
+  // `SlackEnterpriseGridUnsupported`; the panel must render the same
+  // Grid banner the authorize-error path uses.
+  it("renders Grid-refusal banner when the OAuth callback posts a Grid error", async () => {
+    mockedApi.getTenantSlackBinding.mockResolvedValue(null);
+    mockedApi.beginSlackOAuthAuthorize.mockResolvedValue({
+      authorizeUrl: "https://slack.com/oauth/v2/authorize?state=abc",
+      state: "abc",
+    });
+    mockedHandoff.mockResolvedValue({
+      kind: "error",
+      error: "SlackEnterpriseGridUnsupported",
+      message: "Grid is not supported in v0.1.",
+    });
+
+    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(popupStub as unknown as Window);
+
+    const { wrapper } = wrap();
+    await act(async () => {
+      render(<SlackConnectorPanel />, { wrapper });
+    });
+
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("slack-panel-install"));
+    });
+
+    expect(
+      await screen.findByTestId("slack-panel-error-enterprise-grid"),
+    ).toHaveTextContent(/Enterprise Grid/);
+    // Grid → no retry CTA (operator must change something off-portal
+    // first; same rule as the authorize-error path).
+    expect(
+      screen.queryByTestId("slack-panel-error-retry"),
+    ).not.toBeInTheDocument();
+
+    openSpy.mockRestore();
+  });
+
+  // Other server-side error codes from the callback (workspace
+  // conflict, exchange failure, etc.) surface as the generic banner
+  // with the Try-again CTA. We pick the `exchange_failed` code from
+  // the backend's union.
+  it("renders generic-error banner when the OAuth callback posts a non-Grid error", async () => {
+    mockedApi.getTenantSlackBinding.mockResolvedValue(null);
+    mockedApi.beginSlackOAuthAuthorize.mockResolvedValue({
+      authorizeUrl: "https://slack.com/oauth/v2/authorize?state=abc",
+      state: "abc",
+    });
+    mockedHandoff.mockResolvedValue({
+      kind: "error",
+      error: "exchange_failed",
+      message: "Slack returned invalid_code on oauth.v2.access.",
+    });
+
+    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(popupStub as unknown as Window);
+
+    const { wrapper } = wrap();
+    await act(async () => {
+      render(<SlackConnectorPanel />, { wrapper });
+    });
+
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("slack-panel-install"));
+    });
+
+    expect(
+      await screen.findByTestId("slack-panel-error-generic"),
+    ).toHaveTextContent(/invalid_code/);
+    expect(
+      screen.getByTestId("slack-panel-error-retry"),
+    ).toBeInTheDocument();
 
     openSpy.mockRestore();
   });
@@ -430,7 +512,7 @@ describe("SlackConnectorPanel", () => {
       authorizeUrl: "https://slack.com/oauth/v2/authorize?state=abc",
       state: "abc",
     });
-    mockedPoll.mockResolvedValue("popup-closed");
+    mockedHandoff.mockResolvedValue({ kind: "popup-closed" });
 
     const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
     const openSpy = vi
@@ -449,6 +531,35 @@ describe("SlackConnectorPanel", () => {
     expect(
       await screen.findByTestId("slack-panel-notice-popup-closed"),
     ).toHaveTextContent(/Slack install cancelled/);
+
+    openSpy.mockRestore();
+  });
+
+  it("surfaces a 'timed-out' notice when the handoff deadline elapses", async () => {
+    mockedApi.getTenantSlackBinding.mockResolvedValue(null);
+    mockedApi.beginSlackOAuthAuthorize.mockResolvedValue({
+      authorizeUrl: "https://slack.com/oauth/v2/authorize?state=abc",
+      state: "abc",
+    });
+    mockedHandoff.mockResolvedValue({ kind: "timed-out" });
+
+    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(popupStub as unknown as Window);
+
+    const { wrapper } = wrap();
+    await act(async () => {
+      render(<SlackConnectorPanel />, { wrapper });
+    });
+
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId("slack-panel-install"));
+    });
+
+    expect(
+      await screen.findByTestId("slack-panel-notice-timed-out"),
+    ).toHaveTextContent(/didn't complete/);
 
     openSpy.mockRestore();
   });
