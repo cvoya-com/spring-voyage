@@ -145,4 +145,35 @@ public class SlackAppManifestTests
                 AppName: "x",
                 SvHost: "")));
     }
+
+    [Fact]
+    public void BuildJson_SocketMode_DefaultsToDisabled()
+    {
+        var json = SlackAppManifest.BuildJson(new SlackAppManifest.Inputs(
+            AppName: "x",
+            SvHost: "https://sv.example.com"));
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement
+            .GetProperty("settings")
+            .GetProperty("socket_mode_enabled")
+            .GetBoolean()
+            .ShouldBeFalse();
+    }
+
+    [Fact]
+    public void BuildJson_SocketModeEnabled_FlipsSetting()
+    {
+        var json = SlackAppManifest.BuildJson(new SlackAppManifest.Inputs(
+            AppName: "x",
+            SvHost: "https://sv.example.com",
+            SocketModeEnabled: true));
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement
+            .GetProperty("settings")
+            .GetProperty("socket_mode_enabled")
+            .GetBoolean()
+            .ShouldBeTrue();
+    }
 }

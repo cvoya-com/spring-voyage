@@ -92,13 +92,19 @@ public static class SlackAppManifest
     /// Inputs to manifest creation. <see cref="SvHost"/> is the operator's
     /// Spring Voyage base URL (no trailing slash); the manifest builder
     /// concatenates it with the well-known connector paths above.
+    /// <see cref="SocketModeEnabled"/> toggles Slack Socket Mode — when true,
+    /// Slack delivers events, slash commands, and interactions over a
+    /// WebSocket the bot opens outbound instead of POSTing to the manifest
+    /// URLs. Required for local-dev installs that cannot expose a public
+    /// HTTPS endpoint.
     /// </summary>
     public sealed record Inputs(
         string AppName,
         string SvHost,
         string? Description = null,
         string? LongDescription = null,
-        string? BackgroundColor = null);
+        string? BackgroundColor = null,
+        bool SocketModeEnabled = false);
 
     /// <summary>
     /// Serializes the manifest into the exact JSON shape Slack expects
@@ -145,7 +151,7 @@ public static class SlackAppManifest
                     IsEnabled: true,
                     RequestUrl: interactionsUrl),
                 OrgDeployEnabled: false,
-                SocketModeEnabled: false,
+                SocketModeEnabled: inputs.SocketModeEnabled,
                 TokenRotationEnabled: false));
 
         return JsonSerializer.Serialize(manifest, s_serializerOptions);

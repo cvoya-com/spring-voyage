@@ -33,6 +33,7 @@ public class SlackInstallCommandTests
             writeSecrets: false,
             writeTenantSecrets: false,
             envFilePathOverride: null,
+            socketMode: false,
             dryRun: true,
             cancellationToken: CancellationToken.None,
             stdout: stdout);
@@ -57,6 +58,7 @@ public class SlackInstallCommandTests
                 writeSecrets: true,
                 writeTenantSecrets: false,
                 envFilePathOverride: null,
+                socketMode: false,
                 dryRun: false,
                 cancellationToken: CancellationToken.None);
         });
@@ -75,6 +77,7 @@ public class SlackInstallCommandTests
                 writeSecrets: false,
                 writeTenantSecrets: true,
                 envFilePathOverride: null,
+                socketMode: false,
                 dryRun: false,
                 cancellationToken: CancellationToken.None);
         });
@@ -93,6 +96,7 @@ public class SlackInstallCommandTests
                 writeSecrets: true,
                 writeTenantSecrets: true,
                 envFilePathOverride: null,
+                socketMode: false,
                 dryRun: false,
                 cancellationToken: CancellationToken.None);
         });
@@ -117,6 +121,7 @@ public class SlackInstallCommandTests
                     writeSecrets: false,
                     writeTenantSecrets: false,
                     envFilePathOverride: null,
+                    socketMode: false,
                     dryRun: false,
                     cancellationToken: CancellationToken.None);
             });
@@ -164,6 +169,7 @@ public class SlackInstallCommandTests
                 writeSecrets: false,
                 writeTenantSecrets: false,
                 envFilePathOverride: envPath,
+                socketMode: false,
                 dryRun: false,
                 cancellationToken: CancellationToken.None,
                 httpClientOverride: http,
@@ -231,6 +237,7 @@ public class SlackInstallCommandTests
                 writeSecrets: false,
                 writeTenantSecrets: false,
                 envFilePathOverride: envPath,
+                socketMode: false,
                 dryRun: false,
                 cancellationToken: CancellationToken.None,
                 httpClientOverride: http,
@@ -266,6 +273,7 @@ public class SlackInstallCommandTests
                 writeSecrets: false,
                 writeTenantSecrets: false,
                 envFilePathOverride: Path.Combine(Path.GetTempPath(), "no-write.env"),
+                socketMode: false,
                 dryRun: false,
                 cancellationToken: CancellationToken.None,
                 httpClientOverride: http,
@@ -350,6 +358,7 @@ public class SlackInstallCommandTests
                 writeSecrets: true,
                 writeTenantSecrets: false,
                 envFilePathOverride: null,
+                socketMode: false,
                 dryRun: false,
                 cancellationToken: CancellationToken.None,
                 httpClientOverride: http,
@@ -448,6 +457,7 @@ public class SlackInstallCommandTests
                 writeSecrets: false,
                 writeTenantSecrets: true,
                 envFilePathOverride: null,
+                socketMode: false,
                 dryRun: false,
                 cancellationToken: CancellationToken.None,
                 httpClientOverride: http,
