@@ -11,6 +11,7 @@ using Cvoya.Spring.Connector.Slack.Slug;
 using Cvoya.Spring.Connector.Slack.WebApi;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Messaging.Rendering;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;
 
@@ -42,6 +43,7 @@ public sealed class SlackOutboundDispatcher : ISlackOutboundDispatcher
     private readonly ISlackPersonaBuilder _personaBuilder;
     private readonly ISlackWebApiClient _webApi;
     private readonly ISlackThreadMapStore _threadMap;
+    private readonly IMessagePayloadRendererRegistry _payloadRenderers;
     private readonly ILogger<SlackOutboundDispatcher> _logger;
 
     /// <summary>Creates a new <see cref="SlackOutboundDispatcher"/>.</summary>
@@ -52,15 +54,18 @@ public sealed class SlackOutboundDispatcher : ISlackOutboundDispatcher
         ISlackPersonaBuilder personaBuilder,
         ISlackWebApiClient webApi,
         ISlackThreadMapStore threadMap,
+        IMessagePayloadRendererRegistry payloadRenderers,
         ILoggerFactory loggerFactory)
     {
         ArgumentNullException.ThrowIfNull(scopeFactory);
+        ArgumentNullException.ThrowIfNull(payloadRenderers);
         _scopeFactory = scopeFactory;
         _router = router;
         _slugBuilder = slugBuilder;
         _personaBuilder = personaBuilder;
         _webApi = webApi;
         _threadMap = threadMap;
+        _payloadRenderers = payloadRenderers;
         _logger = loggerFactory.CreateLogger<SlackOutboundDispatcher>();
     }
 
@@ -209,7 +214,15 @@ public sealed class SlackOutboundDispatcher : ISlackOutboundDispatcher
         //    posting on behalf of an agent / unit / non-bound human.
         var persona = await _personaBuilder.ResolveAsync(message.From, cancellationToken).ConfigureAwait(false);
 
-        var text = ExtractMessageText(message.Payload);
+        // #2843: route Slack outbound text through the canonical renderer
+        // registry. Pre-#2843 this site recognised `text` / `body` shapes
+        // and silently rendered the raw JSON for anything else (notably
+        // the `Output` / `content` shapes the platform's own sites
+        // produced); the registry now claims every well-known shape, and
+        // we keep the raw-JSON fallback so the recipient still sees
+        // something rather than an empty bubble.
+        var text = _payloadRenderers.TryRender(message)
+            ?? message.Payload.GetRawText();
 
         var reply = await _webApi.PostMessageAsync(
             botToken,
@@ -344,35 +357,6 @@ public sealed class SlackOutboundDispatcher : ISlackOutboundDispatcher
         return Guid.TryParse(threadId, out var id) ? id : null;
     }
 
-    private static string ExtractMessageText(JsonElement payload)
-    {
-        // The agent-facing envelope's payload shape carries a "text"
-        // or "body" field for human-readable content per ADR-0060.
-        // Fall back to the raw JSON form for non-text payloads (the
-        // bound user is the only Slack-visible consumer; they will
-        // see the raw shape and can ask the agent for clarification
-        // — better than dropping the message silently).
-        if (payload.ValueKind == JsonValueKind.Object)
-        {
-            if (payload.TryGetProperty("text", out var textProp)
-                && textProp.ValueKind == JsonValueKind.String)
-            {
-                return textProp.GetString() ?? string.Empty;
-            }
-            if (payload.TryGetProperty("body", out var bodyProp)
-                && bodyProp.ValueKind == JsonValueKind.String)
-            {
-                return bodyProp.GetString() ?? string.Empty;
-            }
-        }
-
-        if (payload.ValueKind == JsonValueKind.String)
-        {
-            return payload.GetString() ?? string.Empty;
-        }
-
-        return payload.GetRawText();
-    }
 }
 
 /// <summary>

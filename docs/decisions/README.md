@@ -70,6 +70,7 @@ For open design questions not yet decided, see
 | [0058](0058-spring-voyage-container-contract.md) | Spring Voyage container contract — platform-managed artefacts inside agent instances | Proposed |
 | [0059](0059-prompt-assembly-pipeline.md) | Prompt-assembly pipeline — layered providers, launcher-owned delivery, and `system_prompt_mode` | Proposed — supersedes [0038](0038-agent-runtime-and-model-provider-split.md) §`systemPromptInjection` |
 | [0060](0060-participant-set-agent-api-and-structured-envelope.md) | Participant-set agent API and structured inbound envelope | Accepted — extends [0030](0030-thread-model.md) to the agent surface |
+| [0063](0063-message-payload-renderer-registry.md) | Message-payload renderer registry — canonical text extraction across consumers | Accepted |
 
 Archived records are listed in [`archive/README.md`](archive/README.md).
 

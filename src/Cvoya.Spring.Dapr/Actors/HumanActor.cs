@@ -40,9 +40,13 @@ public class HumanActor(
     ActorHost host,
     IActivityEventBus activityEventBus,
     IServiceScopeFactory scopeFactory,
-    ILoggerFactory loggerFactory) : Actor(host), IHumanActor
+    ILoggerFactory loggerFactory,
+    MessageArrivedDetails? messageArrivedDetails = null) : Actor(host), IHumanActor
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<HumanActor>();
+
+    private readonly MessageArrivedDetails _messageArrivedDetails =
+        messageArrivedDetails ?? MessageArrivedDetails.Default;
 
     /// <summary>
     /// Gets the address of this human actor. When the actor id is a UUID
@@ -76,9 +80,9 @@ public class HumanActor(
             {
                 await EmitActivityEventAsync(
                     ActivityEventType.MessageArrived,
-                    MessageArrivedDetails.BuildSummary(message),
+                    _messageArrivedDetails.BuildSummary(message),
                     cancellationToken,
-                    details: MessageArrivedDetails.Build(message),
+                    details: _messageArrivedDetails.Build(message),
                     correlationId: message.ThreadId);
             }
 

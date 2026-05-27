@@ -49,6 +49,7 @@ public class UnitActor : Actor, IUnitActor
     // partial dependency set still wire up — when null, transitions
     // simply don't publish issues, matching pre-#2160 behaviour.
     private readonly Cvoya.Spring.Core.Issues.IIssueWriter? _issueWriter;
+    private readonly MessageArrivedDetails _messageArrivedDetails;
 
     /// <summary>
     /// Per-thread dispatcher tracker — one entry per thread the unit is
@@ -148,7 +149,8 @@ public class UnitActor : Actor, IUnitActor
         IUnitMembershipCoordinator? membershipCoordinator = null,
         IUnitHumanPermissionStore? humanPermissionStore = null,
         IUnitConnectorStartDispatcher? connectorStartDispatcher = null,
-        Cvoya.Spring.Core.Issues.IIssueWriter? issueWriter = null)
+        Cvoya.Spring.Core.Issues.IIssueWriter? issueWriter = null,
+        MessageArrivedDetails? messageArrivedDetails = null)
         : base(host)
     {
         ArgumentNullException.ThrowIfNull(stateCoordinator);
@@ -173,6 +175,7 @@ public class UnitActor : Actor, IUnitActor
         _humanPermissionStore = humanPermissionStore;
         _connectorStartDispatcher = connectorStartDispatcher;
         _issueWriter = issueWriter;
+        _messageArrivedDetails = messageArrivedDetails ?? MessageArrivedDetails.Default;
     }
 
     private static IArtefactValidationCoordinator BuildDefaultValidationCoordinator(
@@ -268,9 +271,9 @@ public class UnitActor : Actor, IUnitActor
             // {Type} message <uuid> from <address>" envelope, which leaks
             // GUIDs into every downstream surface.
             await EmitActivityEventAsync(ActivityEventType.MessageArrived,
-                MessageArrivedDetails.BuildSummary(message),
+                _messageArrivedDetails.BuildSummary(message),
                 ct,
-                details: MessageArrivedDetails.Build(message),
+                details: _messageArrivedDetails.Build(message),
                 correlationId: message.ThreadId);
 
             return message.Type switch

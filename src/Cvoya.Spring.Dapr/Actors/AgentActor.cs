@@ -63,8 +63,12 @@ public class AgentActor(
     IRuntimeInvocationPath? runtimeInvocationPath = null,
     IServiceScopeFactory? scopeFactory = null,
     Cvoya.Spring.Core.Issues.IIssueWriter? issueWriter = null,
-    IArtefactValidationCoordinator? validationCoordinator = null) : Actor(host), IAgentActor, IRemindable
+    IArtefactValidationCoordinator? validationCoordinator = null,
+    MessageArrivedDetails? messageArrivedDetails = null) : Actor(host), IAgentActor, IRemindable
 {
+    private readonly MessageArrivedDetails _messageArrivedDetails =
+        messageArrivedDetails ?? MessageArrivedDetails.Default;
+
     /// <summary>
     /// Name of the Dapr reminder that drives periodic initiative checks.
     /// </summary>
@@ -151,9 +155,9 @@ public class AgentActor(
         try
         {
             await EmitActivityEventAsync(ActivityEventType.MessageArrived,
-                MessageArrivedDetails.BuildSummary(message),
+                _messageArrivedDetails.BuildSummary(message),
                 cancellationToken,
-                details: MessageArrivedDetails.Build(message),
+                details: _messageArrivedDetails.Build(message),
                 correlationId: message.ThreadId);
 
             return message.Type switch

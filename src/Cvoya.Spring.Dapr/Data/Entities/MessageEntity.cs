@@ -82,11 +82,10 @@ public class MessageEntity : ITenantScopedEntity
     public string MessageType { get; set; } = string.Empty;
 
     /// <summary>
-    /// Extracted text body, when the payload is a JSON string or carries
-    /// an <c>Output</c> string property (the two shapes
-    /// <c>MessageArrivedDetails.TryExtractText</c> recognises). Null for
-    /// structured / non-text payloads — readers fall back to
-    /// <see cref="Payload"/>.
+    /// Extracted text body, when the canonical
+    /// <see cref="Cvoya.Spring.Core.Messaging.Rendering.IMessagePayloadRendererRegistry"/>
+    /// claims the payload shape (#2843). Null for structured / non-text
+    /// payloads — readers fall back to <see cref="Payload"/>.
     /// </summary>
     public string? Body { get; set; }
 

@@ -7,6 +7,8 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Messaging.Rendering;
+using Cvoya.Spring.Core.Messaging.Rendering.Renderers;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -298,7 +300,7 @@ public class EfMessageWriterTests : IDisposable
             [Human1.ToString()] = "Savas",
         });
         var degradedDb = new SpringDbContext(_dbOptions, new StaticTenantContext(Tenant1));
-        var degradedWriter = new EfMessageWriter(degradedDb, new StaticTenantContext(Tenant1), halfRealResolver, NullLoggerFactory.Instance);
+        var degradedWriter = new EfMessageWriter(degradedDb, new StaticTenantContext(Tenant1), halfRealResolver, BuildPayloadRenderers(), NullLoggerFactory.Instance);
         await degradedWriter.WriteAsync(
             NewDomainMessage(Human1, Agent1, threadId, JsonSerializer.SerializeToElement("after delete")),
             ct);
@@ -358,7 +360,7 @@ public class EfMessageWriterTests : IDisposable
         // snapshots — the writer never overwrites a real name with a
         // fallback, so this is a clean baseline.
         resolver ??= new FallbackOnlyParticipantDisplayNameResolver();
-        var writer = new EfMessageWriter(db, tenantContext, resolver, NullLoggerFactory.Instance);
+        var writer = new EfMessageWriter(db, tenantContext, resolver, BuildPayloadRenderers(), NullLoggerFactory.Instance);
         return (writer, db, threadId, baseline);
     }
 
@@ -430,4 +432,17 @@ public class EfMessageWriterTests : IDisposable
 
         return parsed;
     }
+
+    // #2843: real registry with the platform's built-in renderer set so the
+    // existing body-extraction assertions ("Output" → row.Body) exercise
+    // the canonical path instead of the old inline heuristic.
+    private static IMessagePayloadRendererRegistry BuildPayloadRenderers() =>
+        new MessagePayloadRendererRegistry(new IMessagePayloadRenderer[]
+        {
+            new BareStringPayloadRenderer(),
+            new TextPropertyPayloadRenderer(),
+            new BodyPropertyPayloadRenderer(),
+            new OutputPropertyPayloadRenderer(),
+            new ContentPropertyPayloadRenderer(),
+        });
 }

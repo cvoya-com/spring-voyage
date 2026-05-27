@@ -6,6 +6,8 @@ namespace Cvoya.Spring.Dapr.Actors;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Messaging.Rendering;
+using Cvoya.Spring.Core.Messaging.Rendering.Renderers;
 
 /// <summary>
 /// Builds the <c>Details</c> JSON payload attached to <c>MessageArrived</c>
@@ -17,7 +19,19 @@ using Cvoya.Spring.Core.Messaging;
 /// <see cref="UnitActor"/>) emits the same field set so downstream readers
 /// can treat the payload as a stable schema (#1209).
 /// </summary>
-public static class MessageArrivedDetails
+/// <remarks>
+/// Text extraction goes through the
+/// <see cref="IMessagePayloadRendererRegistry"/> (#2843) so the three
+/// timeline-side surfaces (MessageArrivedDetails,
+/// <see cref="Threads.EfMessageWriter"/>, and the Slack outbound
+/// dispatcher) consume one canonical heuristic. Pre-#2843 each site
+/// implemented its own probe and agreed only by accident — Slack
+/// recognised <c>text</c>/<c>body</c>, this helper recognised
+/// <c>Output</c>/<c>content</c>, and a payload that named the other
+/// shape's property silently rendered as the raw JSON or an empty
+/// bubble.
+/// </remarks>
+public sealed class MessageArrivedDetails
 {
     /// <summary>JSON property name for the message id (a stringified <see cref="Guid"/>).</summary>
     public const string MessageIdProperty = "messageId";
@@ -38,17 +52,57 @@ public static class MessageArrivedDetails
     public const string PayloadProperty = "payload";
 
     /// <summary>
+    /// Maximum summary length when truncating extracted message text for the
+    /// <see cref="Capabilities.ActivityEvent.Summary"/> one-liner. The surfaces
+    /// already render the full body from <see cref="BodyProperty"/>; the
+    /// summary is just a glance-line.
+    /// </summary>
+    private const int SummaryMaxLength = 160;
+
+    private readonly IMessagePayloadRendererRegistry _renderers;
+
+    /// <summary>
+    /// Creates a new helper that resolves message text through
+    /// <paramref name="renderers"/>. The registry is shared with the
+    /// <see cref="Threads.EfMessageWriter"/> persistence path and the
+    /// Slack outbound dispatcher so all three timeline-side surfaces see
+    /// the same renderable shape (#2843).
+    /// </summary>
+    public MessageArrivedDetails(IMessagePayloadRendererRegistry renderers)
+    {
+        ArgumentNullException.ThrowIfNull(renderers);
+        _renderers = renderers;
+    }
+
+    /// <summary>
+    /// A process-wide instance materialised over the built-in renderer set
+    /// (#2843). Used by legacy test harnesses that construct actors
+    /// directly without going through the production DI container; the
+    /// production path injects a registry-backed singleton that the
+    /// hosting overlay may extend with additional renderers. The default
+    /// captures the platform's own renderer set only — overlay renderers
+    /// will not be visible here.
+    /// </summary>
+    public static MessageArrivedDetails Default { get; } = new(
+        new MessagePayloadRendererRegistry(new IMessagePayloadRenderer[]
+        {
+            new BareStringPayloadRenderer(),
+            new TextPropertyPayloadRenderer(),
+            new BodyPropertyPayloadRenderer(),
+            new OutputPropertyPayloadRenderer(),
+            new ContentPropertyPayloadRenderer(),
+        }));
+
+    /// <summary>
     /// Builds a <see cref="JsonElement"/> describing <paramref name="message"/>
     /// for persistence in <c>ActivityEvent.Details</c>. The returned element
     /// always carries <c>messageId</c>, <c>from</c>, <c>to</c>, and
-    /// <c>messageType</c>; <c>body</c> is populated when the payload is a
-    /// JSON string (the common case — <c>spring message send</c> wraps the
-    /// caller's text as <c>UntypedString</c>); the structured payload always
-    /// rides along under <c>payload</c> so non-text replies are still
-    /// inspectable.
+    /// <c>messageType</c>; <c>body</c> is populated when the registry
+    /// claims the payload; the structured payload always rides along
+    /// under <c>payload</c> so non-text replies are still inspectable.
     /// </summary>
     /// <param name="message">The received message.</param>
-    public static JsonElement Build(Message message)
+    public JsonElement Build(Message message)
     {
         ArgumentNullException.ThrowIfNull(message);
 
@@ -61,7 +115,7 @@ public static class MessageArrivedDetails
             writer.WriteString(ToProperty, FormatAddress(message.To));
             writer.WriteString(MessageTypeProperty, message.Type.ToString());
 
-            var body = TryExtractText(message.Payload);
+            var body = _renderers.TryRender(message);
             if (body is not null)
             {
                 writer.WriteString(BodyProperty, body);
@@ -85,63 +139,14 @@ public static class MessageArrivedDetails
     }
 
     /// <summary>
-    /// Returns the rendered text from <paramref name="payload"/>.
-    /// Recognises three shapes:
-    /// <list type="bullet">
-    ///   <item><description>
-    ///     A bare JSON string — the <c>spring message send</c> /
-    ///     <c>ThreadMessageRequest</c> path. The string is returned verbatim.
-    ///   </description></item>
-    ///   <item><description>
-    ///     A JSON object with an <c>Output</c> string property — the shape
-    ///     produced by <c>A2AExecutionDispatcher</c> for agent replies
-    ///     (<c>{ Output, ExitCode, [Error] }</c>). The <c>Output</c> string is
-    ///     returned so the thread surfaces render the agent's natural-language
-    ///     reply rather than only the envelope summary line (#1547, #1549).
-    ///   </description></item>
-    ///   <item><description>
-    ///     A JSON object with a <c>content</c> string property — the shape
-    ///     produced by <c>SvMessagingSkillRegistry.ExtractMessagePayload</c>
-    ///     when an agent calls <c>sv.messaging.send</c> with a string
-    ///     <c>message</c> argument (#2767). Without this, the unit-or-agent
-    ///     reply persisted by #2764 surfaces as an empty bubble in the inbox
-    ///     and thread timeline.
-    ///   </description></item>
-    /// </list>
-    /// Returns <c>null</c> for any other shape (structured non-reply payloads,
-    /// arrays, absent payloads); callers fall back to <c>payload</c> for those.
+    /// Resolves the renderable text for <paramref name="message"/> via
+    /// the registry, or <c>null</c> when no renderer claims the payload.
     /// </summary>
-    public static string? TryExtractText(JsonElement payload)
+    public string? TryExtractText(Message message)
     {
-        if (payload.ValueKind == JsonValueKind.String)
-        {
-            return payload.GetString();
-        }
-
-        if (payload.ValueKind == JsonValueKind.Object
-            && payload.TryGetProperty("Output", out var outputProp)
-            && outputProp.ValueKind == JsonValueKind.String)
-        {
-            return outputProp.GetString();
-        }
-
-        if (payload.ValueKind == JsonValueKind.Object
-            && payload.TryGetProperty("content", out var contentProp)
-            && contentProp.ValueKind == JsonValueKind.String)
-        {
-            return contentProp.GetString();
-        }
-
-        return null;
+        ArgumentNullException.ThrowIfNull(message);
+        return _renderers.TryRender(message);
     }
-
-    /// <summary>
-    /// Maximum summary length when truncating extracted message text for the
-    /// <see cref="Capabilities.ActivityEvent.Summary"/> one-liner. The surfaces
-    /// already render the full body from <see cref="BodyProperty"/>; the
-    /// summary is just a glance-line.
-    /// </summary>
-    private const int SummaryMaxLength = 160;
 
     /// <summary>
     /// Builds the human-readable one-liner used for an
@@ -161,11 +166,11 @@ public static class MessageArrivedDetails
     /// </summary>
     /// <param name="message">The received message.</param>
     /// <returns>A non-empty, GUID-free, address-free summary line.</returns>
-    public static string BuildSummary(Message message)
+    public string BuildSummary(Message message)
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        var body = TryExtractText(message.Payload);
+        var body = _renderers.TryRender(message);
         if (!string.IsNullOrWhiteSpace(body))
         {
             return Truncate(body!.Trim(), SummaryMaxLength);

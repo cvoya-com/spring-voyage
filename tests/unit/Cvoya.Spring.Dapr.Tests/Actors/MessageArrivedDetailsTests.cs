@@ -20,12 +20,14 @@ using Xunit;
 /// </summary>
 public class MessageArrivedDetailsTests
 {
+    private readonly MessageArrivedDetails _helper = MessageArrivedDetails.Default;
+
     [Fact]
     public void BuildSummary_StringPayload_ReturnsBodyVerbatim()
     {
         var msg = CreateMessage(JsonSerializer.SerializeToElement("Approve merge?"));
 
-        var summary = MessageArrivedDetails.BuildSummary(msg);
+        var summary = _helper.BuildSummary(msg);
 
         summary.ShouldBe("Approve merge?");
     }
@@ -42,7 +44,7 @@ public class MessageArrivedDetailsTests
         });
         var msg = CreateMessage(payload);
 
-        var summary = MessageArrivedDetails.BuildSummary(msg);
+        var summary = _helper.BuildSummary(msg);
 
         summary.ShouldBe("Looks good — shipping.");
     }
@@ -56,7 +58,7 @@ public class MessageArrivedDetailsTests
         var payload = JsonSerializer.SerializeToElement(new { Acknowledged = true });
         var msg = CreateMessage(payload, type: MessageType.HealthCheck);
 
-        var summary = MessageArrivedDetails.BuildSummary(msg);
+        var summary = _helper.BuildSummary(msg);
 
         summary.ShouldBe("Health check received");
         summary.ShouldNotContain(msg.Id.ToString());
@@ -72,7 +74,7 @@ public class MessageArrivedDetailsTests
         var payload = JsonSerializer.SerializeToElement(new { Acknowledged = true });
         var msg = CreateMessage(payload);
 
-        var summary = MessageArrivedDetails.BuildSummary(msg);
+        var summary = _helper.BuildSummary(msg);
 
         summary.ShouldBe("Message received");
         summary.ShouldNotContain(msg.Id.ToString());
@@ -92,9 +94,36 @@ public class MessageArrivedDetailsTests
         });
         var msg = CreateMessage(payload);
 
-        var summary = MessageArrivedDetails.BuildSummary(msg);
+        var summary = _helper.BuildSummary(msg);
 
         summary.ShouldBe("Hello from Spring Voyage OSS!");
+    }
+
+    [Fact]
+    public void BuildSummary_SlackStyleTextShape_ReturnsTextProperty()
+    {
+        // #2843 — pre-PR, the timeline helper recognised the `Output` /
+        // `content` shapes the platform itself produced but ignored the
+        // `text` / `body` shapes the Slack outbound dispatcher recognised.
+        // The renderer registry unifies the surface; both ends now see
+        // every well-known shape.
+        var payload = JsonSerializer.SerializeToElement(new { text = "Slack-style body." });
+
+        var summary = _helper.BuildSummary(CreateMessage(payload));
+
+        summary.ShouldBe("Slack-style body.");
+    }
+
+    [Fact]
+    public void BuildSummary_SlackStyleBodyShape_ReturnsBodyProperty()
+    {
+        // Companion to the `text` test — `body` is the HTTP/email-style
+        // alternate. Pre-#2843 the timeline rendered this as empty.
+        var payload = JsonSerializer.SerializeToElement(new { body = "Email-style body." });
+
+        var summary = _helper.BuildSummary(CreateMessage(payload));
+
+        summary.ShouldBe("Email-style body.");
     }
 
     [Fact]
@@ -104,7 +133,7 @@ public class MessageArrivedDetailsTests
         var longText = new string('x', 500);
         var msg = CreateMessage(JsonSerializer.SerializeToElement(longText));
 
-        var summary = MessageArrivedDetails.BuildSummary(msg);
+        var summary = _helper.BuildSummary(msg);
 
         summary.Length.ShouldBeLessThanOrEqualTo(160);
         summary.ShouldEndWith("…");
@@ -129,7 +158,7 @@ public class MessageArrivedDetailsTests
         foreach (var payload in shapes)
         {
             var msg = CreateMessage(payload);
-            var summary = MessageArrivedDetails.BuildSummary(msg);
+            var summary = _helper.BuildSummary(msg);
 
             summary.ShouldNotStartWith("Received Domain message");
             summary.ShouldNotContain(msg.Id.ToString());
