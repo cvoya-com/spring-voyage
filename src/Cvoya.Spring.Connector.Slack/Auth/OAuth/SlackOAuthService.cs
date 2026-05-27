@@ -6,7 +6,6 @@ namespace Cvoya.Spring.Connector.Slack.Auth.OAuth;
 using Cvoya.Spring.Connector.Slack.Configuration;
 
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 /// <summary>
 /// Default <see cref="ISlackOAuthService"/> implementation. Owns the
@@ -20,6 +19,13 @@ using Microsoft.Extensions.Options;
 /// <see cref="ISlackInstallStore"/>. Both abstractions are
 /// substitutable for tests.
 /// </para>
+///
+/// <para>
+/// OAuth credentials are read through <see cref="ISlackOAuthOptionsResolver"/>
+/// on every call so the connector picks up tenant-scoped overrides at
+/// resolve time (issue #2849). The resolver's precedence chain is
+/// tenant-secret → platform-secret → env-config.
+/// </para>
 /// </summary>
 public class SlackOAuthService : ISlackOAuthService
 {
@@ -29,7 +35,7 @@ public class SlackOAuthService : ISlackOAuthService
     private readonly ISlackOAuthStateStore _stateStore;
     private readonly ISlackOAuthHttpClient _http;
     private readonly ISlackInstallStore _installStore;
-    private readonly IOptionsMonitor<SlackOAuthOptions> _options;
+    private readonly ISlackOAuthOptionsResolver _optionsResolver;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
 
@@ -38,14 +44,14 @@ public class SlackOAuthService : ISlackOAuthService
         ISlackOAuthStateStore stateStore,
         ISlackOAuthHttpClient http,
         ISlackInstallStore installStore,
-        IOptionsMonitor<SlackOAuthOptions> options,
+        ISlackOAuthOptionsResolver optionsResolver,
         ILoggerFactory loggerFactory,
         TimeProvider? timeProvider = null)
     {
         _stateStore = stateStore;
         _http = http;
         _installStore = installStore;
-        _options = options;
+        _optionsResolver = optionsResolver;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = loggerFactory.CreateLogger<SlackOAuthService>();
     }
@@ -55,7 +61,7 @@ public class SlackOAuthService : ISlackOAuthService
         string? clientState,
         CancellationToken cancellationToken)
     {
-        var options = _options.CurrentValue;
+        var options = await _optionsResolver.ResolveAsync(cancellationToken);
         EnsureConfigured(options, requireSecret: false);
 
         var state = TokenGenerator.UrlSafe(StateBytes);
@@ -93,7 +99,7 @@ public class SlackOAuthService : ISlackOAuthService
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
         ArgumentException.ThrowIfNullOrWhiteSpace(state);
 
-        var options = _options.CurrentValue;
+        var options = await _optionsResolver.ResolveAsync(cancellationToken);
         EnsureConfigured(options, requireSecret: true);
 
         var entry = await _stateStore.ConsumeAsync(state, cancellationToken);
@@ -253,21 +259,33 @@ public class SlackOAuthService : ISlackOAuthService
     {
         if (string.IsNullOrWhiteSpace(options.ClientId))
         {
-            throw new InvalidOperationException("Slack:OAuth:ClientId is not configured.");
+            throw new InvalidOperationException(
+                "Slack OAuth ClientId is not configured. Run `spring connector slack install` " +
+                "(with `--write-env`, `--write-secrets`, or `--write-tenant-secrets`) or set " +
+                "`Slack:OAuth:ClientId` in `spring.env`.");
         }
         if (string.IsNullOrWhiteSpace(options.RedirectUri))
         {
-            throw new InvalidOperationException("Slack:OAuth:RedirectUri is not configured.");
+            throw new InvalidOperationException(
+                "Slack OAuth RedirectUri is not configured. Run `spring connector slack install` " +
+                "(with `--write-env`, `--write-secrets`, or `--write-tenant-secrets`) or set " +
+                "`Slack:OAuth:RedirectUri` in `spring.env`.");
         }
         if (requireSecret)
         {
             if (string.IsNullOrWhiteSpace(options.ClientSecret))
             {
-                throw new InvalidOperationException("Slack:OAuth:ClientSecret is not configured.");
+                throw new InvalidOperationException(
+                    "Slack OAuth ClientSecret is not configured. Run `spring connector slack install` " +
+                    "(with `--write-env`, `--write-secrets`, or `--write-tenant-secrets`) or set " +
+                    "`Slack:OAuth:ClientSecret` in `spring.env`.");
             }
             if (string.IsNullOrWhiteSpace(options.SigningSecret))
             {
-                throw new InvalidOperationException("Slack:OAuth:SigningSecret is not configured.");
+                throw new InvalidOperationException(
+                    "Slack OAuth SigningSecret is not configured. Run `spring connector slack install` " +
+                    "(with `--write-env`, `--write-secrets`, or `--write-tenant-secrets`) or set " +
+                    "`Slack:OAuth:SigningSecret` in `spring.env`.");
             }
         }
     }

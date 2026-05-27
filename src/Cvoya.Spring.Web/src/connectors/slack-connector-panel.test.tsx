@@ -155,16 +155,17 @@ describe("SlackConnectorPanel", () => {
     openSpy.mockRestore();
   });
 
-  // The 502 path — Slack OAuth options not set in spring.env. Surfaced
-  // with the "not configured" palette and no retry button (same reason
-  // as Grid — operator change required first).
+  // The 502 path — Slack OAuth options are not configured across any
+  // persistence tier (tenant-secret / platform-secret / env-config).
+  // Surfaced with the "not configured" palette and no retry button
+  // (same reason as Grid — operator change required first).
   it("renders the not-configured error when the OAuth start returns 502", async () => {
     mockedApi.getTenantSlackBinding.mockResolvedValue(null);
     mockedApi.beginSlackOAuthAuthorize.mockRejectedValue(
       new ApiError(502, "Bad Gateway", {
         title: "Slack OAuth is not configured",
         detail:
-          "An operator needs to set Slack:OAuth:ClientId in spring.env.",
+          "An operator needs to run `spring connector slack install` with one of --write-env, --write-secrets, or --write-tenant-secrets.",
       }),
     );
 

@@ -53,6 +53,8 @@ What callers get:
 - Audit decorators see every resolve with a `SecretResolvePath` so "inherited" lookups are first-class events, not reconstructed by comparing the requested `SecretRef` against a list response.
 - Customers who need strict per-scope isolation set `Secrets:InheritTenantFromUnit = false`.
 
+**Worked example — Slack OAuth credentials at tenant scope** ([issue #2849](https://github.com/cvoya-com/spring-voyage/issues/2849), ADR-0061 §6.1). The Slack connector's `ISlackOAuthOptionsResolver` consumes tenant-scoped secrets directly (`SecretScope.Tenant`, owner = current tenant id) for its four OAuth credentials. This sits on a different chain than the Unit → Tenant fall-through described here — credential-style fields don't inherit downward from Unit — but it is the canonical example of credentials living at tenant scope so they are rotated, audited, and isolated per tenant rather than as deployment-wide env config.
+
 What the private cloud repo gets:
 
 - The new `SecretAccessAction.Read` member is the single authorization hook for resolve-time checks. The cloud's real RBAC implementation — tenant-admin / per-role grants — plugs in via the existing DI override without any call-site change.

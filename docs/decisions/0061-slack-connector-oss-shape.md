@@ -117,6 +117,22 @@ The minimum scope set for v0.1, derived from the DM-only restriction:
 
 `channels:history`, `groups:history`, `mpim:*`, `app_mentions:read`, and any `team:*` scopes are explicitly **not** requested in v0.1. Future generalisations add the ones they need (decision 7).
 
+### 6.1 OAuth credential persistence and resolution order (post-implementation refinement, [issue #2849](https://github.com/cvoya-com/spring-voyage/issues/2849))
+
+§2.5's "each OSS install has its own Slack app" statement specifies the install model but is silent on **where** the four OAuth credentials (`ClientId`, `ClientSecret`, `SigningSecret`, `RedirectUri`) physically live. The runtime ships with three persistence tiers, queried per call in fixed order:
+
+1. **Tenant-scoped secret** at the well-known name (`slack-oauth-client-id`, `slack-oauth-client-secret`, `slack-oauth-signing-secret`, `slack-oauth-redirect-uri`). Written by `spring connector slack install --write-tenant-secrets`.
+2. **Platform-scoped secret** at the same name. Written by `spring connector slack install --write-secrets`.
+3. **Env-config** bound from `Slack:OAuth:*`. Written by `spring connector slack install --write-env` or a hand-edited `spring.env`.
+
+The chain is per-field, not all-or-nothing: an operator can pin `RedirectUri` in env-config and override `ClientSecret` via a tenant-scoped row without inconsistency. Non-credential fields (`Scopes`, `StateTtl`) come only from env-config — they are install-time / operational tunables, not credentials.
+
+The connector consumes the resolved snapshot through `ISlackOAuthOptionsResolver` (a singleton that opens a scope per call for `ISecretResolver` + `ITenantContext`). This is the same scope-factory pattern `SlackInstallStore` uses; nothing about the v0.1 single-tenant shape changes.
+
+**Relationship to §7.** The tenant-scoped persistence tier is the load-bearing prerequisite for §7.5's multi-workspace-per-tenant generalisation: each tenant's row of Slack credentials lives at tenant scope, so a future multi-tenant install lands additional rows without touching platform config. §7's full generalisation (per-binding credentials, per-binding scoping below tenant) is tracked at [issue #2850](https://github.com/cvoya-com/spring-voyage/issues/2850); §6.1 here only pins the persistence-and-resolution order.
+
+The v0.1 single-tenant shape description in §2.5 stays correct as written — this refinement is about **where** the four credentials live, not about the install model itself.
+
 ### 7. Forward-compatibility seams (multi-user per tenant; multi-tenant)
 
 Implementers MUST preserve the following seams in v0.1 so that the multi-user-per-tenant and multi-tenant generalisations land as additive changes, not rewrites.

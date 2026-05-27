@@ -10,7 +10,7 @@ Spring Voyage distinguishes three tiers of configuration so credentials live whe
 
 | Tier | Location | Examples | Who sets it |
 |------|----------|----------|-------------|
-| **Tier 1 — platform-deploy** | Env / `spring.env` / startup config | DB connection, Dapr wiring, `GitHub__AppId` / `GitHub__PrivateKeyPem` / `GitHub__WebhookSecret` (identity of the Spring Voyage instance itself as a GitHub App — every deployment registers its own App, see [Register your GitHub App](github-app-setup.md)) | Ops team at deploy time |
+| **Tier 1 — platform-deploy** | Env / `spring.env` / startup config | DB connection, Dapr wiring, `GitHub__AppId` / `GitHub__PrivateKeyPem` / `GitHub__WebhookSecret` (identity of the Spring Voyage instance itself as a GitHub App — every deployment registers its own App, see [Register your GitHub App](github-app-setup.md)); Slack OAuth credentials (`Slack__OAuth__*`) when persisted via `spring connector slack install --write-env` | Ops team at deploy time |
 | **Tier 2 — tenant-default** | Database (`SecretScope.Tenant`) | LLM runtime credentials (`anthropic-oauth`, `anthropic-api-key`, `openai-api-key`, `google-api-key`), tenant-wide observability / monitoring tokens | Tenant admin post-deploy |
 | **Tier 3 — unit-override** | Database (`SecretScope.Unit`) | Per-unit variants of any tier-2 credential (a unit that calls a different Anthropic account than the tenant default) | Unit operator |
 
@@ -33,6 +33,8 @@ A secret is a named, scoped, versioned reference to sensitive material:
 Plaintext enters exactly once (on `create` or `rotate`) and is never returned in any response, list entry, or log. The only path that surfaces plaintext is `ISecretResolver.ResolveAsync`, which runs server-side and is consumed by agents, connectors, and tool launchers.
 
 > **Startup-time credentials live outside this registry.** The GitHub App `GitHub__AppId` / `GitHub__PrivateKeyPem` pair is sourced from `spring.env` before the registry is reachable. Each deployment registers its own GitHub App; see [Register your GitHub App](github-app-setup.md). If missing, the GitHub connector boots disabled; if malformed, the host refuses to start. Everything on this page covers runtime secrets the platform manages — the startup bootstrap pair is out of scope.
+
+> **Slack OAuth credentials can be Tier-1 or Tier-3 ([issue #2849](https://github.com/cvoya-com/spring-voyage/issues/2849)).** The Slack connector resolves its four OAuth credentials (`ClientId`, `ClientSecret`, `SigningSecret`, `RedirectUri`) per call through the chain **tenant-secret → platform-secret → env-config**. When `spring connector slack install --write-env` is used, the credentials live in `Slack__OAuth__*` env vars and are Tier-1 (deployment identity, no rotation through the registry). When `--write-tenant-secrets` is used, they live in the tenant-scoped registry and are Tier-3 — rotated, audited, and isolated per tenant exactly like any other tenant secret. `--write-secrets` (platform scope) sits between the two. Pick whichever scope matches how you want to rotate / audit the values; the runtime fall-through means all three can coexist during a migration.
 
 ## Surfaces
 

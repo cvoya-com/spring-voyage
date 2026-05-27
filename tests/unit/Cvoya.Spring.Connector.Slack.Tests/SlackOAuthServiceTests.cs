@@ -7,7 +7,6 @@ using Cvoya.Spring.Connector.Slack.Auth.OAuth;
 using Cvoya.Spring.Connector.Slack.Configuration;
 
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 
 using NSubstitute;
 
@@ -449,13 +448,13 @@ public class SlackOAuthServiceTests
 
     private SlackOAuthService CreateSut()
     {
-        var options = Substitute.For<IOptionsMonitor<SlackOAuthOptions>>();
-        options.CurrentValue.Returns(DefaultOptions);
+        var resolver = Substitute.For<ISlackOAuthOptionsResolver>();
+        resolver.ResolveAsync(Arg.Any<CancellationToken>()).Returns(DefaultOptions);
         return new SlackOAuthService(
             _stateStore,
             _http,
             _installStore,
-            options,
+            resolver,
             NullLoggerFactory.Instance);
     }
 }

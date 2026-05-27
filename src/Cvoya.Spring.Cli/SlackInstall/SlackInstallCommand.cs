@@ -71,6 +71,16 @@ public static class SlackInstallCommand
                 "secret written in this run (issue #2839).",
             DefaultValueFactory = _ => false,
         };
+        var writeTenantSecretsOption = new Option<bool>("--write-tenant-secrets")
+        {
+            Description =
+                "Persist credentials as tenant-scoped secrets via the Spring " +
+                "API. The connector resolves these per-request via the tenant " +
+                "→ platform → env precedence chain (issue #2849). Writes are " +
+                "atomic — any failure rolls back every secret written in this " +
+                "run.",
+            DefaultValueFactory = _ => false,
+        };
         var envPathOption = new Option<string?>("--env-path")
         {
             Description =
@@ -97,6 +107,7 @@ public static class SlackInstallCommand
         command.Options.Add(svHostOption);
         command.Options.Add(writeEnvOption);
         command.Options.Add(writeSecretsOption);
+        command.Options.Add(writeTenantSecretsOption);
         command.Options.Add(envPathOption);
         command.Options.Add(dryRunOption);
 
@@ -107,6 +118,7 @@ public static class SlackInstallCommand
             var svHostOverride = parseResult.GetValue(svHostOption);
             var writeEnv = parseResult.GetValue(writeEnvOption);
             var writeSecrets = parseResult.GetValue(writeSecretsOption);
+            var writeTenantSecrets = parseResult.GetValue(writeTenantSecretsOption);
             var envPathOverride = parseResult.GetValue(envPathOption);
             var dryRun = parseResult.GetValue(dryRunOption);
 
@@ -118,6 +130,7 @@ public static class SlackInstallCommand
                     svHostOverride: svHostOverride,
                     writeEnv: writeEnv,
                     writeSecrets: writeSecrets,
+                    writeTenantSecrets: writeTenantSecrets,
                     envFilePathOverride: envPathOverride,
                     dryRun: dryRun,
                     cancellationToken: ct).ConfigureAwait(false);
@@ -165,6 +178,7 @@ public static class SlackInstallCommand
         string? svHostOverride,
         bool writeEnv,
         bool writeSecrets,
+        bool writeTenantSecrets,
         string? envFilePathOverride,
         bool dryRun,
         CancellationToken cancellationToken,
@@ -175,16 +189,21 @@ public static class SlackInstallCommand
     {
         stdout ??= Console.Out;
 
-        if (writeEnv && writeSecrets)
+        // The three persistence flags are mutually exclusive — each
+        // targets a different store with different rotation / scope
+        // semantics, so layering them is more likely a misconfig than
+        // a deliberate choice.
+        var selectedFlagCount = (writeEnv ? 1 : 0) + (writeSecrets ? 1 : 0) + (writeTenantSecrets ? 1 : 0);
+        if (selectedFlagCount > 1)
         {
             throw new SlackInstallException(
-                "--write-env and --write-secrets are mutually exclusive.");
+                "--write-env, --write-secrets, and --write-tenant-secrets are mutually exclusive.");
         }
 
         var resolvedToken = ResolveConfigToken(configToken, dryRun);
         var resolvedAppName = ResolveAppName(appName);
         var resolvedHost = ResolveSvHost(svHostOverride);
-        var persistence = ResolvePersistence(writeEnv, writeSecrets, dryRun);
+        var persistence = ResolvePersistence(writeEnv, writeSecrets, writeTenantSecrets, dryRun);
 
         var manifestInputs = new SlackAppManifest.Inputs(
             AppName: resolvedAppName,
@@ -237,6 +256,14 @@ public static class SlackInstallCommand
                 outcome = await SlackCredentialWriter.WriteSecretsAsync(
                     credentials, apiClient, cancellationToken).ConfigureAwait(false);
             }
+            else if (persistence == Persistence.WriteTenantSecrets)
+            {
+                var apiClient = apiClientFactoryOverride is null
+                    ? ClientFactory.Create()
+                    : apiClientFactoryOverride();
+                outcome = await SlackCredentialWriter.WriteTenantSecretsAsync(
+                    credentials, apiClient, cancellationToken).ConfigureAwait(false);
+            }
             else
             {
                 outcome = await SlackCredentialWriter.WriteEnvAsync(
@@ -245,7 +272,7 @@ public static class SlackInstallCommand
                     cancellationToken).ConfigureAwait(false);
             }
 
-            PrintSuccess(stdout, createResult, outcome, resolvedHost);
+            PrintSuccess(stdout, createResult, outcome, resolvedHost, persistence);
         }
         finally
         {
@@ -260,6 +287,7 @@ public static class SlackInstallCommand
     {
         WriteEnv,
         WriteSecrets,
+        WriteTenantSecrets,
     }
 
     private static string ResolveConfigToken(string? supplied, bool dryRun)
@@ -322,7 +350,8 @@ public static class SlackInstallCommand
         return "http://localhost:5000";
     }
 
-    private static Persistence ResolvePersistence(bool writeEnv, bool writeSecrets, bool dryRun)
+    private static Persistence ResolvePersistence(
+        bool writeEnv, bool writeSecrets, bool writeTenantSecrets, bool dryRun)
     {
         if (writeEnv)
         {
@@ -331,6 +360,10 @@ public static class SlackInstallCommand
         if (writeSecrets)
         {
             return Persistence.WriteSecrets;
+        }
+        if (writeTenantSecrets)
+        {
+            return Persistence.WriteTenantSecrets;
         }
 
         // Dry-run doesn't persist; pick a placeholder so the preamble
@@ -348,12 +381,20 @@ public static class SlackInstallCommand
             return Persistence.WriteEnv;
         }
 
-        Console.Write("Persist credentials to (e)nv file or platform (s)ecrets? [E/s] ");
+        Console.Write(
+            "Persist credentials to (e)nv file, platform (s)ecrets, or (t)enant secrets? [E/s/t] ");
         var line = Console.ReadLine();
-        if (!string.IsNullOrWhiteSpace(line)
-            && line.Trim().StartsWith("s", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(line))
         {
-            return Persistence.WriteSecrets;
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("s", StringComparison.OrdinalIgnoreCase))
+            {
+                return Persistence.WriteSecrets;
+            }
+            if (trimmed.StartsWith("t", StringComparison.OrdinalIgnoreCase))
+            {
+                return Persistence.WriteTenantSecrets;
+            }
         }
         return Persistence.WriteEnv;
     }
@@ -393,7 +434,8 @@ public static class SlackInstallCommand
         TextWriter stdout,
         SlackManifestCreateResult result,
         SlackCredentialWriter.WriteOutcome outcome,
-        string svHost)
+        string svHost,
+        Persistence persistence)
     {
         stdout.WriteLine();
         stdout.WriteLine("Slack app created.");
@@ -431,7 +473,17 @@ public static class SlackInstallCommand
             stdout.WriteLine($"  {fallback}");
         }
         stdout.WriteLine();
-        stdout.WriteLine("Restart any running services so they pick up the new Slack:OAuth:* config.");
+        if (persistence == Persistence.WriteEnv)
+        {
+            stdout.WriteLine(
+                "Restart any running services so they pick up the new Slack:OAuth:* config.");
+        }
+        else
+        {
+            stdout.WriteLine(
+                "No restart needed — the runtime resolves OAuth credentials per call " +
+                "via the secret registry (tenant → platform → env).");
+        }
     }
 
     private static HttpClient CreateDefaultHttpClient()

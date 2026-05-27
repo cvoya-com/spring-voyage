@@ -59,6 +59,11 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<ISlackOAuthHttpClient, SlackOAuthHttpClient>();
         services.TryAddSingleton<ISlackInstallStore, SlackInstallStore>();
+        // Per-call resolver for SlackOAuthOptions — sources credential
+        // fields from the tenant → platform → env precedence chain
+        // (issue #2849). Registered before SlackOAuthService so the
+        // service can consume it.
+        services.TryAddSingleton<ISlackOAuthOptionsResolver, SlackOAuthOptionsResolver>();
         services.TryAddSingleton<ISlackOAuthService, SlackOAuthService>();
 
         // Slack-thread parent-message slug builder (ADR-0061 §4).
