@@ -67,26 +67,22 @@ public class MessageRouter : IMessageRouter
     {
         var destination = message.To;
 
-        // #2053 / ADR-0030: persist the message envelope before delivery so the
-        // Thread Timeline has a durable row even if the downstream recipient
-        // throws. The write is keyed on Message.Id and idempotent — re-dispatch
-        // (manual retry, multicast fanout) hits the existence check inside the
-        // writer rather than duplicating history. Skipped for control /
-        // non-Domain messages (HealthCheck, Cancel, …) and for messages that
-        // arrive without a Guid-shaped thread id; the API path validates the
-        // shape before calling, so the skip is a defensive guard.
-        if (IMessageWriter.ShouldWrite(message))
-        {
-            await PersistMessageAsync(message, cancellationToken);
-        }
-
         // Multicast: role:// addresses fan out to all actors with that role.
+        // Resolved separately because role addresses have many actor ids and
+        // the unit-permission gate doesn't apply.
         if (string.Equals(destination.Scheme, "role", StringComparison.OrdinalIgnoreCase))
         {
+            if (IMessageWriter.ShouldWrite(message))
+            {
+                await PersistMessageAsync(message, cancellationToken);
+            }
             return await RouteMulticastAsync(message, cancellationToken);
         }
 
-        // Resolve the actor ID from the address.
+        // Resolve the actor ID from the address before persisting so the
+        // permission gate (below) can run on the resolved unit guid. The
+        // resolution itself is read-only — no DB writes — so a forbidden
+        // send still leaves the timeline clean (#2859).
         var resolution = await ResolveActorIdAsync(destination, cancellationToken);
         if (!resolution.IsSuccess)
         {
@@ -101,6 +97,14 @@ public class MessageRouter : IMessageRouter
         // the unit. The OSS PermissionService short-circuits tenant-user to
         // implicit Owner; the cloud overlay can swap in a per-tenant-user
         // grant lookup via DI without touching this gate.
+        //
+        // #2859: this gate runs BEFORE PersistMessageAsync. A 403 must leave
+        // the messages table — and any Activity event the endpoint emits —
+        // free of phantom rows for the denied attempt. ADR-0030's
+        // "persist-on-delivery-failure" invariant is preserved for genuine
+        // delivery exceptions (DeliverAsync throws after the persist below);
+        // the reorder narrows it to "persist iff the caller is allowed to
+        // send."
         if (string.Equals(actorScheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
             && (string.Equals(message.From.Scheme, Address.HumanScheme, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(message.From.Scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase)))
@@ -122,6 +126,25 @@ public class MessageRouter : IMessageRouter
             {
                 return Result<Message?, RoutingError>.Failure(permissionCheck.Error!);
             }
+        }
+
+        // #2053 / ADR-0030: persist the message envelope before delivery so
+        // the Thread Timeline has a durable row even if the downstream
+        // recipient throws. The write is keyed on Message.Id and idempotent —
+        // re-dispatch (manual retry) hits the existence check inside the
+        // writer rather than duplicating history. Skipped for control /
+        // non-Domain messages (HealthCheck, Cancel, …) and for messages that
+        // arrive without a Guid-shaped thread id; the API path validates the
+        // shape before calling, so the skip is a defensive guard.
+        //
+        // #2859: this write now happens AFTER the permission gate above so a
+        // 403 leaves the messages table clean. ADR-0030's persist-on-failure
+        // invariant continues to apply to delivery exceptions (DeliverAsync
+        // throws after this point) — only the authorization-rejection path
+        // skips persistence.
+        if (IMessageWriter.ShouldWrite(message))
+        {
+            await PersistMessageAsync(message, cancellationToken);
         }
 
         return await DeliverAsync(message, actorId, actorScheme, cancellationToken);
