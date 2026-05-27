@@ -6,8 +6,11 @@ namespace Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Units;
 
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -20,11 +23,16 @@ using Microsoft.Extensions.Logging;
 ///     <see cref="PermissionLevel.Owner"/> on every unit (#2768). The OSS
 ///     deployment ships with exactly one TenantUser; an explicit grant row
 ///     carries no information.</description></item>
-///   <item><description><c>human://&lt;id&gt;</c> — direct/inherited lookup
-///     against the <c>unit_human_permissions</c> EF table, walking ancestor
-///     units via <see cref="IUnitHierarchyResolver"/> and consulting each
-///     unit's <see cref="UnitPermissionInheritance"/> setting so opaque
-///     sub-units block ancestor authority from cascading through them.</description></item>
+///   <item><description><c>human://&lt;id&gt;</c> — first the FK on
+///     <c>humans.tenant_user_id</c> (ADR-0062 § 1) is consulted; when the Hat
+///     is bound to a TenantUser, the resolver re-evaluates as that
+///     TenantUser so the OSS implicit-Owner rule reaches every Hat the
+///     operator wears (#2858). Unbound humans fall back to the direct /
+///     inherited lookup against the <c>unit_human_permissions</c> EF table,
+///     walking ancestor units via <see cref="IUnitHierarchyResolver"/> and
+///     consulting each unit's <see cref="UnitPermissionInheritance"/>
+///     setting so opaque sub-units block ancestor authority from cascading
+///     through them.</description></item>
 ///   <item><description>Any other scheme — <c>null</c> (no permission).</description></item>
 /// </list>
 /// </summary>
@@ -41,6 +49,7 @@ public class PermissionService(
     IUnitHumanPermissionStore permissionStore,
     IUnitHierarchyResolver hierarchyResolver,
     IUnitLiveConfigStore liveConfigStore,
+    IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory) : IPermissionService
 {
     /// <summary>
@@ -72,6 +81,20 @@ public class PermissionService(
         if (!IsHumanScheme(caller.Scheme))
         {
             return null;
+        }
+
+        // #2858: ADR-0062 § 3 has the API boundary rewrite the auth principal
+        // (tenant-user://) to the speaking-as Hat (human://). The permission
+        // walk would otherwise miss the implicit-Owner short-circuit for the
+        // OSS operator — every Hat bound to the operator TenantUser must
+        // inherit Owner uniformly. Look up humans.tenant_user_id and
+        // re-evaluate as the TenantUser when the Hat is bound. The cloud
+        // overlay replaces this service via DI; the FK walk is OSS-local.
+        var tenantUserId = await ResolveTenantUserIdAsync(caller.Id, cancellationToken);
+        if (tenantUserId.HasValue && tenantUserId.Value != Guid.Empty)
+        {
+            var tenantUserAddress = new Address(Address.TenantUserScheme, tenantUserId.Value);
+            return await ResolvePermissionAsync(tenantUserAddress, unitId, cancellationToken);
         }
 
         try
@@ -109,6 +132,22 @@ public class PermissionService(
         }
 
         var humanGuid = caller.Id;
+
+        // #2858: follow humans.tenant_user_id (ADR-0062 § 1) before the
+        // grant-table walk so every Hat bound to the OSS operator inherits
+        // the implicit-Owner rule. The endpoint boundary rewrote the
+        // tenant-user:// principal to human:// (ADR-0062 § 3) — without
+        // this re-evaluation the implicit-Owner short-circuit would be
+        // bypassed entirely, and forbid every operator-driven unit message
+        // until an explicit unit_human_permissions row is planted. The
+        // cloud overlay replaces IPermissionService via DI, so the FK
+        // walk is OSS-local behaviour.
+        var tenantUserId = await ResolveTenantUserIdAsync(humanGuid, cancellationToken);
+        if (tenantUserId.HasValue && tenantUserId.Value != Guid.Empty)
+        {
+            var tenantUserAddress = new Address(Address.TenantUserScheme, tenantUserId.Value);
+            return await ResolveEffectivePermissionAsync(tenantUserAddress, unitId, cancellationToken);
+        }
 
         // Step 1: explicit grant on the target unit always wins. A direct
         // grant is authoritative — including a deliberate downgrade. The
@@ -267,6 +306,42 @@ public class PermissionService(
                 "Effective-permission walk: could not read inheritance mode for {Unit}; treating as Isolated for safety.",
                 unit);
             return UnitPermissionInheritance.Isolated;
+        }
+    }
+
+    /// <summary>
+    /// Resolves the <c>tenant_user_id</c> FK for a Human row (ADR-0062 § 1).
+    /// Returns <c>null</c> when the Human row does not exist, when the FK is
+    /// <see cref="Guid.Empty"/> (the migration default for legacy rows that
+    /// the seed provider hasn't backfilled yet), or when the EF read fails —
+    /// the fail-closed branch falls through to the human-keyed grant lookup
+    /// so an EF outage doesn't silently promote callers.
+    /// </summary>
+    /// <remarks>
+    /// The service is a singleton; the scoped <see cref="SpringDbContext"/>
+    /// is resolved per call via the injected
+    /// <see cref="IServiceScopeFactory"/>, mirroring
+    /// <see cref="UnitHumanPermissionStore"/>'s scope-per-call pattern.
+    /// </remarks>
+    private async Task<Guid?> ResolveTenantUserIdAsync(Guid humanId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            var tenantUserId = await db.Humans
+                .AsNoTracking()
+                .Where(h => h.Id == humanId)
+                .Select(h => (Guid?)h.TenantUserId)
+                .FirstOrDefaultAsync(cancellationToken);
+            return tenantUserId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Effective-permission walk: humans.tenant_user_id read failed for human {HumanId}; falling back to grant-table lookup.",
+                humanId);
+            return null;
         }
     }
 

@@ -409,6 +409,63 @@ public class MessageRouterTests
     }
 
     [Fact]
+    public async Task RouteAsync_HumanToUnitWithoutPermission_DoesNotPersistToMessagesTable()
+    {
+        // #2859: a forbidden send must leave the `messages` table clean.
+        // The router used to persist the envelope before the permission
+        // gate ran, which produced phantom rows on the Conversations /
+        // Engagements UIs and the thread timeline for sends the recipient
+        // never received. The reorder narrows ADR-0030's
+        // persist-on-failure invariant to "persist iff the caller is
+        // allowed to send"; delivery exceptions still hit the persist
+        // path (covered by RouteAsync_DomainMessage_PersistsToMessagesTableViaWriter).
+        var ct = TestContext.Current.CancellationToken;
+        var tenantId = new Guid("11111111-2222-3333-4444-000000000097");
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var dbName = $"router-{Guid.NewGuid()}";
+        services.AddDbContext<SpringDbContext>(opts => opts.UseInMemoryDatabase(dbName));
+        services.AddSingleton<ITenantContext>(new StaticTenantContext(tenantId));
+        services.AddScoped<IParticipantDisplayNameResolver>(_ => new FallbackOnlyResolver());
+        services.AddSingleton<IMessagePayloadRenderer, BareStringPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, TextPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, BodyPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, OutputPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, ContentPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRendererRegistry, MessagePayloadRendererRegistry>();
+        services.AddScoped<IMessageWriter, EfMessageWriter>();
+        var provider = services.BuildServiceProvider();
+        var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
+
+        var destination = new Address("unit", UnitOneId);
+        var entry = new DirectoryEntry(destination, UnitOneId, "Engineering", "Team", null, DateTimeOffset.UtcNow);
+        var message = CreateMessageFromHuman(destination, HumanUnauthorisedId);
+
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
+        _permissionService.ResolveEffectivePermissionAsync(
+                Arg.Is<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanUnauthorisedId),
+                UnitOneId,
+                Arg.Any<CancellationToken>())
+            .Returns((PermissionLevel?)null);
+
+        var routerWithScope = new MessageRouter(
+            _directoryService, _agentProxyResolver, _permissionService, _loggerFactory, scopeFactory);
+
+        var result = await routerWithScope.RouteAsync(message, ct);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error!.Code.ShouldBe("PERMISSION_DENIED");
+
+        using var verifyScope = scopeFactory.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        (await verifyDb.Messages.AsNoTracking().AnyAsync(ct)).ShouldBeFalse();
+        // Threads created upstream of the router (by the API endpoint's
+        // IThreadRegistry call) live in a separate table; that path is
+        // covered by the endpoint-level test in MessageEndpointsTests.
+    }
+
+    [Fact]
     public async Task RouteAsync_NonDomainMessage_DoesNotPersistToMessagesTable()
     {
         // Control messages (HealthCheck / Cancel / StatusQuery) are runtime-

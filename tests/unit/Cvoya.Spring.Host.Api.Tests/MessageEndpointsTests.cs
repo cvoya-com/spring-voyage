@@ -10,8 +10,12 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 using NSubstitute;
 
@@ -33,6 +37,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     private static readonly Guid FlakyAgentId = new("11111111-0000-0000-0000-000000000008");
     private static readonly Guid NonGuidThreadAgentId = new("11111111-0000-0000-0000-000000000009");
     private static readonly Guid UnknownThreadAgentId = new("11111111-0000-0000-0000-00000000000a");
+    private static readonly Guid ForbiddenUnitId = new("22222222-0000-0000-0000-000000000002");
 
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
@@ -227,6 +232,79 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body!.ThreadId.ShouldBe(suppliedId);
         observed.ShouldNotBeNull();
         observed!.ThreadId.ShouldBe(suppliedId);
+    }
+
+    [Fact]
+    public async Task SendMessage_DomainToUnitForbidden_Returns403AndLeavesDbClean()
+    {
+        // #2859: a forbidden send must leave the `messages` table and the
+        // `threads` table clean — no phantom row should surface in the
+        // Conversations / Engagements UIs for a 403. The previous flow
+        // ran threadRegistry.GetOrCreateAsync (which inserts) and the
+        // router's persist before the permission gate; both are now
+        // gated by the endpoint-level precheck. The acceptance criterion
+        // is "zero rows in `messages` and zero new rows in `threads`."
+        var ct = TestContext.Current.CancellationToken;
+
+        var entry = new DirectoryEntry(
+            new Address("unit", ForbiddenUnitId),
+            ForbiddenUnitId,
+            "Locked Down",
+            "Team",
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ForbiddenUnitId),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        // Deny on the specific unit. The endpoint precheck reads the
+        // effective permission and surfaces a 403 before any persistence
+        // side-effect (thread registry, audit envelope, router persist)
+        // is allowed to run.
+        _factory.PermissionService.ResolveEffectivePermissionAsync(
+                Arg.Any<Address>(), ForbiddenUnitId, Arg.Any<CancellationToken>())
+            .Returns((Cvoya.Spring.Dapr.Actors.PermissionLevel?)null);
+
+        // Wire an agent proxy so the test can assert it's NEVER reached —
+        // the destination actor must not receive a forbidden message.
+        var unit = Substitute.For<IAgent>();
+        _factory.AgentProxyResolver
+            .Resolve(Arg.Is<string>(s => string.Equals(s, "unit", StringComparison.OrdinalIgnoreCase)),
+                ForbiddenUnitId.ToString("N"))
+            .Returns(unit);
+
+        // Snapshot the threads/messages count BEFORE the call so any pre-
+        // existing rows from earlier tests in the fixture don't poison
+        // the delta-check below.
+        int threadsBefore;
+        int messagesBefore;
+        using (var snap = _factory.Services.CreateScope())
+        {
+            var snapDb = snap.ServiceProvider.GetRequiredService<SpringDbContext>();
+            threadsBefore = await snapDb.Threads.AsNoTracking().CountAsync(ct);
+            messagesBefore = await snapDb.Messages.AsNoTracking().CountAsync(ct);
+        }
+
+        var request = new SendMessageRequest(
+            new AddressDto("unit", ForbiddenUnitId.ToString("N")),
+            "Domain",
+            null,
+            JsonSerializer.SerializeToElement(new { Text = "denied" }));
+
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+
+        // The destination actor must not have been called for a forbidden send.
+        await unit.DidNotReceive().ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var threadsAfter = await verifyDb.Threads.AsNoTracking().CountAsync(ct);
+        var messagesAfter = await verifyDb.Messages.AsNoTracking().CountAsync(ct);
+        threadsAfter.ShouldBe(threadsBefore);
+        messagesAfter.ShouldBe(messagesBefore);
     }
 
     [Fact]

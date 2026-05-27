@@ -8,9 +8,14 @@ using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
+using Cvoya.Spring.Dapr.Tenancy;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
 using Cvoya.Spring.Dapr.Units;
 
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using NSubstitute;
@@ -34,11 +39,20 @@ using Xunit;
 /// lookup — no actor proxy is required anywhere in the walk. The tests
 /// therefore stub both stores directly through
 /// <see cref="InMemoryUnitLiveConfigStore"/>.
+///
+/// Post-#2858 the resolver also follows <c>humans.tenant_user_id</c>
+/// (ADR-0062 § 1) before the grant-table walk so every Hat bound to the
+/// OSS operator inherits the implicit-Owner rule. The tests wire a real
+/// EF in-memory <see cref="SpringDbContext"/> through an
+/// <see cref="IServiceScopeFactory"/> so the FK lookup runs against a
+/// seeded humans table.
 /// </summary>
 public class PermissionServiceTests
 {
     private static readonly Guid HumanGuid = new("aaaaaaaa-bbbb-cccc-dddd-000000000001");
+    private static readonly Guid HumanOperatorBoundGuid = new("aaaaaaaa-bbbb-cccc-dddd-000000000002");
     private static readonly Address HumanCaller = Address.ForIdentity(Address.HumanScheme, HumanGuid);
+    private static readonly Address HumanOperatorBoundCaller = Address.ForIdentity(Address.HumanScheme, HumanOperatorBoundGuid);
 
     // Stable Guids for each logical unit role used across the suite.
     private static readonly Guid UnitChildId = new("c0c0c0c0-0000-0000-0000-000000000001");
@@ -51,6 +65,7 @@ public class PermissionServiceTests
     private readonly IUnitHierarchyResolver _hierarchyResolver = Substitute.For<IUnitHierarchyResolver>();
     private readonly InMemoryUnitLiveConfigStore _liveConfigStore = new();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly PermissionService _service;
 
     public PermissionServiceTests()
@@ -65,8 +80,45 @@ public class PermissionServiceTests
         _hierarchyResolver.GetParentsAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Address>());
 
+        // Wire a real EF in-memory DbContext through a scope factory so the
+        // #2858 humans.tenant_user_id lookup runs against seeded data.
+        // The default seeded set has:
+        //   * HumanGuid           — UNBOUND (tenant_user_id = Guid.Empty); legacy / phantom Hat
+        //   * HumanOperatorBoundGuid — BOUND to the OSS operator TenantUser
+        _scopeFactory = BuildScopeFactoryWithHumans(
+            (HumanGuid, Guid.Empty),
+            (HumanOperatorBoundGuid, OssTenantUserIds.Operator));
+
         _service = new PermissionService(
-            _permissionStore, _hierarchyResolver, _liveConfigStore, _loggerFactory);
+            _permissionStore, _hierarchyResolver, _liveConfigStore, _scopeFactory, _loggerFactory);
+    }
+
+    private static IServiceScopeFactory BuildScopeFactoryWithHumans(
+        params (Guid HumanId, Guid TenantUserId)[] humans)
+    {
+        var dbName = $"PermissionService-{Guid.NewGuid()}";
+        var services = new ServiceCollection();
+        services.AddDbContext<SpringDbContext>(opts => opts.UseInMemoryDatabase(dbName));
+        services.AddSingleton<ITenantContext>(new StaticTenantContext(OssTenantIds.Default));
+        var provider = services.BuildServiceProvider();
+        var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
+
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        foreach (var (id, tuid) in humans)
+        {
+            db.Humans.Add(new HumanEntity
+            {
+                Id = id,
+                TenantId = OssTenantIds.Default,
+                TenantUserId = tuid,
+                Username = $"user-{id:N}",
+                DisplayName = $"User {id:N}",
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+        }
+        db.SaveChanges();
+        return scopeFactory;
     }
 
     private void GrantPermission(Guid unitId, Guid humanId, PermissionLevel level)
@@ -121,6 +173,25 @@ public class PermissionServiceTests
         var caller = Address.ForIdentity(Address.TenantUserScheme, OssTenantUserIds.Operator);
 
         var result = await _service.ResolvePermissionAsync(caller, UnitOneId, ct);
+
+        result.ShouldBe(PermissionLevel.Owner);
+        await _permissionStore.DidNotReceive().GetPermissionAsync(
+            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolvePermissionAsync_HumanCaller_BoundToOperator_ReturnsImplicitOwner()
+    {
+        // #2858: ADR-0062 § 3 rewrites the auth principal (tenant-user://)
+        // to the speaking-as Hat (human://) at the API boundary. Without
+        // the FK walk through humans.tenant_user_id, the implicit-Owner
+        // short-circuit would be skipped — every operator-driven unit
+        // message would 403 until an explicit unit_human_permissions row
+        // is planted. The Hat seeded as bound to the operator inherits
+        // Owner without consulting the grant table.
+        var ct = TestContext.Current.CancellationToken;
+
+        var result = await _service.ResolvePermissionAsync(HumanOperatorBoundCaller, UnitOneId, ct);
 
         result.ShouldBe(PermissionLevel.Owner);
         await _permissionStore.DidNotReceive().GetPermissionAsync(
@@ -279,7 +350,7 @@ public class PermissionServiceTests
             .ThrowsAsync(new InvalidOperationException("EF down"));
 
         var failingService = new PermissionService(
-            _permissionStore, _hierarchyResolver, failingStore, _loggerFactory);
+            _permissionStore, _hierarchyResolver, failingStore, _scopeFactory, _loggerFactory);
 
         GrantPermission(UnitParentId, HumanGuid, PermissionLevel.Owner);
 
@@ -327,6 +398,63 @@ public class PermissionServiceTests
             Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         await _hierarchyResolver.DidNotReceive().GetParentsAsync(
             Arg.Any<Address>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveEffectivePermissionAsync_HumanCaller_BoundToOperator_ReturnsImplicitOwner()
+    {
+        // #2858 core acceptance: a Hat bound to the OSS operator TenantUser
+        // inherits implicit Owner uniformly across every unit, including
+        // nested ones, without an explicit unit_human_permissions row.
+        // The grant table and hierarchy walker must never be consulted —
+        // the short-circuit happens before either runs.
+        var ct = TestContext.Current.CancellationToken;
+
+        var resultRoot = await _service.ResolveEffectivePermissionAsync(
+            HumanOperatorBoundCaller, UnitRootId, ct);
+        var resultChild = await _service.ResolveEffectivePermissionAsync(
+            HumanOperatorBoundCaller, UnitChildId, ct);
+        var resultGrandchild = await _service.ResolveEffectivePermissionAsync(
+            HumanOperatorBoundCaller, UnitGrandchildId, ct);
+
+        resultRoot.ShouldBe(PermissionLevel.Owner);
+        resultChild.ShouldBe(PermissionLevel.Owner);
+        resultGrandchild.ShouldBe(PermissionLevel.Owner);
+
+        await _permissionStore.DidNotReceive().GetPermissionAsync(
+            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _hierarchyResolver.DidNotReceive().GetParentsAsync(
+            Arg.Any<Address>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveEffectivePermissionAsync_UnboundHuman_NoGrant_ReturnsNull()
+    {
+        // #2858: a Human row with tenant_user_id = Guid.Empty (the
+        // migration default for legacy rows the seed provider hasn't
+        // backfilled yet) does not get the implicit-Owner short-circuit;
+        // the walk falls through to the standard grant-table lookup,
+        // which returns null because no unit_human_permissions row exists.
+        var ct = TestContext.Current.CancellationToken;
+
+        var result = await _service.ResolveEffectivePermissionAsync(HumanCaller, UnitChildId, ct);
+
+        result.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ResolveEffectivePermissionAsync_UnknownHuman_NoGrant_ReturnsNull()
+    {
+        // A human:// caller whose Human row does not exist in the FK
+        // table (no row for this id at all) must not get the implicit
+        // short-circuit; falls through to the grant-table lookup which
+        // returns null.
+        var ct = TestContext.Current.CancellationToken;
+        var unknown = Address.ForIdentity(Address.HumanScheme, Guid.NewGuid());
+
+        var result = await _service.ResolveEffectivePermissionAsync(unknown, UnitChildId, ct);
+
+        result.ShouldBeNull();
     }
 
     [Fact]

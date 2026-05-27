@@ -4,9 +4,12 @@
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
@@ -66,6 +69,8 @@ public static class MessageEndpoints
         IThreadRegistry threadRegistry,
         ITenantUserHumanResolver tenantUserHumanResolver,
         IActivityEventBus activityEventBus,
+        IDirectoryService directoryService,
+        IPermissionService permissionService,
         CancellationToken cancellationToken)
     {
         // #339: Use the authenticated subject's identity as the From address
@@ -133,6 +138,47 @@ public static class MessageEndpoints
         else
         {
             from = callerAddress;
+        }
+
+        // #2859: run the unit-permission gate BEFORE any persistence side-
+        // effect — thread-registry creation, activity-event emit, message
+        // envelope write. A forbidden send must leave the database
+        // completely clean (no `messages` row, no new `threads` row, no
+        // Activity event) so the Conversations / Engagements pages and the
+        // thread timeline don't surface phantom sends the recipient never
+        // received. The router runs its own gate (defence in depth for
+        // non-endpoint callers like connectors), but the persist sites
+        // above the router live in this handler, so the gate is hoisted
+        // here.
+        //
+        // Only Domain messages routed to unit:// destinations from a
+        // permission-bearing principal (human:// or tenant-user://) need
+        // the precheck. Control messages (HealthCheck / Cancel /
+        // StatusQuery) and routings to other schemes pass through.
+        if (messageType == MessageType.Domain
+            && string.Equals(to.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(from.Scheme, Address.HumanScheme, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(from.Scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase)))
+        {
+            var unitEntry = await directoryService.ResolveAsync(to, cancellationToken);
+            if (unitEntry is null)
+            {
+                return Results.Problem(
+                    detail: $"Address '{to.Scheme}://{to.Path}' not found",
+                    statusCode: StatusCodes.Status404NotFound);
+            }
+
+            var permission = await permissionService.ResolveEffectivePermissionAsync(
+                from, unitEntry.ActorId, cancellationToken);
+            if (permission is null || (int)permission.Value < (int)PermissionLevel.Viewer)
+            {
+                // Match the router's PERMISSION_DENIED surface so the
+                // operator-visible 403 message is uniform regardless of
+                // which gate (endpoint precheck or router) caught it.
+                return Results.Problem(
+                    detail: $"Permission denied for address {to.Scheme}://{to.Path}",
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
         }
 
         // #2047 / ADR-0030: every Domain message must carry a participant-set
