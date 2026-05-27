@@ -88,6 +88,17 @@ public static class SlackInstallCommand
                 "Defaults to ./eng/config/spring.env relative to the current " +
                 "working directory.",
         };
+        var socketModeOption = new Option<bool>("--socket-mode")
+        {
+            Description =
+                "Generate the manifest with `socket_mode_enabled: true`. Slack " +
+                "then delivers events, slash commands, and interactions over a " +
+                "WebSocket the bot opens outbound, bypassing the public-URL " +
+                "requirement for those surfaces (the OAuth redirect URL is " +
+                "still required). Pair with `eng/deploy/slack-events-forward.sh` " +
+                "for local-dev installs that have no public tunnel.",
+            DefaultValueFactory = _ => false,
+        };
         var dryRunOption = new Option<bool>("--dry-run")
         {
             Description =
@@ -109,6 +120,7 @@ public static class SlackInstallCommand
         command.Options.Add(writeSecretsOption);
         command.Options.Add(writeTenantSecretsOption);
         command.Options.Add(envPathOption);
+        command.Options.Add(socketModeOption);
         command.Options.Add(dryRunOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
@@ -120,6 +132,7 @@ public static class SlackInstallCommand
             var writeSecrets = parseResult.GetValue(writeSecretsOption);
             var writeTenantSecrets = parseResult.GetValue(writeTenantSecretsOption);
             var envPathOverride = parseResult.GetValue(envPathOption);
+            var socketMode = parseResult.GetValue(socketModeOption);
             var dryRun = parseResult.GetValue(dryRunOption);
 
             try
@@ -132,6 +145,7 @@ public static class SlackInstallCommand
                     writeSecrets: writeSecrets,
                     writeTenantSecrets: writeTenantSecrets,
                     envFilePathOverride: envPathOverride,
+                    socketMode: socketMode,
                     dryRun: dryRun,
                     cancellationToken: ct).ConfigureAwait(false);
             }
@@ -180,6 +194,7 @@ public static class SlackInstallCommand
         bool writeSecrets,
         bool writeTenantSecrets,
         string? envFilePathOverride,
+        bool socketMode,
         bool dryRun,
         CancellationToken cancellationToken,
         HttpClient? httpClientOverride = null,
@@ -203,15 +218,17 @@ public static class SlackInstallCommand
         var resolvedToken = ResolveConfigToken(configToken, dryRun);
         var resolvedAppName = ResolveAppName(appName);
         var resolvedHost = ResolveSvHost(svHostOverride);
+        ValidateSvHost(resolvedHost, socketMode, stdout);
         var persistence = ResolvePersistence(writeEnv, writeSecrets, writeTenantSecrets, dryRun);
 
         var manifestInputs = new SlackAppManifest.Inputs(
             AppName: resolvedAppName,
-            SvHost: resolvedHost);
+            SvHost: resolvedHost,
+            SocketModeEnabled: socketMode);
         var manifestJson = SlackAppManifest.BuildJson(manifestInputs);
         var redirectUri = resolvedHost.TrimEnd('/') + SlackAppManifest.OAuthCallbackPath;
 
-        PrintPreamble(stdout, resolvedAppName, resolvedHost, persistence);
+        PrintPreamble(stdout, resolvedAppName, resolvedHost, persistence, socketMode);
 
         if (dryRun)
         {
@@ -272,7 +289,7 @@ public static class SlackInstallCommand
                     cancellationToken).ConfigureAwait(false);
             }
 
-            PrintSuccess(stdout, createResult, outcome, resolvedHost, persistence);
+            PrintSuccess(stdout, createResult, outcome, resolvedHost, persistence, socketMode);
         }
         finally
         {
@@ -350,6 +367,123 @@ public static class SlackInstallCommand
         return "http://localhost:5000";
     }
 
+    /// <summary>
+    /// Shape-checks the resolved Spring Voyage host before it is baked into
+    /// the manifest. Catches the two classes of misconfig that produced
+    /// silently-broken installs against ~/.spring/config.json:
+    /// <list type="bullet">
+    ///   <item>Loopback host with no explicit port — the URL parses as
+    ///   port-80/443, which is almost never where a dev SV API actually
+    ///   listens (the default is <c>:5000</c>).</item>
+    ///   <item>Loopback host with a port, but <c>--socket-mode</c> was not
+    ///   requested — Slack cannot reach <c>localhost</c> from its own infra,
+    ///   so the events / commands / interactions URLs in the manifest are
+    ///   non-functional.</item>
+    /// </list>
+    /// Non-loopback HTTP hosts get a warning so production deployments
+    /// notice they are missing TLS.
+    /// </summary>
+    internal static void ValidateSvHost(string host, bool socketMode, TextWriter stdout)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+
+        Uri uri;
+        try
+        {
+            uri = new Uri(host);
+        }
+        catch (UriFormatException ex)
+        {
+            throw new SlackInstallException(
+                $"--sv-host '{host}' is not a well-formed absolute URL: {ex.Message}");
+        }
+
+        if (!uri.IsAbsoluteUri || (uri.Scheme != "http" && uri.Scheme != "https"))
+        {
+            throw new SlackInstallException(
+                $"--sv-host '{host}' must be an absolute http(s) URL.");
+        }
+
+        var hostName = uri.Host.ToLowerInvariant();
+        var isLoopback = hostName == "localhost"
+            || hostName == "127.0.0.1"
+            || hostName == "[::1]"
+            || hostName == "::1";
+
+        var hasExplicitPort = HostHasExplicitPort(host);
+
+        if (isLoopback && !hasExplicitPort)
+        {
+            throw new SlackInstallException(
+                $"--sv-host '{host}' resolves to {hostName} with the default port " +
+                $"({uri.Port}). Spring Voyage's API listens on :5000 by default — " +
+                "specify the port explicitly. Pass `--sv-host http://localhost:5000`, " +
+                "set SPRING_API_URL, or fix the Endpoint in ~/.spring/config.json.");
+        }
+
+        if (isLoopback && !socketMode)
+        {
+            stdout.WriteLine(
+                "WARNING: sv-host is a loopback address. Slack's servers cannot reach " +
+                "localhost — events, slash commands, and interactions will not be " +
+                "delivered. For local dev, re-run with `--socket-mode` and use " +
+                "`eng/deploy/slack-events-forward.sh` to bridge them.");
+            stdout.WriteLine();
+        }
+
+        if (!isLoopback && uri.Scheme == "http")
+        {
+            stdout.WriteLine(
+                "WARNING: sv-host uses http://, not https://. Slack accepts the " +
+                "manifest, but the OAuth handshake and inbound deliveries will fail " +
+                "in production unless TLS is terminated in front of this URL.");
+            stdout.WriteLine();
+        }
+    }
+
+    /// <summary>
+    /// True if the original <paramref name="host"/> string ends with
+    /// <c>:&lt;digits&gt;</c> on its authority component. <see cref="Uri.IsDefaultPort"/>
+    /// can't be used because it returns <c>true</c> whether the default port
+    /// was implicit or written out explicitly.
+    /// </summary>
+    private static bool HostHasExplicitPort(string host)
+    {
+        var schemeIdx = host.IndexOf("://", StringComparison.Ordinal);
+        var authorityStart = schemeIdx >= 0 ? schemeIdx + 3 : 0;
+        var pathStart = host.IndexOf('/', authorityStart);
+        var authority = pathStart >= 0
+            ? host[authorityStart..pathStart]
+            : host[authorityStart..];
+
+        // IPv6 authorities are bracketed: [::1]:8080 — match a `:digits` suffix
+        // outside any brackets.
+        var lastColon = authority.LastIndexOf(':');
+        if (lastColon < 0)
+        {
+            return false;
+        }
+        var afterColon = authority[(lastColon + 1)..];
+        if (afterColon.Length == 0)
+        {
+            return false;
+        }
+        var lastBracket = authority.LastIndexOf(']');
+        if (lastColon < lastBracket)
+        {
+            // colon is inside the bracketed IPv6 address; no explicit port.
+            return false;
+        }
+        foreach (var c in afterColon)
+        {
+            if (c < '0' || c > '9')
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static Persistence ResolvePersistence(
         bool writeEnv, bool writeSecrets, bool writeTenantSecrets, bool dryRun)
     {
@@ -405,7 +539,7 @@ public static class SlackInstallCommand
     }
 
     private static void PrintPreamble(
-        TextWriter stdout, string appName, string svHost, Persistence persistence)
+        TextWriter stdout, string appName, string svHost, Persistence persistence, bool socketMode)
     {
         stdout.WriteLine("spring connector slack install");
         stdout.WriteLine("==============================");
@@ -415,6 +549,7 @@ public static class SlackInstallCommand
         stdout.WriteLine($"  App name:     {appName}");
         stdout.WriteLine($"  SV host:      {svHost}");
         stdout.WriteLine($"  Persistence:  {persistence}");
+        stdout.WriteLine($"  Socket Mode:  {(socketMode ? "enabled" : "disabled")}");
         stdout.WriteLine();
         stdout.WriteLine("Bot scopes requested:");
         foreach (var scope in SlackAppManifest.BotScopes)
@@ -435,7 +570,8 @@ public static class SlackInstallCommand
         SlackManifestCreateResult result,
         SlackCredentialWriter.WriteOutcome outcome,
         string svHost,
-        Persistence persistence)
+        Persistence persistence,
+        bool socketMode)
     {
         stdout.WriteLine();
         stdout.WriteLine("Slack app created.");
@@ -483,6 +619,16 @@ public static class SlackInstallCommand
             stdout.WriteLine(
                 "No restart needed — the runtime resolves OAuth credentials per call " +
                 "via the secret registry (tenant → platform → env).");
+        }
+        if (socketMode)
+        {
+            stdout.WriteLine();
+            stdout.WriteLine("Socket Mode is enabled. To receive events / commands / interactions locally:");
+            stdout.WriteLine($"  1. Open https://api.slack.com/apps/{result.AppId}/general → 'App-Level Tokens'.");
+            stdout.WriteLine("  2. Generate a token with the 'connections:write' scope. Copy the xapp-… token.");
+            stdout.WriteLine("  3. Add it to eng/config/spring.env as:");
+            stdout.WriteLine("       Slack__SocketMode__AppToken=xapp-…");
+            stdout.WriteLine("  4. Run eng/deploy/slack-events-forward.sh to bridge Socket Mode → localhost.");
         }
     }
 

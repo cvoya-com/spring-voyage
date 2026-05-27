@@ -114,6 +114,7 @@ public static class ConnectorCommand
     {
         var root = new Command("slack", "Slack connector-specific operations.");
         root.Subcommands.Add(SlackInstall.SlackInstallCommand.CreateInstallCommand());
+        root.Subcommands.Add(SlackForward.SlackForwardCommand.CreateForwardCommand());
         return root;
     }
 
