@@ -239,6 +239,107 @@ public class SlackOAuthServiceTests
         failure.Reason.ShouldContain("invalid_code");
     }
 
+    // ---- Issue #2837: ClientState propagation onto every outcome ----
+
+    [Fact]
+    public async Task HandleCallbackAsync_PropagatesConsumedClientStateOnSuccess()
+    {
+        // Issue #2837: the callback endpoint reads the consumed state's
+        // ClientState off the outcome to derive the postMessage
+        // targetOrigin. Verify the service threads the value through
+        // unchanged so the endpoint doesn't have to re-consume.
+        var ct = TestContext.Current.CancellationToken;
+        const string clientState = """{"targetOrigin":"https://portal.example"}""";
+        _stateStore.ConsumeAsync("state-cs", Arg.Any<CancellationToken>())
+            .Returns(new SlackOAuthStateEntry(
+                State: "state-cs",
+                Scopes: DefaultOptions.Scopes,
+                RedirectUri: DefaultOptions.RedirectUri,
+                ExpiresAt: DateTimeOffset.UtcNow.AddMinutes(10),
+                ClientState: clientState));
+        ArrangeOAuthExchange(
+            teamId: "T-cs", botUserId: "U-bot", authedUserId: "U-installer", enterpriseId: null);
+        ArrangeNonGridTeamInfo("T-cs");
+        ArrangeNoExistingBinding();
+
+        var sut = CreateSut();
+        var outcome = await sut.HandleCallbackAsync("code", "state-cs", ct);
+
+        outcome.ShouldBeOfType<SlackCallbackOutcome.Success>();
+        outcome.ClientState.ShouldBe(clientState);
+    }
+
+    [Fact]
+    public async Task HandleCallbackAsync_PropagatesConsumedClientStateOnGridRefusal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const string clientState = """{"targetOrigin":"https://portal.example"}""";
+        _stateStore.ConsumeAsync("state-cs-grid", Arg.Any<CancellationToken>())
+            .Returns(new SlackOAuthStateEntry(
+                State: "state-cs-grid",
+                Scopes: DefaultOptions.Scopes,
+                RedirectUri: DefaultOptions.RedirectUri,
+                ExpiresAt: DateTimeOffset.UtcNow.AddMinutes(10),
+                ClientState: clientState));
+        ArrangeOAuthExchange(
+            teamId: "T-grid", botUserId: "U-bot", authedUserId: "U-installer", enterpriseId: "E999");
+        ArrangeNonGridTeamInfo("T-grid");
+
+        var sut = CreateSut();
+        var outcome = await sut.HandleCallbackAsync("code", "state-cs-grid", ct);
+
+        outcome.ShouldBeOfType<SlackCallbackOutcome.EnterpriseGridUnsupported>();
+        outcome.ClientState.ShouldBe(clientState);
+    }
+
+    [Fact]
+    public async Task HandleCallbackAsync_PropagatesConsumedClientStateOnExchangeFailure()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const string clientState = """{"targetOrigin":"https://portal.example"}""";
+        _stateStore.ConsumeAsync("state-cs-fail", Arg.Any<CancellationToken>())
+            .Returns(new SlackOAuthStateEntry(
+                State: "state-cs-fail",
+                Scopes: DefaultOptions.Scopes,
+                RedirectUri: DefaultOptions.RedirectUri,
+                ExpiresAt: DateTimeOffset.UtcNow.AddMinutes(10),
+                ClientState: clientState));
+        _http.ExchangeCodeAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<CancellationToken>())
+            .Returns(new SlackOAuthExchangeResult(
+                Ok: false,
+                Error: "invalid_code",
+                TeamId: string.Empty,
+                TeamName: null,
+                BotUserId: string.Empty,
+                BotAccessToken: string.Empty,
+                AuthedUserId: string.Empty,
+                EnterpriseId: null));
+
+        var sut = CreateSut();
+        var outcome = await sut.HandleCallbackAsync("code", "state-cs-fail", ct);
+
+        outcome.ShouldBeOfType<SlackCallbackOutcome.ExchangeFailed>();
+        outcome.ClientState.ShouldBe(clientState);
+    }
+
+    [Fact]
+    public async Task HandleCallbackAsync_InvalidState_ClientStateIsNull()
+    {
+        // No state entry to consume → no ClientState to propagate. The
+        // endpoint falls back to the static "close this tab" HTML.
+        var ct = TestContext.Current.CancellationToken;
+        _stateStore.ConsumeAsync("nope", Arg.Any<CancellationToken>())
+            .Returns((SlackOAuthStateEntry?)null);
+
+        var sut = CreateSut();
+        var outcome = await sut.HandleCallbackAsync("code", "nope", ct);
+
+        outcome.ShouldBeOfType<SlackCallbackOutcome.InvalidState>();
+        outcome.ClientState.ShouldBeNull();
+    }
+
     [Fact]
     public async Task DisconnectAsync_NotBound_ReturnsNotBound()
     {

@@ -49,8 +49,25 @@ public record SlackAuthorizeResult(string AuthorizeUrl, string State);
 /// Tagged union of possible outcomes from
 /// <see cref="ISlackOAuthService.HandleCallbackAsync"/>.
 /// </summary>
+/// <remarks>
+/// Every variant carries the consumed state's
+/// <see cref="ClientState"/> so the callback endpoint can render the
+/// HTML postMessage handoff (issue #2837) with the portal-supplied
+/// <c>targetOrigin</c> without doing a second lookup. <see
+/// cref="InvalidState"/> is the only outcome where the state was
+/// never resolved — its <see cref="ClientState"/> is always
+/// <c>null</c>.
+/// </remarks>
 public abstract record SlackCallbackOutcome
 {
+    /// <summary>
+    /// The opaque client-state payload the portal echoed through
+    /// <c>POST /oauth/authorize</c>. Carries <c>{ targetOrigin }</c>
+    /// per <c>buildSlackOAuthClientState</c>; <c>null</c> when the
+    /// caller did not pass one (CLI / direct-API installs).
+    /// </summary>
+    public string? ClientState { get; init; }
+
     /// <summary>
     /// The OAuth exchange succeeded and the binding was persisted.
     /// </summary>
