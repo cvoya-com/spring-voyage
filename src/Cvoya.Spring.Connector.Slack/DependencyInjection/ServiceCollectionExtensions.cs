@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Connector.Slack.DependencyInjection;
 using Cvoya.Spring.Connector.Slack;
 using Cvoya.Spring.Connector.Slack.Auth.OAuth;
 using Cvoya.Spring.Connector.Slack.Configuration;
+using Cvoya.Spring.Connector.Slack.Slug;
 using Cvoya.Spring.Connectors;
 
 using Microsoft.Extensions.Configuration;
@@ -53,6 +54,12 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ISlackOAuthHttpClient, SlackOAuthHttpClient>();
         services.TryAddSingleton<ISlackInstallStore, SlackInstallStore>();
         services.TryAddSingleton<ISlackOAuthService, SlackOAuthService>();
+
+        // Slack-thread parent-message slug builder (ADR-0061 §4).
+        // Singleton — stateless; scoped collaborators
+        // (ITenantUserHumanResolver, IParticipantDisplayNameResolver)
+        // are resolved per call through the scope factory.
+        services.TryAddSingleton<ISlackThreadSlugBuilder, SlackThreadSlugBuilder>();
 
         // Bound-user extractor — registered as an enumerable
         // ITenantBoundUserExtractor so the platform's
