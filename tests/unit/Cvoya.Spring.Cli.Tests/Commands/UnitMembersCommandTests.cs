@@ -193,4 +193,82 @@ public class UnitMembersCommandTests
         optionNames.ShouldContain("--roles");
         optionNames.ShouldContain("--expertise");
     }
+
+    // --- ADR-0062 § 6 / #2808: --display-name + --as on humans add --------
+
+    [Fact]
+    public void HumansSubcommand_AddVerb_DeclaresDisplayNameAndAsFlags()
+    {
+        // ADR-0062 § 6 lands `spring unit members humans add
+        // --display-name <...> --as <tenant-user-ref>` as the new
+        // mint-and-attach path. Pin the flag surface so a future
+        // refactor can't silently drop them and bypass the bound-set
+        // resolver.
+        var outputOption = new Option<string>("--output");
+        var humans = UnitMembersCommand.CreateHumansSubcommand(outputOption);
+
+        var add = humans.Subcommands.Single(c => c.Name == "add");
+        var optionNames = add.Options.Select(o => o.Name).ToHashSet();
+        optionNames.ShouldContain("--display-name");
+        optionNames.ShouldContain("--as");
+        optionNames.ShouldContain("--human");
+        optionNames.ShouldContain("--roles");
+    }
+
+    [Fact]
+    public void ResolveTenantUserRef_Null_ReturnsNullForServerDefault()
+    {
+        // ADR-0062 § 1: when --as is omitted the CLI sends no override
+        // and the server's ITenantUserDefaultResolver picks the
+        // deployment default (OSS: operator; cloud: calling caller).
+        UnitMembersCommand.ResolveTenantUserRef(null).ShouldBeNull();
+        UnitMembersCommand.ResolveTenantUserRef("   ").ShouldBeNull();
+    }
+
+    [Fact]
+    public void ResolveTenantUserRef_Me_ReturnsOssOperatorId()
+    {
+        // ADR-0062 § 6 + ADR-0047 §3: `--as me` resolves to the OSS
+        // operator UUID in v0.1 (one tenant user per OSS deployment).
+        // Cloud overlays plug a /me-equivalent in front (#2487 OUT1).
+        UnitMembersCommand.ResolveTenantUserRef("me")
+            .ShouldBe(Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator);
+        UnitMembersCommand.ResolveTenantUserRef("ME")
+            .ShouldBe(Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator);
+    }
+
+    [Fact]
+    public void ResolveTenantUserRef_DashedGuid_Parses()
+    {
+        var input = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        UnitMembersCommand.ResolveTenantUserRef(input)
+            .ShouldBe(System.Guid.Parse(input));
+    }
+
+    [Fact]
+    public void ResolveTenantUserRef_NoDashGuid_Parses()
+    {
+        // CONVENTIONS.md § Identifiers: lenient parse accepts both
+        // dashed and no-dash hex forms.
+        var hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        UnitMembersCommand.ResolveTenantUserRef(hex)
+            .ShouldBe(System.Guid.Parse(hex));
+    }
+
+    [Fact]
+    public void ResolveTenantUserRef_Garbage_Throws()
+    {
+        Should.Throw<System.InvalidOperationException>(() =>
+            UnitMembersCommand.ResolveTenantUserRef("not-a-guid"));
+    }
+
+    [Fact]
+    public void ResolveTenantUserRef_GuidEmpty_Throws()
+    {
+        // Defensive: an all-zero Guid is the canonical "no value" sentinel
+        // on the wire — surface it as a parse error rather than letting it
+        // through as a "valid" tenant user reference.
+        Should.Throw<System.InvalidOperationException>(() =>
+            UnitMembersCommand.ResolveTenantUserRef(System.Guid.Empty.ToString()));
+    }
 }

@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Cli.Commands;
 
 using System.CommandLine;
 
+using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
 using Cvoya.Spring.Cli.Utilities;
 
@@ -32,16 +33,30 @@ public static class MessageCommand
         var addressArg = new Argument<string>("address") { Description = "Destination address in canonical form scheme:<guid> (e.g. agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7)" };
         var textArg = new Argument<string>("text") { Description = "Message text" };
         var conversationOption = new Option<string?>("--thread") { Description = "Thread identifier" };
+        // ADR-0062 § 3 / § 6: explicit "speaking-as" Hat. The CLI does
+        // NOT pre-resolve the human-ref to a UUID — the server owns the
+        // bound-set validation so the CLI never has to mirror the resolver.
+        // Accepts dashed or no-dash Guid form. (The display-name lookup
+        // surface is a follow-up — for v0.1 the CLI requires the Guid;
+        // bound-Humans listing arrives with the cloud overlay.)
+        var asOption = new Option<string?>("--as")
+        {
+            Description =
+                "Explicit 'speaking-as' Hat (Human UUID). Defaults to your primary Hat per ADR-0062 § 3 when omitted. " +
+                "Accepts dashed or no-dash Guid form. An unbound Hat returns a CLI-friendly 400.",
+        };
         var command = new Command("send", "Send a message to an address");
         command.Arguments.Add(addressArg);
         command.Arguments.Add(textArg);
         command.Options.Add(conversationOption);
+        command.Options.Add(asOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var address = parseResult.GetValue(addressArg)!;
             var text = parseResult.GetValue(textArg)!;
             var threadInput = parseResult.GetValue(conversationOption);
+            var asInput = parseResult.GetValue(asOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var verbose = parseResult.GetValue<bool>("--verbose");
             var (scheme, path) = AddressParser.Parse(address);
@@ -75,7 +90,34 @@ public static class MessageCommand
                 ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parsedThreadId)
                 : threadInput;
 
-            var result = await client.SendMessageAsync(scheme, path, text, threadId, ct);
+            Guid? fromHumanId = null;
+            if (!string.IsNullOrWhiteSpace(asInput))
+            {
+                if (!Guid.TryParse(asInput, out var parsedFrom) || parsedFrom == Guid.Empty)
+                {
+                    await Console.Error.WriteLineAsync(
+                        $"--as '{asInput}' is not a valid Human UUID. Pass the dashed or no-dash hex form.");
+                    Environment.Exit(1);
+                    return;
+                }
+                fromHumanId = parsedFrom;
+            }
+
+            MessageResponse result;
+            try
+            {
+                result = await client.SendMessageAsync(scheme, path, text, threadId, fromHumanId, ct);
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+                when (ex.ResponseStatusCode == 400 && IsNoBoundHumanError(ex))
+            {
+                var refDisplay = asInput ?? "(default)";
+                await Console.Error.WriteLineAsync(
+                    $"Hat '{refDisplay}' is not bound to your user. " +
+                    "Run `spring user identity list` to see your bound Hats.");
+                Environment.Exit(1);
+                return;
+            }
 
             // #985: surface the resolved thread id so operators can
             // thread follow-up sends. The server auto-generates one when the
@@ -172,5 +214,37 @@ public static class MessageCommand
         });
 
         return command;
+    }
+
+    /// <summary>
+    /// Recognises the ADR-0062 § 3 <c>NoBoundHuman</c> error code that the
+    /// <c>MessageEndpoints.SendMessageAsync</c> handler emits when the
+    /// caller's <c>--as</c> override is unbound (or the caller has no
+    /// resolvable Hat). Kiota surfaces ProblemDetails via the typed
+    /// <see cref="Microsoft.Kiota.Abstractions.ApiException"/>; the
+    /// extension is carried on <c>AdditionalData["code"]</c> as the
+    /// schema-less ProblemDetails passthrough.
+    /// </summary>
+    private static bool IsNoBoundHumanError(Microsoft.Kiota.Abstractions.ApiException ex)
+    {
+        if (ex is not ProblemDetails problem || problem.AdditionalData is null)
+        {
+            return false;
+        }
+        if (!problem.AdditionalData.TryGetValue("code", out var raw))
+        {
+            return false;
+        }
+        // Kiota deserialises the extension as a JsonElement on the
+        // problem's AdditionalData bag; older paths surface it as a raw
+        // string. Cover both.
+        return raw switch
+        {
+            string s => string.Equals(s, "NoBoundHuman", StringComparison.Ordinal),
+            System.Text.Json.JsonElement el =>
+                el.ValueKind == System.Text.Json.JsonValueKind.String
+                && string.Equals(el.GetString(), "NoBoundHuman", StringComparison.Ordinal),
+            _ => false,
+        };
     }
 }

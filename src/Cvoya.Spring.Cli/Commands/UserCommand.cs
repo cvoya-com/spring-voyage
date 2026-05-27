@@ -85,6 +85,7 @@ public static class UserCommand
         identityCommand.Subcommands.Add(CreateListCommand(outputOption));
         identityCommand.Subcommands.Add(CreateRemoveCommand());
         identityCommand.Subcommands.Add(CreateAuthorizeGitHubCommand(outputOption));
+        identityCommand.Subcommands.Add(CreateSetPrimaryCommand(outputOption));
 
         command.Subcommands.Add(identityCommand);
 
@@ -261,6 +262,78 @@ public static class UserCommand
                 await Console.Error.WriteLineAsync(
                     $"Failed to remove identity '{connectorId}:{username}' for tenant user " +
                     $"'{tenantUserId:N}': {ProblemDetailsTranslator.Format(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    private static Command CreateSetPrimaryCommand(Option<string> outputOption)
+    {
+        var humanArg = new Argument<string>("human-ref")
+        {
+            Description =
+                "The Human (Hat) UUID to pin as your primary sender (dashed or no-dash hex form). " +
+                "Display-name lookup is a follow-up — for v0.1 pass the UUID; list your bound Hats via " +
+                "`spring user identity list` once the bound-set surface lands.",
+        };
+        var userOption = new Option<string?>("--user")
+        {
+            Description =
+                "Stable TenantUser UUID whose primary Hat to set. Defaults to the OSS operator UUID " +
+                "when omitted; cloud deployments override via a future /me extension.",
+        };
+
+        var command = new Command(
+            "set-primary",
+            "Pin your primary Hat — the default 'speaking-as' sender for new outbound messages " +
+            "(ADR-0062 § 2). The named Hat must be bound to your TenantUser via humans.tenant_user_id; " +
+            "an unbound Hat returns a CLI-friendly 400. Reply composers continue to pin the Hat the " +
+            "thread came in on regardless of this value (ADR-0062 § 5).");
+        command.Arguments.Add(humanArg);
+        command.Options.Add(userOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var humanRef = parseResult.GetValue(humanArg)!;
+            var userArg = parseResult.GetValue(userOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+
+            if (!TryResolveTenantUserId(userArg, out var tenantUserId, out var userError))
+            {
+                await Console.Error.WriteLineAsync(userError);
+                Environment.Exit(1);
+                return;
+            }
+
+            if (!Guid.TryParse(humanRef, out var humanId) || humanId == Guid.Empty)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"'{humanRef}' is not a valid Human UUID. Pass the dashed or no-dash hex form.");
+                Environment.Exit(1);
+                return;
+            }
+
+            var client = ClientFactory.Create();
+            try
+            {
+                var response = await client.SetPrimaryHumanAsync(tenantUserId, humanId, ct);
+                if (output == "json")
+                {
+                    Console.WriteLine(OutputFormatter.FormatJson(response));
+                }
+                else
+                {
+                    Console.WriteLine(
+                        $"Tenant user '{tenantUserId:N}' primary Hat set to '{humanId:N}'.");
+                }
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to set primary Hat for tenant user '{tenantUserId:N}': " +
+                    ProblemDetailsTranslator.Format(ex));
                 Environment.Exit(1);
             }
         });

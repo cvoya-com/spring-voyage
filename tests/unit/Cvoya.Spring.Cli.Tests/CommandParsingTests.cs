@@ -421,6 +421,28 @@ public class CommandParsingTests
     }
 
     [Fact]
+    public void MessageSend_ParsesAsFlag()
+    {
+        // ADR-0062 § 3 / § 6: `--as <human-ref>` pins the explicit
+        // 'speaking-as' Hat. The CLI does NOT pre-resolve — it threads
+        // the value through to the server's TenantUserHumanResolver,
+        // which owns the bound-set validation. Pin the parser shape so
+        // a future rename doesn't silently drop the flag.
+        var outputOption = CreateOutputOption();
+        var messageCommand = MessageCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(messageCommand);
+
+        const string addr = "agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7";
+        const string hat = "11111111-2222-3333-4444-555555555555";
+        var parseResult = rootCommand.Parse(
+            $"message send {addr} \"hi\" --as {hat}");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--as").ShouldBe(hat);
+    }
+
+    [Fact]
     public void MessageShow_ParsesMessageIdArgument()
     {
         // #1209: `spring message show <id>` surfaces the message body so

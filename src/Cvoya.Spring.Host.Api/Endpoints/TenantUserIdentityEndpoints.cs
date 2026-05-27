@@ -85,6 +85,20 @@ public static class TenantUserIdentityEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status400BadRequest);
 
+        // ADR-0062 § 2: pin the tenant user's default "speaking-as" Hat
+        // for new outbound messages. The PATCH validates that the Human
+        // is bound to the named TenantUser via the `humans.tenant_user_id`
+        // FK; an unbound Human surfaces a CLI-friendly 400 so the operator
+        // gets a clear error rather than a silent FK-violation 500.
+        // Backs `spring user identity set-primary <human-ref>` (#2808).
+        group.MapPatch("/{tenantUserId:guid}/primary-human", SetPrimaryHumanAsync)
+            .WithName("SetPrimaryHuman")
+            .WithSummary("Pin the tenant user's primary Human (the default 'speaking-as' Hat for new outbound messages).")
+            .WithDescription("ADR-0062 § 2: writes `tenant_users.primary_human_id`. The supplied Human must be bound to the target TenantUser via `humans.tenant_user_id`; an unbound Human returns 400 with a CLI-friendly message. Returns the post-write (tenantUserId, primaryHumanId) tuple.")
+            .Produces<SetPrimaryHumanResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return group;
     }
 
@@ -315,6 +329,65 @@ public static class TenantUserIdentityEndpoints
         db.TenantUserConnectorIdentities.Remove(row);
         await db.SaveChangesAsync(cancellationToken);
         return Results.NoContent();
+    }
+
+    private static async Task<IResult> SetPrimaryHumanAsync(
+        Guid tenantUserId,
+        [FromBody] SetPrimaryHumanRequest? request,
+        [FromServices] SpringDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            return Results.Problem(
+                detail: "Request body is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (tenantUserId == Guid.Empty)
+        {
+            return Results.Problem(
+                detail: "Tenant user id must not be empty.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (request.HumanId == Guid.Empty)
+        {
+            return Results.Problem(
+                detail: "'humanId' is required and must not be empty.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var tenantUserRow = await db.TenantUsers
+            .FirstOrDefaultAsync(u => u.Id == tenantUserId, cancellationToken);
+        if (tenantUserRow is null)
+        {
+            return Results.Problem(
+                detail: $"Tenant user '{tenantUserId:N}' was not found in the current tenant.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // ADR-0062 § 2: validate the binding so the operator gets a clean
+        // 400 rather than the raw FK violation. The Humans tenant filter
+        // ensures cross-tenant ids surface as a clean "not bound" rather
+        // than leaking existence.
+        var humanRow = await db.Humans
+            .AsNoTracking()
+            .FirstOrDefaultAsync(h => h.Id == request.HumanId, cancellationToken);
+        if (humanRow is null || humanRow.TenantUserId != tenantUserId)
+        {
+            return Results.Problem(
+                title: "Bad Request",
+                detail:
+                    $"Hat '{request.HumanId:N}' is not bound to TenantUser '{tenantUserId:N}'. " +
+                    "Run `spring user identity list` to see your bound Hats.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        tenantUserRow.PrimaryHumanId = request.HumanId;
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(new SetPrimaryHumanResponse(tenantUserId, request.HumanId));
     }
 
     private static TenantUserResponse ToResponse(TenantUserEntity row) =>

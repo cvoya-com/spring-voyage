@@ -3150,6 +3150,54 @@
         }
       }
     },
+    "/api/v1/tenant/humans": {
+      "post": {
+        "tags": [
+          "Humans"
+        ],
+        "summary": "Mint a new Human (Hat) row outside of the package-install path.",
+        "description": "Allocates a fresh Guid, sets the explicit `tenantUserId` (or resolves the deployment default via ITenantUserDefaultResolver) and persists the row. DisplayName is validated via DisplayNameProblems.ValidateOrProblem. Returns the post-write HumanResponse so callers can render the row without a follow-up GET.",
+        "operationId": "CreateHuman",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CreateHumanRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HumanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/humans/{humanId}": {
       "get": {
         "tags": [
@@ -3575,6 +3623,75 @@
           },
           "400": {
             "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/users/{tenantUserId}/primary-human": {
+      "patch": {
+        "tags": [
+          "TenantUsers"
+        ],
+        "summary": "Pin the tenant user's primary Human (the default 'speaking-as' Hat for new outbound messages).",
+        "description": "ADR-0062 § 2: writes `tenant_users.primary_human_id`. The supplied Human must be bound to the target TenantUser via `humans.tenant_user_id`; an unbound Human returns 400 with a CLI-friendly message. Returns the post-write (tenantUserId, primaryHumanId) tuple.",
+        "operationId": "SetPrimaryHuman",
+        "parameters": [
+          {
+            "name": "tenantUserId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SetPrimaryHumanRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPrimaryHumanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -11919,6 +12036,30 @@
           }
         }
       },
+      "CreateHumanRequest": {
+        "required": [
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tenantUserId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "CreateSecretRequest": {
         "required": [
           "name"
@@ -14854,6 +14995,35 @@
           },
           "permission": {
             "$ref": "#/components/schemas/PermissionLevel"
+          }
+        }
+      },
+      "SetPrimaryHumanRequest": {
+        "required": [
+          "humanId"
+        ],
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "SetPrimaryHumanResponse": {
+        "required": [
+          "tenantUserId",
+          "primaryHumanId"
+        ],
+        "type": "object",
+        "properties": {
+          "tenantUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "primaryHumanId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

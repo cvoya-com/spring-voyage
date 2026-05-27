@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Tests.Endpoints;
 
 using System.Net;
+using System.Net.Http.Json;
 
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
@@ -168,6 +169,110 @@ public class HumanEnvelopeEndpointsTests : IClassFixture<CustomWebApplicationFac
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
+    // ── #2808 / ADR-0062 § 6: CreateHuman ────────────────────────────────
+
+    [Fact]
+    public async Task CreateHuman_NoExplicitTenantUser_StampsDeploymentDefault()
+    {
+        // ADR-0062 § 1: when --as is omitted the server falls through to
+        // ITenantUserDefaultResolver, which always returns
+        // OssTenantUserIds.Operator in OSS. The CLI relies on this so the
+        // operator never has to pass --as in the single-user OSS deployment.
+        var ct = TestContext.Current.CancellationToken;
+        var body = new
+        {
+            displayName = "Bob Designer",
+        };
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/tenant/humans", body, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var created = await response.Content.ReadFromJsonAsync<HumanResponseDto>(ct);
+        created.ShouldNotBeNull();
+        created!.Id.ShouldNotBe(Guid.Empty);
+        created.DisplayName.ShouldBe("Bob Designer");
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await db.Humans.SingleAsync(h => h.Id == created.Id, ct);
+        row.TenantUserId.ShouldBe(OssTenantUserIds.Operator);
+    }
+
+    [Fact]
+    public async Task CreateHuman_ExplicitTenantUser_StampsTheBinding()
+    {
+        // ADR-0062 § 6: `--as <tenant-user-ref>` lands an explicit binding
+        // for the newly-minted Hat. The default resolver is bypassed when
+        // the caller supplies an override. Seed an additional TenantUser
+        // (separate from the OSS operator) so the test exercises the
+        // non-default branch.
+        var ct = TestContext.Current.CancellationToken;
+        var alternateUserId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.TenantUsers.Add(new TenantUserEntity
+            {
+                Id = alternateUserId,
+                TenantId = OssTenantIds.Default,
+                AuthSubject = "test|alternate",
+                DisplayName = "Alternate User",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var body = new
+        {
+            displayName = "Carol Engineer",
+            tenantUserId = alternateUserId,
+        };
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/tenant/humans", body, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var created = await response.Content.ReadFromJsonAsync<HumanResponseDto>(ct);
+        created.ShouldNotBeNull();
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await verifyDb.Humans.SingleAsync(h => h.Id == created!.Id, ct);
+        row.TenantUserId.ShouldBe(alternateUserId);
+    }
+
+    [Fact]
+    public async Task CreateHuman_UnknownTenantUser_Returns400()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var body = new
+        {
+            displayName = "Dave",
+            tenantUserId = Guid.NewGuid(),
+        };
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/tenant/humans", body, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task CreateHuman_EmptyDisplayName_Returns400()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var body = new
+        {
+            displayName = "  ",
+        };
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/tenant/humans", body, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
     private async Task<Guid> SeedHumanAsync(string username)
     {
         var ct = TestContext.Current.CancellationToken;
@@ -178,6 +283,7 @@ public class HumanEnvelopeEndpointsTests : IClassFixture<CustomWebApplicationFac
         {
             Id = id,
             TenantId = OssTenantIds.Default,
+            TenantUserId = OssTenantUserIds.Operator,
             Username = username,
             DisplayName = username,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -185,4 +291,13 @@ public class HumanEnvelopeEndpointsTests : IClassFixture<CustomWebApplicationFac
         await db.SaveChangesAsync(ct);
         return id;
     }
+
+    private sealed record HumanResponseDto(
+        Guid Id,
+        string Username,
+        string DisplayName,
+        string? Description,
+        string? Email,
+        string PlatformRole,
+        DateTimeOffset CreatedAt);
 }
