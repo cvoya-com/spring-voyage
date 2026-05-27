@@ -31,9 +31,8 @@ public sealed class SlackPersonaBuilder : ISlackPersonaBuilder
     /// <summary>
     /// Base URL of the placeholder icon service. Emits a deterministic
     /// avatar per Guid; surface chosen so the OSS image cost is zero
-    /// (the service is a public stateless renderer). Operators can
-    /// override via the connector config in a follow-up (filed at
-    /// PR-time if appropriate).
+    /// (the service is a public stateless renderer). Air-gapped
+    /// deployments need an overridable base URL — see #2842.
     /// </summary>
     public const string PlaceholderIconBaseUrl = "https://www.gravatar.com/avatar/";
 

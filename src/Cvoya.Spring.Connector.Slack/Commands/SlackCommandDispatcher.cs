@@ -471,7 +471,8 @@ public sealed class SlackCommandDispatcher : ISlackCommandDispatcher
             {
                 // Build the deep-link URI. permalink would need a
                 // network round-trip; the slack:// URI works without
-                // one and Slack rewrites it client-side.
+                // one and Slack rewrites it client-side. Cross-workspace
+                // robustness via chat.getPermalink tracked in #2844.
                 var deepLink = $"slack://channel?team={Uri.EscapeDataString(mapping.TeamId)}&id={Uri.EscapeDataString(mapping.SlackChannelId)}&message={Uri.EscapeDataString(mapping.SlackThreadTs)}";
                 blocks.Add(new
                 {

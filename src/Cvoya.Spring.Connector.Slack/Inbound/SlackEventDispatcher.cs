@@ -469,6 +469,8 @@ public sealed class SlackEventDispatcher : ISlackEventDispatcher
         return resolution.Value;
     }
 
+    // One of several payload-text extractors across the codebase; the
+    // canonical-field-vs-renderer-registry decision is tracked in #2843.
     private static string ExtractText(JsonElement evt)
     {
         if (evt.TryGetProperty("text", out var text)
