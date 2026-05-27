@@ -143,6 +143,11 @@ export function MembersTab({
   const humanMembersQuery = useUnitHumanMembers(unitId);
   const meQuery = useCurrentUser();
   const operatorHumanId = meQuery.data?.id ?? null;
+  // ADR-0062 § 1: the "Claim this Human" affordance on the member
+  // cards needs the calling caller's TenantUser id (separate from the
+  // auto-resolved Human id). Surfaced on `/auth/me` so the portal does
+  // not hard-code the OSS-default constant.
+  const operatorTenantUserId = meQuery.data?.tenantUserId ?? null;
 
   const [humanDialog, setHumanDialog] = useState<HumanDialogState>({
     mode: "closed",
@@ -759,6 +764,7 @@ export function MembersTab({
                   <HumanMemberCard
                     row={row}
                     operatorHumanId={operatorHumanId}
+                    operatorTenantUserId={operatorTenantUserId ?? null}
                     onEdit={() => setHumanDialog({ mode: "edit", row })}
                     onRemove={() => setConfirmHumanRemove(row)}
                   />

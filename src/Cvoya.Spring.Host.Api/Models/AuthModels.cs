@@ -60,4 +60,5 @@ public record UserProfileResponse(
     string UserId,
     string DisplayName,
     Guid Id,
-    string? Address = null);
+    string? Address = null,
+    Guid? TenantUserId = null);

@@ -39,6 +39,10 @@ vi.mock("@/lib/api/queries", () => ({
   useThreads: (filters: unknown, opts?: unknown) =>
     useThreadsMock(filters, opts),
   useThread: (id: string, opts?: unknown) => useThreadMock(id, opts),
+  // ADR-0062 § 5: <MessageComposer> reads the caller's bound Hats so
+  // the from-selector can render. The tests don't exercise the
+  // selector path; a stable empty list keeps it hidden.
+  useCallerHumans: () => ({ data: [], isLoading: false, isError: false }),
 }));
 
 vi.mock("@/lib/stream/use-thread-stream", () => ({

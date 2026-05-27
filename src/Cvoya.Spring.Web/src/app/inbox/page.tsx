@@ -234,6 +234,14 @@ function ThreadRow({ item, selected, onSelect }: ThreadRowProps) {
   const label = otherParticipantsFromInboxItem(item);
   const summary = item.summary?.trim();
   const unread = (item.unreadCount ?? 0) as number;
+  // ADR-0062 § 5: each inbox row carries a "Hat" chip indicating which
+  // of the caller's bound Humans actually received the item. The
+  // inbox-list contract stamps `item.human` (a ParticipantRef whose
+  // `displayName` is the receiving Human's name) so the chip text
+  // reads "As Bob" without a second lookup. The chip is the v0.1
+  // minimum bar — a per-Hat lane / column treatment is a separate
+  // design call tracked under #2807's optional task.
+  const hatName = item.human?.displayName?.trim();
 
   return (
     <button
@@ -276,6 +284,18 @@ function ThreadRow({ item, selected, onSelect }: ThreadRowProps) {
           {summary}
         </p>
       )}
+      {hatName && (
+        <div className="mt-1">
+          <Badge
+            variant="outline"
+            className="h-4 px-1.5 text-[10px] font-normal"
+            data-testid={`inbox-hat-chip-${item.threadId}`}
+            title={`Received as ${hatName}`}
+          >
+            As {hatName}
+          </Badge>
+        </div>
+      )}
     </button>
   );
 }
@@ -288,9 +308,22 @@ interface ThreadTimelineProps {
   threadId: string;
   /** The current user's address for self-filtering in participant lists. */
   selfAddress?: string | null;
+  /**
+   * ADR-0062 § 5 reply default. The Hat the thread came in on
+   * (resolved from the inbox row's `item.human.id`). The reply
+   * composer's from-selector seeds to this id so the operator's
+   * default is "reply as the Hat you were addressed as". The user
+   * can override mid-thread via the selector, but the seed is pinned
+   * per thread.
+   */
+  threadHatId?: string | null;
 }
 
-function ThreadTimeline({ threadId, selfAddress }: ThreadTimelineProps) {
+function ThreadTimeline({
+  threadId,
+  selfAddress,
+  threadHatId,
+}: ThreadTimelineProps) {
   const threadQuery = useThread(threadId, { staleTime: 0 });
   const { connected } = useThreadStream(threadId);
 
@@ -385,6 +418,7 @@ function ThreadTimeline({ threadId, selfAddress }: ThreadTimelineProps) {
         threadId={threadId}
         recipient={recipient}
         testId="inbox-composer"
+        defaultHumanId={threadHatId ?? null}
       />
     </div>
   );
@@ -657,6 +691,14 @@ function InboxPageContent() {
               <ThreadTimeline
                 threadId={selectedThreadId}
                 selfAddress={selfAddress}
+                threadHatId={
+                  // ADR-0062 § 5: the reply composer pins to the Hat
+                  // the thread came in on. The inbox row's `human`
+                  // field already carries that Hat's stable Guid so
+                  // we forward it as the composer's `defaultHumanId`.
+                  sortedItems.find((i) => i.threadId === selectedThreadId)
+                    ?.human?.id ?? null
+                }
               />
             ) : (
               <NoThreadSelected />

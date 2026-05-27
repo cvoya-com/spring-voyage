@@ -63,6 +63,7 @@ public static class AuthEndpoints
     private static async Task<IResult> GetCurrentUserAsync(
         ClaimsPrincipal user,
         IHumanIdentityResolver identityResolver,
+        IAuthenticatedCallerAccessor callerAccessor,
         CancellationToken cancellationToken)
     {
         var userIdClaim = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -82,7 +83,22 @@ public static class AuthEndpoints
         var id = await identityResolver.ResolveByUsernameAsync(userIdClaim, displayName, cancellationToken);
         var address = Address.ForIdentity("human", id).ToString();
 
-        return Results.Ok(new UserProfileResponse(userIdClaim, displayName, id, address));
+        // ADR-0062 § 1: surface the calling caller's TenantUser id so
+        // the portal's claim-this-Human and from-selector flows have a
+        // canonical primitive to PATCH `humans.tenant_user_id` against
+        // without hard-coding the OSS-default constant. Falls through
+        // to null when the auth pipeline did not surface a TenantUser
+        // (anonymous paths shouldn't hit this endpoint, but the
+        // accessor returns null defensively).
+        Guid? tenantUserId = null;
+        var callerAddress = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        if (callerAddress is not null
+            && string.Equals(callerAddress.Scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            tenantUserId = callerAddress.Id;
+        }
+
+        return Results.Ok(new UserProfileResponse(userIdClaim, displayName, id, address, tenantUserId));
     }
 
     private static async Task<IResult> CreateTokenAsync(

@@ -161,6 +161,32 @@ export type TenantUserConnectorIdentityResponse =
   Schemas["TenantUserConnectorIdentityResponse"];
 
 /**
+ * One row of the calling caller's bound-Human ("Hat") set from
+ * `GET /api/v1/tenant/users/me/humans` (ADR-0062 §§ 3, 5). Drives the
+ * portal's `<HumanFromSelector>` and per-Hat inbox rendering.
+ */
+export type CallerHumanResponse = Schemas["CallerHumanResponse"];
+
+/**
+ * One per-unit row of {@link CallerHumanResponse.memberships}. Carries
+ * the unit display name + the membership row's free-form roles list so
+ * the from-selector can render the "designer in Magazine" context
+ * label without a second round-trip.
+ */
+export type CallerHumanMembershipResponse =
+  Schemas["CallerHumanMembershipResponse"];
+
+/**
+ * Request body for `PATCH /api/v1/tenant/humans/{humanId}/binding`
+ * (ADR-0062 § 1). The portal's "Claim this Human" affordance posts
+ * the calling TenantUser's id here to rewrite the Human row's
+ * `tenant_user_id` FK so the caller starts receiving messages
+ * addressed to that role.
+ */
+export type UpdateHumanBindingRequest =
+  Schemas["UpdateHumanBindingRequest"];
+
+/**
  * POST /api/v1/tenant/connectors/github/oauth/authorize request body —
  * the OAuth start envelope. ADR-0047 §13 adds `intent` (binding-wizard
  * vs. user-identity), `tenantUserId`, and `bindingId` (wizard pre-mints

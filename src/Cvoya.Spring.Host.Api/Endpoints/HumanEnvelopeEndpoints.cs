@@ -78,6 +78,19 @@ public static class HumanEnvelopeEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // ADR-0062 § 1: rewrite the Human row's tenant_user_id FK so the
+        // calling TenantUser can claim a package-declared placeholder
+        // Human and start receiving messages addressed to that role.
+        // Surfaced on the portal as the "Claim this Human" affordance on
+        // the unit's member list and on the user-identity page.
+        group.MapPatch("/{humanId:guid}/binding", UpdateHumanBindingAsync)
+            .WithName("UpdateHumanBinding")
+            .WithSummary("Rebind a Human row to a different TenantUser (ADR-0062 § 1).")
+            .WithDescription("Sets `humans.tenant_user_id = <body.tenantUserId>` and clears the old TenantUser's PrimaryHumanId pin when it pointed at this Human (so the operator does not silently retain a default Hat they no longer own). The replacement TenantUser must exist in the current tenant; an unknown id returns 404. Returns the post-write HumanResponse.")
+            .Produces<HumanResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         // #2649: parallel to DELETE /agents/{id} and DELETE /units/{id} —
         // a human delete cascades to every membership and ACL grant the
         // human holds so the row disappears from every parent unit's
@@ -275,6 +288,92 @@ public static class HumanEnvelopeEndpoints
             row.Email,
             row.PermissionLevel.ToString(),
             row.CreatedAt));
+    }
+
+    private static async Task<IResult> UpdateHumanBindingAsync(
+        Guid humanId,
+        [FromBody] UpdateHumanBindingRequest? request,
+        SpringDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (humanId == Guid.Empty)
+        {
+            return Results.Problem(
+                detail: "Human id must not be empty.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (request is null || request.TenantUserId == Guid.Empty)
+        {
+            return Results.Problem(
+                detail: "Request body must include a non-empty tenantUserId.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var humanRow = await db.Humans
+            .FirstOrDefaultAsync(h => h.Id == humanId, cancellationToken);
+        if (humanRow is null)
+        {
+            return Results.Problem(
+                detail: $"Human '{humanId:N}' was not found in the current tenant.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var newOwner = await db.TenantUsers
+            .FirstOrDefaultAsync(u => u.Id == request.TenantUserId, cancellationToken);
+        if (newOwner is null)
+        {
+            return Results.Problem(
+                detail: $"TenantUser '{request.TenantUserId:N}' was not found in the current tenant.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // Short-circuit when the binding is already correct — no-op
+        // writes still flush an UPDATE through EF, and the post-write
+        // body is identical, so the early return keeps the audit trail
+        // clean for repeated CLI / portal "claim" presses.
+        var previousOwnerId = humanRow.TenantUserId;
+        if (previousOwnerId != request.TenantUserId)
+        {
+            humanRow.TenantUserId = request.TenantUserId;
+
+            // If the previous owner had this Human pinned as their
+            // primary, clear the pin — the operator no longer owns the
+            // Hat, so it must not silently remain their default
+            // "speaking-as" identity for new-outbound. The new owner can
+            // re-pin via `spring user identity set-primary` or the
+            // portal user-identity page.
+            if (previousOwnerId != Guid.Empty)
+            {
+                var previousOwner = await db.TenantUsers
+                    .FirstOrDefaultAsync(u => u.Id == previousOwnerId, cancellationToken);
+                if (previousOwner is not null && previousOwner.PrimaryHumanId == humanId)
+                {
+                    previousOwner.PrimaryHumanId = null;
+                }
+            }
+
+            // If the new owner has no primary Hat yet, pin this one as
+            // their primary — the first claim establishes the default.
+            // Repeated claims of the same Hat won't reach this branch
+            // (early-return above); claims of a different Hat keep the
+            // existing primary, which the user can repin explicitly.
+            if (newOwner.PrimaryHumanId is null)
+            {
+                newOwner.PrimaryHumanId = humanId;
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        return Results.Ok(new HumanResponse(
+            humanRow.Id,
+            humanRow.Username,
+            string.IsNullOrWhiteSpace(humanRow.DisplayName) ? humanRow.Username : humanRow.DisplayName,
+            humanRow.Description,
+            humanRow.Email,
+            humanRow.PermissionLevel.ToString(),
+            humanRow.CreatedAt));
     }
 
     private static async Task<IResult> DeleteHumanAsync(

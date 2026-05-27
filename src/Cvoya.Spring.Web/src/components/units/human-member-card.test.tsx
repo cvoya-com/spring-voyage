@@ -25,10 +25,19 @@ vi.mock("next/link", () => ({
 }));
 
 const getHuman = vi.fn<(id: string) => Promise<HumanResponse>>();
+const listCallerHumans = vi.fn(async () => [] as unknown[]);
+const updateHumanBinding = vi.fn();
 vi.mock("@/lib/api/client", () => ({
   api: {
     getHuman: (id: string) => getHuman(id),
+    listCallerHumans: () => listCallerHumans(),
+    updateHumanBinding: (humanId: string, body: unknown) =>
+      updateHumanBinding(humanId, body),
   },
+}));
+
+vi.mock("@/components/ui/toast", () => ({
+  useToast: () => ({ toast: vi.fn() }),
 }));
 
 const HUMAN_ID = "11111111-1111-1111-1111-111111111111";
@@ -59,6 +68,7 @@ function makeRow(
 function renderCard(
   row: UnitHumanMemberResponse,
   operatorHumanId: string | null = null,
+  operatorTenantUserId: string | null = null,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
@@ -68,6 +78,7 @@ function renderCard(
       <HumanMemberCard
         row={row}
         operatorHumanId={operatorHumanId}
+        operatorTenantUserId={operatorTenantUserId}
         onEdit={() => {}}
         onRemove={() => {}}
       />
@@ -108,6 +119,7 @@ describe("HumanMemberCard (#2464)", () => {
         <HumanMemberCard
           row={row}
           operatorHumanId={null}
+          operatorTenantUserId={null}
           onEdit={onEdit}
           onRemove={onRemove}
         />
@@ -131,6 +143,64 @@ describe("HumanMemberCard (#2464)", () => {
       expect(
         screen.getByTestId("unit-human-member-you-hint-row-c"),
       ).toBeInTheDocument();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // ADR-0062 § 1 — "Claim this Human" affordance.
+  // -------------------------------------------------------------------------
+
+  it("hides the claim button when no caller TenantUser is available", async () => {
+    getHuman.mockResolvedValue(HUMAN);
+    listCallerHumans.mockResolvedValue([]);
+    const row = makeRow({ membershipId: "row-d" });
+    renderCard(row, null, null);
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("unit-human-member-edit-row-d"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("unit-human-member-claim-row-d"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the claim button when the caller is already bound to the Hat", async () => {
+    getHuman.mockResolvedValue(HUMAN);
+    listCallerHumans.mockResolvedValue([
+      { humanId: HUMAN_ID, displayName: "Operator", isPrimary: true, memberships: [] },
+    ]);
+    const row = makeRow({ membershipId: "row-e" });
+    renderCard(row, HUMAN_ID, "tu-1");
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("unit-human-member-edit-row-e"),
+      ).toBeInTheDocument();
+    });
+    // Settle the useCallerHumans query.
+    await waitFor(() => {
+      expect(listCallerHumans).toHaveBeenCalled();
+    });
+    expect(
+      screen.queryByTestId("unit-human-member-claim-row-e"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the claim button when the caller is unbound and patches on click", async () => {
+    getHuman.mockResolvedValue(HUMAN);
+    listCallerHumans.mockResolvedValue([]);
+    updateHumanBinding.mockResolvedValue(HUMAN);
+    const row = makeRow({ membershipId: "row-f" });
+    renderCard(row, null, "tu-1");
+
+    const claim = await waitFor(() =>
+      screen.getByTestId("unit-human-member-claim-row-f"),
+    );
+    fireEvent.click(claim);
+    await waitFor(() => {
+      expect(updateHumanBinding).toHaveBeenCalledWith(HUMAN_ID, {
+        tenantUserId: "tu-1",
+      });
     });
   });
 });

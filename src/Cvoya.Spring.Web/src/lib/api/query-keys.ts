@@ -125,6 +125,14 @@ export const queryKeys = {
     detail: (id: string) => ["tenantUsers", "detail", id] as const,
     identities: (id: string) =>
       ["tenantUsers", "identities", id] as const,
+    /**
+     * The calling caller's bound-Human ("Hat") set from
+     * `GET /api/v1/tenant/users/me/humans` (ADR-0062 §§ 3, 5). Backs the
+     * `<HumanFromSelector>`, per-Hat inbox chip, and "Claim this
+     * Human" affordance. Invalidate after a successful binding patch
+     * so every dependent surface re-reads in one pass.
+     */
+    callerHumans: () => ["tenantUsers", "callerHumans"] as const,
   },
 
   /**
