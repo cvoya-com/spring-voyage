@@ -3362,6 +3362,75 @@
         }
       }
     },
+    "/api/v1/tenant/humans/{humanId}/binding": {
+      "patch": {
+        "tags": [
+          "Humans"
+        ],
+        "summary": "Rebind a Human row to a different TenantUser (ADR-0062 § 1).",
+        "description": "Sets `humans.tenant_user_id = <body.tenantUserId>` and clears the old TenantUser's PrimaryHumanId pin when it pointed at this Human (so the operator does not silently retain a default Hat they no longer own). The replacement TenantUser must exist in the current tenant; an unknown id returns 404. Returns the post-write HumanResponse.",
+        "operationId": "UpdateHumanBinding",
+        "parameters": [
+          {
+            "name": "humanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UpdateHumanBindingRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HumanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/users/{tenantUserId}": {
       "get": {
         "tags": [
@@ -3692,6 +3761,41 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/users/me/humans": {
+      "get": {
+        "tags": [
+          "TenantUsers"
+        ],
+        "summary": "List the calling caller's bound Humans (Hats) with per-unit context (ADR-0062 §§ 3, 5).",
+        "description": "Returns every Human row whose tenant_user_id FK points at the authenticated caller, with the IsPrimary flag set on the row that matches TenantUser.PrimaryHumanId. Each row carries a Memberships sub-list — one entry per UnitMembershipHuman row the Human appears on — so the portal's from-selector can render the per-Hat context label (e.g. designer in Magazine) in one round-trip.",
+        "operationId": "ListCallerHumans",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CallerHumanResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -11617,6 +11721,56 @@
           }
         }
       },
+      "CallerHumanMembershipResponse": {
+        "required": [
+          "unitId",
+          "unitDisplayName",
+          "roles"
+        ],
+        "type": "object",
+        "properties": {
+          "unitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "unitDisplayName": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CallerHumanResponse": {
+        "required": [
+          "humanId",
+          "displayName",
+          "isPrimary",
+          "memberships"
+        ],
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "isPrimary": {
+            "type": "boolean"
+          },
+          "memberships": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CallerHumanMembershipResponse"
+            }
+          }
+        }
+      },
       "CloneResponse": {
         "required": [
           "cloneId",
@@ -16679,6 +16833,18 @@
           }
         }
       },
+      "UpdateHumanBindingRequest": {
+        "required": [
+          "tenantUserId"
+        ],
+        "type": "object",
+        "properties": {
+          "tenantUserId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "UpdateHumanRequest": {
         "type": "object",
         "properties": {
@@ -16962,6 +17128,13 @@
               "null",
               "string"
             ]
+          },
+          "tenantUserId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
