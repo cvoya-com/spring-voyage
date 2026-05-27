@@ -212,6 +212,13 @@ internal static class ServiceCollectionExtensionsRouting
         // repository — same pattern as IUnitLiveConfigStore.
         services.TryAddSingleton<IUnitConnectorBindingStore, UnitConnectorBindingStore>();
 
+        // ADR-0061 §1: per-tenant binding store. Same singleton-over-
+        // scoped pattern as IUnitConnectorBindingStore — singleton call
+        // sites resolve through a fresh DI scope per call. ADR-0061 §7.7:
+        // the surface is generic; Slack-specific decoding lives in
+        // SlackBoundUserExtractor (registered by the Slack connector).
+        services.TryAddSingleton<ITenantConnectorBindingStore, TenantConnectorBindingStore>();
+
         // #2442: shared binding-walk helper used by the runtime-context
         // and prompt-context resolvers. Both walks share the same
         // direct-vs-inherited semantics, so the helper lives in one place
