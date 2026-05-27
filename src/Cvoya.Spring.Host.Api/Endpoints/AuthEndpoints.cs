@@ -73,15 +73,26 @@ public static class AuthEndpoints
             return Results.Unauthorized();
         }
 
-        var displayName = user.FindFirstValue(ClaimTypes.Name) ?? userIdClaim;
-
         // Resolve the stable Guid so the portal can compare identity
         // (Id == Id) when deciding "is this me on this thread?" without
         // depending on address-string shape (#2082). The textual Address
         // is kept alongside Id for display + routing; it must never be
         // used for identity equality.
-        var id = await identityResolver.ResolveByUsernameAsync(userIdClaim, displayName, cancellationToken);
+        //
+        // #2860: pass displayName=null so the resolver derives the
+        // default-Hat name from the bound TenantUser's DisplayName on
+        // first-mint (single source of truth). The Claim-based override
+        // path is gone — LocalDevAuthHandler no longer stamps a literal
+        // ClaimTypes.Name.
+        var id = await identityResolver.ResolveByUsernameAsync(userIdClaim, displayName: null, cancellationToken);
         var address = Address.ForIdentity("human", id).ToString();
+
+        // Surface the resolved Hat's DisplayName so the portal reads the
+        // TenantUser-derived value (not the auth-layer username). Falls
+        // back to the username only when the row was created without one
+        // — never expected in steady state.
+        var displayName = await identityResolver.GetDisplayNameAsync(id, cancellationToken)
+            ?? userIdClaim;
 
         // ADR-0062 § 1: surface the calling caller's TenantUser id so
         // the portal's claim-this-Human and from-selector flows have a

@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Packages;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Tenancy;
 
 using Microsoft.EntityFrameworkCore;
@@ -24,9 +25,10 @@ using Xunit;
 /// <summary>
 /// Unit tests for <see cref="OssPackageHumanResolutionPolicy"/> after
 /// ADR-0046 §10 — the OSS default mints a fresh <c>HumanEntity</c> per
-/// declaration with a derived <c>DisplayName</c> (<c>"Operator · &lt;roles[0]&gt;"</c>
-/// or <c>"Operator"</c> fallback) and returns <c>Resolved</c> with the
-/// minted Guid.
+/// declaration with a derived <c>DisplayName</c>. Post #2860 the prefix
+/// is sourced from the bound TenantUser's <c>DisplayName</c> (single
+/// source of truth) and falls back to the literal <c>"Operator"</c> only
+/// when the TenantUser row is missing or has an empty <c>DisplayName</c>.
 /// </summary>
 public class OssPackageHumanResolutionPolicyTests : IDisposable
 {
@@ -48,6 +50,28 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
         new(
             _provider.GetRequiredService<IServiceScopeFactory>(),
             NullLogger<OssPackageHumanResolutionPolicy>.Instance);
+
+    /// <summary>
+    /// Seed a TenantUser row for the supplied id + display name. The
+    /// policy queries this row to derive the Hat prefix (#2860). In
+    /// production the <c>DefaultTenantUserSeedProvider</c> materialises
+    /// the operator row before any package install; tests must do the
+    /// same to mirror that invariant.
+    /// </summary>
+    private async Task SeedTenantUserAsync(Guid id, string displayName)
+    {
+        using var scope = _provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        db.TenantUsers.Add(new TenantUserEntity
+        {
+            Id = id,
+            TenantId = TenantA,
+            DisplayName = displayName,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync();
+    }
 
     private static PackageHumanResolutionRequest CreateRequest(
         string[]? roles = null,
@@ -71,6 +95,7 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
     public async Task ResolveAsync_DefaultBranch_MintsFreshHumanWithRoleDisplayName()
     {
         var ct = TestContext.Current.CancellationToken;
+        await SeedTenantUserAsync(OssTenantUserIds.Operator, "Operator");
         var policy = CreatePolicy();
 
         var resolution = await policy.ResolveAsync(
@@ -95,6 +120,7 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
     public async Task ResolveAsync_ExplicitDisplayName_WinsOverDerivedDefault()
     {
         var ct = TestContext.Current.CancellationToken;
+        await SeedTenantUserAsync(OssTenantUserIds.Operator, "Operator");
         var policy = CreatePolicy();
 
         var resolution = await policy.ResolveAsync(
@@ -108,9 +134,10 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
     }
 
     [Fact]
-    public async Task ResolveAsync_NoRoles_FallsBackToOperator()
+    public async Task ResolveAsync_NoRoles_UsesTenantUserDisplayNameVerbatim()
     {
         var ct = TestContext.Current.CancellationToken;
+        await SeedTenantUserAsync(OssTenantUserIds.Operator, "Operator");
         var policy = CreatePolicy();
 
         var resolution = await policy.ResolveAsync(
@@ -124,11 +151,77 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolveAsync_PrefixDerivesFromTenantUserDisplayName()
+    {
+        // #2860: the prefix is sourced from the bound TenantUser's
+        // DisplayName, not a hardcoded literal. Renaming the TenantUser
+        // (production: PATCH /tenant-users/{id}) updates the prefix on
+        // every subsequent Hat mint so Conversations / Engagements /
+        // From-selector chips render one coherent prefix per operator.
+        var ct = TestContext.Current.CancellationToken;
+        await SeedTenantUserAsync(OssTenantUserIds.Operator, "Foo");
+        var policy = CreatePolicy();
+
+        var resolution = await policy.ResolveAsync(
+            CreateRequest(roles: new[] { "approver" }), ct);
+
+        var humanId = resolution.HumanIds.ShouldHaveSingleItem();
+        using var scope = _provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await db.Humans.AsNoTracking().FirstOrDefaultAsync(h => h.Id == humanId, ct);
+        row!.DisplayName.ShouldBe("Foo · approver");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ExplicitTenantUserId_PrefixDerivesFromThatRow()
+    {
+        // When an explicit TenantUser override is supplied, the prefix
+        // should reflect *that* row's DisplayName (not the OSS-default
+        // operator's). Mirrors the cloud overlay's per-principal binding.
+        var ct = TestContext.Current.CancellationToken;
+        await SeedTenantUserAsync(OssTenantUserIds.Operator, "Operator");
+        var explicitId = Guid.Parse("dddddddd-4444-4444-4444-000000000002");
+        await SeedTenantUserAsync(explicitId, "Bar");
+        var policy = CreatePolicy();
+
+        var resolution = await policy.ResolveAsync(
+            CreateRequest(roles: new[] { "approver" }, explicitTenantUserId: explicitId), ct);
+
+        var humanId = resolution.HumanIds.ShouldHaveSingleItem();
+        using var scope = _provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await db.Humans.AsNoTracking().FirstOrDefaultAsync(h => h.Id == humanId, ct);
+        row!.DisplayName.ShouldBe("Bar · approver");
+        row.TenantUserId.ShouldBe(explicitId);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_TenantUserMissing_FallsBackToOperatorLiteral()
+    {
+        // Defensive guard: when the TenantUser row hasn't been seeded
+        // (malformed state — production seeder always runs first), the
+        // policy still emits a sensible prefix rather than crashing or
+        // emitting empty string.
+        var ct = TestContext.Current.CancellationToken;
+        var policy = CreatePolicy();
+
+        var resolution = await policy.ResolveAsync(
+            CreateRequest(roles: new[] { "owner" }), ct);
+
+        var humanId = resolution.HumanIds.ShouldHaveSingleItem();
+        using var scope = _provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await db.Humans.AsNoTracking().FirstOrDefaultAsync(h => h.Id == humanId, ct);
+        row!.DisplayName.ShouldBe("Operator · owner");
+    }
+
+    [Fact]
     public async Task ResolveAsync_TwoCalls_MintDistinctHumans()
     {
         // ADR-0046 §7: two declarations produce two distinct HumanEntity
         // rows even when the roles match — physical-user binding is v0.2.
         var ct = TestContext.Current.CancellationToken;
+        await SeedTenantUserAsync(OssTenantUserIds.Operator, "Operator");
         var policy = CreatePolicy();
 
         var first = await policy.ResolveAsync(CreateRequest(), ct);
@@ -148,8 +241,10 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
         // ITenantUserDefaultResolver. The endpoint validated the id
         // exists in tenant before reaching the policy.
         var ct = TestContext.Current.CancellationToken;
+        await SeedTenantUserAsync(OssTenantUserIds.Operator, "Operator");
         var policy = CreatePolicy();
         var explicitId = Guid.Parse("dddddddd-4444-4444-4444-000000000001");
+        await SeedTenantUserAsync(explicitId, "Operator");
 
         var resolution = await policy.ResolveAsync(
             CreateRequest(explicitTenantUserId: explicitId), ct);
@@ -169,6 +264,7 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
         // operator value test above so the absence of the override is
         // explicit in the contract.
         var ct = TestContext.Current.CancellationToken;
+        await SeedTenantUserAsync(OssTenantUserIds.Operator, "Operator");
         var policy = CreatePolicy();
 
         var resolution = await policy.ResolveAsync(
@@ -185,6 +281,7 @@ public class OssPackageHumanResolutionPolicyTests : IDisposable
     public async Task ResolveAsync_PersistsDescription()
     {
         var ct = TestContext.Current.CancellationToken;
+        await SeedTenantUserAsync(OssTenantUserIds.Operator, "Operator");
         var policy = CreatePolicy();
 
         var resolution = await policy.ResolveAsync(
