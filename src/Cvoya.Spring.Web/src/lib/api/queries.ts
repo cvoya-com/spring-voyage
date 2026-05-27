@@ -1392,6 +1392,10 @@ export function useConnectorBindings(
  * not completed the OAuth install yet). Refetches honour `refetchInterval`
  * so the settings panel can poll while the OAuth popup is open and snap
  * to the bound state without a manual refresh.
+ *
+ * @public Consumed by `Cvoya.Spring.Connector.Slack/web/*` cross-workspace
+ * (knip's path-alias resolver doesn't follow `@/*` from outside this
+ * workspace, so the import is invisible to it).
  */
 export function useTenantSlackBinding(
   opts?: SliceOptions<TenantConnectorBindingResponse | null>,
