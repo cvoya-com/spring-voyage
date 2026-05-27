@@ -24,6 +24,7 @@
     <Project Path="tests/unit/Cvoya.Spring.Cli.Tests/Cvoya.Spring.Cli.Tests.csproj" />
     <Project Path="tests/unit/Cvoya.Spring.Connector.Arxiv.Tests/Cvoya.Spring.Connector.Arxiv.Tests.csproj" />
     <Project Path="tests/unit/Cvoya.Spring.Connector.GitHub.Tests/Cvoya.Spring.Connector.GitHub.Tests.csproj" />
+    <Project Path="tests/unit/Cvoya.Spring.Connector.Slack.Tests/Cvoya.Spring.Connector.Slack.Tests.csproj" />
     <Project Path="tests/unit/Cvoya.Spring.Connector.WebSearch.Tests/Cvoya.Spring.Connector.WebSearch.Tests.csproj" />
     <Project Path="tests/unit/Cvoya.Spring.Connectors.Tests/Cvoya.Spring.Connectors.Tests.csproj" />
     <Project Path="tests/unit/Cvoya.Spring.Core.Tests/Cvoya.Spring.Core.Tests.csproj" />
