@@ -17,6 +17,8 @@ using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Messaging.Rendering;
+using Cvoya.Spring.Core.Messaging.Rendering.Renderers;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Tenancy;
@@ -231,8 +233,26 @@ public class A2AExecutionDispatcherTests
             _connectorContext,
             _connectorPromptContext,
             new StubInboundEnvelopeResolver(),
+            BuildPayloadRendererRegistry(),
             _loggerFactory);
     }
+
+    /// <summary>
+    /// Mirrors the platform-host DI wiring (#2856 / #2843): the full
+    /// built-in renderer set plus the A2A wrap renderer. The dispatcher's
+    /// reasoning-trace path consumes the registry the same way Slack and
+    /// the timeline do, so these tests pin the production-equivalent set.
+    /// </summary>
+    private static IMessagePayloadRendererRegistry BuildPayloadRendererRegistry() =>
+        new MessagePayloadRendererRegistry(new IMessagePayloadRenderer[]
+        {
+            new BareStringPayloadRenderer(),
+            new TextPropertyPayloadRenderer(),
+            new BodyPropertyPayloadRenderer(),
+            new OutputPropertyPayloadRenderer(),
+            new ContentPropertyPayloadRenderer(),
+            new A2aTaskPayloadRenderer(),
+        });
 
     /// <summary>
     /// Minimal <see cref="Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver"/>
@@ -1187,7 +1207,8 @@ public class A2AExecutionDispatcherTests
         };
 
         var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
-            response, TimeSpan.FromMilliseconds(50), toolCallCount: 3, agentId: "agent-1", containerId: "c-1");
+            response, TimeSpan.FromMilliseconds(50), toolCallCount: 3, agentId: "agent-1", containerId: "c-1",
+            BuildPayloadRendererRegistry());
 
         outcome.ExitCode.ShouldBe(0);
         outcome.ReasoningTrace.ShouldBe("agent output");
@@ -1209,7 +1230,8 @@ public class A2AExecutionDispatcherTests
         };
 
         var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
-            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent-1", containerId: null);
+            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent-1", containerId: null,
+            BuildPayloadRendererRegistry());
 
         outcome.ExitCode.ShouldBe(1);
         outcome.Diagnostics["a2aTaskState"].ShouldBe("Failed");
@@ -1226,7 +1248,8 @@ public class A2AExecutionDispatcherTests
         };
 
         var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
-            response, TimeSpan.Zero, toolCallCount: 1, agentId: "agent-1", containerId: null);
+            response, TimeSpan.Zero, toolCallCount: 1, agentId: "agent-1", containerId: null,
+            BuildPayloadRendererRegistry());
 
         outcome.ExitCode.ShouldBe(0);
         outcome.ReasoningTrace.ShouldBe("direct reply");
@@ -1248,7 +1271,8 @@ public class A2AExecutionDispatcherTests
         };
 
         var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
-            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent-1", containerId: null);
+            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent-1", containerId: null,
+            BuildPayloadRendererRegistry());
 
         outcome.ReasoningTrace.ShouldBeNull();
     }

@@ -91,6 +91,7 @@ public sealed class MessageArrivedDetails
             new BodyPropertyPayloadRenderer(),
             new OutputPropertyPayloadRenderer(),
             new ContentPropertyPayloadRenderer(),
+            new A2aTaskPayloadRenderer(),
         }));
 
     /// <summary>

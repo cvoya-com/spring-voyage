@@ -143,6 +143,12 @@ internal static class ServiceCollectionExtensionsMessaging
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, BodyPropertyPayloadRenderer>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, OutputPropertyPayloadRenderer>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, ContentPropertyPayloadRenderer>());
+        // #2856: A2A response wrap (kind: "a2a.task" / "a2a.message") so the
+        // A2A reasoning-trace path consumes the same registry as the
+        // timeline / Slack outbound. Replaces the in-file
+        // A2AExecutionDispatcher.ExtractTextFromTask / ExtractTextFromParts
+        // helpers retired by the same PR.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, A2aTaskPayloadRenderer>());
         services.TryAddSingleton<IMessagePayloadRendererRegistry, MessagePayloadRendererRegistry>();
 
         // #2843: the conversation-timeline details helper. Singleton because
