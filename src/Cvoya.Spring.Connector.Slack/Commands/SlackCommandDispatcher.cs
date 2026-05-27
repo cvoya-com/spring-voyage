@@ -53,6 +53,16 @@ public sealed class SlackCommandDispatcher : ISlackCommandDispatcher
     public const string SvThreadInitialMessageActionId = "sv_thread_initial_message_input";
 
     /// <summary>
+    /// Wall-clock budget for resolving Slack canonical permalinks
+    /// during <c>/sv-threads</c> render. Slack's slash-command
+    /// handshake is 3 seconds; the cap leaves room for the subsequent
+    /// <c>views.open</c> call. Per-row failures (Slack <c>ok=false</c>,
+    /// transport exception, or budget exceeded) fall back to the
+    /// workspace-local <c>slack://</c> URI for that row.
+    /// </summary>
+    internal const int PermalinkBudgetMs = 1500;
+
+    /// <summary>
     /// Static cheat-sheet text the bot posts in the DM in response to
     /// <c>/sv-help</c>.
     /// </summary>
@@ -467,13 +477,23 @@ public sealed class SlackCommandDispatcher : ISlackCommandDispatcher
         }
         else
         {
+            // ADR-0061 §5: resolve the canonical HTTPS permalink per
+            // row so the deep link survives cross-workspace and non-
+            // Slack-client contexts. Fetches run in parallel under a
+            // shared budget; on per-row failure (Slack ok=false,
+            // transport error, or budget exceeded) we fall back to
+            // the workspace-local slack:// URI for that row.
+            var permalinks = await ResolvePermalinksAsync(botToken, mappings, cancellationToken)
+                .ConfigureAwait(false);
+
             foreach (var mapping in mappings)
             {
-                // Build the deep-link URI. permalink would need a
-                // network round-trip; the slack:// URI works without
-                // one and Slack rewrites it client-side. Cross-workspace
-                // robustness via chat.getPermalink tracked in #2844.
-                var deepLink = $"slack://channel?team={Uri.EscapeDataString(mapping.TeamId)}&id={Uri.EscapeDataString(mapping.SlackChannelId)}&message={Uri.EscapeDataString(mapping.SlackThreadTs)}";
+                var key = (mapping.SlackChannelId, mapping.SlackThreadTs);
+                var deepLink = permalinks.TryGetValue(key, out var permalink)
+                    && !string.IsNullOrEmpty(permalink)
+                    ? permalink
+                    : BuildSlackDeepLinkFallback(mapping);
+
                 blocks.Add(new
                 {
                     type = "section",
@@ -498,6 +518,89 @@ public sealed class SlackCommandDispatcher : ISlackCommandDispatcher
         var view = JsonSerializer.SerializeToElement(viewObj, JsonOptions);
         await _webApi.ViewsOpenAsync(botToken, triggerId, view, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Resolves Slack canonical permalinks for every unique
+    /// <c>(channel, thread_ts)</c> pair in <paramref name="mappings"/>
+    /// in parallel, capped by <see cref="PermalinkBudgetMs"/>. Permalinks
+    /// are deduped per (channel, thread_ts) so repeated rows pointing
+    /// at the same Slack message only trigger one fetch — the
+    /// "cache for the duration of the modal render" called out in
+    /// ADR-0061 §5.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<(string Channel, string ThreadTs), string>> ResolvePermalinksAsync(
+        string botToken,
+        IReadOnlyList<SlackThreadMapping> mappings,
+        CancellationToken cancellationToken)
+    {
+        var distinctKeys = mappings
+            .Select(m => (m.SlackChannelId, m.SlackThreadTs))
+            .Distinct()
+            .ToList();
+
+        using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budgetCts.CancelAfter(TimeSpan.FromMilliseconds(PermalinkBudgetMs));
+
+        var tasks = distinctKeys.ToDictionary(
+            key => key,
+            key => TryGetPermalinkAsync(botToken, key.SlackChannelId, key.SlackThreadTs, budgetCts.Token));
+
+        await Task.WhenAll(tasks.Values).ConfigureAwait(false);
+
+        var result = new Dictionary<(string Channel, string ThreadTs), string>(tasks.Count);
+        foreach (var (key, task) in tasks)
+        {
+            if (task.Result is { Length: > 0 } permalink)
+            {
+                result[key] = permalink;
+            }
+        }
+        return result;
+    }
+
+    private async Task<string?> TryGetPermalinkAsync(
+        string botToken,
+        string channelId,
+        string messageTs,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _webApi
+                .GetPermalinkAsync(botToken, channelId, messageTs, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (result.Ok && !string.IsNullOrEmpty(result.Permalink))
+            {
+                return result.Permalink;
+            }
+
+            _logger.LogInformation(
+                "Slack chat.getPermalink returned ok=false for channel={Channel} ts={Ts}; falling back to slack:// URI. Error={Error}",
+                channelId, messageTs, result.Error);
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation(
+                "Slack chat.getPermalink exceeded budget or was cancelled for channel={Channel} ts={Ts}; falling back to slack:// URI.",
+                channelId, messageTs);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Slack chat.getPermalink threw for channel={Channel} ts={Ts}; falling back to slack:// URI.",
+                channelId, messageTs);
+            return null;
+        }
+    }
+
+    private static string BuildSlackDeepLinkFallback(SlackThreadMapping mapping) =>
+        $"slack://channel?team={Uri.EscapeDataString(mapping.TeamId)}"
+        + $"&id={Uri.EscapeDataString(mapping.SlackChannelId)}"
+        + $"&message={Uri.EscapeDataString(mapping.SlackThreadTs)}";
 
     internal static JsonElement BuildSvThreadModalView(IReadOnlyList<object> options, string? initialText)
     {

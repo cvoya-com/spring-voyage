@@ -25,6 +25,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 using Shouldly;
 
@@ -80,7 +81,7 @@ public class SlackCommandDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_SvThreads_FromDm_OpensListModal()
+    public async Task DispatchAsync_SvThreads_FromDm_RendersCanonicalPermalinks()
     {
         var ct = TestContext.Current.CancellationToken;
         var harness = TestHarness.Create();
@@ -96,11 +97,85 @@ public class SlackCommandDispatcherTests
         var outcome = await harness.Dispatcher.DispatchAsync(form, ct);
 
         outcome.ShouldBe(SlackCommandDispatchOutcome.Handled);
-        await harness.WebApi.Received(1).ViewsOpenAsync(
-            "xoxb-test-token",
-            "trigger-1",
-            Arg.Any<JsonElement>(),
-            Arg.Any<CancellationToken>());
+
+        // chat.getPermalink should fire once per unique (channel, ts).
+        await harness.WebApi.Received(1).GetPermalinkAsync(
+            "xoxb-test-token", "D-installer", "1700.1", Arg.Any<CancellationToken>());
+        await harness.WebApi.Received(1).GetPermalinkAsync(
+            "xoxb-test-token", "D-installer", "1700.2", Arg.Any<CancellationToken>());
+
+        // The view should embed the canonical HTTPS permalinks rather
+        // than the workspace-local slack:// URI (ADR-0061 §5 / #2844).
+        var view = harness.CapturedThreadsView.ShouldNotBeNull();
+        var rowTexts = ReadSectionRowTexts(view);
+        rowTexts.ShouldContain(t => t.Contains("https://acme.slack.com/archives/D-installer/p17001", StringComparison.Ordinal));
+        rowTexts.ShouldContain(t => t.Contains("https://acme.slack.com/archives/D-installer/p17002", StringComparison.Ordinal));
+        rowTexts.ShouldNotContain(t => t.Contains("slack://", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DispatchAsync_SvThreads_PermalinkOkFalse_FallsBackToSlackUri()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var harness = TestHarness.Create();
+        await harness.SeedBindingAsync(ct);
+
+        // chat.getPermalink returns ok=false — common when the bot
+        // lost access to the message or the workspace rate-limited us.
+        harness.WebApi.GetPermalinkAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new SlackPermalinkResult(Ok: false, Error: "channel_not_found", Permalink: string.Empty));
+
+        await harness.ThreadMap.RecordAsync(
+            Guid.NewGuid(), OperatorTenantUserId, "T-acme", "D-installer", "1700.1", ct);
+
+        var form = BuildForm(SlackCommandDispatcher.SvThreadsCommand, channelName: "directmessage");
+        var outcome = await harness.Dispatcher.DispatchAsync(form, ct);
+
+        outcome.ShouldBe(SlackCommandDispatchOutcome.Handled);
+        var rowTexts = ReadSectionRowTexts(harness.CapturedThreadsView.ShouldNotBeNull());
+        rowTexts.ShouldContain(t => t.Contains("slack://channel?team=T-acme&id=D-installer&message=1700.1", StringComparison.Ordinal));
+        rowTexts.ShouldNotContain(t => t.Contains("https://", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DispatchAsync_SvThreads_PermalinkThrows_FallsBackToSlackUri()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var harness = TestHarness.Create();
+        await harness.SeedBindingAsync(ct);
+
+        // chat.getPermalink throws — transport error, budget exceeded,
+        // or any other unexpected fault. Per ADR-0061 §5 the row
+        // falls back to the workspace-local slack:// URI.
+        harness.WebApi.GetPermalinkAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsyncForAnyArgs(new OperationCanceledException());
+
+        await harness.ThreadMap.RecordAsync(
+            Guid.NewGuid(), OperatorTenantUserId, "T-acme", "D-installer", "1700.1", ct);
+
+        var form = BuildForm(SlackCommandDispatcher.SvThreadsCommand, channelName: "directmessage");
+        var outcome = await harness.Dispatcher.DispatchAsync(form, ct);
+
+        outcome.ShouldBe(SlackCommandDispatchOutcome.Handled);
+        var rowTexts = ReadSectionRowTexts(harness.CapturedThreadsView.ShouldNotBeNull());
+        rowTexts.ShouldContain(t => t.Contains("slack://channel?team=T-acme&id=D-installer&message=1700.1", StringComparison.Ordinal));
+    }
+
+    private static IReadOnlyList<string> ReadSectionRowTexts(JsonElement view)
+    {
+        var result = new List<string>();
+        foreach (var block in view.GetProperty("blocks").EnumerateArray())
+        {
+            if (block.TryGetProperty("type", out var type)
+                && type.ValueEquals("section")
+                && block.TryGetProperty("text", out var text)
+                && text.TryGetProperty("text", out var value)
+                && value.ValueKind == JsonValueKind.String)
+            {
+                result.Add(value.GetString() ?? string.Empty);
+            }
+        }
+        return result;
     }
 
     [Fact]
@@ -212,6 +287,7 @@ public class SlackCommandDispatcherTests
         public IMessageRouter MessageRouter { get; }
         public RecordingAuditLog AuditLog { get; }
         public ITenantConnectorBindingStore BindingStore { get; }
+        public JsonElement? CapturedThreadsView { get; set; }
 
         private TestHarness(
             SlackCommandDispatcher dispatcher,
@@ -293,6 +369,14 @@ public class SlackCommandDispatcherTests
                 .Returns(new SlackPostMessageResult(Ok: true, Error: null, ChannelId: "D-installer", MessageTs: "1700.001"));
             webApi.ViewsOpenAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<JsonElement>(), Arg.Any<CancellationToken>())
                 .Returns(new SlackResult(Ok: true, Error: null));
+            // Default: chat.getPermalink succeeds with a synthetic
+            // canonical URL derived from (channel, ts). Individual
+            // tests override this to exercise the fallback paths.
+            webApi.GetPermalinkAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(call => new SlackPermalinkResult(
+                    Ok: true,
+                    Error: null,
+                    Permalink: $"https://acme.slack.com/archives/{call.ArgAt<string>(1)}/p{call.ArgAt<string>(2).Replace(".", string.Empty, StringComparison.Ordinal)}"));
             services.AddSingleton(webApi);
 
             var nameResolver = Substitute.For<IParticipantDisplayNameResolver>();
@@ -331,7 +415,7 @@ public class SlackCommandDispatcherTests
                 messageRouter,
                 NullLoggerFactory.Instance);
 
-            return new TestHarness(
+            var harness = new TestHarness(
                 dispatcher,
                 webApi,
                 provider.GetRequiredService<ISlackThreadMapStore>(),
@@ -339,6 +423,17 @@ public class SlackCommandDispatcherTests
                 messageRouter,
                 auditLog,
                 provider.GetRequiredService<ITenantConnectorBindingStore>());
+
+            // Capture views opened during the test so we can assert on
+            // the rendered Block Kit payload (e.g. /sv-threads links).
+            webApi.ViewsOpenAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<JsonElement>(), Arg.Any<CancellationToken>())
+                .Returns(call =>
+                {
+                    harness.CapturedThreadsView = call.ArgAt<JsonElement>(2);
+                    return new SlackResult(Ok: true, Error: null);
+                });
+
+            return harness;
         }
 
         public async Task SeedBindingAsync(CancellationToken ct)
