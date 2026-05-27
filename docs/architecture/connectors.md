@@ -87,19 +87,23 @@ A tenant is bound to a per-tenant connector by a binding row in
 `tenant_connector_bindings` — one row per `(tenant, connector_slug)` pair,
 carrying the opaque connector config. Tenant-scoped bindings do not inherit
 through the unit hierarchy; they are the workspace-wide attachment point
-for the connector. The Slack connector adds a sibling
-`tenant_slack_workspace_map` table that maps `team_id ↔ tenant_id` for
-cross-tenant lookups (ADR-0061 §7.5) — the OAuth callback resolves an
-installing workspace's `team_id` through this map; the inbound event
-handler will (in #2817) follow the same path.
+for the connector. The same row carries an optional `external_identity`
+column — the connector-native identifier of the external resource the
+binding addresses (for Slack, the workspace `team_id`). A partial UNIQUE
+index on `(connector_slug, external_identity)` enforces cross-tenant
+exclusivity: two tenants cannot claim the same external resource. The
+inbound-routing path (`ITenantConnectorBindingStore.GetByExternalIdentityAsync`)
+resolves a delivery to a single tenant binding by reading this index;
+the same surface serves Slack today and any future workspace-shaped
+connector (calendar, shared mailbox) without per-connector storage code.
 
 A connector binding declares only what the unit (or tenant) needs to
 *participate*. It does **not** replicate the upstream system's
 subscription model (App installations, channel invites). The GitHub
 webhook handler keys inbound events on `(owner, repo)` within the
 receiving tenant and fans out to every matching binding; the Slack
-connector keys on the workspace's `team_id` and resolves to the tenant via
-the workspace map.
+connector keys on the workspace's `team_id` and resolves to the tenant
+via the binding row's `external_identity` index.
 
 ## Runtime-context contribution
 
