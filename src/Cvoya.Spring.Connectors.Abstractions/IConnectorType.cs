@@ -88,6 +88,26 @@ public interface IConnectorType
     string ToolNamespace => Slug;
 
     /// <summary>
+    /// The scope at which this connector binds — per-unit (the
+    /// historical default) or per-tenant (introduced by
+    /// <see href="https://github.com/cvoya-com/spring-voyage/blob/main/docs/decisions/0061-slack-connector-oss-shape.md">ADR-0061</see>
+    /// §1). Determines which binding store the platform uses
+    /// (<c>IUnitConnectorBindingStore</c> vs.
+    /// <c>ITenantConnectorBindingStore</c>) and which endpoint shape the
+    /// host exposes under <c>/api/v1/tenant/connectors/{slug}/…</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Defaults to <see cref="Cvoya.Spring.Connectors.BindingScope.Unit"/>
+    /// so existing connectors keep working unchanged. Connectors whose
+    /// external resource is naturally workspace-shaped (Slack, calendar,
+    /// shared mailbox) override to
+    /// <see cref="Cvoya.Spring.Connectors.BindingScope.Tenant"/>.
+    /// </para>
+    /// </remarks>
+    BindingScope BindingScope => BindingScope.Unit;
+
+    /// <summary>
     /// Human-facing display name.
     /// </summary>
     string DisplayName { get; }
