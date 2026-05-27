@@ -6,7 +6,26 @@ A **human** is an addressable subject that participates in threads alongside age
 
 Humans are **subjects**, not agents. They share thread participation with agents and units, but they do not have execution config, memory, skills, traces, runtime, or any of the agent-shaped surfaces. See [Units vs agents](units-vs-agents.md) for the agent-shaped contract; humans share only the `IMessageReceiver` slice.
 
+A `Human` row is a **"Hat"** — the identity the operator wears in one particular collaboration. The same operator (the `TenantUser` behind the keyboard) can wear several Hats across (and within) units, each with its own per-unit display name. The model is explained under [Hats: one operator, many Humans](#hats-one-operator-many-humans) below, and the FK that makes it work lives on `humans.tenant_user_id` ([ADR-0062](../decisions/0062-tenant-user-human-explicit-binding.md)).
+
 This page covers humans in two roles: as ACL-bound platform subjects (the part that originated in [ADR-0044 §1](../decisions/0044-team-role-vs-platform-role.md)) and as declarative *team members* on a unit's `members:` block (the part introduced by [ADR-0046](../decisions/0046-unified-members-grammar.md) §§ 1, 4, 7).
+
+## Hats: one operator, many Humans
+
+A single operator — one `TenantUser` row, one authenticated principal — can be bound to **many `Human` rows**. Each `Human` is a **Hat** the operator wears in a specific collaboration. The same person can be "Bob the designer" in the Magazine unit and "Alice the developer" in the Newsletter unit: same operator, two Hats, two `Human` rows, both pointing at the same `TenantUser` through the `humans.tenant_user_id` FK ([ADR-0062 §1](../decisions/0062-tenant-user-human-explicit-binding.md)). The cardinality is many `Human` rows to one `TenantUser`; each `Human` is filled by exactly one `TenantUser`.
+
+**Per-unit display name.** A Hat's display name is contextual to the unit it appears in. "Bob" in Magazine and "Alice" in Newsletter are not aliases — they are distinct Hats with distinct names, and the operator chooses which Hat to present in each unit when the package is installed (or later, through the editing surfaces below). The Hat that other team members see is the Hat that received their message.
+
+**The inbox shows the Hat.** Every inbox item is rendered with a Hat chip indicating which Hat received it — `As Bob (designer in Magazine)`, `As Alice (developer in Newsletter)`. The operator always sees which identity received which message, even when both Hats funnel into the same inbox view. This is what makes the model coherent: items received as different Hats remain distinguishable.
+
+**Reply defaults to the thread's Hat.** When the operator replies inside an existing thread, the composer's from-selector is pinned to the Hat the thread came in on. Replies do not silently change identity mid-thread; the operator can override via the from-selector, but the default keeps the conversation consistent. For a **new outbound** message (composer launched fresh from a unit, an agent, or `spring message send` without an explicit Hat), the from-selector defaults to the operator's **primary Hat** — the `Human` pinned by `tenant_users.primary_human_id` ([ADR-0062 §§ 2, 5](../decisions/0062-tenant-user-human-explicit-binding.md)). The primary Hat is set automatically on the first binding and can be repinned from the portal's identity settings or via `spring user identity set-primary <human-ref>`.
+
+**Surfaces.** Both the portal and the CLI surface the Hat selector with the same defaults:
+
+- **Portal** — a from-selector appears on the inbox reply composer, the engagement composer, and the unit / agent messaging-tab composer. The selector lists every Hat the calling operator is bound to.
+- **CLI** — `spring message send --as <human-ref>` pins the Hat for an outbound message; omit the flag and the same primary-Hat default applies. `<human-ref>` accepts the Hat id (dashed or no-dash) or the display name when unambiguous within the operator's bound set ([ADR-0062 §6](../decisions/0062-tenant-user-human-explicit-binding.md)).
+
+**OSS specifics.** OSS deployments ship with exactly one `TenantUser` — the operator pinned by `OssTenantUserIds.Operator`. Every `Human` declared by every installed package has its `tenant_user_id` resolved to that single id by `ITenantUserDefaultResolver`. The Hat model still applies — the operator legitimately wears different Hats in different units, and the inbox renders each Hat distinctly — but every Hat maps to the same identity behind the scenes. The portal's per-Hat chip remains the way to keep "designer in Magazine" and "developer in Newsletter" visually distinct even though both resolve to the same operator.
 
 ## What a human can do
 
@@ -15,7 +34,7 @@ This page covers humans in two roles: as ACL-bound platform subjects (the part t
 | Participate in threads (receive + send messages) | Yes |
 | Be a member of a unit | Yes — via the unified `members:` grammar (see below) and the post-install permission surface |
 | Hold permissions on a unit (configure, operate, view) | Yes — distinct from team-role membership |
-| Be addressable through a connector (Slack handle, GitHub handle, email) | Yes — via the `Human → TenantUser` mapping; the handle itself lives on the [`TenantUser`](tenants.md#tenantuser-the-authenticated-principal), not on the `Human` row ([ADR-0047 §§ 2, 7](../decisions/0047-platform-user-human-split.md)) |
+| Be addressable through a connector (Slack handle, GitHub handle, email) | Yes — via the explicit `Human → TenantUser` FK; the handle itself lives on the [`TenantUser`](tenants.md#tenantuser-the-authenticated-principal), not on the `Human` row ([ADR-0047 §§ 2, 7](../decisions/0047-platform-user-human-split.md), [ADR-0062 §1](../decisions/0062-tenant-user-human-explicit-binding.md)) |
 | Have an outbound connector binding (translate external events into messages) | No — that's a unit/connector concern |
 | Be cloned, deployed, scaled | No |
 | Have memory, skills, traces, expertise, budget, policy, runtime | No |
@@ -94,8 +113,8 @@ The template schema lives in [`src/Cvoya.Spring.Manifest/HumanTemplateManifest.c
 
 Each install-time `- human:` declaration is resolved through the `IPackageHumanResolutionPolicy` DI seam ([ADR-0044 §4](../decisions/0044-team-role-vs-platform-role.md), preserved by [ADR-0046 §10](../decisions/0046-unified-members-grammar.md)).
 
-- **OSS default** — every declaration mints a fresh `HumanEntity` row with a newly-generated Guid and a derived `DisplayName` (`"Operator · <roles[0]>"`, falling back to `"Operator"` when no roles are declared). Two `- human:` entries in one unit produce two distinct rows; the OSS deployment maps every `Human` to the single OSS-operator `TenantUser` (`OssTenantUserIds.Operator`) through the `Human → TenantUser` mapping described in [Human → TenantUser display mapping](#human--tenantuser-display-mapping) below. This keeps the Identity / Connector / DisplayName affordances uniform across declarations — the portal's Humans list sees N rows with sensible labels, no special-casing for the operator UUID.
-- **Hosted overlay** — concrete cloud-side implementations decide whether to mint a fresh row or to bind to an existing tenant member (operator-fills-all, prompt-per-slot, match-by-claim, reject). The `{human_id → tenant_user_id}` mapping table that would let one tenant user fill multiple declarations is **v0.2** and explicitly out of scope ([ADR-0047](../decisions/0047-platform-user-human-split.md) §7, "OUT2" in the umbrella).
+- **OSS default** — every declaration mints a fresh `HumanEntity` row with a newly-generated Guid, a derived `DisplayName` (`"Operator · <roles[0]>"`, falling back to `"Operator"` when no roles are declared), and a `tenant_user_id` resolved to `OssTenantUserIds.Operator` by `ITenantUserDefaultResolver`. Two `- human:` entries in one unit produce two distinct rows — two Hats for the same operator — and the [Human → TenantUser display mapping](#human--tenantuser-display-mapping) below covers the FK shape. This keeps the Identity / Connector / DisplayName affordances uniform across declarations — the portal's Humans list sees N rows with sensible labels, no special-casing for the operator UUID.
+- **Hosted overlay** — concrete cloud-side implementations decide whose `TenantUser` id stamps each new Hat (operator-fills-all, prompt-per-slot, match-by-claim, reject); the FK is always populated, never null. The explicit binding the operator wants — "this Hat belongs to that `TenantUser`" — is supplied through `--as <tenant-user-ref>` on `spring unit member add human` and `spring package install`, or through the portal's member-add surface ([ADR-0062 §6](../decisions/0062-tenant-user-human-explicit-binding.md)).
 
 Membership is keyed by `(tenant, unit, human)` in `unit_memberships_humans` ([ADR-0046 §7](../decisions/0046-unified-members-grammar.md)); `roles`, `expertise`, and `notifications` are jsonb columns on the row. Two declarations with the same `roles` produce two distinct rows backed by two distinct `HumanEntity` Guids — the unit has two "positions" of that role.
 
@@ -103,19 +122,21 @@ Platform ACLs are deliberately **not** a manifest concern. Package authors have 
 
 ## `Human → TenantUser` display mapping
 
-A `Human` row is a **configuration entity** introduced by a package — a slot on a unit's team that names a role, an expertise set, and notification preferences. A `TenantUser` row is the **authenticated principal** of Spring Voyage scoped to one tenant (the operator in OSS, tenant members in cloud). The two are deliberately distinct: a package author can declare team slots without knowing who will fill them; the deployment decides which `TenantUser` answers for each slot at install time.
+A `Human` row is a **configuration entity** introduced by a package — a slot on a unit's team that names a role, an expertise set, and notification preferences. A `TenantUser` row is the **authenticated principal** of Spring Voyage scoped to one tenant (the operator in OSS, tenant members in cloud). The two are deliberately distinct: a package author can declare team slots without knowing who will fill them; the deployment decides which `TenantUser` answers for each slot at install time, and the operator can wear several Hats across slots (see [Hats: one operator, many Humans](#hats-one-operator-many-humans)).
 
-Display-side connector identity — the GitHub login, the Slack handle, the human-friendly rendering name on a connector — is owned by the **`TenantUser`**, not by the `Human`. The `Human` row itself carries no connector-identity fields ([ADR-0047](../decisions/0047-platform-user-human-split.md) §§ 2, 7). The resolution path is:
+The binding is an **explicit FK**: `humans.tenant_user_id` is a NOT NULL column referencing `tenant_users.id` ([ADR-0062 §1](../decisions/0062-tenant-user-human-explicit-binding.md)). Every Human-insert path — package install, CLI `spring unit member add human`, portal member-add, test seeders — sets the column through `ITenantUserDefaultResolver` unless the caller supplies an explicit binding (`--as <tenant-user-ref>` on the CLI; the equivalent input on the portal).
+
+Display-side connector identity — the GitHub login, the Slack handle, the human-friendly rendering name on a connector — is owned by the **`TenantUser`**, not by the `Human` row. The `Human` row itself carries no connector-identity fields ([ADR-0047](../decisions/0047-platform-user-human-split.md) §§ 2, 7). The resolution path is:
 
 ```
-Human (configuration slot) → TenantUser (authenticated principal) → TenantUserConnectorIdentity (display fields per connector)
+Human (the Hat) → TenantUser (authenticated principal) → TenantUserConnectorIdentity (display fields per connector)
 ```
 
 When an agent renders `@<human-name>` in a PR comment or calls `--add-reviewer <login>`, the agent walks `Human → TenantUser → TenantUserConnectorIdentity` for the connector and reads the `username` from the tenant-user's row. The outbound API call's **credential** is, separately and unconnectedly, the unit binding's pinned credential (App-installation or PAT secret — [ADR-0047 §6](../decisions/0047-platform-user-human-split.md)). The mapping is the display / mention / attribution seam, never the auth seam.
 
-**OSS default.** Every `Human` row maps to the single OSS-operator `TenantUser` pinned by `OssTenantUserIds.Operator` (deterministic v5 UUID — see [Tenants § OSS operator TenantUser](tenants.md#oss-operator-tenantuser) and [Data & identity](../architecture/data-and-identity.md#the-oss-default-tenant)). N declared `Human` rows resolve to the same one tenant user, which carries the operator's GitHub / Slack / Linear handles once. No duplication onto every `Human` row.
+**OSS default.** Every `Human` row is bound to the single OSS-operator `TenantUser` pinned by `OssTenantUserIds.Operator` (deterministic v5 UUID — see [Tenants § OSS operator TenantUser](tenants.md#oss-operator-tenantuser) and [Data & identity](../architecture/data-and-identity.md#the-oss-default-tenant)). The default resolver always returns this id, so N declared `Human` rows — N Hats — all carry the same `tenant_user_id`, and the operator's GitHub / Slack / Linear handles are configured once on the operator's `TenantUserConnectorIdentity` rows.
 
-**Hosted overlay.** Per-`Human` explicit override (binding `Human X` to `TenantUser Y` independent of the default policy) is **v0.2** — OUT2 in the umbrella. v0.1 ships the derived projection (default-to-operator in OSS; the resolution policy's choice in hosted).
+**Hosted overlay.** Concrete cloud-side implementations of `ITenantUserDefaultResolver` decide whose `TenantUser` id stamps each new Hat (the authenticated caller, an operator-filled-all policy, an explicit `--as` override, etc.). The wire shape and the inbox / from-selector semantics are identical to OSS — the only difference is which `TenantUser.Id` arrives in the FK.
 
 ## Post-install editing
 
@@ -159,6 +180,7 @@ Human pages live at `/humans/<guid>` and are reached either directly (Cmd-K, act
 
 ## See also
 
+- [ADR-0062](../decisions/0062-tenant-user-human-explicit-binding.md) — explicit `humans.tenant_user_id` FK; `tenant_users.primary_human_id` for the default outbound Hat; per-Hat inbox lane; from-selector defaults on portal and CLI.
 - [ADR-0047](../decisions/0047-platform-user-human-split.md) — `TenantUser` actor kind; display-side connector identity owned by the `TenantUser`; `Human → TenantUser` mapping; the `OssTenantUserIds.Operator` pin.
 - [ADR-0046](../decisions/0046-unified-members-grammar.md) — unified `members:` grammar; humans as a member kind; `HumanTemplate`; vocabulary trim.
 - [ADR-0044](../decisions/0044-team-role-vs-platform-role.md) — team role vs. platform role; the `IPackageHumanResolutionPolicy` seam (§§ 1, 4 survive ADR-0046 unchanged).
