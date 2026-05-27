@@ -10,6 +10,8 @@ using System.Text.Json;
 using A2A.V0_3;
 
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Messaging.Rendering;
+using Cvoya.Spring.Core.Messaging.Rendering.Renderers;
 using Cvoya.Spring.Dapr.Execution;
 
 using Shouldly;
@@ -105,7 +107,8 @@ public class BridgeWireContractTests
         var response = DeserializeResult(fixture);
 
         var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
-            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent", containerId: null);
+            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent", containerId: null,
+            BuildPayloadRendererRegistry());
 
         outcome.ExitCode.ShouldBe(0);
         outcome.ReasoningTrace.ShouldBe("echo:hello-from-fixture");
@@ -141,7 +144,8 @@ public class BridgeWireContractTests
         var response = DeserializeResult(fixture);
 
         var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
-            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent", containerId: null);
+            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent", containerId: null,
+            BuildPayloadRendererRegistry());
 
         outcome.ExitCode.ShouldBe(1);
         // MapA2AResponseToOutcome tries artifacts first, then status.message.
@@ -149,6 +153,17 @@ public class BridgeWireContractTests
         outcome.ReasoningTrace.ShouldNotBeNullOrEmpty();
         outcome.ReasoningTrace!.ShouldContain("boom");
     }
+
+    private static IMessagePayloadRendererRegistry BuildPayloadRendererRegistry() =>
+        new MessagePayloadRendererRegistry(new IMessagePayloadRenderer[]
+        {
+            new BareStringPayloadRenderer(),
+            new TextPropertyPayloadRenderer(),
+            new BodyPropertyPayloadRenderer(),
+            new OutputPropertyPayloadRenderer(),
+            new ContentPropertyPayloadRenderer(),
+            new A2aTaskPayloadRenderer(),
+        });
 
     [Fact]
     public void BridgeMessageSendCompleted_ResultCarriesKindDiscriminatorAndKebabCaseEnums()

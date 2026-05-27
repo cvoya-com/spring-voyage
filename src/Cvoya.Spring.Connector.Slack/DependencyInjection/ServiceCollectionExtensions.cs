@@ -93,6 +93,7 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, BodyPropertyPayloadRenderer>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, OutputPropertyPayloadRenderer>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, ContentPropertyPayloadRenderer>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, A2aTaskPayloadRenderer>());
         services.TryAddSingleton<IMessagePayloadRendererRegistry, MessagePayloadRendererRegistry>();
 
         // Platform-side delivery wire-up (#2818) — registered as an

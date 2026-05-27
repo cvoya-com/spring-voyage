@@ -13,6 +13,8 @@ using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Messaging.Rendering;
+using Cvoya.Spring.Core.Messaging.Rendering.Renderers;
 using Cvoya.Spring.Core.ModelProviders;
 using Cvoya.Spring.Core.Runtime;
 using Cvoya.Spring.Core.Tenancy;
@@ -77,10 +79,20 @@ public class A2AExecutionDispatcher(
     IConnectorRuntimeContextResolver connectorRuntimeContextResolver,
     IConnectorPromptContextResolver connectorPromptContextResolver,
     Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver inboundEnvelopeResolver,
+    IMessagePayloadRendererRegistry payloadRenderers,
     ILoggerFactory loggerFactory) : IExecutionDispatcher
 {
     private readonly Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver _inboundEnvelopeResolver =
         inboundEnvelopeResolver ?? throw new ArgumentNullException(nameof(inboundEnvelopeResolver));
+
+    // #2856: A2A reasoning-trace text is now resolved through the canonical
+    // Message.Payload renderer registry (#2843), so the dispatcher's
+    // ExtractTextFromTask / ExtractTextFromParts helpers were retired. The
+    // dispatcher wraps the A2A response in a Message-shaped envelope
+    // (kind: "a2a.task" / "a2a.message") and the renderer registry picks
+    // the A2aTaskPayloadRenderer that walks artifacts → status → history.
+    private readonly IMessagePayloadRendererRegistry _payloadRenderers =
+        payloadRenderers ?? throw new ArgumentNullException(nameof(payloadRenderers));
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<A2AExecutionDispatcher>();
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
@@ -1103,7 +1115,7 @@ public class A2AExecutionDispatcher(
             // revokes the MCP session so the dispatch coordinator can decide
             // RuntimeCompletedSilent without racing the revoke.
             var toolCallCount = mcpServer.GetToolCallCount(mcpToken);
-            return MapA2AResponseToOutcome(response, sw.Elapsed, toolCallCount, agentId, containerId);
+            return MapA2AResponseToOutcome(response, sw.Elapsed, toolCallCount, agentId, containerId, _payloadRenderers);
         }
         finally
         {
@@ -1395,13 +1407,27 @@ public class A2AExecutionDispatcher(
     /// stops inferring intent from terminal text; runtimes that want to
     /// reply on the thread call <c>sv.messaging.send</c>.
     /// </summary>
+    /// <remarks>
+    /// #2856: the A2A response is wrapped into a <see cref="SvMessage"/>-shaped
+    /// envelope (<c>kind: "a2a.task"</c> / <c>"a2a.message"</c>) and routed
+    /// through <see cref="IMessagePayloadRendererRegistry"/>, so the timeline,
+    /// Slack outbound, and A2A reasoning-trace paths all share one extractor.
+    /// The dispatcher still reads task id / state directly off the typed A2A
+    /// SDK objects for the diagnostics dictionary — those are not text and
+    /// don't belong in the renderer registry. Static so callers that need
+    /// raw mapping for a specific renderer set (e.g. bridge-wire contract
+    /// tests) can call it without standing up a full dispatcher.
+    /// </remarks>
     internal static RuntimeOutcome MapA2AResponseToOutcome(
         A2AResponse response,
         TimeSpan duration,
         int toolCallCount,
         string agentId,
-        string? containerId)
+        string? containerId,
+        IMessagePayloadRendererRegistry payloadRenderers)
     {
+        ArgumentNullException.ThrowIfNull(payloadRenderers);
+
         string? reasoningTrace;
         int exitCode;
         string? a2aTaskId = null;
@@ -1414,14 +1440,14 @@ public class A2AExecutionDispatcher(
         {
             case AgentTask task:
                 exitCode = task.Status.State is TaskState.Completed ? 0 : 1;
-                reasoningTrace = NullIfEmpty(ExtractTextFromTask(task));
+                reasoningTrace = RenderA2AResponseAsText(BuildA2aTaskPayload(task), payloadRenderers);
                 a2aTaskId = task.Id;
                 a2aTaskState = task.Status.State.ToString();
                 break;
 
             case AgentMessage msg:
                 exitCode = 0;
-                reasoningTrace = NullIfEmpty(ExtractTextFromParts(msg.Parts));
+                reasoningTrace = RenderA2AResponseAsText(BuildA2aMessagePayload(msg), payloadRenderers);
                 break;
 
             default:
@@ -1454,55 +1480,85 @@ public class A2AExecutionDispatcher(
         return new RuntimeOutcome(exitCode, duration, reasoningTrace, diagnostics);
     }
 
-    private static string? NullIfEmpty(string? value)
-        => string.IsNullOrEmpty(value) ? null : value;
-
-    private static string ExtractTextFromTask(AgentTask task)
+    /// <summary>
+    /// Wraps a built A2A payload in a synthetic <see cref="SvMessage"/> and
+    /// asks the renderer registry to extract text. The synthetic envelope
+    /// is purely a carrier — only <see cref="SvMessage.Payload"/> and
+    /// <see cref="SvMessage.Type"/> are consulted by built-in renderers,
+    /// so the other fields use harmless defaults.
+    /// </summary>
+    private static string? RenderA2AResponseAsText(JsonElement payload, IMessagePayloadRendererRegistry payloadRenderers)
     {
-        // First try artifacts
-        if (task.Artifacts is { Count: > 0 })
-        {
-            var artifactText = string.Join("\n", task.Artifacts
-                .SelectMany(a => (IEnumerable<Part>?)a.Parts ?? [])
-                .OfType<TextPart>()
-                .Select(p => p.Text));
-            if (!string.IsNullOrEmpty(artifactText))
-            {
-                return artifactText;
-            }
-        }
+        var carrier = new SvMessage(
+            Id: Guid.Empty,
+            From: A2APayloadCarrierAddress,
+            To: A2APayloadCarrierAddress,
+            Type: MessageType.Domain,
+            ThreadId: null,
+            Payload: payload,
+            Timestamp: DateTimeOffset.UtcNow);
 
-        // Fall back to status message
-        if (task.Status.Message is { } statusMsg)
-        {
-            return ExtractTextFromParts(statusMsg.Parts);
-        }
-
-        // Fall back to history
-        if (task.History is { Count: > 0 })
-        {
-            var lastAgent = task.History.LastOrDefault(m => m.Role == MessageRole.Agent);
-            if (lastAgent is not null)
-            {
-                return ExtractTextFromParts(lastAgent.Parts);
-            }
-        }
-
-        return string.Empty;
+        return payloadRenderers.TryRender(carrier);
     }
 
-    private static string ExtractTextFromParts(IReadOnlyList<Part>? parts)
+    /// <summary>
+    /// Sentinel address used on the synthetic <see cref="SvMessage"/> carrier
+    /// in <see cref="RenderA2AResponseAsText"/>. The renderer registry does
+    /// not consult <see cref="SvMessage.From"/> / <see cref="SvMessage.To"/>,
+    /// but the <see cref="SvMessage"/> record requires non-null
+    /// <see cref="Address"/> values — using <see cref="Guid.Empty"/> on a
+    /// fixed scheme makes the placeholder obvious in any diagnostic dump
+    /// that ever surfaces it.
+    /// </summary>
+    private static readonly Address A2APayloadCarrierAddress = new("agent", Guid.Empty);
+
+    /// <summary>
+    /// Builds the pinned <c>{ kind: "a2a.task", … }</c> payload from an
+    /// <see cref="AgentTask"/>: the A2A SDK's own JSON serialisation with
+    /// the top-level <c>kind</c> discriminator rewritten so the renderer
+    /// registry's <see cref="A2aTaskPayloadRenderer"/> recognises the wrap.
+    /// </summary>
+    /// <remarks>
+    /// Mutating only the top-level <c>kind</c> field keeps the rest of the
+    /// SDK's layout intact — artifact / status / history nodes carry the
+    /// SDK-native part shape (<c>kind: "text"</c> / <c>kind: "file"</c> /
+    /// <c>kind: "data"</c>) the renderer walks. Avoids a parallel hand-
+    /// written serialisation that would drift from the SDK over time.
+    /// </remarks>
+    private static JsonElement BuildA2aTaskPayload(AgentTask task)
+        => ReplaceTopLevelKind(JsonSerializer.SerializeToElement(task), A2aTaskPayloadRenderer.TaskKind);
+
+    /// <summary>
+    /// Builds the pinned <c>{ kind: "a2a.message", … }</c> payload from an
+    /// <see cref="AgentMessage"/>. Mirrors <see cref="BuildA2aTaskPayload"/>:
+    /// rewrites the SDK's top-level <c>kind</c> so the renderer registry
+    /// picks the same <see cref="A2aTaskPayloadRenderer"/>, which walks
+    /// <c>parts</c> on the simpler <c>a2a.message</c> shape.
+    /// </summary>
+    private static JsonElement BuildA2aMessagePayload(AgentMessage message)
+        => ReplaceTopLevelKind(JsonSerializer.SerializeToElement(message), A2aTaskPayloadRenderer.MessageKind);
+
+    private static JsonElement ReplaceTopLevelKind(JsonElement source, string kindValue)
     {
-        if (parts is null or { Count: 0 })
+        using var buffer = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
         {
-            return string.Empty;
+            writer.WriteStartObject();
+            writer.WriteString("kind", kindValue);
+            foreach (var prop in source.EnumerateObject())
+            {
+                if (string.Equals(prop.Name, "kind", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                prop.WriteTo(writer);
+            }
+            writer.WriteEndObject();
         }
 
-        // V0_3 Parts is a polymorphic list; only TextPart has a `Text` field.
-        // Other kinds (FilePart, DataPart) are intentionally dropped here —
-        // the platform message protocol only carries plain text today.
-        return string.Join("\n", parts
-            .OfType<TextPart>()
-            .Select(p => p.Text));
+        buffer.Position = 0;
+        using var doc = JsonDocument.Parse(buffer);
+        return doc.RootElement.Clone();
     }
 }
