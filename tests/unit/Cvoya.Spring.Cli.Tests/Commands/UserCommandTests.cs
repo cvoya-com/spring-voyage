@@ -42,6 +42,8 @@ public class UserCommandTests
     [InlineData("user identity remove --connector github --username octocat")]
     [InlineData("user identity authorize-github")]
     [InlineData("user identity authorize-github --no-browser")]
+    [InlineData("user identity set-primary 11111111-2222-3333-4444-555555555555")]
+    [InlineData("user identity set-primary 11111111222233334444555555555555 --user aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")]
     public void UserVerbs_Parse(string argLine)
     {
         var outputOption = CreateOutputOption();
@@ -51,6 +53,19 @@ public class UserCommandTests
         var parseResult = rootCommand.Parse(argLine);
 
         parseResult.Errors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void UserIdentitySetPrimary_RequiresHumanRefArgument()
+    {
+        // ADR-0062 § 2 / #2808: the verb takes a positional Human UUID;
+        // omitting it is a parse error so the operator can't accidentally
+        // PATCH the primary slot to "the literal string null".
+        var outputOption = CreateOutputOption();
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(UserCommand.Create(outputOption));
+
+        rootCommand.Parse("user identity set-primary").Errors.ShouldNotBeEmpty();
     }
 
     [Fact]

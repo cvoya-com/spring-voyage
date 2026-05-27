@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Host.Api.Models;
 
+using System.ComponentModel.DataAnnotations;
+
 /// <summary>
 /// Read-side envelope for a human user in the platform (#2266 / #2267).
 /// </summary>
@@ -65,3 +67,31 @@ public sealed record HumanResponse(
 public sealed record UpdateHumanRequest(
     string? DisplayName = null,
     string? Description = null);
+
+/// <summary>
+/// Request body for <c>POST /api/v1/tenant/humans</c> — mint a new
+/// <see cref="Cvoya.Spring.Dapr.Data.Entities.HumanEntity"/> row (a "Hat")
+/// outside of the package-install path. Backs <c>spring unit members
+/// humans add --display-name &lt;...&gt; --as &lt;tenant-user-ref&gt;</c>
+/// (ADR-0062 § 6) and the portal's "create Hat" affordance.
+/// </summary>
+/// <param name="DisplayName">
+/// The new Hat's display name. Required. Validated via
+/// <c>DisplayNameProblems.ValidateOrProblem</c>.
+/// </param>
+/// <param name="Description">
+/// Optional single-line description (ADR-0046 §7). Null when unset.
+/// </param>
+/// <param name="TenantUserId">
+/// Explicit <c>TenantUser</c> binding for the new Hat (ADR-0062 § 1).
+/// When omitted the server resolves via
+/// <see cref="Cvoya.Spring.Core.Tenancy.ITenantUserDefaultResolver"/> —
+/// OSS returns <c>OssTenantUserIds.Operator</c>; cloud returns the
+/// calling principal. When supplied, validated to reference an existing
+/// <c>TenantUser</c> row in the current tenant; an unknown id returns
+/// 400.
+/// </param>
+public sealed record CreateHumanRequest(
+    [property: Required] string DisplayName,
+    string? Description = null,
+    Guid? TenantUserId = null);

@@ -1428,6 +1428,42 @@ public class SpringApiClient
     public Task DeleteHumanAsync(Guid humanId, CancellationToken ct = default)
         => _client.Api.V1.Tenant.Humans[humanId].DeleteAsync(cancellationToken: ct);
 
+    /// <summary>
+    /// Mints a new Human (Hat) row outside of the package-install path
+    /// (ADR-0062 § 6). Backs <c>spring unit members humans add --display-name
+    /// &lt;...&gt; --as &lt;tenant-user-ref&gt;</c>: the operator creates a
+    /// fresh Hat with an explicit <c>TenantUser</c> binding, then a
+    /// follow-up call to <see cref="AddUnitHumanMemberAsync"/> attaches
+    /// the new Hat to a unit. The two-call pattern (create then attach)
+    /// matches the read surface (Humans are reusable across units).
+    /// </summary>
+    /// <param name="displayName">The new Hat's display name. Required.</param>
+    /// <param name="description">Optional single-line description.</param>
+    /// <param name="tenantUserId">
+    /// Explicit <c>TenantUser</c> binding for the new Hat. When omitted
+    /// the server resolves the deployment default
+    /// (<see cref="Cvoya.Spring.Core.Tenancy.ITenantUserDefaultResolver"/>).
+    /// </param>
+    public async Task<HumanResponse> CreateHumanAsync(
+        string displayName,
+        string? description,
+        Guid? tenantUserId,
+        CancellationToken ct = default)
+    {
+        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Humans.HumansRequestBuilder.HumansPostRequestBody
+        {
+            CreateHumanRequest = new CreateHumanRequest
+            {
+                DisplayName = displayName,
+                Description = string.IsNullOrWhiteSpace(description) ? null : description,
+                TenantUserId = tenantUserId,
+            },
+        };
+        var result = await _client.Api.V1.Tenant.Humans.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            "Server returned an empty CreateHuman response.");
+    }
+
     // Per ADR-0047 §§ 2, 14 the connector-identity surface relocates onto
     // the TenantUser principal under /api/v1/tenant/users/{id}/identities.
     // Phase G of the umbrella adds the `spring user identity {set,list,remove}`
@@ -1494,6 +1530,33 @@ public class SpringApiClient
                 config.QueryParameters.Username = username;
             },
             cancellationToken: ct);
+
+    /// <summary>
+    /// Pins the tenant user's primary Human ("default Hat") for new
+    /// outbound messages (ADR-0062 § 2). PATCH
+    /// <c>/api/v1/tenant/users/{tenantUserId}/primary-human</c>. The server
+    /// validates the Hat is bound to the named TenantUser via the
+    /// <c>humans.tenant_user_id</c> FK; an unbound Hat returns a
+    /// CLI-friendly 400. Backs <c>spring user identity set-primary
+    /// &lt;human-ref&gt;</c>.
+    /// </summary>
+    public async Task<SetPrimaryHumanResponse> SetPrimaryHumanAsync(
+        Guid tenantUserId,
+        Guid humanId,
+        CancellationToken ct = default)
+    {
+        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Users.Item.PrimaryHuman.PrimaryHumanRequestBuilder.PrimaryHumanPatchRequestBody
+        {
+            SetPrimaryHumanRequest = new SetPrimaryHumanRequest
+            {
+                HumanId = humanId,
+            },
+        };
+        var result = await _client.Api.V1.Tenant.Users[tenantUserId].PrimaryHuman
+            .PatchAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty SetPrimaryHuman response for tenant user '{tenantUserId:N}'.");
+    }
 
     // ADR-0047 §13: thin wrappers around the OAuth authorize / session
     // endpoints. The CLI's `spring user identity authorize-github` verb
@@ -1867,6 +1930,25 @@ public class SpringApiClient
         string text,
         string? threadId,
         CancellationToken ct = default)
+        => await SendMessageAsync(toScheme, toPath, text, threadId, fromHumanId: null, ct);
+
+    /// <summary>
+    /// Sends a domain message with an optional explicit "speaking-as" Hat
+    /// (ADR-0062 § 3). When <paramref name="fromHumanId"/> is supplied, the
+    /// server validates it against the caller's bound Humans and stamps
+    /// it on <see cref="Cvoya.Spring.Core.Messaging.Message.From"/>. When
+    /// omitted, the API resolves the default Hat per the resolution order
+    /// (thread-pinned reply hat → <c>TenantUser.PrimaryHumanId</c> → any
+    /// bound Human). An invalid or unbound id surfaces as a 400 with the
+    /// <c>NoBoundHuman</c> code extension.
+    /// </summary>
+    public async Task<MessageResponse> SendMessageAsync(
+        string toScheme,
+        string toPath,
+        string text,
+        string? threadId,
+        Guid? fromHumanId,
+        CancellationToken ct = default)
     {
         var request = new SendMessageRequest
         {
@@ -1874,6 +1956,7 @@ public class SpringApiClient
             Type = "Domain",
             ThreadId = threadId,
             Payload = new UntypedString(text),
+            From = fromHumanId,
         };
         var result = await _client.Api.V1.Tenant.Messages.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty SendMessage response.");

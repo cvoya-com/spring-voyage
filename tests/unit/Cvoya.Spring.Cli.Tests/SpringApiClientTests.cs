@@ -386,6 +386,10 @@ public class SpringApiClientTests
                 json.GetProperty("to").GetProperty("path").GetString().ShouldBe("ada");
                 json.GetProperty("type").GetString().ShouldBe("Domain");
                 json.GetProperty("payload").GetString().ShouldBe("Review PR #42");
+                // ADR-0062 § 3: the absent --as path leaves "from" out
+                // of the wire body (or null) so the server picks the
+                // caller's primary Hat via the resolver.
+                json.TryGetProperty("from", out var fromProp).ShouldBeFalse();
             });
 
         var httpClient = new HttpClient(handler);
@@ -395,6 +399,134 @@ public class SpringApiClientTests
 
         result.MessageId.ShouldNotBeNull();
         handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task SendMessageAsync_WithExplicitFromHat_SendsFromOnWire()
+    {
+        // ADR-0062 § 3 + § 6: when the operator passes `spring message
+        // send --as <human-ref>` the CLI surfaces it on the wire body as
+        // the optional `from` Guid. The server validates that the named
+        // Hat is bound to the caller's TenantUser and stamps it on
+        // Message.From; an unbound Hat returns 400 with the NoBoundHuman
+        // code. This locks the wire shape so a future Kiota regen can't
+        // silently drop the field.
+        var fromHat = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/messages",
+            expectedMethod: HttpMethod.Post,
+            responseBody: $$"""{"messageId":"{{Guid.NewGuid()}}"}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("from").GetString().ShouldBe(fromHat.ToString());
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.SendMessageAsync(
+            "agent", "ada", "Review PR #42", null, fromHumanId: fromHat,
+            TestContext.Current.CancellationToken);
+
+        result.MessageId.ShouldNotBeNull();
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task CreateHumanAsync_PostsRequestBody()
+    {
+        // ADR-0062 § 6: `spring unit members humans add --display-name
+        // <...> --as <tenant-user-ref>` mints a fresh Hat via this
+        // endpoint, then attaches it via the existing team-membership
+        // surface. The CLI wrapper round-trips the (displayName,
+        // description, tenantUserId) tuple unchanged so the operator-
+        // supplied flags land on the wire in the documented shape.
+        var tenantUserId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var newHumanId = Guid.NewGuid();
+        string? capturedBody = null;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/humans",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                $$"""{"id":"{{newHumanId}}","username":"cli-mint-x","displayName":"Bob Designer","description":null,"email":null,"platformRole":"Operator","createdAt":"2026-05-26T00:00:00Z"}""",
+            returnStatusCode: HttpStatusCode.Created,
+            validateRequestBody: body => capturedBody = body);
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+
+        var response = await client.CreateHumanAsync(
+            "Bob Designer",
+            description: null,
+            tenantUserId,
+            TestContext.Current.CancellationToken);
+
+        response.DisplayName.ShouldBe("Bob Designer");
+        handler.WasCalled.ShouldBeTrue();
+        capturedBody.ShouldNotBeNull();
+        capturedBody.ShouldContain("\"displayName\":\"Bob Designer\"");
+        capturedBody.ShouldContain(tenantUserId.ToString());
+    }
+
+    [Fact]
+    public async Task CreateHumanAsync_OmittedTenantUser_SendsNullForServerDefault()
+    {
+        // When the CLI passes --display-name with no --as, the wrapper
+        // sends the tenantUserId field as JSON null so the server falls
+        // through to the deployment-default resolver (OSS: operator;
+        // cloud: calling caller). The Kiota serialiser elides the property
+        // entirely on Guid?.HasValue=false, which is the documented
+        // "use the default" signal the endpoint expects.
+        var newHumanId = Guid.NewGuid();
+        string? capturedBody = null;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/humans",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                $$"""{"id":"{{newHumanId}}","username":"cli-mint-x","displayName":"Bob","description":null,"email":null,"platformRole":"Operator","createdAt":"2026-05-26T00:00:00Z"}""",
+            returnStatusCode: HttpStatusCode.Created,
+            validateRequestBody: body => capturedBody = body);
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+
+        await client.CreateHumanAsync(
+            "Bob",
+            description: null,
+            tenantUserId: null,
+            TestContext.Current.CancellationToken);
+
+        capturedBody.ShouldNotBeNull();
+        // The Kiota composed-type writer elides absent / null Guid?
+        // properties; "tenantUserId" must not appear in the wire body.
+        capturedBody!.ShouldNotContain("tenantUserId");
+    }
+
+    [Fact]
+    public async Task SetPrimaryHumanAsync_PatchesPrimaryHumanEndpoint()
+    {
+        // ADR-0062 § 2 / #2808: `spring user identity set-primary
+        // <human-ref>` writes tenant_users.primary_human_id via this
+        // endpoint. The wrapper round-trips the humanId so the server
+        // can validate the binding and persist. An unbound Hat returns
+        // 400 with a CLI-friendly message (covered in MessageCommand
+        // separately).
+        var tenantUserId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var humanId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        string? capturedBody = null;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: $"/api/v1/tenant/users/{tenantUserId:D}/primary-human",
+            expectedMethod: HttpMethod.Patch,
+            responseBody:
+                $$"""{"tenantUserId":"{{tenantUserId}}","primaryHumanId":"{{humanId}}"}""",
+            validateRequestBody: body => capturedBody = body);
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+
+        var response = await client.SetPrimaryHumanAsync(
+            tenantUserId, humanId, TestContext.Current.CancellationToken);
+
+        response.TenantUserId.ShouldBe(tenantUserId);
+        response.PrimaryHumanId.ShouldBe(humanId);
+        handler.WasCalled.ShouldBeTrue();
+        capturedBody.ShouldNotBeNull();
+        capturedBody.ShouldContain(humanId.ToString());
     }
 
     // #1000: `spring agent status <id> --output json` crashed when the server

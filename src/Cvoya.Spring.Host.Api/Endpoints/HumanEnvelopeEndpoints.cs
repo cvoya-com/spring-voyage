@@ -3,7 +3,10 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
+using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
@@ -41,6 +44,20 @@ public static class HumanEnvelopeEndpoints
         var group = app.MapGroup("/api/v1/tenant/humans")
             .WithTags("Humans");
 
+        // ADR-0062 § 6: mint a new Human (Hat) outside of the package-
+        // install path. Backs `spring unit members humans add
+        // --display-name <...> --as <tenant-user-ref>` and the portal's
+        // create-Hat affordance; the existing `POST /units/{id}/members/
+        // humans` endpoint then attaches the freshly-minted row to a
+        // unit. Keeps the create + attach concerns on two endpoints
+        // because the same Hat is reusable across units (#2808 / ADR-0062).
+        group.MapPost("/", CreateHumanAsync)
+            .WithName("CreateHuman")
+            .WithSummary("Mint a new Human (Hat) row outside of the package-install path.")
+            .WithDescription("Allocates a fresh Guid, sets the explicit `tenantUserId` (or resolves the deployment default via ITenantUserDefaultResolver) and persists the row. DisplayName is validated via DisplayNameProblems.ValidateOrProblem. Returns the post-write HumanResponse so callers can render the row without a follow-up GET.")
+            .Produces<HumanResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
+
         // #2266 / #2267: per-human read-side envelope consumed by the
         // Explorer Human page.
         group.MapGet("/{humanId:guid}", GetHumanAsync)
@@ -74,6 +91,101 @@ public static class HumanEnvelopeEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         return group;
+    }
+
+    private static async Task<IResult> CreateHumanAsync(
+        [FromBody] CreateHumanRequest? request,
+        [FromServices] SpringDbContext db,
+        [FromServices] ITenantUserDefaultResolver tenantUserDefaultResolver,
+        CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            return Results.Problem(
+                detail: "Request body is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var displayNameProblem = DisplayNameProblems.ValidateOrProblem(request.DisplayName);
+        if (displayNameProblem is not null)
+        {
+            return displayNameProblem;
+        }
+
+        // ADR-0062 § 1: every Human-insert path stamps a TenantUser id.
+        // The CLI / portal supplies an explicit override when the operator
+        // passes `--as <tenant-user-ref>`; otherwise the deployment
+        // default resolver returns the OSS operator (or the calling
+        // principal under the cloud overlay).
+        var tenantUserId = request.TenantUserId ?? Guid.Empty;
+        if (tenantUserId == Guid.Empty)
+        {
+            tenantUserId = await tenantUserDefaultResolver
+                .ResolveDefaultAsync(cancellationToken);
+        }
+        else
+        {
+            // The tenant-query filter on the DbContext scopes this lookup
+            // automatically — a cross-tenant id surfaces as a clean 400
+            // ("not found") rather than leaking row existence.
+            var tenantUserExists = await db.TenantUsers
+                .AsNoTracking()
+                .AnyAsync(u => u.Id == tenantUserId, cancellationToken);
+            if (!tenantUserExists)
+            {
+                return Results.Problem(
+                    title: "Bad Request",
+                    detail: $"TenantUser '{tenantUserId:N}' was not found in the current tenant.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+        }
+
+        // The synthetic username must be unique within the tenant per the
+        // HumanEntity unique index on (tenant_id, username). Use the freshly-
+        // minted Guid to avoid colliding with operator-created humans
+        // (whose usernames are JWT subject claims, never of the "cli-mint-"
+        // shape).
+        var humanId = Guid.NewGuid();
+        var displayName = request.DisplayName.Trim();
+        var description = string.IsNullOrWhiteSpace(request.Description)
+            ? null
+            : request.Description.Trim();
+        var username = $"cli-mint-{humanId:N}";
+
+        var entity = new HumanEntity
+        {
+            Id = humanId,
+            TenantUserId = tenantUserId,
+            Username = username,
+            DisplayName = displayName,
+            Description = description,
+            PermissionLevel = PermissionLevel.Operator,
+        };
+
+        try
+        {
+            db.Humans.Add(entity);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            db.Entry(entity).State = EntityState.Detached;
+            return Results.Problem(
+                title: "Bad Request",
+                detail: $"Failed to insert Human row: {ex.Message}",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var response = new HumanResponse(
+            entity.Id,
+            entity.Username,
+            string.IsNullOrWhiteSpace(entity.DisplayName) ? entity.Username : entity.DisplayName,
+            entity.Description,
+            entity.Email,
+            entity.PermissionLevel.ToString(),
+            entity.CreatedAt);
+
+        return Results.Created($"/api/v1/tenant/humans/{entity.Id:D}", response);
     }
 
     private static async Task<IResult> GetHumanAsync(

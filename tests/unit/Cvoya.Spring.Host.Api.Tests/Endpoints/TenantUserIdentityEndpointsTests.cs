@@ -323,6 +323,107 @@ public class TenantUserIdentityEndpointsTests : IClassFixture<CustomWebApplicati
         body.ShouldContain("/api/v1/tenant/users");
     }
 
+    // ── #2808 / ADR-0062 § 2: PATCH /primary-human ──────────────────────
+
+    [Fact]
+    public async Task SetPrimaryHuman_BoundHat_PersistsAndReturnsTuple()
+    {
+        // ADR-0062 § 2: `spring user identity set-primary <human-ref>`
+        // writes tenant_users.primary_human_id. The validation hinges on
+        // the Hat being bound to the named TenantUser via the
+        // humans.tenant_user_id FK — this test exercises the happy path
+        // where the FK matches.
+        var ct = TestContext.Current.CancellationToken;
+        var tenantUserId = await SeedTenantUserAsync("alice");
+        var humanId = await SeedHumanBoundToAsync(tenantUserId);
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/users/{tenantUserId:D}/primary-human",
+            new SetPrimaryHumanRequest(humanId),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<SetPrimaryHumanResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.TenantUserId.ShouldBe(tenantUserId);
+        body.PrimaryHumanId.ShouldBe(humanId);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var row = await db.TenantUsers.SingleAsync(u => u.Id == tenantUserId, ct);
+        row.PrimaryHumanId.ShouldBe(humanId);
+    }
+
+    [Fact]
+    public async Task SetPrimaryHuman_UnboundHat_Returns400()
+    {
+        // The Hat exists in the tenant but is bound to a different
+        // TenantUser. Per ADR-0062 § 2 this is the "speaking-as-someone-
+        // -else's-Hat" case — the API rejects with a CLI-friendly 400 so
+        // the operator gets a precise diagnostic instead of a silent FK
+        // violation.
+        var ct = TestContext.Current.CancellationToken;
+        var ownerId = await SeedTenantUserAsync("owner");
+        var contenderId = await SeedTenantUserAsync("contender");
+        var humanBoundToOwner = await SeedHumanBoundToAsync(ownerId);
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/users/{contenderId:D}/primary-human",
+            new SetPrimaryHumanRequest(humanBoundToOwner),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        body.ShouldContain("not bound");
+    }
+
+    [Fact]
+    public async Task SetPrimaryHuman_UnknownTenantUser_Returns404()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ghost = Guid.NewGuid();
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/users/{ghost:D}/primary-human",
+            new SetPrimaryHumanRequest(Guid.NewGuid()),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task SetPrimaryHuman_EmptyHumanId_Returns400()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var tenantUserId = await SeedTenantUserAsync("alice");
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/v1/tenant/users/{tenantUserId:D}/primary-human",
+            new SetPrimaryHumanRequest(Guid.Empty),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    private async Task<Guid> SeedHumanBoundToAsync(Guid tenantUserId)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var id = Guid.NewGuid();
+        db.Humans.Add(new HumanEntity
+        {
+            Id = id,
+            TenantId = OssTenantIds.Default,
+            TenantUserId = tenantUserId,
+            Username = $"hat-{id:N}",
+            DisplayName = $"Hat {id:N}",
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync(ct);
+        return id;
+    }
+
     private static string NewLogin() => $"login-{Guid.NewGuid():N}";
 
     private async Task<Guid> SeedTenantUserAsync(string displayName)

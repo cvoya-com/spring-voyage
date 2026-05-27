@@ -74,7 +74,24 @@ public static class UnitMembersCommand
         var unitArg = new Argument<string>("unit") { Description = "The unit identifier." };
         var humanOption = new Option<string?>("--human")
         {
-            Description = "Stable human UUID. Pass 'self' or omit to resolve to the authenticated caller.",
+            Description =
+                "Stable human UUID of an existing Hat. Pass 'self' to resolve to the authenticated " +
+                "caller; omit AND pass --display-name to mint a fresh Hat in this call " +
+                "(ADR-0062 § 6).",
+        };
+        var displayNameOption = new Option<string?>("--display-name")
+        {
+            Description =
+                "Mint a new Hat with this display name and attach it to the unit (ADR-0062 § 6). " +
+                "Mutually exclusive with --human. The new Hat's TenantUser binding is set via --as.",
+        };
+        var asOption = new Option<string?>("--as")
+        {
+            Description =
+                "Explicit TenantUser binding for a newly-minted Hat (ADR-0062 § 1). Accepts " +
+                "a TenantUser UUID, the literal 'me' (= the authenticated caller; in OSS the " +
+                "operator), or the OAuth subject (cloud only). Default = the deployment-default " +
+                "resolver (OSS: operator; cloud: calling caller). Ignored when --human is supplied.",
         };
         var rolesOption = new Option<string[]?>("--roles")
         {
@@ -95,10 +112,14 @@ public static class UnitMembersCommand
 
         var command = new Command(
             "add",
-            "Add a human as a team-role member of this unit. Idempotent on (unit, human) " +
-            "per ADR-0046 §7 — re-running replaces roles / expertise / notifications in place.");
+            "Add a human as a team-role member of this unit. " +
+            "Pass --human <id> to attach an existing Hat (idempotent on (unit, human) per " +
+            "ADR-0046 §7), or pass --display-name to mint a fresh Hat in this call and bind " +
+            "it via --as <tenant-user-ref> (ADR-0062 § 6).");
         command.Arguments.Add(unitArg);
         command.Options.Add(humanOption);
+        command.Options.Add(displayNameOption);
+        command.Options.Add(asOption);
         command.Options.Add(rolesOption);
         command.Options.Add(expertiseOption);
         command.Options.Add(notificationsOption);
@@ -107,6 +128,8 @@ public static class UnitMembersCommand
         {
             var unitArgVal = parseResult.GetValue(unitArg)!;
             var humanArg = parseResult.GetValue(humanOption);
+            var displayNameArg = parseResult.GetValue(displayNameOption);
+            var asArg = parseResult.GetValue(asOption);
             var rolesRaw = parseResult.GetValue(rolesOption);
             var expertiseRaw = parseResult.GetValue(expertiseOption);
             var notificationsRaw = parseResult.GetValue(notificationsOption);
@@ -117,6 +140,22 @@ public static class UnitMembersCommand
             {
                 await Console.Error.WriteLineAsync(
                     "--roles is required: pass at least one role (e.g. --roles owner or --roles reviewer,security_lead).");
+                Environment.Exit(1);
+                return;
+            }
+
+            // ADR-0062 § 6: two distinct modes on this verb — attach an
+            // existing Hat (--human / --human self) OR mint a fresh Hat
+            // bound to a specific TenantUser (--display-name + --as). The
+            // CLI rejects mixing the two flag families before any wire
+            // call so the operator gets a single clean error.
+            var humanSupplied = !string.IsNullOrWhiteSpace(humanArg);
+            var displayNameSupplied = !string.IsNullOrWhiteSpace(displayNameArg);
+            if (humanSupplied && displayNameSupplied)
+            {
+                await Console.Error.WriteLineAsync(
+                    "Pass either --human <id> (attach existing Hat) or --display-name <...> " +
+                    "(mint new Hat), not both. --as applies to the mint path only.");
                 Environment.Exit(1);
                 return;
             }
@@ -137,15 +176,59 @@ public static class UnitMembersCommand
             }
 
             Guid humanGuid;
-            try
+            if (displayNameSupplied)
             {
-                humanGuid = await ResolveHumanIdAsync(client, humanArg, ct);
+                Guid? tenantUserId;
+                try
+                {
+                    tenantUserId = ResolveTenantUserRef(asArg);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    await Console.Error.WriteLineAsync(ex.Message);
+                    Environment.Exit(1);
+                    return;
+                }
+
+                try
+                {
+                    var created = await client.CreateHumanAsync(
+                        displayNameArg!,
+                        description: null,
+                        tenantUserId,
+                        ct);
+                    humanGuid = created.Id ?? throw new InvalidOperationException(
+                        "Server returned an empty CreateHuman response.");
+                }
+                catch (Microsoft.Kiota.Abstractions.ApiException ex)
+                {
+                    await Console.Error.WriteLineAsync(
+                        $"Failed to mint Hat '{displayNameArg}': {ProblemDetailsTranslator.Format(ex)}");
+                    Environment.Exit(1);
+                    return;
+                }
             }
-            catch (InvalidOperationException ex)
+            else
             {
-                await Console.Error.WriteLineAsync(ex.Message);
-                Environment.Exit(1);
-                return;
+                if (!string.IsNullOrWhiteSpace(asArg))
+                {
+                    await Console.Error.WriteLineAsync(
+                        "--as is only meaningful with --display-name (the mint-new-Hat path). " +
+                        "When attaching an existing Hat via --human, the binding is fixed on the row.");
+                    Environment.Exit(1);
+                    return;
+                }
+
+                try
+                {
+                    humanGuid = await ResolveHumanIdAsync(client, humanArg, ct);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    await Console.Error.WriteLineAsync(ex.Message);
+                    Environment.Exit(1);
+                    return;
+                }
             }
 
             try
@@ -165,8 +248,9 @@ public static class UnitMembersCommand
                 else
                 {
                     var rolesDisplay = response.Roles is { Count: > 0 } r ? string.Join(", ", r) : "(none)";
+                    var verb = displayNameSupplied ? "minted and added" : "added";
                     Console.WriteLine(
-                        $"Human '{humanGuid:N}' added to unit '{unitArgVal}' with roles [{rolesDisplay}].");
+                        $"Human '{humanGuid:N}' {verb} to unit '{unitArgVal}' with roles [{rolesDisplay}].");
                 }
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
@@ -178,6 +262,52 @@ public static class UnitMembersCommand
         });
 
         return command;
+    }
+
+    /// <summary>
+    /// Resolves a <c>&lt;tenant-user-ref&gt;</c> per ADR-0062 § 6. Accepts:
+    /// <list type="bullet">
+    ///   <item><description>A TenantUser UUID (dashed or no-dash hex).</description></item>
+    ///   <item><description>The literal <c>me</c> — resolves to the calling
+    ///   caller. In OSS this is <see cref="Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator"/>;
+    ///   in cloud the API stamps the authenticated principal on the
+    ///   server when this method returns <see langword="null"/>.</description></item>
+    ///   <item><description><see langword="null"/> / empty — return <see langword="null"/>
+    ///   so the server's <c>ITenantUserDefaultResolver</c> picks the
+    ///   deployment default.</description></item>
+    /// </list>
+    /// <para>OAuth-subject lookup is documented on the <c>--as</c> flag
+    /// for cloud parity but not implemented yet — needs a server-side
+    /// <c>GET /api/v1/tenant/users?authSubject=&lt;...&gt;</c> lookup
+    /// (filed as a follow-up issue from #2808).</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the input is non-empty, not <c>me</c>, and not a
+    /// parseable Guid — the operator gets a precise error before any
+    /// wire call.
+    /// </exception>
+    internal static Guid? ResolveTenantUserRef(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return null;
+        }
+        if (string.Equals(input, "me", StringComparison.OrdinalIgnoreCase))
+        {
+            // OSS: the operator UUID is deterministic; cloud overlays will
+            // ship a future /me-equivalent that returns the calling caller's
+            // TenantUser id (umbrella #2487 OUT1). Surfacing the OSS
+            // operator unconditionally is correct for v0.1 (one tenant
+            // user per OSS deployment).
+            return Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator;
+        }
+        if (Guid.TryParse(input, out var parsed) && parsed != Guid.Empty)
+        {
+            return parsed;
+        }
+        throw new InvalidOperationException(
+            $"--as '{input}' is not a valid TenantUser reference. Use a UUID (dashed or no-dash hex) " +
+            "or the literal 'me'.");
     }
 
     private static Command CreateListCommand(Option<string> outputOption)

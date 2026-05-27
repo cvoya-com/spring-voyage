@@ -95,3 +95,35 @@ public sealed record TenantUserConnectorIdentityResponse(
     string? DisplayHandle,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
+
+/// <summary>
+/// Request body for <c>PATCH /api/v1/tenant/users/{tenantUserId}/primary-human</c>
+/// (ADR-0062 § 2). Pins which of the user's bound <see cref="Cvoya.Spring.Dapr.Data.Entities.HumanEntity"/>
+/// rows is the default <c>From</c> for new outbound messages (composer-
+/// launched sends, CLI <c>spring message send</c> without <c>--as</c>).
+/// </summary>
+/// <remarks>
+/// The handler validates that <see cref="HumanId"/> names a Human bound
+/// to the target tenant user — passing an unbound Human returns 400 with
+/// a CLI-friendly message. The column is nullable on the entity but the
+/// PATCH always sets a non-empty value; clearing the pin is a follow-up
+/// surface (no operator UX needs it today — a fresh row defaults to
+/// <c>null</c> and is auto-set on first Human bind).
+/// </remarks>
+/// <param name="HumanId">
+/// The Human (Hat) id to pin as the user's primary sender. Required;
+/// must be bound to the target tenant user via <c>humans.tenant_user_id</c>.
+/// </param>
+public sealed record SetPrimaryHumanRequest(
+    [property: Required] Guid HumanId);
+
+/// <summary>
+/// Response body for <c>PATCH /api/v1/tenant/users/{tenantUserId}/primary-human</c>.
+/// Echoes the post-write pair so the CLI / portal can render the new
+/// pin without a follow-up GET.
+/// </summary>
+/// <param name="TenantUserId">The tenant user whose pin was updated.</param>
+/// <param name="PrimaryHumanId">The Hat now pinned as the default sender.</param>
+public sealed record SetPrimaryHumanResponse(
+    Guid TenantUserId,
+    Guid PrimaryHumanId);
