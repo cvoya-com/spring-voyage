@@ -88,7 +88,9 @@ Every artefact carries a `name:` field on its `package.yaml`. The name must be *
 
 The folder name must equal the `name:` field. `units/foo/` must contain a `package.yaml` whose `name:` is `foo`. Disagreement is a parse error (`ArtefactFolderNameMismatch`). This rule keeps the membership graph and the filesystem trivially scannable.
 
-References from inside an artefact use bare names (`- agent: bar`). The resolver looks up `bar` by walking the containing artefact's `agents/`, then its parent's `agents/`, then the package root — **lexical scoping by directory containment**, first match wins.
+References from inside an artefact use bare names (`- agent: bar`). For a unit's `members:` entries the resolver looks `bar` up in the **declaring unit's own** `agents/` / `units/` folder (or the inline-synthesised set from `members:` itself). Bare names that resolve up to a top-level peer or sideways into a sibling unit are rejected with the structured `UnitMemberOutOfScope` error — a unit's members must be owned by that unit, either as nested folders or as inline bodies. Cross-package qualified references (`- agent: shared-pack/utility`) and template instantiation (`from:`) ride through unchanged.
+
+For skill grants, prompt-fragment composition, and other artefact references that are not unit membership, lookup walks up the containment chain — the unit's own `skills/`, then its parent's `skills/`, then the package root — so package-scoped skills can be shared across multiple agents and units.
 
 ## The unified `members:` grammar
 
@@ -256,6 +258,7 @@ v0.1 has no back-compat guarantees ([issue #2406](https://github.com/cvoya-com/s
 | `LegacyFlatArtefactLayout` | A flat file at `./agents/<name>.yaml` or `./units/<name>.yaml`. Move it to `./agents/<name>/package.yaml` ([ADR-0043 §8](../decisions/0043-recursive-package-format.md#8-migration-hard-rename-parse-error-on-the-flat-shape-no-shim)). |
 | `ArtefactFolderNameMismatch` | The folder name does not equal the `name:` field. |
 | `UnexpectedInnerVersion` | An inner artefact `package.yaml` declares `version:`; that slot lives only on the install-root manifest. |
+| `UnitMemberOutOfScope` | A unit's bare `- agent:` / `- unit:` member resolves to a top-level peer or to an artefact owned by a sibling unit. Move it under the unit's own `agents/` or `units/` folder, declare it inline, or qualify the reference as cross-package ([ADR-0043 §3](../decisions/0043-recursive-package-format.md)). |
 
 Each error ships with an actionable migration hint pointing at the relevant ADR section.
 

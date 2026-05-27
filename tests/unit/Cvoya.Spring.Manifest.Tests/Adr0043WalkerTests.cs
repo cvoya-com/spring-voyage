@@ -237,8 +237,14 @@ public class Adr0043WalkerTests
     // ── Cycle detection — members: cycle ─────────────────────────────────
 
     [Fact]
-    public async Task ParseAndResolve_MembersCycle_Rejected()
+    public async Task ParseAndResolve_MembersCycle_RejectedAsOutOfScope()
     {
+        // Two top-level peer units pointing at each other via `members:`
+        // is rejected by the ADR-0043 §3 scope check before the cycle
+        // detector sees the graph — a top-level unit isn't owned by the
+        // declaring unit, so `unit: a` from `units/b/` (and vice versa)
+        // is `UnitMemberOutOfScope`. The new scope rule prevents this
+        // class of cycle from forming in the first place.
         using var pkg = BuildPackageRaw(rootYaml: PackageHeaderYaml,
             entries: new[]
             {
@@ -260,11 +266,12 @@ public class Adr0043WalkerTests
                     """),
             });
 
-        await Should.ThrowAsync<PackageCycleException>(async () =>
+        var ex = await Should.ThrowAsync<PackageParseException>(async () =>
             await PackageManifestParser.ParseAndResolveAsync(
                 File.ReadAllText(Path.Combine(pkg.Root, "package.yaml")),
                 pkg.Root,
                 cancellationToken: TestContext.Current.CancellationToken));
+        ex.Message.ShouldContain("UnitMemberOutOfScope");
     }
 
     // ── Cycle detection — from: cycle ────────────────────────────────────

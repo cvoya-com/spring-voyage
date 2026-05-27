@@ -191,6 +191,13 @@ public static class PackageManifestParser
         // walks it identically to a disk-discovered artefact.
         resolved = ExpandInlineMembers(resolved);
 
+        // ADR-0043 §3: a unit's bare `- agent:` / `- unit:` member must
+        // resolve to an artefact owned by that unit. Reject references
+        // that resolve to a top-level peer or to an artefact nested under
+        // a sibling unit so the membership graph and the filesystem
+        // layout stay in agreement.
+        ValidateUnitMemberScope(resolved);
+
         // Detect cycles across `members:`, `requires:`, `from:`, and
         // containment edges (ADR-0043 §7).
         DetectCycles(resolved, discovered);
@@ -1028,6 +1035,63 @@ public static class PackageManifestParser
             throw new PackageParseException(
                 $"Duplicate artefact name(s) within the package: {string.Join(", ", collisions)}. " +
                 "Every artefact of the same kind must have a unique name (ADR-0043 §3).");
+        }
+    }
+
+    // ── Unit member scope validation (ADR-0043 §3) ───────────────────────
+
+    /// <summary>
+    /// Rejects unit <c>members:</c> entries whose bare <c>- agent:</c> /
+    /// <c>- unit:</c> reference resolves to an artefact that is not owned
+    /// by the declaring unit. Owned means the target is either (a) nested
+    /// under the unit's own <c>agents/</c> / <c>units/</c> folder
+    /// (containment edge points back at this unit) or (b) synthesised from
+    /// an inline body (ADR-0043 §5g — inline expansion sets the same
+    /// containment edge). Cross-package qualified references and
+    /// unresolved names (which the unit-creation service auto-registers at
+    /// activation time) ride through unchanged.
+    /// </summary>
+    private static void ValidateUnitMemberScope(IReadOnlyList<ResolvedArtefact> resolved)
+    {
+        // Index in-package agents and units by name (case-insensitive)
+        // so the resolver below can look up the target without rescanning.
+        var byKey = new Dictionary<string, ResolvedArtefact>(StringComparer.OrdinalIgnoreCase);
+        foreach (var artefact in resolved)
+        {
+            if (artefact.Kind == ArtefactKind.Agent || artefact.Kind == ArtefactKind.Unit)
+            {
+                byKey[$"{artefact.Kind}|{artefact.Name}"] = artefact;
+            }
+        }
+
+        foreach (var unit in resolved.Where(r => r.Kind == ArtefactKind.Unit && r.Content is not null))
+        {
+            foreach (var (memberKind, memberName) in ExtractMemberRefs(unit.Content!))
+            {
+                if (!byKey.TryGetValue($"{memberKind}|{memberName}", out var target))
+                {
+                    // Unresolved bare name — leaves the parser as-is so the
+                    // historical activator auto-register path still works
+                    // for cross-package or already-installed peers. The
+                    // catalog walker doesn't know about either source.
+                    continue;
+                }
+
+                if (string.Equals(target.ContainingArtefactName, unit.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var scopeHint = target.ContainingArtefactName is null
+                    ? "is a top-level artefact at the package root"
+                    : $"is owned by unit '{target.ContainingArtefactName}'";
+                throw new PackageParseException(
+                    $"{Adr0043ParseErrors.UnitMemberOutOfScope} unit '{unit.Name}' lists " +
+                    $"'{memberKind.ToString().ToLowerInvariant()}: {memberName}' as a member, but the " +
+                    $"target {scopeHint}. Move it to " +
+                    $"`units/{unit.Name}/{memberKind.ToString().ToLowerInvariant()}s/{memberName}/`, " +
+                    "declare it inline under `members:`, or use a cross-package qualified reference.");
+            }
         }
     }
 
