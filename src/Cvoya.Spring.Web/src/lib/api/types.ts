@@ -801,6 +801,34 @@ export type GitHubCollaboratorResponse = Schemas["GitHubCollaboratorResponse"];
 export type GitHubMissingOAuthResponse = Schemas["GitHubMissingOAuthResponse"];
 
 /**
+ * GET / PUT response body for the generic tenant-scoped connector
+ * binding endpoint (ADR-0061 §1). Carries the opaque connector-specific
+ * config blob plus the connector identity (`connectorSlug`, `typeId`)
+ * and the `boundAt` timestamp. The Slack settings panel consumes this;
+ * the `config` payload conforms to the connector-specific shape —
+ * `TenantSlackConfig` for Slack.
+ * @public Consumed by `Cvoya.Spring.Connector.Slack/web/*` cross-workspace.
+ */
+export type TenantConnectorBindingResponse =
+  Schemas["TenantConnectorBindingResponse"];
+
+/**
+ * Request body for `POST /api/v1/tenant/connectors/slack/oauth/authorize`.
+ * Carries an optional `clientState` JSON blob that the callback echoes
+ * back for cross-window handoff.
+ * @public Consumed by `Cvoya.Spring.Connector.Slack/web/*` cross-workspace.
+ */
+export type SlackAuthorizeRequest = Schemas["SlackAuthorizeRequest"];
+
+/**
+ * Response body for `POST /api/v1/tenant/connectors/slack/oauth/authorize`.
+ * `authorizeUrl` is the consent URL the popup navigates to; `state` is
+ * the opaque token persisted server-side for the callback to consume.
+ * @public Consumed by `Cvoya.Spring.Connector.Slack/web/*` cross-workspace.
+ */
+export type SlackAuthorizeResponse = Schemas["SlackAuthorizeResponse"];
+
+/**
  * PUT /api/v1/tenant/connectors/web-search/units/{unitId}/config request body.
  * @public Consumed by `Cvoya.Spring.Connector.WebSearch/web/*` cross-workspace.
  */

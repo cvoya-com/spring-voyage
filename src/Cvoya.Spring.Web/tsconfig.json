@@ -18,6 +18,7 @@
       "@/*": ["./src/*"],
       "@connectors/*": ["./src/connectors/*"],
       "@connector-github/*": ["../Cvoya.Spring.Connector.GitHub/web/*"],
+      "@connector-slack/*": ["../Cvoya.Spring.Connector.Slack/web/*"],
       "@connector-web-search/*": ["../Cvoya.Spring.Connector.WebSearch/web/*"]
     }
   },
@@ -27,6 +28,8 @@
     "**/*.tsx",
     "../Cvoya.Spring.Connector.GitHub/web/**/*.ts",
     "../Cvoya.Spring.Connector.GitHub/web/**/*.tsx",
+    "../Cvoya.Spring.Connector.Slack/web/**/*.ts",
+    "../Cvoya.Spring.Connector.Slack/web/**/*.tsx",
     "../Cvoya.Spring.Connector.WebSearch/web/**/*.ts",
     "../Cvoya.Spring.Connector.WebSearch/web/**/*.tsx",
     ".next/types/**/*.ts",

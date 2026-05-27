@@ -2325,6 +2325,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/connectors/{slugOrId}/binding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the tenant-scoped binding for a connector (ADR-0061 §1) */
+        get: operations["GetTenantConnectorBinding"];
+        /** Upsert the tenant-scoped binding for a connector (ADR-0061 §1) */
+        put: operations["PutTenantConnectorBinding"];
+        post?: never;
+        /** Remove the tenant-scoped binding for a connector (ADR-0061 §1) */
+        delete: operations["DeleteTenantConnectorBinding"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/connectors/github/units/{unitId}/config": {
         parameters: {
             query?: never;
@@ -2592,6 +2611,91 @@ export interface paths {
         };
         /** Get the JSON Schema describing the web-search connector config body */
         get: operations["GetWebSearchConnectorConfigSchema"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/connectors/slack/healthz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Liveness probe — confirms the Slack connector is registered with the host */
+        get: operations["SlackConnectorHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/connectors/slack/oauth/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a Slack OAuth install flow and return the consent URL */
+        post: operations["BeginSlackOAuthAuthorization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/connectors/slack/oauth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Consume the Slack OAuth callback and persist the tenant binding */
+        get: operations["HandleSlackOAuthCallback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/connectors/slack/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke the Slack OAuth token and delete the tenant binding */
+        post: operations["DisconnectSlackBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/connectors/slack/config-schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the JSON Schema describing the Slack tenant-binding config body */
+        get: operations["GetSlackConnectorConfigSchema"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4143,6 +4247,18 @@ export interface components {
             hasTools: boolean;
             path: string;
         };
+        SlackAuthorizeRequest: {
+            clientState: null | string;
+        };
+        SlackAuthorizeResponse: {
+            authorizeUrl: string;
+            state: string;
+        };
+        SlackCallbackResponse: {
+            teamId: string;
+            botUserId: string;
+            installerUserId: string;
+        };
         SubsystemConfigurationReport: {
             subsystemName: string;
             status: components["schemas"]["ConfigurationReportStatus"];
@@ -4159,6 +4275,17 @@ export interface components {
             /** Format: int32 */
             retention_days: number;
             external_forward?: null | components["schemas"]["ExternalForwardDto"];
+        };
+        TenantConnectorBindingRequest: {
+            config: components["schemas"]["JsonElement"];
+        };
+        TenantConnectorBindingResponse: {
+            connectorSlug: string;
+            /** Format: uuid */
+            typeId: string;
+            config: components["schemas"]["JsonElement"];
+            /** Format: date-time */
+            boundAt: string;
         };
         TenantResponse: {
             /** Format: uuid */
@@ -10534,6 +10661,119 @@ export interface operations {
             };
         };
     };
+    GetTenantConnectorBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slugOrId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantConnectorBindingResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    PutTenantConnectorBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slugOrId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantConnectorBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantConnectorBindingResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    DeleteTenantConnectorBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slugOrId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     GetUnitGitHubConnectorConfig: {
         parameters: {
             query?: never;
@@ -11143,6 +11383,175 @@ export interface operations {
         };
     };
     GetWebSearchConnectorConfigSchema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JsonElement"];
+                };
+            };
+        };
+    };
+    SlackConnectorHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    BeginSlackOAuthAuthorization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["SlackAuthorizeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackAuthorizeResponse"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    HandleSlackOAuthCallback: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackCallbackResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    DisconnectSlackBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSlackConnectorConfigSchema: {
         parameters: {
             query?: never;
             header?: never;
