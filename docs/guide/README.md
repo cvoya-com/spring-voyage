@@ -27,6 +27,7 @@ Running a Spring Voyage deployment — installing, configuring tenants, runtimes
 - [Deployment](operator/deployment.md) — Docker Compose / Podman self-hosting
 - [Secrets](operator/secrets.md)
 - [GitHub App setup](operator/github-app-setup.md)
+- [Slack app setup](operator/slack-app-setup.md)
 - [BYOI agent images](operator/byoi-agent-images.md)
 - [Model providers](operator/model-providers.md)
 - [Connectors](operator/connectors.md)
