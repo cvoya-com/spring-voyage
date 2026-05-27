@@ -690,4 +690,92 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
     }
+
+    [Fact]
+    public async Task SendMessage_ExistingThreadWithoutSenderInParticipants_Returns400AndLeavesDbClean()
+    {
+        // #2865 / ADR-0030: when the caller pins a Guid-shaped thread id
+        // that resolves to an existing thread row whose canonical
+        // participant set does NOT include the resolved sender, the
+        // endpoint must return 400 SenderNotInThread. Without the gate
+        // the message lands on a thread whose canonical participants
+        // exclude its sender, and any reply re-routes onto a different
+        // canonical thread — silently splitting the conversation.
+        // The gate must also leave the DB clean (no message row, no
+        // audit event row) so the Conversations / Engagements pages do
+        // not surface phantom sends (mirrors #2859's invariant).
+        var ct = TestContext.Current.CancellationToken;
+
+        var agentId = Guid.NewGuid();
+        var entry = new DirectoryEntry(
+            new Address("agent", agentId),
+            agentId,
+            "Bystander Agent",
+            "A test agent",
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        // Seed a thread whose canonical participants are {outsiderHuman,
+        // agent} — the seeded operator Hat is NOT a participant. The
+        // serialised array must match EfThreadRegistry's canonicalised
+        // form (lowercased scheme + no-dash hex, sorted lexicographically).
+        var threadId = Guid.NewGuid();
+        var outsiderHuman = Guid.NewGuid();
+        var addresses = new List<string>
+        {
+            $"{Address.HumanScheme}:{outsiderHuman:N}",
+            $"{Address.AgentScheme}:{agentId:N}",
+        };
+        addresses.Sort(StringComparer.Ordinal);
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var db = seedScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.Threads.Add(new Cvoya.Spring.Dapr.Data.Entities.ThreadEntity
+            {
+                Id = threadId,
+                TenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+                ParticipantKey = string.Join('|', addresses),
+                Participants = JsonSerializer.Serialize(addresses),
+                ParticipantNameSnapshots = "{}",
+                CreatedAt = DateTimeOffset.UtcNow,
+                LastActivityAt = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        int messagesBefore;
+        int activityBefore;
+        using (var snap = _factory.Services.CreateScope())
+        {
+            var snapDb = snap.ServiceProvider.GetRequiredService<SpringDbContext>();
+            messagesBefore = await snapDb.Messages.AsNoTracking().CountAsync(ct);
+            activityBefore = await snapDb.ActivityEvents.AsNoTracking().CountAsync(ct);
+        }
+
+        var request = new SendMessageRequest(
+            new AddressDto("agent", agentId.ToString("N")),
+            "Domain",
+            threadId.ToString(),
+            JsonSerializer.SerializeToElement(new { Text = "leak" }));
+
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+        problem.GetProperty("code").GetString().ShouldBe("SenderNotInThread");
+        var detail = problem.GetProperty("detail").GetString();
+        detail.ShouldNotBeNull();
+        detail.ShouldContain(threadId.ToString());
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var messagesAfter = await verifyDb.Messages.AsNoTracking().CountAsync(ct);
+        var activityAfter = await verifyDb.ActivityEvents.AsNoTracking().CountAsync(ct);
+        messagesAfter.ShouldBe(messagesBefore);
+        activityAfter.ShouldBe(activityBefore);
+    }
 }

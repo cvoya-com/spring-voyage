@@ -197,6 +197,7 @@ public static class ThreadEndpoints
         IMessageRouter messageRouter,
         IAuthenticatedCallerAccessor callerAccessor,
         ITenantUserHumanResolver tenantUserHumanResolver,
+        IThreadRegistry threadRegistry,
         IActivityEventBus activityEventBus,
         CancellationToken cancellationToken)
     {
@@ -262,6 +263,29 @@ public static class ThreadEndpoints
         else
         {
             from = callerAddress;
+        }
+
+        // #2865 / ADR-0030: existing-thread participant invariant. When
+        // the path-supplied thread id resolves to a thread row, the
+        // resolved sender MUST be a canonical participant — otherwise
+        // the reply re-routes onto the canonical {sender, recipient}
+        // thread and the conversation splits across two rows. Non-Guid
+        // and Guid-shaped-but-unknown ids pass through unchanged so
+        // historical opaque correlation ids (#2112) keep working. The
+        // gate fires before audit emit + router so a 400 leaves the DB
+        // clean (mirrors #2859).
+        var existingThread = await threadRegistry.ResolveAsync(id, cancellationToken);
+        if (existingThread is not null
+            && !MessageEndpoints.ParticipantsContain(existingThread.Participants, from))
+        {
+            return Results.Problem(
+                title: "Bad Request",
+                detail: $"Sender '{from.Scheme}://{GuidFormatter.Format(from.Id)}' is not a participant of thread '{id}'.",
+                statusCode: StatusCodes.Status400BadRequest,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = MessageEndpoints.SenderNotInThreadCode,
+                });
         }
 
         var to = Address.For(request.To.Scheme, request.To.Path ?? string.Empty);

@@ -19,6 +19,14 @@ using Cvoya.Spring.Host.Api.Models;
 public static class MessageEndpoints
 {
     /// <summary>
+    /// Stable, machine-readable code surfaced on the RFC-7807 <c>code</c>
+    /// extension when a caller pins a Guid-shaped thread id whose canonical
+    /// participant set excludes the resolved <c>Message.From</c> (#2865 /
+    /// ADR-0030). Shared with <see cref="ThreadEndpoints"/>.
+    /// </summary>
+    public const string SenderNotInThreadCode = "SenderNotInThread";
+
+    /// <summary>
     /// Registers message endpoints on the specified endpoint route builder.
     /// </summary>
     /// <param name="app">The endpoint route builder.</param>
@@ -210,6 +218,31 @@ public static class MessageEndpoints
                     detail: $"ThreadId '{threadId}' is not a valid Guid.",
                     statusCode: StatusCodes.Status400BadRequest);
             }
+            else
+            {
+                // #2865 / ADR-0030: when the caller pins a Guid-shaped
+                // thread id, the resolved sender MUST be a canonical
+                // participant of that thread. Without this gate, the
+                // endpoint silently accepts the send, then the reply re-
+                // routes through `sv.messaging.send` onto the canonical
+                // {sender, recipient} thread and the conversation splits
+                // across two `spring.threads` rows. Unknown ids continue
+                // to pass through as caller-supplied stable correlation
+                // ids (#2112). The gate fires before audit emit + router
+                // so a 400 leaves the DB clean — same rule as #2859.
+                var existing = await threadRegistry.ResolveAsync(threadId, cancellationToken);
+                if (existing is not null && !ParticipantsContain(existing.Participants, from))
+                {
+                    return Results.Problem(
+                        title: "Bad Request",
+                        detail: $"Sender '{from.Scheme}://{GuidFormatter.Format(from.Id)}' is not a participant of thread '{threadId}'.",
+                        statusCode: StatusCodes.Status400BadRequest,
+                        extensions: new Dictionary<string, object?>
+                        {
+                            ["code"] = SenderNotInThreadCode,
+                        });
+                }
+            }
         }
 
         var message = new Message(
@@ -262,5 +295,27 @@ public static class MessageEndpoints
         }
 
         return Results.Ok(new MessageResponse(messageId, threadId, result.Value?.Payload));
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="from"/> is one of the canonical
+    /// participants in <paramref name="participants"/>. The scheme
+    /// comparison is case-insensitive — the registry stores schemes
+    /// lower-cased on canonicalisation, but a caller-constructed
+    /// <see cref="Address"/> may use the constant's original case, so
+    /// equality cannot depend on case.
+    /// </summary>
+    internal static bool ParticipantsContain(IReadOnlyList<Address> participants, Address from)
+    {
+        for (var i = 0; i < participants.Count; i++)
+        {
+            var p = participants[i];
+            if (p.Id == from.Id
+                && string.Equals(p.Scheme, from.Scheme, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 }

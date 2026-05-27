@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Messaging;
 
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Data;
 
@@ -29,7 +30,7 @@ using Microsoft.EntityFrameworkCore;
 /// <c>ITenantContext.CurrentTenantId</c>.
 /// </para>
 /// </remarks>
-public sealed class TenantUserHumanResolver(SpringDbContext db) : ITenantUserHumanResolver
+public sealed class TenantUserHumanResolver(SpringDbContext db, IThreadRegistry threadRegistry) : ITenantUserHumanResolver
 {
     /// <inheritdoc />
     public async Task<Address> PickFromAsync(
@@ -66,14 +67,26 @@ public sealed class TenantUserHumanResolver(SpringDbContext db) : ITenantUserHum
             return new Address(Address.HumanScheme, explicitId);
         }
 
-        // 2. Thread-pinned Hat (reply default). Inspect the most recent
-        //    message on the thread whose recipient is in the caller's
-        //    bound Human set; reply as that Hat. Skipped when there is
-        //    no thread context (new outbound from a composer launched
-        //    outside a thread).
+        // 2. Thread-participant Hat (reply default — ADR-0062 § 5,
+        //    generalised per #2865). Pin to the caller's bound Hat that
+        //    is a canonical participant of the thread. This catches both
+        //    "received as X" (the inbound named X as recipient) and
+        //    "originated as X" (the caller is X and started the thread)
+        //    in one shot — both make X a thread participant, which is
+        //    the invariant ADR-0030 names. The old "most recent inbound
+        //    recipient" lookup was a special case; intersecting with the
+        //    canonical participant set covers it and the originated-as
+        //    case the special case missed.
+        //
+        //    Returning null here (e.g. the thread row is unknown, or
+        //    none of the caller's bound Hats is a participant) lets the
+        //    later branches choose PrimaryHumanId. The endpoint-level
+        //    SenderNotInThread gate (#2865) catches the case where that
+        //    primary falls outside the canonical set, so corrupt thread
+        //    routing cannot silently land here.
         if (threadId is { } resolvedThreadId && resolvedThreadId != Guid.Empty)
         {
-            var threadHat = await ResolveThreadPinnedHatAsync(
+            var threadHat = await ResolveThreadParticipantHatAsync(
                 callerTenantUserId,
                 resolvedThreadId,
                 cancellationToken)
@@ -122,14 +135,17 @@ public sealed class TenantUserHumanResolver(SpringDbContext db) : ITenantUserHum
     }
 
     /// <summary>
-    /// Looks up the most recent message on <paramref name="threadId"/>
-    /// whose recipient is a Human bound to <paramref name="callerTenantUserId"/>
-    /// and returns that Human id. This is the "reply as the Hat you were
-    /// addressed as" default from ADR-0062 § 5. Returns null when no
-    /// inbound on the thread matches (the caller never received on this
-    /// thread under any of their hats).
+    /// Returns the caller's bound Hat that is a canonical participant of
+    /// <paramref name="threadId"/> (ADR-0030's identity invariant intersected
+    /// with the caller's bound set). When multiple bound Hats are
+    /// participants — multi-Hat threads where the same TenantUser wears
+    /// two hats — falls back to the most recent received-as Hat (ADR-0062
+    /// § 5), then the most recent originated-as Hat, then the lowest-Guid
+    /// participant as a deterministic tie-break. Returns null when no
+    /// thread row exists, or none of the caller's bound Hats is in the
+    /// canonical participant set.
     /// </summary>
-    private async Task<Guid?> ResolveThreadPinnedHatAsync(
+    private async Task<Guid?> ResolveThreadParticipantHatAsync(
         Guid callerTenantUserId,
         Guid threadId,
         CancellationToken cancellationToken)
@@ -146,16 +162,68 @@ public sealed class TenantUserHumanResolver(SpringDbContext db) : ITenantUserHum
             return null;
         }
 
-        var lastReceivedHumanId = await db.Messages
+        var entry = await threadRegistry
+            .ResolveAsync(GuidFormatter.Format(threadId), cancellationToken)
+            .ConfigureAwait(false);
+        if (entry is null)
+        {
+            return null;
+        }
+
+        var boundSet = new HashSet<Guid>(boundHumanIds);
+        var eligible = entry.Participants
+            .Where(p => string.Equals(p.Scheme, Address.HumanScheme, StringComparison.OrdinalIgnoreCase)
+                        && boundSet.Contains(p.Id))
+            .Select(p => p.Id)
+            .ToList();
+
+        if (eligible.Count == 0)
+        {
+            return null;
+        }
+        if (eligible.Count == 1)
+        {
+            return eligible[0];
+        }
+
+        // Multi-Hat case: ADR-0062 § 5 says "reply as the Hat that received
+        // the inbound." Look for the most recent message whose recipient
+        // is one of the eligible Hats.
+        var eligibleSet = new HashSet<Guid>(eligible);
+        var lastReceived = await db.Messages
             .AsNoTracking()
             .Where(m => m.ThreadId == threadId
                 && m.RecipientScheme == Address.HumanScheme
-                && boundHumanIds.Contains(m.RecipientId))
+                && eligibleSet.Contains(m.RecipientId))
             .OrderByDescending(m => m.SentAt)
             .Select(m => (Guid?)m.RecipientId)
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
+        if (lastReceived is { } recv)
+        {
+            return recv;
+        }
 
-        return lastReceivedHumanId;
+        // Originated-as fallback: the caller started the thread but has
+        // not yet received on it under any Hat. Pick the Hat that last
+        // sent on the thread.
+        var lastSent = await db.Messages
+            .AsNoTracking()
+            .Where(m => m.ThreadId == threadId
+                && m.SenderScheme == Address.HumanScheme
+                && eligibleSet.Contains(m.SenderId))
+            .OrderByDescending(m => m.SentAt)
+            .Select(m => (Guid?)m.SenderId)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (lastSent is { } sent)
+        {
+            return sent;
+        }
+
+        // Empty-thread tie-break (thread row exists but has no messages
+        // yet — possible during in-flight thread creation): lowest-Guid
+        // wins so the choice is deterministic across racing callers.
+        return eligible.OrderBy(id => id).First();
     }
 }

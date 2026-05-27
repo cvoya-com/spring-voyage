@@ -26,11 +26,14 @@ namespace Cvoya.Spring.Core.Messaging;
 ///     <see cref="NoBoundHumanCode"/>.
 ///   </description></item>
 ///   <item><description>
-///     The Hat pinned by the thread on its inbound side (reply default).
-///     The thread-pinned default is not surfaced through this method's
-///     signature; callers that have a thread context pass it via the
-///     thread-aware overload (TBD; v0.1 reply-pin is captured on the
-///     thread row).
+///     The caller's bound Hat that is a canonical participant of the
+///     supplied thread (reply default — ADR-0062 § 5, generalised by
+///     #2865). Catches both received-as (the inbound named the Hat as
+///     recipient) and originated-as (the caller started the thread as
+///     the Hat); both make the Hat a participant, which is the identity
+///     invariant ADR-0030 names. Multi-Hat threads tie-break to the
+///     most recent received-as Hat, then the most recent originated-as,
+///     then the lowest-Guid eligible participant.
 ///   </description></item>
 ///   <item><description>
 ///     The caller's <c>TenantUser.PrimaryHumanId</c> (ADR-0062 § 2).
@@ -84,9 +87,11 @@ public interface ITenantUserHumanResolver
     /// <param name="threadId">
     /// Optional thread the outbound message is being sent on. When
     /// supplied and <paramref name="explicitFromHumanId"/> is null, the
-    /// resolver inspects the thread's recent inbound messages and pins
-    /// the Hat that received the inbound — the reply default
-    /// (ADR-0062 § 5).
+    /// resolver returns the caller's bound Hat that is a canonical
+    /// participant of the thread (ADR-0062 § 5 generalised — both
+    /// received-as and originated-as resolve here). Falls through to
+    /// the next branch when the thread row is unknown or none of the
+    /// caller's bound Hats participates.
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>

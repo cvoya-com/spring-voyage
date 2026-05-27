@@ -14,6 +14,7 @@ using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 using NSubstitute;
@@ -311,6 +312,76 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-1/messages", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
+    }
+
+    [Fact]
+    public async Task PostThreadMessage_SenderNotInThreadParticipants_Returns400AndLeavesDbClean()
+    {
+        // #2865 / ADR-0030: the path-supplied thread id must include the
+        // resolved sender in its canonical participant set. The seeded
+        // operator Hat is the only Human bound to the calling TenantUser;
+        // the thread below is seeded with a different Hat as the sole
+        // human participant, so the gate must fire. The 400 must leave
+        // the DB clean — no `messages` row, no `activity_events` row.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.MessageRouter.ClearSubstitute();
+        _factory.MessageRouter
+            .RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Message?, RoutingError>.Success(null));
+
+        var threadId = Guid.NewGuid();
+        var outsiderHuman = Guid.NewGuid();
+        var addresses = new List<string>
+        {
+            $"{Address.HumanScheme}:{outsiderHuman:N}",
+            $"{Address.AgentScheme}:{Agent_Ada_Id:N}",
+        };
+        addresses.Sort(StringComparer.Ordinal);
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var db = seedScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.Threads.Add(new ThreadEntity
+            {
+                Id = threadId,
+                TenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+                ParticipantKey = string.Join('|', addresses),
+                Participants = System.Text.Json.JsonSerializer.Serialize(addresses),
+                ParticipantNameSnapshots = "{}",
+                CreatedAt = DateTimeOffset.UtcNow,
+                LastActivityAt = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        int messagesBefore;
+        int activityBefore;
+        using (var snap = _factory.Services.CreateScope())
+        {
+            var snapDb = snap.ServiceProvider.GetRequiredService<SpringDbContext>();
+            messagesBefore = await snapDb.Messages.AsNoTracking().CountAsync(ct);
+            activityBefore = await snapDb.ActivityEvents.AsNoTracking().CountAsync(ct);
+        }
+
+        var body = new ThreadMessageRequest(
+            new AddressDto("agent", Agent_Ada_Id.ToString("N")),
+            "leak");
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/v1/tenant/threads/{threadId:D}/messages", body, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct);
+        problem.GetProperty("code").GetString().ShouldBe("SenderNotInThread");
+
+        await _factory.MessageRouter.DidNotReceive().RouteAsync(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>());
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var messagesAfter = await verifyDb.Messages.AsNoTracking().CountAsync(ct);
+        var activityAfter = await verifyDb.ActivityEvents.AsNoTracking().CountAsync(ct);
+        messagesAfter.ShouldBe(messagesBefore);
+        activityAfter.ShouldBe(activityBefore);
     }
 
     [Fact]
