@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Connector.Slack;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.Slack.Auth.OAuth;
+using Cvoya.Spring.Connector.Slack.Inbound;
 using Cvoya.Spring.Connectors;
 
 using Microsoft.AspNetCore.Builder;
@@ -32,10 +33,10 @@ using Microsoft.Extensions.Logging;
 /// Scope of <em>this</em> file: connector identity surface (slug,
 /// type id, binding scope, no-op lifecycle hooks) and route mounting.
 /// OAuth install / disconnect lifecycle lives in
-/// <see cref="SlackOAuthEndpoints"/>; outbound delivery in
-/// <see cref="Outbound.SlackOutboundDispatcher"/>. The inbound Events
-/// API endpoint and slash-command surface land in follow-on commits
-/// (issues #2817 and #2819 respectively).
+/// <see cref="SlackOAuthEndpoints"/>; the inbound Events API endpoint
+/// in <see cref="SlackEventEndpoints"/>; outbound delivery in
+/// <see cref="Outbound.SlackOutboundDispatcher"/>. The slash-command
+/// surface lands in a follow-on commit (issue #2819).
 /// </para>
 /// </summary>
 public class SlackConnectorType : IConnectorType
@@ -122,6 +123,9 @@ public class SlackConnectorType : IConnectorType
 
         // OAuth install + disconnect endpoints (ADR-0061 §2.3, §2.5).
         group.MapSlackOAuthEndpoints();
+
+        // Inbound Slack Events API endpoint (#2817 / ADR-0061 §2.2 / §3).
+        group.MapSlackEventEndpoints();
 
         // Config-schema parity with the other connectors so portal /
         // CLI clients can introspect the shape they should send when
