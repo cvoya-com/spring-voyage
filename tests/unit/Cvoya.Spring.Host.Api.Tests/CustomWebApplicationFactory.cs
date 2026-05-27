@@ -649,6 +649,81 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 return new MessageRouter(DirectoryService, AgentProxyResolver, permSvc, loggerFactory, scopeFactory);
             });
         });
+
+        // ADR-0062: the API host's send endpoints now rewrite the auth
+        // principal (tenant-user://) to the speaking-as Hat (human://) at
+        // the boundary, walking the FK on humans.tenant_user_id to pick
+        // the Human bound to the calling TenantUser. Tests that POST
+        // messages need at least one bound Human row + a primary pin on
+        // the operator TenantUser so the resolver has something to return.
+        // Without this, every Domain send 400s on NoBoundHuman.
+        builder.ConfigureServices(services =>
+        {
+            services.AddHostedService<TestDataSeeder>();
+        });
+    }
+
+    /// <summary>
+    /// Hosted service that seeds the OSS operator <c>TenantUser</c> and a
+    /// bound Human row at host start. ADR-0062 § 3 requires a routable
+    /// <c>human://</c> sender on every API-side Domain message; the
+    /// resolver returns 400 <c>NoBoundHuman</c> when the caller has no
+    /// bound Hat. Seeding here keeps every test fixture working without
+    /// each test having to plant the rows.
+    /// </summary>
+    private sealed class TestDataSeeder(IServiceScopeFactory scopeFactory) : IHostedService
+    {
+        public async Task StartAsync(CancellationToken cancellationToken)
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            var now = DateTimeOffset.UtcNow;
+
+            var existingTu = await db.TenantUsers.FirstOrDefaultAsync(
+                u => u.Id == OssTenantUserIds.Operator, cancellationToken);
+            if (existingTu is null)
+            {
+                db.TenantUsers.Add(new Cvoya.Spring.Dapr.Data.Entities.TenantUserEntity
+                {
+                    Id = OssTenantUserIds.Operator,
+                    TenantId = OssTenantIds.Default,
+                    AuthSubject = null,
+                    DisplayName = "Operator",
+                    Description = null,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            var bound = await db.Humans.FirstOrDefaultAsync(
+                h => h.TenantUserId == OssTenantUserIds.Operator, cancellationToken);
+            if (bound is null)
+            {
+                bound = new Cvoya.Spring.Dapr.Data.Entities.HumanEntity
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = OssTenantIds.Default,
+                    TenantUserId = OssTenantUserIds.Operator,
+                    Username = "test-operator",
+                    DisplayName = "Operator",
+                    CreatedAt = now,
+                };
+                db.Humans.Add(bound);
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            var tu = await db.TenantUsers.FirstOrDefaultAsync(
+                u => u.Id == OssTenantUserIds.Operator, cancellationToken);
+            if (tu is not null && tu.PrimaryHumanId is null)
+            {
+                tu.PrimaryHumanId = bound.Id;
+                tu.UpdatedAt = now;
+                await db.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     /// <inheritdoc />

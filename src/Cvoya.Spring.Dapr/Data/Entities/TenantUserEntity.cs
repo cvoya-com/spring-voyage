@@ -62,6 +62,24 @@ public class TenantUserEntity : ITenantScopedEntity
     /// </summary>
     public string? Description { get; set; }
 
+    /// <summary>
+    /// Gets or sets the optional "primary" Human binding for this
+    /// <c>TenantUser</c> (ADR-0062 § 2). Pins which of the user's bound
+    /// <c>Human</c> rows is the default sender ("hat") for new outbound
+    /// messages (composer-launched sends and CLI <c>spring message send</c>
+    /// without an explicit <c>--as</c>). Within an existing thread the
+    /// reply composer pins the hat the thread came in on regardless of
+    /// this value.
+    ///
+    /// <para>
+    /// The column is nullable to allow a freshly seeded <c>TenantUser</c>
+    /// with no Humans yet, and is set automatically when the user's first
+    /// Human binding is created. The operator can repin via the portal
+    /// identity settings or the CLI.
+    /// </para>
+    /// </summary>
+    public Guid? PrimaryHumanId { get; set; }
+
     /// <summary>UTC timestamp when the row was first inserted.</summary>
     public DateTimeOffset CreatedAt { get; set; }
 

@@ -82,13 +82,14 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task SendMessage_UsesAuthenticatedCallerAsFromAddress()
+    public async Task SendMessage_RewritesAuthenticatedCallerToHumanFromAddress()
     {
-        // #339 / #2768: the endpoint must thread the authenticated subject
-        // through as the Message.From so MessageRouter's permission gate
-        // evaluates against the real caller. Per ADR-0047 §1 the caller
-        // identity is a TenantUser; in OSS the LocalDevAuthHandler
-        // resolves to the pinned operator id.
+        // ADR-0062 § 3: the API boundary rewrites the auth principal
+        // (tenant-user://) to the speaking-as Hat (human://) on every
+        // outbound Domain message so every downstream consumer sees a
+        // routable sender. The test fixture seeds a Human bound to the
+        // operator TenantUser and pins it as PrimaryHumanId, so the
+        // resolver returns that Hat.
         var ct = TestContext.Current.CancellationToken;
 
         var entry = new DirectoryEntry(
@@ -122,8 +123,10 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         observed.ShouldNotBeNull();
-        observed!.From.Scheme.ShouldBe(Address.TenantUserScheme);
-        observed.From.Id.ShouldBe(Cvoya.Spring.Core.Tenancy.OssTenantUserIds.Operator);
+        // ADR-0062 § 3: From is rewritten to the routable human:// scheme;
+        // tenant-user:// never appears as Message.From on a Domain message.
+        observed!.From.Scheme.ShouldBe(Address.HumanScheme);
+        observed.From.Id.ShouldNotBe(Guid.Empty);
     }
 
     [Fact]

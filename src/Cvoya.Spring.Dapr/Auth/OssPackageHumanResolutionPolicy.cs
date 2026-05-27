@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Core.Packages;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 
@@ -59,6 +60,7 @@ public sealed class OssPackageHumanResolutionPolicy(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var tenantUserDefaultResolver = scope.ServiceProvider.GetRequiredService<ITenantUserDefaultResolver>();
 
         // The synthetic username must be unique within the tenant per
         // HumanEntity's unique index on (tenant_id, username). Using the
@@ -68,9 +70,19 @@ public sealed class OssPackageHumanResolutionPolicy(
         var humanId = Guid.NewGuid();
         var username = $"oss-position-{humanId:N}";
 
+        // ADR-0062 § 1: stamp the deployment-default TenantUser at insert
+        // time so the NOT NULL FK is satisfied without each call site
+        // re-implementing the OSS-vs-cloud rule. OSS: operator literal.
+        // Cloud: calling principal. Explicit `--as` overrides live at the
+        // CLI / portal call site, not here.
+        var tenantUserId = await tenantUserDefaultResolver
+            .ResolveDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         var entity = new HumanEntity
         {
             Id = humanId,
+            TenantUserId = tenantUserId,
             Username = username,
             DisplayName = displayName,
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description!.Trim(),

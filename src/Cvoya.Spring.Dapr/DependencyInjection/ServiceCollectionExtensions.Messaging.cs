@@ -96,6 +96,14 @@ internal static class ServiceCollectionExtensionsMessaging
         services.TryAddSingleton<MessageDeliveryService>();
         services.TryAddSingleton<MessagingToolHandlers>();
 
+        // ADR-0062 § 3: TenantUser → routable `human://` sender resolution
+        // at the API boundary. Scoped because the implementation holds a
+        // SpringDbContext. OSS and cloud share the same implementation —
+        // both walk the FK on `humans.tenant_user_id` introduced by the
+        // same ADR. TryAdd keeps the override seam open for cloud
+        // decorators (e.g. permission-checked variants).
+        services.TryAddScoped<ITenantUserHumanResolver, TenantUserHumanResolver>();
+
         // ADR-0039 §3 gate 6 — cross-tenant containment. The OSS overlay
         // ships single-tenant; every address resolves to OssTenantIds.Default,
         // so the gate is a structural impossibility to violate. The cloud

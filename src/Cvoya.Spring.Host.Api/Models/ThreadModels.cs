@@ -119,10 +119,17 @@ public static class MessageKind
 /// Optional semantic kind of this message. Defaults to <see cref="MessageKind.Information"/>
 /// when omitted. See <see cref="MessageKind"/> for the full value set.
 /// </param>
+/// <param name="From">
+/// Optional explicit "speaking-as" Human id (ADR-0062 § 3). See
+/// <see cref="SendMessageRequest.From"/> for the semantics. When omitted,
+/// the API picks the thread-pinned reply Hat (the Hat that received the
+/// inbound on this thread) and falls back to <c>PrimaryHumanId</c>.
+/// </param>
 public record ThreadMessageRequest(
     AddressDto To,
     string Text,
-    string? Kind = null);
+    string? Kind = null,
+    Guid? From = null);
 
 /// <summary>
 /// Response body for <c>POST /api/v1/threads/{id}/messages</c>.

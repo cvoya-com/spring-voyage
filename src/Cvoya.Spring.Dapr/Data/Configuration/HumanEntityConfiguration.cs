@@ -28,6 +28,19 @@ internal class HumanEntityConfiguration : IEntityTypeConfiguration<HumanEntity>
         builder.HasKey(e => e.Id);
         builder.Property(e => e.Id).HasColumnName("id").HasColumnType("uuid");
         builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
+        // ADR-0062 § 1: NOT NULL FK to tenant_users.id. Every Human-insert
+        // path stamps a value through ITenantUserDefaultResolver at insert
+        // time so the column is never null on the wire. The FK is declared
+        // shadow-style (no navigation on HumanEntity to keep the DTO shape
+        // narrow); the reverse index supports the inbox-resolver query
+        // (where tenant_user_id == caller) and the cloud-overlay's
+        // permission key.
+        builder.Property(e => e.TenantUserId)
+            .HasColumnName("tenant_user_id")
+            .IsRequired()
+            .HasColumnType("uuid");
+        builder.HasIndex(e => e.TenantUserId)
+            .HasDatabaseName("ix_humans_tenant_user_id");
         builder.Property(e => e.Username).HasColumnName("username").IsRequired().HasMaxLength(256);
         builder.Property(e => e.DisplayName).HasColumnName("display_name").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Description).HasColumnName("description");

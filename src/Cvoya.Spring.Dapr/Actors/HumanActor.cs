@@ -10,6 +10,7 @@ using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 
@@ -301,9 +302,20 @@ public class HumanActor(
 
         if (entity is null)
         {
+            // ADR-0062 § 1: stamp the deployment-default TenantUser at
+            // insert time so the NOT NULL FK is satisfied. The actor
+            // materialises the row before any HumanIdentityResolver login
+            // path; the resolver later updates other columns but the FK
+            // value stays put.
+            var tenantUserDefaultResolver = scope.ServiceProvider
+                .GetRequiredService<ITenantUserDefaultResolver>();
+            var tenantUserId = await tenantUserDefaultResolver
+                .ResolveDefaultAsync(cancellationToken);
+
             entity = new HumanEntity
             {
                 Id = humanId,
+                TenantUserId = tenantUserId,
                 // Username is required (NOT NULL); the resolver normally
                 // owns first-row creation. When the actor materialises the
                 // row first (e.g. SetPermission before any login), seed
