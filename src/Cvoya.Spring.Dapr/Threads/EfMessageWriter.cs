@@ -7,9 +7,9 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Messaging.Rendering;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Tenancy;
-using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 
@@ -55,6 +55,7 @@ public class EfMessageWriter(
     SpringDbContext db,
     ITenantContext tenantContext,
     IParticipantDisplayNameResolver displayNameResolver,
+    IMessagePayloadRendererRegistry payloadRenderers,
     ILoggerFactory loggerFactory) : IMessageWriter
 {
     private static readonly JsonSerializerOptions PayloadJson = new()
@@ -106,7 +107,7 @@ public class EfMessageWriter(
             RecipientScheme = message.To.Scheme,
             RecipientId = message.To.Id,
             MessageType = message.Type.ToString(),
-            Body = MessageArrivedDetails.TryExtractText(message.Payload),
+            Body = payloadRenderers.TryRender(message),
             Payload = SerialisePayload(message.Payload),
             SentAt = message.Timestamp,
             RetractedAt = null,

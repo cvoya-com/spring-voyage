@@ -13,6 +13,8 @@ using Cvoya.Spring.Connector.Slack.Routing;
 using Cvoya.Spring.Connector.Slack.Slug;
 using Cvoya.Spring.Connector.Slack.WebApi;
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Messaging.Rendering;
+using Cvoya.Spring.Core.Messaging.Rendering.Renderers;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -73,6 +75,20 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ISlackPersonaBuilder, SlackPersonaBuilder>();
         services.TryAddSingleton<ISlackWebApiClient, SlackWebApiClient>();
         services.TryAddSingleton<ISlackOutboundDispatcher, SlackOutboundDispatcher>();
+
+        // #2843: SlackOutboundDispatcher resolves IMessagePayloadRendererRegistry
+        // to extract the message body. The Dapr platform extension registers
+        // the same renderer set; we register defensively here with TryAdd so
+        // standalone harnesses (and hosts that wire Slack without Dapr) still
+        // resolve a working registry. Idempotent — when both extensions run,
+        // the Dapr registration wins by registration order and Slack's call
+        // here is a no-op.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, BareStringPayloadRenderer>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, TextPropertyPayloadRenderer>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, BodyPropertyPayloadRenderer>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, OutputPropertyPayloadRenderer>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, ContentPropertyPayloadRenderer>());
+        services.TryAddSingleton<IMessagePayloadRendererRegistry, MessagePayloadRendererRegistry>();
 
         // Platform-side delivery wire-up (#2818) — registered as an
         // enumerable IConnectorDeliveryObserver so MessageDeliveryService

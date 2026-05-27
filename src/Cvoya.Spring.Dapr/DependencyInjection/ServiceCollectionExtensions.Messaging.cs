@@ -6,6 +6,8 @@ namespace Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Messaging.Rendering;
+using Cvoya.Spring.Core.Messaging.Rendering.Renderers;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Execution;
@@ -128,6 +130,26 @@ internal static class ServiceCollectionExtensionsMessaging
             services.TryAddSingleton<Cvoya.Spring.Dapr.Actors.IRuntimeInvocationPath,
                 Cvoya.Spring.Dapr.Actors.RuntimeInvocationPath>();
         }
+
+        // #2843: canonical Message.Payload → text renderer registry plus the
+        // built-in renderers (bare-string, `text`, `body`, `Output`,
+        // `content` top-level string properties). The conversation timeline
+        // (MessageArrivedDetails / EfMessageWriter) and the Slack outbound
+        // dispatcher share the registry so the three sites no longer agree
+        // on text extraction by accident. TryAddEnumerable + TryAddSingleton
+        // keep the registration idempotent across overlays.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, BareStringPayloadRenderer>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, TextPropertyPayloadRenderer>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, BodyPropertyPayloadRenderer>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, OutputPropertyPayloadRenderer>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessagePayloadRenderer, ContentPropertyPayloadRenderer>());
+        services.TryAddSingleton<IMessagePayloadRendererRegistry, MessagePayloadRendererRegistry>();
+
+        // #2843: the conversation-timeline details helper. Singleton because
+        // it holds no per-call state and the renderer registry it consumes is
+        // itself a singleton. Resolved by the three actors (Agent / Human /
+        // Unit) and the EF-backed message writer.
+        services.TryAddSingleton<Cvoya.Spring.Dapr.Actors.MessageArrivedDetails>();
 
         // Prompt
         services.AddSingleton<UnitContextBuilder>();

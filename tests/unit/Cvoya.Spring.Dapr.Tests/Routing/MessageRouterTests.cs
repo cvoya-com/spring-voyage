@@ -8,6 +8,8 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Messaging.Rendering;
+using Cvoya.Spring.Core.Messaging.Rendering.Renderers;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Actors;
@@ -338,6 +340,15 @@ public class MessageRouterTests
         // doesn't care about snapshot capture — wire a no-op resolver that
         // always reports a fallback so the writer skips the upsert path.
         services.AddScoped<IParticipantDisplayNameResolver>(_ => new FallbackOnlyResolver());
+        // #2843: EfMessageWriter now resolves the canonical text via the
+        // renderer registry; register the built-in renderer set so the
+        // writer's `Body` extraction goes through the production path.
+        services.AddSingleton<IMessagePayloadRenderer, BareStringPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, TextPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, BodyPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, OutputPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, ContentPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRendererRegistry, MessagePayloadRendererRegistry>();
         services.AddScoped<IMessageWriter, EfMessageWriter>();
         var provider = services.BuildServiceProvider();
         var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
@@ -415,6 +426,15 @@ public class MessageRouterTests
         // doesn't care about snapshot capture — wire a no-op resolver that
         // always reports a fallback so the writer skips the upsert path.
         services.AddScoped<IParticipantDisplayNameResolver>(_ => new FallbackOnlyResolver());
+        // #2843: EfMessageWriter now resolves the canonical text via the
+        // renderer registry; register the built-in renderer set so the
+        // writer's `Body` extraction goes through the production path.
+        services.AddSingleton<IMessagePayloadRenderer, BareStringPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, TextPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, BodyPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, OutputPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRenderer, ContentPropertyPayloadRenderer>();
+        services.AddSingleton<IMessagePayloadRendererRegistry, MessagePayloadRendererRegistry>();
         services.AddScoped<IMessageWriter, EfMessageWriter>();
         var provider = services.BuildServiceProvider();
         var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
