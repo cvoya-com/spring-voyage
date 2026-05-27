@@ -292,9 +292,13 @@ describe("portal a11y smoke tests", () => {
     await expectNoAxeViolations(container);
   });
 
-  it("/activity", async () => {
-    const { default: ActivityPage } = await import("@/app/activity/page");
-    const { container } = render(<ActivityPage />, {
+  it("/activity/events", async () => {
+    // `/activity` itself is a server redirect (#2867); the events feed
+    // — the original Activity content — moved one segment deeper.
+    const { default: EventsPage } = await import(
+      "@/app/activity/events/page"
+    );
+    const { container } = render(<EventsPage />, {
       wrapper: createWrapper(),
     });
     await screen.findByRole("heading", { name: /activity/i });

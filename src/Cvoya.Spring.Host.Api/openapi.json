@@ -6986,6 +6986,140 @@
         }
       }
     },
+    "/api/v1/tenant/observation/interactions": {
+      "get": {
+        "tags": [
+          "Observation"
+        ],
+        "summary": "Get the tenant-wide interactions graph (nodes / edges / timeline) for a time window",
+        "operationId": "GetInteractions",
+        "parameters": [
+          {
+            "name": "Since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "Until",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "Unit",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Participant",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Neighbours",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "Bucket",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Cap",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InteractionsGraphResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/observation/interactions/stream": {
+      "get": {
+        "tags": [
+          "Observation"
+        ],
+        "summary": "Stream live interactions via SSE (pulse / node-added / edge-added / throttled frames)",
+        "operationId": "StreamInteractions",
+        "parameters": [
+          {
+            "name": "unit",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "neighbours",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "coalesceMs",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "maxRate",
+            "in": "query",
+            "schema": {
+              "type": [
+                "null",
+                "integer"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/tenant/analytics/throughput": {
       "get": {
         "tags": [
@@ -13883,6 +14017,153 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "InteractionsEdgeResponse": {
+        "required": [
+          "fromId",
+          "toId",
+          "count",
+          "firstAt",
+          "lastAt",
+          "channels"
+        ],
+        "type": "object",
+        "properties": {
+          "fromId": {
+            "type": "string"
+          },
+          "toId": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "firstAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "InteractionsGraphResponse": {
+        "required": [
+          "nodes",
+          "edges",
+          "timeline",
+          "truncated"
+        ],
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InteractionsNodeResponse"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InteractionsEdgeResponse"
+            }
+          },
+          "timeline": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InteractionsTimelineBucketResponse"
+            }
+          },
+          "truncated": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InteractionsTruncationResponse"
+              }
+            ]
+          }
+        }
+      },
+      "InteractionsNodeResponse": {
+        "required": [
+          "id",
+          "kind",
+          "displayName",
+          "sent",
+          "received"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "sent": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "received": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "InteractionsTimelineBucketResponse": {
+        "required": [
+          "bucket",
+          "sent",
+          "byKind"
+        ],
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sent": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "byKind": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        }
+      },
+      "InteractionsTruncationResponse": {
+        "required": [
+          "total",
+          "kept"
+        ],
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kept": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

@@ -564,6 +564,11 @@ public partial class Program
             // (granted every role) pass; cloud callers must hold the
             // observer role to see threads they are not participants of.
             app.MapObservationEndpoints().RequireAuthorization(RolePolicies.TenantObserver);
+            // #2867: tenant-wide interactions graph + live SSE stream. Same
+            // TenantObserver gate as the threads observation surface — both
+            // sit under /api/v1/tenant/observation/ as the read-only window
+            // into every message in the tenant.
+            app.MapInteractionsEndpoints().RequireAuthorization(RolePolicies.TenantObserver);
             app.MapAnalyticsEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapDashboardEndpoints().RequireAuthorization(RolePolicies.TenantUser);
             app.MapTenantTreeEndpoints().RequireAuthorization(RolePolicies.TenantUser);

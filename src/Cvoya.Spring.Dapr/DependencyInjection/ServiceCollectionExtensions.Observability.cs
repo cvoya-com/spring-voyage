@@ -75,6 +75,13 @@ internal static class ServiceCollectionExtensionsObservability
         // without touching the endpoints.
         services.TryAddScoped<IThreadQueryService, ThreadQueryService>();
 
+        // Interactions projection (#2867). Aggregates the same EF-
+        // authoritative `messages` table into a nodes / edges / timeline
+        // graph for the portal's Interactions visualization under
+        // /activity. TryAdd so the cloud overlay can decorate without
+        // forking the OSS default.
+        services.TryAddScoped<IInteractionsQueryService, InteractionsQueryService>();
+
         // Inbox identity resolver (#2766 / ADR-0062 § 7). Maps the calling
         // TenantUser to the set of HumanEntity ids the inbox query should
         // match against by walking the FK on humans.tenant_user_id. OSS

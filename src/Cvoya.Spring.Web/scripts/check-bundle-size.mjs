@@ -126,9 +126,23 @@ const KB = 1024;
 //   Total uncompressed: ~3355 KB → cap 3400 KB
 //   Total gzipped:      ~ 949 KB → cap  975 KB
 //   Largest chunk (uncompressed): 356 KB → cap 450 KB (unchanged)
+//
+// Updated 2026-05-27 (#2867) when the tenant-wide Interactions
+// visualisation landed — `/activity/interactions` adds a graph view
+// (`@xyflow/react`), a matrix, a brushable recharts timeline, an SSE
+// stream consumer, and a detail popover. `@xyflow/react` is the new
+// dependency (~115 KB gzipped uncompressed, ~37 KB gzipped on top of
+// existing recharts). The new code itself is text-heavy (helpers,
+// matrix, filters) and compresses well. The Activity surface also
+// gained a layout-with-tabs shell so the events page sits one segment
+// deeper. Bump both totals together; largest chunk is unchanged
+// because the new graph code lazy-splits naturally.
+//   Total uncompressed: ~3599 KB → cap 3650 KB
+//   Total gzipped:      ~1040 KB → cap 1075 KB
+//   Largest chunk (uncompressed): 360 KB → cap 450 KB (unchanged)
 const BUDGETS = {
-  totalUncompressedKb: 3400,
-  totalGzippedKb: 975,
+  totalUncompressedKb: 3650,
+  totalGzippedKb: 1075,
   maxChunkUncompressedKb: 450,
 };
 

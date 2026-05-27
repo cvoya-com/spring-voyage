@@ -1882,6 +1882,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/observation/interactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the tenant-wide interactions graph (nodes / edges / timeline) for a time window */
+        get: operations["GetInteractions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/observation/interactions/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream live interactions via SSE (pulse / node-added / edge-added / throttled frames) */
+        get: operations["StreamInteractions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/analytics/throughput": {
         parameters: {
             query?: never;
@@ -3809,6 +3843,47 @@ export interface components {
             /** Format: date-time */
             completedAt: null | string;
             error: null | string;
+        };
+        InteractionsEdgeResponse: {
+            fromId: string;
+            toId: string;
+            /** Format: int64 */
+            count: number;
+            /** Format: date-time */
+            firstAt: string;
+            /** Format: date-time */
+            lastAt: string;
+            channels: string[];
+        };
+        InteractionsGraphResponse: {
+            nodes: components["schemas"]["InteractionsNodeResponse"][];
+            edges: components["schemas"]["InteractionsEdgeResponse"][];
+            timeline: components["schemas"]["InteractionsTimelineBucketResponse"][];
+            truncated: null | components["schemas"]["InteractionsTruncationResponse"];
+        };
+        InteractionsNodeResponse: {
+            id: string;
+            kind: string;
+            displayName: string;
+            /** Format: int64 */
+            sent: number;
+            /** Format: int64 */
+            received: number;
+        };
+        InteractionsTimelineBucketResponse: {
+            /** Format: date-time */
+            bucket: string;
+            /** Format: int64 */
+            sent: number;
+            byKind: {
+                [key: string]: number;
+            };
+        };
+        InteractionsTruncationResponse: {
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            kept: number;
         };
         IssueChildSummaryResponse: {
             subjectKind: string;
@@ -9847,6 +9922,57 @@ export interface operations {
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
+            };
+        };
+    };
+    GetInteractions: {
+        parameters: {
+            query?: {
+                Since?: string;
+                Until?: string;
+                Unit?: string;
+                Participant?: string;
+                Neighbours?: null | number;
+                Bucket?: string;
+                Cap?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractionsGraphResponse"];
+                };
+            };
+        };
+    };
+    StreamInteractions: {
+        parameters: {
+            query?: {
+                unit?: string;
+                neighbours?: null | number;
+                coalesceMs?: null | number;
+                maxRate?: null | number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
