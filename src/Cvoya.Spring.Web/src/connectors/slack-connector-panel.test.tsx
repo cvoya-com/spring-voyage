@@ -44,7 +44,7 @@ vi.mock("@connector-slack/slack-oauth-browser", () => ({
 
 import { ApiError, api } from "@/lib/api/client";
 import type { TenantConnectorBindingResponse } from "@/lib/api/types";
-import { SlackConnectorPanel } from "@connector-slack/slack-connector-panel";
+import { SlackConnectorPanel } from "@connector-slack/connector-panel";
 import { pollForSlackBinding } from "@connector-slack/slack-oauth-browser";
 
 const mockedApi = vi.mocked(api);

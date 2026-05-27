@@ -1,7 +1,15 @@
-// Central slug -> React component registry. Extension seam: when a new
-// connector lands, add a new entry here pointing at the component(s) under
-// that connector package's `web/` subdirectory (see
+// Central slug -> React component registry for UNIT-SCOPED connectors —
+// the ones whose UI plugs into the per-unit Connector tab (and,
+// optionally, into Step 3 of the create-unit wizard). When a new
+// unit-scoped connector lands, add an entry here pointing at the
+// component(s) under that connector package's `web/` subdirectory (see
 // `src/Cvoya.Spring.Connector.GitHub/web/` for the canonical shape).
+//
+// Tenant-scoped connectors (ADR-0061 §1, BindingScope.Tenant) do NOT
+// appear in this registry. Their UI renders as a `/settings` drawer
+// panel and is registered alongside the other built-in panels in
+// `src/Cvoya.Spring.Web/src/lib/extensions/defaults.tsx` instead. The
+// Slack connector is the first instance of that shape.
 //
 // Each connector package owns its own web directory; the web project
 // references it through a `@connector-<slug>/*` tsconfig path alias
@@ -13,7 +21,7 @@
 // out of scope until a second connector lands (see #195 for the runtime
 // discovery follow-up).
 //
-// Each connector can ship up to two entry points:
+// Unit-scoped entry points (this registry):
 //
 //   * `connector-tab.tsx` (required) — rendered inside the Connector tab
 //     of an already-bound unit. Operates against a live unit id.
@@ -22,8 +30,13 @@
 //     so it has no unit id and bubbles config up to the wizard, which
 //     bundles it into the single transactional create-unit call.
 //
-// Consistency between the .NET connector slug, the registry entry, and
-// the web submodule on disk is enforced in CI by
+// Tenant-scoped entry point (registered in `defaults.tsx`):
+//
+//   * `connector-panel.tsx` (required) — rendered as a drawer panel
+//     under `/settings`. Operates against the tenant binding.
+//
+// Consistency between the .NET connector slug, the registration surface,
+// and the web submodule on disk is enforced in CI by
 // `eng/ci/validate-connector-web.sh`.
 
 import type { ComponentType } from "react";

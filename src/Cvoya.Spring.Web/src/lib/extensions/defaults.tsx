@@ -42,7 +42,7 @@ import { AgentOverridesPanel } from "@/components/settings/agent-overrides-panel
 import { AuthPanel } from "@/components/settings/auth-panel";
 import { BudgetPanel } from "@/components/settings/budget-panel";
 import { TenantDefaultsPanel } from "@/components/settings/tenant-defaults-panel";
-import { SlackConnectorPanel } from "@connector-slack/slack-connector-panel";
+import { SlackConnectorPanel } from "@connector-slack/connector-panel";
 import { KeyRound, Info, UserCog } from "lucide-react";
 
 import type {
