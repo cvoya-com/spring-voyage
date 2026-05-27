@@ -94,6 +94,13 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 - **`install` silently "succeeds" but `list` doesn't show the connector.** Confirm the connector package is registered in `src/Cvoya.Spring.Host.Api/Program.cs` (`AddCvoyaSpringConnector<Name>()` call); install writes to the current tenant only.
 - **A unit fails to start after the connector was uninstalled.** The unit's per-unit binding row still references the connector; re-install the connector on the tenant, or unbind the unit via `spring connector unit-binding --unit <name>` → the DELETE path clears the binding.
 
+## Connector-specific setup
+
+Some connectors require the operator to register an app on the third-party side before SV can drive an OAuth flow against it. The per-connector setup guides cover that registration step:
+
+- [GitHub App setup](github-app-setup.md) — per-deployment GitHub App, webhook URL, App ID / slug / private key, and the `gh webhook forward` local-dev recipe.
+- [Slack app setup](slack-app-setup.md) — per-deployment Slack app, OAuth scopes, redirect URL, event-subscription URL, slash-command URLs, signing secret, and a paste-ready manifest YAML.
+
 ## See also
 
 - [Model Providers operator guide](model-providers.md) — parallel guide for per-tenant model-provider installs (the LLM-side counterpart to connectors). Per [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md), agent runtimes themselves are not per-tenant-installed — they are a closed v0.1 set picked at unit/agent create time.
