@@ -217,6 +217,8 @@ The `NavSection` union (`src/lib/extensions/types.ts`) declares the four groups 
 
 `/inbox` lives with Orchestrate (not Overview) because it reads better next to the surface where the operator takes the next action. `/analytics` stays in Overview as the canonical deep-dive surface: the Tenant Budgets and Tenant Activity tabs inside the Explorer carry *summary* rollups; `/analytics`, `/analytics/costs`, `/analytics/throughput`, and `/analytics/waits` carry the full charts, filters, and per-axis breakdowns. The Explorer (`/units`) moves to Overview (#2512) so Dashboard, Activity, Analytics, and Explorer all live under the same "what's happening?" cluster — the Explorer is primarily a browsing and monitoring surface, not an action triage queue.
 
+`/activity` itself is a two-tab segmented surface (#2867): `/activity/events` (raw event stream — the original feed) and `/activity/interactions` (graph / matrix / timeline of who is talking to whom). The sidebar nav entry stays at `/activity` and redirects to `/activity/events` so existing links keep working; the segmented tabs at the top of either route toggle between the two.
+
 ### 4.1 Route manifest
 
 The OSS manifest lives in `src/lib/extensions/defaults.tsx` as `defaultRoutes`. Every entry carries `{ path, label, icon, navSection, orderHint?, permission?, keywords?, description? }`. Hosted extensions layer in additional entries through `registerExtension({ routes })` without patching OSS files — the sidebar reads the merged registry.
@@ -514,6 +516,30 @@ All three stay at top-level under Control:
 `/analytics` and its sub-routes (`/analytics/costs`, `/analytics/throughput`, `/analytics/waits`) are the canonical deep-dive surfaces. Charts adopt the brand palette and the brand-extension hues; KPIs use `<StatCard>`; tables match the Explorer chrome; filter chips replace the legacy chrome. Cost source labels resolve raw source GUIDs through the tenant tree and fall back to the raw GUID only when no tree node is available.
 
 The Tenant Budgets and Tenant Activity tabs render *summary* rollups and cross-link into the matching `/analytics/*` view for the filterable version. Deep-dive lives in Analytics on purpose — the Explorer tabs are for "what do I see for this node right now?", not for per-axis breakdowns.
+
+### 11.6 Activity — Events and Interactions (#2867)
+
+`/activity` is a two-tab surface, rendered via `src/app/activity/layout.tsx`. The pill-shaped segmented bar at the top of the surface follows the same chrome the Analytics surface uses: a `flex flex-wrap items-center gap-1 rounded-full border border-border bg-muted/60 p-1` container with `Link` pills that flip to `bg-primary/15 text-primary shadow-sm` when active.
+
+- **`/activity/events`** — the raw event-stream feed (the previous `/activity` content). No visual change beyond the layout chrome above it.
+- **`/activity/interactions`** — the tenant-wide who-talks-to-whom visualization. One snapshot endpoint (`GET /api/v1/tenant/observation/interactions`) feeds three coordinated panels: a force-directed `@xyflow/react` graph, an adjacency matrix, and a recharts stacked-area timeline. A second SSE endpoint (`GET /api/v1/tenant/observation/interactions/stream`, proxied through `/api/stream/interactions`) layers per-edge "pulse" animations on top in live mode.
+
+`/activity` itself is a server redirect to `/activity/events` so bookmarks and the sidebar nav entry keep working.
+
+**Per-kind node tint.** The graph and matrix paint each participant kind with a deterministic colour drawn from the existing token palette so the matrix legend matches the graph swatch matches the detail-popover kind badge:
+
+| Kind        | Token                | Usage                                                       |
+| ----------- | -------------------- | ----------------------------------------------------------- |
+| `agent`     | `--color-primary`    | Autonomous agent — the canonical actor; rides the brand blue. |
+| `unit`      | `--color-voyage`     | Unit / team — brand-extension cyan for the "scope" abstraction.|
+| `human`     | `--color-blossom-deep` | Human participant — blossom-pink to read as the only non-autonomous actor. |
+| `connector` | `--color-warning`    | Connector — gold to flag the source-only kind (ADR-0048: connectors never receive). |
+
+**Pulse animation contract.** Live pulses are short-lived SVG `<animateMotion>` dots that traverse the matching edge over 600 ms. While a pulse is in flight on an edge, additional pulse frames on the same edge bump a `×N` count badge anchored to the edge midpoint instead of starting a second animation — the goal is calmness on a busy edge, not a strobe. After 600 ms the badge clears so the next frame restarts the animation cycle.
+
+**Truncation banner.** When the snapshot returns a `truncated` envelope (server-side cap fired), the page renders a warning-tinted banner above the canvas: `Showing K of N nodes by message volume — switch to matrix to see all.` The "switch to matrix" link flips the view-mode toggle so operators see the unabridged adjacency without re-typing filters. Matrix view intentionally omits the connector column (ADR-0048).
+
+**Timeline brush ↔ live mode.** The recharts `<Brush>` lets the operator narrow `since` / `until` by dragging. Live mode disables the brush — the snapshot window pins to "now" so a sustained burst doesn't fight the operator's brush handle. The brush is conditionally rendered (not visually disabled) so a screen-reader user doesn't get a non-interactive control in the focus order; the `data-brush-enabled` attribute on the timeline wrapper carries the state for tests.
 
 ---
 

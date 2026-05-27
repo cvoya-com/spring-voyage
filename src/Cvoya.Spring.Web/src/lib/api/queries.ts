@@ -57,6 +57,8 @@ import type {
   InboxItem,
   InitiativeLevelResponse,
   InitiativePolicy,
+  InteractionsFilters,
+  InteractionsGraphResponse,
   MemoriesResponse,
   PackageDetail,
   PackageRequiredCredentialsResponse,
@@ -1060,6 +1062,34 @@ export function useConversation(
     enabled: opts?.enabled ?? Boolean(id),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Interactions visualization (#2867)
+// ---------------------------------------------------------------------------
+//
+// Snapshot is fetched on mount + on every filter change. The page layers
+// SSE pulses on top in local React state — the snapshot itself stays
+// stable so brushing / refetch isn't fighting with the live stream.
+// 60s refetchInterval + refetch-on-focus matches the conversations list
+// pattern.
+
+const INTERACTIONS_REFETCH_INTERVAL_MS = 60_000;
+
+export function useInteractionsSnapshot(
+  filters?: InteractionsFilters,
+  opts?: SliceOptions<InteractionsGraphResponse>,
+): UseQueryResult<InteractionsGraphResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.interactions.snapshot(
+      filters as Record<string, unknown> | undefined,
+    ),
+    queryFn: () => api.getInteractionsSnapshot(filters),
+    refetchInterval: opts?.refetchInterval ?? INTERACTIONS_REFETCH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
+    staleTime: opts?.staleTime,
+    enabled: opts?.enabled,
   });
 }
 

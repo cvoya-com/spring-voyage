@@ -1,0 +1,123 @@
+// URL-state helpers for /activity/interactions.
+//
+// Mirrors the pattern used in /conversations: an 8-field state object is
+// serialised into `URLSearchParams` so the back / forward button reflows
+// every filter. The view-mode + live-mode booleans live alongside the
+// data filters so a deep-link captures the operator's current canvas.
+
+import type { InteractionsFilters } from "@/lib/api/types";
+
+export type InteractionsViewMode = "graph" | "matrix" | "both";
+
+/**
+ * Default snapshot window — last 10 minutes. The backend would default to
+ * the same window if `since` / `until` were omitted, but the portal
+ * materialises both bounds so the timeline brush can move within a
+ * known frame and so a deep link is reproducible.
+ */
+export const DEFAULT_WINDOW_MINUTES = 10;
+export const DEFAULT_NEIGHBOURS = 2 as const;
+export const DEFAULT_BUCKET: InteractionsFilters["bucket"] = "hour";
+export const DEFAULT_VIEW: InteractionsViewMode = "both";
+
+export interface InteractionsUrlState {
+  unit: string;
+  participant: string;
+  /** ISO 8601 instant. Empty string when defaulted. */
+  since: string;
+  /** ISO 8601 instant. Empty string when defaulted. */
+  until: string;
+  neighbours: 0 | 1 | 2;
+  bucket: "hour" | "day";
+  view: InteractionsViewMode;
+  live: boolean;
+}
+
+export const EMPTY_URL_STATE: InteractionsUrlState = {
+  unit: "",
+  participant: "",
+  since: "",
+  until: "",
+  neighbours: DEFAULT_NEIGHBOURS,
+  bucket: DEFAULT_BUCKET,
+  view: DEFAULT_VIEW,
+  live: false,
+};
+
+export function parseNeighbours(raw: string | null): 0 | 1 | 2 {
+  if (raw === "0") return 0;
+  if (raw === "1") return 1;
+  return DEFAULT_NEIGHBOURS;
+}
+
+export function parseBucket(raw: string | null): "hour" | "day" {
+  return raw === "day" ? "day" : "hour";
+}
+
+export function parseView(raw: string | null): InteractionsViewMode {
+  return raw === "graph" || raw === "matrix" ? raw : DEFAULT_VIEW;
+}
+
+export function readUrlState(params: URLSearchParams): InteractionsUrlState {
+  return {
+    unit: params.get("unit") ?? "",
+    participant: params.get("participant") ?? "",
+    since: params.get("since") ?? "",
+    until: params.get("until") ?? "",
+    neighbours: parseNeighbours(params.get("neighbours")),
+    bucket: parseBucket(params.get("bucket")),
+    view: parseView(params.get("view")),
+    live: params.get("live") === "true",
+  };
+}
+
+export function writeUrlState(state: InteractionsUrlState): string {
+  const out = new URLSearchParams();
+  if (state.unit) out.set("unit", state.unit);
+  if (state.participant) out.set("participant", state.participant);
+  if (state.since) out.set("since", state.since);
+  if (state.until) out.set("until", state.until);
+  if (state.neighbours !== DEFAULT_NEIGHBOURS) {
+    out.set("neighbours", String(state.neighbours));
+  }
+  if (state.bucket !== DEFAULT_BUCKET) out.set("bucket", state.bucket);
+  if (state.view !== DEFAULT_VIEW) out.set("view", state.view);
+  if (state.live) out.set("live", "true");
+  return out.toString();
+}
+
+/**
+ * Resolve the snapshot window for the API call. When the URL omits
+ * `since` / `until`, materialise the last-10-minutes default so the
+ * timeline brush has a concrete frame to move within and so a refetch
+ * doesn't drift between requests.
+ */
+export function resolveWindow(state: InteractionsUrlState): {
+  since: string;
+  until: string;
+} {
+  const now = new Date();
+  const until = state.until || now.toISOString();
+  const sinceDefault = new Date(
+    now.getTime() - DEFAULT_WINDOW_MINUTES * 60 * 1000,
+  ).toISOString();
+  const since = state.since || sinceDefault;
+  return { since, until };
+}
+
+/**
+ * Translate URL state into the shape `useInteractionsSnapshot` consumes.
+ */
+export function toSnapshotFilters(
+  state: InteractionsUrlState,
+): InteractionsFilters {
+  const { since, until } = resolveWindow(state);
+  return {
+    since,
+    until,
+    unit: state.unit || undefined,
+    participant: state.participant || undefined,
+    neighbours: state.neighbours,
+    bucket: state.bucket,
+  };
+}

@@ -200,6 +200,20 @@ export const queryKeys = {
     detail: (id: string) => ["conversations", "detail", id] as const,
   },
 
+  /**
+   * Tenant-wide interactions graph (#2867). Backs the
+   * /activity/interactions portal page. Snapshot is keyed on the full
+   * filter set (since / until / unit / participant / neighbours /
+   * bucket / cap) so each filter combination caches independently;
+   * SSE pulses do NOT invalidate this slice — they patch a local React
+   * state mirror in the page component to keep the snapshot stable.
+   */
+  interactions: {
+    all: ["interactions"] as const,
+    snapshot: (filters?: Record<string, unknown>) =>
+      ["interactions", "snapshot", filters ?? {}] as const,
+  },
+
   tenant: {
     all: ["tenant"] as const,
     budget: () => ["tenant", "budget"] as const,

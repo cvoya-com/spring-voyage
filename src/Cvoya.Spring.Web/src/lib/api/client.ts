@@ -12,6 +12,8 @@ import type {
   ConversationListFilters,
   EquippedSkillsResponse,
   EquipSkillRequest,
+  InteractionsFilters,
+  InteractionsGraphResponse,
   ThreadListFilters,
   ThreadMessageRequest,
   CreateAgentRequest,
@@ -1205,6 +1207,35 @@ export const api = {
       return null;
     }
     return unwrap(result);
+  },
+
+  /**
+   * Tenant-wide interactions graph snapshot (#2867). Returns nodes /
+   * edges / timeline + an optional `truncated` envelope when the cap
+   * fires. The same data drives the graph, matrix, and timeline views
+   * — the visualization layer is purely client-side. The backend uses
+   * `[AsParameters]` so it accepts the PascalCase form on the wire;
+   * ASP.NET Core query binding is case-insensitive, so lowercase keys
+   * (matching the rest of the portal) round-trip just fine.
+   */
+  getInteractionsSnapshot: async (
+    filters?: InteractionsFilters,
+  ): Promise<InteractionsGraphResponse> => {
+    const query: Record<string, string | number> = {};
+    if (filters?.since) query.Since = filters.since;
+    if (filters?.until) query.Until = filters.until;
+    if (filters?.unit) query.Unit = filters.unit;
+    if (filters?.participant) query.Participant = filters.participant;
+    if (filters?.neighbours !== undefined) query.Neighbours = filters.neighbours;
+    if (filters?.bucket) query.Bucket = filters.bucket;
+    if (filters?.cap !== undefined) {
+      query.Cap = filters.cap === "none" ? "none" : String(filters.cap);
+    }
+    return unwrap(
+      await fetchClient.GET("/api/v1/tenant/observation/interactions", {
+        params: { query: query as never },
+      }),
+    ) as InteractionsGraphResponse;
   },
 
   /**

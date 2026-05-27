@@ -406,6 +406,74 @@ export type SetBudgetRequest = Schemas["SetBudgetRequest"];
 export type ActivityQueryResult = Schemas["ActivityQueryResult"];
 
 // ---------------------------------------------------------------------------
+// Interactions visualization (#2867) — tenant-wide who-talks-to-whom graph
+// ---------------------------------------------------------------------------
+//
+// Re-exports the OpenAPI shapes for the `/activity/interactions` portal
+// view. The graph snapshot is read once on mount + on every filter
+// change; the SSE stream layers live pulses on top.
+
+/** One node in the interactions graph (agent / unit / human / connector). */
+export type InteractionsNodeResponse = Schemas["InteractionsNodeResponse"];
+
+/** One sender → receiver edge with aggregate count + channel set. */
+export type InteractionsEdgeResponse = Schemas["InteractionsEdgeResponse"];
+
+/** One time-bucket on the stacked-area timeline. */
+export type InteractionsTimelineBucketResponse =
+  Schemas["InteractionsTimelineBucketResponse"];
+
+/** Full snapshot envelope returned by `GET /api/v1/tenant/observation/interactions`. */
+export type InteractionsGraphResponse = Schemas["InteractionsGraphResponse"];
+
+/**
+ * Filters accepted by `useInteractionsSnapshot`. Field names mirror the
+ * backend's `[AsParameters]` PascalCase but ASP.NET Core query-binding is
+ * case-insensitive so lowercase serialises just fine. We send lowercase
+ * over the wire to match the existing portal style.
+ */
+export interface InteractionsFilters {
+  since?: string;
+  until?: string;
+  unit?: string;
+  participant?: string;
+  neighbours?: 0 | 1 | 2;
+  bucket?: "hour" | "day";
+  cap?: number | "none";
+}
+
+/**
+ * Hand-typed SSE frame shapes mirroring
+ * `InteractionsStreamFrames.cs`. OpenAPI cannot describe SSE bodies so
+ * these are authored here verbatim.
+ */
+export interface InteractionsPulseFrame {
+  messageIds: string[];
+  fromId: string;
+  toId: string;
+  timestamp: string;
+  threadId: string | null;
+  channel: string;
+  count: number;
+}
+
+export interface InteractionsNodeAddedFrame {
+  id: string;
+  kind: string;
+  displayName: string;
+}
+
+export interface InteractionsEdgeAddedFrame {
+  fromId: string;
+  toId: string;
+}
+
+export interface InteractionsThrottledFrame {
+  since: string;
+  dropped: number;
+}
+
+// ---------------------------------------------------------------------------
 // Analytics (#448, #457) — Throughput / Wait-time rollups
 // ---------------------------------------------------------------------------
 //
