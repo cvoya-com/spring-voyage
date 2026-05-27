@@ -1,36 +1,33 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Connectors;
+namespace Cvoya.Spring.Connectors;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Connectors;
-
 /// <summary>
-/// Singleton seam over the scoped <c>ITenantConnectorBindingRepository</c>.
-/// Mirrors <see cref="IUnitConnectorBindingStore"/>: hosts that consume
-/// the tenant-binding surface from singleton-style call sites cannot
-/// resolve the scoped EF repository directly. The store creates a fresh
-/// DI scope per call, resolves the repository, and forwards the
-/// operation.
-///
+/// Per-tenant connector binding store (ADR-0061 §1). Mirrors the
+/// per-unit <c>IUnitConnectorBindingStore</c> but addresses
+/// <c>(tenant, connector_slug)</c> instead of <c>(tenant, unit)</c>.
+/// First consumer is the Slack connector; future workspace-shaped
+/// connectors reuse it per ADR-0061 §7.7.
+/// </summary>
+/// <remarks>
 /// <para>
-/// Introduced by ADR-0061 §1 alongside the
-/// <c>tenant_connector_bindings</c> table. Generic per ADR-0061 §7.7 —
-/// the surface holds no Slack-specific shapes; the first consumer is
-/// the Slack connector (ADR-0061 §2) and future workspace-shaped
-/// connectors reuse the same store.
+/// The interface lives in
+/// <c>Cvoya.Spring.Connectors.Abstractions</c> so connector packages
+/// (which only reference Abstractions per CONVENTIONS §16) can talk
+/// to it without taking a dependency on the EF / Dapr layer.
 /// </para>
 ///
 /// <para>
 /// ADR-0061 §7.1: bound users are a list, even in OSS where the list
-/// has length 1. The lookup
-/// <see cref="GetBoundUsersAsync"/> returns a list of
-/// <c>(external_user_id, tenant_user_id)</c> mappings so callers
-/// iterate uniformly across single-user and multi-user deployments.
+/// has length 1. The lookup <see cref="GetBoundUsersAsync"/> returns
+/// a list of <see cref="TenantBoundUser"/> so callers iterate
+/// uniformly across single-user and multi-user deployments. Slack's
+/// OSS install pins one row; cloud may grow to many.
 /// </para>
-/// </summary>
+/// </remarks>
 public interface ITenantConnectorBindingStore
 {
     /// <summary>
@@ -92,10 +89,10 @@ public interface ITenantConnectorBindingStore
     /// (for Slack: the workspace <c>user_id</c>). The
     /// <c>tenant_user_id</c> is the SV-side TenantUser this external
     /// user is mapped to — in OSS the single
-    /// <c>OssTenantUserIds.Operator</c>. The OSS default implementation
-    /// reads the bound-user list from the connector's binding config
-    /// (Slack stores it on the binding row); cloud overlays can layer
-    /// a dedicated table if the list grows past a few entries.
+    /// <c>OssTenantUserIds.Operator</c>. Decoding is delegated to
+    /// connector-supplied <see cref="ITenantBoundUserExtractor"/>
+    /// implementations so the platform stays free of any
+    /// connector-specific JSON schema knowledge.
     /// </remarks>
     Task<IReadOnlyList<TenantBoundUser>> GetBoundUsersAsync(
         string connectorSlug,
@@ -114,3 +111,27 @@ public interface ITenantConnectorBindingStore
 /// The SV-side <c>TenantUser</c> this external user is mapped to.
 /// </param>
 public sealed record TenantBoundUser(string ExternalUserId, Guid TenantUserId);
+
+/// <summary>
+/// Connector-supplied decoder for the bound-user list embedded in a
+/// tenant-binding row's opaque <c>Config</c> JSON. Each tenant-scoped
+/// connector that has bound users registers one extractor with DI;
+/// <see cref="ITenantConnectorBindingStore.GetBoundUsersAsync"/>
+/// dispatches by slug. Keeps the storage layer free of any
+/// connector-specific JSON schema knowledge (ADR-0061 §7.7).
+/// </summary>
+public interface ITenantBoundUserExtractor
+{
+    /// <summary>
+    /// <c>true</c> when this extractor decodes bindings whose
+    /// <c>connector_slug</c> equals <paramref name="connectorSlug"/>.
+    /// </summary>
+    bool Handles(string connectorSlug);
+
+    /// <summary>
+    /// Decodes the bound-user list from
+    /// <paramref name="binding"/>'s <c>Config</c> payload. May return
+    /// an empty list when no users are bound yet.
+    /// </summary>
+    IReadOnlyList<TenantBoundUser> Extract(TenantConnectorBinding binding);
+}

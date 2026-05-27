@@ -24,6 +24,7 @@
     <ProjectReference Include="..\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Connector.Arxiv\Cvoya.Spring.Connector.Arxiv.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Connector.GitHub\Cvoya.Spring.Connector.GitHub.csproj" />
+    <ProjectReference Include="..\Cvoya.Spring.Connector.Slack\Cvoya.Spring.Connector.Slack.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Connector.WebSearch\Cvoya.Spring.Connector.WebSearch.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Manifest\Cvoya.Spring.Manifest.csproj" />
   </ItemGroup>

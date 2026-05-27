@@ -14,20 +14,23 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default singleton implementation of
-/// <see cref="ITenantConnectorBindingStore"/>. Creates a fresh
-/// <c>IServiceScope</c> per call so the scoped
-/// <see cref="ITenantConnectorBindingRepository"/> (and its
-/// <c>SpringDbContext</c>) resolves cleanly from singleton call sites.
-/// Mirrors <see cref="UnitConnectorBindingStore"/>.
+/// <see cref="ITenantConnectorBindingStore"/>. The interface lives in
+/// <c>Cvoya.Spring.Connectors.Abstractions</c> so connector packages
+/// can target it directly per CONVENTIONS §16; this class is the EF
+/// adapter that bridges the abstraction to the
+/// <see cref="ITenantConnectorBindingRepository"/> scoped repository.
+/// Mirrors <see cref="UnitConnectorBindingStore"/>: creates a fresh
+/// <c>IServiceScope</c> per call so singleton call sites can use the
+/// scoped EF repository.
 /// </summary>
 /// <remarks>
 /// The bound-users discovery path (<see cref="GetBoundUsersAsync"/>)
 /// extracts the bound-user list from the connector's binding config —
 /// each connector knows where in its config blob the list lives. The
-/// store calls
-/// <see cref="ITenantBoundUserExtractor"/> to keep that decoding out of
-/// the storage layer (and to avoid coupling the platform to any
-/// connector's JSON shape).
+/// store calls registered
+/// <see cref="ITenantBoundUserExtractor"/> implementations (from
+/// Cvoya.Spring.Connectors.Abstractions) to keep that decoding out of
+/// the storage layer (ADR-0061 §7.7).
 /// </remarks>
 public class TenantConnectorBindingStore(
     IServiceScopeFactory scopeFactory,
@@ -141,28 +144,4 @@ public class TenantConnectorBindingStore(
             connectorSlug);
         return Array.Empty<TenantBoundUser>();
     }
-}
-
-/// <summary>
-/// Connector-supplied decoder for the bound-user list embedded in a
-/// tenant-binding row's opaque <c>Config</c> JSON. Each tenant-scoped
-/// connector that has bound users registers one extractor with DI;
-/// <see cref="TenantConnectorBindingStore.GetBoundUsersAsync"/>
-/// dispatches by slug. Keeps the storage layer free of any
-/// connector-specific JSON schema knowledge (ADR-0061 §7.7).
-/// </summary>
-public interface ITenantBoundUserExtractor
-{
-    /// <summary>
-    /// <c>true</c> when this extractor decodes bindings whose
-    /// <c>connector_slug</c> equals <paramref name="connectorSlug"/>.
-    /// </summary>
-    bool Handles(string connectorSlug);
-
-    /// <summary>
-    /// Decodes the bound-user list from
-    /// <paramref name="binding"/>'s <c>Config</c> payload. May return
-    /// an empty list when no users are bound yet.
-    /// </summary>
-    IReadOnlyList<TenantBoundUser> Extract(TenantConnectorBinding binding);
 }

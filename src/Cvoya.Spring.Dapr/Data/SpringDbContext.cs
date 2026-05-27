@@ -256,6 +256,14 @@ public class SpringDbContext : DbContext
     public DbSet<TenantConnectorBindingEntity> TenantConnectorBindings => Set<TenantConnectorBindingEntity>();
 
     /// <summary>
+    /// Gets the Slack workspace map (ADR-0061 §7.5). One row per
+    /// installed Slack workspace; the inbound webhook handler uses
+    /// this to resolve <c>team_id → tenant_id</c> without a query
+    /// filter. OSS has length 1; cloud grows to many.
+    /// </summary>
+    public DbSet<TenantSlackWorkspaceMapEntity> TenantSlackWorkspaceMap => Set<TenantSlackWorkspaceMapEntity>();
+
+    /// <summary>
     /// Gets the set of agent / tenant cloning-policy rows (#2051 /
     /// ADR-0040). One row per <c>(tenant_id, scope_type, scope_id)</c>;
     /// replaces the actor-state <c>Agent:CloningPolicy:{agentId}</c> and
@@ -337,6 +345,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new UnitExpertiseEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitConnectorBindingEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantConnectorBindingEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantSlackWorkspaceMapEntityConfiguration());
         modelBuilder.ApplyConfiguration(new CloningPolicyEntityConfiguration());
         modelBuilder.ApplyConfiguration(new MemoryEntityConfiguration());
         modelBuilder.ApplyConfiguration(new PersistentAgentRuntimeEntityConfiguration());
