@@ -6,6 +6,8 @@ namespace Cvoya.Spring.Connector.Slack;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.Slack.Auth.OAuth;
+using Cvoya.Spring.Connector.Slack.Commands;
+using Cvoya.Spring.Connector.Slack.Inbound;
 using Cvoya.Spring.Connectors;
 
 using Microsoft.AspNetCore.Builder;
@@ -29,12 +31,13 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
-/// Scope of <em>this</em> file: only the connector identity surface
-/// (slug, type id, binding scope, scaffolding endpoints, no-op
-/// lifecycle hooks). OAuth install / disconnect lifecycle is handled
-/// in <see cref="SlackOAuthEndpoints"/>; inbound event handling
-/// (signature verification, auto-leave) is deferred to issue #2817;
-/// outbound delivery is issue #2818; slash commands #2819.
+/// Scope of <em>this</em> file: connector identity surface (slug,
+/// type id, binding scope, no-op lifecycle hooks) and route mounting.
+/// OAuth install / disconnect lifecycle lives in
+/// <see cref="SlackOAuthEndpoints"/>; the inbound Events API endpoint
+/// in <see cref="SlackEventEndpoints"/>; slash commands +
+/// interactions in <see cref="SlackCommandEndpoints"/>; outbound
+/// delivery in <see cref="Outbound.SlackOutboundDispatcher"/>.
 /// </para>
 /// </summary>
 public class SlackConnectorType : IConnectorType
@@ -122,6 +125,13 @@ public class SlackConnectorType : IConnectorType
         // OAuth install + disconnect endpoints (ADR-0061 §2.3, §2.5).
         group.MapSlackOAuthEndpoints();
 
+        // Inbound Slack Events API endpoint (#2817 / ADR-0061 §2.2 / §3).
+        group.MapSlackEventEndpoints();
+
+        // Slash-command + Block Kit interaction endpoints
+        // (#2819 / ADR-0061 §5).
+        group.MapSlackCommandEndpoints();
+
         // Config-schema parity with the other connectors so portal /
         // CLI clients can introspect the shape they should send when
         // PUT-ing the binding.
@@ -130,9 +140,6 @@ public class SlackConnectorType : IConnectorType
             .WithSummary("Get the JSON Schema describing the Slack tenant-binding config body")
             .WithTags("Connectors.Slack")
             .Produces<JsonElement>(StatusCodes.Status200OK);
-
-        // TODO(#2819): slash-command endpoints (/sv-thread, /sv-threads, /sv-help).
-        // TODO(#2817): events endpoint with signature verification.
     }
 
     /// <inheritdoc />

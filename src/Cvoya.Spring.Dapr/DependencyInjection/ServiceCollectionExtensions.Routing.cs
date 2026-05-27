@@ -219,6 +219,25 @@ internal static class ServiceCollectionExtensionsRouting
         // SlackBoundUserExtractor (registered by the Slack connector).
         services.TryAddSingleton<ITenantConnectorBindingStore, TenantConnectorBindingStore>();
 
+        // ADR-0061 §3 / #2818: Slack thread-state store. The interface
+        // lives in Cvoya.Spring.Connector.Slack; the EF-backed
+        // implementation lives here so the Slack package stays free of
+        // direct EF dependencies (CONVENTIONS §16). Singleton — opens
+        // a fresh DI scope per call to resolve the scoped DbContext.
+        services.TryAddSingleton<
+            Cvoya.Spring.Connector.Slack.Outbound.ISlackThreadMapStore,
+            Cvoya.Spring.Dapr.Connectors.Slack.EfSlackThreadMapStore>();
+
+        // ADR-0062 §1 / #2818: reverse FK lookup
+        // (Human.id → bound TenantUser.id). Used by the Slack
+        // outbound dispatcher to resolve human:// participants onto
+        // the bound-user list before invoking the routing function.
+        // Same singleton-over-scoped pattern; isolated in Dapr so the
+        // Slack connector stays free of EF dependencies.
+        services.TryAddSingleton<
+            Cvoya.Spring.Connector.Slack.Outbound.IHumanTenantUserLookup,
+            Cvoya.Spring.Dapr.Connectors.Slack.EfHumanTenantUserLookup>();
+
         // #2442: shared binding-walk helper used by the runtime-context
         // and prompt-context resolvers. Both walks share the same
         // direct-vs-inherited semantics, so the helper lives in one place

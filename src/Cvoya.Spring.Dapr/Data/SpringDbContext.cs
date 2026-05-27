@@ -294,6 +294,16 @@ public class SpringDbContext : DbContext
     /// </summary>
     public DbSet<TenantActivitySettingsEntity> TenantActivitySettings => Set<TenantActivitySettingsEntity>();
 
+    /// <summary>
+    /// Slack thread-state rows (ADR-0061 §3 / #2818). One row per
+    /// <c>(tenant, sv_thread_id, bound_tenant_user_id, team_id)</c>;
+    /// holds the Slack <c>thread_ts</c> of the parent message the bot
+    /// posted inside the bound user's DM so subsequent SV-side messages
+    /// post as threaded replies and Slack-side replies route back to
+    /// the SV thread.
+    /// </summary>
+    public DbSet<SlackThreadStateEntity> SlackThreadStates => Set<SlackThreadStateEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -343,6 +353,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new MemoryEntityConfiguration());
         modelBuilder.ApplyConfiguration(new PersistentAgentRuntimeEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantActivitySettingsEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new SlackThreadStateEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -498,6 +509,12 @@ public class SpringDbContext : DbContext
         // StopContainer. There is no audit value in keeping a row
         // around once it no longer represents a tracked container.
         modelBuilder.Entity<PersistentAgentRuntimeEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Slack thread-state rows: tenant-scoped, no soft-delete
+        // (ADR-0061 §3). Rows are inserted on first parent-message
+        // post per bound user; deletion is by tenant-scope reset only.
+        modelBuilder.Entity<SlackThreadStateEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 

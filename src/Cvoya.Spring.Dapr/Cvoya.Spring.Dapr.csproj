@@ -12,6 +12,13 @@
   <ItemGroup>
     <ProjectReference Include="..\Cvoya.Spring.Connectors.Abstractions\Cvoya.Spring.Connectors.Abstractions.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
+    <!--
+      Slack connector abstractions surface is referenced so the EF-backed
+      ISlackThreadMapStore implementation can live in this package (ADR-0061 §3 / #2818).
+      The reverse direction is forbidden: Cvoya.Spring.Connector.Slack only references
+      Abstractions + Core per CONVENTIONS §16.
+    -->
+    <ProjectReference Include="..\Cvoya.Spring.Connector.Slack\Cvoya.Spring.Connector.Slack.csproj" />
   </ItemGroup>
 
   <ItemGroup>

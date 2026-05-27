@@ -26,6 +26,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <!-- WebApplicationFactory / TestServer for endpoint-shape tests.
+         Mvc.Testing pulls in Microsoft.AspNetCore.TestHost transitively. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
     <PackageReference Include="Shouldly" />
