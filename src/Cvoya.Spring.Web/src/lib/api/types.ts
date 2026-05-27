@@ -427,6 +427,31 @@ export type InteractionsTimelineBucketResponse =
 export type InteractionsGraphResponse = Schemas["InteractionsGraphResponse"];
 
 /**
+ * Full history envelope returned by
+ * `GET /api/v1/tenant/observation/interactions/history` (#2872). Mirrors
+ * the snapshot shape — `nodes` + `edges` materialise the topology — and
+ * adds a `pulses` array carrying every individual sender→receiver delivery
+ * inside the window. The rewind player walks `pulses` with a virtual
+ * cursor and dispatches each entry through the same pulse-animation
+ * pipeline the live SSE stream feeds.
+ */
+export type InteractionsHistoryResponse = Schemas["InteractionsHistoryResponse"];
+
+/**
+ * Single delivery row inside {@link InteractionsHistoryResponse.pulses}.
+ * Same shape as the SSE `pulse` event minus the count (history pulses are
+ * always 1:1 per message; SSE may coalesce multiple deliveries into a
+ * single frame to keep the canvas calm).
+ */
+export type InteractionsPulseResponse = Schemas["InteractionsPulseResponse"];
+
+// `InteractionsHistoryTruncationResponse` and its nested
+// `InteractionsPulseTruncationResponse` are reachable via
+// `InteractionsHistoryResponse["truncated"]` — not re-exported standalone
+// to keep the surface narrow (knip). The page reads truncation off the
+// history response inline.
+
+/**
  * Filters accepted by `useInteractionsSnapshot`. Field names mirror the
  * backend's `[AsParameters]` PascalCase but ASP.NET Core query-binding is
  * case-insensitive so lowercase serialises just fine. We send lowercase
@@ -439,6 +464,23 @@ export interface InteractionsFilters {
   participant?: string;
   neighbours?: 0 | 1 | 2;
   bucket?: "hour" | "day";
+  cap?: number | "none";
+}
+
+/**
+ * Filters accepted by `useInteractionsHistory` (#2872). Same shape as
+ * {@link InteractionsFilters} minus `bucket` (the history endpoint never
+ * runs the timeline rollup; the timeline keeps coming from the snapshot)
+ * plus `maxPulses` — the per-window cap on individual pulse rows.
+ */
+export interface InteractionsHistoryFilters {
+  since?: string;
+  until?: string;
+  unit?: string;
+  participant?: string;
+  neighbours?: 0 | 1 | 2;
+  /** Default 5000 — see backend `GetInteractionsHistory.MaxPulses`. */
+  maxPulses?: number;
   cap?: number | "none";
 }
 

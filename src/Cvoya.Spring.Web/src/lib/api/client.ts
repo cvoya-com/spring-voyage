@@ -14,6 +14,8 @@ import type {
   EquipSkillRequest,
   InteractionsFilters,
   InteractionsGraphResponse,
+  InteractionsHistoryFilters,
+  InteractionsHistoryResponse,
   ThreadListFilters,
   ThreadMessageRequest,
   CreateAgentRequest,
@@ -1236,6 +1238,38 @@ export const api = {
         params: { query: query as never },
       }),
     ) as InteractionsGraphResponse;
+  },
+
+  /**
+   * Tenant-wide interactions history fetch (#2872). Returns nodes + edges
+   * for the window plus the full ordered pulse list — every individual
+   * sender→receiver delivery in `(since, until]`. The rewind transport
+   * bar in the portal walks `pulses[]` with a virtual cursor and replays
+   * each delivery through the same animation pipeline the live SSE
+   * stream feeds.
+   *
+   * Mirrors {@link getInteractionsSnapshot} for the case-insensitive
+   * PascalCase query-binding contract.
+   */
+  getInteractionsHistory: async (
+    filters?: InteractionsHistoryFilters,
+  ): Promise<InteractionsHistoryResponse> => {
+    const query: Record<string, string | number> = {};
+    if (filters?.since) query.Since = filters.since;
+    if (filters?.until) query.Until = filters.until;
+    if (filters?.unit) query.Unit = filters.unit;
+    if (filters?.participant) query.Participant = filters.participant;
+    if (filters?.neighbours !== undefined) query.Neighbours = filters.neighbours;
+    if (filters?.maxPulses !== undefined) query.MaxPulses = filters.maxPulses;
+    if (filters?.cap !== undefined) {
+      query.Cap = filters.cap === "none" ? "none" : String(filters.cap);
+    }
+    return unwrap(
+      await fetchClient.GET(
+        "/api/v1/tenant/observation/interactions/history",
+        { params: { query: query as never } },
+      ),
+    ) as InteractionsHistoryResponse;
   },
 
   /**

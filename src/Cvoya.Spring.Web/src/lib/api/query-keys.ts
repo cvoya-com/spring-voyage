@@ -212,6 +212,15 @@ export const queryKeys = {
     all: ["interactions"] as const,
     snapshot: (filters?: Record<string, unknown>) =>
       ["interactions", "snapshot", filters ?? {}] as const,
+    /**
+     * History fetch (#2872). Keyed independently from the snapshot so
+     * activating rewind mode doesn't kick the snapshot cache and so a
+     * back-and-forth between live / rewind reuses both caches. The
+     * filter shape carries `maxPulses` (snapshot has `bucket` instead)
+     * so the keys never collide.
+     */
+    history: (filters?: Record<string, unknown>) =>
+      ["interactions", "history", filters ?? {}] as const,
   },
 
   tenant: {
