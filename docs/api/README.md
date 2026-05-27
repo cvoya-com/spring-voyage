@@ -76,7 +76,7 @@ Most endpoints use **bearer-token authentication** with a Spring Voyage API Toke
 
 ```bash
 # 1. Mint a token (the response includes a one-shot `value` field)
-curl -X POST http://localhost:5000/api/v1/tenant/auth/tokens \
+curl -X POST http://localhost/api/v1/tenant/auth/tokens \
   -H "Authorization: Bearer <your-existing-token>" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-cli-token"}'
@@ -89,7 +89,7 @@ curl -X POST http://localhost:5000/api/v1/tenant/auth/tokens \
 # }
 
 # 2. Use the token in the Authorization header on subsequent requests
-curl http://localhost:5000/api/v1/tenant/auth/me \
+curl http://localhost/api/v1/tenant/auth/me \
   -H "Authorization: Bearer svat_..."
 ```
 
@@ -105,7 +105,7 @@ Webhook endpoints (`/api/v1/webhooks/...`) authenticate via HMAC signatures from
 
 ```bash
 # Create the agent definition
-curl -X POST http://localhost:5000/api/v1/tenant/agents \
+curl -X POST http://localhost/api/v1/tenant/agents \
   -H "Authorization: Bearer svat_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -115,7 +115,7 @@ curl -X POST http://localhost:5000/api/v1/tenant/agents \
   }'
 
 # Deploy it
-curl -X POST http://localhost:5000/api/v1/tenant/agents/{id}/deploy \
+curl -X POST http://localhost/api/v1/tenant/agents/{id}/deploy \
   -H "Authorization: Bearer svat_..."
 ```
 
@@ -123,7 +123,7 @@ curl -X POST http://localhost:5000/api/v1/tenant/agents/{id}/deploy \
 
 ```bash
 # Open a thread by posting to it (threads are participant-sets per ADR-0030)
-curl -X POST http://localhost:5000/api/v1/tenant/threads/{thread_id}/messages \
+curl -X POST http://localhost/api/v1/tenant/threads/{thread_id}/messages \
   -H "Authorization: Bearer svat_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -132,7 +132,7 @@ curl -X POST http://localhost:5000/api/v1/tenant/threads/{thread_id}/messages \
   }'
 
 # Read the thread
-curl http://localhost:5000/api/v1/tenant/threads/{thread_id} \
+curl http://localhost/api/v1/tenant/threads/{thread_id} \
   -H "Authorization: Bearer svat_..."
 ```
 
@@ -143,7 +143,7 @@ The thread surface is the canonical way to drive agents from outside the platfor
 `/api/v1/tenant/activity/stream` is a Server-Sent Events endpoint over the tenant activity log. Subscribe with any SSE-aware client:
 
 ```bash
-curl -N http://localhost:5000/api/v1/tenant/activity/stream \
+curl -N http://localhost/api/v1/tenant/activity/stream \
   -H "Authorization: Bearer svat_..."
 ```
 

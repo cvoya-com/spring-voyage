@@ -24,19 +24,10 @@ public class SlackInstallHostValidationTests
     [InlineData("https://localhost")]
     [InlineData("http://127.0.0.1")]
     [InlineData("http://[::1]/")]
-    public void ValidateSvHost_LoopbackWithoutExplicitPort_Throws(string host)
-    {
-        var stdout = new StringWriter();
-        var ex = Should.Throw<SlackInstallException>(
-            () => SlackInstallCommand.ValidateSvHost(host, socketMode: false, stdout));
-        ex.Message.ShouldContain("specify the port explicitly");
-    }
-
-    [Theory]
     [InlineData("http://localhost:5000")]
     [InlineData("http://127.0.0.1:8080")]
     [InlineData("https://localhost:5001")]
-    public void ValidateSvHost_LoopbackWithExplicitPort_NoSocketMode_WarnsOnly(string host)
+    public void ValidateSvHost_Loopback_NoSocketMode_WarnsOnly(string host)
     {
         var stdout = new StringWriter();
         SlackInstallCommand.ValidateSvHost(host, socketMode: false, stdout);
@@ -44,9 +35,10 @@ public class SlackInstallHostValidationTests
     }
 
     [Theory]
+    [InlineData("http://localhost")]
     [InlineData("http://localhost:5000")]
     [InlineData("http://127.0.0.1:8080")]
-    public void ValidateSvHost_LoopbackWithExplicitPort_SocketMode_Silent(string host)
+    public void ValidateSvHost_Loopback_SocketMode_Silent(string host)
     {
         var stdout = new StringWriter();
         SlackInstallCommand.ValidateSvHost(host, socketMode: true, stdout);
