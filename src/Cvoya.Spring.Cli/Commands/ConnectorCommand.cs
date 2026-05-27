@@ -100,10 +100,21 @@ public static class ConnectorCommand
         connectorCommand.Subcommands.Add(CreateBindCommand2(outputOption));
         connectorCommand.Subcommands.Add(CreateUnbindCommand());
         connectorCommand.Subcommands.Add(CreateGitHubCommand());
+        // `spring connector slack install` (#2839) — programmatic Slack
+        // app creation via the Manifest API, mirroring the github-app
+        // register flow.
+        connectorCommand.Subcommands.Add(CreateSlackCommand());
         connectorCommand.Subcommands.Add(CreateConfigCommand(outputOption));
         connectorCommand.Subcommands.Add(CreateCredentialsCommand(outputOption));
 
         return connectorCommand;
+    }
+
+    private static Command CreateSlackCommand()
+    {
+        var root = new Command("slack", "Slack connector-specific operations.");
+        root.Subcommands.Add(SlackInstall.SlackInstallCommand.CreateInstallCommand());
+        return root;
     }
 
     private static Command CreateBindingsCommand(Option<string> outputOption)
