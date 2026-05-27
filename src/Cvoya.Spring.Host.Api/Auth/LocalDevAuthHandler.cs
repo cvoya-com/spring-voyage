@@ -31,10 +31,15 @@ public class LocalDevAuthHandler(
     /// <inheritdoc />
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        // #2860: deliberately omit ClaimTypes.Name. The default-Hat
+        // DisplayName is derived from the seeded TenantUser's DisplayName
+        // (single source of truth) at first-mint time inside
+        // HumanIdentityResolver — stamping a literal here would race the
+        // TenantUser-derived value and cause portal/From-selector chips
+        // to disagree with package-minted Hat prefixes.
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, AuthConstants.DefaultLocalUserId),
-            new(ClaimTypes.Name, "Local Developer"),
         };
 
         var identity = new ClaimsIdentity(claims, AuthConstants.LocalDevScheme);

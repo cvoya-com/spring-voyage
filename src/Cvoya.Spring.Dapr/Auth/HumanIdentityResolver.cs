@@ -63,12 +63,37 @@ internal sealed class HumanIdentityResolver(
         var tenantUserId = await tenantUserDefaultResolver
             .ResolveDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        // #2860: when the caller did not supply a display name, derive it
+        // from the bound TenantUser's DisplayName so every Hat for the
+        // same operator shares one prefix in the portal. Falls back to the
+        // username only when the TenantUser row is missing or its
+        // DisplayName is empty — defensive guard against malformed seed
+        // state; the seeder always populates the column.
+        string resolvedDisplayName;
+        if (!string.IsNullOrWhiteSpace(displayName))
+        {
+            resolvedDisplayName = displayName!;
+        }
+        else
+        {
+            var tenantUserDisplayName = await db.TenantUsers
+                .AsNoTracking()
+                .Where(u => u.Id == tenantUserId)
+                .Select(u => u.DisplayName)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            resolvedDisplayName = string.IsNullOrWhiteSpace(tenantUserDisplayName)
+                ? username
+                : tenantUserDisplayName!;
+        }
+
         var entity = new HumanEntity
         {
             Id = newId,
             TenantUserId = tenantUserId,
             Username = username,
-            DisplayName = string.IsNullOrWhiteSpace(displayName) ? username : displayName,
+            DisplayName = resolvedDisplayName,
         };
 
         try

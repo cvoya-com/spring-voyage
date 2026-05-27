@@ -22,10 +22,11 @@ using Microsoft.Extensions.Logging;
 /// reshapes the policy: for each package <c>- human:</c> declaration it
 /// mints a fresh <see cref="HumanEntity"/> row (Id = Guid.NewGuid()) with
 /// a derived <c>DisplayName</c> (manifest value if set, otherwise
-/// <c>"Operator · &lt;roles[0]&gt;"</c> or <c>"Operator"</c> when no roles
-/// are declared) and a synthetic <c>Username</c> ("oss-position-&lt;id&gt;").
-/// The persisted row is returned as <see cref="PackageHumanResolutionOutcome.Resolved"/>
-/// so the activator can wire the <c>unit_memberships_humans</c> edge.
+/// <c>"&lt;tenant-user-display-name&gt; · &lt;roles[0]&gt;"</c> or the
+/// TenantUser's display name verbatim when no roles are declared) and a
+/// synthetic <c>Username</c> ("oss-position-&lt;id&gt;"). The persisted row
+/// is returned as <see cref="PackageHumanResolutionOutcome.Resolved"/> so
+/// the activator can wire the <c>unit_memberships_humans</c> edge.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -56,7 +57,6 @@ public sealed class OssPackageHumanResolutionPolicy(
         ArgumentNullException.ThrowIfNull(request);
 
         var rolesList = NormaliseList(request.Roles);
-        var displayName = DeriveDisplayName(request.DisplayName, rolesList);
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
@@ -81,6 +81,19 @@ public sealed class OssPackageHumanResolutionPolicy(
             : await tenantUserDefaultResolver
                 .ResolveDefaultAsync(cancellationToken)
                 .ConfigureAwait(false);
+
+        // #2860: the Hat's display-name prefix derives from the bound
+        // TenantUser's DisplayName so every Hat for the same operator
+        // shares one prefix. Manifest-supplied displayName wins, then the
+        // TenantUser's DisplayName + first role, then the TenantUser's
+        // DisplayName verbatim when no roles are declared.
+        var tenantUserDisplayName = await db.TenantUsers
+            .AsNoTracking()
+            .Where(u => u.Id == tenantUserId)
+            .Select(u => u.DisplayName)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var displayName = DeriveDisplayName(request.DisplayName, rolesList, tenantUserDisplayName);
 
         var entity = new HumanEntity
         {
@@ -128,21 +141,32 @@ public sealed class OssPackageHumanResolutionPolicy(
     }
 
     /// <summary>
-    /// Derives the <c>DisplayName</c> per ADR-0046 §7: manifest value wins
-    /// when set; otherwise <c>"Operator · &lt;roles[0]&gt;"</c> when at least
-    /// one role is declared; otherwise <c>"Operator"</c>.
+    /// Derives the <c>DisplayName</c> per ADR-0046 §7 + #2860: the manifest
+    /// value wins when set; otherwise the bound TenantUser's
+    /// <c>DisplayName</c> is used as the prefix (so every Hat bound to the
+    /// same TenantUser shares one prefix in the portal), with the first
+    /// role appended when one is declared. Falls back to the literal
+    /// <c>"Operator"</c> only when the TenantUser row is missing or its
+    /// <c>DisplayName</c> is empty — defensive guard for malformed seed
+    /// states; the seeder always populates the column.
     /// </summary>
-    private static string DeriveDisplayName(string? manifestDisplayName, IReadOnlyList<string> roles)
+    private static string DeriveDisplayName(
+        string? manifestDisplayName,
+        IReadOnlyList<string> roles,
+        string? tenantUserDisplayName)
     {
         if (!string.IsNullOrWhiteSpace(manifestDisplayName))
         {
             return manifestDisplayName!.Trim();
         }
+        var prefix = string.IsNullOrWhiteSpace(tenantUserDisplayName)
+            ? "Operator"
+            : tenantUserDisplayName!.Trim();
         if (roles.Count > 0)
         {
-            return $"Operator · {roles[0]}";
+            return $"{prefix} · {roles[0]}";
         }
-        return "Operator";
+        return prefix;
     }
 
     private static List<string> NormaliseList(IReadOnlyList<string>? raw)
