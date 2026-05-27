@@ -24,7 +24,7 @@ approval gate at the end.
 
 ## What this package ships
 
-- **Unit** (`units/magazine-editor/`, display name *Magazine Editor*) — the
+- **Unit** (`units/magazine-director/`, display name *Magazine Director*) — the
   editor-in-chief. Plans each edition, briefs the team, decides every
   editorial question, signs off on the assembled edition before it
   goes to the human publisher.
