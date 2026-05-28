@@ -7,6 +7,7 @@ using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Security;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
 
 using Microsoft.EntityFrameworkCore;
@@ -46,8 +47,22 @@ using Microsoft.EntityFrameworkCore;
 /// </remarks>
 public class InteractionsQueryService(
     SpringDbContext dbContext,
-    IParticipantDisplayNameResolver participantResolver) : IInteractionsQueryService
+    IParticipantDisplayNameResolver participantResolver,
+    IUnitMembershipRepository unitMemberships,
+    IUnitSubunitMembershipRepository unitSubunitMemberships,
+    IUnitHumanMembershipStore unitHumanMemberships) : IInteractionsQueryService
 {
+    /// <summary>
+    /// Upper bound on the number of timeline buckets emitted in a single
+    /// response. Protects against pathological window × bucket-size
+    /// combinations (e.g. a 7-day window with 15-second buckets would
+    /// otherwise produce 40 320 rows). When the natural bucket count
+    /// exceeds this cap the timeline truncates at the first
+    /// <see cref="MaxTimelineBuckets"/> buckets — the operator is
+    /// expected to pick a coarser bucket for the wider window.
+    /// </summary>
+    private const int MaxTimelineBuckets = 500;
+
     /// <inheritdoc />
     public async Task<InteractionsGraph> GetAsync(
         InteractionsQueryFilters filters,
@@ -67,7 +82,9 @@ public class InteractionsQueryService(
                 Truncated: null);
         }
 
-        rows = ApplyScope(rows, filters.Unit, filters.Participant, filters.Neighbours);
+        var focusIds = await BuildFocusIdsAsync(
+            filters.Unit, filters.Participant, cancellationToken);
+        rows = ApplyScope(rows, focusIds, filters.Neighbours);
 
         if (rows.Count == 0)
         {
@@ -139,7 +156,9 @@ public class InteractionsQueryService(
         // wider pulse row carries the same (scheme, id) pair the
         // snapshot row does, so the row-typed helper accepts both shapes
         // via the IInteractionEndpoint interface.
-        pulseRows = ApplyScopePulse(pulseRows, filters.Unit, filters.Participant, filters.Neighbours);
+        var focusIds = await BuildFocusIdsAsync(
+            filters.Unit, filters.Participant, cancellationToken);
+        pulseRows = ApplyScopePulse(pulseRows, focusIds, filters.Neighbours);
 
         if (pulseRows.Count == 0)
         {
@@ -308,17 +327,93 @@ public class InteractionsQueryService(
             .ToList();
     }
 
-    private static List<InteractionRow> ApplyScope(
-        List<InteractionRow> rows, Guid? unit, Guid? participant, int hops)
+    /// <summary>
+    /// Resolve the focus actor ids for a snapshot or history request. The
+    /// `unit` and `participant` filters are interchangeable — both narrow
+    /// the result to "edges touching id X plus N hops around" — so when
+    /// both are present the focus set is the union.
+    /// <para>
+    /// For a <c>unit</c> scope the set also includes the unit's direct
+    /// members (agent, sub-unit, human) and, transitively, any sub-unit's
+    /// members. Without this expansion the filter matches only messages
+    /// where the unit GUID is literally the sender or recipient — and
+    /// inter-member traffic (the bulk of a unit's activity) flows agent-
+    /// to-agent, so a bare GUID match misses it. See the Messages-tab
+    /// filter in <see cref="ThreadQueryService"/> for the read model the
+    /// operator is comparing against.
+    /// </para>
+    /// </summary>
+    private async Task<HashSet<Guid>> BuildFocusIdsAsync(
+        Guid? unit,
+        Guid? participant,
+        CancellationToken cancellationToken)
     {
-        // Apply the unit / participant + neighbours scope by walking
-        // outward from the focus id. The two filters are interchangeable
-        // — both narrow to "edges touching id X plus N hops around" —
-        // so when both are present we union the focus set.
         var focusIds = new HashSet<Guid>();
-        if (unit is { } unitId) focusIds.Add(unitId);
-        if (participant is { } participantId) focusIds.Add(participantId);
+        if (unit is { } unitId)
+        {
+            await ExpandUnitFocusAsync(unitId, focusIds, cancellationToken);
+        }
+        if (participant is { } participantId)
+        {
+            focusIds.Add(participantId);
+        }
+        return focusIds;
+    }
 
+    /// <summary>
+    /// Walks a unit's containment tree, accumulating every actor id that
+    /// counts as "in this unit's activity": the unit itself, every direct
+    /// agent member (<see cref="IUnitMembershipRepository"/>), every human
+    /// member (<see cref="IUnitHumanMembershipStore"/>), and every sub-unit
+    /// (<see cref="IUnitSubunitMembershipRepository"/>) walked transitively
+    /// with re-application of the agent + human expansion at each level.
+    /// A visited set guards the BFS against a corrupted projection (cycle
+    /// prevention lives on the write path; this is defence in depth).
+    /// </summary>
+    private async Task ExpandUnitFocusAsync(
+        Guid rootUnitId,
+        HashSet<Guid> focusIds,
+        CancellationToken cancellationToken)
+    {
+        var visitedUnits = new HashSet<Guid>();
+        var queue = new Queue<Guid>();
+        queue.Enqueue(rootUnitId);
+
+        while (queue.Count > 0)
+        {
+            var unitId = queue.Dequeue();
+            if (!visitedUnits.Add(unitId)) continue;
+            focusIds.Add(unitId);
+
+            var agentMembers = await unitMemberships
+                .ListByUnitAsync(unitId, cancellationToken);
+            foreach (var member in agentMembers)
+            {
+                if (member.Enabled) focusIds.Add(member.AgentId);
+            }
+
+            var humanMembers = await unitHumanMemberships
+                .ListByUnitAsync(unitId, cancellationToken);
+            foreach (var member in humanMembers)
+            {
+                focusIds.Add(member.HumanId);
+            }
+
+            var subunits = await unitSubunitMemberships
+                .ListByParentAsync(unitId, cancellationToken);
+            foreach (var edge in subunits)
+            {
+                if (!visitedUnits.Contains(edge.ChildUnitId))
+                {
+                    queue.Enqueue(edge.ChildUnitId);
+                }
+            }
+        }
+    }
+
+    private static List<InteractionRow> ApplyScope(
+        List<InteractionRow> rows, HashSet<Guid> focusIds, int hops)
+    {
         if (focusIds.Count == 0)
         {
             return rows;
@@ -327,12 +422,8 @@ public class InteractionsQueryService(
     }
 
     private static List<InteractionPulseRow> ApplyScopePulse(
-        List<InteractionPulseRow> rows, Guid? unit, Guid? participant, int hops)
+        List<InteractionPulseRow> rows, HashSet<Guid> focusIds, int hops)
     {
-        var focusIds = new HashSet<Guid>();
-        if (unit is { } unitId) focusIds.Add(unitId);
-        if (participant is { } participantId) focusIds.Add(participantId);
-
         if (focusIds.Count == 0)
         {
             return rows;
@@ -507,11 +598,19 @@ public class InteractionsQueryService(
     {
         if (rows.Count == 0) return new List<InteractionsTimelineBucket>(0);
 
+        // Auto-coarsen: if the operator-chosen bucket would produce more
+        // than MaxTimelineBuckets rows over the requested window, walk up
+        // the preset ladder (15s → 30s → 1m → ... → 1h → 1d) until the
+        // count fits. Truncating instead would drop the busy tail of the
+        // window — the operator's most likely focus during a rewind or a
+        // broad-window scan.
+        var effectiveBucket = CoarsenBucketToFit(bucketKind, since, until);
+
         // Compute bucket starts. UTC is the canonical timezone — every
         // surface stamps timestamps in UTC, so aligning here keeps the
         // boundary stable across hosts.
         var bucketRows = rows
-            .Select(r => (Bucket: BucketStart(r.SentAt, bucketKind), Row: r))
+            .Select(r => (Bucket: BucketStart(r.SentAt, effectiveBucket), Row: r))
             .ToList();
 
         var byBucket = bucketRows
@@ -523,19 +622,21 @@ public class InteractionsQueryService(
         // without having to walk gaps client-side. The lower / upper
         // bounds come from the window, not the data, so a quiet
         // sub-window still produces a coherent bar chart.
-        var first = BucketStart(since, bucketKind);
-        var last = BucketStart(until - TimeSpan.FromTicks(1), bucketKind);
+        var first = BucketStart(since, effectiveBucket);
+        var last = BucketStart(until - TimeSpan.FromTicks(1), effectiveBucket);
         if (last < first) last = first;
 
         var buckets = new List<InteractionsTimelineBucket>();
-        for (var b = first; b <= last; b = NextBucket(b, bucketKind))
+        for (var b = first; b <= last && buckets.Count < MaxTimelineBuckets;
+             b = NextBucket(b, effectiveBucket))
         {
             if (!byBucket.TryGetValue(b, out var groupRows))
             {
                 buckets.Add(new InteractionsTimelineBucket(
                     Bucket: b,
                     Sent: 0,
-                    ByKind: EmptyByKind()));
+                    ByKind: EmptyByKind(),
+                    ByActor: new Dictionary<string, long>(0)));
                 continue;
             }
 
@@ -547,35 +648,118 @@ public class InteractionsQueryService(
                 [Address.HumanScheme] = 0,
                 [Address.ConnectorScheme] = 0,
             };
+            // Per-actor "touches" map — each pulse increments both the
+            // sender and the recipient column so the portal can paint
+            // one timeline line per in-scope actor showing send +
+            // receive activity. Sparse: zeroes are omitted.
+            var byActor = new Dictionary<string, long>();
             foreach (var (_, row) in groupRows)
             {
                 if (byKind.ContainsKey(row.SenderScheme))
                 {
                     byKind[row.SenderScheme] += 1;
                 }
+                var senderId = GuidFormatter.Format(row.SenderId);
+                var recipientId = GuidFormatter.Format(row.RecipientId);
+                byActor[senderId] = byActor.GetValueOrDefault(senderId) + 1;
+                byActor[recipientId] = byActor.GetValueOrDefault(recipientId) + 1;
             }
 
-            buckets.Add(new InteractionsTimelineBucket(b, sent, byKind));
+            buckets.Add(new InteractionsTimelineBucket(b, sent, byKind, byActor));
         }
 
         return buckets;
     }
 
+    /// <summary>
+    /// Maps a bucket enum to its size as a <see cref="TimeSpan"/>. Day is
+    /// the only variable-length bucket (DST + leap second aside), so the
+    /// helper falls through to a sentinel <c>TimeSpan.Zero</c> for Day —
+    /// callers that need day-aligned starts handle it explicitly.
+    /// </summary>
+    private static TimeSpan BucketSize(InteractionsBucket kind) => kind switch
+    {
+        InteractionsBucket.Second15 => TimeSpan.FromSeconds(15),
+        InteractionsBucket.Second30 => TimeSpan.FromSeconds(30),
+        InteractionsBucket.Minute => TimeSpan.FromMinutes(1),
+        InteractionsBucket.Minute5 => TimeSpan.FromMinutes(5),
+        InteractionsBucket.Minute10 => TimeSpan.FromMinutes(10),
+        InteractionsBucket.Minute15 => TimeSpan.FromMinutes(15),
+        InteractionsBucket.Minute30 => TimeSpan.FromMinutes(30),
+        InteractionsBucket.Hour => TimeSpan.FromHours(1),
+        InteractionsBucket.Day => TimeSpan.FromDays(1),
+        _ => TimeSpan.Zero,
+    };
+
+    /// <summary>
+    /// Pick the smallest bucket from the preset ladder that yields no
+    /// more than <see cref="MaxTimelineBuckets"/> rows over the supplied
+    /// window. Starts at the operator's requested granularity and walks
+    /// up only when needed — a request that already fits is returned
+    /// unchanged. Day bucket is the terminal fallback.
+    /// </summary>
+    private static InteractionsBucket CoarsenBucketToFit(
+        InteractionsBucket requested,
+        DateTimeOffset since,
+        DateTimeOffset until)
+    {
+        // Ascending size order — we look at the requested bucket first,
+        // then walk to coarser sizes until the projected row count fits.
+        var ladder = new[]
+        {
+            InteractionsBucket.Second15,
+            InteractionsBucket.Second30,
+            InteractionsBucket.Minute,
+            InteractionsBucket.Minute5,
+            InteractionsBucket.Minute10,
+            InteractionsBucket.Minute15,
+            InteractionsBucket.Minute30,
+            InteractionsBucket.Hour,
+            InteractionsBucket.Day,
+        };
+        var window = until - since;
+        if (window <= TimeSpan.Zero) return requested;
+
+        var start = Array.IndexOf(ladder, requested);
+        if (start < 0) return requested;
+
+        for (var i = start; i < ladder.Length; i++)
+        {
+            var size = BucketSize(ladder[i]);
+            if (size <= TimeSpan.Zero) continue;
+            var count = (long)(window.Ticks / size.Ticks) + 1;
+            if (count <= MaxTimelineBuckets)
+            {
+                return ladder[i];
+            }
+        }
+        return InteractionsBucket.Day;
+    }
+
     private static DateTimeOffset BucketStart(DateTimeOffset ts, InteractionsBucket kind)
     {
         var utc = ts.ToUniversalTime();
-        return kind switch
+        if (kind == InteractionsBucket.Day)
         {
-            InteractionsBucket.Day => new DateTimeOffset(utc.Year, utc.Month, utc.Day, 0, 0, 0, TimeSpan.Zero),
-            _ => new DateTimeOffset(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, TimeSpan.Zero),
-        };
+            return new DateTimeOffset(utc.Year, utc.Month, utc.Day, 0, 0, 0, TimeSpan.Zero);
+        }
+
+        // Sub-day buckets: snap down to the nearest multiple of the bucket
+        // size since UTC epoch. This keeps boundaries deterministic
+        // independent of the host clock — a 15-min bucket always lands on
+        // :00 / :15 / :30 / :45, a 30-second bucket on the even half-
+        // minute, etc.
+        var size = BucketSize(kind);
+        var ticksPerBucket = size.Ticks;
+        var alignedTicks = utc.UtcTicks - (utc.UtcTicks % ticksPerBucket);
+        return new DateTimeOffset(alignedTicks, TimeSpan.Zero);
     }
 
     private static DateTimeOffset NextBucket(DateTimeOffset b, InteractionsBucket kind) =>
         kind switch
         {
             InteractionsBucket.Day => b.AddDays(1),
-            _ => b.AddHours(1),
+            _ => b.Add(BucketSize(kind)),
         };
 
     private static IReadOnlyDictionary<string, long> EmptyByKind() => new Dictionary<string, long>

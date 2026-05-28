@@ -53,10 +53,17 @@ public class InteractionsContractTests : IClassFixture<InteractionsEndpointsTest
             },
             Timeline: new List<InteractionsTimelineBucket>
             {
-                new(now, Sent: 3, ByKind: new Dictionary<string, long>
-                {
-                    ["agent"] = 3, ["unit"] = 0, ["human"] = 0, ["connector"] = 0,
-                }),
+                new(now,
+                    Sent: 3,
+                    ByKind: new Dictionary<string, long>
+                    {
+                        ["agent"] = 3, ["unit"] = 0, ["human"] = 0, ["connector"] = 0,
+                    },
+                    ByActor: new Dictionary<string, long>
+                    {
+                        [GuidFormatter.Format(fromId)] = 3,
+                        [GuidFormatter.Format(toId)] = 3,
+                    }),
             },
             Truncated: null);
 

@@ -21,7 +21,7 @@ describe("interactions url-state", () => {
       since: "2026-05-27T10:00:00.000Z",
       until: "2026-05-27T11:00:00.000Z",
       neighbours: 1,
-      bucket: "day",
+      bucket: "1d",
       view: "matrix",
       live: true,
       rewind: false,
@@ -35,7 +35,7 @@ describe("interactions url-state", () => {
       expect(params.get("since")).toBe("2026-05-27T10:00:00.000Z");
       expect(params.get("until")).toBe("2026-05-27T11:00:00.000Z");
       expect(params.get("neighbours")).toBe("1");
-      expect(params.get("bucket")).toBe("day");
+      expect(params.get("bucket")).toBe("1d");
       expect(params.get("view")).toBe("matrix");
       expect(params.get("live")).toBe("true");
     });
@@ -55,7 +55,7 @@ describe("interactions url-state", () => {
       const round = readUrlState(new URLSearchParams(""));
       expect(round.neighbours).toBe(DEFAULT_NEIGHBOURS);
       expect(round.view).toBe(DEFAULT_VIEW);
-      expect(round.bucket).toBe("hour");
+      expect(round.bucket).toBe("15s");
       expect(round.live).toBe(false);
       expect(round.rewind).toBe(false);
     });
@@ -65,7 +65,7 @@ describe("interactions url-state", () => {
         new URLSearchParams("neighbours=99&bucket=year&view=bogus"),
       );
       expect(round.neighbours).toBe(DEFAULT_NEIGHBOURS);
-      expect(round.bucket).toBe("hour");
+      expect(round.bucket).toBe("15s");
       expect(round.view).toBe(DEFAULT_VIEW);
     });
   });
@@ -201,12 +201,12 @@ describe("interactions url-state", () => {
         ...EMPTY_URL_STATE,
         unit: "unit-x",
         neighbours: 1,
-        bucket: "day",
+        bucket: "1d",
       };
       const filters = toSnapshotFilters(state);
       expect(filters.unit).toBe("unit-x");
       expect(filters.neighbours).toBe(1);
-      expect(filters.bucket).toBe("day");
+      expect(filters.bucket).toBe("1d");
       expect(filters.since).toBeTruthy();
       expect(filters.until).toBeTruthy();
     });

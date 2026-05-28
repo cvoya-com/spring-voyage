@@ -17,8 +17,46 @@ export type InteractionsViewMode = "graph" | "matrix" | "both";
  */
 export const DEFAULT_WINDOW_MINUTES = 10;
 export const DEFAULT_NEIGHBOURS = 2 as const;
-export const DEFAULT_BUCKET: InteractionsFilters["bucket"] = "hour";
+
+/**
+ * Timeline-bucket presets — ordered fine → coarse so a UI control can
+ * iterate without re-sorting. The wire vocabulary mirrors the backend
+ * {@link InteractionsBucket} enum: `15s` / `30s` / `1m` / `5m` / `10m`
+ * / `15m` / `30m` / `1h` / `1d`. See `ParseBucket` in
+ * `InteractionsEndpoints.cs` for the exact set.
+ */
+export const BUCKET_PRESETS = [
+  "15s",
+  "30s",
+  "1m",
+  "5m",
+  "10m",
+  "15m",
+  "30m",
+  "1h",
+  "1d",
+] as const;
+export type InteractionsBucket = (typeof BUCKET_PRESETS)[number];
+export const DEFAULT_BUCKET: InteractionsBucket = "15s";
 export const DEFAULT_VIEW: InteractionsViewMode = "both";
+
+/**
+ * Size of each bucket preset in milliseconds. Used to align client-side
+ * timestamps to bucket boundaries (e.g. the rewind path builds its own
+ * timeline from history pulses since the snapshot's timeline doesn't
+ * refetch while rewind is active).
+ */
+export const BUCKET_SIZE_MS: Record<InteractionsBucket, number> = {
+  "15s": 15 * 1000,
+  "30s": 30 * 1000,
+  "1m": 60 * 1000,
+  "5m": 5 * 60 * 1000,
+  "10m": 10 * 60 * 1000,
+  "15m": 15 * 60 * 1000,
+  "30m": 30 * 60 * 1000,
+  "1h": 60 * 60 * 1000,
+  "1d": 24 * 60 * 60 * 1000,
+};
 
 export interface InteractionsUrlState {
   unit: string;
@@ -28,7 +66,7 @@ export interface InteractionsUrlState {
   /** ISO 8601 instant. Empty string when defaulted. */
   until: string;
   neighbours: 0 | 1 | 2;
-  bucket: "hour" | "day";
+  bucket: InteractionsBucket;
   view: InteractionsViewMode;
   live: boolean;
   /**
@@ -64,8 +102,11 @@ export function parseNeighbours(raw: string | null): 0 | 1 | 2 {
   return DEFAULT_NEIGHBOURS;
 }
 
-export function parseBucket(raw: string | null): "hour" | "day" {
-  return raw === "day" ? "day" : "hour";
+export function parseBucket(raw: string | null): InteractionsBucket {
+  if (raw && (BUCKET_PRESETS as readonly string[]).includes(raw)) {
+    return raw as InteractionsBucket;
+  }
+  return DEFAULT_BUCKET;
 }
 
 export function parseView(raw: string | null): InteractionsViewMode {

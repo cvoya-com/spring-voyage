@@ -21,11 +21,26 @@ import { useTenantTree } from "@/lib/api/queries";
 import { cn } from "@/lib/utils";
 
 import {
+  BUCKET_PRESETS,
+  resolveWindow,
   toggleLive,
   toggleRewind,
+  type InteractionsBucket,
   type InteractionsUrlState,
   type InteractionsViewMode,
 } from "./url-state";
+
+const BUCKET_LABELS: Record<InteractionsBucket, string> = {
+  "15s": "15s",
+  "30s": "30s",
+  "1m": "1 min",
+  "5m": "5 min",
+  "10m": "10 min",
+  "15m": "15 min",
+  "30m": "30 min",
+  "1h": "1 hour",
+  "1d": "1 day",
+};
 
 interface InteractionFiltersProps {
   state: InteractionsUrlState;
@@ -83,6 +98,7 @@ function ScopePicker({
       tree={treeQuery.data}
       selectedId={selectedUnit}
       onSelect={onSelect}
+      hideCountBadge
     />
   );
 }
@@ -97,7 +113,7 @@ export function InteractionFilters({
   const setRewind = (rewind: boolean) => onChange(toggleRewind(state, rewind));
   const setNeighbours = (n: 0 | 1 | 2) =>
     onChange({ ...state, neighbours: n });
-  const setBucket = (bucket: "hour" | "day") =>
+  const setBucket = (bucket: InteractionsBucket) =>
     onChange({ ...state, bucket });
 
   return (
@@ -202,49 +218,71 @@ export function InteractionFilters({
             <select
               value={state.bucket}
               onChange={(e) =>
-                setBucket(e.target.value as "hour" | "day")
+                setBucket(e.target.value as InteractionsBucket)
               }
               data-testid="interaction-filters-bucket"
               aria-label="Timeline bucket"
               className="h-7 rounded-md border border-input bg-background px-2 text-xs"
             >
-              <option value="hour">Hour</option>
-              <option value="day">Day</option>
+              {BUCKET_PRESETS.map((b) => (
+                <option key={b} value={b}>
+                  {BUCKET_LABELS[b]}
+                </option>
+              ))}
             </select>
           </label>
         </div>
 
-        {/* Since / Until row */}
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <label className="space-y-1">
-            <span className="text-muted-foreground">Since</span>
-            <Input
-              type="datetime-local"
-              value={isoToLocal(state.since)}
-              onChange={(e) =>
-                onChange({ ...state, since: localToIso(e.target.value) })
-              }
-              className="h-7 text-xs"
-              data-testid="interaction-filters-since"
-              aria-label="Filter window start"
-              disabled={state.live}
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="text-muted-foreground">Until</span>
-            <Input
-              type="datetime-local"
-              value={isoToLocal(state.until)}
-              onChange={(e) =>
-                onChange({ ...state, until: localToIso(e.target.value) })
-              }
-              className="h-7 text-xs"
-              data-testid="interaction-filters-until"
-              aria-label="Filter window end"
-              disabled={state.live}
-            />
-          </label>
-        </div>
+        {/* Since / Until stack. When the URL omits a bound we display the
+            resolved default in the input so operators see the window the
+            page is actually querying instead of an empty field. State
+            stays empty until the operator types over it, which keeps the
+            URL short and lets `until` track "now" on subsequent loads.
+            The inputs are stacked vertically so the full
+            `MM/DD/YYYY, HH:MM` value fits in the sidebar without
+            truncation; the shared `<DateTimeField>` keeps the markup
+            and styling in one place. */}
+        {(() => {
+          const resolved = resolveWindow(state);
+          const isWindowCustomised = Boolean(state.since || state.until);
+          return (
+            <div className="space-y-2">
+              <div className="space-y-2">
+                <DateTimeField
+                  label="Since"
+                  value={state.since || resolved.since}
+                  onCommit={(iso) => onChange({ ...state, since: iso })}
+                  disabled={state.live}
+                  testId="interaction-filters-since"
+                  ariaLabel="Filter window start"
+                />
+                <DateTimeField
+                  label="Until"
+                  value={state.until || resolved.until}
+                  onCommit={(iso) => onChange({ ...state, until: iso })}
+                  disabled={state.live}
+                  testId="interaction-filters-until"
+                  ariaLabel="Filter window end"
+                />
+              </div>
+              {/* Reset link clears since/until so resolveWindow falls back
+                  to the default (last 10 min). Only shown when the
+                  operator has actually narrowed the window — clicking
+                  it returns the canvas to a clean state from an over-
+                  drilled-in slice where the brush has no room to work. */}
+              {isWindowCustomised && !state.live ? (
+                <button
+                  type="button"
+                  onClick={() => onChange({ ...state, since: "", until: "" })}
+                  className="text-[10px] text-primary hover:underline"
+                  data-testid="interaction-filters-window-reset"
+                >
+                  Reset window
+                </button>
+              ) : null}
+            </div>
+          );
+        })()}
 
         {/* Participant row */}
         <label className="space-y-1 text-xs">
@@ -262,28 +300,34 @@ export function InteractionFilters({
           />
         </label>
 
-        {/* Active scope chip */}
+        {/* Active scope chip. The full GUID is too wide for the 18-rem
+            sidebar so we render a truncated form inside the badge and
+            keep it as `title` for hover, then put `Open unit` on its own
+            row to guarantee nothing escapes the card edge. */}
         {state.unit ? (
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-muted-foreground">Scope</span>
-            <Badge
-              variant="outline"
-              className="font-mono text-[10px]"
-              data-testid="interaction-filters-scope-chip"
-            >
-              {state.unit}
-            </Badge>
-            <button
-              type="button"
-              onClick={() => onChange({ ...state, unit: "" })}
-              className="text-muted-foreground hover:text-foreground"
-              data-testid="interaction-filters-scope-clear"
-            >
-              clear
-            </button>
+          <div className="space-y-1 text-xs">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="shrink-0 text-muted-foreground">Scope</span>
+              <Badge
+                variant="outline"
+                className="min-w-0 max-w-full truncate font-mono text-[10px]"
+                title={state.unit}
+                data-testid="interaction-filters-scope-chip"
+              >
+                {truncateMiddle(state.unit, 14)}
+              </Badge>
+              <button
+                type="button"
+                onClick={() => onChange({ ...state, unit: "" })}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+                data-testid="interaction-filters-scope-clear"
+              >
+                clear
+              </button>
+            </div>
             <Link
               href={`/explorer/units/${encodeURIComponent(state.unit)}`}
-              className="ml-auto text-primary hover:underline"
+              className="inline-block text-primary hover:underline"
             >
               Open unit
             </Link>
@@ -310,6 +354,47 @@ export function InteractionFilters({
   );
 }
 
+interface DateTimeFieldProps {
+  label: string;
+  /** ISO 8601 string for display + commit. May be empty for "use default". */
+  value: string;
+  /** Fires when the operator picks a new value. Receives an ISO string. */
+  onCommit: (iso: string) => void;
+  disabled?: boolean;
+  testId: string;
+  ariaLabel: string;
+}
+
+/**
+ * Shared `datetime-local` field. Both the Since and Until inputs render
+ * through this so the markup, sizing, and ISO-↔-local conversion live in
+ * one place. The input is sized to fit `MM/DD/YYYY, HH:MM` plus the
+ * native picker chrome without truncation.
+ */
+function DateTimeField({
+  label,
+  value,
+  onCommit,
+  disabled,
+  testId,
+  ariaLabel,
+}: DateTimeFieldProps) {
+  return (
+    <label className="block space-y-1 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <Input
+        type="datetime-local"
+        value={isoToLocal(value)}
+        onChange={(e) => onCommit(localToIso(e.target.value))}
+        className="h-8 w-full text-xs"
+        data-testid={testId}
+        aria-label={ariaLabel}
+        disabled={disabled}
+      />
+    </label>
+  );
+}
+
 /**
  * Convert an ISO 8601 instant to the format expected by
  * `<input type="datetime-local">` (YYYY-MM-DDTHH:mm). Returns empty
@@ -327,4 +412,10 @@ function localToIso(local: string): string {
   if (!local) return "";
   const d = new Date(local);
   return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
+function truncateMiddle(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  const keep = Math.max(2, Math.floor((maxLength - 1) / 2));
+  return `${value.slice(0, keep)}…${value.slice(-keep)}`;
 }

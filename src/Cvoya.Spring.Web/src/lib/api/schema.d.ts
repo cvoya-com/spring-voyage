@@ -3923,6 +3923,9 @@ export interface components {
             byKind: {
                 [key: string]: number;
             };
+            byActor: {
+                [key: string]: number;
+            };
         };
         InteractionsTruncationResponse: {
             /** Format: int64 */

@@ -29,13 +29,14 @@ vi.mock("@/lib/api/validate-tenant-tree", () => ({
   validateTenantTreeResponse: <T,>(input: T) => input,
 }));
 
-// Capture URL state — `useRouter().replace` is what the page calls when
-// the operator changes a filter. The mock router keeps the latest
-// search string so the test can assert on it.
+// Capture URL state — the page calls `window.history.replaceState` when
+// the operator changes a filter (see the comment in `applyState` for why
+// we bypass `router.replace`). `mockReplace` mirrors what the production
+// path actually mutates so the existing assertions keep their shape.
 let mockSearch = "";
 let mockReplace = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: (url: string) => mockReplace(url) }),
+  useRouter: () => ({ replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(mockSearch),
   usePathname: () => "/activity/interactions",
 }));
@@ -166,11 +167,13 @@ const FIXTURE: InteractionsGraphResponse = {
       bucket: "2026-05-27T10:00:00Z",
       sent: 4,
       byKind: { agent: 3, unit: 1 },
+      byActor: { "agent-1": 3, "unit-1": 1 },
     },
     {
       bucket: "2026-05-27T10:01:00Z",
       sent: 6,
       byKind: { agent: 4, unit: 2 },
+      byActor: { "agent-1": 4, "unit-1": 2 },
     },
   ],
   truncated: null,
@@ -227,6 +230,17 @@ beforeEach(() => {
   (
     globalThis as unknown as { EventSource: typeof FakeEventSource }
   ).EventSource = FakeEventSource;
+  // Capture URL updates the page makes via `history.replaceState`. The
+  // spy receives the URL as its third positional argument (state, title,
+  // url) — we re-shape the call to a single-arg URL so the assertions
+  // can keep `toHaveBeenCalledWith(stringContaining(...))` form.
+  if (typeof window !== "undefined") {
+    vi.spyOn(window.history, "replaceState").mockImplementation(
+      (_state, _title, url) => {
+        mockReplace(typeof url === "string" ? url : String(url ?? ""));
+      },
+    );
+  }
   mockSnapshot.mockResolvedValue(FIXTURE);
   mockHistory.mockResolvedValue(HISTORY_FIXTURE);
   mockTree.mockResolvedValue({

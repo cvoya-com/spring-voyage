@@ -14330,7 +14330,8 @@
         "required": [
           "bucket",
           "sent",
-          "byKind"
+          "byKind",
+          "byActor"
         ],
         "type": "object",
         "properties": {
@@ -14343,6 +14344,13 @@
             "format": "int64"
           },
           "byKind": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "byActor": {
             "type": "object",
             "additionalProperties": {
               "type": "integer",

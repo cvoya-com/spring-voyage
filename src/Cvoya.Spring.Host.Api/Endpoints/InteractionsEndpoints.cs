@@ -120,7 +120,7 @@ public static class InteractionsEndpoints
                 .Select(e => new InteractionsEdgeResponse(e.FromId, e.ToId, e.Count, e.FirstAt, e.LastAt, e.Channels))
                 .ToList(),
             Timeline: graph.Timeline
-                .Select(b => new InteractionsTimelineBucketResponse(b.Bucket, b.Sent, b.ByKind))
+                .Select(b => new InteractionsTimelineBucketResponse(b.Bucket, b.Sent, b.ByKind, b.ByActor))
                 .ToList(),
             Truncated: graph.Truncated is { } t
                 ? new InteractionsTruncationResponse(t.Total, t.Kept)
@@ -552,11 +552,19 @@ public static class InteractionsEndpoints
 
     private static InteractionsBucket ParseBucket(string? input)
     {
-        if (string.IsNullOrWhiteSpace(input)) return InteractionsBucket.Hour;
+        if (string.IsNullOrWhiteSpace(input)) return InteractionsBucket.Second15;
         return input.Trim().ToLowerInvariant() switch
         {
+            "15s" or "second15" => InteractionsBucket.Second15,
+            "30s" or "second30" => InteractionsBucket.Second30,
+            "1m" or "minute" or "minute1" => InteractionsBucket.Minute,
+            "5m" or "minute5" => InteractionsBucket.Minute5,
+            "10m" or "minute10" => InteractionsBucket.Minute10,
+            "15m" or "minute15" => InteractionsBucket.Minute15,
+            "30m" or "minute30" => InteractionsBucket.Minute30,
+            "hour" or "1h" => InteractionsBucket.Hour,
             "day" => InteractionsBucket.Day,
-            _ => InteractionsBucket.Hour,
+            _ => InteractionsBucket.Second15,
         };
     }
 
