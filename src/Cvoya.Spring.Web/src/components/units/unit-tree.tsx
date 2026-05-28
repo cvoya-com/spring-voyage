@@ -38,6 +38,13 @@ interface UnitTreeProps {
    */
   defaultExpanded?: Record<string, boolean>;
   className?: string;
+  /**
+   * Suppress the per-branch agent-count badge. Use on surfaces where the
+   * count is misleading (e.g. the Interactions scope picker, where
+   * operators read the badge as an interaction count). Defaults to false
+   * so the existing Explorer surface keeps the badge.
+   */
+  hideCountBadge?: boolean;
 }
 
 /**
@@ -63,6 +70,7 @@ export function UnitTree({
   onSelect,
   defaultExpanded,
   className,
+  hideCountBadge,
 }: UnitTreeProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>(
     () => defaultExpanded ?? { [tree.id]: true },
@@ -291,6 +299,7 @@ export function UnitTree({
         selectedId={selectedId}
         focusedId={focusedId}
         issueCountsByDefinitionId={issueCountsByDefinitionId}
+        hideCountBadge={hideCountBadge}
       />
     </div>
   );
@@ -313,6 +322,7 @@ interface TreeRowProps {
     string,
     { errorCount: number; warningCount: number }
   >;
+  hideCountBadge?: boolean;
 }
 
 function TreeRow({
@@ -324,6 +334,7 @@ function TreeRow({
   selectedId,
   focusedId,
   issueCountsByDefinitionId,
+  hideCountBadge,
 }: TreeRowProps) {
   const children = childrenOf(node);
   const hasChildren = children.length > 0;
@@ -407,7 +418,7 @@ function TreeRow({
           node={node}
           issueCountsByDefinitionId={issueCountsByDefinitionId}
         />
-        {hasChildren ? (
+        {hasChildren && !hideCountBadge ? (
           <span className="font-mono text-[10px] text-muted-foreground">
             {subtree.agents}
           </span>
@@ -425,6 +436,7 @@ function TreeRow({
               selectedId={selectedId}
               focusedId={focusedId}
               issueCountsByDefinitionId={issueCountsByDefinitionId}
+              hideCountBadge={hideCountBadge}
             />
           ))
         : null}

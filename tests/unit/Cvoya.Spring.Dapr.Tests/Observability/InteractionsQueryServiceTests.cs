@@ -8,6 +8,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Observability;
@@ -40,6 +41,9 @@ public class InteractionsQueryServiceTests : IDisposable
     private readonly SpringDbContext _db;
     private readonly ITenantContext _tenantContext;
     private readonly IParticipantDisplayNameResolver _resolver;
+    private readonly IUnitMembershipRepository _unitMemberships;
+    private readonly IUnitSubunitMembershipRepository _unitSubunitMemberships;
+    private readonly IUnitHumanMembershipStore _unitHumanMemberships;
 
     public InteractionsQueryServiceTests()
     {
@@ -56,6 +60,21 @@ public class InteractionsQueryServiceTests : IDisposable
         _resolver
             .ResolveAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ci => new ValueTask<string>(ci.Arg<string>()));
+
+        // Default empty membership stubs. Tests that exercise the unit
+        // scope override these via Returns() in the test body.
+        _unitMemberships = Substitute.For<IUnitMembershipRepository>();
+        _unitMemberships
+            .ListByUnitAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<UnitMembership>());
+        _unitSubunitMemberships = Substitute.For<IUnitSubunitMembershipRepository>();
+        _unitSubunitMemberships
+            .ListByParentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<UnitSubunitMembership>());
+        _unitHumanMemberships = Substitute.For<IUnitHumanMembershipStore>();
+        _unitHumanMemberships
+            .ListByUnitAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<UnitHumanMembership>());
     }
 
     public void Dispose()
@@ -64,7 +83,12 @@ public class InteractionsQueryServiceTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private InteractionsQueryService BuildService() => new(_db, _resolver);
+    private InteractionsQueryService BuildService() => new(
+        _db,
+        _resolver,
+        _unitMemberships,
+        _unitSubunitMemberships,
+        _unitHumanMemberships);
 
     private static readonly DateTimeOffset Base = DateTimeOffset.Parse("2026-05-27T12:00:00Z");
 
@@ -259,6 +283,111 @@ public class InteractionsQueryServiceTests : IDisposable
 
         graph.Edges.Count.ShouldBe(3);
         graph.Nodes.Count.ShouldBe(4);
+    }
+
+    [Fact]
+    public async Task GetAsync_UnitScope_ExpandsToMemberAgents()
+    {
+        // Verifies the unit-expansion that drives the portal Interactions
+        // view: when the operator scopes by a unit, the filter resolves
+        // the unit's agent / human / sub-unit members so inter-member
+        // traffic — the bulk of a unit's activity — shows up in the
+        // graph. Without this expansion a bare-GUID match against
+        // messages.SenderId/RecipientId misses agent-to-agent edges
+        // inside the unit (the bug operators reported on the Magazine
+        // Editor unit).
+        var ct = TestContext.Current.CancellationToken;
+        var unitId = Guid.NewGuid();
+        var managing = Guid.NewGuid();
+        var staffWriter = Guid.NewGuid();
+        var outsider = Guid.NewGuid();
+
+        // Inter-member traffic — neither endpoint is the unit GUID,
+        // but both are members of the scoped unit.
+        await SeedMessageAsync((Address.AgentScheme, managing), (Address.AgentScheme, staffWriter), Base.AddMinutes(1));
+        // Out-of-unit edge — should be excluded with neighbours = 0.
+        await SeedMessageAsync((Address.AgentScheme, outsider), (Address.AgentScheme, outsider), Base.AddMinutes(2));
+
+        _unitMemberships
+            .ListByUnitAsync(unitId, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new UnitMembership(unitId, managing),
+                new UnitMembership(unitId, staffWriter),
+            });
+
+        var svc = BuildService();
+        var graph = await svc.GetAsync(new InteractionsQueryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: unitId, Participant: null,
+            Neighbours: 0, Bucket: InteractionsBucket.Hour, Cap: 50),
+            ct);
+
+        graph.Edges.Count.ShouldBe(1);
+        var edge = graph.Edges.Single();
+        edge.FromId.ShouldBe(GuidFormatter.Format(managing));
+        edge.ToId.ShouldBe(GuidFormatter.Format(staffWriter));
+        graph.Nodes.Select(n => n.Id).ShouldNotContain(GuidFormatter.Format(outsider));
+    }
+
+    [Fact]
+    public async Task GetAsync_UnitScope_WalksSubunitsAndIncludesHumans()
+    {
+        // Sub-units are walked transitively: a unit's scope includes
+        // every member agent on every sub-unit, plus every human member
+        // at any level. Catches the deep-nesting case (Magazine Editor →
+        // Editorial Desk → managing-editor) that a single-level
+        // membership read would miss.
+        var ct = TestContext.Current.CancellationToken;
+        var parentUnit = Guid.NewGuid();
+        var childUnit = Guid.NewGuid();
+        var childAgent = Guid.NewGuid();
+        var humanMember = Guid.NewGuid();
+        var outsider = Guid.NewGuid();
+
+        await SeedMessageAsync(
+            (Address.AgentScheme, childAgent),
+            (Address.HumanScheme, humanMember),
+            Base.AddMinutes(1));
+        await SeedMessageAsync(
+            (Address.AgentScheme, outsider),
+            (Address.AgentScheme, outsider),
+            Base.AddMinutes(2));
+
+        _unitSubunitMemberships
+            .ListByParentAsync(parentUnit, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new UnitSubunitMembership(parentUnit, childUnit),
+            });
+        _unitMemberships
+            .ListByUnitAsync(childUnit, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new UnitMembership(childUnit, childAgent),
+            });
+        _unitHumanMemberships
+            .ListByUnitAsync(parentUnit, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new UnitHumanMembership(
+                    MembershipId: Guid.NewGuid(),
+                    HumanId: humanMember,
+                    Roles: Array.Empty<string>(),
+                    Expertise: Array.Empty<string>(),
+                    Notifications: Array.Empty<string>()),
+            });
+
+        var svc = BuildService();
+        var graph = await svc.GetAsync(new InteractionsQueryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: parentUnit, Participant: null,
+            Neighbours: 0, Bucket: InteractionsBucket.Hour, Cap: 50),
+            ct);
+
+        graph.Edges.Count.ShouldBe(1);
+        graph.Edges.Single().ToId.ShouldBe(GuidFormatter.Format(humanMember));
+        graph.Nodes.Select(n => n.Id).ShouldNotContain(GuidFormatter.Format(outsider));
     }
 
     [Fact]
@@ -532,6 +661,54 @@ public class InteractionsQueryServiceTests : IDisposable
     // same projection, scope, and cap helpers as the snapshot — keeping
     // both surfaces in one suite makes regressions in shared helpers fail
     // loudly on every assertion that touches them.
+
+    [Fact]
+    public async Task GetHistoryAsync_UnitScope_ExpandsToMembersAndReturnsEdges()
+    {
+        // Mirrors the snapshot-side GetAsync_UnitScope_ExpandsToMemberAgents
+        // for the rewind path. Operator scopes the Interactions view to a
+        // unit; the inter-member messages (the bulk of the unit's traffic)
+        // must surface as edges + pulses so the rewind canvas paints
+        // lines between members and animates pulses along them. Without
+        // the unit-expansion the unit's bare GUID never appears as
+        // sender/recipient and the history response strips inter-member
+        // traffic — the symptom operators reported as "nodes but no
+        // arrows during rewind".
+        var ct = TestContext.Current.CancellationToken;
+        var unitId = Guid.NewGuid();
+        var managing = Guid.NewGuid();
+        var staffWriter = Guid.NewGuid();
+        var outsider = Guid.NewGuid();
+
+        await SeedMessageAsync((Address.AgentScheme, managing), (Address.AgentScheme, staffWriter), Base.AddMinutes(1));
+        await SeedMessageAsync((Address.AgentScheme, staffWriter), (Address.AgentScheme, managing), Base.AddMinutes(2));
+        await SeedMessageAsync((Address.AgentScheme, outsider), (Address.AgentScheme, outsider), Base.AddMinutes(3));
+
+        _unitMemberships
+            .ListByUnitAsync(unitId, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new UnitMembership(unitId, managing),
+                new UnitMembership(unitId, staffWriter),
+            });
+
+        var svc = BuildService();
+        var history = await svc.GetHistoryAsync(new InteractionsHistoryFilters(
+            Since: Base, Until: Base.AddHours(1),
+            Unit: unitId, Participant: null,
+            Neighbours: 0, Cap: 50, MaxPulses: 5000),
+            ct);
+
+        history.Edges.Count.ShouldBe(2);
+        history.Edges.ShouldContain(e =>
+            e.FromId == GuidFormatter.Format(managing) &&
+            e.ToId == GuidFormatter.Format(staffWriter));
+        history.Edges.ShouldContain(e =>
+            e.FromId == GuidFormatter.Format(staffWriter) &&
+            e.ToId == GuidFormatter.Format(managing));
+        history.Pulses.Count.ShouldBe(2);
+        history.Nodes.Select(n => n.Id).ShouldNotContain(GuidFormatter.Format(outsider));
+    }
 
     [Fact]
     public async Task GetHistoryAsync_NoMessages_ReturnsEmptyHistory()

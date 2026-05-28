@@ -21,6 +21,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -36,6 +37,7 @@ import type {
   InteractionsEdgeResponse,
   InteractionsGraphResponse,
   InteractionsNodeResponse,
+  InteractionsTimelineBucketResponse,
 } from "@/lib/api/types";
 
 import { InteractionDetail, type InteractionDetailSubject } from "@/components/interactions/interaction-detail";
@@ -49,6 +51,7 @@ import {
 } from "@/components/interactions/interaction-rewind";
 import { InteractionTimeline } from "@/components/interactions/interaction-timeline";
 import {
+  BUCKET_SIZE_MS,
   readUrlState,
   resolveWindow,
   toSnapshotFilters,
@@ -57,6 +60,86 @@ import {
 } from "@/components/interactions/url-state";
 
 const MAX_LIVE_PULSES = 200;
+
+const TIMELINE_KINDS = ["agent", "unit", "human", "connector"] as const;
+
+/**
+ * Bucket the rewind path's pulse list into the timeline shape the
+ * `<InteractionTimeline>` already consumes from the snapshot endpoint.
+ * Sender kind is looked up on the per-pulse `fromId` against the
+ * accompanying node list — the pulse wire shape itself doesn't carry
+ * a sender scheme (only the recipient `channel`).
+ *
+ * Two breakdowns are emitted per bucket:
+ *
+ *   - `byKind` — per-sender-kind tally (one per pulse, by sender's
+ *     kind). Same shape the snapshot endpoint produces.
+ *   - `byActor` — per-actor "touch" tally. Each pulse contributes one
+ *     tally to the sender's column and one to the recipient's, so a
+ *     single message in the bucket adds 1 to two actors. Drives the
+ *     portal's per-actor timeline lines.
+ *
+ * The bucket boundary aligns to multiples of {@link BUCKET_SIZE_MS} from
+ * the UTC epoch so the client-side rollup matches the bucket grid the
+ * backend uses.
+ *
+ * Empty input → empty list; the timeline component renders its own
+ * "no data" placeholder for that case.
+ */
+function buildClientTimeline(
+  nodes: ReadonlyArray<{ id: string; kind: string }>,
+  pulses: ReadonlyArray<{ fromId: string; toId: string; timestamp: string }>,
+  bucket: keyof typeof BUCKET_SIZE_MS,
+): InteractionsTimelineBucketResponse[] {
+  if (pulses.length === 0) return [];
+  const size = BUCKET_SIZE_MS[bucket];
+  const kindById = new Map<string, string>();
+  for (const n of nodes) kindById.set(n.id, n.kind);
+
+  type Entry = {
+    sent: number;
+    byKind: Record<string, number>;
+    byActor: Record<string, number>;
+  };
+  const buckets = new Map<number, Entry>();
+  for (const p of pulses) {
+    const ts = new Date(p.timestamp).getTime();
+    if (!Number.isFinite(ts)) continue;
+    const start = Math.floor(ts / size) * size;
+    let entry = buckets.get(start);
+    if (!entry) {
+      entry = {
+        sent: 0,
+        byKind: Object.fromEntries(TIMELINE_KINDS.map((k) => [k, 0])),
+        byActor: {},
+      };
+      buckets.set(start, entry);
+    }
+    const senderKind = kindById.get(p.fromId) ?? "agent";
+    entry.sent += 1;
+    entry.byKind[senderKind] = (entry.byKind[senderKind] ?? 0) + 1;
+    entry.byActor[p.fromId] = (entry.byActor[p.fromId] ?? 0) + 1;
+    entry.byActor[p.toId] = (entry.byActor[p.toId] ?? 0) + 1;
+  }
+
+  // Zero-fill the gaps between the earliest and latest observed bucket
+  // so the area chart paints contiguous bars (no visual gap looks like
+  // missing data when it really is "no traffic in this minute").
+  const sortedStarts = [...buckets.keys()].sort((a, b) => a - b);
+  const first = sortedStarts[0];
+  const last = sortedStarts[sortedStarts.length - 1];
+  const out: InteractionsTimelineBucketResponse[] = [];
+  for (let t = first; t <= last; t += size) {
+    const e = buckets.get(t);
+    out.push({
+      bucket: new Date(t).toISOString(),
+      sent: e?.sent ?? 0,
+      byKind: e?.byKind ?? Object.fromEntries(TIMELINE_KINDS.map((k) => [k, 0])),
+      byActor: e?.byActor ?? {},
+    });
+  }
+  return out;
+}
 
 function InteractionsPageContent() {
   const router = useRouter();
@@ -127,17 +210,24 @@ function InteractionsPageContent() {
     }
   }, [snapshotQuery.data]);
 
-  // Rewind: materialise the history response's nodes/edges into the same
-  // local snapshot mirror the graph + matrix consume. We borrow the
-  // timeline from the most recently rendered snapshot so the timeline
-  // strip + scrubber stay populated — the history endpoint doesn't run
-  // the timeline rollup itself.
+  // Rewind: materialise the history response's nodes / edges / pulses
+  // into the same local snapshot mirror the graph + matrix consume.
+  // The history endpoint does not run the timeline rollup itself — we
+  // bucket the pulse list client-side so the timeline tracks the
+  // operator's current `[since, until]` (the snapshot's stale timeline
+  // would otherwise pin the X-axis to whatever window was last loaded
+  // in snapshot mode).
   useEffect(() => {
     if (!state.rewind || !historyQuery.data) return;
-    setLiveSnapshot((prev) => ({
+    const timeline = buildClientTimeline(
+      historyQuery.data.nodes ?? [],
+      historyQuery.data.pulses ?? [],
+      state.bucket,
+    );
+    setLiveSnapshot(() => ({
       nodes: historyQuery.data.nodes ?? [],
       edges: historyQuery.data.edges ?? [],
-      timeline: prev?.timeline ?? [],
+      timeline,
       truncated: historyQuery.data.truncated
         ? {
             total: historyQuery.data.truncated.total,
@@ -145,7 +235,7 @@ function InteractionsPageContent() {
           }
         : null,
     }));
-  }, [state.rewind, historyQuery.data]);
+  }, [state.rewind, state.bucket, historyQuery.data]);
 
   const [livePulses, setLivePulses] = useState<LivePulse[]>([]);
   const [droppedCount, setDroppedCount] = useState(0);
@@ -277,31 +367,67 @@ function InteractionsPageContent() {
   }, [state.rewind, windowSinceMs, windowUntilMs]);
 
   // Rewind dispatch — feeds the same pulse queue the live SSE stream
-  // does. The page never has to know which side drove the pulse; the
-  // graph + matrix render off `livePulses` either way.
+  // does. The graph dedupes pulses by id (so a live reconnect doesn't
+  // re-animate the same SSE frame twice), but rewind replays the same
+  // messageId on every Restart. We mint a fresh per-dispatch id so the
+  // animation actually fires on the second playthrough; the messageId
+  // is preserved in the suffix so the detail card can still resolve it.
+  const rewindPulseSeqRef = useRef(0);
   const handleRewindPulse = useCallback(
-    (frame: RewindPulseFrame) => handlePulse(frame),
+    (frame: RewindPulseFrame) => {
+      const seq = ++rewindPulseSeqRef.current;
+      const originalId = frame.messageIds[0] ?? `${frame.fromId}->${frame.toId}`;
+      handlePulse({
+        ...frame,
+        messageIds: [`rewind:${seq}:${originalId}`],
+      });
+    },
     [handlePulse],
   );
 
+  // Brush always selects [since, until] — in snapshot, live, and rewind
+  // alike. Rewind replays through the brushed window; a separate cursor
+  // (driven by the rewind transport + click-to-seek on the timeline)
+  // tracks playback position independently.
+  //
+  // Defense in depth against degenerate windows: the timeline brush
+  // already drops commits where the two handles overlap, but anything
+  // else that hooks `handleBrush` (e.g. tests, future callers) could
+  // still pass `since >= until`. Push `since` back to at least one
+  // bucket before `until` so the brush always has room to drag and the
+  // backend always sees a non-empty range.
   const handleBrush = useCallback(
     (windowMs: { since: string; until: string }) => {
-      // In rewind mode the brush becomes a scrubber: dragging the right
-      // edge seeks `cursorMs` to that point instead of refetching the
-      // history window. The left edge stays pinned at `since` (the spec
-      // requires the window itself to be stable during replay).
-      if (state.rewind) {
-        const untilAt = new Date(windowMs.until).getTime();
-        const nextCursor = Math.max(
-          0,
-          Math.min(untilAt - windowSinceMs, windowUntilMs - windowSinceMs),
-        );
-        setRewindCursorMs(nextCursor);
-        return;
+      const sinceMs = new Date(windowMs.since).getTime();
+      const untilMs = new Date(windowMs.until).getTime();
+      if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs)) return;
+      const minSpan = BUCKET_SIZE_MS[state.bucket] * 2;
+      let since = windowMs.since;
+      let until = windowMs.until;
+      if (untilMs - sinceMs < minSpan) {
+        since = new Date(untilMs - minSpan).toISOString();
       }
-      applyState({ ...state, since: windowMs.since, until: windowMs.until });
+      applyState({ ...state, since, until });
     },
-    [state, applyState, windowSinceMs, windowUntilMs],
+    [state, applyState],
+  );
+
+  // Click on a timeline bucket = narrow the window to exactly that
+  // bucket's `[start, start + bucketSize)` slice. Both the graph and
+  // matrix refetch against the new window so the operator can drill
+  // into a single bucket's activity instantly. Works in all modes —
+  // in rewind, the cursor naturally restarts at 0 because the window
+  // changed (see the rewindCursorMs reset effect above).
+  const handleBucketClick = useCallback(
+    (bucketIso: string) => {
+      const bucketStartMs = new Date(bucketIso).getTime();
+      if (!Number.isFinite(bucketStartMs)) return;
+      const bucketSize = BUCKET_SIZE_MS[state.bucket];
+      const sinceIso = new Date(bucketStartMs).toISOString();
+      const untilIso = new Date(bucketStartMs + bucketSize).toISOString();
+      applyState({ ...state, since: sinceIso, until: untilIso });
+    },
+    [state, applyState],
   );
 
   const graph = liveSnapshot ?? null;
@@ -407,14 +533,15 @@ function InteractionsPageContent() {
                 <CardContent className="p-3">
                   <InteractionTimeline
                     buckets={timeline}
+                    nodes={nodes}
                     brushDisabled={state.live}
                     onBrush={handleBrush}
-                    scrubMode={state.rewind}
                     cursorIso={
                       state.rewind
                         ? new Date(windowSinceMs + rewindCursorMs).toISOString()
                         : undefined
                     }
+                    onBucketClick={handleBucketClick}
                   />
                 </CardContent>
               </Card>

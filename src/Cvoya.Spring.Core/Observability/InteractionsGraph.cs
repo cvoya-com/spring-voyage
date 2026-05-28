@@ -90,7 +90,8 @@ public record InteractionsEdge(
 
 /// <summary>
 /// One bucket in the timeline histogram — total messages sent inside
-/// <c>[Bucket, Bucket + bucketSize)</c>, plus a per-sender-kind breakdown.
+/// <c>[Bucket, Bucket + bucketSize)</c>, plus per-sender-kind and
+/// per-actor breakdowns.
 /// </summary>
 /// <param name="Bucket">
 /// Inclusive UTC start of the bucket, aligned to the requested bucket size
@@ -102,10 +103,19 @@ public record InteractionsEdge(
 /// <c>human</c>, <c>connector</c>; any kind not present in the bucket has
 /// value <c>0</c>. Sum of the values equals <see cref="Sent"/>.
 /// </param>
+/// <param name="ByActor">
+/// Per-actor touch breakdown. Each pulse contributes one tally to the
+/// sender's column and one to the recipient's, so the same pulse appears
+/// twice across the dictionary — the portal renders one timeline line
+/// per in-scope actor showing their total send + receive touches. Keys
+/// are canonical 32-hex actor ids matching the node id wire form;
+/// actors with zero touches in the bucket are omitted (sparse map).
+/// </param>
 public record InteractionsTimelineBucket(
     DateTimeOffset Bucket,
     long Sent,
-    IReadOnlyDictionary<string, long> ByKind);
+    IReadOnlyDictionary<string, long> ByKind,
+    IReadOnlyDictionary<string, long> ByActor);
 
 /// <summary>
 /// Truncation payload — only populated when the unfiltered node count
@@ -221,10 +231,34 @@ public record InteractionsHistoryTruncation(
     InteractionsPulseTruncation? Pulses);
 
 /// <summary>
-/// Bucket granularity for <see cref="InteractionsGraph.Timeline"/>.
+/// Bucket granularity for <see cref="InteractionsGraph.Timeline"/>. All
+/// boundaries are aligned to UTC: sub-minute buckets snap to the most
+/// recent multiple of the size, minute-or-finer buckets snap to the
+/// minute, hour/day to their natural boundary.
 /// </summary>
 public enum InteractionsBucket
 {
+    /// <summary>One bucket per 15 seconds.</summary>
+    Second15,
+
+    /// <summary>One bucket per 30 seconds.</summary>
+    Second30,
+
+    /// <summary>One bucket per minute.</summary>
+    Minute,
+
+    /// <summary>One bucket per 5 minutes.</summary>
+    Minute5,
+
+    /// <summary>One bucket per 10 minutes.</summary>
+    Minute10,
+
+    /// <summary>One bucket per 15 minutes.</summary>
+    Minute15,
+
+    /// <summary>One bucket per 30 minutes.</summary>
+    Minute30,
+
     /// <summary>One bucket per hour, aligned to the hour boundary in UTC.</summary>
     Hour,
 

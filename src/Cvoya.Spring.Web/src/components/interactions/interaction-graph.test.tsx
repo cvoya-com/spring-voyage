@@ -19,8 +19,17 @@ vi.mock("@xyflow/react", async () => {
     targetX: number;
     targetY: number;
     id: string;
+    source: string;
+    target: string;
     data: unknown;
   };
+  // Shared in-test registry of node geometry. ReactFlow stub populates
+  // it on render; `useInternalNode` reads from it so the
+  // floating-edge perimeter math has measured dimensions to work with.
+  const nodeRegistry = new Map<
+    string,
+    { positionAbsolute: { x: number; y: number }; measured: { width: number; height: number } }
+  >();
   return {
     ReactFlow: ({
       nodes,
@@ -31,9 +40,13 @@ vi.mock("@xyflow/react", async () => {
       edges: ReadonlyArray<{ id: string; source: string; target: string; data: unknown; type?: string }>;
       edgeTypes?: Record<string, React.ComponentType<EdgeProps>>;
     }) => {
-      const positions = new Map(
-        nodes.map((n) => [n.id, n.position]),
-      );
+      nodeRegistry.clear();
+      for (const n of nodes) {
+        nodeRegistry.set(n.id, {
+          positionAbsolute: { x: n.position.x, y: n.position.y },
+          measured: { width: 140, height: 36 },
+        });
+      }
       return (
         <svg data-testid="rf-mock" width={800} height={500}>
           {edges.map((e) => {
@@ -47,12 +60,14 @@ vi.mock("@xyflow/react", async () => {
                   y2={p.targetY}
                 />
               ));
-            const src = positions.get(e.source) ?? { x: 0, y: 0 };
-            const tgt = positions.get(e.target) ?? { x: 0, y: 0 };
+            const src = nodeRegistry.get(e.source)?.positionAbsolute ?? { x: 0, y: 0 };
+            const tgt = nodeRegistry.get(e.target)?.positionAbsolute ?? { x: 0, y: 0 };
             return (
               <EdgeComp
                 key={e.id}
                 id={e.id}
+                source={e.source}
+                target={e.target}
                 sourceX={src.x}
                 sourceY={src.y}
                 targetX={tgt.x}
@@ -66,6 +81,16 @@ vi.mock("@xyflow/react", async () => {
     },
     Background: () => null,
     Controls: () => null,
+    Handle: () => null,
+    Position: { Top: "top", Right: "right", Bottom: "bottom", Left: "left" },
+    useInternalNode: (id: string) => {
+      const entry = nodeRegistry.get(id);
+      if (!entry) return null;
+      return {
+        internals: { positionAbsolute: entry.positionAbsolute },
+        measured: entry.measured,
+      };
+    },
   };
 });
 
@@ -120,7 +145,7 @@ describe("InteractionGraph live-pulse dedupe", () => {
     rerender(
       <InteractionGraph nodes={NODES} edges={EDGES} pulses={[pulse("p1", 1)]} />,
     );
-    // Drive a second pulse on the same edge before the 600ms expiry.
+    // Drive a second pulse on the same edge before the 1000ms expiry.
     act(() => {
       vi.advanceTimersByTime(100);
     });
@@ -141,7 +166,7 @@ describe("InteractionGraph live-pulse dedupe", () => {
     ).toBe("×4");
   });
 
-  it("clears the pulse after 600ms so the next frame starts a fresh animation", () => {
+  it("clears the pulse after 1000ms so the next frame starts a fresh animation", () => {
     const { rerender } = render(
       <InteractionGraph nodes={NODES} edges={EDGES} pulses={[]} />,
     );
@@ -149,7 +174,7 @@ describe("InteractionGraph live-pulse dedupe", () => {
       <InteractionGraph nodes={NODES} edges={EDGES} pulses={[pulse("p1", 1)]} />,
     );
     act(() => {
-      vi.advanceTimersByTime(601);
+      vi.advanceTimersByTime(1001);
     });
     // After expiry the pulse circle is gone again.
     expect(

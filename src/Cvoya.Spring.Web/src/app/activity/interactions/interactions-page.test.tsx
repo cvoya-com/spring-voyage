@@ -166,11 +166,13 @@ const FIXTURE: InteractionsGraphResponse = {
       bucket: "2026-05-27T10:00:00Z",
       sent: 4,
       byKind: { agent: 3, unit: 1 },
+      byActor: { "agent-1": 3, "unit-1": 1 },
     },
     {
       bucket: "2026-05-27T10:01:00Z",
       sent: 6,
       byKind: { agent: 4, unit: 2 },
+      byActor: { "agent-1": 4, "unit-1": 2 },
     },
   ],
   truncated: null,

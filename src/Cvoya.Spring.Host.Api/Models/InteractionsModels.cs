@@ -110,10 +110,17 @@ public record InteractionsEdgeResponse(
 /// <param name="Bucket">Inclusive UTC start of the bucket.</param>
 /// <param name="Sent">Total messages sent inside <c>[Bucket, Bucket + bucketSize)</c>.</param>
 /// <param name="ByKind">Per-sender-kind breakdown; sum equals <see cref="Sent"/>.</param>
+/// <param name="ByActor">
+/// Per-actor "touch" breakdown — each pulse contributes one tally to the
+/// sender's column and one to the recipient's. Sparse: actor ids with
+/// zero touches in the bucket are omitted. Drives the portal's per-actor
+/// timeline lines (one line per in-scope node, send + receive activity).
+/// </param>
 public record InteractionsTimelineBucketResponse(
     DateTimeOffset Bucket,
     long Sent,
-    IReadOnlyDictionary<string, long> ByKind);
+    IReadOnlyDictionary<string, long> ByKind,
+    IReadOnlyDictionary<string, long> ByActor);
 
 /// <summary>Truncation payload — emitted only when the unfiltered node count exceeded <c>cap</c>.</summary>
 /// <param name="Total">Distinct nodes observed before truncation.</param>

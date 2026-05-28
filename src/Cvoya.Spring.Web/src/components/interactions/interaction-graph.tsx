@@ -19,9 +19,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
+  Handle,
+  Position,
   ReactFlow,
+  useInternalNode,
   type Edge as RfEdge,
   type EdgeProps,
+  type InternalNode,
   type Node as RfNode,
   type NodeProps,
 } from "@xyflow/react";
@@ -114,11 +118,32 @@ function layoutNodes(
   );
 
   const others = sorted.filter((n) => n.id !== anchorId);
-  const rings = 2;
-  const perRing = Math.max(1, Math.ceil(others.length / rings));
+
+  // Use one ring for small populations (≤ 12 others) so a 3-node graph
+  // doesn't end up with each node alone on its own ring at angle 0
+  // (which collapsed the whole graph onto the X axis under the old
+  // formula). For larger populations split into two concentric rings —
+  // high-volume first, low-volume second — so the busiest nodes sit
+  // closer to the anchor.
+  const ringCount = others.length > 12 ? 2 : 1;
+  const inner = ringCount === 1 ? others : others.slice(0, Math.ceil(others.length / 2));
+  const outer = ringCount === 1 ? [] : others.slice(inner.length);
+
+  // Radius scales with the per-ring node count so wide rectangles never
+  // overlap — required circumference = N × (node width + padding).
+  const minSpacing = NODE_BASE_WIDTH + 32;
+  const minRadius = 200;
+  const innerRadius = Math.max(
+    minRadius,
+    (inner.length * minSpacing) / (2 * Math.PI),
+  );
+  const outerRadius = Math.max(
+    innerRadius + 180,
+    ((inner.length + outer.length) * minSpacing) / (2 * Math.PI),
+  );
 
   const result: RfNode<InteractionNodeData>[] = [];
-  const center = { x: 400, y: 280 };
+  const center = { x: 480, y: 320 };
 
   const anchor = nodes.find((n) => n.id === anchorId)!;
   result.push({
@@ -136,31 +161,40 @@ function layoutNodes(
     draggable: true,
   });
 
-  for (let i = 0; i < others.length; i++) {
-    const ring = Math.min(rings - 1, Math.floor(i / perRing));
-    const indexInRing = i - ring * perRing;
-    const ringSize = Math.min(perRing, others.length - ring * perRing);
-    const radius = 140 + ring * 130;
-    const angle = (indexInRing / Math.max(1, ringSize)) * Math.PI * 2;
-    const node = others[i];
-    result.push({
-      id: node.id,
-      position: {
-        x: center.x + radius * Math.cos(angle),
-        y: center.y + radius * Math.sin(angle),
-      },
-      type: "interaction",
-      data: {
-        kind: node.kind,
-        displayName: node.displayName,
-        sent: node.sent,
-        received: node.received,
-        scale: scaleFor(node.sent + node.received, maxVolume),
-        isScope: node.id === scopeId,
-      },
-      draggable: true,
-    });
-  }
+  // Place a single ring of nodes around the anchor, starting at the
+  // top (-π/2) and walking clockwise so the visual reading order
+  // matches the volume sort.
+  const placeRing = (
+    ringNodes: readonly InteractionsNodeResponse[],
+    radius: number,
+  ) => {
+    const n = ringNodes.length;
+    if (n === 0) return;
+    for (let i = 0; i < n; i++) {
+      const angle = -Math.PI / 2 + (i / n) * Math.PI * 2;
+      const node = ringNodes[i];
+      result.push({
+        id: node.id,
+        position: {
+          x: center.x + radius * Math.cos(angle),
+          y: center.y + radius * Math.sin(angle),
+        },
+        type: "interaction",
+        data: {
+          kind: node.kind,
+          displayName: node.displayName,
+          sent: node.sent,
+          received: node.received,
+          scale: scaleFor(node.sent + node.received, maxVolume),
+          isScope: node.id === scopeId,
+        },
+        draggable: true,
+      });
+    }
+  };
+  placeRing(inner, innerRadius);
+  placeRing(outer, outerRadius);
+
   return result;
 }
 
@@ -168,20 +202,48 @@ function scaleFor(volume: number, maxVolume: number): number {
   return 0.6 + 0.6 * Math.sqrt(volume / maxVolume);
 }
 
+// xyflow requires explicit Handle components on custom nodes — without
+// them, edges referencing the node have no connection point and silently
+// fail to render (sourceX/Y/targetX/Y collapse to 0,0). For our radial
+// layout we expose one hidden source + one hidden target handle at the
+// node centre so an edge can attach regardless of direction; the
+// `InteractionEdge` component does its own arrow-end pullback so the
+// arrowhead sits at the node perimeter, not the centre.
+const HIDDEN_HANDLE_STYLE: React.CSSProperties = {
+  opacity: 0,
+  width: 1,
+  height: 1,
+  minWidth: 1,
+  minHeight: 1,
+  border: 0,
+  background: "transparent",
+  pointerEvents: "none",
+};
+
+// Rounded-rectangle node dimensions. Width scales with volume so the
+// busiest node still visually anchors the canvas; height is fixed so the
+// font + padding don't change per node (variable height made the
+// scaled-down nodes' text uncomfortably tight in the previous circle
+// layout). The label cap moves to 24 chars — wide rectangles fit
+// "managing-editor" and similar slugs without an ellipsis.
+const NODE_HEIGHT = 36;
+const NODE_BASE_WIDTH = 140;
+const NODE_LABEL_CAP = 24;
+
 function InteractionNode({ data }: NodeProps<RfNode<InteractionNodeData>>) {
   const tint =
     NODE_KIND_TINT[data.kind as keyof typeof NODE_KIND_TINT] ??
     NODE_KIND_TINT.default;
-  const size = Math.round(32 * data.scale);
+  const width = Math.round(NODE_BASE_WIDTH * data.scale);
   return (
     <div
       className={cn(
-        "rounded-full border-2 text-center flex items-center justify-center font-mono text-[10px]",
+        "relative rounded-md border-2 text-center flex items-center justify-center font-mono text-[11px]",
         data.isScope ? "ring-2 ring-primary" : "",
       )}
       style={{
-        width: size,
-        height: size,
+        width,
+        height: NODE_HEIGHT,
         background: `color-mix(in srgb, ${tint} 25%, var(--color-card))`,
         borderColor: tint,
         color: "var(--color-foreground)",
@@ -189,61 +251,191 @@ function InteractionNode({ data }: NodeProps<RfNode<InteractionNodeData>>) {
       title={`${data.displayName} (${data.kind}) — sent ${data.sent}, received ${data.received}`}
       data-testid={`interaction-graph-node-${data.kind}`}
     >
-      <span className="block max-w-full truncate px-1">
-        {data.displayName.slice(0, 6)}
+      <Handle
+        type="target"
+        position={Position.Top}
+        isConnectable={false}
+        style={HIDDEN_HANDLE_STYLE}
+      />
+      <span className="block max-w-full truncate px-2 leading-tight">
+        {data.displayName.length > NODE_LABEL_CAP
+          ? `${data.displayName.slice(0, NODE_LABEL_CAP - 1)}…`
+          : data.displayName}
       </span>
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        isConnectable={false}
+        style={HIDDEN_HANDLE_STYLE}
+      />
     </div>
   );
 }
 
+/**
+ * Floating-edge perimeter intersection (adapted from xyflow's official
+ * Floating Edges example: https://reactflow.dev/examples/edges/floating-edges).
+ *
+ * Treats the node as an axis-aligned rectangle and returns the point
+ * where the line from <c>intersectionNode</c>'s centre toward
+ * <c>otherNode</c>'s centre crosses <c>intersectionNode</c>'s perimeter.
+ * Using xyflow's own measured geometry (`internals.positionAbsolute` +
+ * `measured.width/height`) means the result tracks node size + position
+ * automatically — when a node grows because of volume scaling or the
+ * operator drags it, the arrow follows the rectangle's actual edge.
+ */
+function getNodeIntersection(
+  intersectionNode: InternalNode,
+  otherNode: InternalNode,
+): { x: number; y: number } {
+  const w = (intersectionNode.measured?.width ?? 0) / 2;
+  const h = (intersectionNode.measured?.height ?? 0) / 2;
+  if (w === 0 || h === 0) {
+    const pos = intersectionNode.internals.positionAbsolute;
+    return { x: pos.x, y: pos.y };
+  }
+  const x2 = intersectionNode.internals.positionAbsolute.x + w;
+  const y2 = intersectionNode.internals.positionAbsolute.y + h;
+  const x1 =
+    otherNode.internals.positionAbsolute.x + (otherNode.measured?.width ?? 0) / 2;
+  const y1 =
+    otherNode.internals.positionAbsolute.y + (otherNode.measured?.height ?? 0) / 2;
+  const xx1 = (x1 - x2) / (2 * w) - (y1 - y2) / (2 * h);
+  const yy1 = (x1 - x2) / (2 * w) + (y1 - y2) / (2 * h);
+  const a = 1 / (Math.abs(xx1) + Math.abs(yy1));
+  return {
+    x: w * (a * xx1 + a * yy1) + x2,
+    y: h * (a * yy1 - a * xx1) + y2,
+  };
+}
+
 function InteractionEdge({
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
+  source,
+  target,
   data,
   id,
 }: EdgeProps<RfEdge<InteractionEdgeData>>) {
+  // Read source/target geometry from xyflow's own node store — this
+  // is the floating-edges pattern: the edge does not depend on Handle
+  // positions, so endpoints always land on the rectangle's nearest
+  // perimeter regardless of the node's size or where it's positioned.
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
+
   const weight = data?.weight ?? 1;
-  const strokeWidth = 0.6 + weight * 3;
   const pulseCount = data?.pulseCount ?? 0;
+  const isActive = !!data?.hasPulse;
+  // Per-edge arrow-marker id so multiple edges don't share one marker
+  // definition (xyflow re-mounts edge SVGs as it pans / zooms; a
+  // single shared id leaks between renders and visually drops arrows).
+  const markerId = `interaction-arrow-${id.replace(/[^a-zA-Z0-9-]/g, "_")}`;
+
+  if (!sourceNode || !targetNode) return null;
+
+  // Endpoints sit on the perimeter of the source and target rectangles
+  // respectively — not at the centre, not at the Handle position. The
+  // arrowhead therefore lands flush with the rectangle's edge instead
+  // of disappearing behind the node body.
+  const sourceIntersection = getNodeIntersection(sourceNode, targetNode);
+  const targetIntersection = getNodeIntersection(targetNode, sourceNode);
+  const sourceX = sourceIntersection.x;
+  const sourceY = sourceIntersection.y;
+  const targetX = targetIntersection.x;
+  const targetY = targetIntersection.y;
+
+  // Quadratic bezier curve with the control point offset perpendicular
+  // to the chord. A→B and B→A travel between the same node pair but
+  // the perpendicular vector flips with the source/target swap, so
+  // reciprocal traffic naturally splits into two parallel-looking arcs
+  // instead of stacking on the same straight line.
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  const len = Math.max(1, Math.hypot(dx, dy));
+  const perpX = -dy / len;
+  const perpY = dx / len;
+  const curveOffset = Math.min(len * 0.15, 55);
+  const midX = (sourceX + targetX) / 2 + perpX * curveOffset;
+  const midY = (sourceY + targetY) / 2 + perpY * curveOffset;
+  const pathD = `M ${sourceX},${sourceY} Q ${midX},${midY} ${targetX},${targetY}`;
+
+  // Idle vs active: idle edges stay faint so the canvas doesn't read
+  // as a tangle of lines at rest. Active edges (a pulse is in flight)
+  // brighten and thicken so the eye is pulled to where activity is
+  // happening — together with the rewind cursor this makes "what's
+  // moving right now" pop out across the graph.
+  const strokeOpacity = isActive ? 0.95 : 0.22;
+  const strokeWidth = isActive ? 1.6 + weight * 3 : 1.0 + weight * 1.2;
+
   return (
     <g data-testid={`interaction-graph-edge-${id}`}>
+      <defs>
+        <marker
+          id={markerId}
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path
+            d="M 0 0 L 10 5 L 0 10 z"
+            fill="var(--color-primary)"
+            opacity={isActive ? 0.95 : 0.5}
+          />
+        </marker>
+      </defs>
       <path
-        d={`M ${sourceX},${sourceY} L ${targetX},${targetY}`}
-        stroke="var(--color-muted-foreground)"
-        strokeOpacity={0.5 + weight * 0.4}
+        d={pathD}
+        stroke="var(--color-primary)"
+        strokeOpacity={strokeOpacity}
         strokeWidth={strokeWidth}
         fill="none"
+        markerEnd={`url(#${markerId})`}
+        style={{ transition: "stroke-opacity 200ms, stroke-width 200ms" }}
       />
-      {data?.hasPulse ? (
+      {isActive ? (
         <>
           <circle
             data-testid={`interaction-graph-pulse-${id}`}
-            r={4}
+            r={5}
             fill="var(--color-primary)"
             stroke="var(--color-card)"
-            strokeWidth={1}
+            strokeWidth={1.5}
           >
             <animateMotion
-              dur="0.6s"
+              dur="0.8s"
               repeatCount="1"
-              path={`M ${sourceX},${sourceY} L ${targetX},${targetY}`}
+              path={pathD}
               fill="freeze"
             />
           </circle>
           {pulseCount > 1 ? (
-            <text
-              x={(sourceX + targetX) / 2}
-              y={(sourceY + targetY) / 2 - 6}
-              fontSize="9"
-              fill="var(--color-primary)"
-              textAnchor="middle"
-              fontFamily="var(--font-mono)"
+            <g
+              transform={`translate(${midX}, ${midY - 10})`}
               data-testid={`interaction-graph-pulse-badge-${id}`}
             >
-              ×{pulseCount}
-            </text>
+              <rect
+                x={-14}
+                y={-9}
+                width={28}
+                height={16}
+                rx={8}
+                fill="var(--color-primary)"
+                opacity={0.95}
+              />
+              <text
+                x={0}
+                y={3}
+                fontSize="11"
+                fontWeight="600"
+                fill="var(--color-primary-foreground, white)"
+                textAnchor="middle"
+                fontFamily="var(--font-mono)"
+              >
+                ×{pulseCount}
+              </text>
+            </g>
           ) : null}
         </>
       ) : null}
@@ -295,14 +487,17 @@ export function InteractionGraph({
         });
       } else {
         next.set(key, { edgeKey: key, count: p.count, refreshKey: 1 });
-        // Schedule expiry — pulses last 600ms.
+        // Schedule expiry — match the SVG animateMotion duration plus a
+        // small buffer so the bright "active" stroke stays up until the
+        // pulse dot reaches the target. 800ms motion + 200ms badge
+        // dwell gives the operator time to read the count badge.
         setTimeout(() => {
           setActivePulses((current) => {
             const updated = new Map(current);
             updated.delete(key);
             return updated;
           });
-        }, 600);
+        }, 1000);
       }
       mutated = true;
     }

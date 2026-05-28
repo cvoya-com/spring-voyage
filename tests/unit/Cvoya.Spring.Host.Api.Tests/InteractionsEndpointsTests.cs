@@ -65,7 +65,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
             Arg.Is<InteractionsQueryFilters>(f =>
                 f.Cap == 50 &&
                 f.Neighbours == 2 &&
-                f.Bucket == InteractionsBucket.Hour &&
+                f.Bucket == InteractionsBucket.Second15 &&
                 f.Unit == null &&
                 f.Participant == null &&
                 Math.Abs((f.Until - f.Since).TotalMinutes - 10) < 1.0),
@@ -227,10 +227,17 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
             },
             Timeline: new List<InteractionsTimelineBucket>
             {
-                new(now, Sent: 3, ByKind: new Dictionary<string, long>
-                {
-                    ["agent"] = 3, ["unit"] = 0, ["human"] = 0, ["connector"] = 0,
-                }),
+                new(now,
+                    Sent: 3,
+                    ByKind: new Dictionary<string, long>
+                    {
+                        ["agent"] = 3, ["unit"] = 0, ["human"] = 0, ["connector"] = 0,
+                    },
+                    ByActor: new Dictionary<string, long>
+                    {
+                        [GuidFormatter.Format(fromId)] = 3,
+                        [GuidFormatter.Format(toId)] = 3,
+                    }),
             },
             Truncated: null);
 
@@ -280,12 +287,12 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
     }
 
     [Fact]
-    public async Task GetInteractions_BadBucket_FallsBackToHour()
+    public async Task GetInteractions_BadBucket_FallsBackToDefault()
     {
-        // Unknown bucket → falls back to hour (no 400). SSE clients
-        // don't have a recoverable error path; the same forgiving
-        // semantics apply to the snapshot endpoint so the two routes
-        // share one vocabulary.
+        // Unknown bucket → falls back to the default 15-second bucket
+        // (no 400). SSE clients don't have a recoverable error path;
+        // the same forgiving semantics apply to the snapshot endpoint
+        // so the two routes share one vocabulary.
         var ct = TestContext.Current.CancellationToken;
         _factory.InteractionsQueryService.ClearSubstitute();
         _factory.InteractionsQueryService
@@ -297,7 +304,7 @@ public class InteractionsEndpointsTests : IClassFixture<InteractionsEndpointsTes
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await _factory.InteractionsQueryService.Received(1).GetAsync(
-            Arg.Is<InteractionsQueryFilters>(f => f.Bucket == InteractionsBucket.Hour),
+            Arg.Is<InteractionsQueryFilters>(f => f.Bucket == InteractionsBucket.Second15),
             Arg.Any<CancellationToken>());
     }
 
