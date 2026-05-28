@@ -18,8 +18,8 @@ using Xunit;
 /// Covers the Slack OAuth install / disconnect lifecycle (ADR-0061
 /// §2.3, §2.5, §7.5):
 /// <list type="bullet">
-///   <item><description>Happy path — code exchange succeeds, team.info reports a non-Grid workspace, binding persisted.</description></item>
-///   <item><description>Grid refusal — team.info reports an enterprise id (or oauth.v2.access carries one) → SlackEnterpriseGridUnsupported; binding NOT persisted.</description></item>
+///   <item><description>Happy path — code exchange succeeds, no enterprise id on the response, binding persisted.</description></item>
+///   <item><description>Grid refusal — oauth.v2.access carries an enterprise id → SlackEnterpriseGridUnsupported; binding NOT persisted.</description></item>
 ///   <item><description>Re-install with a different team_id is refused (ADR-0061 §2.5).</description></item>
 ///   <item><description>Disconnect calls auth.revoke + deletes binding + workspace map + secrets.</description></item>
 ///   <item><description>Invalid / consumed state → InvalidState; nothing persisted.</description></item>
@@ -69,7 +69,6 @@ public class SlackOAuthServiceTests
             botUserId: "U-bot",
             authedUserId: "U-installer",
             enterpriseId: null);
-        ArrangeNonGridTeamInfo("T1");
         ArrangeNoExistingBinding();
 
         var sut = CreateSut();
@@ -93,47 +92,22 @@ public class SlackOAuthServiceTests
     }
 
     [Fact]
-    public async Task HandleCallbackAsync_TeamInfoReportsEnterprise_RefusesAndDoesNotPersist()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        ArrangeValidState("state-grid");
-        ArrangeOAuthExchange(
-            teamId: "T2",
-            botUserId: "U-bot",
-            authedUserId: "U-installer",
-            enterpriseId: null);
-        // Slack returns the Grid id via team.info (it could also come
-        // through oauth.v2.access — the service must catch either).
-        _http.GetTeamInfoAsync("xoxb-test", Arg.Any<CancellationToken>())
-            .Returns(new SlackTeamInfo("T2", "Grid Workspace", EnterpriseId: "E123"));
-
-        var sut = CreateSut();
-        var outcome = await sut.HandleCallbackAsync("code-abc", "state-grid", ct);
-
-        var grid = outcome.ShouldBeOfType<SlackCallbackOutcome.EnterpriseGridUnsupported>();
-        grid.EnterpriseId.ShouldBe("E123");
-
-        await _installStore.DidNotReceive().PersistInstallAsync(
-            Arg.Any<SlackInstallPayload>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
     public async Task HandleCallbackAsync_OAuthExchangeCarriesEnterpriseId_RefusesAndDoesNotPersist()
     {
-        // Defence-in-depth: even if team.info forgot to report the
-        // enterprise id, oauth.v2.access's own enterprise.id slot is
-        // honoured.
+        // oauth.v2.access reports `enterprise.id` whenever the install
+        // lands inside an Enterprise Grid; the service refuses on that
+        // signal alone (no separate team.info probe — would require an
+        // extra OAuth scope we don't otherwise use).
         var ct = TestContext.Current.CancellationToken;
-        ArrangeValidState("state-grid-2");
+        ArrangeValidState("state-grid");
         ArrangeOAuthExchange(
             teamId: "T3",
             botUserId: "U-bot",
             authedUserId: "U-installer",
             enterpriseId: "E456");
-        ArrangeNonGridTeamInfo("T3");
 
         var sut = CreateSut();
-        var outcome = await sut.HandleCallbackAsync("code-abc", "state-grid-2", ct);
+        var outcome = await sut.HandleCallbackAsync("code-abc", "state-grid", ct);
 
         var grid = outcome.ShouldBeOfType<SlackCallbackOutcome.EnterpriseGridUnsupported>();
         grid.EnterpriseId.ShouldBe("E456");
@@ -152,7 +126,6 @@ public class SlackOAuthServiceTests
             botUserId: "U-bot",
             authedUserId: "U-installer",
             enterpriseId: null);
-        ArrangeNonGridTeamInfo("T-new");
         _installStore.GetExistingBindingAsync(Arg.Any<CancellationToken>())
             .Returns(new SlackBindingSnapshot(
                 TeamId: "T-existing",
@@ -181,7 +154,6 @@ public class SlackOAuthServiceTests
             botUserId: "U-bot",
             authedUserId: "U-installer",
             enterpriseId: null);
-        ArrangeNonGridTeamInfo("T-same");
         _installStore.GetExistingBindingAsync(Arg.Any<CancellationToken>())
             .Returns(new SlackBindingSnapshot(
                 TeamId: "T-same",
@@ -258,7 +230,6 @@ public class SlackOAuthServiceTests
                 ClientState: clientState));
         ArrangeOAuthExchange(
             teamId: "T-cs", botUserId: "U-bot", authedUserId: "U-installer", enterpriseId: null);
-        ArrangeNonGridTeamInfo("T-cs");
         ArrangeNoExistingBinding();
 
         var sut = CreateSut();
@@ -282,7 +253,6 @@ public class SlackOAuthServiceTests
                 ClientState: clientState));
         ArrangeOAuthExchange(
             teamId: "T-grid", botUserId: "U-bot", authedUserId: "U-installer", enterpriseId: "E999");
-        ArrangeNonGridTeamInfo("T-grid");
 
         var sut = CreateSut();
         var outcome = await sut.HandleCallbackAsync("code", "state-cs-grid", ct);
@@ -432,12 +402,6 @@ public class SlackOAuthServiceTests
                 BotAccessToken: "xoxb-test",
                 AuthedUserId: authedUserId,
                 EnterpriseId: enterpriseId));
-    }
-
-    private void ArrangeNonGridTeamInfo(string teamId)
-    {
-        _http.GetTeamInfoAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new SlackTeamInfo(teamId, "Test Workspace", EnterpriseId: null));
     }
 
     private void ArrangeNoExistingBinding()

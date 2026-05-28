@@ -30,7 +30,6 @@ public class SlackOAuthHttpClient : ISlackOAuthHttpClient
     public const string HttpClientName = "slack-oauth";
 
     private const string OAuthV2Access = "https://slack.com/api/oauth.v2.access";
-    private const string TeamInfo = "https://slack.com/api/team.info";
     private const string AuthRevoke = "https://slack.com/api/auth.revoke";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -96,33 +95,6 @@ public class SlackOAuthHttpClient : ISlackOAuthHttpClient
     }
 
     /// <inheritdoc />
-    public async Task<SlackTeamInfo> GetTeamInfoAsync(string botAccessToken, CancellationToken cancellationToken)
-    {
-        var client = _httpClientFactory.CreateClient(HttpClientName);
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, TeamInfo);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", botAccessToken);
-
-        var response = await client.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var dto = await response.Content
-            .ReadFromJsonAsync<TeamInfoResponse>(JsonOptions, cancellationToken)
-            ?? throw new InvalidOperationException("team.info returned an empty body.");
-
-        if (!dto.Ok)
-        {
-            throw new InvalidOperationException(
-                $"Slack team.info returned ok=false (error={dto.Error}).");
-        }
-
-        return new SlackTeamInfo(
-            TeamId: dto.Team?.Id ?? string.Empty,
-            TeamName: dto.Team?.Name,
-            EnterpriseId: dto.Team?.EnterpriseId);
-    }
-
-    /// <inheritdoc />
     public async Task<SlackRevokeResult> RevokeTokenAsync(string botAccessToken, CancellationToken cancellationToken)
     {
         var client = _httpClientFactory.CreateClient(HttpClientName);
@@ -165,16 +137,6 @@ public class SlackOAuthHttpClient : ISlackOAuthHttpClient
 
     private sealed record AuthedUserDto(
         [property: JsonPropertyName("id")] string Id);
-
-    private sealed record TeamInfoResponse(
-        [property: JsonPropertyName("ok")] bool Ok,
-        [property: JsonPropertyName("error")] string? Error,
-        [property: JsonPropertyName("team")] TeamInfoTeamDto? Team);
-
-    private sealed record TeamInfoTeamDto(
-        [property: JsonPropertyName("id")] string Id,
-        [property: JsonPropertyName("name")] string? Name,
-        [property: JsonPropertyName("enterprise_id")] string? EnterpriseId);
 
     private sealed record RevokeResponse(
         [property: JsonPropertyName("ok")] bool Ok,

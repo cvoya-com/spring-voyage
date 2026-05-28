@@ -25,9 +25,10 @@ public interface ISlackOAuthService
     /// <summary>
     /// Handles the OAuth callback — consumes the state, exchanges the
     /// authorization <paramref name="code"/> via
-    /// <c>oauth.v2.access</c>, runs the Enterprise Grid probe via
-    /// <c>team.info</c>, and (on success) persists the tenant binding,
-    /// workspace-map row, and tenant secrets.
+    /// <c>oauth.v2.access</c>, refuses Enterprise Grid installs based
+    /// on the <c>enterprise.id</c> field on that response, and (on
+    /// success) persists the tenant binding, workspace-map row, and
+    /// tenant secrets.
     /// </summary>
     Task<SlackCallbackOutcome> HandleCallbackAsync(
         string code,
@@ -94,9 +95,8 @@ public abstract record SlackCallbackOutcome
     public sealed record InvalidState : SlackCallbackOutcome;
 
     /// <summary>
-    /// The <c>oauth.v2.access</c> call (or the subsequent
-    /// <c>team.info</c> probe) failed at the transport / Slack-API
-    /// level. The binding was not persisted.
+    /// The <c>oauth.v2.access</c> call failed at the transport /
+    /// Slack-API level. The binding was not persisted.
     /// </summary>
     public sealed record ExchangeFailed(string Reason) : SlackCallbackOutcome;
 }

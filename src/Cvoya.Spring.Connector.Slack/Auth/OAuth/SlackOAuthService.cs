@@ -9,9 +9,8 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default <see cref="ISlackOAuthService"/> implementation. Owns the
-/// cryptographic state, the <c>oauth.v2.access</c> exchange, the
-/// Enterprise Grid probe via <c>team.info</c>, and the disconnect
-/// <c>auth.revoke</c> call.
+/// cryptographic state, the <c>oauth.v2.access</c> exchange, and the
+/// disconnect <c>auth.revoke</c> call.
 ///
 /// <para>
 /// Real network calls go through <see cref="ISlackOAuthHttpClient"/>;
@@ -133,29 +132,16 @@ public class SlackOAuthService : ISlackOAuthService
         }
 
         // Enterprise Grid detection — per ADR-0061 §2.3 / §7.6 the v0.1
-        // connector refuses Grid installs. The OAuth response itself
-        // carries `enterprise.id` when the install lands in a Grid, but
-        // we double-check via team.info so the inspection path is the
-        // same shape the future Org-mode install will use.
-        SlackTeamInfo teamInfo;
-        try
-        {
-            teamInfo = await _http.GetTeamInfoAsync(exchange.BotAccessToken, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Slack team.info probe failed");
-            return new SlackCallbackOutcome.ExchangeFailed(ex.Message) { ClientState = entry.ClientState };
-        }
-
-        var enterpriseId = exchange.EnterpriseId ?? teamInfo.EnterpriseId;
-        if (!string.IsNullOrEmpty(enterpriseId))
+        // connector refuses Grid installs. oauth.v2.access carries
+        // `enterprise.id` whenever the install lands inside a Grid, so
+        // no separate probe is needed.
+        if (!string.IsNullOrEmpty(exchange.EnterpriseId))
         {
             _logger.LogWarning(
                 "Refusing Slack Enterprise Grid install (enterprise_id={EnterpriseId})",
-                enterpriseId);
+                exchange.EnterpriseId);
             return new SlackCallbackOutcome.EnterpriseGridUnsupported(
-                enterpriseId,
+                exchange.EnterpriseId,
                 "Slack Enterprise Grid installs are not supported in v0.1.")
             {
                 ClientState = entry.ClientState,

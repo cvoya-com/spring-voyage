@@ -24,13 +24,6 @@ public interface ISlackOAuthHttpClient
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Calls <c>GET team.info</c> with the supplied bot token to
-    /// resolve the workspace metadata — in particular the
-    /// <c>enterprise.id</c> field for the Grid-detection path.
-    /// </summary>
-    Task<SlackTeamInfo> GetTeamInfoAsync(string botAccessToken, CancellationToken cancellationToken);
-
-    /// <summary>
     /// Revokes the supplied <paramref name="botAccessToken"/> via
     /// <c>POST auth.revoke</c>. Returns the raw Slack outcome — the
     /// caller decides whether a failure aborts the disconnect.
@@ -62,18 +55,6 @@ public record SlackOAuthExchangeResult(
     string BotAccessToken,
     string AuthedUserId,
     string? EnterpriseId);
-
-/// <summary>
-/// Decoded shape of a successful <c>team.info</c> response.
-/// </summary>
-/// <param name="TeamId">Workspace id (<c>team.id</c>).</param>
-/// <param name="TeamName">Workspace display name (<c>team.name</c>).</param>
-/// <param name="EnterpriseId">
-/// Non-null when the workspace is in an Enterprise Grid. Used as a
-/// belt-and-braces probe alongside <c>oauth.v2.access</c>'s own
-/// <c>enterprise.id</c> field.
-/// </param>
-public record SlackTeamInfo(string TeamId, string? TeamName, string? EnterpriseId);
 
 /// <summary>
 /// Decoded shape of an <c>auth.revoke</c> response. Slack returns
