@@ -162,6 +162,8 @@ public class SlackEventDispatcherTests
     [Fact]
     public async Task DispatchAsync_BoundUserReply_ForwardsViaRouterWithHumanFrom()
     {
+        // Two-party thread (human:op + agent:A) — sender is the human,
+        // so fan-out should hit the single non-sender participant once.
         var ct = TestContext.Current.CancellationToken;
         var harness = TestHarness.Create(singleUserMode: true);
         await harness.SeedBindingAsync(ct);
@@ -205,6 +207,143 @@ public class SlackEventDispatcherTests
             Arg.Any<CancellationToken>());
         harness.AuditLog.Records.ShouldContain(r =>
             r.Disposition == "forwarded" && r.EventType == "message.im");
+        // ADR-0060 §2: exactly one audit row per inbound, regardless
+        // of fan-out cardinality.
+        harness.AuditLog.Records
+            .Count(r => r.EventType == "message.im" && r.Disposition == "forwarded")
+            .ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_BoundUserReply_MultiPartyThread_FansOutToEveryNonSender()
+    {
+        // Multi-party thread: human:op (sender) + agent:A + agent:B.
+        // The connector must dispatch ONE Message per non-sender
+        // participant (#2885); IMessageRouter does not fan out for
+        // direct recipient addresses.
+        var ct = TestContext.Current.CancellationToken;
+        var harness = TestHarness.Create(singleUserMode: true);
+        await harness.SeedBindingAsync(ct);
+
+        var svThreadId = new Guid("55555555-5555-5555-5555-555555555555");
+        await harness.ThreadMap.RecordAsync(
+            svThreadId,
+            OperatorTenantUserId,
+            "T-acme",
+            "D-installer",
+            "1700.222",
+            ct);
+
+        var agentA = new Address(Address.AgentScheme, new Guid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+        var agentB = new Address(Address.AgentScheme, new Guid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
+        harness.SeedThreadWithParticipants(svThreadId, new[]
+        {
+            new Address(Address.HumanScheme, PrimaryHumanId),
+            agentA,
+            agentB,
+        });
+
+        var envelope = ParseEvent("""
+            {
+              "team_id": "T-acme",
+              "event": {
+                "type": "message",
+                "channel_type": "im",
+                "user": "U-installer",
+                "channel": "D-installer",
+                "thread_ts": "1700.222",
+                "text": "hello team"
+              }
+            }
+            """);
+
+        var routedMessages = new List<Message>();
+        harness.MessageRouter
+            .RouteAsync(Arg.Do<Message>(m => routedMessages.Add(m)), Arg.Any<CancellationToken>())
+            .Returns(Cvoya.Spring.Core.Result<Message?, RoutingError>.Success(null!));
+
+        var outcome = await harness.Dispatcher.DispatchAsync(envelope, ct);
+
+        outcome.ShouldBe(SlackEventDispatchOutcome.Handled);
+
+        // Exactly two route calls — one per non-sender agent.
+        await harness.MessageRouter.Received(2).RouteAsync(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>());
+        routedMessages.Count.ShouldBe(2);
+
+        // Each routed Message has the same From, ThreadId, Timestamp,
+        // and Payload — they differ only by Id and To.
+        var threadIdString = svThreadId.ToString("N");
+        routedMessages.ShouldAllBe(m =>
+            m.From.Scheme == Address.HumanScheme
+            && m.From.Id == PrimaryHumanId
+            && m.ThreadId == threadIdString);
+        routedMessages.Select(m => m.Timestamp).Distinct().Count().ShouldBe(1);
+        routedMessages.Select(m => m.Id).Distinct().Count().ShouldBe(2);
+
+        // To-addresses cover the two agents (order-independent).
+        var toIds = routedMessages.Select(m => m.To.Id).ToHashSet();
+        toIds.ShouldContain(agentA.Id);
+        toIds.ShouldContain(agentB.Id);
+        routedMessages.ShouldAllBe(m => m.To.Scheme == Address.AgentScheme);
+
+        // One audit row per inbound, not one per recipient.
+        harness.AuditLog.Records
+            .Count(r => r.EventType == "message.im")
+            .ShouldBe(1);
+        harness.AuditLog.Records.ShouldContain(r =>
+            r.Disposition == "forwarded"
+            && r.EventType == "message.im"
+            && r.Detail == threadIdString);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_BoundUserReply_NoNonSenderParticipants_DropsWithAudit()
+    {
+        // Degenerate registry shape: only the sender's address is in
+        // the participant set. The connector must not echo back to
+        // self — it drops with audit and zero route calls.
+        var ct = TestContext.Current.CancellationToken;
+        var harness = TestHarness.Create(singleUserMode: true);
+        await harness.SeedBindingAsync(ct);
+
+        var svThreadId = new Guid("66666666-6666-6666-6666-666666666666");
+        await harness.ThreadMap.RecordAsync(
+            svThreadId,
+            OperatorTenantUserId,
+            "T-acme",
+            "D-installer",
+            "1700.333",
+            ct);
+
+        harness.SeedThreadWithParticipants(svThreadId, new[]
+        {
+            new Address(Address.HumanScheme, PrimaryHumanId),
+        });
+
+        var envelope = ParseEvent("""
+            {
+              "team_id": "T-acme",
+              "event": {
+                "type": "message",
+                "channel_type": "im",
+                "user": "U-installer",
+                "channel": "D-installer",
+                "thread_ts": "1700.333",
+                "text": "alone here"
+              }
+            }
+            """);
+
+        var outcome = await harness.Dispatcher.DispatchAsync(envelope, ct);
+
+        outcome.ShouldBe(SlackEventDispatchOutcome.Handled);
+        await harness.MessageRouter.DidNotReceive().RouteAsync(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>());
+        harness.AuditLog.Records.ShouldContain(r =>
+            r.Disposition == "dropped:no-recipients"
+            && r.EventType == "message.im"
+            && r.Detail == svThreadId.ToString("N"));
     }
 
     [Fact]
@@ -380,6 +519,16 @@ public class SlackEventDispatcherTests
                     Participants: new[] { hatAddress, agentAddress },
                     CreatedAt: DateTimeOffset.UtcNow));
             await Task.CompletedTask;
+        }
+
+        public void SeedThreadWithParticipants(Guid svThreadId, IReadOnlyList<Address> participants)
+        {
+            var threadRegistry = Provider.GetRequiredService<IThreadRegistry>();
+            threadRegistry.ResolveAsync(svThreadId.ToString("N"), Arg.Any<CancellationToken>())
+                .Returns(new ThreadRegistryEntry(
+                    ThreadId: svThreadId.ToString("N"),
+                    Participants: participants,
+                    CreatedAt: DateTimeOffset.UtcNow));
         }
     }
 
