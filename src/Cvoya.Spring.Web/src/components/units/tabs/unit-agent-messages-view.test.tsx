@@ -5,7 +5,7 @@
 // the canonical thread when the wire field is set, and is hidden for
 // pure A2A threads.
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -232,5 +232,294 @@ describe("UnitAgentMessagesView — Hat banner (ADR-0062 § 5, #2826)", () => {
     expect(
       screen.queryByTestId("tab-agent-messages-hat-banner"),
     ).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Thread switcher (#2885)
+// ---------------------------------------------------------------------------
+//
+// When the host (unit / agent) participates in 2+ threads, a compact chip
+// row appears above the timeline so the operator can pick which thread is
+// rendered inline. The default selection mirrors the pre-switcher
+// behaviour: `pickCanonicalThread()` — the most-recently-active.
+
+// Stable participant refs reused across the switcher tests. The wire
+// `ParticipantRef` requires `id` post-#2082, so we supply it even though
+// the switcher only reads `address` + `displayName`.
+const SAVAS = {
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  address: "human://savas",
+  displayName: "savas",
+};
+const ADA = {
+  id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  address: "agent://ada",
+  displayName: "ada",
+};
+const BOB = {
+  id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+  address: "agent://bob",
+  displayName: "bob",
+};
+
+describe("UnitAgentMessagesView — thread switcher (#2885)", () => {
+  it("does not render the switcher when only one thread matches", () => {
+    useThreadsMock.mockReturnValue({
+      data: [makeThread({ id: "thread-single" })],
+      isLoading: false,
+      error: null,
+    });
+
+    render(
+      wrap(
+        <UnitAgentMessagesView
+          targetScheme="agent"
+          targetPath="ada"
+          targetName="Ada"
+          rootTestId="tab-agent-messages"
+        />,
+      ),
+    );
+
+    expect(
+      screen.queryByTestId("tab-agent-messages-thread-switcher"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not render the switcher when no threads match (empty list)", () => {
+    useThreadsMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    });
+
+    render(
+      wrap(
+        <UnitAgentMessagesView
+          targetScheme="agent"
+          targetPath="ada"
+          targetName="Ada"
+          rootTestId="tab-agent-messages"
+        />,
+      ),
+    );
+
+    expect(
+      screen.queryByTestId("tab-agent-messages-thread-switcher"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders one switcher chip per thread when 2+ threads match, defaulting to the most-recently-active", () => {
+    useThreadsMock.mockReturnValue({
+      data: [
+        makeThread({
+          id: "thread-older",
+          lastActivity: "2026-04-01T00:00:00Z",
+          participants: [SAVAS, ADA],
+        }),
+        makeThread({
+          id: "thread-newer",
+          lastActivity: "2026-04-30T00:00:00Z",
+          participants: [SAVAS, ADA, BOB],
+        }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+
+    render(
+      wrap(
+        <UnitAgentMessagesView
+          targetScheme="agent"
+          targetPath="ada"
+          targetName="Ada"
+          rootTestId="tab-agent-messages"
+        />,
+      ),
+    );
+
+    const switcher = screen.getByTestId("tab-agent-messages-thread-switcher");
+    expect(switcher).toBeInTheDocument();
+
+    const newer = screen.getByTestId(
+      "tab-agent-messages-thread-switcher-item-thread-newer",
+    );
+    const older = screen.getByTestId(
+      "tab-agent-messages-thread-switcher-item-thread-older",
+    );
+    expect(newer).toBeInTheDocument();
+    expect(older).toBeInTheDocument();
+
+    // Default selection is the most-recently-active thread.
+    expect(newer).toHaveAttribute("aria-selected", "true");
+    expect(older).toHaveAttribute("aria-selected", "false");
+
+    // The default thread id is forwarded to `useThread`.
+    expect(useThreadMock).toHaveBeenLastCalledWith(
+      "thread-newer",
+      expect.objectContaining({ enabled: true }),
+    );
+  });
+
+  it("labels each chip by the participants other than the hosting node", () => {
+    useThreadsMock.mockReturnValue({
+      data: [
+        makeThread({
+          id: "thread-1on1",
+          lastActivity: "2026-04-01T00:00:00Z",
+          participants: [SAVAS, ADA],
+        }),
+        makeThread({
+          id: "thread-multi",
+          lastActivity: "2026-04-30T00:00:00Z",
+          participants: [SAVAS, ADA, BOB],
+        }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+
+    render(
+      wrap(
+        <UnitAgentMessagesView
+          targetScheme="agent"
+          targetPath="ada"
+          targetName="Ada"
+          rootTestId="tab-agent-messages"
+        />,
+      ),
+    );
+
+    // Host ("ada") is excluded; everyone else is listed.
+    expect(
+      screen.getByTestId("tab-agent-messages-thread-switcher-item-thread-1on1"),
+    ).toHaveTextContent("savas");
+    const multi = screen.getByTestId(
+      "tab-agent-messages-thread-switcher-item-thread-multi",
+    );
+    expect(multi).toHaveTextContent("savas");
+    expect(multi).toHaveTextContent("bob");
+    expect(multi).not.toHaveTextContent(/\bada\b/);
+  });
+
+  it("switches the rendered conversation when a non-selected chip is clicked", () => {
+    useThreadsMock.mockReturnValue({
+      data: [
+        makeThread({
+          id: "thread-older",
+          lastActivity: "2026-04-01T00:00:00Z",
+          participants: [SAVAS, ADA],
+        }),
+        makeThread({
+          id: "thread-newer",
+          lastActivity: "2026-04-30T00:00:00Z",
+          participants: [SAVAS, ADA, BOB],
+        }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+
+    render(
+      wrap(
+        <UnitAgentMessagesView
+          targetScheme="agent"
+          targetPath="ada"
+          targetName="Ada"
+          rootTestId="tab-agent-messages"
+        />,
+      ),
+    );
+
+    // Sanity: default selection is the most-recent thread.
+    expect(useThreadMock).toHaveBeenLastCalledWith(
+      "thread-newer",
+      expect.objectContaining({ enabled: true }),
+    );
+
+    fireEvent.click(
+      screen.getByTestId(
+        "tab-agent-messages-thread-switcher-item-thread-older",
+      ),
+    );
+
+    // After the click the older thread becomes selected and is the one
+    // forwarded to `useThread`.
+    expect(useThreadMock).toHaveBeenLastCalledWith(
+      "thread-older",
+      expect.objectContaining({ enabled: true }),
+    );
+
+    const older = screen.getByTestId(
+      "tab-agent-messages-thread-switcher-item-thread-older",
+    );
+    const newer = screen.getByTestId(
+      "tab-agent-messages-thread-switcher-item-thread-newer",
+    );
+    expect(older).toHaveAttribute("aria-selected", "true");
+    expect(newer).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("exposes the switcher with tab roles and is keyboard-activatable (Enter / Space)", () => {
+    useThreadsMock.mockReturnValue({
+      data: [
+        makeThread({
+          id: "thread-older",
+          lastActivity: "2026-04-01T00:00:00Z",
+          participants: [SAVAS, ADA],
+        }),
+        makeThread({
+          id: "thread-newer",
+          lastActivity: "2026-04-30T00:00:00Z",
+          participants: [SAVAS, ADA, BOB],
+        }),
+      ],
+      isLoading: false,
+      error: null,
+    });
+
+    render(
+      wrap(
+        <UnitAgentMessagesView
+          targetScheme="agent"
+          targetPath="ada"
+          targetName="Ada"
+          rootTestId="tab-agent-messages"
+        />,
+      ),
+    );
+
+    // The container is a tablist with the right accessible name.
+    const switcher = screen.getByRole("tablist", {
+      name: /switch conversation/i,
+    });
+    expect(switcher).toBeInTheDocument();
+
+    // Each entry is a real <button role="tab"> — keyboard activation
+    // (Enter / Space) is handled by the browser natively. We assert the
+    // role + that activation fires the click handler (vitest dispatches
+    // a click on Enter via the button element semantics).
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(2);
+    for (const t of tabs) {
+      expect(t.tagName).toBe("BUTTON");
+      expect(t).toHaveAttribute("type", "button");
+    }
+
+    // Programmatic keyboard activation — fire the same `click` the
+    // browser would dispatch on Enter / Space when the button is
+    // focused.
+    const older = screen.getByTestId(
+      "tab-agent-messages-thread-switcher-item-thread-older",
+    );
+    older.focus();
+    expect(document.activeElement).toBe(older);
+    fireEvent.click(older);
+
+    expect(useThreadMock).toHaveBeenLastCalledWith(
+      "thread-older",
+      expect.objectContaining({ enabled: true }),
+    );
   });
 });

@@ -326,14 +326,16 @@ public sealed class SlackEventDispatcher : ISlackEventDispatcher
                 cancellationToken).ConfigureAwait(false);
         }
 
-        // Find a non-self participant to address the message to. The
-        // platform's downstream actor mailboxes pull the message from
-        // the To address; the simplest v0.1 shape is to deliver to
-        // the SV thread id (the routing layer will fan out to the
-        // thread's recipient participants). Here we read the thread's
-        // canonical participant set from the registry and pick a
-        // non-from participant as the To.
-        Address toAddress;
+        // Resolve the SV thread's canonical participant set. Per
+        // ADR-0060 §2 (`sv.messaging.send` semantics), an inbound
+        // message from one participant must reach every OTHER
+        // participant on the thread — IMessageRouter does NOT fan out
+        // for direct (human/agent/unit) recipient addresses; it only
+        // expands `role://` scopes. So the connector materialises one
+        // Message per non-sender participant, each with its own Id,
+        // sharing From, ThreadId, Payload, and Timestamp so all rows
+        // belong to the same logical inbound event (#2885).
+        IReadOnlyList<Address> recipients;
         await using (var threadScope = _scopeFactory.CreateAsyncScope())
         {
             var threadRegistry = threadScope.ServiceProvider.GetRequiredService<IThreadRegistry>();
@@ -355,32 +357,66 @@ public sealed class SlackEventDispatcher : ISlackEventDispatcher
                 return SlackEventDispatchOutcome.Handled;
             }
 
-            // Pick the first non-from participant. The platform's
-            // router handles the actual fan-out across the rest of
-            // the participant set per the message envelope.
-            toAddress = entry.Participants
+            recipients = entry.Participants
                 .Where(p => p is not null
                     && !(string.Equals(p.Scheme, fromAddress.Scheme, StringComparison.Ordinal)
                         && p.Id == fromAddress.Id))
-                .FirstOrDefault() ?? fromAddress;
+                .ToList();
+        }
+
+        if (recipients.Count == 0)
+        {
+            // A valid SV thread always carries at least one party
+            // besides the sender; an empty recipient set means the
+            // registry was seeded oddly (self-only) or the sender
+            // resolution drifted from the participant canonicalisation.
+            // Drop with audit rather than echoing back to self.
+            await _auditLog.RecordAsync(new SlackInboundAuditEvent(
+                EventType: "message.im",
+                TeamId: teamId,
+                SlackUserId: slackUserId,
+                ActingTenantUserId: matchedBound.TenantUserId,
+                Disposition: "dropped:no-recipients",
+                Detail: mapping.SvThreadId.ToString("N")), cancellationToken).ConfigureAwait(false);
+            return SlackEventDispatchOutcome.Handled;
         }
 
         var text = ExtractText(evt);
-        var domainMessage = new Message(
-            Id: Guid.NewGuid(),
-            From: fromAddress,
-            To: toAddress,
-            Type: MessageType.Domain,
-            ThreadId: mapping.SvThreadId.ToString("N"),
-            Payload: JsonSerializer.SerializeToElement(new
-            {
-                source = "slack",
-                text,
-            }, JsonOptions),
-            Timestamp: DateTimeOffset.UtcNow);
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            source = "slack",
+            text,
+        }, JsonOptions);
+        var sharedTimestamp = DateTimeOffset.UtcNow;
+        var threadIdString = mapping.SvThreadId.ToString("N");
 
-        var routeResult = await _messageRouter.RouteAsync(domainMessage, cancellationToken).ConfigureAwait(false);
-        var disposition = routeResult.IsSuccess ? "forwarded" : $"route-failed:{routeResult.Error?.Message}";
+        // Aggregate fan-out outcomes into a single audit event per
+        // inbound — the audit log captures one row per inbound, not
+        // one per recipient (ADR-0060 §2).
+        var failures = new List<string>(capacity: recipients.Count);
+        foreach (var recipient in recipients)
+        {
+            var perRecipientMessage = new Message(
+                Id: Guid.NewGuid(),
+                From: fromAddress,
+                To: recipient,
+                Type: MessageType.Domain,
+                ThreadId: threadIdString,
+                Payload: payload,
+                Timestamp: sharedTimestamp);
+
+            var routeResult = await _messageRouter
+                .RouteAsync(perRecipientMessage, cancellationToken)
+                .ConfigureAwait(false);
+            if (!routeResult.IsSuccess)
+            {
+                failures.Add($"{recipient}:{routeResult.Error?.Message}");
+            }
+        }
+
+        var disposition = failures.Count == 0
+            ? "forwarded"
+            : $"route-failed:{string.Join(';', failures)}";
 
         await _auditLog.RecordAsync(new SlackInboundAuditEvent(
             EventType: "message.im",
@@ -388,7 +424,7 @@ public sealed class SlackEventDispatcher : ISlackEventDispatcher
             SlackUserId: slackUserId,
             ActingTenantUserId: matchedBound.TenantUserId,
             Disposition: disposition,
-            Detail: mapping.SvThreadId.ToString("N")), cancellationToken).ConfigureAwait(false);
+            Detail: threadIdString), cancellationToken).ConfigureAwait(false);
 
         return SlackEventDispatchOutcome.Handled;
     }
