@@ -15,7 +15,7 @@
 // view exactly.
 
 import { Network } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   Suspense,
   useCallback,
@@ -142,7 +142,6 @@ function buildClientTimeline(
 }
 
 function InteractionsPageContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const urlString = searchParams.toString();
   const urlState = useMemo<InteractionsUrlState>(
@@ -158,11 +157,25 @@ function InteractionsPageContent() {
 
   const applyState = useCallback(
     (next: InteractionsUrlState) => {
-      setState(next);
       const search = writeUrlState(next);
-      router.replace(`/activity/interactions${search ? `?${search}` : ""}`);
+      const url = `/activity/interactions${search ? `?${search}` : ""}`;
+      // Update local state and URL in lockstep. We use `history.replaceState`
+      // rather than `router.replace` because the latter intermittently
+      // dropped the URL update under Next.js 16 — local state would flip
+      // (snapshot / SSE / pulse handlers all picked up the new mode) while
+      // the URL bar stayed on the pre-click value, breaking deep links and
+      // the activity-interactions e2e suite (test #3 in the rewind group).
+      // The native History API is the officially-documented escape hatch
+      // for in-page URL updates — Next.js's router observes pushState /
+      // replaceState so `useSearchParams()` re-runs without a server
+      // round-trip or RSC refetch.
+      // https://nextjs.org/docs/app/getting-started/linking-and-navigating#native-history-api
+      setState(next);
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", url);
+      }
     },
-    [router],
+    [],
   );
 
   const filters = useMemo(() => toSnapshotFilters(state), [state]);
@@ -351,10 +364,11 @@ function InteractionsPageContent() {
   }, [state.live]);
 
   // Resolve the window once per state change — both rewind-mode controls
-  // and the timeline footer caption reference it.
-  const window = useMemo(() => resolveWindow(state), [state]);
-  const windowSinceMs = useMemo(() => new Date(window.since).getTime(), [window]);
-  const windowUntilMs = useMemo(() => new Date(window.until).getTime(), [window]);
+  // and the timeline footer caption reference it. Named `viewWindow` (not
+  // `window`) so we don't shadow the global inside this client component.
+  const viewWindow = useMemo(() => resolveWindow(state), [state]);
+  const windowSinceMs = useMemo(() => new Date(viewWindow.since).getTime(), [viewWindow]);
+  const windowUntilMs = useMemo(() => new Date(viewWindow.until).getTime(), [viewWindow]);
 
   // Rewind cursor lives in page state (not URL — re-loading a deep-link
   // intentionally resets the cursor to 0 so the operator always starts
@@ -464,8 +478,8 @@ function InteractionsPageContent() {
         </div>
         {state.rewind ? (
           <InteractionRewind
-            since={new Date(window.since)}
-            until={new Date(window.until)}
+            since={new Date(viewWindow.since)}
+            until={new Date(viewWindow.until)}
             pulses={historyQuery.data?.pulses ?? []}
             cursorMs={rewindCursorMs}
             onCursorChange={setRewindCursorMs}
@@ -591,8 +605,8 @@ function InteractionsPageContent() {
       {/* Window summary tucked in the corner so deep-link consumers can
           see the materialised since/until they're looking at. */}
       <p className="text-[10px] text-muted-foreground">
-        Window: {new Date(window.since).toLocaleString()} →{" "}
-        {new Date(window.until).toLocaleString()}
+        Window: {new Date(viewWindow.since).toLocaleString()} →{" "}
+        {new Date(viewWindow.until).toLocaleString()}
       </p>
 
       {/* Hidden refresh button so tests + a11y users can refetch.
