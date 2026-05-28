@@ -68,7 +68,7 @@ The install command shape-checks `--sv-host` before contacting Slack. It warns w
 
 > **macOS heads-up.** Port 5000 is held by AirPlay Receiver on Monterey and newer; it returns a misleading `403 Forbidden` (with `Server: AirTunes/...`) that looks like an SV auth failure. The Caddy-fronted deploy on port 80 sidesteps this, but if you do run the API on `:5000` directly, disable **System Settings → General → AirDrop & Handoff → AirPlay Receiver** first.
 
-For local development, pair `--socket-mode` with [`eng/deploy/slack-events-forward.sh`](#local-dev-socket-mode-recommended). With Socket Mode enabled, Slack delivers events / slash commands / interactions over a WebSocket the bridge opens outbound — no public HTTPS endpoint is required.
+For local development, pair `--socket-mode` with [`spring connector slack forward`](#local-dev-socket-mode-recommended). With Socket Mode enabled, Slack delivers events / slash commands / interactions over a WebSocket the bridge opens outbound — no public HTTPS endpoint is required.
 
 ## Path B — Create from manifest (web UI)
 
@@ -289,7 +289,7 @@ In both cases, register a **separate "dev" Slack app** — do not share one Slac
 
 [Socket Mode](https://api.slack.com/apis/socket-mode) lets a Slack app receive events, slash commands, and interactions over a long-lived WebSocket the bot opens outbound to Slack. The events / commands / interactions URLs in the manifest are ignored while Socket Mode is on, so they can stay pointed at `http://localhost` without breaking anything. The OAuth callback still needs to be reachable from the operator's browser — the default Caddy-fronted deploy on `http://localhost` works for that out of the box.
 
-`eng/deploy/slack-events-forward.sh` is the bridge: it opens the Socket Mode WebSocket, replays every inbound envelope as a signed HTTPS POST against the local Spring Voyage API, and forwards the API's response back to Slack as the ack payload.
+`spring connector slack forward` is the bridge: it opens the Socket Mode WebSocket, replays every inbound envelope as a signed HTTPS POST against the local Spring Voyage API, and forwards the API's response back to Slack as the ack payload.
 
 #### 1. Register the dev app with `--socket-mode`
 
@@ -328,11 +328,14 @@ Slack__SocketMode__AppToken=xapp-…
 #   serves at http://localhost (Caddy fronting spring-api:8080)
 
 # Terminal 2 — the Socket Mode bridge
-./eng/deploy/slack-events-forward.sh
+set -a; source eng/config/spring.env; set +a
+spring connector slack forward
 #   prints "[forward] connected — waiting for events"
 ```
 
-The bridge reads `Slack__SocketMode__AppToken` and `Slack__OAuth__SigningSecret` from `eng/config/spring.env`, opens the WebSocket, and starts replaying events. Pass `--target http://localhost:<port>` if the API is on a non-default port. Stop the bridge with Ctrl-C; the script's outer loop restarts the CLI on a hard crash, but auth-class Slack errors (`invalid_auth`, `missing_scope`, `token_revoked`) are reported as fatal and bail out immediately.
+The bridge reads `Slack__SocketMode__AppToken` and `Slack__OAuth__SigningSecret` from the environment (sourced from `eng/config/spring.env` above), opens the WebSocket, and starts replaying events. Pass `--target http://localhost:<port>` if the API is on a non-default port, or `--app-token` / `--signing-secret` to override the env-var fallback (useful when credentials live in tenant / platform secrets rather than the env file). Stop the bridge with Ctrl-C.
+
+> If you ran `spring connector slack install --write-tenant-secrets` (or `--write-secrets`), the signing secret is not in `spring.env` — read it back with `spring secret --scope <tenant|platform> get slack-oauth-signing-secret` and pass it via `--signing-secret`.
 
 Drive the install from the local portal at `http://localhost/connectors/slack`. The bot DM with the OAuth installer is the canonical place to confirm the install greeting landed.
 

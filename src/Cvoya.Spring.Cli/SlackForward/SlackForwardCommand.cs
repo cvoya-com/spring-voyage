@@ -21,9 +21,7 @@ using System.Threading.Tasks;
 /// <para>
 /// The local-dev counterpart of <c>eng/deploy/gh-webhook-forward.sh</c> for
 /// GitHub. Slack publishes no equivalent CLI (no <c>slack webhook
-/// forward</c>), so the bridge lives in the CLI itself; the bash wrapper at
-/// <c>eng/deploy/slack-events-forward.sh</c> is the operator-facing entry
-/// point.
+/// forward</c>), so the bridge lives in the CLI itself.
 /// </para>
 /// <para>
 /// Signature minting matches the contract enforced by the connector's

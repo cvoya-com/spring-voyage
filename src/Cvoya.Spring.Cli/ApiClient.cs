@@ -1677,6 +1677,37 @@ public class SpringApiClient
         }
     }
 
+    /// <summary>
+    /// Begins a Slack OAuth install flow. POST
+    /// <c>/api/v1/tenant/connectors/slack/oauth/authorize</c>. Returns
+    /// the Slack consent URL with a state token baked in. Required
+    /// because Slack's <c>manifest.create</c> response carries an
+    /// install URL that has no <c>state</c> param, so the SV callback
+    /// rejects it (issue: empty state on the callback redirect).
+    /// </summary>
+    /// <param name="clientState">
+    /// Opaque JSON echoed back on the callback. Portal callers pass
+    /// <c>{"targetOrigin": …}</c>; CLI callers pass <c>null</c> — the
+    /// callback page just renders its fallback HTML.
+    /// </param>
+    public async Task<SlackAuthorizeResponse> BeginSlackOAuthAuthorizationAsync(
+        string? clientState,
+        CancellationToken ct = default)
+    {
+        var inner = new SlackAuthorizeRequest
+        {
+            ClientState = clientState,
+        };
+        var body = new global::Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Connectors.Slack.Oauth.Authorize.AuthorizeRequestBuilder.AuthorizePostRequestBody
+        {
+            SlackAuthorizeRequest = inner,
+        };
+        var result = await _client.Api.V1.Tenant.Connectors.Slack.Oauth.Authorize
+            .PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            "Server returned an empty BeginSlackOAuthAuthorization response.");
+    }
+
     // Unit team-role membership (#2409 / ADR-0044 § 3). Backs
     // `spring unit members humans add|list|update|remove`.
 
