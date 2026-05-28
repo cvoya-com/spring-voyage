@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Connector.Slack.Auth.OAuth;
 
+using System.Net;
 using System.Text.Json;
 
 using Microsoft.AspNetCore.Builder;
@@ -23,7 +24,7 @@ using Microsoft.AspNetCore.Routing;
 /// </para>
 /// <list type="number">
 ///   <item><description><b>authorize</b> — build the Slack consent URL and persist the OAuth state.</description></item>
-///   <item><description><b>callback</b> — exchange <c>code</c> for an access token via <c>oauth.v2.access</c>, call <c>team.info</c> to detect Enterprise Grid, then persist the binding + workspace-map row + tenant secrets atomically. Renders an HTML page that posts the outcome back to <c>window.opener</c> per issue #2837.</description></item>
+///   <item><description><b>callback</b> — exchange <c>code</c> for an access token via <c>oauth.v2.access</c>, refuse Enterprise Grid installs based on the <c>enterprise.id</c> field on that response, then persist the binding + workspace-map row + tenant secrets atomically. Renders an HTML page that posts the outcome back to <c>window.opener</c> per issue #2837.</description></item>
 ///   <item><description><b>disconnect</b> — call <c>auth.revoke</c> against the bot token, then delete the binding row + workspace-map row + tenant secrets.</description></item>
 /// </list>
 /// </summary>
@@ -265,6 +266,15 @@ public static class SlackOAuthEndpoints
             ? "/* postMessage skipped: no targetOrigin in clientState */"
             : $"if (window.opener && !window.opener.closed) {{ window.opener.postMessage({messageJson}, {JsonSerializer.Serialize(targetOrigin)}); }}";
 
+        // Render the error detail directly in the page body for the
+        // no-opener path (CLI installs, direct-API callers). The portal
+        // popup still reads the same detail off the postMessage payload
+        // — but without this, the operator sees only the generic title
+        // and has nowhere to go to find the underlying Slack error.
+        var detailHtml = status == CallbackStatus.Error
+            ? $"<p>{WebUtility.HtmlEncode(message)}</p>"
+            : string.Empty;
+
         var html = $$"""
             <!doctype html>
             <html lang="en">
@@ -276,6 +286,7 @@ public static class SlackOAuthEndpoints
             <body>
               <main>
                 <h1>{{title}}</h1>
+                {{detailHtml}}
                 <p>{{fallback}}</p>
               </main>
               <script>
