@@ -147,8 +147,7 @@ public class SlackInstallCommandTests
                     "client_secret": "client-secret-body",
                     "signing_secret": "signing-secret-body",
                     "verification_token": "verification-token-body"
-                  },
-                  "oauth_authorize_url": "https://slack.com/oauth/v2/authorize?client_id=1234.5678"
+                  }
                 }
                 """),
         });
@@ -191,8 +190,12 @@ public class SlackInstallCommandTests
             contents.ShouldContain(
                 "Slack__OAuth__RedirectUri=https://sv.example.com/api/v1/tenant/connectors/slack/oauth/callback");
 
-            // Stdout summary prints the OAuth install URL Slack returned.
-            stdout.ToString().ShouldContain("https://slack.com/oauth/v2/authorize?client_id=1234.5678");
+            // Env mode can't pre-mint a state-bearing URL because the
+            // running service hasn't reloaded Slack:OAuth:* yet. Direct
+            // operators at the portal entry point instead.
+            var output = stdout.ToString();
+            output.ShouldContain("https://sv.example.com/connectors/slack");
+            output.ShouldNotContain("slack.com/oauth/v2/authorize");
         }
         finally
         {
@@ -201,11 +204,13 @@ public class SlackInstallCommandTests
     }
 
     [Fact]
-    public async Task RunAsync_HappyPath_NoSlackInstallUrl_FallsBackToSvAuthorize()
+    public async Task RunAsync_HappyPath_WriteTenantSecrets_PreMintsStateBearingUrl()
     {
-        // Slack may not return oauth_authorize_url when the app needs
-        // additional manual setup. The CLI should fall back to the SV
-        // authorize endpoint so the operator still sees a clickable URL.
+        // Issue: Slack's manifest.create.oauth_authorize_url has no
+        // `state` param, so the SV callback rejects it. For tenant /
+        // platform persistence the secret registry resolves per-call,
+        // so the CLI can call SV's /oauth/authorize right away to get
+        // a state-bearing consent URL. This test exercises that path.
         using var mockSlack = await MockSlackServer.StartAsync(new Dictionary<string, MockSlackServer.RouteHandler>
         {
             ["/api/apps.manifest.validate"] = _ => (HttpStatusCode.OK, """{"ok":true}"""),
@@ -216,41 +221,145 @@ public class SlackInstallCommandTests
                   "credentials": {
                     "client_id": "1234.5678",
                     "client_secret": "client-secret-body",
-                    "signing_secret": "signing-secret-body"
+                    "signing_secret": "signing-secret-body",
+                    "verification_token": "verification-token-body"
+                  },
+                  "oauth_authorize_url": "https://slack.com/oauth/v2/authorize?client_id=1234.5678"
+                }
+                """),
+        });
+
+        var routes = new List<MockSpringApiServer.RouteRule>
+        {
+            new(
+                "POST",
+                "/api/v1/tenant/secrets",
+                MockSpringApiServer.RouteMatch.Exact,
+                (method, path, body) =>
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(body);
+                    var name = doc.RootElement.GetProperty("name").GetString()!;
+                    return (HttpStatusCode.OK, $$"""{"name":"{{name}}","version":1}""");
+                }),
+            new(
+                "POST",
+                "/api/v1/tenant/connectors/slack/oauth/authorize",
+                MockSpringApiServer.RouteMatch.Exact,
+                (method, path, body) => (HttpStatusCode.OK, """
+                    {
+                      "authorizeUrl": "https://slack.com/oauth/v2/authorize?client_id=1234.5678&state=svstate1",
+                      "state": "svstate1"
+                    }
+                    """)),
+        };
+        using var mockApi = await MockSpringApiServer.StartAsync(routes);
+
+        using var http = new HttpClient();
+        SpringApiClient ApiClientFactory() => new(new HttpClient(), mockApi.BaseUrl);
+
+        var stdout = new StringWriter();
+        await SlackInstallCommand.RunAsync(
+            configToken: "xoxe.test-token",
+            appName: "Spring Voyage (test)",
+            svHostOverride: "https://sv.example.com",
+            writeEnv: false,
+            writeSecrets: false,
+            writeTenantSecrets: true,
+            envFilePathOverride: null,
+            socketMode: false,
+            dryRun: false,
+            cancellationToken: CancellationToken.None,
+            httpClientOverride: http,
+            slackBaseUrlOverride: mockSlack.BaseUrl,
+            apiClientFactoryOverride: ApiClientFactory,
+            stdout: stdout);
+
+        // Tenant-secret writes (6 keys) + the authorize call = 7 POSTs.
+        var authorizeCalls = 0;
+        foreach (var req in mockApi.Received)
+        {
+            if (req.Path == "/api/v1/tenant/connectors/slack/oauth/authorize" && req.Method == "POST")
+            {
+                authorizeCalls++;
+            }
+        }
+        authorizeCalls.ShouldBe(1);
+
+        // The printed URL is SV's state-bearing one, NOT Slack's
+        // stateless manifest.create.oauth_authorize_url.
+        var output = stdout.ToString();
+        output.ShouldContain("state=svstate1");
+        output.ShouldNotContain("client_id=1234.5678&\n"); // sanity: not the bare manifest URL
+    }
+
+    [Fact]
+    public async Task RunAsync_HappyPath_WriteTenantSecrets_AuthorizeFailure_FallsBackToPortal()
+    {
+        // If /oauth/authorize fails (e.g. server unreachable, resolver
+        // cache lag, mis-config), the credentials have already been
+        // written so we don't roll back. The success printer falls
+        // back to the portal install entry point.
+        using var mockSlack = await MockSlackServer.StartAsync(new Dictionary<string, MockSlackServer.RouteHandler>
+        {
+            ["/api/apps.manifest.validate"] = _ => (HttpStatusCode.OK, """{"ok":true}"""),
+            ["/api/apps.manifest.create"] = _ => (HttpStatusCode.OK, """
+                {
+                  "ok": true,
+                  "app_id": "A0123",
+                  "credentials": {
+                    "client_id": "1234.5678",
+                    "client_secret": "client-secret-body",
+                    "signing_secret": "signing-secret-body",
+                    "verification_token": "verification-token-body"
                   }
                 }
                 """),
         });
 
-        var envDir = Path.Combine(Path.GetTempPath(), $"spring-slack-test-{Guid.NewGuid()}");
-        Directory.CreateDirectory(envDir);
-        var envPath = Path.Combine(envDir, "spring.env");
-        using var http = new HttpClient();
-        var stdout = new StringWriter();
-        try
+        var routes = new List<MockSpringApiServer.RouteRule>
         {
-            await SlackInstallCommand.RunAsync(
-                configToken: "xoxe.test-token",
-                appName: "Spring Voyage (test)",
-                svHostOverride: "https://sv.example.com",
-                writeEnv: true,
-                writeSecrets: false,
-                writeTenantSecrets: false,
-                envFilePathOverride: envPath,
-                socketMode: false,
-                dryRun: false,
-                cancellationToken: CancellationToken.None,
-                httpClientOverride: http,
-                slackBaseUrlOverride: mockSlack.BaseUrl,
-                stdout: stdout);
+            new(
+                "POST",
+                "/api/v1/tenant/secrets",
+                MockSpringApiServer.RouteMatch.Exact,
+                (method, path, body) =>
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(body);
+                    var name = doc.RootElement.GetProperty("name").GetString()!;
+                    return (HttpStatusCode.OK, $$"""{"name":"{{name}}","version":1}""");
+                }),
+            new(
+                "POST",
+                "/api/v1/tenant/connectors/slack/oauth/authorize",
+                MockSpringApiServer.RouteMatch.Exact,
+                (method, path, body) => (HttpStatusCode.BadGateway,
+                    """{"title":"Slack OAuth is not configured","status":502}""")),
+        };
+        using var mockApi = await MockSpringApiServer.StartAsync(routes);
 
-            stdout.ToString().ShouldContain(
-                "https://sv.example.com/api/v1/tenant/connectors/slack/oauth/authorize");
-        }
-        finally
-        {
-            Directory.Delete(envDir, recursive: true);
-        }
+        using var http = new HttpClient();
+        SpringApiClient ApiClientFactory() => new(new HttpClient(), mockApi.BaseUrl);
+
+        var stdout = new StringWriter();
+        await SlackInstallCommand.RunAsync(
+            configToken: "xoxe.test-token",
+            appName: "Spring Voyage (test)",
+            svHostOverride: "https://sv.example.com",
+            writeEnv: false,
+            writeSecrets: false,
+            writeTenantSecrets: true,
+            envFilePathOverride: null,
+            socketMode: false,
+            dryRun: false,
+            cancellationToken: CancellationToken.None,
+            httpClientOverride: http,
+            slackBaseUrlOverride: mockSlack.BaseUrl,
+            apiClientFactoryOverride: ApiClientFactory,
+            stdout: stdout);
+
+        var output = stdout.ToString();
+        output.ShouldContain("Could not pre-mint a state-bearing install URL");
+        output.ShouldContain("https://sv.example.com/connectors/slack");
     }
 
     [Fact]

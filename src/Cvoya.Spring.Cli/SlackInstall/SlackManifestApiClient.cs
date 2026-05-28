@@ -176,9 +176,6 @@ public sealed class SlackManifestCreateResult
 
     [JsonPropertyName("credentials")]
     public SlackManifestCredentials? Credentials { get; set; }
-
-    [JsonPropertyName("oauth_authorize_url")]
-    public string? OAuthAuthorizeUrl { get; set; }
 }
 
 /// <summary>Credentials block returned alongside the new app id.</summary>

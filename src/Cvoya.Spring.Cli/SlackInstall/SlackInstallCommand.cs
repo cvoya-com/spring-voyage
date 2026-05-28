@@ -96,7 +96,7 @@ public static class SlackInstallCommand
                 "then delivers events, slash commands, and interactions over a " +
                 "WebSocket the bot opens outbound, bypassing the public-URL " +
                 "requirement for those surfaces (the OAuth redirect URL is " +
-                "still required). Pair with `eng/deploy/slack-events-forward.sh` " +
+                "still required). Pair with `spring connector slack forward` " +
                 "for local-dev installs that have no public tunnel.",
             DefaultValueFactory = _ => false,
         };
@@ -265,10 +265,19 @@ public static class SlackInstallCommand
                 VerificationToken: createResult.Credentials.VerificationToken,
                 RedirectUri: redirectUri);
 
+            // For non-env persistence the connector resolves OAuth
+            // config per-call, so the credentials we just wrote are
+            // immediately visible. Reuse the same client to pre-mint a
+            // state-bearing Slack consent URL — Slack's
+            // manifest.create.oauth_authorize_url field carries no
+            // state token, which makes SV's callback reject the
+            // redirect with "Both 'code' and 'state' query parameters
+            // are required."
+            SpringApiClient? apiClient = null;
             SlackCredentialWriter.WriteOutcome outcome;
             if (persistence == Persistence.WriteSecrets)
             {
-                var apiClient = apiClientFactoryOverride is null
+                apiClient = apiClientFactoryOverride is null
                     ? ClientFactory.Create()
                     : apiClientFactoryOverride();
                 outcome = await SlackCredentialWriter.WriteSecretsAsync(
@@ -276,7 +285,7 @@ public static class SlackInstallCommand
             }
             else if (persistence == Persistence.WriteTenantSecrets)
             {
-                var apiClient = apiClientFactoryOverride is null
+                apiClient = apiClientFactoryOverride is null
                     ? ClientFactory.Create()
                     : apiClientFactoryOverride();
                 outcome = await SlackCredentialWriter.WriteTenantSecretsAsync(
@@ -290,7 +299,32 @@ public static class SlackInstallCommand
                     cancellationToken).ConfigureAwait(false);
             }
 
-            PrintSuccess(stdout, createResult, outcome, resolvedHost, persistence, socketMode);
+            // Env persistence requires a restart before the connector
+            // sees the new config, so we don't even try to fetch the
+            // authorize URL — the operator goes through the portal
+            // post-restart. For the other modes, fetch a state-bearing
+            // URL and print it; on any failure, fall back to the
+            // portal entry point.
+            string? installUrl = null;
+            string? installUrlFailure = null;
+            if (apiClient is not null)
+            {
+                try
+                {
+                    var authorize = await apiClient
+                        .BeginSlackOAuthAuthorizationAsync(clientState: null, cancellationToken)
+                        .ConfigureAwait(false);
+                    installUrl = authorize.AuthorizeUrl;
+                }
+                catch (Exception ex)
+                {
+                    installUrlFailure = ex.Message;
+                }
+            }
+
+            PrintSuccess(
+                stdout, createResult, outcome, resolvedHost, persistence, socketMode,
+                installUrl, installUrlFailure);
         }
         finally
         {
@@ -417,7 +451,7 @@ public static class SlackInstallCommand
                 "WARNING: sv-host is a loopback address. Slack's servers cannot reach " +
                 "localhost — events, slash commands, and interactions will not be " +
                 "delivered. For local dev, re-run with `--socket-mode` and use " +
-                "`eng/deploy/slack-events-forward.sh` to bridge them.");
+                "`spring connector slack forward` to bridge them.");
             stdout.WriteLine();
         }
 
@@ -518,7 +552,9 @@ public static class SlackInstallCommand
         SlackCredentialWriter.WriteOutcome outcome,
         string svHost,
         Persistence persistence,
-        bool socketMode)
+        bool socketMode,
+        string? installUrl,
+        string? installUrlFailure)
     {
         stdout.WriteLine();
         stdout.WriteLine("Slack app created.");
@@ -539,21 +575,28 @@ public static class SlackInstallCommand
             }
         }
         stdout.WriteLine();
-        stdout.WriteLine("Next step: install the app on a workspace. Open:");
-        if (!string.IsNullOrWhiteSpace(result.OAuthAuthorizeUrl))
+        stdout.WriteLine("Next step: install the app on a workspace.");
+        var portalSlackUrl = UrlPath.Combine(svHost, "/connectors/slack");
+        if (!string.IsNullOrWhiteSpace(installUrl))
         {
-            // Slack's manifest.create returns the install URL directly
-            // when the app is configured to support it; use it verbatim.
-            stdout.WriteLine($"  {result.OAuthAuthorizeUrl}");
+            stdout.WriteLine("  Open the Slack consent URL (state-bearing) in a browser:");
+            stdout.WriteLine($"    {installUrl}");
+        }
+        else if (persistence == Persistence.WriteEnv)
+        {
+            stdout.WriteLine(
+                "  Restart any running services so they pick up the new Slack:OAuth:* config,");
+            stdout.WriteLine($"  then open {portalSlackUrl} and click 'Install Slack'.");
         }
         else
         {
-            // Fall back to SV's OAuth authorize endpoint — the portal
-            // starts the flow from there too (see #2815 / #2836).
-            var fallback = UrlPath.Combine(
-                svHost,
-                "/api/v1/tenant/connectors/slack/oauth/authorize");
-            stdout.WriteLine($"  {fallback}");
+            stdout.WriteLine(
+                $"  Could not pre-mint a state-bearing install URL from {svHost}.");
+            if (!string.IsNullOrWhiteSpace(installUrlFailure))
+            {
+                stdout.WriteLine($"  Reason: {installUrlFailure}");
+            }
+            stdout.WriteLine($"  Open {portalSlackUrl} and click 'Install Slack' to retry.");
         }
         stdout.WriteLine();
         if (persistence == Persistence.WriteEnv)
@@ -573,9 +616,22 @@ public static class SlackInstallCommand
             stdout.WriteLine("Socket Mode is enabled. To receive events / commands / interactions locally:");
             stdout.WriteLine($"  1. Open https://api.slack.com/apps/{result.AppId}/general → 'App-Level Tokens'.");
             stdout.WriteLine("  2. Generate a token with the 'connections:write' scope. Copy the xapp-… token.");
-            stdout.WriteLine("  3. Add it to eng/config/spring.env as:");
-            stdout.WriteLine("       Slack__SocketMode__AppToken=xapp-…");
-            stdout.WriteLine("  4. Run eng/deploy/slack-events-forward.sh to bridge Socket Mode → localhost.");
+            if (persistence == Persistence.WriteEnv)
+            {
+                stdout.WriteLine("  3. Add it to eng/config/spring.env as:");
+                stdout.WriteLine("       Slack__SocketMode__AppToken=xapp-…");
+                stdout.WriteLine("  4. Source the env file and run the bridge:");
+                stdout.WriteLine("       set -a; source eng/config/spring.env; set +a");
+                stdout.WriteLine("       spring connector slack forward");
+            }
+            else
+            {
+                stdout.WriteLine("  3. Run the bridge — pass the app-level token and the signing secret");
+                stdout.WriteLine("     (read the signing secret back from your secret store):");
+                stdout.WriteLine("       spring connector slack forward \\");
+                stdout.WriteLine("         --app-token xapp-… \\");
+                stdout.WriteLine("         --signing-secret <slack-oauth-signing-secret>");
+            }
         }
     }
 

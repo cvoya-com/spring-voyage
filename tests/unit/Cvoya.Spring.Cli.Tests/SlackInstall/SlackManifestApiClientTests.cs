@@ -96,7 +96,6 @@ public class SlackManifestApiClientTests
         result.Credentials.ClientSecret.ShouldBe("client-secret-body");
         result.Credentials.SigningSecret.ShouldBe("signing-secret-body");
         result.Credentials.VerificationToken.ShouldBe("verification-token-body");
-        result.OAuthAuthorizeUrl.ShouldStartWith("https://slack.com/oauth/v2/authorize");
     }
 
     [Fact]
