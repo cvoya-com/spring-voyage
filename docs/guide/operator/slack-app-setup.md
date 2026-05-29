@@ -91,6 +91,10 @@ display_information:
   description: Spring Voyage — agent platform integration for this Slack workspace.
   background_color: "#0a0a0a"
 features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: Spring Voyage
     always_online: true
@@ -175,6 +179,7 @@ Under **Features → App Home**:
 
 - Tick **Always Show My Bot as Online**.
 - Set the bot's display name to `Spring Voyage` (or your preferred branding — this is what appears in users' DM sidebars and in `chat.postMessage` posts when the persona override is not applied).
+- Under **Show Tabs**, toggle the **Messages Tab** **on** and tick **Allow users to send Slash commands and messages from the messages tab**. Without this Slack defaults the tab off, the bound user sees _"Sending messages to this app has been turned off"_, and cannot DM the bot — which breaks the DM-only premise of [ADR-0061 § 2.2](../../decisions/0061-slack-connector-oss-shape.md). Leave the **Home Tab** off; the v0.1 connector ships no Home view.
 
 ### 3. Configure OAuth + redirect URL
 
@@ -415,8 +420,11 @@ Common failures and where to look:
 - **OAuth popup closes with `oauth_not_configured`.** One of the four Slack OAuth credential fields is missing across every persistence tier (tenant-secret, platform-secret, env-config). Check the platform logs for the exact `Slack OAuth <Key> is not configured` message — the message names the field and points at `spring connector slack install` (with `--write-env`, `--write-secrets`, or `--write-tenant-secrets`).
 - **Slash commands return "dispatch_failed"** in Slack. Either the platform is not reachable at the registered slash-command URL, the signature verification is failing (signing-secret mismatch), or the command is being invoked outside the bot DM — Slack's reply is the ephemeral DM-only refusal text per ADR-0061 § 5.
 
+**Now what?** Once the bot DM is live and `/sv-help` responds, see **[Using the Slack bot](slack-usage.md)** for the day-to-day usage model — the three slash commands, how SV threads map onto Slack threads, the refusal behaviours, and a one-minute end-to-end smoke test.
+
 ## Related documentation
 
+- [Using the Slack bot](slack-usage.md) — day-to-day usage once installed: the slash commands, SV-thread ↔ Slack-thread mapping, refusal behaviours, and a smoke test.
 - [Deployment guide](deployment.md) — env-file shape and quirks (the Slack block lives alongside the GitHub block).
 - [Managing Secrets](secrets.md) — tier model for OAuth credentials and the per-tenant bot-token / signing-secret rows the OAuth callback writes.
 - [Connectors operator guide](connectors.md) — installing, inspecting, and uninstalling connectors per tenant.

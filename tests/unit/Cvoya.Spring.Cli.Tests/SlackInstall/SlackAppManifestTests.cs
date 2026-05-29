@@ -41,6 +41,28 @@ public class SlackAppManifestTests
     }
 
     [Fact]
+    public void BuildJson_AppHome_EnablesMessagesTab_PerAdr0061Section22()
+    {
+        // Regression for #2881: a missing features.app_home block defaults the
+        // Messages Tab off, so the bound user sees "Sending messages to this
+        // app has been turned off" and cannot DM the bot — breaking the DM-only
+        // premise of ADR-0061 §2.2. The manifest must enable the Messages Tab
+        // and keep it writable; the Home Tab stays off (no v0.1 Home view).
+        var json = SlackAppManifest.BuildJson(new SlackAppManifest.Inputs(
+            AppName: "x",
+            SvHost: "https://sv.example.com"));
+
+        using var doc = JsonDocument.Parse(json);
+        var appHome = doc.RootElement
+            .GetProperty("features")
+            .GetProperty("app_home");
+
+        appHome.GetProperty("home_tab_enabled").GetBoolean().ShouldBeFalse();
+        appHome.GetProperty("messages_tab_enabled").GetBoolean().ShouldBeTrue();
+        appHome.GetProperty("messages_tab_read_only_enabled").GetBoolean().ShouldBeFalse();
+    }
+
+    [Fact]
     public void BuildJson_BotScopes_MatchAdr0061Section6()
     {
         // ADR-0061 §6 fixes the bot scopes; the manifest must request
