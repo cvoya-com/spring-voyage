@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Tests.Prompts;
 
 using System.Globalization;
+using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 
@@ -18,10 +19,12 @@ using Xunit;
 /// <summary>
 /// Contract tests for the inbound-envelope rendering (#2746). Pins the
 /// shape the dispatcher hands to the runtime: bullet header naming
-/// <c>from</c>/<c>to</c>/<c>message_id</c>/<c>timestamp</c>/<c>payload</c>,
+/// <c>from</c>/<c>to</c>/<c>participants</c>/<c>message_id</c>/<c>timestamp</c>/<c>payload</c>,
 /// followed by a fenced JSON appendix that carries the structured payload
-/// verbatim, followed by the "decide what to do, call sv.messaging.send"
-/// instruction. The envelope never names <c>thread_id</c> (per #2747).
+/// verbatim, followed by the "decide what to do, call sv.messaging.respond_to
+/// or sv.messaging.send" instruction. The envelope never names
+/// <c>thread_id</c> (per #2747). <c>participants</c> is the routable roster
+/// added by ADR-0064.
 /// </summary>
 public class InboundEnvelopeBuilderTests
 {
@@ -38,7 +41,8 @@ public class InboundEnvelopeBuilderTests
     private static string Render(
         JsonElement payload,
         string? senderDisplayName = "Alice",
-        IReadOnlyList<Address>? recipients = null)
+        IReadOnlyList<Address>? recipients = null,
+        IReadOnlyList<Address>? participants = null)
     {
         var inbound = new Message(
             Guid.NewGuid(),
@@ -49,11 +53,15 @@ public class InboundEnvelopeBuilderTests
             payload,
             KnownTimestamp);
 
+        var to = recipients ?? new[] { Self };
+        // Default roster: the recipients plus the routable sender (ADR-0064).
+        var roster = participants ?? to.Concat(new[] { Sender }).ToList();
+
         var renderMethod = typeof(InboundEnvelopeBuilder).GetMethod(
             "Render", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)!;
         return (string)renderMethod.Invoke(
             null,
-            new object?[] { inbound, senderDisplayName, recipients ?? new[] { Self } })!;
+            new object?[] { inbound, senderDisplayName, to, roster })!;
     }
 
     [Fact]
@@ -91,6 +99,22 @@ public class InboundEnvelopeBuilderTests
             recipients: new[] { Self, Other });
 
         rendered.ShouldContain($"- to: [{Self}, {Other}]");
+    }
+
+    [Fact]
+    public void Render_NamesParticipantsRoster_IncludingRoutableSender()
+    {
+        // ADR-0064 — `participants` is the full routable roster: `to`
+        // together with the routable sender. It is the set
+        // sv.messaging.respond_to delivers to. Distinct from `to`, which
+        // excludes the sender.
+        var rendered = Render(
+            JsonSerializer.SerializeToElement("hello"),
+            recipients: new[] { Self, Other },
+            participants: new[] { Self, Other, Sender });
+
+        rendered.ShouldContain($"- to: [{Self}, {Other}]");
+        rendered.ShouldContain($"- participants: [{Self}, {Other}, {Sender}]");
     }
 
     [Fact]
@@ -140,23 +164,28 @@ public class InboundEnvelopeBuilderTests
     {
         var rendered = Render(
             JsonSerializer.SerializeToElement("hi"),
-            recipients: new[] { Self, Other });
+            recipients: new[] { Self, Other },
+            participants: new[] { Self, Other, Sender });
 
         rendered.ShouldContain("```json");
         rendered.ShouldContain($"\"from\": \"{Sender}\"");
         rendered.ShouldContain("\"from_display_name\": \"Alice\"");
-        rendered.ShouldContain($"\"to\":");
+        rendered.ShouldContain("\"to\":");
+        rendered.ShouldContain("\"participants\":");
         rendered.ShouldContain(KnownTimestamp.ToString("O", CultureInfo.InvariantCulture));
         rendered.ShouldContain("\"payload\": \"hi\"");
     }
 
     [Fact]
-    public void Render_PointsRuntimeAtMessagingSend()
+    public void Render_PointsRuntimeAtContinuationAndSend()
     {
         var rendered = Render(JsonSerializer.SerializeToElement("hi"));
 
+        // ADR-0064 — continuation (respond_to) is the default reply-all path;
+        // send starts a new conversation or addresses a different set.
+        rendered.ShouldContain("`sv.messaging.respond_to`");
         rendered.ShouldContain("`sv.messaging.send`");
-        // Nudges the runtime that stdout is reasoning trace, not a reply.
+        // Nudges the runtime that stdout is reasoning trace, not delivered.
         rendered.ShouldContain("stdout text is a diagnostic reasoning trace");
     }
 }

@@ -82,7 +82,7 @@ public class PlatformPromptProvider : IPlatformPromptProvider
 
         1. **Reads are free; side effects are tool calls.** Reads — directory queries (`sv.directory.*`), tool discovery (`sv.tools.*`), HTTP GETs against connected systems, file reads under your workspace — do not reach other participants, so use them freely to inform decisions. **Side effects** — anything that becomes visible to another participant or to a connected system — happen only through tool calls. There is no other channel: terminal output (stdout) is captured as a diagnostic reasoning trace for operators, it is NOT delivered to the human, agent, or unit that sent the message you are processing. A turn that produces only terminal text and invokes no tools delivers nothing to anyone.
 
-        2. **Send messages to humans, agents, and units through the messaging tools.** Communicate with other participants by calling `sv.messaging.send` (deliver one message to one or more recipients on a single shared thread) or `sv.messaging.multicast` (deliver the same message to several recipients, each on its own 1-1 thread). Valid recipient kinds are `human:<uuid>`, `agent:<uuid>`, and `unit:<uuid>`. Connector addresses (`connector:<uuid>`) appear on inbound messages as a `from` — they translate external events into platform messages — but are non-routable as recipients; passing one to a messaging tool returns an `UnroutableTarget` error. The platform infers the thread from the participant set and auto-includes you, so you do not list yourself in `recipients`.
+        2. **Send messages to humans, agents, and units through the messaging tools.** Communicate with other participants by calling `sv.messaging.send` (deliver one message to one or more recipients on a single shared thread), `sv.messaging.multicast` (deliver the same message to several recipients, each on its own 1-1 thread), or `sv.messaging.respond_to` (continue an existing conversation — the platform delivers to everyone already on it). Valid recipient kinds are `human:<uuid>`, `agent:<uuid>`, and `unit:<uuid>`. Connector addresses (`connector:<uuid>`) appear on inbound messages as a `from` — they translate external events into platform messages — but are non-routable as recipients; passing one to a messaging tool returns an `UnroutableTarget` error. The platform infers the thread from the participant set and auto-includes you, so you do not list yourself in `recipients`.
 
            Concretely — if you received a message from `human:abc123` and you decide the appropriate response is to send "hello back to you" to that human, the action is a deliberate send addressed to that human (because you chose them as the right recipient — not because they were the inbound `from`):
 
@@ -92,7 +92,7 @@ public class PlatformPromptProvider : IPlatformPromptProvider
 
            Writing "hello back to you" to stdout reaches no one. The tool call is the only way the message is delivered.
 
-        3. **`send` vs `multicast` — same input, different threads.** `sv.messaging.send(recipients=[A, B], …)` places the message on a single SHARED thread with participants `{you, A, B}` — every recipient sees the others in the next inbound envelope's `to` field, and any one of them can fetch the shared history. `sv.messaging.multicast(recipients=[A, B], …)` fans the message out to N INDEPENDENT 1-1 threads (`{you, A}`, `{you, B}`) — each recipient sees only itself and only this pair's history. Pick `send` when the recipients should know about each other; pick `multicast` when they should not.
+        3. **`send` vs `multicast` vs `respondTo`.** `sv.messaging.send(recipients=[A, B], …)` places the message on a single SHARED thread with participants `{you, A, B}` — every recipient sees the others in the next inbound envelope's `to` field, and any one of them can fetch the shared history. `sv.messaging.multicast(recipients=[A, B], …)` fans the message out to N INDEPENDENT 1-1 threads (`{you, A}`, `{you, B}`) — each recipient sees only itself and only this pair's history. Pick `send` when the recipients should know about each other; pick `multicast` when they should not. To **continue** a conversation that already exists — deliver to everyone already on it — call `sv.messaging.respond_to(message_id=…)` with the `message_id` from the inbound envelope: the platform delivers to that conversation's `participants` (minus you) on the same thread, so you neither reconstruct the recipient list nor fork the conversation. Reach for `send` / `multicast` only to start a new conversation or to address a different set than the one you're already on.
 
         4. **An inbound message is a notification, not a request awaiting a return value.** Every message you receive — a question from a person, an event from a connected system (such as a code-hosting webhook), a timer, or progress reported by another agent — is delivered one-way. No caller is blocked waiting on your turn. Decide what action the message warrants. If you decide a message in response is appropriate, choose the recipient(s) consciously — a human, agent, or unit — and send a new message via the messaging tool. Do not address your output as if returning a value to a caller, and do not assume the sender of the inbound is automatically the right recipient (a connector sender, for example, cannot receive).
 
@@ -104,6 +104,7 @@ public class PlatformPromptProvider : IPlatformPromptProvider
 
         - `sv.messaging.send` — send a one-way message to one or more humans, agents, or units; all recipients land on a single shared thread with you.
         - `sv.messaging.multicast` — send the same message to several humans, agents, or units, each on its own independent 1-1 thread with you.
+        - `sv.messaging.respond_to` — continue an existing conversation: deliver a one-way message to everyone already on the conversation a `message_id` belongs to (minus you), on the same thread.
         - `sv.memory.history_with` — fetch the full message timeline you share with a named participant set.
         - `sv.memory.engagements` — list the participant sets (engagements) you share a timeline with.
         - `sv.memory.search_messages` — free-text search across the timelines you participate in.
@@ -124,6 +125,7 @@ public class PlatformPromptProvider : IPlatformPromptProvider
 
         - from: <sender-address> (<display-name-if-resolved>)
         - to: [<recipient-1>, <recipient-2>, ...]
+        - participants: [<participant-1>, <participant-2>, ...]
         - message_id: <uuid>
         - timestamp: <iso-8601>
         - payload:
@@ -131,16 +133,17 @@ public class PlatformPromptProvider : IPlatformPromptProvider
         <free-text payload, or "<structured payload — see JSON appendix>">
 
         ```json
-        { "from": "...", "from_display_name": "...", "to": [...], "message_id": "...", "timestamp": "...", "payload": ... }
+        { "from": "...", "from_display_name": "...", "to": [...], "participants": [...], "message_id": "...", "timestamp": "...", "payload": ... }
         ```
 
-        Decide what to do. To send a message in response, call `sv.messaging.send` with the recipient address(es) and body — choose the recipient(s) consciously, do not assume the inbound `from` is the right `to`.
+        Decide what to do. To continue this conversation with everyone here, call `sv.messaging.respond_to` with this `message_id`. To start a new conversation or address a different set, call `sv.messaging.send` with the recipient address(es) and body — choose the recipient(s) consciously, do not assume the inbound `from` is the right `to`.
         ```
 
         Field meanings:
 
         - `from` — the sender's canonical address (`agent:<uuid>`, `unit:<uuid>`, `human:<uuid>`, or `connector:<uuid>`). When the sender has a directory entry, the display name appears in parentheses. A `connector:<uuid>` `from` is a signal source — the connector translated an external event into this message — not a participant you can send to.
         - `to` — the participants the sender targeted, with your own address among them. For a `send` to multiple recipients you will see the full set; for a `multicast` or a 1-1 send you will see only yourself.
+        - `participants` — everyone on this conversation you could reach: `to` together with the sender when the sender is routable. This is the set `sv.messaging.respond_to` delivers to. (Read it as: `to` = who this message was addressed to, you included and sender excluded; `participants` = everyone here.) A non-routable origin — a `connector:` sender — never appears here; it stays in `from` only.
         - `message_id` — the durable id for this specific delivery.
         - `timestamp` — when the message was dispatched (ISO-8601 UTC).
         - `payload` — the message body. Free-form text from a human, agent, or unit reads as natural language; a structured object emitted by a connector or workflow follows the shape documented for that connector. The JSON appendix carries the payload verbatim either way.

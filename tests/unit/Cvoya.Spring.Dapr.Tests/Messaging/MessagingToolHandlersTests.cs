@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -57,6 +58,7 @@ public class MessagingToolHandlersTests
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IThreadHopActor _hopActor = Substitute.For<IThreadHopActor>();
     private readonly RecordingThreadRegistry _threadRegistry = new();
+    private readonly IMessageQueryService _messageQuery = Substitute.For<IMessageQueryService>();
 
     private readonly Dictionary<string, IAgent> _agents = new();
     private readonly List<ActivityEvent> _publishedEvents = [];
@@ -414,6 +416,59 @@ public class MessagingToolHandlersTests
         result.Deliveries[0].Target.ShouldBe(sibling);
     }
 
+    [Fact]
+    public async Task HandleRespondTo_DeliversToConversationRosterMinusCaller_OnSameThread()
+    {
+        // ADR-0064 — respond_to continues the conversation a message belongs
+        // to: the platform delivers to that thread's routable participants
+        // minus the caller, on the SAME thread (no fork).
+        var handlers = CreateHandlers();
+        var caller = Unit();
+        var t1 = Agent(ChildAgentId);
+        var t2 = Agent(OtherChildAgentId);
+        var a1 = RegisterAgent(t1);
+        var a2 = RegisterAgent(t2);
+        Message? d1 = null;
+        Message? d2 = null;
+        a1.ReceiveAsync(Arg.Do<Message>(m => d1 = m), Arg.Any<CancellationToken>()).Returns((Message?)null);
+        a2.ReceiveAsync(Arg.Do<Message>(m => d2 = m), Arg.Any<CancellationToken>()).Returns((Message?)null);
+
+        // The conversation {caller, t1, t2} the inbound message belongs to.
+        var threadId = await _threadRegistry.GetOrCreateAsync(
+            new[] { caller, t1, t2 }, CancellationToken.None);
+        var messageId = Guid.NewGuid();
+        _messageQuery.GetAsync(messageId, Arg.Any<CancellationToken>())
+            .Returns(new MessageDetail(
+                messageId, threadId, t1.ToString(), caller.ToString(),
+                "Domain", "hi", null, DateTimeOffset.UnixEpoch));
+
+        var result = await handlers.HandleRespondToAsync(
+            caller, TenantId, messageId, CreateMessage(), reason: null, CancellationToken.None);
+
+        // Delivered to the routable participants, the caller excluded.
+        result.Deliveries.Select(d => d.Target).ShouldBe(new[] { t1, t2 }, ignoreOrder: true);
+        result.Deliveries.ShouldAllBe(d => d.Delivered);
+        // Same thread as the conversation — the continuation does not fork.
+        result.ThreadId.ShouldBe(ParseGuid(threadId));
+        d1!.ThreadId.ShouldBe(threadId);
+        d2!.ThreadId.ShouldBe(threadId);
+    }
+
+    [Fact]
+    public async Task HandleRespondTo_UnknownMessage_ThrowsInvalidRequest()
+    {
+        // No message → no conversation to continue. Fail before any delivery.
+        var handlers = CreateHandlers();
+        _messageQuery.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns((MessageDetail?)null);
+
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
+            handlers.HandleRespondToAsync(
+                Unit(), TenantId, Guid.NewGuid(), CreateMessage(), reason: null, CancellationToken.None));
+
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.InvalidRequest);
+    }
+
     private MessagingToolHandlers CreateHandlers(
         int maxHopCount = 16,
         IUnitMembershipRepository? membershipRepo = null)
@@ -427,6 +482,7 @@ public class MessagingToolHandlersTests
         services.AddSingleton(Substitute.For<IUnitSubunitMembershipRepository>());
         services.AddScoped<IThreadRegistry>(_ => _threadRegistry);
         services.AddScoped<IMessageWriter>(_ => new NoOpMessageWriter());
+        services.AddScoped<IMessageQueryService>(_ => _messageQuery);
         var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
         var deliveryService = new MessageDeliveryService(
@@ -499,11 +555,13 @@ public class MessagingToolHandlersTests
     private sealed class RecordingThreadRegistry : IThreadRegistry
     {
         private readonly Dictionary<string, string> _byKey = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, IReadOnlyList<Address>> _byId = new(StringComparer.Ordinal);
 
         public Task<string> GetOrCreateAsync(
             IEnumerable<Address> participants, CancellationToken cancellationToken = default)
         {
-            var key = string.Join('|', participants
+            var list = participants.ToList();
+            var key = string.Join('|', list
                 .Select(a => $"{a.Scheme.ToLowerInvariant()}:{GuidFormatter.Format(a.Id)}")
                 .OrderBy(s => s, StringComparer.Ordinal)
                 .Distinct());
@@ -511,6 +569,7 @@ public class MessagingToolHandlersTests
             {
                 id = GuidFormatter.Format(Guid.NewGuid());
                 _byKey[key] = id;
+                _byId[id] = list;
             }
 
             return Task.FromResult(id);
@@ -518,6 +577,13 @@ public class MessagingToolHandlersTests
 
         public Task<ThreadRegistryEntry?> ResolveAsync(
             string threadId, CancellationToken cancellationToken = default)
-            => Task.FromResult<ThreadRegistryEntry?>(null);
+        {
+            var key = GuidFormatter.TryParse(threadId, out var g)
+                ? GuidFormatter.Format(g)
+                : threadId;
+            return Task.FromResult(_byId.TryGetValue(key, out var participants)
+                ? new ThreadRegistryEntry(key, participants, DateTimeOffset.UnixEpoch)
+                : null);
+        }
     }
 }
