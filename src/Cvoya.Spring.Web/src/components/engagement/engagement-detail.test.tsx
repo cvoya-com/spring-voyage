@@ -21,11 +21,13 @@ vi.mock("next/link", () => ({
 
 const mockUseThread = vi.fn();
 const mockUseCurrentUser = vi.fn();
+const mockUseCallerHumans = vi.fn();
 const mockUseInbox = vi.fn();
 
 vi.mock("@/lib/api/queries", () => ({
   useThread: (...args: unknown[]) => mockUseThread(...args),
   useCurrentUser: (...args: unknown[]) => mockUseCurrentUser(...args),
+  useCallerHumans: (...args: unknown[]) => mockUseCallerHumans(...args),
   useInbox: (...args: unknown[]) => mockUseInbox(...args),
 }));
 
@@ -121,6 +123,18 @@ const CURRENT_USER = {
   address: "human://savas",
 };
 
+// #2888: an operator wears one Hat per unit (ADR-0062). The Hat that
+// `/auth/me` resolves (the auth-username Hat) and the unit-scoped Hat
+// stamped on a thread are different GUIDs. `AUTH_USERNAME_HAT` is the
+// `/auth/me` identity; `UNIT_SENDING_HAT_ID` is the "savas" participant
+// in `makeThread()` — i.e. the Hat the operator actually sent into the
+// thread with.
+const AUTH_USERNAME_HAT = {
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  address: "human://savas-auth",
+};
+const UNIT_SENDING_HAT_ID = "11111111-1111-1111-1111-111111111111";
+
 // ── tests ──────────────────────────────────────────────────────────────────
 
 describe("EngagementDetail", () => {
@@ -128,6 +142,16 @@ describe("EngagementDetail", () => {
     mockUseInbox.mockReturnValue({ data: [], isPending: false, error: null });
     mockUseCurrentUser.mockReturnValue({
       data: CURRENT_USER,
+      isPending: false,
+      error: null,
+    });
+    // #2888: the bound-Hat set is empty by default, so the existing
+    // single-Hat tests classify the operator via the `/me.id` floor
+    // (CURRENT_USER.id is the "savas" participant). The multi-Hat suite
+    // below supplies a bound set whose member is the sending participant
+    // while `/me.id` is a different Hat.
+    mockUseCallerHumans.mockReturnValue({
+      data: [],
       isPending: false,
       error: null,
     });
@@ -154,6 +178,28 @@ describe("EngagementDetail", () => {
         error: null,
       });
       mockUseCurrentUser.mockReturnValue({
+        data: undefined,
+        isPending: true,
+        error: null,
+      });
+
+      render(<EngagementDetail threadId="thread-abc" />);
+      expect(
+        screen.getByTestId("engagement-detail-loading"),
+      ).toBeInTheDocument();
+    });
+
+    // #2888: participant classification reads the caller's bound-Hat set,
+    // so the view must wait for it too — otherwise a unit-Hat thread would
+    // flash the observe banner before the bound set arrives and flips it
+    // to the composer.
+    it("shows a skeleton while the caller's Hats are loading", () => {
+      mockUseThread.mockReturnValue({
+        data: makeThread(),
+        isPending: false,
+        error: null,
+      });
+      mockUseCallerHumans.mockReturnValue({
         data: undefined,
         isPending: true,
         error: null,
@@ -307,6 +353,96 @@ describe("EngagementDetail", () => {
       render(<EngagementDetail threadId="thread-abc" />);
       const timeline = screen.getByTestId("mock-timeline");
       expect(timeline).toHaveAttribute("data-layout", "timeline");
+    });
+  });
+
+  // #2888: the regression that motivated this fix. The operator sends
+  // into a unit-scoped engagement wearing their unit Hat; `/auth/me`
+  // resolves a *different* Hat (the auth-username Hat). The pre-fix code
+  // compared each participant id to the lone `/me.id`, so the operator —
+  // the literal sender — was misclassified as a read-only observer.
+  describe("multi-Hat participant (#2888)", () => {
+    beforeEach(() => {
+      // Authenticated as the auth-username Hat, which is NOT the Hat
+      // stamped on this thread.
+      mockUseCurrentUser.mockReturnValue({
+        data: AUTH_USERNAME_HAT,
+        isPending: false,
+        error: null,
+      });
+      mockUseThread.mockReturnValue({
+        data: makeThread(),
+        isPending: false,
+        error: null,
+      });
+    });
+
+    it("shows the composer when a bound Hat — not the /me Hat — is the participant", () => {
+      // Bound set: the auth-username Hat plus the unit-scoped sending Hat.
+      // The sending Hat (not `/me.id`) is the thread participant.
+      mockUseCallerHumans.mockReturnValue({
+        data: [
+          { humanId: AUTH_USERNAME_HAT.id, isPrimary: true },
+          { humanId: UNIT_SENDING_HAT_ID, isPrimary: false },
+        ],
+        isPending: false,
+        error: null,
+      });
+
+      render(<EngagementDetail threadId="thread-abc" />);
+
+      expect(screen.getByTestId("mock-composer")).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("engagement-observe-banner"),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText("Observer")).not.toBeInTheDocument();
+    });
+
+    it("passes layout='dialog' to the timeline for a multi-Hat participant", () => {
+      mockUseCallerHumans.mockReturnValue({
+        data: [{ humanId: UNIT_SENDING_HAT_ID, isPrimary: true }],
+        isPending: false,
+        error: null,
+      });
+
+      render(<EngagementDetail threadId="thread-abc" />);
+      expect(screen.getByTestId("mock-timeline")).toHaveAttribute(
+        "data-layout",
+        "dialog",
+      );
+    });
+
+    it("omits the operator's own sending Hat from the header participant list", () => {
+      mockUseCallerHumans.mockReturnValue({
+        data: [{ humanId: UNIT_SENDING_HAT_ID, isPrimary: true }],
+        isPending: false,
+        error: null,
+      });
+
+      render(<EngagementDetail threadId="thread-abc" />);
+      const header = screen.getByTestId("engagement-detail-header-names");
+      // The non-human counterpart ("ada") still shows; the operator's own
+      // Hat ("savas") is filtered out as self even though its id ≠ `/me.id`.
+      expect(header.textContent).toContain("ada");
+      expect(header.textContent).not.toContain("savas");
+    });
+
+    it("still shows the observe banner when no bound Hat is a participant", () => {
+      // A bound Hat that is NOT on the thread — proves the bound-set gate
+      // is not vacuously true.
+      mockUseCallerHumans.mockReturnValue({
+        data: [
+          { humanId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", isPrimary: true },
+        ],
+        isPending: false,
+        error: null,
+      });
+
+      render(<EngagementDetail threadId="thread-abc" />);
+      expect(
+        screen.getByTestId("engagement-observe-banner"),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId("mock-composer")).not.toBeInTheDocument();
     });
   });
 
