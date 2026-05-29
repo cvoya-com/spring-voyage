@@ -443,7 +443,7 @@ Rejected: ship a one-deploy compatibility shim that reads the old `orchestration
 
 ## Surface affected (delivery scope)
 
-This ADR is implemented as a sequenced multi-PR initiative, tracked under the [#1786](https://github.com/cvoya-com/spring-voyage/issues/1786) umbrella with sub-issues per slice. Detail and ordering live in the execution plan at [`docs/plan/v0.1/units-are-agents.md`](../../plan/v0.1/units-are-agents.md). High-level surface:
+This ADR is implemented as a sequenced multi-PR initiative, tracked under the [#1786](https://github.com/cvoya-com/spring-voyage/issues/1786) umbrella with sub-issues per slice. Detail and ordering live in the execution plan at [`docs/archive/plan/v0.1/units-are-agents.md`](../../archive/plan/v0.1/units-are-agents.md). High-level surface:
 
 - **Core domain.** Delete `Cvoya.Spring.Core/Orchestration/*` and `Cvoya.Spring.Core/Policies/LabelRoutingPolicy.cs`. Add `IOrchestrationToolProvider` and `OrchestrationDecision`. Add `IExecutionConfigInheritanceResolver` for multi-parent inheritance. Lands first; everything else depends on it.
 - **Dapr layer.** Delete `Cvoya.Spring.Dapr/Orchestration/*`. Rewrite `UnitActor.ReceiveAsync` to invoke the runtime-launcher path. Add the `IOrchestrationToolProvider` implementation that reads the directory.

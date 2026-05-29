@@ -561,6 +561,26 @@ SPRING_ENV_FILE="${INSTALL_ROOT}/spring.env"
 POSTGRES_PASSWORD="$(openssl rand -hex 8 | head -c 16)"
 SPRING_SECRETS_AES_KEY="$(openssl rand -base64 32 | tr -d '\n')"
 
+# Re-install over an existing spring.env (--force): preserve the two secrets
+# that must NEVER rotate silently. SPRING_SECRETS_AES_KEY decrypts every secret
+# in the state store — regenerating it orphans all of them. POSTGRES_PASSWORD is
+# baked into the postgres data volume on first init — regenerating it breaks auth
+# against the (preserved) volume. deploy.sh init refuses to clobber the AES key
+# for the same reason; mirror that guarantee here so --force can't quietly brick
+# an install's secrets and database.
+if [[ -f "${SPRING_ENV_FILE}" ]]; then
+  existing_aes="$(awk '/^SPRING_SECRETS_AES_KEY=/ { sub(/^SPRING_SECRETS_AES_KEY=/, ""); v=$0 } END { print v }' "${SPRING_ENV_FILE}" 2>/dev/null || true)"
+  existing_pg="$(awk '/^POSTGRES_PASSWORD=/ { sub(/^POSTGRES_PASSWORD=/, ""); v=$0 } END { print v }' "${SPRING_ENV_FILE}" 2>/dev/null || true)"
+  if [[ -n "${existing_aes}" && "${existing_aes}" != "REPLACE_ME_WITH_BASE64_32_BYTES" ]]; then
+    SPRING_SECRETS_AES_KEY="${existing_aes}"
+    info "Preserving existing SPRING_SECRETS_AES_KEY from ${SPRING_ENV_FILE} (regenerating it would orphan every encrypted secret)."
+  fi
+  if [[ -n "${existing_pg}" ]]; then
+    POSTGRES_PASSWORD="${existing_pg}"
+    info "Preserving existing POSTGRES_PASSWORD from ${SPRING_ENV_FILE} (regenerating it would break auth against the existing database volume)."
+  fi
+fi
+
 REDIRECT_URI="https://${DEPLOY_HOSTNAME}/api/v1/tenant/connectors/github/oauth/callback"
 DAPR_COMPONENTS_PATH="${INSTALL_ROOT}/current/dapr/components/delegated-spring-voyage-agent"
 

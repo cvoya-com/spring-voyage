@@ -42,4 +42,4 @@ You want to extend Spring Voyage — write your own agent runtime, connector, or
 - [`glossary.md`](glossary.md) — definitions of all key terms.
 - [`decisions/`](decisions/README.md) — the "why" behind major architectural choices, captured as narrow ADRs.
 - [`architecture/`](architecture/README.md) — system design, indexed.
-- [`roadmap/`](roadmap/README.md) — forward-looking narrative; live release progress lives on the milestone view.
+- [`archive/`](archive/README.md) — superseded planning records (the earlier phase-based roadmap). Forward-looking work and live progress live on the GitHub milestone view.

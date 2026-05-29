@@ -1,6 +1,6 @@
 # Area J: ADR audit + re-evaluation
 
-> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../architecture/README.md). Kept for context.
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../../architecture/README.md). Kept for context.
 
 **Status:** ✅ **Audit complete.** All ~30 ADRs classified (Stand / Evolve / Retire). Resulting actions shipped: ADR-0028 amended (Decision C — platform-level LLM via the public API, replacing the per-tenant Ollama design), ADR-0029 moved Proposed → Accepted, minor V2.1 framing cleanup elsewhere. The conversation-concept ADR (a gap surfaced by the audit) was deferred to Area F's planning session. Umbrella [#1223](https://github.com/cvoya-com/spring-voyage/issues/1223) can be closed during environment cleanup.
 

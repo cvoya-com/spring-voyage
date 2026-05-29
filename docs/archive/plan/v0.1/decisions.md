@@ -1,6 +1,6 @@
 # Spring Voyage v0.1 — Decisions Log
 
-> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../architecture/README.md). Kept for context.
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../architecture/README.md). Kept for context.
 
 Strategy-level decisions for v0.1, with dates. Append-only — corrections happen via new entries that supersede older ones, not by editing history.
 
@@ -64,5 +64,5 @@ State-of-the-plan pass to record actual shipped state.
 Planning session for Area E2 (New unit/agent-interaction UX) was held and all open questions resolved. Outcomes:
 
 - Canonical narrative: [`areas/e2-new-ux.md`](areas/e2-new-ux.md) — rewrites the prior "planning pending" placeholder with settled scope, architecture, engagement model, CLI parity requirements, and sub-task breakdown.
-- [ADR-0033](../../decisions/0033-two-portal-architecture.md) records the two-portal architecture: engagement portal as a distinct top-level parent route inside the existing Next.js app, sharing session + design system + typed API client + public Web API, with no portal-private API and mandatory CLI parity.
+- [ADR-0033](../../../decisions/0033-two-portal-architecture.md) records the two-portal architecture: engagement portal as a distinct top-level parent route inside the existing Next.js app, sharing session + design system + typed API client + public Web API, with no portal-private API and mandatory CLI parity.
 - Sub-tasks E2.1 through E2.8 are defined in `areas/e2-new-ux.md`. Issues to be filed separately by the orchestrator.

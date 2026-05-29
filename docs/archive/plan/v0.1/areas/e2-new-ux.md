@@ -1,6 +1,6 @@
 # Area E2: New unit/agent-interaction UX
 
-> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../architecture/README.md). Kept for context.
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../../architecture/README.md). Kept for context.
 
 **Status:** In progress — planning settled; sub-tasks defined; implementation ahead.
 
@@ -49,11 +49,11 @@ The portals are distinct: each has its own top-level parent route, its own navig
 
 The parent-route boundary is the seam that allows a future v0.2+ deployment to split the engagement portal into its own Next.js app without re-architecting the application. No coupling that crosses this seam beyond the shared session and API client should be introduced in E2.
 
-See [ADR-0033](../../../decisions/0033-two-portal-architecture.md) for the full decision record, including the alternatives considered.
+See [ADR-0033](../../../../decisions/0033-two-portal-architecture.md) for the full decision record, including the alternatives considered.
 
 ### No portal-private API
 
-The engagement portal consumes the **public Web API** exclusively. If the engagement portal needs an endpoint the API does not yet expose, that is a separately-tracked design task — filed before the endpoint lands — and CLI gets the same endpoint. No portal-private endpoint is ever acceptable. This reaffirms the v0.1-wide design lens established in [the plan README](../README.md) and [ADR-0029](../../../decisions/0029-tenant-execution-boundary.md).
+The engagement portal consumes the **public Web API** exclusively. If the engagement portal needs an endpoint the API does not yet expose, that is a separately-tracked design task — filed before the endpoint lands — and CLI gets the same endpoint. No portal-private endpoint is ever acceptable. This reaffirms the v0.1-wide design lens established in [the plan README](../README.md) and [ADR-0029](../../../../decisions/0029-tenant-execution-boundary.md).
 
 ### Cross-link contract
 
@@ -83,7 +83,7 @@ CLI implementation gaps are captured in E2.2.
 
 These properties are first-class, not implementation notes:
 
-**Engagements never close.** An engagement is the enduring relationship between a fixed participant set ([ADR-0030](../../../decisions/0030-thread-model.md)). There is no "close" operation. Within the same engagement (same participant set), multiple collaborations about different topics and tasks accumulate over time. The UX is recency-driven: sort by latest activity, fade inactive engagements from prominence, resurface them when new activity arrives.
+**Engagements never close.** An engagement is the enduring relationship between a fixed participant set ([ADR-0030](../../../../decisions/0030-thread-model.md)). There is no "close" operation. Within the same engagement (same participant set), multiple collaborations about different topics and tasks accumulate over time. The UX is recency-driven: sort by latest activity, fade inactive engagements from prominence, resurface them when new activity arrives.
 
 **Bidirectional clarification.** The unit can ask the user a question inside the `{unit, human}` engagement thread. The user's reply arrives in the same thread. The engagement portal surfaces inbound questions as a distinct call-to-action so they are not lost in a long Timeline.
 
@@ -109,9 +109,9 @@ These properties are first-class, not implementation notes:
 ## Dependencies
 
 - **D** (ADR-0029 boundaries): done. Defines the public Web API surface and the no-portal-private-API rule E2 reaffirms.
-- **F** (Thread model): done. [ADR-0030](../../../decisions/0030-thread-model.md) and [#1268](https://github.com/cvoya-com/spring-voyage/issues/1268) (F1) are the load-bearing primitives for the engagement model — participant-set identity, Timeline, engagement/collaboration terminology. Code rename [#1287](https://github.com/cvoya-com/spring-voyage/issues/1287) (`Conversation*` → `Thread*`) is a prerequisite for implementation.
+- **F** (Thread model): done. [ADR-0030](../../../../decisions/0030-thread-model.md) and [#1268](https://github.com/cvoya-com/spring-voyage/issues/1268) (F1) are the load-bearing primitives for the engagement model — participant-set identity, Timeline, engagement/collaboration terminology. Code rename [#1287](https://github.com/cvoya-com/spring-voyage/issues/1287) (`Conversation*` → `Thread*`) is a prerequisite for implementation.
 - **C2** (API freeze): done. The public API surface is frozen; the engagement portal builds against it.
 
 ## Open questions
 
-RESOLVED — see planning decisions above and [ADR-0033](../../../decisions/0033-two-portal-architecture.md). The questions that existed in the prior draft of this doc (deliverable shape, relationship to current portal, auth, tech stack, killer use case) are all settled. This section is retained so readers looking for open questions know to stop here.
+RESOLVED — see planning decisions above and [ADR-0033](../../../../decisions/0033-two-portal-architecture.md). The questions that existed in the prior draft of this doc (deliverable shape, relationship to current portal, auth, tech stack, killer use case) are all settled. This section is retained so readers looking for open questions know to stop here.

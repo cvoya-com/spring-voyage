@@ -52,6 +52,10 @@ if [[ -f "${SCRIPT_DIR}/manifest.json" ]]; then
   REPO_ROOT="${SCRIPT_DIR}"
 fi
 CONFIG_DIR="${REPO_ROOT}/eng/config"
+# Bundle mode: spring.env.example (and the env file default) live at the bundle root.
+if [[ -f "${SCRIPT_DIR}/manifest.json" && ! -d "${CONFIG_DIR}" ]]; then
+  CONFIG_DIR="${SCRIPT_DIR}"
+fi
 ENV_FILE="${SPRING_ENV_FILE:-${CONFIG_DIR}/spring.env}"
 # Resolved env file passed to podman --env-file. Podman treats --env-file
 # values literally (no shell expansion), so we pre-process the source
@@ -1059,15 +1063,21 @@ wait_sidecar_ready() {
     # so any in-container probe fails with "executable file not found" and
     # the readiness wait silently burns through its full timeout.
     #
-    # The probe image is the platform image (`localhost/spring-voyage:latest`),
-    # which is already in the local store at this point (built locally before
-    # `deploy.sh up`). #2198 dropped the external `docker.io/curlimages/curl`
-    # dependency so a fresh install pulls no extra image just to issue a
-    # health probe. SPRING_CURL_IMAGE remains as an operator override for
-    # mirrored / air-gapped environments.
+    # The probe image is the platform image, already in the local store at
+    # this point — pulled from the registry on a bundle install
+    # (`SPRING_PLATFORM_IMAGE=ghcr.io/cvoya-com/spring-voyage:<v>`) or built
+    # locally on a source deploy (`localhost/spring-voyage:latest`). #2198
+    # dropped the external `docker.io/curlimages/curl` dependency so a fresh
+    # install pulls no extra image just to issue a health probe.
+    # SPRING_CURL_IMAGE remains as an operator override for mirrored /
+    # air-gapped environments. Resolution order: explicit override →
+    # the resolved platform image → the source-build default. The middle term
+    # is essential in a bundle install, where localhost/spring-voyage:latest
+    # does not exist and every probe would otherwise fail "image not found"
+    # and burn the full timeout (#2595 follow-up).
     local name="$1" timeout="${2:-30}"
     local waited=0
-    local curl_image="${SPRING_CURL_IMAGE:-localhost/spring-voyage:latest}"
+    local curl_image="${SPRING_CURL_IMAGE:-${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}}"
     log "waiting for Dapr sidecar '${name}' to become ready"
     while (( waited < timeout )); do
         # /v1.0/healthz/outbound reports sidecar-only readiness (components
@@ -1235,6 +1245,16 @@ cmd_clean() {
         log "removing Spring Voyage image refs via ${BUILD_SCRIPT##"${REPO_ROOT}"/} clean"
         if ! "${BUILD_SCRIPT}" clean; then
             log "warning: image cleanup failed; deployment containers, volumes, and networks were still cleaned"
+        fi
+    elif [[ -f "${SCRIPT_DIR}/manifest.json" ]]; then
+        # Bundle mode: remove the pinned platform image directly from manifest.json.
+        local platform_image
+        platform_image="$(awk -F'"' '/"platform_image"/{print $4}' "${SCRIPT_DIR}/manifest.json" 2>/dev/null || true)"
+        if [[ -n "${platform_image}" ]]; then
+            log "removing platform image ${platform_image}"
+            podman rmi "${platform_image}" 2>/dev/null || log "warning: failed to remove image ${platform_image}"
+        else
+            log "warning: could not read platform_image from manifest.json; skipping image cleanup"
         fi
     else
         log "warning: build script not found at ${BUILD_SCRIPT}; skipping image cleanup"

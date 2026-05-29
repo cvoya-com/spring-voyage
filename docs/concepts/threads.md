@@ -72,5 +72,5 @@ The thread model underpins how agents reason about work, how the platform tracks
 
 The engagement-portal work in Area E2 builds the user-facing surface that makes threads, engagements, and collaborations navigable and interactive:
 
-- **[`docs/plan/v0.1/areas/e2-new-ux.md`](../plan/v0.1/areas/e2-new-ux.md)** — scope, engagement model (observe-only, bidirectional Q&A, A2A observability, never-closes semantics), CLI parity requirements, and sub-task breakdown.
+- **[`docs/archive/plan/v0.1/areas/e2-new-ux.md`](../archive/plan/v0.1/areas/e2-new-ux.md)** — scope, engagement model (observe-only, bidirectional Q&A, A2A observability, never-closes semantics), CLI parity requirements, and sub-task breakdown.
 - **[`docs/decisions/0033-two-portal-architecture.md`](../decisions/0033-two-portal-architecture.md)** — ADR-0033: the two-portal architecture (Management Portal + Engagement Portal) that delivers this surface.

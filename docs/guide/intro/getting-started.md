@@ -1,6 +1,8 @@
 # Getting Started
 
-The smallest possible path: install Spring Voyage, drop in one LLM credential, create a unit, talk to it. About five minutes after the installer finishes.
+The smallest path: install Spring Voyage, open the portal, and let the new-unit wizard set up your first unit — including the one LLM credential agents need to think. About five minutes after the installer finishes.
+
+Prefer the command line? The [CLI flow](#prefer-the-cli) below does exactly the same thing.
 
 If you'd rather start with the built-in dev-team that picks up GitHub issues, see [Getting Started with Spring Voyage OSS](getting-started-spring-voyage-oss.md).
 
@@ -12,94 +14,62 @@ If you haven't already, run the one-command installer (Linux or macOS, Podman 4+
 curl -fSL https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh | bash
 ```
 
-The installer asks for a hostname (default `localhost`) and offers to configure a GitHub App — skip it for this guide. When it finishes:
+The installer asks for a hostname (default `localhost`) and offers to configure a GitHub App — skip it for this guide. When it finishes, confirm the stack is healthy:
 
 ```bash
 voyage status
 ```
 
-Should print a green health check and the web URL. Open it in your browser — the portal is the same operations you'll do from the CLI below.
+It should print a green health check and the web URL.
 
 Full installer flags, TLS, and design notes are in the [operator deployment guide](../operator/deployment.md).
 
-## 2. Drop in an LLM credential
+## 2. Create your first unit in the portal
 
-Agents need an LLM to think with. The simplest choice is Anthropic's Claude Code, authenticated via an OAuth token (Spring Voyage runs the `claude-code` CLI on your behalf, so the OAuth flow is the natural fit).
+Open the web URL (`http://localhost` by default). With no units yet, the dashboard offers **Create your first unit** — that starts the new-unit wizard:
 
-Generate the token (`claude setup-token` in a terminal where Claude Code is installed) and store it at tenant scope so every unit you create inherits it:
+1. **Name** the unit (e.g. `first-team`) and pick a runtime (Claude Code is the default).
+2. **Add an LLM credential.** The wizard prompts for it inline — paste an Anthropic OAuth token (from `claude setup-token`) or an API key, and choose **Save as tenant default** so every unit you create later inherits it. This is the only credential agents need to think, and you set it up right here — no preparation beforehand.
+3. **Choose what's inside** — start from a package in the **Catalog**, or from **Scratch** (an empty unit you message directly).
+4. **Create**, then **Start** the unit.
+
+The [Web Portal Walkthrough](../user/portal.md) covers every wizard field in detail.
+
+## 3. Talk to it
+
+Open the unit and send it a message from the **Threads** view — e.g. *"Hello — introduce yourself and tell me what you can do."* The reply streams back in the same view, and the **Activity** tab shows what it's doing under the hood.
+
+That's the whole loop: install → wizard → message. From here you can add agent members to turn the unit into a team, wire in connectors, or drive everything from the CLI.
+
+## Prefer the CLI?
+
+The `spring` CLI is the canonical mutation surface — the portal calls the same API. The portal flow above maps to:
 
 ```bash
+# 1. Store an LLM credential at tenant scope (every unit inherits it).
+#    Anthropic OAuth (from `claude setup-token`) is the natural fit for Claude Code:
 spring secret create --scope tenant anthropic-oauth --value "<token>"
-```
-
-Verify:
-
-```bash
-spring secret list --scope tenant
-```
-
-Other supported credentials:
-
-```bash
-# Anthropic API key (for the platform's own LLM calls and the spring-voyage agent runtime)
+#    Other supported credentials:
 spring secret create --scope tenant anthropic-api-key --value "sk-ant-api03..."
+spring secret create --scope tenant openai-api-key    --value "sk-..."
 
-# OpenAI API key (for codex or OpenAI-powered agents)
-spring secret create --scope tenant openai-api-key --value "sk-..."
-```
-
-See [model providers](../operator/model-providers.md) for the full matrix of runtimes, providers, and credential shapes.
-
-## 3. Create your first unit
-
-A unit *is* an agent that has children, and at the start it has none — that's fine. Give it a runtime so it knows how to think:
-
-```bash
+# 2. Create and start a unit (a unit is an agent that can have children).
 spring unit create first-team --runtime claude-code
-```
-
-Start it:
-
-```bash
 spring unit start first-team
-```
+spring unit show first-team        # prints the unit's canonical Guid + status
 
-Verify it reached `Running`:
-
-```bash
-spring unit show first-team
-```
-
-## 4. Send it a message
-
-The `show` output above prints the unit's canonical `Guid`. Send a message to that address:
-
-```bash
+# 3. Send it a message (use the Guid from `show`).
 spring message send unit:<id> "Hello — introduce yourself and tell me what you can do."
-```
-
-Watch the activity stream while it works:
-
-```bash
 spring activity list --source unit:first-team --limit 20
-```
 
-The same conversation is visible in the portal under **Units → first-team → Threads**.
-
-## 5. Add an agent member (optional)
-
-A unit by itself is a useful conversational partner. To make it a *team*, attach members:
-
-```bash
+# 4. (Optional) Add an agent member to make it a team.
 spring agent create \
-    --name ada \
-    --role engineer \
-    --unit first-team \
+    --name ada --role engineer --unit first-team \
     --runtime claude-code \
     --image ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 ```
 
-When you message the unit again, the unit's runtime decides whether to answer directly, hand the work to Ada, or fan it out. That decision lives in the unit's runtime instructions, not in platform configuration — see [ADR-0053](../../decisions/0053-units-are-agents-and-one-way-delivery.md) for the model.
+When you message a unit with members, the unit's runtime decides whether to answer directly, hand the work to a member, or fan it out — that decision lives in the unit's runtime instructions, not in platform configuration (see [ADR-0053](../../decisions/0053-units-are-agents-and-one-way-delivery.md)). See [model providers](../operator/model-providers.md) for the full matrix of runtimes, providers, and credential shapes.
 
 ## What's next
 

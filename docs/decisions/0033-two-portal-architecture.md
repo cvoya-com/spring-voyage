@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (2026-04-29). v0.1 work.
 - **Date:** 2026-04-29
-- **Related docs:** [`docs/plan/v0.1/areas/e2-new-ux.md`](../plan/v0.1/areas/e2-new-ux.md) (the E2 area narrative); [`docs/architecture/thread-model.md`](../architecture/messaging.md) (the participant-set model the engagement portal surfaces); [`docs/decisions/0030-thread-model.md`](0030-thread-model.md) (the ADR establishing Thread / Engagement / Collaboration terminology).
+- **Related docs:** [`docs/archive/plan/v0.1/areas/e2-new-ux.md`](../archive/plan/v0.1/areas/e2-new-ux.md) (the E2 area narrative); [`docs/architecture/thread-model.md`](../architecture/messaging.md) (the participant-set model the engagement portal surfaces); [`docs/decisions/0030-thread-model.md`](0030-thread-model.md) (the ADR establishing Thread / Engagement / Collaboration terminology).
 - **Related ADRs:** [0029](0029-tenant-execution-boundary.md) (no-portal-private-API rule); [0032](0032-drawer-panel-extension-slot.md) (CLI parity rule for portal panels).
 - **Issues:** [#1219](https://github.com/cvoya-com/spring-voyage/issues/1219) (E2 umbrella).
 

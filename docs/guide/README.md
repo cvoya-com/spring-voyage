@@ -7,7 +7,8 @@ Spring Voyage is an open-source collaboration platform for teams of AI agents �
 What Spring Voyage is and how to take your first steps. Start here regardless of role.
 
 - [Overview](intro/overview.md) — what the platform is, what units / agents / connectors are.
-- [Getting Started](intro/getting-started.md) — first setup, first unit, first agent.
+- [Getting Started](intro/getting-started.md) — install, open the portal, create your first unit.
+- [Getting Started with Spring Voyage OSS](intro/getting-started-spring-voyage-oss.md) — install the built-in dev-team package.
 
 ## [User Guide](user/units-and-agents.md)
 

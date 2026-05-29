@@ -59,7 +59,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# Bundle mode: manifest.json lives at the bundle root (SCRIPT_DIR).
+# Adjust REPO_ROOT so source-relative paths (project, config) resolve correctly.
+if [[ -f "${SCRIPT_DIR}/manifest.json" ]]; then
+  REPO_ROOT="${SCRIPT_DIR}"
+fi
 CONFIG_DIR="${REPO_ROOT}/eng/config"
+# Bundle mode: spring.env (and related config) live at the bundle root, not eng/config.
+if [[ -f "${SCRIPT_DIR}/manifest.json" && ! -d "${CONFIG_DIR}" ]]; then
+  CONFIG_DIR="${SCRIPT_DIR}"
+fi
 
 ENV_FILE="${SPRING_ENV_FILE:-${CONFIG_DIR}/spring.env}"
 
@@ -75,6 +84,11 @@ TENANT_DEFAULT="default"
 
 DISPATCHER_PROJECT="${REPO_ROOT}/src/Cvoya.Spring.Dispatcher/Cvoya.Spring.Dispatcher.csproj"
 PUBLISH_DIR_DEFAULT="${REPO_ROOT}/.spring-voyage/dispatcher/publish"
+# Bundle mode: the dispatcher ships as a pre-built native binary in the
+# sibling dispatcher/ directory (one level up from bundle/).
+if [[ -f "${SCRIPT_DIR}/manifest.json" ]]; then
+  PUBLISH_DIR_DEFAULT="${SCRIPT_DIR}/../dispatcher"
+fi
 
 log()  { printf '[host] %s\n' "$*" >&2; }
 die()  { printf '[host][error] %s\n' "$*" >&2; exit 1; }
@@ -319,10 +333,18 @@ cmd_start() {
         return 0
     fi
 
-    if (( rebuild == 1 )) || ! discover_binary; then
+    if (( rebuild == 1 )) && [[ -f "${DISPATCHER_PROJECT}" ]]; then
+        # Source tree: rebuild requested and project available — compile fresh.
+        publish_dispatcher
+        discover_binary || die "publish succeeded but dispatcher binary not found at ${PUBLISH_DIR}"
+    elif ! discover_binary; then
+        # No pre-built binary found — compile from source if the project exists.
+        [[ -f "${DISPATCHER_PROJECT}" ]] || die "no dispatcher binary found and no source project at ${DISPATCHER_PROJECT}"
         publish_dispatcher
         discover_binary || die "publish succeeded but dispatcher binary not found at ${PUBLISH_DIR}"
     fi
+    # else: --rebuild but no source project (bundle install) → pre-built binary
+    # was found by discover_binary on the elif path; fall through to launch it.
 
     if [[ "${BIN_KIND}" == "dll" ]]; then
         require dotnet

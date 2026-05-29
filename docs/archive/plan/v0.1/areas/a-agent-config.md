@@ -1,6 +1,6 @@
 # Area A: Coding-agent config
 
-> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../architecture/README.md). Kept for context.
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../../architecture/README.md). Kept for context.
 
 **Status:** ✅ **Done.** Umbrella [#1214](https://github.com/cvoya-com/spring-voyage/issues/1214) closed. Subsequent agent-config changes flow as ad-hoc PRs under ongoing hygiene rather than a tracked area.
 

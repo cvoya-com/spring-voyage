@@ -15,6 +15,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# setup.sh is a source-tree tool; it writes eng/config/spring.env and requires
+# a full checkout. Detect a bundle install and redirect to deploy.sh init.
+if [[ -f "${SCRIPT_DIR}/manifest.json" ]]; then
+  printf 'setup.sh requires a source checkout and cannot run from an installed bundle.\n' >&2
+  printf 'To bootstrap spring.env in an installed deployment, run: deploy.sh init\n' >&2
+  exit 1
+fi
+
 CONFIG_DIR="${REPO_ROOT}/eng/config"
 ENV_EXAMPLE="${CONFIG_DIR}/spring.env.example"
 ENV_FILE="${CONFIG_DIR}/spring.env"
@@ -223,7 +232,7 @@ if [[ "${BUILD_IMAGES,,}" == "y" ]]; then
 
     if [[ -n "${_BUILD_CLI}" ]]; then
         info "Running: DOCKER=${_BUILD_CLI} eng/build/build-agent-images.sh --tag latest"
-        if DOCKER="${_BUILD_CLI}" "${SCRIPT_DIR}/build-agent-images.sh" --tag latest; then
+        if DOCKER="${_BUILD_CLI}" "${REPO_ROOT}/eng/build/build-agent-images.sh" --tag latest; then
             ok "Agent images built at :latest"
         else
             warn "Image build failed. Run 'eng/build/build-agent-images.sh --tag latest' manually."
