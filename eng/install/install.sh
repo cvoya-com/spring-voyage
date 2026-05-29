@@ -663,7 +663,11 @@ fi
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
-header "Install complete"
+if [[ "$STACK_STARTED" -eq 1 ]]; then
+  header "Install complete"
+else
+  header "Install incomplete — stack did not start"
+fi
 
 WEB_URL="https://${DEPLOY_HOSTNAME}"
 [[ "$DEPLOY_HOSTNAME" == "localhost" ]] && WEB_URL="http://localhost"

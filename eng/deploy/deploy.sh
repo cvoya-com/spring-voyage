@@ -45,6 +45,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# Bundle mode: manifest.json lives at the bundle root (SCRIPT_DIR).
+# Adjust REPO_ROOT so that dapr/, config/, and other bundle-relative paths
+# resolve correctly when running from a deployed install.
+if [[ -f "${SCRIPT_DIR}/manifest.json" ]]; then
+  REPO_ROOT="${SCRIPT_DIR}"
+fi
 CONFIG_DIR="${REPO_ROOT}/eng/config"
 ENV_FILE="${SPRING_ENV_FILE:-${CONFIG_DIR}/spring.env}"
 # Resolved env file passed to podman --env-file. Podman treats --env-file
@@ -114,6 +120,16 @@ CLOCK_SCRIPT="${SCRIPT_DIR}/resync-container-clock.sh"
 DISPATCHER_ENV_FILE="${SPRING_HOST_STATE_DIR:-${HOME}/.spring-voyage/host}/dispatcher.env"
 DEPLOY_STATE_DIR="${SPRING_DEPLOY_STATE_DIR:-${HOME}/.spring-voyage/deployment}"
 LOCAL_OLLAMA_COMPONENTS_DIR="${DEPLOY_STATE_DIR}/dapr/components/delegated-spring-voyage-agent-local-ollama"
+
+# Production Dapr components/config: repo layout uses eng/dapr/...; bundle layout uses dapr/...
+DAPR_PRODUCTION_COMPONENTS_DIR="${REPO_ROOT}/eng/dapr/components/production"
+if [[ ! -d "${DAPR_PRODUCTION_COMPONENTS_DIR}" && -d "${REPO_ROOT}/dapr/components/production" ]]; then
+  DAPR_PRODUCTION_COMPONENTS_DIR="${REPO_ROOT}/dapr/components/production"
+fi
+DAPR_PRODUCTION_CONFIG_FILE="${REPO_ROOT}/eng/dapr/config/production.yaml"
+if [[ ! -f "${DAPR_PRODUCTION_CONFIG_FILE}" && -f "${REPO_ROOT}/dapr/config/production.yaml" ]]; then
+  DAPR_PRODUCTION_CONFIG_FILE="${REPO_ROOT}/dapr/config/production.yaml"
+fi
 
 LOCAL_OLLAMA_REQUESTED=0
 LOCAL_OLLAMA_ENDPOINT=""
@@ -738,8 +754,8 @@ start_scheduler() {
 start_api_sidecar() {
     run_container spring-api-dapr \
         --env-file "${RESOLVED_ENV_FILE}" \
-        -v "${REPO_ROOT}/eng/dapr/components/production:/components:ro,Z" \
-        -v "${REPO_ROOT}/eng/dapr/config/production.yaml:/config/config.yaml:ro,Z" \
+        -v "${DAPR_PRODUCTION_COMPONENTS_DIR}:/components:ro,Z" \
+        -v "${DAPR_PRODUCTION_CONFIG_FILE}:/config/config.yaml:ro,Z" \
         "${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}" \
         ./daprd \
             --app-id spring-api \
@@ -759,8 +775,8 @@ start_api_sidecar() {
 start_worker_sidecar() {
     run_container spring-worker-dapr \
         --env-file "${RESOLVED_ENV_FILE}" \
-        -v "${REPO_ROOT}/eng/dapr/components/production:/components:ro,Z" \
-        -v "${REPO_ROOT}/eng/dapr/config/production.yaml:/config/config.yaml:ro,Z" \
+        -v "${DAPR_PRODUCTION_COMPONENTS_DIR}:/components:ro,Z" \
+        -v "${DAPR_PRODUCTION_CONFIG_FILE}:/config/config.yaml:ro,Z" \
         "${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}" \
         ./daprd \
             --app-id spring-worker \

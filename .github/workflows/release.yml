@@ -1114,6 +1114,10 @@ jobs:
           mkdir -p "${stage}/dapr/components"
           cp -R eng/dapr/components/delegated-spring-voyage-agent \
             "${stage}/dapr/components/"
+          cp -R eng/dapr/components/production \
+            "${stage}/dapr/components/"
+          mkdir -p "${stage}/dapr/config"
+          cp eng/dapr/config/production.yaml "${stage}/dapr/config/"
 
           # LICENSE — repo-root LICENSE.md, renamed to the conventional bundle name.
           cp LICENSE.md "${stage}/LICENSE"
