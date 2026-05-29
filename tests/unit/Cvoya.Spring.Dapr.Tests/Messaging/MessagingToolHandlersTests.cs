@@ -469,6 +469,37 @@ public class MessagingToolHandlersTests
         ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.InvalidRequest);
     }
 
+    [Fact]
+    public async Task HandleRespondTo_ConnectorOriginThread_RefusesDeliveryToTheConnector()
+    {
+        // #2909 — a connector-origin thread keeps the connector in its key
+        // {connector, unit} for identity, but the connector is non-routable:
+        // respond_to delivers only to routable members, so a conversation
+        // whose sole non-caller participant is the connector resolves zero
+        // recipients. The platform refuses the reverse unit → connector
+        // direction; a connector is provenance, never a deliverable target.
+        var handlers = CreateHandlers();
+        var caller = Unit();
+        var connector = new Address(Address.ConnectorScheme, Guid.NewGuid());
+
+        // The connector-origin conversation {connector, unit} — the connector
+        // is in the thread key (used to resolve the thread here).
+        var threadId = await _threadRegistry.GetOrCreateAsync(
+            new[] { connector, caller }, CancellationToken.None);
+        var messageId = Guid.NewGuid();
+        _messageQuery.GetAsync(messageId, Arg.Any<CancellationToken>())
+            .Returns(new MessageDetail(
+                messageId, threadId, connector.ToString(), caller.ToString(),
+                "Domain", "event", null, DateTimeOffset.UnixEpoch));
+
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
+            handlers.HandleRespondToAsync(
+                caller, TenantId, messageId, CreateMessage(), reason: null, CancellationToken.None));
+
+        // Connector filtered out as non-routable → no recipient remains.
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.InvalidRequest);
+    }
+
     private MessagingToolHandlers CreateHandlers(
         int maxHopCount = 16,
         IUnitMembershipRepository? membershipRepo = null)
