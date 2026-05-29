@@ -32,15 +32,170 @@ ENV_FILE="${CONFIG_DIR}/spring.env"
 # Colour helpers (degrade gracefully when not a TTY)
 # ---------------------------------------------------------------------------
 if [[ -t 1 ]]; then
-  BOLD='\033[1m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
+  BOLD='\033[1m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 else
-  BOLD=''; GREEN=''; YELLOW=''; CYAN=''; NC=''
+  BOLD=''; GREEN=''; YELLOW=''; CYAN=''; RED=''; NC=''
 fi
 
 header()  { printf "\n${BOLD}${CYAN}%s${NC}\n" "$1"; printf "${CYAN}%s${NC}\n" "$(printf '─%.0s' $(seq 1 ${#1}))"; }
 ok()      { printf "  ${GREEN}✓${NC}  %s\n" "$*"; }
 info()    { printf "      %s\n" "$*"; }
 warn()    { printf "  ${YELLOW}!${NC}  %s\n" "$*"; }
+fail()    { printf "  ${RED}✗${NC}  %s\n" "$*"; }
+
+# ---------------------------------------------------------------------------
+# preflight — verify every tool required for setup / build / deploy
+# ---------------------------------------------------------------------------
+# Hard requirements abort the wizard; soft requirements emit a warning only.
+#
+# Tool                  Why needed
+# ─────────────────     ──────────────────────────────────────────────────────
+# docker/podman 4.4+    image builds (platform Dockerfile uses COPY --parents)
+# openssl               AES key generation; deploy.sh init key rotation
+# envsubst              deploy.sh expands variables in the resolved spring.env
+# dotnet 10 SDK         spring-voyage-host.sh builds and runs the dispatcher
+# python3   (soft)      gen_hex prefers it; falls back to openssl automatically
+# curl      (soft)      health probes; deploy.sh skips probe gracefully if absent
+# ---------------------------------------------------------------------------
+preflight() {
+  local _errs=0
+
+  # Helper: record a hard-requirement failure.
+  # Usage: _err "headline" ["hint line" ...]
+  _err() { fail "$1"; shift; while [[ $# -gt 0 ]]; do info "$1"; shift; done; _errs=$(( _errs + 1 )); }
+
+  # Detect WSL2 for targeted install hints.
+  local _wsl2=0
+  grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null && _wsl2=1
+
+  header "Requirements"
+  [[ $_wsl2 -eq 1 ]] && info "Detected: Windows Subsystem for Linux 2 (WSL2)"
+
+  # ---- container runtime ---------------------------------------------------
+  # The platform image (eng/build/Dockerfile) uses COPY --parents, which
+  # requires BuildKit. Docker 23.0+ enables BuildKit by default; Podman needs
+  # buildah 1.28+ (shipped with Podman 4.4).
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    local _dv
+    _dv=$(docker version --format '{{.Client.Version}}' 2>/dev/null || true)
+    local _dmaj="${_dv%%.*}"
+    if [[ "$_dmaj" =~ ^[0-9]+$ ]] && (( _dmaj < 23 )); then
+      _err "docker ${_dv} — 23.0+ required" \
+           "The platform Dockerfile uses COPY --parents (BuildKit, enabled by default in Docker 23+)." \
+           "Upgrade: https://docs.docker.com/engine/install/"
+    else
+      ok "docker ${_dv:-[version unknown]}"
+    fi
+  elif command -v podman >/dev/null 2>&1; then
+    local _pv
+    _pv=$(podman --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+    local _pmaj _pmin
+    _pmaj=$(printf '%s' "$_pv" | cut -d. -f1)
+    _pmin=$(printf '%s' "$_pv" | cut -d. -f2)
+    if [[ "$_pmaj" =~ ^[0-9]+$ ]] && [[ "$_pmin" =~ ^[0-9]+$ ]] \
+    && { (( _pmaj < 4 )) || { (( _pmaj == 4 )) && (( _pmin < 4 )); }; }; then
+      _err "podman ${_pv} — 4.4+ required" \
+           "The platform Dockerfile uses COPY --parents, which requires buildah 1.28+ (Podman 4.4+)."
+      if [[ $_wsl2 -eq 1 ]]; then
+        info "On WSL2, install from the official Podman repository (Ubuntu's default is too old):"
+        info "  https://podman.io/docs/installation#ubuntu"
+      else
+        info "Upgrade: https://podman.io/docs/installation"
+      fi
+    else
+      ok "podman ${_pv:-[version unknown]}"
+    fi
+  else
+    _err "no container runtime found — install docker (23.0+) or podman (4.4+)" \
+         "Docker:  https://docs.docker.com/engine/install/" \
+         "Podman:  https://podman.io/docs/installation"
+    if [[ $_wsl2 -eq 1 ]]; then
+      info "On WSL2: Docker Desktop (WSL2 backend) or native rootless Podman are both supported."
+    fi
+  fi
+
+  # ---- openssl -------------------------------------------------------------
+  # gen_hex uses openssl as a fallback and deploy.sh init requires it for key
+  # rotation. No further fallback exists.
+  if command -v openssl >/dev/null 2>&1; then
+    ok "openssl"
+  else
+    _err "openssl not found" \
+         "Required for AES key generation and by 'deploy.sh init'." \
+         "Install: apt-get install openssl      (Debian / Ubuntu)" \
+         "         brew install openssl          (macOS)"
+  fi
+
+  # ---- envsubst (gettext-base) ---------------------------------------------
+  # deploy.sh pipes spring.env through envsubst to expand variable references
+  # before passing it to podman via --env-file.
+  if command -v envsubst >/dev/null 2>&1; then
+    ok "envsubst"
+  else
+    _err "envsubst not found" \
+         "Required by deploy.sh to expand variables in spring.env." \
+         "Install: apt-get install gettext-base  (Debian / Ubuntu)" \
+         "         brew install gettext           (macOS)"
+  fi
+
+  # ---- .NET 10 SDK ---------------------------------------------------------
+  # spring-voyage-host.sh compiles and launches the spring-dispatcher, which
+  # is a .NET 10 application. The repo's global.json pins the SDK channel.
+  if command -v dotnet >/dev/null 2>&1; then
+    local _dnv
+    _dnv=$(cd "${REPO_ROOT}" && dotnet --version 2>/dev/null || true)
+    if [[ -z "$_dnv" ]]; then
+      _err "dotnet found but 'dotnet --version' failed" \
+           "The repo's global.json requires .NET 10 SDK; no compatible version was found." \
+           "Install .NET 10 SDK:" \
+           "  curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0"
+    else
+      local _dnmaj="${_dnv%%.*}"
+      if [[ "$_dnmaj" =~ ^[0-9]+$ ]] && (( _dnmaj < 10 )); then
+        _err "dotnet ${_dnv} — .NET 10 SDK required" \
+             "The spring-dispatcher host process requires .NET 10." \
+             "Install .NET 10 SDK:" \
+             "  curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0"
+      else
+        ok "dotnet ${_dnv}"
+      fi
+    fi
+  else
+    _err "dotnet not found — .NET 10 SDK required" \
+         "spring-voyage-host.sh builds and runs the dispatcher, which is a .NET 10 process." \
+         "Install .NET 10 SDK:" \
+         "  curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0"
+  fi
+
+  # ---- python3 (soft) ------------------------------------------------------
+  # gen_hex prefers python3 for entropy; openssl is the automatic fallback.
+  if command -v python3 >/dev/null 2>&1; then
+    local _pyv
+    _pyv=$(python3 --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 || true)
+    ok "python3 ${_pyv:-[version unknown]}"
+  else
+    warn "python3 not found — AES key generation will use openssl instead (safe)"
+  fi
+
+  # ---- curl (soft) ---------------------------------------------------------
+  # spring-voyage-host.sh uses curl for dispatcher health probes; deploy.sh
+  # uses it for Ollama reachability checks. Both scripts degrade gracefully
+  # (blind sleep) when curl is absent.
+  if command -v curl >/dev/null 2>&1; then
+    ok "curl"
+  else
+    warn "curl not found — health probes will fall back to blind sleeps"
+    info "Install: apt-get install curl"
+  fi
+
+  # ---- summary -------------------------------------------------------------
+  printf '\n'
+  if (( _errs > 0 )); then
+    printf "  ${RED}${BOLD}%d requirement(s) not met.${NC}  Fix the ${RED}✗${NC} items above, then re-run setup.sh.\n\n" "$_errs" >&2
+    exit 1
+  fi
+  ok "All requirements satisfied."
+}
 
 prompt() {
   local label="$1" default="${2:-}"
@@ -101,6 +256,8 @@ fi
 printf '\n%s\n' "╔══════════════════════════════════════╗"
 printf '%s\n'   "║   Spring Voyage — self-host setup   ║"
 printf '%s\n\n' "╚══════════════════════════════════════╝"
+
+preflight
 
 if [[ -f "$ENV_FILE" ]]; then
   warn "spring.env already exists."

@@ -5,7 +5,8 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY . .
 RUN dotnet publish samples/workflow-agent-image/Cvoya.Spring.Sample.WorkflowAgent/Cvoya.Spring.Sample.WorkflowAgent.csproj \
-    -c Release -o /app/publish
+    -c Release -o /app/publish \
+ && dotnet build-server shutdown
 
 FROM base AS final
 WORKDIR /app

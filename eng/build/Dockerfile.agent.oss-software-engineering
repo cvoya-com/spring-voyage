@@ -83,7 +83,8 @@ RUN apt-get update \
                            --no-path \
  && ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
  && rm /tmp/dotnet-install.sh \
- && dotnet --info
+ && dotnet --info \
+ && dotnet build-server shutdown
 
 # ---- gh CLI --------------------------------------------------------------------
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
