@@ -393,6 +393,18 @@ public static class EngagementCommand
     // engagement errors <id>
     // -----------------------------------------------------------------------
 
+    /// <summary>
+    /// Predicate for a first-class "error" timeline entry: an
+    /// <c>ErrorOccurred</c> event, or any event stamped <c>Error</c> severity.
+    /// Extracted (#2890) so the command and its tests assert the *same*
+    /// predicate. The prior tests re-implemented this filter inline and ran
+    /// it over canned events — a tautology that stayed green even if the real
+    /// command's filter regressed.
+    /// </summary>
+    internal static bool IsErrorEvent(ThreadEventResponse e) =>
+        string.Equals(e.EventType, "ErrorOccurred", StringComparison.Ordinal)
+        || string.Equals(e.Severity, "Error", StringComparison.OrdinalIgnoreCase);
+
     private static Command CreateErrorsCommand(Option<string> outputOption)
     {
         var idArg = new Argument<string>("id") { Description = "The engagement (thread) id to inspect" };
@@ -418,11 +430,7 @@ public static class EngagementCommand
                 var detail = await client.GetThreadAsync(id, ct);
 
                 var events = detail.Events ?? new List<ThreadEventResponse>();
-                var errors = events
-                    .Where(e =>
-                        string.Equals(e.EventType, "ErrorOccurred", StringComparison.Ordinal)
-                        || string.Equals(e.Severity, "Error", StringComparison.OrdinalIgnoreCase))
-                    .ToList();
+                var errors = events.Where(IsErrorEvent).ToList();
 
                 if (output == "json")
                 {

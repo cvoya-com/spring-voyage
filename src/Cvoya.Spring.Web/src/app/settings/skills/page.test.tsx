@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -69,8 +69,22 @@ describe("SettingsSkillsPage", () => {
     expect(
       screen.getByTestId("settings-skills-registry-connectors"),
     ).toBeInTheDocument();
-    expect(screen.getByText("search")).toBeInTheDocument();
-    expect(screen.getByText("summarize")).toBeInTheDocument();
-    expect(screen.getByText("slack.post")).toBeInTheDocument();
+
+    // #2890: assert *which* group each skill lands under, not merely that the
+    // names render somewhere. The prior test queried the whole document, so a
+    // regression that filed `slack.post` under `builtin` (or dropped grouping
+    // entirely) stayed green.
+    const builtin = within(
+      screen.getByTestId("settings-skills-registry-builtin"),
+    );
+    const connectors = within(
+      screen.getByTestId("settings-skills-registry-connectors"),
+    );
+    expect(builtin.getByText("search")).toBeInTheDocument();
+    expect(builtin.getByText("summarize")).toBeInTheDocument();
+    expect(connectors.getByText("slack.post")).toBeInTheDocument();
+    // ...and not cross-filed under the other registry.
+    expect(builtin.queryByText("slack.post")).toBeNull();
+    expect(connectors.queryByText("search")).toBeNull();
   });
 });
