@@ -55,6 +55,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import {
+  ANALYTICS_BACKSTOP_REFETCH_INTERVAL_MS,
   type ValidatedTenantTreeNode,
   useDashboardAgents,
   useDashboardCosts,
@@ -191,16 +192,27 @@ function AnalyticsCostsContent() {
   const filters = useAnalyticsFilters();
 
   const tenantQuery = useTenantBudget();
+  // #2771: analytics live backstop. The cost queries are shared with the
+  // /budgets surface, so the interval is opted into here at the call site
+  // rather than baked into the hooks. Removed once the cross-host stream
+  // bridge ships (#2896).
+  const analyticsBackstop = {
+    refetchInterval: ANALYTICS_BACKSTOP_REFETCH_INTERVAL_MS,
+  };
   // The dashboard cost summary includes a per-source breakdown the CLI
   // doesn't expose yet (tracked in #554); fetching it here keeps the
   // portal's Costs surface more expressive without blocking PR-S2.
-  const dashboardCostsQuery = useDashboardCosts();
-  const agentsQuery = useDashboardAgents();
+  const dashboardCostsQuery = useDashboardCosts(analyticsBackstop);
+  const agentsQuery = useDashboardAgents(analyticsBackstop);
   const tenantTreeQuery = useTenantTree();
   // #910: tenant cost timeseries for the area chart. Window maps to the
   // filter bar window; bucket auto-selects: 1h for 24h, 1d for 7d/30d.
   const tsBucket = filters.window === "24h" ? "1h" : "1d";
-  const timeseriesQuery = useTenantCostTimeseries(filters.window, tsBucket);
+  const timeseriesQuery = useTenantCostTimeseries(
+    filters.window,
+    tsBucket,
+    analyticsBackstop,
+  );
 
   // Windowed scope summary — mirrors `spring analytics costs` exactly
   // (same endpoints, same (from, to) resolution, same filter switch).
