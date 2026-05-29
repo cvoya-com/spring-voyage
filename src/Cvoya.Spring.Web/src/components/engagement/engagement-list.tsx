@@ -44,7 +44,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useThreads, useInbox, useCurrentUser } from "@/lib/api/queries";
+import {
+  useThreads,
+  useInbox,
+  useCurrentUser,
+  useCallerHumans,
+} from "@/lib/api/queries";
 import type { ParticipantRef, ThreadSummary } from "@/lib/api/types";
 import {
   addressOf,
@@ -109,16 +114,33 @@ function isA2aOnly(participants: ParticipantRef[]): boolean {
 }
 
 /**
- * Whether the current user appears in the participant list. #2082:
- * identity is a typed Guid, not an address string — compare on the
- * `id` field the server emits alongside the display address.
+ * Whether any of the caller's bound Hats appears in the participant list.
+ *
+ * #2899 (sibling of #2888 / #2895): an operator wears one Hat per unit
+ * (ADR-0062), so the Hat stamped on a unit-scoped thread — carried as the
+ * participant `id`, picked per-thread by TenantUserHumanResolver — differs
+ * from the auth-username Hat that `/auth/me` resolves. Gating "am I a
+ * participant?" on the lone `/me.id` (the pre-#2899 code) misclassified the
+ * operator as an observer on their own unit-scoped engagements: the
+ * participant filter dropped them and the card wore the observer eye, even
+ * where they were the literal sender. Gate on the caller's full bound-Hat
+ * set instead (`useCallerHumans()`, the same set powering the composer's
+ * "As…" selector and the engagement-detail participation gate). The
+ * `/auth/me` id is folded into the set as a floor by the caller so the
+ * check never narrows below the previous single-Hat behaviour.
+ *
+ * #2082: identity is a typed Guid — compare on the `id` field the server
+ * emits alongside the display address, never on the address string.
  */
 function userIsParticipant(
   participants: ParticipantRef[],
-  currentUserId: string | undefined,
+  myHatIds: ReadonlySet<string>,
 ): boolean {
-  if (!currentUserId) return false;
-  return participants.some((p) => idOf(p) === currentUserId);
+  if (myHatIds.size === 0) return false;
+  return participants.some((p) => {
+    const id = idOf(p);
+    return id !== null && myHatIds.has(id);
+  });
 }
 
 /**
@@ -178,12 +200,16 @@ const FRESHNESS_OPACITY: Record<string, string> = {
  */
 function engagementTitle(
   participants: ParticipantRef[],
-  currentUserId: string | undefined,
+  myHatIds: ReadonlySet<string>,
 ): string {
-  // #2082: filter by Guid identity, not address string.
-  const others = participants.filter((p) =>
-    currentUserId ? idOf(p) !== currentUserId : true,
-  );
+  // #2082: filter by Guid identity, not address string. #2899: exclude
+  // every Hat that resolves to the operator (not just `/me.id`) so the
+  // operator's own unit-scoped sending Hat is not listed as a separate
+  // participant in the card title.
+  const others = participants.filter((p) => {
+    const id = idOf(p);
+    return id === null || !myHatIds.has(id);
+  });
   // Solo thread (just the active user)
   if (others.length === 0) return "Just you";
   const visibleNames = others
@@ -577,7 +603,8 @@ interface DecoratedThread {
 interface ListBodyProps {
   threads: DecoratedThread[];
   pendingThreadIds: Set<string>;
-  currentUserId: string | undefined;
+  /** The set of Hat ids that resolve to the operator (#2899). */
+  myHatIds: ReadonlySet<string>;
   selectedThreadId: string | undefined;
   variant: "page" | "sidebar";
   /**
@@ -594,7 +621,7 @@ interface ListBodyProps {
 function ListBody({
   threads,
   pendingThreadIds,
-  currentUserId,
+  myHatIds,
   selectedThreadId,
   variant,
   muted,
@@ -617,7 +644,7 @@ function ListBody({
           thread={thread}
           hasPendingQuestion={pendingThreadIds.has(thread.id)}
           isParticipant={isParticipant}
-          title={engagementTitle(thread.participants ?? [], currentUserId)}
+          title={engagementTitle(thread.participants ?? [], myHatIds)}
           selected={selectedThreadId === thread.id}
           variant={variant}
         />
@@ -633,12 +660,12 @@ function ListBody({
  */
 function filterAndSort(
   threads: ThreadSummary[],
-  currentUserId: string | undefined,
+  myHatIds: ReadonlySet<string>,
   filter: EngagementVisibilityFilter,
 ): DecoratedThread[] {
   const decorated = threads.map((thread) => {
     const participants = thread.participants ?? [];
-    const isParticipant = userIsParticipant(participants, currentUserId);
+    const isParticipant = userIsParticipant(participants, myHatIds);
     return { thread, isParticipant };
   });
 
@@ -695,17 +722,35 @@ export function EngagementList({
   );
   const inboxQuery = useInbox({ staleTime: 10_000 });
   const userQuery = useCurrentUser({ staleTime: 60_000 });
+  const callerHumansQuery = useCallerHumans({ staleTime: 60_000 });
 
-  // #2082: identity comparisons go via the typed Guid id, not the
-  // textual address.
-  const currentUserId = userQuery.data?.id?.toLowerCase() ?? undefined;
+  // The set of Hat ids that resolve to "me". #2899 (sibling of #2888):
+  // an operator wears one Hat per unit (ADR-0062), so the Hat stamped on
+  // a unit-scoped thread differs from the auth-username Hat `/auth/me`
+  // resolves. Gate participation on the caller's full bound-Hat set — not
+  // the lone `/me.id` — so the operator's own unit-scoped engagements are
+  // not misfiled as observer-only and dropped from the participant view.
+  // `/auth/me` is folded in as a floor so the check never narrows below
+  // the previous single-Hat behaviour. #2082: compare on the typed Guid
+  // id, never the textual address.
+  const myHatIds = new Set<string>();
+  const meId = userQuery.data?.id?.trim().toLowerCase();
+  if (meId) myHatIds.add(meId);
+  for (const hat of callerHumansQuery.data ?? []) {
+    const hatId = hat.humanId?.trim().toLowerCase();
+    if (hatId) myHatIds.add(hatId);
+  }
 
   // Pending-question lookup keyed by thread id.
   const pendingThreadIds = new Set<string>(
     (inboxQuery.data ?? []).map((item) => item.threadId).filter(Boolean),
   );
 
-  if (threadsQuery.isPending) {
+  // #2899: wait for the caller's Hats before classifying participation,
+  // so a unit-Hat engagement isn't briefly stamped observer (eye icon /
+  // dropped under the participant filter) before the bound set arrives
+  // and flips it to participant.
+  if (threadsQuery.isPending || callerHumansQuery.isPending) {
     return <EngagementListSkeleton variant={variant} />;
   }
 
@@ -722,12 +767,12 @@ export function EngagementList({
 
   const activeVisible = filterAndSort(
     threadsQuery.data ?? [],
-    currentUserId,
+    myHatIds,
     filter,
   );
   const archivedVisible = filterAndSort(
     archivedQuery.data ?? [],
-    currentUserId,
+    myHatIds,
     filter,
   );
   const archivedCount = archivedVisible.length;
@@ -783,7 +828,7 @@ export function EngagementList({
         <ListBody
           threads={activeVisible}
           pendingThreadIds={pendingThreadIds}
-          currentUserId={currentUserId}
+          myHatIds={myHatIds}
           selectedThreadId={selectedThreadId}
           variant={variant}
           testId="engagement-list"
@@ -814,7 +859,7 @@ export function EngagementList({
             <ListBody
               threads={archivedVisible}
               pendingThreadIds={pendingThreadIds}
-              currentUserId={currentUserId}
+              myHatIds={myHatIds}
               selectedThreadId={selectedThreadId}
               variant={variant}
               muted

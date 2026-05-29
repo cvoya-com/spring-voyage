@@ -29,6 +29,7 @@ const mockUseThreads = vi.fn();
 const mockUseArchivedThreads = vi.fn();
 const mockUseInbox = vi.fn();
 const mockUseCurrentUser = vi.fn();
+const mockUseCallerHumans = vi.fn();
 
 function dispatchUseThreads(...args: unknown[]) {
   const filters = args[0] as ThreadListFilters | undefined;
@@ -42,6 +43,7 @@ vi.mock("@/lib/api/queries", () => ({
   useThreads: (...args: unknown[]) => dispatchUseThreads(...args),
   useInbox: (...args: unknown[]) => mockUseInbox(...args),
   useCurrentUser: (...args: unknown[]) => mockUseCurrentUser(...args),
+  useCallerHumans: (...args: unknown[]) => mockUseCallerHumans(...args),
 }));
 
 // ── component import ───────────────────────────────────────────────────────
@@ -83,6 +85,19 @@ const CURRENT_USER = {
   address: "human://savas",
 };
 
+// #2899: an operator wears one Hat per unit (ADR-0062). The Hat that
+// `/auth/me` resolves (the auth-username Hat) and the unit-scoped Hat
+// stamped on a thread are different GUIDs. `AUTH_USERNAME_HAT` is the
+// `/auth/me` identity; `UNIT_SENDING_HAT_ID` is the "savas" participant
+// in `makeThread()` — i.e. the Hat the operator actually sent into the
+// thread with. The two are distinct, reproducing the multi-Hat blind
+// spot that misclassified the operator as an observer.
+const AUTH_USERNAME_HAT = {
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  address: "human://savas-auth",
+};
+const UNIT_SENDING_HAT_ID = "11111111-1111-1111-1111-111111111111";
+
 // ── tests ──────────────────────────────────────────────────────────────────
 
 describe("EngagementList", () => {
@@ -90,6 +105,16 @@ describe("EngagementList", () => {
     mockUseInbox.mockReturnValue({ data: [], isPending: false, error: null });
     mockUseCurrentUser.mockReturnValue({
       data: CURRENT_USER,
+      isPending: false,
+      error: null,
+    });
+    // #2899: the bound-Hat set is empty by default, so the existing
+    // single-Hat tests classify the operator via the `/me.id` floor
+    // (CURRENT_USER.id is the "savas" participant). The multi-Hat suite
+    // below supplies a bound set whose member is the sending participant
+    // while `/me.id` is a different Hat.
+    mockUseCallerHumans.mockReturnValue({
+      data: [],
       isPending: false,
       error: null,
     });
@@ -110,6 +135,29 @@ describe("EngagementList", () => {
         isPending: true,
         error: null,
         isFetching: true,
+      });
+
+      render(<EngagementList slice="mine" />);
+      expect(
+        screen.getByTestId("engagement-list-loading"),
+      ).toBeInTheDocument();
+    });
+
+    // #2899: participant classification reads the caller's bound-Hat set,
+    // so the list waits for it too — otherwise a unit-Hat engagement would
+    // flash the observer eye (and drop out of the participant filter)
+    // before the bound set arrives and flips it to participant.
+    it("shows a skeleton while the caller's Hats are loading", () => {
+      mockUseThreads.mockReturnValue({
+        data: [makeThread()],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+      mockUseCallerHumans.mockReturnValue({
+        data: undefined,
+        isPending: true,
+        error: null,
       });
 
       render(<EngagementList slice="mine" />);
@@ -520,6 +568,116 @@ describe("EngagementList", () => {
       expect(
         screen.getByTestId("engagement-card-thread-a2a"),
       ).toBeInTheDocument();
+    });
+  });
+
+  // ── multi-Hat participant (#2899, sibling of #2888 / #2895) ──────────────
+  //
+  // The operator is authenticated as the auth-username Hat, which is NOT
+  // the Hat stamped on a unit-scoped engagement. The pre-#2899 code
+  // compared each participant id to the lone `/me.id`, so the operator —
+  // the literal sender on their own unit thread — was misclassified as a
+  // read-only observer: the participant filter dropped the thread and the
+  // card wore the observer eye.
+  describe("multi-Hat participant (#2899)", () => {
+    beforeEach(() => {
+      // Authenticated as the auth-username Hat, which is NOT the Hat
+      // stamped on the unit-scoped thread (savas = UNIT_SENDING_HAT_ID).
+      mockUseCurrentUser.mockReturnValue({
+        data: AUTH_USERNAME_HAT,
+        isPending: false,
+        error: null,
+      });
+    });
+
+    it("classifies a unit-Hat engagement as participant and keeps it in the participant view", () => {
+      // Bound set: the auth-username Hat plus the unit-scoped sending Hat.
+      // The sending Hat (not `/me.id`) is the thread participant.
+      mockUseCallerHumans.mockReturnValue({
+        data: [
+          { humanId: AUTH_USERNAME_HAT.id, isPrimary: true },
+          { humanId: UNIT_SENDING_HAT_ID, isPrimary: false },
+        ],
+        isPending: false,
+        error: null,
+      });
+      mockUseThreads.mockReturnValue({
+        data: [makeThread({ id: "thread-unit" })],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+
+      // Not stamped observer — no eye icon — even though the sending Hat
+      // differs from `/me.id`.
+      expect(
+        screen.queryByLabelText("You are observing this engagement"),
+      ).not.toBeInTheDocument();
+
+      // And it survives the participant-only filter rather than being
+      // misfiled as observer-only and dropped.
+      fireEvent.click(screen.getByTestId("engagement-filter-trigger"));
+      fireEvent.click(
+        screen.getByTestId("engagement-filter-option-participant"),
+      );
+      expect(
+        screen.getByTestId("engagement-card-thread-unit"),
+      ).toBeInTheDocument();
+    });
+
+    it("omits the operator's own unit-scoped sending Hat from the card title", () => {
+      mockUseCallerHumans.mockReturnValue({
+        data: [{ humanId: UNIT_SENDING_HAT_ID, isPrimary: true }],
+        isPending: false,
+        error: null,
+      });
+      mockUseThreads.mockReturnValue({
+        data: [makeThread({ id: "thread-unit" })],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      const title = screen.getByTestId("engagement-card-title");
+      // The non-human counterpart ("ada") still shows; the operator's own
+      // Hat ("savas") is filtered out as self even though its id ≠ `/me.id`.
+      expect(title).toHaveTextContent("ada");
+      expect(title).not.toHaveTextContent("savas");
+    });
+
+    it("still classifies as observer when no bound Hat is a participant", () => {
+      // A bound Hat that is NOT on the thread — proves the bound-set gate
+      // is not vacuously true.
+      mockUseCallerHumans.mockReturnValue({
+        data: [
+          { humanId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", isPrimary: true },
+        ],
+        isPending: false,
+        error: null,
+      });
+      mockUseThreads.mockReturnValue({
+        data: [makeThread({ id: "thread-unit" })],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      // Observer eye present under the default "all" filter…
+      expect(
+        screen.getByLabelText("You are observing this engagement"),
+      ).toBeInTheDocument();
+      // …and dropped from the participant-only view.
+      fireEvent.click(screen.getByTestId("engagement-filter-trigger"));
+      fireEvent.click(
+        screen.getByTestId("engagement-filter-option-participant"),
+      );
+      expect(
+        screen.queryByTestId("engagement-card-thread-unit"),
+      ).not.toBeInTheDocument();
     });
   });
 
