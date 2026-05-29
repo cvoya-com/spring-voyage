@@ -10,7 +10,7 @@
 
 ## About
 
-Spring Voyage is developed by [Cvoya](https://cvoya.com) and led by [Savas Parastatidis](https://savas.me). For news, examples, and the wider project, visit [spring.voyage](https://spring.voyage).
+Spring Voyage is developed by [CVOYA](https://cvoya.com) and led by [Savas Parastatidis](https://savas.me). For news, examples, and the wider project, visit [spring.voyage](https://spring.voyage).
 
 ## Introduction
 
