@@ -24,7 +24,8 @@ COPY eng/runtime-catalog/ eng/runtime-catalog/
 
 RUN dotnet restore src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj \
  && dotnet restore src/Cvoya.Spring.Host.Worker/Cvoya.Spring.Host.Worker.csproj \
- && dotnet restore src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
+ && dotnet restore src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj \
+ && dotnet build-server shutdown
 
 RUN dotnet publish src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj \
         --configuration Release --no-restore \
@@ -34,7 +35,8 @@ RUN dotnet publish src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj \
         --output /publish/worker \
  && dotnet publish src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj \
         --configuration Release --no-restore \
-        --output /publish/cli
+        --output /publish/cli \
+ && dotnet build-server shutdown
 
 # ------------------------------------------------------------------
 # Stage 2: build the Next.js dashboard (npm workspace at repo root)
