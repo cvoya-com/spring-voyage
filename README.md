@@ -6,7 +6,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com/)
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE.md)
 
-![Spring Voyage](docs/spring-voyage-sailboat-light.png){width="200"}
+![Spring Voyage](docs/spring-voyage-sailboat-light.png)
 
 ## About
 
@@ -14,21 +14,23 @@ Spring Voyage is developed by [Cvoya](https://cvoya.com) and led by [Savas Paras
 
 ## Introduction
 
-Spring Voyage is an open-source human - AI agent collaboration platform. It lets humans and agents collaborate on a goal in any domain, as members of the same team, each with their own roles, responsibilities, and expertise. Agents organize into composable **units**, connect to external systems through pluggable **connectors**, and communicate via typed **messages**.
+Spring Voyage is an open-source human - AI agent collaboration platform. It lets humans and agents work together towards a goal in a domain, as members of the same team, each with their own roles, responsibilities, and expertise. Agents organize into composable **units**, connect to external systems through pluggable **connectors**, and communicate via **messages**.
 
 The platform does not orchestrate — workflow management is something the agents and humans themselves employ. What the platform provides instead are the building blocks teams need:
 
 - **Communication** primitives for interactions and conversations.
 - **Memory** tools that keep a per-engagement history of interactions (between two or more participants).
 - **Directory** tools for discovering members, roles, and expertise.
-- **Isolated execution environment** for agents using containers. They can get access to their domain-specific tools and, if necessary, they can host their own orchestration logic using **[LangGraph](https://www.langchain.com/langgraph)**, **[Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/)**, **[CrewAI](https://www.crewai.com/)**, **[Google ADK](https://google.github.io/adk-docs/)**, **[OpenAI Agents SDK](https://github.com/openai/openai-agents-python)**, **[Ruflo](https://github.com/ruvnet/ruflo)**, **[Gas Town](https://github.com/gastownhall/gastown)**, and more.
+- **Isolated execution environment** for agent runtimes. Agent runtimes can use domain-specific tools and, if necessary, can host their own orchestration frameworks using **[LangGraph](https://www.langchain.com/langgraph)**, **[Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/)**, **[CrewAI](https://www.crewai.com/)**, **[Google ADK](https://google.github.io/adk-docs/)**, **[OpenAI Agents SDK](https://github.com/openai/openai-agents-python)**, **[Ruflo](https://github.com/ruvnet/ruflo)**, **[Gas Town](https://github.com/gastownhall/gastown)**, and more.
 - **Policy** management for team behavior — such as interaction boundary enforcement, work projection/summarization via a team leader, and more (still in progress).
 - **Connectors** for integration with external systems (currently GitHub and Slack).
 - **CLI and Web Portal** for managing the platform, configuring agent teams, monitoring budgets, and gaining insight into team operations and engagements.
 
 ## Vision
 
-The Spring Voyage platform does not prescribe a particular way of working. It does not have predefined workflows or orchestration logic for teams of agents. Instead, it offers the necessary primitives for teams of agents and humans to be defined by users. How they communicate, how they collaborate, how they organize to solve problems is left to the instructions that are given to the agents. The platform contributes the building blocks for teams of humans and AI agents to collaborate on any problem in any domain.
+The Spring Voyage aims to support humans and agents to collaboration towards a shared goal in a domain, enabling increased productivity and improving efficiency. It does so by offering the necessary primitives for teams of agents and humans to interact, engage, collaborate, and help each other while working on a task.
+
+The Spring Voyage platform does not prescribe a particular way of working. It does not have predefined workflows or orchestration logic for teams of agents. Instead, how they communicate, how they collaborate, how they organize to solve problems is left to the instructions that are given to the agents.
 
 ## Install
 
