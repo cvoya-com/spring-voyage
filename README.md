@@ -6,41 +6,29 @@
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com/)
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE.md)
 
-<p align="center">
-  <img src="docs/spring-voyage-sailboat-light.png" alt="Spring Voyage" width="200">
-</p>
-
-An open-source collaboration platform for teams of AI agents and the humans they work with. Spring Voyage lets humans and agents collaborate on a goal in any domain, as members of the same team, each with their own roles, responsibilities, and expertise.
-
-Agents organize into composable **units**, connect to external systems through pluggable **connectors**, and communicate via typed **messages**. Interactions are reliable and concurrency-safe, built on the actor computation paradigm, and each agent runtime is hosted in its own isolated container.
-
-The platform does not orchestrate, and it offers no tools for orchestration — workflow management is something the agents and humans themselves employ. What it provides instead are the building blocks teams need:
-
-- **Communication** primitives for interactions and conversations.
-- **Memory** tools that keep a per-engagement history of interactions (between two or more participants).
-- **Directory** tools for discovering members, roles, and expertise.
-- **Policy** management for team behavior — such as interaction boundary enforcement, work projection/summarization via a team leader, and more (still in progress).
-- **Connectors** for integration with external systems (currently GitHub and Slack).
-- **CLI and Web Portal** for managing the platform, configuring agent teams, monitoring budgets, and gaining insight into team operations and engagements.
+![Spring Voyage](docs/spring-voyage-sailboat-light.png){width="200"}
 
 ## About
 
 Spring Voyage is developed by [Cvoya](https://cvoya.com) and led by [Savas Parastatidis](https://savas.me). For news, examples, and the wider project, visit [spring.voyage](https://spring.voyage).
 
+## Introduction
+
+Spring Voyage is an open-source human - AI agent collaboration platform. It lets humans and agents collaborate on a goal in any domain, as members of the same team, each with their own roles, responsibilities, and expertise. Agents organize into composable **units**, connect to external systems through pluggable **connectors**, and communicate via typed **messages**.
+
+The platform does not orchestrate — workflow management is something the agents and humans themselves employ. What the platform provides instead are the building blocks teams need:
+
+- **Communication** primitives for interactions and conversations.
+- **Memory** tools that keep a per-engagement history of interactions (between two or more participants).
+- **Directory** tools for discovering members, roles, and expertise.
+- **Isolated execution environment** for agents using containers. They can get access to their domain-specific tools and, if necessary, they can host their own orchestration logic using **[LangGraph](https://www.langchain.com/langgraph)**, **[Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/)**, **[CrewAI](https://www.crewai.com/)**, **[Google ADK](https://google.github.io/adk-docs/)**, **[OpenAI Agents SDK](https://github.com/openai/openai-agents-python)**, **[Ruflo](https://github.com/ruvnet/ruflo)**, **[Gas Town](https://github.com/gastownhall/gastown)**, and more.
+- **Policy** management for team behavior — such as interaction boundary enforcement, work projection/summarization via a team leader, and more (still in progress).
+- **Connectors** for integration with external systems (currently GitHub and Slack).
+- **CLI and Web Portal** for managing the platform, configuring agent teams, monitoring budgets, and gaining insight into team operations and engagements.
+
 ## Vision
 
 The Spring Voyage platform does not prescribe a particular way of working. It does not have predefined workflows or orchestration logic for teams of agents. Instead, it offers the necessary primitives for teams of agents and humans to be defined by users. How they communicate, how they collaborate, how they organize to solve problems is left to the instructions that are given to the agents. The platform contributes the building blocks for teams of humans and AI agents to collaborate on any problem in any domain.
-
-## Key Concepts
-
-| Concept       | Description                                                                                                                 |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **Agent**     | A single AI entity with a mailbox and execution environment                                                                 |
-| **Unit**      | An agent that has children (other agents, units, or humans); orchestration is runtime behaviour, not platform configuration |
-| **Connector** | Bridges an external system (GitHub, Slack, etc.) into a unit                                                                |
-| **Message**   | Typed communication between addressable entities                                                                            |
-
-For the full mental model, see the [Concepts overview](docs/concepts/overview.md).
 
 ## Install
 
@@ -70,7 +58,7 @@ The platform installer already bundles a self-contained `spring` binary; use thi
 
 ## Getting Started
 
-After installing, open the portal at **http://localhost** — the new-unit wizard walks you through everything, including LLM credentials. No CLI required to get going.
+After installing, open the portal at **http://localhost** — the new-unit wizard walks you through everything, including LLM credentials, Github or Slack integration, and other configuration options. No CLI required to get going.
 
 When you want to go deeper:
 
@@ -118,6 +106,8 @@ USER agent
 ```
 
 The bundled bridge ENTRYPOINT runs the A2A sidecar on `:8999` automatically; your CLI is dispatched as a child process via `SPRING_AGENT_ARGV`. Three conformance paths are documented in the [BYOI agent images guide](docs/guide/operator/byoi-agent-images.md) and [ADR-0027](docs/decisions/0027-agent-image-conformance-contract.md).
+
+You will have to push an image with your custom agent CLI to your local podman image registry.
 
 ## Project Status
 
