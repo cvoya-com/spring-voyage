@@ -91,6 +91,10 @@ display_information:
   description: Spring Voyage — agent platform integration for this Slack workspace.
   background_color: "#0a0a0a"
 features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: Spring Voyage
     always_online: true
@@ -175,6 +179,7 @@ Under **Features → App Home**:
 
 - Tick **Always Show My Bot as Online**.
 - Set the bot's display name to `Spring Voyage` (or your preferred branding — this is what appears in users' DM sidebars and in `chat.postMessage` posts when the persona override is not applied).
+- Under **Show Tabs**, toggle the **Messages Tab** **on** and tick **Allow users to send Slash commands and messages from the messages tab**. Without this Slack defaults the tab off, the bound user sees _"Sending messages to this app has been turned off"_, and cannot DM the bot — which breaks the DM-only premise of [ADR-0061 § 2.2](../../decisions/0061-slack-connector-oss-shape.md). Leave the **Home Tab** off; the v0.1 connector ships no Home view.
 
 ### 3. Configure OAuth + redirect URL
 

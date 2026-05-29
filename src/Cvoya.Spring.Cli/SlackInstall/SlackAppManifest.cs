@@ -136,6 +136,10 @@ public static class SlackAppManifest
                 LongDescription: inputs.LongDescription,
                 BackgroundColor: inputs.BackgroundColor),
             Features: new Features(
+                AppHome: new AppHome(
+                    HomeTabEnabled: false,
+                    MessagesTabEnabled: true,
+                    MessagesTabReadOnlyEnabled: false),
                 BotUser: new BotUser(
                     DisplayName: inputs.AppName,
                     AlwaysOnline: true),
@@ -207,8 +211,21 @@ public static class SlackAppManifest
         [property: JsonPropertyName("background_color")] string? BackgroundColor);
 
     internal sealed record Features(
+        [property: JsonPropertyName("app_home")] AppHome AppHome,
         [property: JsonPropertyName("bot_user")] BotUser BotUser,
         [property: JsonPropertyName("slash_commands")] IReadOnlyList<SlashCommand> SlashCommands);
+
+    /// <summary>
+    /// App Home tab configuration. The Messages Tab MUST be enabled and not
+    /// read-only — without it Slack defaults the tab off and the bound user
+    /// sees "Sending messages to this app has been turned off", which breaks
+    /// the DM-only premise of ADR-0061 §2.2. The Home tab stays disabled (the
+    /// connector ships no Home view in v0.1).
+    /// </summary>
+    internal sealed record AppHome(
+        [property: JsonPropertyName("home_tab_enabled")] bool HomeTabEnabled,
+        [property: JsonPropertyName("messages_tab_enabled")] bool MessagesTabEnabled,
+        [property: JsonPropertyName("messages_tab_read_only_enabled")] bool MessagesTabReadOnlyEnabled);
 
     internal sealed record BotUser(
         [property: JsonPropertyName("display_name")] string DisplayName,
