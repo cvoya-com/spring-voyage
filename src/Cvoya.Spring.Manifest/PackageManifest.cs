@@ -96,6 +96,17 @@ public class PackageManifest
     [YamlMember(Alias = "name")]
     public string? Name { get; set; }
 
+    /// <summary>
+    /// Optional human-friendly label for the package. When set, the catalog
+    /// surfaces it as the package's <c>DisplayName</c> in every read
+    /// projection (<c>GET /api/v1/packages</c>, the portal card grid and
+    /// detail page, and the CLI); when null or whitespace, consumers fall
+    /// back to <see cref="Name"/>. Unlike <see cref="Name"/> it is purely
+    /// cosmetic — the package is always addressed by its <see cref="Name"/>.
+    /// </summary>
+    [YamlMember(Alias = "displayName")]
+    public string? DisplayName { get; set; }
+
     /// <summary>Human-readable single-line summary of the package.</summary>
     [YamlMember(Alias = "description")]
     public string? Description { get; set; }

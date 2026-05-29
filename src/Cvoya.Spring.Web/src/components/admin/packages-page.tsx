@@ -179,7 +179,7 @@ function BrowseUploadStub({
 
 function PackageCard({ pkg }: { pkg: PackageSummary }) {
   const href = `/settings/packages/${encodeURIComponent(pkg.name ?? "")}`;
-  const name = pkg.name ?? "(unnamed package)";
+  const name = pkg.displayName ?? pkg.name ?? "(unnamed package)";
   return (
     <Card
       data-testid={`package-card-${pkg.name}`}

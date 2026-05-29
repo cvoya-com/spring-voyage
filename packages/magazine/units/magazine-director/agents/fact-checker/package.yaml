@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Agent
 name: fact-checker
+displayName: Fact-Checker
 description: Fact-Checker — verifies every checkable claim in a draft and audits sourcing.
 role: fact-checker
 capabilities: ["fact-checking", "verification", "source-audit"]

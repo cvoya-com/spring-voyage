@@ -62,6 +62,7 @@ public class FileSystemPackageCatalogService(
 
             packages.Add(new PackageSummary(
                 Name: name,
+                DisplayName: ReadDisplayName(packageDir),
                 Description: TryReadReadmeSummary(packageDir),
                 UnitTemplateCount: topLevel.Count(d => d.Kind == ArtefactKind.Unit),
                 AgentTemplateCount: topLevel.Count(d => d.Kind == ArtefactKind.Agent),
@@ -111,6 +112,7 @@ public class FileSystemPackageCatalogService(
 
         return new PackageDetail(
             Name: name,
+            DisplayName: ReadDisplayName(packageDir),
             Description: TryReadReadmeSummary(packageDir),
             Readme: TryReadReadmeFull(packageDir),
             Version: version,
@@ -141,6 +143,31 @@ public class FileSystemPackageCatalogService(
         {
             logger.LogDebug(ex,
                 "Skipping version for package manifest '{Path}' because it could not be parsed.",
+                manifestPath);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads the package manifest's optional top-level <c>displayName:</c>
+    /// scalar. Returns null when the manifest omits it or cannot be parsed —
+    /// callers fall back to the package name.
+    /// </summary>
+    private string? ReadDisplayName(string packageDir)
+    {
+        var manifestPath = FindManifestPath(packageDir);
+        if (manifestPath is null) return null;
+
+        try
+        {
+            var yaml = File.ReadAllText(manifestPath);
+            var manifest = PackageManifestParser.ParseRaw(yaml);
+            return string.IsNullOrWhiteSpace(manifest.DisplayName) ? null : manifest.DisplayName;
+        }
+        catch (Exception ex) when (ex is PackageParseException or YamlDotNet.Core.YamlException or IOException)
+        {
+            logger.LogDebug(ex,
+                "Skipping display name for package manifest '{Path}' because it could not be parsed.",
                 manifestPath);
             return null;
         }

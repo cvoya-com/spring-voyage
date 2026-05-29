@@ -13,6 +13,11 @@ using System.Collections.Generic;
 /// meaningful preview without a second round-trip.
 /// </summary>
 /// <param name="Name">The package's directory name (also its stable id).</param>
+/// <param name="DisplayName">
+/// Optional human-friendly label from the package manifest's
+/// <c>displayName:</c>. Null when the manifest omits it — consumers fall
+/// back to <see cref="Name"/>.
+/// </param>
 /// <param name="Description">Optional short description from the package's <c>README.md</c>.</param>
 /// <param name="UnitTemplateCount">Number of unit templates under <c>units/</c>.</param>
 /// <param name="AgentTemplateCount">Number of agent templates under <c>agents/</c>.</param>
@@ -22,6 +27,7 @@ using System.Collections.Generic;
 /// </param>
 public record PackageSummary(
     string Name,
+    string? DisplayName,
     string? Description,
     int UnitTemplateCount,
     int AgentTemplateCount,
@@ -35,6 +41,11 @@ public record PackageSummary(
 /// render templates / agents / skills without additional fetches.
 /// </summary>
 /// <param name="Name">The package name.</param>
+/// <param name="DisplayName">
+/// Optional human-friendly label from the package manifest's
+/// <c>displayName:</c>. Null when the manifest omits it — consumers fall
+/// back to <see cref="Name"/>.
+/// </param>
 /// <param name="Description">Optional description from the package README.</param>
 /// <param name="Readme">Full README.md content in raw Markdown, when present.</param>
 /// <param name="Version">
@@ -72,6 +83,7 @@ public record PackageSummary(
 /// </param>
 public record PackageDetail(
     string Name,
+    string? DisplayName,
     string? Description,
     string? Readme,
     string? Version,

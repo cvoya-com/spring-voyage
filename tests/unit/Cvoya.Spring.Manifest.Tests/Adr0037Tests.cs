@@ -64,6 +64,39 @@ public class Adr0037Tests
         manifest.Readme.ShouldBe("README.md");
     }
 
+    [Fact]
+    public void ParseRaw_NewShape_OptionalDisplayName()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Package
+            name: my-package
+            displayName: My Package
+            description: Description.
+            version: 1.0.0
+            """;
+
+        var manifest = PackageManifestParser.ParseRaw(yaml);
+
+        manifest.DisplayName.ShouldBe("My Package");
+    }
+
+    [Fact]
+    public void ParseRaw_NewShape_DisplayNameOmitted_IsNull()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: Package
+            name: my-package
+            description: Description.
+            version: 1.0.0
+            """;
+
+        var manifest = PackageManifestParser.ParseRaw(yaml);
+
+        manifest.DisplayName.ShouldBeNull();
+    }
+
     // ---- D2 — required field rejections --------------------------------
 
     [Fact]

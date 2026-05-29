@@ -1,9 +1,10 @@
 # Magazine Domain Package
 
 A **goal-driven editorial team** that produces a daily online edition.
-The user opens a conversation with the editor; the editor plans the
-edition, the team coordinates through every stage of the editorial
-process, and a human publisher signs off before the edition is released.
+The user opens a conversation with the **Magazine Director** — the
+magazine's editor-in-chief — who plans the edition; the team coordinates
+through every stage of the editorial process, and a human publisher signs
+off before the edition is released.
 
 ## Why this package exists
 
@@ -25,7 +26,8 @@ approval gate at the end.
 ## What this package ships
 
 - **Unit** (`units/magazine-director/`, display name *Magazine Director*) — the
-  editor-in-chief. Plans each edition, briefs the team, decides every
+  magazine's **editor-in-chief** (the team simply calls them "the
+  editor"). Plans each edition, briefs the team, decides every
   editorial question, signs off on the assembled edition before it
   goes to the human publisher.
 - **Agents** (`agents/`):
