@@ -9533,6 +9533,63 @@
         }
       }
     },
+    "/api/v1/tenant/connectors/slack/install": {
+      "post": {
+        "tags": [
+          "Connectors.Slack"
+        ],
+        "summary": "Provision a Slack app via the Manifest API and return its OAuth consent URL",
+        "operationId": "InstallSlackApp",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SlackInstallRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackInstallResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/connectors/slack/config-schema": {
       "get": {
         "tags": [
@@ -16206,6 +16263,92 @@
           },
           "state": {
             "type": "string"
+          }
+        }
+      },
+      "SlackInstallRequest": {
+        "required": [
+          "configToken",
+          "appName",
+          "svHost",
+          "socketMode",
+          "dryRun",
+          "clientState"
+        ],
+        "type": "object",
+        "properties": {
+          "configToken": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "appName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "svHost": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "socketMode": {
+            "type": "boolean"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "clientState": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SlackInstallResponse": {
+        "required": [
+          "manifestJson",
+          "dryRun",
+          "appId",
+          "authorizeUrl",
+          "state",
+          "writtenSecretNames"
+        ],
+        "type": "object",
+        "properties": {
+          "manifestJson": {
+            "type": "string"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "appId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "authorizeUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "state": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "writtenSecretNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

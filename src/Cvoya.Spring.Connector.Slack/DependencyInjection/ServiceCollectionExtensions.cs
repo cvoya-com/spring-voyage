@@ -8,6 +8,7 @@ using Cvoya.Spring.Connector.Slack.Auth.OAuth;
 using Cvoya.Spring.Connector.Slack.Commands;
 using Cvoya.Spring.Connector.Slack.Configuration;
 using Cvoya.Spring.Connector.Slack.Inbound;
+using Cvoya.Spring.Connector.Slack.Install;
 using Cvoya.Spring.Connector.Slack.Outbound;
 using Cvoya.Spring.Connector.Slack.Routing;
 using Cvoya.Spring.Connector.Slack.Slug;
@@ -55,6 +56,12 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient(SlackOAuthHttpClient.HttpClientName);
         services.AddHttpClient(SlackWebApiClient.HttpClientName);
 
+        // Manifest-API client for the one-page portal install endpoint
+        // (#2882). No credential-health watchdog — the Slack Configuration
+        // Token is a short-lived, per-request operator input, not a stored
+        // credential whose health we track (cf. §15).
+        services.AddHttpClient(SlackManifestInstallService.HttpClientName);
+
         // In-memory state store is OSS-default; cloud overlays
         // substitute a Redis-backed implementation via TryAddSingleton.
         services.TryAddSingleton<ISlackOAuthStateStore, InMemorySlackOAuthStateStore>();
@@ -67,6 +74,12 @@ public static class ServiceCollectionExtensions
         // service can consume it.
         services.TryAddSingleton<ISlackOAuthOptionsResolver, SlackOAuthOptionsResolver>();
         services.TryAddSingleton<ISlackOAuthService, SlackOAuthService>();
+
+        // Server-side install orchestrator for the one-page portal wizard
+        // (#2882). Scoped — it persists tenant secrets through the
+        // request-scoped secret store / registry, then reuses the OAuth
+        // service to mint a state-bearing consent URL.
+        services.TryAddScoped<ISlackManifestInstallService, SlackManifestInstallService>();
 
         // Slack-thread parent-message slug builder (ADR-0061 §4).
         // Singleton — stateless; scoped collaborators

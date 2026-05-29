@@ -9,7 +9,7 @@ using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 
-using Cvoya.Spring.Cli.SlackInstall;
+using Cvoya.Spring.Connector.Slack.Provisioning;
 
 using Shouldly;
 

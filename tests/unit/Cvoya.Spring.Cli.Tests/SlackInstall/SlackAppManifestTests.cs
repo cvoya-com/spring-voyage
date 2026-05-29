@@ -6,7 +6,7 @@ namespace Cvoya.Spring.Cli.Tests.SlackInstall;
 using System;
 using System.Text.Json;
 
-using Cvoya.Spring.Cli.SlackInstall;
+using Cvoya.Spring.Connector.Slack.Provisioning;
 
 using Shouldly;
 

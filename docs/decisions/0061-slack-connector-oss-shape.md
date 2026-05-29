@@ -121,7 +121,7 @@ The minimum scope set for v0.1, derived from the DM-only restriction:
 
 §2.5's "each OSS install has its own Slack app" statement specifies the install model but is silent on **where** the four OAuth credentials (`ClientId`, `ClientSecret`, `SigningSecret`, `RedirectUri`) physically live. The runtime ships with three persistence tiers, queried per call in fixed order:
 
-1. **Tenant-scoped secret** at the well-known name (`slack-oauth-client-id`, `slack-oauth-client-secret`, `slack-oauth-signing-secret`, `slack-oauth-redirect-uri`). Written by `spring connector slack install --write-tenant-secrets`.
+1. **Tenant-scoped secret** at the well-known name (`slack-oauth-client-id`, `slack-oauth-client-secret`, `slack-oauth-signing-secret`, `slack-oauth-redirect-uri`). Written by `spring connector slack install --write-tenant-secrets`, or — equivalently — by the portal's one-page install wizard via `POST /api/v1/tenant/connectors/slack/install` ([#2882](https://github.com/cvoya-com/spring-voyage/issues/2882)). Both surfaces share one manifest builder + secret-name mapping (`Cvoya.Spring.Connector.Slack.Provisioning`), so the secret names and values they persist are identical.
 2. **Platform-scoped secret** at the same name. Written by `spring connector slack install --write-secrets`.
 3. **Env-config** bound from `Slack:OAuth:*`. Written by `spring connector slack install --write-env` or a hand-edited `spring.env`.
 

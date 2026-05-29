@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Cvoya.Spring.Connector.Slack.Provisioning</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    Shared Slack app-provisioning kernel (#2882). Owns the Slack App
+    Manifest builder, the Manifest-API HTTP client, and the canonical
+    secret-name / credential-bundle mapping. Referenced by BOTH the
+    `spring connector slack install` CLI verb AND the server-side
+    `POST /api/v1/tenant/connectors/slack/install` endpoint in the Slack
+    connector — a single source of truth keeps the two install surfaces
+    in lock-step (identical manifest + identical tenant-secret names).
+
+    References Cvoya.Spring.Core only. It deliberately does NOT depend on
+    the connector assembly (which carries an ASP.NET framework reference)
+    so the CLI can ship as a lean dotnet tool.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
+  </ItemGroup>
+
+</Project>

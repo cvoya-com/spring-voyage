@@ -11,14 +11,25 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Connector.Slack.Provisioning;
+
 /// <summary>
 /// Writes the Slack app credentials returned from
 /// <c>apps.manifest.create</c> to one of two persistence targets — the
 /// <c>spring.env</c> file (default, zero runtime dependency) or the
-/// platform secret store (<c>spring secret --scope platform create</c>).
-/// Mirrors <see cref="GitHubApp.CredentialWriter"/> but with an
-/// all-or-nothing rollback contract on the platform-secret path: issue
-/// #2839 mandates that no partial state survive a failure.
+/// platform / tenant secret store (<c>spring secret create</c>). Mirrors
+/// <see cref="GitHubApp.CredentialWriter"/> but with an all-or-nothing
+/// rollback contract on the secret-store paths: issue #2839 mandates that
+/// no partial state survive a failure.
+///
+/// <para>
+/// The secret names and the credential bundle are owned by the shared
+/// <c>Cvoya.Spring.Connector.Slack.Provisioning</c> kernel
+/// (<see cref="SlackSecretNames"/>, <see cref="SlackProvisionedCredentials"/>,
+/// <see cref="SlackCredentialSecretMapper"/>) so the CLI and the portal's
+/// server-side install endpoint persist byte-identical secrets (#2882).
+/// Only the env-file key names below are CLI-specific.
+/// </para>
 /// </summary>
 public static class SlackCredentialWriter
 {
@@ -37,22 +48,6 @@ public static class SlackCredentialWriter
     }
 
     /// <summary>
-    /// Platform-secret names used when <c>--write-secrets</c> is
-    /// supplied. The CLI's rollback path issues a
-    /// <c>DeletePlatformSecretAsync</c> for every name in this set that
-    /// was successfully written prior to a failure.
-    /// </summary>
-    public static class SecretNames
-    {
-        public const string AppId = "slack-app-id";
-        public const string ClientId = "slack-oauth-client-id";
-        public const string ClientSecret = "slack-oauth-client-secret";
-        public const string SigningSecret = "slack-oauth-signing-secret";
-        public const string VerificationToken = "slack-oauth-verification-token";
-        public const string RedirectUri = "slack-oauth-redirect-uri";
-    }
-
-    /// <summary>
     /// Result of a credential-write operation. <see cref="MissingFields"/>
     /// lists any fields Slack omitted; the CLI surfaces them as warnings
     /// without aborting.
@@ -63,19 +58,6 @@ public static class SlackCredentialWriter
         IReadOnlyList<string> MissingFields);
 
     /// <summary>
-    /// Inputs to the writer — flattened from the manifest-create
-    /// response plus the redirect URL the CLI built so it lives next to
-    /// the rest of the Slack OAuth config.
-    /// </summary>
-    public sealed record CredentialBundle(
-        string? AppId,
-        string? ClientId,
-        string ClientSecret,
-        string SigningSecret,
-        string? VerificationToken,
-        string RedirectUri);
-
-    /// <summary>
     /// Appends Slack app credentials to <paramref name="envFilePath"/>.
     /// Mirrors the GitHub register flow: existing keys are commented out
     /// with a timestamp before new lines are appended. Env-file writes
@@ -84,7 +66,7 @@ public static class SlackCredentialWriter
     /// to roll back.
     /// </summary>
     public static async Task<WriteOutcome> WriteEnvAsync(
-        CredentialBundle credentials,
+        SlackProvisionedCredentials credentials,
         string envFilePath,
         CancellationToken cancellationToken)
     {
@@ -161,26 +143,26 @@ public static class SlackCredentialWriter
     /// "do NOT partially persist" requirement.
     /// </summary>
     public static async Task<WriteOutcome> WriteSecretsAsync(
-        CredentialBundle credentials,
+        SlackProvisionedCredentials credentials,
         SpringApiClient apiClient,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(credentials);
         ArgumentNullException.ThrowIfNull(apiClient);
 
-        var (pairs, missing) = BuildSecretPairs(credentials);
+        var mapping = SlackCredentialSecretMapper.BuildSecretPairs(credentials);
 
         var written = new List<string>();
         try
         {
-            foreach (var (name, value) in pairs)
+            foreach (var pair in mapping.Pairs)
             {
                 await apiClient.CreatePlatformSecretAsync(
-                    name: name,
-                    value: value,
+                    name: pair.Name,
+                    value: pair.Value,
                     externalStoreKey: null,
                     ct: cancellationToken).ConfigureAwait(false);
-                written.Add(name);
+                written.Add(pair.Name);
             }
         }
         catch
@@ -206,7 +188,7 @@ public static class SlackCredentialWriter
         return new WriteOutcome(
             Target: "platform secrets (scope=platform)",
             WrittenKeys: written,
-            MissingFields: missing);
+            MissingFields: mapping.MissingFields);
     }
 
     /// <summary>
@@ -219,26 +201,26 @@ public static class SlackCredentialWriter
     /// secret already written in this call.
     /// </summary>
     public static async Task<WriteOutcome> WriteTenantSecretsAsync(
-        CredentialBundle credentials,
+        SlackProvisionedCredentials credentials,
         SpringApiClient apiClient,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(credentials);
         ArgumentNullException.ThrowIfNull(apiClient);
 
-        var (pairs, missing) = BuildSecretPairs(credentials);
+        var mapping = SlackCredentialSecretMapper.BuildSecretPairs(credentials);
 
         var written = new List<string>();
         try
         {
-            foreach (var (name, value) in pairs)
+            foreach (var pair in mapping.Pairs)
             {
                 await apiClient.CreateTenantSecretAsync(
-                    name: name,
-                    value: value,
+                    name: pair.Name,
+                    value: pair.Value,
                     externalStoreKey: null,
                     ct: cancellationToken).ConfigureAwait(false);
-                written.Add(name);
+                written.Add(pair.Name);
             }
         }
         catch
@@ -264,11 +246,11 @@ public static class SlackCredentialWriter
         return new WriteOutcome(
             Target: "tenant secrets (scope=tenant)",
             WrittenKeys: written,
-            MissingFields: missing);
+            MissingFields: mapping.MissingFields);
     }
 
     private static (IReadOnlyList<(string Key, string Value)> Pairs, IReadOnlyList<string> Missing)
-        BuildEnvPairs(CredentialBundle c)
+        BuildEnvPairs(SlackProvisionedCredentials c)
     {
         var missing = new List<string>();
         var pairs = new List<(string Key, string Value)>();
@@ -291,33 +273,6 @@ public static class SlackCredentialWriter
         Add(EnvKeys.SigningSecret, c.SigningSecret, "SigningSecret");
         Add(EnvKeys.VerificationToken, c.VerificationToken, "VerificationToken");
         Add(EnvKeys.RedirectUri, c.RedirectUri, "RedirectUri");
-        return (pairs, missing);
-    }
-
-    private static (IReadOnlyList<(string Name, string Value)> Pairs, IReadOnlyList<string> Missing)
-        BuildSecretPairs(CredentialBundle c)
-    {
-        var missing = new List<string>();
-        var pairs = new List<(string Name, string Value)>();
-
-        void Add(string name, string? value, string fieldLabel)
-        {
-            if (!string.IsNullOrEmpty(value))
-            {
-                pairs.Add((name, value));
-            }
-            else
-            {
-                missing.Add(fieldLabel);
-            }
-        }
-
-        Add(SecretNames.AppId, c.AppId, "AppId");
-        Add(SecretNames.ClientId, c.ClientId, "ClientId");
-        Add(SecretNames.ClientSecret, c.ClientSecret, "ClientSecret");
-        Add(SecretNames.SigningSecret, c.SigningSecret, "SigningSecret");
-        Add(SecretNames.VerificationToken, c.VerificationToken, "VerificationToken");
-        Add(SecretNames.RedirectUri, c.RedirectUri, "RedirectUri");
         return (pairs, missing);
     }
 }

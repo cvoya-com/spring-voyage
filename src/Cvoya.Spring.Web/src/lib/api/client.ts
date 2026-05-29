@@ -43,6 +43,8 @@ import type {
   SetBudgetRequest,
   SlackAuthorizeRequest,
   SlackAuthorizeResponse,
+  SlackInstallRequest,
+  SlackInstallResponse,
   TenantConnectorBindingResponse,
   TenantUserConnectorIdentityRequest,
   TenantUserConnectorIdentityResponse,
@@ -1599,6 +1601,21 @@ export const api = {
       ),
     );
   },
+  // One-page install wizard (#2882): server-side drives Slack's Manifest
+  // API, persists the four OAuth credentials as tenant secrets, and
+  // returns a state-bearing consent URL. `dryRun: true` returns just the
+  // manifest preview (no Slack call, no persistence) — the CLI mirror is
+  // `spring connector slack install --dry-run`. The CLI mirror for the
+  // real install is `spring connector slack install --write-tenant-secrets`.
+  installSlackApp: async (
+    body: SlackInstallRequest,
+  ): Promise<SlackInstallResponse> =>
+    unwrap(
+      await fetchClient.POST(
+        "/api/v1/tenant/connectors/slack/install",
+        { body },
+      ),
+    ),
 
   // Connectors — Web Search typed surface.
   //

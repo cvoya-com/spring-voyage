@@ -22,6 +22,7 @@
 //   - One workspace per OSS tenant.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -50,7 +51,6 @@ import type { TenantConnectorBindingResponse } from "@/lib/api/types";
 import {
   awaitSlackOAuthHandoff,
   buildSlackOAuthClientState,
-  SLACK_OAUTH_HANDOFF_TIMEOUT_MS,
   type SlackOAuthHandoffOutcome,
 } from "./slack-oauth-browser";
 
@@ -238,6 +238,7 @@ const INITIAL_INSTALL_STATE: InstallState = {
 
 export function SlackConnectorPanel() {
   const { toast } = useToast();
+  const router = useRouter();
   const queryClient = useQueryClient();
 
   const bindingQuery = useTenantSlackBinding();
@@ -441,29 +442,18 @@ export function SlackConnectorPanel() {
     );
   }
 
+  // Empty state: route to the one-page install wizard (#2882) rather
+  // than starting OAuth inline. The wizard registers the Slack app via
+  // the Manifest API (no prior CLI run required), persists the
+  // credentials, then runs the same OAuth popup. The inline
+  // OAuth-only flow (`startInstall`) stays for the bound-state Reconnect
+  // button, where the app + credentials already exist.
   return (
-    <EmptyState
-      installState={installState}
-      onInstall={startInstall}
-      onDismissNotice={() =>
-        setInstallState((prev) => ({ ...prev, notice: null }))
-      }
-    />
+    <EmptyState onSetUp={() => router.push("/connectors/slack/install")} />
   );
 }
 
-function EmptyState({
-  installState,
-  onInstall,
-  onDismissNotice,
-}: {
-  installState: InstallState;
-  onInstall: () => void;
-  onDismissNotice: () => void;
-}) {
-  const installing =
-    installState.status === "starting" || installState.status === "awaiting";
-
+function EmptyState({ onSetUp }: { onSetUp: () => void }) {
   return (
     <div className="space-y-4" data-testid="slack-panel-empty">
       <p className="text-sm text-muted-foreground">
@@ -485,44 +475,13 @@ function EmptyState({
       <div className="flex flex-wrap items-center gap-3">
         <Button
           variant="default"
-          onClick={onInstall}
-          disabled={installing}
-          aria-busy={installing}
+          onClick={onSetUp}
           data-testid="slack-panel-install"
         >
-          {installing ? (
-            <Loader2
-              className="mr-1 h-4 w-4 animate-spin"
-              aria-hidden="true"
-            />
-          ) : (
-            <Slack className="mr-1 h-4 w-4" aria-hidden="true" />
-          )}
-          {installState.status === "starting"
-            ? "Opening Slack…"
-            : installState.status === "awaiting"
-              ? "Waiting for Slack…"
-              : "Install in Slack workspace"}
+          <Slack className="mr-1 h-4 w-4" aria-hidden="true" />
+          Install in Slack workspace
         </Button>
-        {installState.status === "awaiting" && (
-          <span className="text-xs text-muted-foreground">
-            Complete the install in the Slack window. This panel will refresh
-            when it&apos;s done.
-          </span>
-        )}
       </div>
-
-      {installState.error !== null && (
-        <ErrorBanner
-          error={installState.error}
-          onRetry={onInstall}
-          retrying={installing}
-        />
-      )}
-
-      {installState.error === null && installState.notice !== null && (
-        <NoticeBanner notice={installState.notice} onDismiss={onDismissNotice} />
-      )}
     </div>
   );
 }
@@ -767,42 +726,4 @@ function ErrorBanner({
       )}
     </div>
   );
-}
-
-function NoticeBanner({
-  notice,
-  onDismiss,
-}: {
-  notice: SlackOAuthNotice;
-  onDismiss: () => void;
-}) {
-  const message = noticeMessageFor(notice);
-  return (
-    <div
-      role="status"
-      className="flex items-start justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
-      data-testid={`slack-panel-notice-${notice}`}
-    >
-      <span>{message}</span>
-      <button
-        type="button"
-        onClick={onDismiss}
-        className="text-xs text-primary hover:underline"
-        aria-label="Dismiss notice"
-      >
-        Dismiss
-      </button>
-    </div>
-  );
-}
-
-function noticeMessageFor(notice: SlackOAuthNotice): string {
-  switch (notice) {
-    case "popup-closed":
-      return "Slack install cancelled. Click Install in Slack workspace to try again.";
-    case "timed-out":
-      return `Slack install didn't complete within ${Math.round(SLACK_OAUTH_HANDOFF_TIMEOUT_MS / 60000)} minutes. Click Install in Slack workspace to retry.`;
-    case "aborted":
-      return "Slack install was interrupted. Click Install in Slack workspace to retry.";
-  }
 }
