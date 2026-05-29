@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Package
 name: engineer-defaults
+displayName: Engineer Defaults
 description: Engineer-shaped defaults — guidance on top of the platform's universal concurrent-threads guard for agents whose tooling is CLI-shell-heavy.
 version: 1.0.0
 readme: README.md

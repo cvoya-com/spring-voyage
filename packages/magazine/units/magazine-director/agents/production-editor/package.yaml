@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Agent
 name: production-editor
+displayName: Production Editor
 description: Production Editor — assembles the day's edition, requests sign-off, and publishes once approved.
 role: production-editor
 capabilities: ["edition-assembly", "publication", "approval-coordination"]

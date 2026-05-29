@@ -15112,6 +15112,7 @@
       "PackageDetail": {
         "required": [
           "name",
+          "displayName",
           "description",
           "readme",
           "version",
@@ -15126,6 +15127,12 @@
         "properties": {
           "name": {
             "type": "string"
+          },
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "description": {
             "type": [
@@ -15378,6 +15385,7 @@
       "PackageSummary": {
         "required": [
           "name",
+          "displayName",
           "description",
           "unitTemplateCount",
           "agentTemplateCount",
@@ -15388,6 +15396,12 @@
         "properties": {
           "name": {
             "type": "string"
+          },
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "description": {
             "type": [

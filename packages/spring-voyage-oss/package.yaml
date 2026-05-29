@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Package
 name: spring-voyage-oss
+displayName: Spring Voyage OSS
 description: The Spring Voyage OSS dogfooding organisation — software engineering and program management operating on the Spring Voyage platform itself.
 version: 1.0.0
 readme: README.md

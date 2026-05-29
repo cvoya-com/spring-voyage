@@ -212,7 +212,7 @@ export default function PackageDetailClient({ name }: Props) {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-bold">
-              <PackageIcon className="h-5 w-5" /> {pkg.name}
+              <PackageIcon className="h-5 w-5" /> {pkg.displayName ?? pkg.name}
             </h1>
             {pkg.description && (
               <p className="mt-1 text-sm text-muted-foreground">

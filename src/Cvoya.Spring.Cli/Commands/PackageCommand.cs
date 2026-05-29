@@ -34,6 +34,7 @@ public static class PackageCommand
     private static readonly OutputFormatter.Column<PackageSummary>[] ListColumns =
     {
         new("name", p => p.Name),
+        new("displayName", p => p.DisplayName),
         new("units", p => p.UnitTemplateCount?.ToString()),
         new("agents", p => p.AgentTemplateCount?.ToString()),
         new("skills", p => p.SkillCount?.ToString()),
@@ -805,6 +806,10 @@ public static class PackageCommand
             }
 
             Console.WriteLine($"Package: {detail.Name}");
+            if (!string.IsNullOrWhiteSpace(detail.DisplayName))
+            {
+                Console.WriteLine($"  Display name: {detail.DisplayName}");
+            }
             if (!string.IsNullOrWhiteSpace(detail.Description))
             {
                 Console.WriteLine($"  {detail.Description}");

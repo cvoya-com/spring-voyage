@@ -4118,6 +4118,7 @@ export interface components {
         };
         PackageDetail: {
             name: string;
+            displayName: null | string;
             description: null | string;
             readme: null | string;
             version: null | string;
@@ -4172,6 +4173,7 @@ export interface components {
         };
         PackageSummary: {
             name: string;
+            displayName: null | string;
             description: null | string;
             /** Format: int32 */
             unitTemplateCount: number;

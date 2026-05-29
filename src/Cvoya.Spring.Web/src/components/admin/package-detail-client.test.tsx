@@ -57,6 +57,7 @@ import PackageDetailClient from "./package-detail-client";
 function makePackage(overrides?: Partial<PackageDetail>): PackageDetail {
   return {
     name: "my-pkg",
+    displayName: null,
     description: "A test package",
     readme: null,
     version: null,
@@ -100,6 +101,33 @@ function renderPage(name = "my-pkg") {
 }
 
 // ---- tests ----------------------------------------------------------------
+
+describe("PackageDetailClient — display name", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPush.mockReset();
+  });
+
+  it("shows the manifest displayName as the page heading", async () => {
+    getPackage.mockResolvedValue(makePackage({ displayName: "Magazine" }));
+    renderPage();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { level: 1, name: /Magazine/ }),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("falls back to the package name when displayName is null", async () => {
+    getPackage.mockResolvedValue(makePackage({ displayName: null }));
+    renderPage();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { level: 1, name: /my-pkg/ }),
+      ).toBeInTheDocument(),
+    );
+  });
+});
 
 describe("PackageDetailClient — Install button", () => {
   beforeEach(() => {

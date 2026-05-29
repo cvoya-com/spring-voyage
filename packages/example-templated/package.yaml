@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Package
 name: example-templated
+displayName: Templated Example
 description: ADR-0043 example — template-based package. An engineering team archetype (UnitTemplate with nested children) and a software-engineer archetype (AgentTemplate) instantiated three times under one concrete unit.
 version: 1.0.0
 readme: README.md

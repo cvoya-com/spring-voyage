@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Package
 name: hello-world
+displayName: Hello World
 description: A minimal connector-free catalog package — one unit, one agent. Useful as a smoke-test for the package install pipeline without any external connector binding.
 version: 1.0.0
 readme: README.md

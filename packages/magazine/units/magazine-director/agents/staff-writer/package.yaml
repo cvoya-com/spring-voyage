@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Agent
 name: staff-writer
+displayName: Staff Writer
 description: Staff Writer — reports each assigned story using web search and writes the draft.
 role: staff-writer
 capabilities: ["reporting", "drafting", "web-research", "writing"]

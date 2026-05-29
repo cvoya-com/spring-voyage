@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Agent
 name: copy-editor
+displayName: Copy Editor
 description: Copy Editor — polishes language, headline craft, and house style on a verified draft.
 role: copy-editor
 capabilities: ["copy-editing", "style", "grammar", "headline-craft"]

@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Agent
 name: managing-editor
+displayName: Managing Editor
 description: Managing Editor — runs the daily floor; turns the editor's plan into assignments and keeps the edition moving through every stage.
 role: managing-editor
 capabilities: ["editorial-coordination", "assignments", "scheduling"]

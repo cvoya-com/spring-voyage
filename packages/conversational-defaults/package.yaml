@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Package
 name: conversational-defaults
+displayName: Conversational Defaults
 description: Default tool grants and platform-layer prompt fragment for conversational agents (ADR-0056).
 version: 1.0.0
 readme: README.md

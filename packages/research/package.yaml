@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Package
 name: research
+displayName: Research
 description: Research team — generalist researcher, literature reviewer, and data analyst.
 version: 1.0.0
 readme: README.md

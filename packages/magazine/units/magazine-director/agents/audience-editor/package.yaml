@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Agent
 name: audience-editor
+displayName: Audience Editor
 description: Audience Editor — represents the reader; crafts the final headline and the promo copy for each piece.
 role: audience-editor
 capabilities: ["audience-framing", "headline-writing", "promo-writing"]

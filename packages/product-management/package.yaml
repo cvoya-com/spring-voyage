@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Package
 name: product-management
+displayName: Product Management
 description: Product squad — product management and design shaping and prioritising work.
 version: 1.0.0
 readme: README.md
