@@ -260,15 +260,57 @@ public static class SkillsCommand
     // ----- Bulk-set diff/apply ------------------------------------------
 
     /// <summary>
-    /// Composes the equip/unequip diff against the server's current
-    /// list. The unequip step is run first so a subsequent equip can't
-    /// fail with a 400 just because the new list reorders an
-    /// already-equipped bundle that was about to be removed. The order
-    /// of the <c>POST</c> calls determines the persisted declaration
-    /// order — the API store appends, and the operator-supplied flag
-    /// order is the declaration order on the wire.
+    /// The ordered equip/unequip plan produced by <see cref="ComputeSetPlan"/>:
+    /// the bundles to unequip (in the server's current order) followed by the
+    /// bundles to equip (in operator order). Extracted (#2902) so the diff is
+    /// a pure, directly-testable unit — the prior <c>ApplySetAsync</c> only
+    /// had parse-only + wrapper coverage, so a regression that dropped the
+    /// remove step or reordered the adds would have shipped green.
     /// </summary>
-    private static async Task<EquippedSkillsResponse> ApplySetAsync(
+    internal sealed record SkillSetPlan(
+        IReadOnlyList<(string Package, string Skill)> Removes,
+        IReadOnlyList<(string Package, string Skill)> Adds);
+
+    /// <summary>
+    /// Pure diff: given the subject's <paramref name="current"/> equipped
+    /// list and the operator's <paramref name="targets"/>, returns the
+    /// bundles to unequip (everything currently equipped that is not a
+    /// target, in the server's current order) and the bundles to (re-)equip
+    /// (every target, in operator order). Targets are re-asserted even when
+    /// already equipped — POST is idempotent server-side and re-posting
+    /// refreshes the persisted prompt / required-tools snapshot, matching the
+    /// store's add-then-refresh semantics. The order of <see cref="SkillSetPlan.Adds"/>
+    /// is the persisted declaration order on the wire.
+    /// </summary>
+    internal static SkillSetPlan ComputeSetPlan(
+        IReadOnlyList<EquippedSkillEntry> current,
+        IReadOnlyList<(string Package, string Skill)> targets)
+    {
+        var targetKeys = new HashSet<string>(
+            targets.Select(t => Key(t.Package, t.Skill)),
+            StringComparer.Ordinal);
+
+        var removes = current
+            .Where(e => !targetKeys.Contains(Key(e.PackageName, e.SkillName)))
+            .Select(e => (e.PackageName ?? string.Empty, e.SkillName ?? string.Empty))
+            .ToList();
+
+        // Re-assert every target (kept or new) in operator order.
+        var adds = targets.ToList();
+
+        return new SkillSetPlan(removes, adds);
+    }
+
+    /// <summary>
+    /// Composes the equip/unequip diff against the server's current list and
+    /// applies it. The unequip step is run first so a subsequent equip can't
+    /// fail with a 400 just because the new list reorders an already-equipped
+    /// bundle that was about to be removed. The order of the <c>POST</c> calls
+    /// determines the persisted declaration order — the API store appends, and
+    /// the operator-supplied flag order is the declaration order on the wire.
+    /// The diff itself lives in <see cref="ComputeSetPlan"/>.
+    /// </summary>
+    internal static async Task<EquippedSkillsResponse> ApplySetAsync(
         SpringApiClient client,
         string id,
         IReadOnlyList<(string Package, string Skill)> targets,
@@ -276,37 +318,19 @@ public static class SkillsCommand
         CancellationToken ct)
     {
         var current = await GetAsync(client, id, agent, ct);
-        var currentKeys = new HashSet<string>(
-            (current.Skills ?? new List<EquippedSkillEntry>())
-                .Select(e => Key(e.PackageName, e.SkillName)),
-            StringComparer.Ordinal);
-        var targetKeys = new HashSet<string>(
-            targets.Select(t => Key(t.Package, t.Skill)),
-            StringComparer.Ordinal);
+        var plan = ComputeSetPlan(current.Skills ?? new List<EquippedSkillEntry>(), targets);
 
         EquippedSkillsResponse latest = current;
 
         // Remove dropped bundles first.
-        foreach (var entry in (current.Skills ?? new List<EquippedSkillEntry>()).ToList())
+        foreach (var (pkg, skill) in plan.Removes)
         {
-            var key = Key(entry.PackageName, entry.SkillName);
-            if (!targetKeys.Contains(key))
-            {
-                latest = await DeleteAsync(
-                    client, id, entry.PackageName ?? string.Empty, entry.SkillName ?? string.Empty, agent, ct);
-            }
+            latest = await DeleteAsync(client, id, pkg, skill, agent, ct);
         }
 
-        // Equip the new (or re-asserted) bundles in operator order. POST
-        // is idempotent server-side so re-asserting a kept bundle is a
-        // cheap refresh of its persisted snapshot.
-        foreach (var (pkg, skill) in targets)
+        // Equip the new (or re-asserted) bundles in operator order.
+        foreach (var (pkg, skill) in plan.Adds)
         {
-            var key = Key(pkg, skill);
-            // Re-POST kept bundles too — keeps the persisted prompt /
-            // required-tools snapshot fresh on every set, matching the
-            // store's add-then-refresh semantics.
-            _ = currentKeys; // (referenced for clarity; the diff is target-driven)
             latest = await PostAsync(client, id, pkg, skill, agent, ct);
         }
 
@@ -331,7 +355,7 @@ public static class SkillsCommand
     /// <c>spring-voyage/software-engineering</c>) — the skill is always
     /// the final segment, so we split from the right.
     /// </summary>
-    private static bool TryParseCoordinate(
+    internal static bool TryParseCoordinate(
         string raw,
         out string packageName,
         out string skillName,
@@ -367,7 +391,7 @@ public static class SkillsCommand
         return true;
     }
 
-    private static bool TryParseCoordinateList(
+    internal static bool TryParseCoordinateList(
         string raw,
         out IReadOnlyList<(string Package, string Skill)> targets,
         out string error)
