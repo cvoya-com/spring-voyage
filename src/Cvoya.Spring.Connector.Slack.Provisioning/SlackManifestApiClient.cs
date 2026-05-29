@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Cli.SlackInstall;
+namespace Cvoya.Spring.Connector.Slack.Provisioning;
 
 using System;
 using System.Collections.Generic;
@@ -166,8 +166,8 @@ public sealed class SlackManifestApiClient
 
 /// <summary>
 /// DTO for Slack's <c>apps.manifest.create</c> response. Only the fields
-/// the CLI actually persists are bound; other diagnostic fields are
-/// ignored.
+/// the install flow actually persists are bound; other diagnostic fields
+/// are ignored.
 /// </summary>
 public sealed class SlackManifestCreateResult
 {
@@ -197,7 +197,7 @@ public sealed class SlackManifestCredentials
 /// <summary>
 /// Raised when Slack rejects a manifest call or returns an unreadable
 /// body. <see cref="ErrorCode"/> carries Slack's structured error code
-/// (e.g. <c>invalid_manifest</c>) when available so the CLI can surface
+/// (e.g. <c>invalid_manifest</c>) when available so callers can surface
 /// the operator-facing message Slack documents.
 /// </summary>
 public sealed class SlackManifestException : Exception

@@ -7,6 +7,7 @@ using System.IO;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Cli.SlackInstall;
+using Cvoya.Spring.Connector.Slack.Provisioning;
 
 using Shouldly;
 
@@ -14,7 +15,7 @@ using Xunit;
 
 public class SlackCredentialWriterTests
 {
-    private static SlackCredentialWriter.CredentialBundle SampleBundle() => new(
+    private static SlackProvisionedCredentials SampleBundle() => new(
         AppId: "A0123456789",
         ClientId: "1234.5678",
         ClientSecret: "client-secret-body",
@@ -119,7 +120,7 @@ public class SlackCredentialWriterTests
             // Slack sometimes omits verification_token (and app_id when
             // creation only set a draft). Required fields are still
             // present so the write succeeds with warnings.
-            var bundle = new SlackCredentialWriter.CredentialBundle(
+            var bundle = new SlackProvisionedCredentials(
                 AppId: null,
                 ClientId: "1234.5678",
                 ClientSecret: "client-secret-body",

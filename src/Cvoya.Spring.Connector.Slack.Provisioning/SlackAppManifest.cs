@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Cli.SlackInstall;
+namespace Cvoya.Spring.Connector.Slack.Provisioning;
 
 using System;
 using System.Collections.Generic;
@@ -13,16 +13,25 @@ using System.Text.Json.Serialization;
 /// <see href="https://api.slack.com/reference/manifests">App Manifest API</see>
 /// — the equivalent of GitHub's App-from-manifest flow. The manifest
 /// captures the app's display, scopes, OAuth redirect URLs, event
-/// subscriptions, and slash commands so a single CLI call can replace
+/// subscriptions, and slash commands so a single call can replace
 /// the ~10 minutes of clicking through api.slack.com's admin UI.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Shared between the <c>spring connector slack install</c> CLI verb and
+/// the server-side <c>POST /api/v1/tenant/connectors/slack/install</c>
+/// portal endpoint (#2882). A single builder keeps both install surfaces
+/// producing byte-identical manifests.
+/// </para>
 /// <para>
 /// The bot scope set, slash-command names, and webhook event surface
 /// listed here MUST stay aligned with the shipped Slack connector
 /// (<c>Cvoya.Spring.Connector.Slack</c>). ADR-0061 §6 fixes the scope
 /// set; <c>SlackCommandDispatcher</c> fixes the slash-command names;
-/// <c>SlackEventEndpoints</c> fixes the inbound event URL.
+/// <c>SlackEventEndpoints</c> fixes the inbound event URL. The values are
+/// duplicated here rather than referenced because this provisioning
+/// kernel deliberately depends on neither the CLI nor the connector
+/// assembly (so the CLI can stay a lean dotnet tool).
 /// </para>
 /// <para>
 /// Enterprise Grid is disabled here per ADR-0061 §2.3 — workspace
@@ -62,8 +71,9 @@ public static class SlackAppManifest
     /// <summary>
     /// Slash-command names the connector handles. Constants live on
     /// <c>SlackCommandDispatcher</c> in the connector project; we
-    /// duplicate the values here because the CLI must not depend on the
-    /// connector assembly (the CLI ships as a separate dotnet tool).
+    /// duplicate the values here because this provisioning kernel must
+    /// not depend on the connector assembly (it is shared with the CLI,
+    /// which ships as a separate dotnet tool).
     /// </summary>
     public static IReadOnlyList<string> SlashCommands { get; } = new[]
     {

@@ -11,6 +11,7 @@ using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Connector.Slack.Provisioning;
 using Cvoya.Spring.Core.Net;
 
 /// <summary>
@@ -257,7 +258,7 @@ public static class SlackInstallCommand
                 .ConfigureAwait(false);
             stdout.WriteLine($"  ok (app_id={createResult.AppId})");
 
-            var credentials = new SlackCredentialWriter.CredentialBundle(
+            var credentials = new SlackProvisionedCredentials(
                 AppId: createResult.AppId,
                 ClientId: createResult.Credentials!.ClientId,
                 ClientSecret: createResult.Credentials.ClientSecret!,

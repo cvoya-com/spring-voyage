@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Connector.Slack.Configuration;
 
+using Cvoya.Spring.Connector.Slack.Provisioning;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;
 
@@ -28,17 +29,20 @@ using Microsoft.Extensions.Options;
 public class SlackOAuthOptionsResolver : ISlackOAuthOptionsResolver
 {
     /// <summary>
-    /// Well-known tenant- / platform-secret names for the four
-    /// credential fields, kept in sync with the CLI's
-    /// <c>SlackCredentialWriter.SecretNames</c> map so the resolution
-    /// path is symmetric across tenant and platform scope (issue #2849).
+    /// Well-known tenant- / platform-secret names for the four credential
+    /// fields the resolver consumes. These alias the canonical
+    /// <see cref="SlackSecretNames"/> constants in the shared provisioning
+    /// kernel, so the resolution path stays in lock-step with every write
+    /// surface — the <c>spring connector slack install</c> CLI verb and
+    /// the portal's server-side install endpoint both persist under these
+    /// exact names (issue #2849 / #2882).
     /// </summary>
     public static class SecretNames
     {
-        public const string ClientId = "slack-oauth-client-id";
-        public const string ClientSecret = "slack-oauth-client-secret";
-        public const string SigningSecret = "slack-oauth-signing-secret";
-        public const string RedirectUri = "slack-oauth-redirect-uri";
+        public const string ClientId = SlackSecretNames.ClientId;
+        public const string ClientSecret = SlackSecretNames.ClientSecret;
+        public const string SigningSecret = SlackSecretNames.SigningSecret;
+        public const string RedirectUri = SlackSecretNames.RedirectUri;
     }
 
     private readonly IServiceScopeFactory _scopeFactory;

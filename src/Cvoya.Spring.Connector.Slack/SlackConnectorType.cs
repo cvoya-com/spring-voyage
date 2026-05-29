@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Connector.Slack.Auth.OAuth;
 using Cvoya.Spring.Connector.Slack.Commands;
 using Cvoya.Spring.Connector.Slack.Inbound;
+using Cvoya.Spring.Connector.Slack.Install;
 using Cvoya.Spring.Connectors;
 
 using Microsoft.AspNetCore.Builder;
@@ -124,6 +125,11 @@ public class SlackConnectorType : IConnectorType
 
         // OAuth install + disconnect endpoints (ADR-0061 §2.3, §2.5).
         group.MapSlackOAuthEndpoints();
+
+        // One-page portal install endpoint (#2882) — server-side Manifest
+        // API drive + tenant-secret persistence + state-bearing consent
+        // URL. The CLI equivalent is `spring connector slack install`.
+        group.MapSlackInstallEndpoints();
 
         // Inbound Slack Events API endpoint (#2817 / ADR-0061 §2.2 / §3).
         group.MapSlackEventEndpoints();

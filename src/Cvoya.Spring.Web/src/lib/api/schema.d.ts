@@ -2738,6 +2738,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/connectors/slack/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Provision a Slack app via the Manifest API and return its OAuth consent URL */
+        post: operations["InstallSlackApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/connectors/slack/install/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report whether Slack OAuth credentials are already configured for this tenant */
+        get: operations["GetSlackInstallStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/connectors/slack/config-schema": {
         parameters: {
             query?: never;
@@ -4378,6 +4412,25 @@ export interface components {
         SlackAuthorizeResponse: {
             authorizeUrl: string;
             state: string;
+        };
+        SlackInstallRequest: {
+            configToken: null | string;
+            appName: null | string;
+            svHost: null | string;
+            socketMode: boolean;
+            dryRun: boolean;
+            clientState: null | string;
+        };
+        SlackInstallResponse: {
+            manifestJson: string;
+            dryRun: boolean;
+            appId: null | string;
+            authorizeUrl: null | string;
+            state: null | string;
+            writtenSecretNames: string[];
+        };
+        SlackInstallStatusResponse: {
+            oauthConfigured: boolean;
         };
         SubsystemConfigurationReport: {
             subsystemName: string;
@@ -11746,6 +11799,68 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    InstallSlackApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["SlackInstallRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackInstallResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSlackInstallStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackInstallStatusResponse"];
                 };
             };
         };

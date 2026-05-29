@@ -42,6 +42,21 @@ vi.mock("@connector-slack/slack-oauth-browser", () => ({
   SLACK_OAUTH_HANDOFF_TIMEOUT_MS: 1,
 }));
 
+// The panel calls `useRouter().push` to navigate the empty-state CTA to
+// the one-page install wizard (#2882). Mock `next/navigation` so the
+// hook resolves outside an App Router context and the push is assertable.
+const mockPush = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mockPush,
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
+
 import { ApiError, api } from "@/lib/api/client";
 import type { TenantConnectorBindingResponse } from "@/lib/api/types";
 import { SlackConnectorPanel } from "@connector-slack/connector-panel";
@@ -61,6 +76,18 @@ function makeBinding(
   };
 }
 
+const BOUND_CONFIG = {
+  team_id: "T12345",
+  team_name: "Acme Engineering",
+  bot_user_id: "U_BOT",
+  installer_user_id: "U_OP",
+  bot_token_secret_name: "x",
+  signing_secret_secret_name: "y",
+  single_user_mode: true,
+  mode: "Workspace",
+  bound_users: [],
+};
+
 function wrap(): {
   client: QueryClient;
   wrapper: (props: { children: ReactNode }) => ReactElement;
@@ -73,6 +100,27 @@ function wrap(): {
   );
   wrapper.displayName = "QueryWrapper";
   return { client, wrapper };
+}
+
+/**
+ * Renders the panel in its bound state and clicks Reconnect. Reconnect
+ * is the inline OAuth-popup path that survives the #2882 wizard rewrite
+ * (the empty-state CTA now routes to the wizard instead). A popup stub is
+ * installed so `window.open` returns a Window-shaped object.
+ */
+async function renderBoundAndReconnect(): Promise<{ popupStub: { close: ReturnType<typeof vi.fn> } }> {
+  const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
+  vi.spyOn(window, "open").mockReturnValue(popupStub as unknown as Window);
+
+  const { wrapper } = wrap();
+  await act(async () => {
+    render(<SlackConnectorPanel />, { wrapper });
+  });
+  await screen.findByTestId("slack-panel-bound");
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("slack-panel-reconnect"));
+  });
+  return { popupStub };
 }
 
 describe("SlackConnectorPanel", () => {
@@ -105,74 +153,11 @@ describe("SlackConnectorPanel", () => {
     expect(empty).toHaveTextContent(/read the limitations/);
   });
 
-  // ADR-0061 §2.4 — Grid is refused at install time with a structured
-  // ProblemDetails (HTTP authorize start path). Surface it with a
-  // labelled error instead of an "unknown error" fallback.
-  it("renders the Enterprise-Grid error when the OAuth start fails with that code", async () => {
+  // #2882: the empty-state CTA routes to the one-page install wizard
+  // (which registers the Slack app via the Manifest API) rather than
+  // starting OAuth inline.
+  it("routes to the install wizard when the empty-state CTA is clicked", async () => {
     mockedApi.getTenantSlackBinding.mockResolvedValue(null);
-    mockedApi.beginSlackOAuthAuthorize.mockRejectedValue(
-      new ApiError(422, "Unprocessable Entity", {
-        title: "Slack Enterprise Grid is not supported",
-        detail:
-          "ADR-0061 §2.4 — Grid is refused at install time in v0.1.",
-        code: "SlackEnterpriseGridUnsupported",
-        enterprise_id: "E123",
-      }),
-    );
-
-    // The popup is opened before the await; jsdom's window.open returns
-    // a Window-shaped stub by default, so the panel reaches the
-    // POST /oauth/authorize call.
-    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockReturnValue(popupStub as unknown as Window);
-
-    const { wrapper } = wrap();
-    await act(async () => {
-      render(<SlackConnectorPanel />, { wrapper });
-    });
-
-    await screen.findByTestId("slack-panel-install");
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("slack-panel-install"));
-    });
-
-    const error = await screen.findByTestId(
-      "slack-panel-error-enterprise-grid",
-    );
-    expect(error).toHaveTextContent(
-      /Slack Enterprise Grid isn't supported in v0\.1/,
-    );
-    // Generic-error retry CTA is suppressed for Grid — the operator
-    // can't recover from this without going off-portal.
-    expect(
-      screen.queryByTestId("slack-panel-error-retry"),
-    ).not.toBeInTheDocument();
-    expect(popupStub.close).toHaveBeenCalled();
-
-    openSpy.mockRestore();
-  });
-
-  // The 502 path — Slack OAuth options are not configured across any
-  // persistence tier (tenant-secret / platform-secret / env-config).
-  // Surfaced with the "not configured" palette and no retry button
-  // (same reason as Grid — operator change required first).
-  it("renders the not-configured error when the OAuth start returns 502", async () => {
-    mockedApi.getTenantSlackBinding.mockResolvedValue(null);
-    mockedApi.beginSlackOAuthAuthorize.mockRejectedValue(
-      new ApiError(502, "Bad Gateway", {
-        title: "Slack OAuth is not configured",
-        detail:
-          "An operator needs to run `spring connector slack install` with one of --write-env, --write-secrets, or --write-tenant-secrets.",
-      }),
-    );
-
-    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockReturnValue(popupStub as unknown as Window);
 
     const { wrapper } = wrap();
     await act(async () => {
@@ -180,48 +165,12 @@ describe("SlackConnectorPanel", () => {
     });
 
     await act(async () => {
-      fireEvent.click(
-        await screen.findByTestId("slack-panel-install"),
-      );
+      fireEvent.click(await screen.findByTestId("slack-panel-install"));
     });
 
-    expect(
-      await screen.findByTestId("slack-panel-error-not-configured"),
-    ).toHaveTextContent(/Slack OAuth isn't configured on this deployment/);
-
-    openSpy.mockRestore();
-  });
-
-  // Generic errors surface the "Try again" CTA so a transient network
-  // failure isn't a dead-end.
-  it("renders the generic-error retry CTA on an unknown OAuth start failure", async () => {
-    mockedApi.getTenantSlackBinding.mockResolvedValue(null);
-    mockedApi.beginSlackOAuthAuthorize.mockRejectedValue(new Error("boom"));
-
-    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockReturnValue(popupStub as unknown as Window);
-
-    const { wrapper } = wrap();
-    await act(async () => {
-      render(<SlackConnectorPanel />, { wrapper });
-    });
-
-    await act(async () => {
-      fireEvent.click(
-        await screen.findByTestId("slack-panel-install"),
-      );
-    });
-
-    expect(
-      await screen.findByTestId("slack-panel-error-generic"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("slack-panel-error-retry"),
-    ).toBeInTheDocument();
-
-    openSpy.mockRestore();
+    expect(mockPush).toHaveBeenCalledWith("/connectors/slack/install");
+    // The empty-state CTA must NOT start OAuth inline anymore.
+    expect(mockedApi.beginSlackOAuthAuthorize).not.toHaveBeenCalled();
   });
 
   // The bound state surfaces every field the brief calls out:
@@ -280,19 +229,7 @@ describe("SlackConnectorPanel", () => {
   // destructive primary action — Cancel comes first in DOM order so
   // the dialog's focus-first-focusable behaviour lands on Cancel.
   it("opens the disconnect confirmation modal with Cancel focused, not Disconnect", async () => {
-    mockedApi.getTenantSlackBinding.mockResolvedValue(
-      makeBinding({
-        team_id: "T12345",
-        team_name: "Acme Engineering",
-        bot_user_id: "U_BOT",
-        installer_user_id: "U_OP",
-        bot_token_secret_name: "x",
-        signing_secret_secret_name: "y",
-        single_user_mode: true,
-        mode: "Workspace",
-        bound_users: [],
-      }),
-    );
+    mockedApi.getTenantSlackBinding.mockResolvedValue(makeBinding(BOUND_CONFIG));
 
     const { wrapper } = wrap();
     await act(async () => {
@@ -316,9 +253,7 @@ describe("SlackConnectorPanel", () => {
     const buttonsInDialog = Array.from(
       dialog.querySelectorAll<HTMLButtonElement>("button"),
     );
-    const cancelIndex = buttonsInDialog.findIndex(
-      (b) => b === cancel,
-    );
+    const cancelIndex = buttonsInDialog.findIndex((b) => b === cancel);
     const confirmIndex = buttonsInDialog.findIndex(
       (b) => b.textContent === "Disconnect",
     );
@@ -329,17 +264,7 @@ describe("SlackConnectorPanel", () => {
 
   it("invokes disconnectSlackBinding when the confirmation is accepted", async () => {
     mockedApi.getTenantSlackBinding.mockResolvedValueOnce(
-      makeBinding({
-        team_id: "T12345",
-        team_name: "Acme Engineering",
-        bot_user_id: "U_BOT",
-        installer_user_id: "U_OP",
-        bot_token_secret_name: "x",
-        signing_secret_secret_name: "y",
-        single_user_mode: true,
-        mode: "Workspace",
-        bound_users: [],
-      }),
+      makeBinding(BOUND_CONFIG),
     );
     // After the disconnect call resolves, the panel refreshes the
     // binding query and should see "no binding" — flips to empty state.
@@ -373,62 +298,93 @@ describe("SlackConnectorPanel", () => {
     await screen.findByTestId("slack-panel-empty");
   });
 
-  // The success path of the install flow — the handoff reports
-  // `success` via postMessage; the cache invalidation flips us to
-  // bound state.
-  it("flips to bound state when the postMessage handoff reports success", async () => {
-    // First call (binding-query mount): empty.
-    // Subsequent calls (after the handoff resolves): bound.
-    let callCount = 0;
-    mockedApi.getTenantSlackBinding.mockImplementation(() => {
-      callCount++;
-      if (callCount === 1) return Promise.resolve(null);
-      return Promise.resolve(
-        makeBinding({
-          team_id: "T12345",
-          team_name: "Acme Engineering",
-          bot_user_id: "U_BOT",
-          installer_user_id: "U_OP",
-          bot_token_secret_name: "x",
-          signing_secret_secret_name: "y",
-          single_user_mode: true,
-          mode: "Workspace",
-          bound_users: [],
-        }),
-      );
-    });
+  // ---- Reconnect (inline OAuth popup) — the path that survives the
+  // wizard rewrite. A bound tenant re-runs OAuth without re-creating the
+  // Slack app, so the credentials already exist; startInstall drives the
+  // popup + postMessage handoff exactly as before. ----
+
+  it("reconnect: re-runs OAuth and stays bound when the handoff reports success", async () => {
+    mockedApi.getTenantSlackBinding.mockResolvedValue(makeBinding(BOUND_CONFIG));
     mockedApi.beginSlackOAuthAuthorize.mockResolvedValue({
       authorizeUrl: "https://slack.com/oauth/v2/authorize?state=abc",
       state: "abc",
     });
     mockedHandoff.mockResolvedValue({ kind: "success" });
 
-    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockReturnValue(popupStub as unknown as Window);
+    await renderBoundAndReconnect();
 
-    const { wrapper } = wrap();
-    await act(async () => {
-      render(<SlackConnectorPanel />, { wrapper });
-    });
-
-    await act(async () => {
-      fireEvent.click(await screen.findByTestId("slack-panel-install"));
-    });
-
+    expect(mockedApi.beginSlackOAuthAuthorize).toHaveBeenCalledOnce();
     expect(mockedHandoff).toHaveBeenCalledOnce();
-    await screen.findByTestId("slack-panel-bound");
-
-    openSpy.mockRestore();
+    // Still bound, no error banner.
+    expect(screen.getByTestId("slack-panel-bound")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("slack-panel-error-generic"),
+    ).not.toBeInTheDocument();
   });
 
-  // Issue #2837: server-side Grid refusal arrives via postMessage,
-  // NOT via the authorize endpoint. The error code on the message is
-  // `SlackEnterpriseGridUnsupported`; the panel must render the same
-  // Grid banner the authorize-error path uses.
-  it("renders Grid-refusal banner when the OAuth callback posts a Grid error", async () => {
-    mockedApi.getTenantSlackBinding.mockResolvedValue(null);
+  // ADR-0061 §2.4 — Grid is refused at install time. When the authorize
+  // start returns the Grid code, surface the labelled Grid banner with
+  // no retry CTA (the operator can't recover from this on-portal).
+  it("reconnect: renders the Enterprise-Grid banner when the OAuth start fails with that code", async () => {
+    mockedApi.getTenantSlackBinding.mockResolvedValue(makeBinding(BOUND_CONFIG));
+    mockedApi.beginSlackOAuthAuthorize.mockRejectedValue(
+      new ApiError(422, "Unprocessable Entity", {
+        title: "Slack Enterprise Grid is not supported",
+        detail: "ADR-0061 §2.4 — Grid is refused at install time in v0.1.",
+        code: "SlackEnterpriseGridUnsupported",
+        enterprise_id: "E123",
+      }),
+    );
+
+    const { popupStub } = await renderBoundAndReconnect();
+
+    const error = await screen.findByTestId("slack-panel-error-enterprise-grid");
+    expect(error).toHaveTextContent(/Slack Enterprise Grid isn't supported in v0\.1/);
+    expect(
+      screen.queryByTestId("slack-panel-error-retry"),
+    ).not.toBeInTheDocument();
+    expect(popupStub.close).toHaveBeenCalled();
+  });
+
+  // The 502 path — Slack OAuth options are not configured across any
+  // persistence tier. Surfaced with the "not configured" palette and no
+  // retry button (operator change required first).
+  it("reconnect: renders the not-configured error when the OAuth start returns 502", async () => {
+    mockedApi.getTenantSlackBinding.mockResolvedValue(makeBinding(BOUND_CONFIG));
+    mockedApi.beginSlackOAuthAuthorize.mockRejectedValue(
+      new ApiError(502, "Bad Gateway", {
+        title: "Slack OAuth is not configured",
+        detail:
+          "An operator needs to run `spring connector slack install` with one of --write-env, --write-secrets, or --write-tenant-secrets.",
+      }),
+    );
+
+    await renderBoundAndReconnect();
+
+    expect(
+      await screen.findByTestId("slack-panel-error-not-configured"),
+    ).toHaveTextContent(/Slack OAuth isn't configured on this deployment/);
+  });
+
+  // Generic errors surface the "Try again" CTA so a transient network
+  // failure isn't a dead-end.
+  it("reconnect: renders the generic-error retry CTA on an unknown OAuth start failure", async () => {
+    mockedApi.getTenantSlackBinding.mockResolvedValue(makeBinding(BOUND_CONFIG));
+    mockedApi.beginSlackOAuthAuthorize.mockRejectedValue(new Error("boom"));
+
+    await renderBoundAndReconnect();
+
+    expect(
+      await screen.findByTestId("slack-panel-error-generic"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("slack-panel-error-retry")).toBeInTheDocument();
+  });
+
+  // Issue #2837: server-side Grid refusal arrives via postMessage, NOT
+  // via the authorize endpoint. The error code on the message is
+  // `SlackEnterpriseGridUnsupported`; the panel renders the Grid banner.
+  it("reconnect: renders Grid-refusal banner when the OAuth callback posts a Grid error", async () => {
+    mockedApi.getTenantSlackBinding.mockResolvedValue(makeBinding(BOUND_CONFIG));
     mockedApi.beginSlackOAuthAuthorize.mockResolvedValue({
       authorizeUrl: "https://slack.com/oauth/v2/authorize?state=abc",
       state: "abc",
@@ -439,38 +395,21 @@ describe("SlackConnectorPanel", () => {
       message: "Grid is not supported in v0.1.",
     });
 
-    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockReturnValue(popupStub as unknown as Window);
-
-    const { wrapper } = wrap();
-    await act(async () => {
-      render(<SlackConnectorPanel />, { wrapper });
-    });
-
-    await act(async () => {
-      fireEvent.click(await screen.findByTestId("slack-panel-install"));
-    });
+    await renderBoundAndReconnect();
 
     expect(
       await screen.findByTestId("slack-panel-error-enterprise-grid"),
     ).toHaveTextContent(/Enterprise Grid/);
-    // Grid → no retry CTA (operator must change something off-portal
-    // first; same rule as the authorize-error path).
     expect(
       screen.queryByTestId("slack-panel-error-retry"),
     ).not.toBeInTheDocument();
-
-    openSpy.mockRestore();
   });
 
-  // Other server-side error codes from the callback (workspace
-  // conflict, exchange failure, etc.) surface as the generic banner
-  // with the Try-again CTA. We pick the `exchange_failed` code from
-  // the backend's union.
-  it("renders generic-error banner when the OAuth callback posts a non-Grid error", async () => {
-    mockedApi.getTenantSlackBinding.mockResolvedValue(null);
+  // Other server-side error codes from the callback (workspace conflict,
+  // exchange failure, etc.) surface as the generic banner with the
+  // Try-again CTA. We pick the `exchange_failed` code from the union.
+  it("reconnect: renders generic-error banner when the OAuth callback posts a non-Grid error", async () => {
+    mockedApi.getTenantSlackBinding.mockResolvedValue(makeBinding(BOUND_CONFIG));
     mockedApi.beginSlackOAuthAuthorize.mockResolvedValue({
       authorizeUrl: "https://slack.com/oauth/v2/authorize?state=abc",
       state: "abc",
@@ -481,88 +420,12 @@ describe("SlackConnectorPanel", () => {
       message: "Slack returned invalid_code on oauth.v2.access.",
     });
 
-    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockReturnValue(popupStub as unknown as Window);
-
-    const { wrapper } = wrap();
-    await act(async () => {
-      render(<SlackConnectorPanel />, { wrapper });
-    });
-
-    await act(async () => {
-      fireEvent.click(await screen.findByTestId("slack-panel-install"));
-    });
+    await renderBoundAndReconnect();
 
     expect(
       await screen.findByTestId("slack-panel-error-generic"),
     ).toHaveTextContent(/invalid_code/);
-    expect(
-      screen.getByTestId("slack-panel-error-retry"),
-    ).toBeInTheDocument();
-
-    openSpy.mockRestore();
-  });
-
-  // "popup-closed" — user cancelled the OAuth window. Render a notice
-  // and keep the empty state visible so they can retry.
-  it("surfaces a 'popup-closed' notice when the user closes the OAuth window", async () => {
-    mockedApi.getTenantSlackBinding.mockResolvedValue(null);
-    mockedApi.beginSlackOAuthAuthorize.mockResolvedValue({
-      authorizeUrl: "https://slack.com/oauth/v2/authorize?state=abc",
-      state: "abc",
-    });
-    mockedHandoff.mockResolvedValue({ kind: "popup-closed" });
-
-    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockReturnValue(popupStub as unknown as Window);
-
-    const { wrapper } = wrap();
-    await act(async () => {
-      render(<SlackConnectorPanel />, { wrapper });
-    });
-
-    await act(async () => {
-      fireEvent.click(await screen.findByTestId("slack-panel-install"));
-    });
-
-    expect(
-      await screen.findByTestId("slack-panel-notice-popup-closed"),
-    ).toHaveTextContent(/Slack install cancelled/);
-
-    openSpy.mockRestore();
-  });
-
-  it("surfaces a 'timed-out' notice when the handoff deadline elapses", async () => {
-    mockedApi.getTenantSlackBinding.mockResolvedValue(null);
-    mockedApi.beginSlackOAuthAuthorize.mockResolvedValue({
-      authorizeUrl: "https://slack.com/oauth/v2/authorize?state=abc",
-      state: "abc",
-    });
-    mockedHandoff.mockResolvedValue({ kind: "timed-out" });
-
-    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockReturnValue(popupStub as unknown as Window);
-
-    const { wrapper } = wrap();
-    await act(async () => {
-      render(<SlackConnectorPanel />, { wrapper });
-    });
-
-    await act(async () => {
-      fireEvent.click(await screen.findByTestId("slack-panel-install"));
-    });
-
-    expect(
-      await screen.findByTestId("slack-panel-notice-timed-out"),
-    ).toHaveTextContent(/didn't complete/);
-
-    openSpy.mockRestore();
+    expect(screen.getByTestId("slack-panel-error-retry")).toBeInTheDocument();
   });
 
   // Loading state on first render.

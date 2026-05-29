@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Cvoya.Spring.Connectors.Abstractions\Cvoya.Spring.Connectors.Abstractions.csproj" />
+    <ProjectReference Include="..\Cvoya.Spring.Connector.Slack.Provisioning\Cvoya.Spring.Connector.Slack.Provisioning.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
   </ItemGroup>
 

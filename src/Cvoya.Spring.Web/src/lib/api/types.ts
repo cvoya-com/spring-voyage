@@ -939,6 +939,35 @@ export type SlackAuthorizeRequest = Schemas["SlackAuthorizeRequest"];
 export type SlackAuthorizeResponse = Schemas["SlackAuthorizeResponse"];
 
 /**
+ * Request body for `POST /api/v1/tenant/connectors/slack/install` — the
+ * one-page portal install wizard (#2882). `configToken` is the Slack
+ * Configuration Token; `dryRun: true` returns the manifest preview
+ * without contacting Slack; `clientState` carries the popup's
+ * `targetOrigin` for the OAuth handoff.
+ * @public Consumed by `Cvoya.Spring.Web/app/connectors/slack/install`.
+ */
+export type SlackInstallRequest = Schemas["SlackInstallRequest"];
+
+/**
+ * Response body for `POST /api/v1/tenant/connectors/slack/install`.
+ * `manifestJson` is always present (the wizard renders it as a preview);
+ * `authorizeUrl` + `state` + `appId` + `writtenSecretNames` are populated
+ * only on a real (non-dry-run) install.
+ * @public Consumed by `Cvoya.Spring.Web/app/connectors/slack/install`.
+ */
+export type SlackInstallResponse = Schemas["SlackInstallResponse"];
+
+/**
+ * Response body for `GET /api/v1/tenant/connectors/slack/install/status`.
+ * `oauthConfigured` is true when a complete set of Slack OAuth credentials
+ * already resolves for the tenant (e.g. a prior `spring connector slack
+ * install`), so the wizard can offer a "connect now" shortcut that skips
+ * app registration (#2882).
+ * @public Consumed by `Cvoya.Spring.Web/app/connectors/slack/install`.
+ */
+export type SlackInstallStatusResponse = Schemas["SlackInstallStatusResponse"];
+
+/**
  * PUT /api/v1/tenant/connectors/web-search/units/{unitId}/config request body.
  * @public Consumed by `Cvoya.Spring.Connector.WebSearch/web/*` cross-workspace.
  */
