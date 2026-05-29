@@ -209,6 +209,134 @@ public class SlackCommandDispatcherTests
             .Returns(svThreadId.ToString("N"));
 
         var agentAddr = new Address(Address.AgentScheme, Guid.NewGuid());
+        var payload = BuildViewSubmissionPayload(new[] { agentAddr }, initialMessage: "let's start");
+
+        var response = await harness.Dispatcher.DispatchInteractionAsync(payload, ct);
+
+        response.Outcome.ShouldBe(SlackCommandDispatchOutcome.Handled);
+        response.ResponseBody.ShouldBeNull();
+
+        // The actual thread-creation work runs on a background task
+        // (#2879). Drain it before asserting on web-API receives.
+        await harness.Dispatcher.LastBackgroundTask;
+
+        await harness.WebApi.Received().OpenConversationAsync(
+            "xoxb-test-token", "U-installer", Arg.Any<CancellationToken>());
+        await harness.WebApi.Received().PostMessageAsync(
+            Arg.Is<string>(s => s == "xoxb-test-token"),
+            Arg.Is<string>(s => s == "D-installer"),
+            Arg.Is<string>(s => s.StartsWith("sv-", StringComparison.Ordinal)),
+            Arg.Is<string?>(s => s == null),
+            Arg.Is<string?>(s => s == null),
+            Arg.Is<string?>(s => s == null),
+            Arg.Any<CancellationToken>());
+        await harness.MessageRouter.Received(1).RouteAsync(
+            Arg.Is<Message>(m => m.ThreadId == svThreadId.ToString("N")),
+            Arg.Any<CancellationToken>());
+        harness.AuditLog.Records.ShouldContain(r => r.Disposition == "thread-created");
+    }
+
+    /// <summary>
+    /// #2879: Slack's view_submission ack budget is 3 seconds; a slow
+    /// chat.postMessage on the background path must not delay the
+    /// dispatch return value. The dispatch call must complete well
+    /// inside the budget, and the background work must still run.
+    /// </summary>
+    [Fact]
+    public async Task DispatchInteractionAsync_ViewSubmission_SlowPostMessage_AcksWithinBudget()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var harness = TestHarness.Create();
+        await harness.SeedBindingAsync(ct);
+
+        var svThreadId = new Guid("44444444-4444-4444-4444-444444444444");
+        harness.ThreadRegistry.GetOrCreateAsync(Arg.Any<IEnumerable<Address>>(), Arg.Any<CancellationToken>())
+            .Returns(svThreadId.ToString("N"));
+
+        // Gate chat.postMessage on a TaskCompletionSource so the test
+        // controls when the background work makes progress. The gate
+        // simulates Slack-side latency well beyond the 3-second budget.
+        var postMessageGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.WebApi.PostMessageAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                await postMessageGate.Task.ConfigureAwait(false);
+                return new SlackPostMessageResult(Ok: true, Error: null, ChannelId: "D-installer", MessageTs: "1700.001");
+            });
+
+        var agentAddr = new Address(Address.AgentScheme, Guid.NewGuid());
+        var payload = BuildViewSubmissionPayload(new[] { agentAddr }, initialMessage: null);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var response = await harness.Dispatcher.DispatchInteractionAsync(payload, ct);
+        stopwatch.Stop();
+
+        // Hard bound: dispatch must return well within Slack's 3-second
+        // ack budget regardless of downstream Slack-API latency.
+        stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(1));
+        response.Outcome.ShouldBe(SlackCommandDispatchOutcome.Handled);
+        response.ResponseBody.ShouldBeNull();
+
+        // Background work is still in flight at this point — release
+        // the gate and confirm it completes with a recorded audit.
+        var backgroundTask = harness.Dispatcher.LastBackgroundTask;
+        backgroundTask.IsCompleted.ShouldBeFalse();
+        postMessageGate.SetResult(true);
+        await backgroundTask;
+
+        harness.AuditLog.Records.ShouldContain(r => r.Disposition == "thread-created");
+        await harness.WebApi.Received(1).PostMessageAsync(
+            "xoxb-test-token", "D-installer", Arg.Any<string>(),
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// #2879: an empty participants list must return Slack's
+    /// response_action=errors shape so the modal stays open with the
+    /// field error highlighted instead of closing silently.
+    /// </summary>
+    [Fact]
+    public async Task DispatchInteractionAsync_ViewSubmission_EmptyParticipants_ReturnsResponseActionErrors()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var harness = TestHarness.Create();
+        await harness.SeedBindingAsync(ct);
+
+        var payload = BuildViewSubmissionPayload(Array.Empty<Address>(), initialMessage: null);
+
+        var response = await harness.Dispatcher.DispatchInteractionAsync(payload, ct);
+
+        response.Outcome.ShouldBe(SlackCommandDispatchOutcome.Handled);
+        response.ResponseBody.ShouldNotBeNull();
+
+        // Serialise the response body and assert the Slack-expected shape.
+        var bodyJson = JsonSerializer.SerializeToElement(response.ResponseBody);
+        bodyJson.GetProperty("response_action").GetString().ShouldBe("errors");
+        var errors = bodyJson.GetProperty("errors");
+        errors.TryGetProperty(SlackCommandDispatcher.SvThreadParticipantsBlockId, out var participantsError).ShouldBeTrue();
+        participantsError.GetString().ShouldNotBeNullOrEmpty();
+
+        // Validation failure should NOT touch Slack web APIs.
+        await harness.WebApi.DidNotReceive().OpenConversationAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await harness.WebApi.DidNotReceive().PostMessageAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        harness.AuditLog.Records.ShouldContain(r =>
+            r.Disposition == "validation-failed" && r.Detail == "no-participants");
+    }
+
+    private static JsonElement BuildViewSubmissionPayload(
+        IReadOnlyList<Address> selectedAddresses,
+        string? initialMessage)
+    {
+        var selectedOptions = selectedAddresses
+            .Select(a => (object)new { value = a.ToString() })
+            .ToArray();
+
         var view = new
         {
             type = "view_submission",
@@ -225,17 +353,14 @@ public class SlackCommandDispatcherTests
                         {
                             [SlackCommandDispatcher.SvThreadParticipantsActionId] = new
                             {
-                                selected_options = new[]
-                                {
-                                    new { value = agentAddr.ToString() },
-                                },
+                                selected_options = selectedOptions,
                             },
                         },
                         [SlackCommandDispatcher.SvThreadInitialMessageBlockId] = new Dictionary<string, object>
                         {
                             [SlackCommandDispatcher.SvThreadInitialMessageActionId] = new
                             {
-                                value = "let's start",
+                                value = initialMessage,
                             },
                         },
                     },
@@ -243,25 +368,7 @@ public class SlackCommandDispatcherTests
             },
         };
 
-        var payload = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(view));
-
-        var outcome = await harness.Dispatcher.DispatchInteractionAsync(payload, ct);
-
-        outcome.ShouldBe(SlackCommandDispatchOutcome.Handled);
-        await harness.WebApi.Received().OpenConversationAsync(
-            "xoxb-test-token", "U-installer", Arg.Any<CancellationToken>());
-        await harness.WebApi.Received().PostMessageAsync(
-            Arg.Is<string>(s => s == "xoxb-test-token"),
-            Arg.Is<string>(s => s == "D-installer"),
-            Arg.Is<string>(s => s.StartsWith("sv-", StringComparison.Ordinal)),
-            Arg.Is<string?>(s => s == null),
-            Arg.Is<string?>(s => s == null),
-            Arg.Is<string?>(s => s == null),
-            Arg.Any<CancellationToken>());
-        await harness.MessageRouter.Received(1).RouteAsync(
-            Arg.Is<Message>(m => m.ThreadId == svThreadId.ToString("N")),
-            Arg.Any<CancellationToken>());
-        harness.AuditLog.Records.ShouldContain(r => r.Disposition == "thread-created");
+        return JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(view));
     }
 
     private static Dictionary<string, string> BuildForm(string command, string channelName = "directmessage", string channelId = "D1")

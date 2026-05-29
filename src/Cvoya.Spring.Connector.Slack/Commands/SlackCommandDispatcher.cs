@@ -213,28 +213,56 @@ public sealed class SlackCommandDispatcher : ISlackCommandDispatcher
         return SlackCommandDispatchOutcome.Handled;
     }
 
+    /// <summary>
+    /// Audit-event type stamped on every <c>view_submission</c> the
+    /// <c>/sv-thread</c> modal generates — sync validation outcomes
+    /// (refused, validation-failed) and background-work outcomes
+    /// (thread-created, failed) all share this prefix.
+    /// </summary>
+    internal const string ViewSubmissionEventType = "view_submission:" + SvThreadModalCallbackId;
+
+    /// <summary>
+    /// User-facing copy posted in the bot DM when the background
+    /// thread-creation task throws an unhandled exception. Kept short
+    /// so the operator sees something actionable in the DM without
+    /// inviting them to copy/paste error text — the audit log carries
+    /// the structured detail.
+    /// </summary>
+    internal const string BackgroundFailureDmText =
+        ":warning: Couldn't start that SV thread — please try again. "
+        + "If it keeps failing, check the server logs.";
+
+    /// <summary>
+    /// Test-only handle to the most recently scheduled background
+    /// thread-creation task. Production code never awaits this —
+    /// the request thread returns as soon as the work is enqueued.
+    /// Tests in <c>SlackCommandDispatcherTests</c> await it to assert
+    /// on observable post-conditions (web-API calls, audit records).
+    /// </summary>
+    internal Task LastBackgroundTask { get; private set; } = Task.CompletedTask;
+
     /// <inheritdoc />
-    public async Task<SlackCommandDispatchOutcome> DispatchInteractionAsync(
+    public async Task<SlackInteractionResponse> DispatchInteractionAsync(
         JsonElement payload,
         CancellationToken cancellationToken = default)
     {
         if (!payload.TryGetProperty("type", out var typeProp)
             || typeProp.ValueKind != JsonValueKind.String)
         {
-            return SlackCommandDispatchOutcome.UnknownCommand;
+            return new SlackInteractionResponse(SlackCommandDispatchOutcome.UnknownCommand);
         }
 
         // We only handle view_submission in v0.1. block_actions and
         // similar are accepted (200) but no-op.
         if (!string.Equals(typeProp.GetString(), "view_submission", StringComparison.Ordinal))
         {
-            return SlackCommandDispatchOutcome.Handled;
+            return new SlackInteractionResponse(SlackCommandDispatchOutcome.Handled);
         }
 
         if (!payload.TryGetProperty("view", out var view)
             || view.ValueKind != JsonValueKind.Object)
         {
-            return SlackCommandDispatchOutcome.UnknownCommand;
+            return new SlackInteractionResponse(SlackCommandDispatchOutcome.UnknownCommand);
         }
 
         var callbackId = view.TryGetProperty("callback_id", out var cb)
@@ -243,7 +271,7 @@ public sealed class SlackCommandDispatcher : ISlackCommandDispatcher
             : null;
         if (!string.Equals(callbackId, SvThreadModalCallbackId, StringComparison.Ordinal))
         {
-            return SlackCommandDispatchOutcome.Handled;
+            return new SlackInteractionResponse(SlackCommandDispatchOutcome.Handled);
         }
 
         var teamId = payload.TryGetProperty("team", out var team)
@@ -263,13 +291,13 @@ public sealed class SlackCommandDispatcher : ISlackCommandDispatcher
         var (binding, config) = await LoadBindingByTeamAsync(teamId, cancellationToken).ConfigureAwait(false);
         if (binding is null || config is null)
         {
-            return SlackCommandDispatchOutcome.UnknownTeam;
+            return new SlackInteractionResponse(SlackCommandDispatchOutcome.UnknownTeam);
         }
 
         var matchedBound = await ResolveBoundUserAsync(teamId, userId, cancellationToken).ConfigureAwait(false);
         if (matchedBound is null)
         {
-            return SlackCommandDispatchOutcome.UnknownTeam;
+            return new SlackInteractionResponse(SlackCommandDispatchOutcome.UnknownTeam);
         }
 
         // Parse the form values out of the view state.
@@ -278,114 +306,256 @@ public sealed class SlackCommandDispatcher : ISlackCommandDispatcher
         var selectedAddresses = ParseSelectedParticipants(state);
         var initialMessage = ParseInitialMessage(state);
 
+        // Inline-validation failure: return response_action=errors so
+        // Slack keeps the modal open with the field error highlighted
+        // instead of closing silently. Defence-in-depth against a
+        // hand-rolled payload — Slack's own client also enforces this
+        // because the participants input block is not marked optional.
         if (selectedAddresses.Count == 0)
         {
-            return SlackCommandDispatchOutcome.Handled;
+            await _auditLog.RecordAsync(new SlackInboundAuditEvent(
+                EventType: ViewSubmissionEventType,
+                TeamId: teamId,
+                SlackUserId: userId,
+                ActingTenantUserId: matchedBound.TenantUserId,
+                Disposition: "validation-failed",
+                Detail: "no-participants"), cancellationToken).ConfigureAwait(false);
+
+            return new SlackInteractionResponse(
+                SlackCommandDispatchOutcome.Handled,
+                ResponseBody: new
+                {
+                    response_action = "errors",
+                    errors = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        [SvThreadParticipantsBlockId] = "Pick at least one participant.",
+                    },
+                });
         }
 
         var botToken = await ReadBotTokenAsync(config, cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrEmpty(botToken))
         {
-            return SlackCommandDispatchOutcome.UnknownTeam;
+            return new SlackInteractionResponse(SlackCommandDispatchOutcome.UnknownTeam);
         }
 
-        // Resolve the bound user's primary Hat via the resolver.
-        Address fromAddress;
-        await using (var resolverScope = _scopeFactory.CreateAsyncScope())
-        {
-            var resolver = resolverScope.ServiceProvider.GetRequiredService<ITenantUserHumanResolver>();
-            fromAddress = await resolver.PickFromAsync(
-                callerTenantUserId: matchedBound.TenantUserId,
-                explicitFromHumanId: null,
-                threadId: null,
-                cancellationToken).ConfigureAwait(false);
-        }
+        // #2879: Slack's view_submission ack budget is 3 seconds; the
+        // synchronous thread-creation path (DM open + chat.postMessage
+        // + EF write + optional message route) was observed at 17.5s
+        // on a clean install. Run that work on a background task so
+        // the modal closes cleanly, and use CancellationToken.None so
+        // the request token's cancellation (fired as soon as the HTTP
+        // response completes) does not abort the in-flight work.
+        var backgroundTask = Task.Run(
+            () => ExecuteThreadCreationAsync(
+                teamId,
+                userId,
+                matchedBound,
+                config,
+                botToken,
+                selectedAddresses,
+                initialMessage,
+                CancellationToken.None),
+            CancellationToken.None);
 
-        // Resolve / create the SV thread.
-        var participantSet = new List<Address> { fromAddress };
-        participantSet.AddRange(selectedAddresses);
+        LastBackgroundTask = backgroundTask;
 
-        Guid svThreadId;
-        await using (var threadScope = _scopeFactory.CreateAsyncScope())
+        return new SlackInteractionResponse(SlackCommandDispatchOutcome.Handled);
+    }
+
+    /// <summary>
+    /// Background companion to <see cref="DispatchInteractionAsync"/>.
+    /// Runs after the HTTP ack so the modal closes within Slack's
+    /// 3-second budget (#2879). All failures are caught, logged,
+    /// audited, and best-effort surfaced back to the user as a DM —
+    /// never bubbled, because there is no caller to surface them to.
+    /// </summary>
+    private async Task ExecuteThreadCreationAsync(
+        string teamId,
+        string userId,
+        TenantBoundUser matchedBound,
+        TenantSlackConfig config,
+        string botToken,
+        IReadOnlyList<Address> selectedAddresses,
+        string? initialMessage,
+        CancellationToken cancellationToken)
+    {
+        try
         {
-            var registry = threadScope.ServiceProvider.GetRequiredService<IThreadRegistry>();
-            var threadIdHex = await registry.GetOrCreateAsync(participantSet, cancellationToken).ConfigureAwait(false);
-            if (!Guid.TryParse(threadIdHex, out svThreadId) && !GuidFormatter.TryParse(threadIdHex, out svThreadId))
+            // Resolve the bound user's primary Hat via the resolver.
+            Address fromAddress;
+            await using (var resolverScope = _scopeFactory.CreateAsyncScope())
             {
-                return SlackCommandDispatchOutcome.UnknownCommand;
+                var resolver = resolverScope.ServiceProvider.GetRequiredService<ITenantUserHumanResolver>();
+                fromAddress = await resolver.PickFromAsync(
+                    callerTenantUserId: matchedBound.TenantUserId,
+                    explicitFromHumanId: null,
+                    threadId: null,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            // Resolve / create the SV thread.
+            var participantSet = new List<Address> { fromAddress };
+            participantSet.AddRange(selectedAddresses);
+
+            Guid svThreadId;
+            await using (var threadScope = _scopeFactory.CreateAsyncScope())
+            {
+                var registry = threadScope.ServiceProvider.GetRequiredService<IThreadRegistry>();
+                var threadIdHex = await registry.GetOrCreateAsync(participantSet, cancellationToken).ConfigureAwait(false);
+                if (!Guid.TryParse(threadIdHex, out svThreadId) && !GuidFormatter.TryParse(threadIdHex, out svThreadId))
+                {
+                    await _auditLog.RecordAsync(new SlackInboundAuditEvent(
+                        EventType: ViewSubmissionEventType,
+                        TeamId: teamId,
+                        SlackUserId: userId,
+                        ActingTenantUserId: matchedBound.TenantUserId,
+                        Disposition: "failed",
+                        Detail: "thread-id-unparseable:" + threadIdHex), cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+            }
+
+            // Open the bot DM with the bound Slack user and post the
+            // parent message + record the thread_ts. Match the outbound-
+            // dispatcher path.
+            var openResult = await _webApi.OpenConversationAsync(botToken, matchedBound.ExternalUserId, cancellationToken)
+                .ConfigureAwait(false);
+            if (!openResult.Ok || string.IsNullOrEmpty(openResult.ChannelId))
+            {
+                await _auditLog.RecordAsync(new SlackInboundAuditEvent(
+                    EventType: ViewSubmissionEventType,
+                    TeamId: teamId,
+                    SlackUserId: userId,
+                    ActingTenantUserId: matchedBound.TenantUserId,
+                    Disposition: "failed",
+                    Detail: "conversations.open:" + (openResult.Error ?? "no-channel")), cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            var slug = await _slugBuilder.BuildSlugAsync(
+                participantSet,
+                matchedBound.TenantUserId,
+                svThreadId,
+                cancellationToken).ConfigureAwait(false);
+
+            var parent = await _webApi.PostMessageAsync(
+                botToken,
+                openResult.ChannelId,
+                slug,
+                threadTs: null,
+                username: null,
+                iconUrl: null,
+                cancellationToken).ConfigureAwait(false);
+            if (!parent.Ok)
+            {
+                await _auditLog.RecordAsync(new SlackInboundAuditEvent(
+                    EventType: ViewSubmissionEventType,
+                    TeamId: teamId,
+                    SlackUserId: userId,
+                    ActingTenantUserId: matchedBound.TenantUserId,
+                    Disposition: "failed",
+                    Detail: "chat.postMessage:" + (parent.Error ?? "unknown")), cancellationToken).ConfigureAwait(false);
+                await TryPostFailureDmAsync(botToken, openResult.ChannelId, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            await _threadMap.RecordAsync(
+                svThreadId,
+                matchedBound.TenantUserId,
+                config.TeamId,
+                parent.ChannelId,
+                parent.MessageTs,
+                cancellationToken).ConfigureAwait(false);
+
+            // Optional initial-message: route it through the platform's
+            // IMessageRouter so the outbound delivery path (Part A) picks
+            // it up. The router will fan out to recipient actors; the
+            // Slack outbound dispatcher then echoes them into the
+            // bot DM thread alongside any agent replies.
+            if (!string.IsNullOrWhiteSpace(initialMessage))
+            {
+                var firstRecipient = selectedAddresses[0];
+                var msg = new Message(
+                    Id: Guid.NewGuid(),
+                    From: fromAddress,
+                    To: firstRecipient,
+                    Type: MessageType.Domain,
+                    ThreadId: GuidFormatter.Format(svThreadId),
+                    Payload: JsonSerializer.SerializeToElement(new
+                    {
+                        source = "slack",
+                        text = initialMessage,
+                    }, JsonOptions),
+                    Timestamp: DateTimeOffset.UtcNow);
+
+                await _messageRouter.RouteAsync(msg, cancellationToken).ConfigureAwait(false);
+            }
+
+            await _auditLog.RecordAsync(new SlackInboundAuditEvent(
+                EventType: ViewSubmissionEventType,
+                TeamId: teamId,
+                SlackUserId: userId,
+                ActingTenantUserId: matchedBound.TenantUserId,
+                Disposition: "thread-created",
+                Detail: GuidFormatter.Format(svThreadId)), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Slack /sv-thread modal: background thread creation failed for tenantUser={TenantUserId} team={TeamId}.",
+                matchedBound.TenantUserId,
+                teamId);
+
+            try
+            {
+                await _auditLog.RecordAsync(new SlackInboundAuditEvent(
+                    EventType: ViewSubmissionEventType,
+                    TeamId: teamId,
+                    SlackUserId: userId,
+                    ActingTenantUserId: matchedBound.TenantUserId,
+                    Disposition: "failed",
+                    Detail: ex.GetType().Name + ": " + ex.Message), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception auditEx)
+            {
+                _logger.LogWarning(auditEx, "Slack /sv-thread modal: failed to record audit event for background failure.");
+            }
+
+            try
+            {
+                var openResult = await _webApi.OpenConversationAsync(botToken, matchedBound.ExternalUserId, cancellationToken)
+                    .ConfigureAwait(false);
+                if (openResult.Ok && !string.IsNullOrEmpty(openResult.ChannelId))
+                {
+                    await TryPostFailureDmAsync(botToken, openResult.ChannelId, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (Exception dmEx)
+            {
+                _logger.LogWarning(dmEx, "Slack /sv-thread modal: failed to DM operator about background failure.");
             }
         }
+    }
 
-        // Open the bot DM with the bound Slack user and post the
-        // parent message + record the thread_ts. Match the outbound-
-        // dispatcher path.
-        var openResult = await _webApi.OpenConversationAsync(botToken, matchedBound.ExternalUserId, cancellationToken)
-            .ConfigureAwait(false);
-        if (!openResult.Ok || string.IsNullOrEmpty(openResult.ChannelId))
+    private async Task TryPostFailureDmAsync(string botToken, string channelId, CancellationToken cancellationToken)
+    {
+        try
         {
-            return SlackCommandDispatchOutcome.UnknownTeam;
+            await _webApi.PostMessageAsync(
+                botToken,
+                channelId,
+                BackgroundFailureDmText,
+                threadTs: null,
+                username: null,
+                iconUrl: null,
+                cancellationToken).ConfigureAwait(false);
         }
-
-        var slug = await _slugBuilder.BuildSlugAsync(
-            participantSet,
-            matchedBound.TenantUserId,
-            svThreadId,
-            cancellationToken).ConfigureAwait(false);
-
-        var parent = await _webApi.PostMessageAsync(
-            botToken,
-            openResult.ChannelId,
-            slug,
-            threadTs: null,
-            username: null,
-            iconUrl: null,
-            cancellationToken).ConfigureAwait(false);
-        if (!parent.Ok)
+        catch (Exception ex)
         {
-            return SlackCommandDispatchOutcome.UnknownTeam;
+            _logger.LogWarning(ex, "Slack /sv-thread modal: failed to post background-failure DM.");
         }
-
-        await _threadMap.RecordAsync(
-            svThreadId,
-            matchedBound.TenantUserId,
-            config.TeamId,
-            parent.ChannelId,
-            parent.MessageTs,
-            cancellationToken).ConfigureAwait(false);
-
-        // Optional initial-message: route it through the platform's
-        // IMessageRouter so the outbound delivery path (Part A) picks
-        // it up. The router will fan out to recipient actors; the
-        // Slack outbound dispatcher then echoes them into the
-        // bot DM thread alongside any agent replies.
-        if (!string.IsNullOrWhiteSpace(initialMessage))
-        {
-            var firstRecipient = selectedAddresses[0];
-            var msg = new Message(
-                Id: Guid.NewGuid(),
-                From: fromAddress,
-                To: firstRecipient,
-                Type: MessageType.Domain,
-                ThreadId: GuidFormatter.Format(svThreadId),
-                Payload: JsonSerializer.SerializeToElement(new
-                {
-                    source = "slack",
-                    text = initialMessage,
-                }, JsonOptions),
-                Timestamp: DateTimeOffset.UtcNow);
-
-            await _messageRouter.RouteAsync(msg, cancellationToken).ConfigureAwait(false);
-        }
-
-        await _auditLog.RecordAsync(new SlackInboundAuditEvent(
-            EventType: "view_submission:" + SvThreadModalCallbackId,
-            TeamId: teamId,
-            SlackUserId: userId,
-            ActingTenantUserId: matchedBound.TenantUserId,
-            Disposition: "thread-created",
-            Detail: GuidFormatter.Format(svThreadId)), cancellationToken).ConfigureAwait(false);
-
-        return SlackCommandDispatchOutcome.Handled;
     }
 
     private async Task OpenSvThreadModalAsync(

@@ -176,8 +176,14 @@ public static class SlackCommandEndpoints
             return Results.StatusCode(StatusCodes.Status401Unauthorized);
         }
 
-        await commandDispatcher.DispatchInteractionAsync(payload, cancellationToken).ConfigureAwait(false);
-        return Results.Ok();
+        var response = await commandDispatcher.DispatchInteractionAsync(payload, cancellationToken).ConfigureAwait(false);
+        // #2879: when the dispatcher returns a body (e.g.
+        // response_action=errors for inline validation failures) we
+        // serialise it; otherwise we return an empty 200 OK, which
+        // Slack treats as a plain ack that closes the modal.
+        return response.ResponseBody is not null
+            ? Results.Json(response.ResponseBody, JsonOptions)
+            : Results.Ok();
     }
 
     internal static Dictionary<string, string> ParseForm(string body)
