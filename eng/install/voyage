@@ -244,6 +244,11 @@ cmd_install() {
 }
 
 cmd_uninstall() {
+  if [[ -L "${BUNDLE}" && ! -e "${BUNDLE}" ]]; then
+    bad "Bundle symlink ${BUNDLE} is dangling — the releases directory may have been partially removed."
+    info "Remove the broken symlink and re-install: rm -f ${BUNDLE} && voyage install"
+    exit 1
+  fi
   if [[ -x "${BUNDLE}/uninstall.sh" ]]; then
     SPRING_VOYAGE_HOME="${INSTALL_ROOT}" exec "${BUNDLE}/uninstall.sh" "$@"
   fi

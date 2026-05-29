@@ -1,6 +1,6 @@
 # Area E1: CLI as primary UX
 
-> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../architecture/README.md). Kept for context.
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../../architecture/README.md). Kept for context.
 
 **Status:** ✅ **Done.** Umbrella [#1218](https://github.com/cvoya-com/spring-voyage/issues/1218) closed.
 

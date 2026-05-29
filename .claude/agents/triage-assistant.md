@@ -15,8 +15,9 @@ output and owns any GitHub writes that follow.
 ## Required reading
 
 - The active plan-of-record under `docs/plan/`. Plans live in
-  version-named directories (`docs/plan/v0.1/`, `docs/plan/v0.2/`,
-  …); the active version is the most recent one. Read its
+  version-named directories (currently `docs/plan/v0.2/`; superseded
+  versions are archived under `docs/archive/plan/`). The active version
+  is the most recent one under `docs/plan/`. Read its
   `README.md` for scope and its `areas/` subdirectory for the
   per-area documents declaring the `area:*` label scheme.
 - `AGENTS.md` § "Issue tracking" — three-primitives discipline

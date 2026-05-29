@@ -139,7 +139,7 @@ Two layers, mirrored from the shell suite:
 - **Cleanup.** Always pass through the tracker. The auto-cleanup hook
   is the only thing keeping the suite re-runnable.
 - **No portal-private API.** Everything the suite POSTs to is on the
-  public Web API ([ADR-0029](../../docs/decisions/0029-tenant-execution-boundary.md)).
+  public Web API ([ADR-0029](../../../docs/decisions/0029-tenant-execution-boundary.md)).
 - **Runtime pin.** `dapr-agent` + `ollama` everywhere. See
   [`fixtures/runtime.ts`](fixtures/runtime.ts) for the rationale.
 - **No webServer.** The local stack is operator-managed; the runner
@@ -179,7 +179,7 @@ test.describe("units — my new flow", () => {
 
 The fast pool covers every primary management-portal route plus the
 engagement-portal shell. The killer pool drives the v0.1 north-star flow
-([Area E2](../../docs/plan/v0.1/areas/e2-new-ux.md)). The llm pool
+([Area E2](../../../docs/archive/plan/v0.1/areas/e2-new-ux.md)). The llm pool
 exercises the agent turn end-to-end against a real LLM.
 
 | Pool   | Spec                                     | Surface                                            |
@@ -232,4 +232,4 @@ Total: **41 specs / 60 tests**.
 Companion to [`tests/e2e/cli/`](../cli/README.md) which covers the same v0.1
 surface from the CLI/API side. Issues for portal-side coverage gaps and
 flake follow-ups belong under the `area:e2` label / E2 umbrella in
-[the v0.1 plan](../../docs/plan/v0.1/areas/e2-new-ux.md).
+[the v0.1 plan](../../../docs/archive/plan/v0.1/areas/e2-new-ux.md).

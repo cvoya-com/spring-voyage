@@ -72,7 +72,7 @@ All conventions are in [CONVENTIONS.md](CONVENTIONS.md). Key points:
 - [Concepts](docs/concepts/overview.md) — the mental model
 - [Architecture](docs/architecture/README.md) — how it's built
 - [Decision Records](docs/decisions/README.md) — the "why" behind the major architectural choices
-- [Roadmap](docs/roadmap/README.md) — forward-looking narrative; live progress lives on the V2 / V2.1 milestones
+- [Roadmap (archived)](docs/archive/roadmap/README.md) — historical (pre-v0.1) planning narrative; live progress now lives on the GitHub [milestones](https://github.com/cvoya-com/spring-voyage/milestones)
 - [Releases and Versioning](docs/developer/releases.md) — SemVer, release process, CI/CD
 
 ## Labels

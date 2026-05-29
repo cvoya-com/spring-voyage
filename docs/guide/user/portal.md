@@ -28,7 +28,7 @@ The left sidebar lists all top-level routes:
 | `/analytics/costs` — **Analytics → Costs** | Tenant-wide spend, per-source breakdown, budget editors | `spring analytics costs`, `spring cost set-budget` |
 | `/analytics/throughput` — **Analytics → Throughput** | Messages / turns / tool calls per window | `spring analytics throughput` |
 | `/analytics/waits` — **Analytics → Wait times** | Idle / busy / waiting-for-human durations | `spring analytics waits` |
-| `/packages` — **Packages** | Installed packages and templates | `spring package list` |
+| `/packages` — **Packages** | Installed packages (templates are stamped inside them, not listed separately) | `spring package list` |
 | `/directory` — **Directory** | Tenant-wide expertise directory | `spring directory list` / `spring directory search` |
 | `/settings/system-configuration` — **System configuration** | Per-subsystem health report | `spring system configuration` |
 
@@ -453,8 +453,8 @@ Costs also shows the tenant daily budget editor and per-agent budget links.
 
 1. Open `/` — confirm System Health reads `No units`.
 2. Click **Create your first unit**.
-3. Wizard: name the unit, pick **Template** → `software-engineering/engineering-team`, optionally add GitHub connector and secrets, **Create unit**.
-4. **Agents** tab — the template's agents are already members.
+3. Wizard: name the unit, add an LLM credential when prompted (saved as a tenant default), pick a source — a package from the **Catalog**, or **Scratch** — optionally add a GitHub connector, **Create unit**.
+4. **Agents** tab — if you started from a package, its agents are already members.
 5. Click **Start**.
 6. Watch **Activity** tab to confirm the unit comes online.
 

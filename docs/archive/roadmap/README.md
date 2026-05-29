@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../architecture/README.md). Kept for context.
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../architecture/README.md). Kept for context.
 
 > **Role:** this directory publishes **forward-looking narrative** about Spring Voyage — what we're thinking about, why, and where the platform is headed. **It is not a progress tracker.** Progress lives in GitHub.
 
@@ -48,7 +48,7 @@ The platform is designed for extensibility via DI. All core abstractions are def
 
 ## Future work — beyond V2
 
-Forward-looking capabilities the architecture is designed to accommodate. Interfaces and extension points are in place; see [Open Questions](../architecture/open-questions.md) for details.
+Forward-looking capabilities the architecture is designed to accommodate. Interfaces and extension points are in place; see [Open Questions](../../architecture/open-questions.md) for details.
 
 - **Dynamic agent and unit creation** — agents and units created programmatically at runtime: workload scaling, specialist spawning, ad-hoc units, emergent structure.
 - **Advanced self-organization** — agents negotiating task allocation, forming ad-hoc sub-units, and reorganizing unit structure based on workload patterns.

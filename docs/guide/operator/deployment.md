@@ -26,19 +26,37 @@ The canonical entry-point. Runs from a release tarball; no git clone needed.
 curl -fSL https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh | bash
 ```
 
-The installer:
+The installer validates pre-flight requirements, downloads and verifies the release archive, generates `~/.spring-voyage/spring.env`, and starts the container stack. Two prompts: `DEPLOY_HOSTNAME` (default `localhost`) and an optional GitHub App registration — press Enter to accept both defaults.
 
-1. Validates pre-flight (not root, `bash >= 4`, `curl`, `tar`, `openssl`, `podman >= 4`, ports 80/443 free, `~/.local/bin` on PATH, `podman machine` running on macOS).
-2. Resolves the release (`--version <tag>`, `$SPRING_VOYAGE_VERSION`, or the latest stable release from the GitHub API). Accepts `1.0.0`, `v1.0.0`, or `spring-voyage-v1.0.0`.
-3. Downloads `spring-voyage-<v>-<rid>.tar.gz` (the per-RID host archive — one file containing the deployment bundle, the `spring` CLI, and the dispatcher binary) and `SHA256SUMS`; verifies the archive against the checksum.
-4. Pulls the platform image (`ghcr.io/cvoya-com/spring-voyage:<v>`).
-5. Prompts for **`DEPLOY_HOSTNAME`** (default `localhost`). This is the only required prompt.
-6. Generates `~/.spring-voyage/spring.env` (mode 0600). `POSTGRES_PASSWORD`, `SPRING_SECRETS_AES_KEY`, the OAuth redirect URI, the Dapr components path, the dispatcher binary path, and the platform image refs are all generated or derived — no prompts.
-7. Starts the stack via the bundled `deploy.sh up`.
-8. Prompts: **"Configure GitHub App for this deployment? (Y/n)"**. If you opt in, the installer invokes `spring github-app register --env-path ~/.spring-voyage/spring.env --write-env`, which drives the manifest flow end-to-end (a single browser click on GitHub). If you skip it, the install completes; rerun `spring github-app register` later when you want GitHub features.
-9. Prints a summary: install path, `spring.env` path, web URL, log location, and the uninstall command.
+Open **http://localhost** (or `https://<DEPLOY_HOSTNAME>` for a custom hostname with DNS). The portal guides you through creating your first unit, including any credential setup. The `spring` CLI and `voyage` operator wrapper are both on `PATH`.
 
-### Flags
+LLM credentials and other post-install configuration are covered in [§ Secrets bootstrap](#secrets-bootstrap).
+
+### Uninstall
+
+```bash
+voyage uninstall          # stops stack, removes release assets; preserves spring.env and workspaces
+voyage uninstall --purge  # factory reset — removes everything including spring.env and workspaces
+voyage uninstall --yes    # skip confirmation prompt (works with --purge too)
+```
+
+Both modes are idempotent.
+
+### Day-2 operations
+
+```bash
+voyage status             # install version, container health, dispatcher health, web URL
+voyage logs               # tail all container logs
+voyage logs spring-api    # tail one container
+voyage logs dispatcher    # tail the host-process dispatcher log
+voyage restart            # restart the stack
+voyage version            # installed version + platform image tag
+voyage install            # re-install from the latest release
+```
+
+For the day-to-day platform CLI (units, agents, secrets), use `spring` instead. `voyage help` lists all subcommands.
+
+### Installer options
 
 | Flag | Purpose |
 |------|---------|
@@ -50,17 +68,17 @@ The installer:
 
 ### Pin to a specific version
 
-Every release attaches a version-baked installer companion at `install-<v>.sh` alongside the unversioned `install.sh`. Use it when you want a doc, runbook, or CI job to install exactly one version without depending on `--version`:
+Every release attaches a version-baked installer at `install-<v>.sh`. Use it when a doc, runbook, or CI job must install exactly one version:
 
 ```bash
 curl -fSL https://github.com/cvoya-com/spring-voyage/releases/download/spring-voyage-v1.0.0/install-1.0.0.sh | bash
 ```
 
-`install-<v>.sh` is byte-identical to `install.sh` except that its `BAKED_VERSION` is filled in at release time; it refuses to install any other version if `--version` or `$SPRING_VOYAGE_VERSION` points elsewhere. The unversioned `install.sh` remains the canonical entry point for "install the latest stable".
+`install-<v>.sh` is identical to `install.sh` except its `BAKED_VERSION` is pre-filled; it refuses `--version` overrides pointing elsewhere.
 
-### Manual install (no installer script)
+### Manual install (air-gapped / custom layout)
 
-If you prefer to download and extract the archive yourself — for an air-gapped host, for inspection, or to script a non-standard layout — the only operator-facing artefact is the per-RID host archive:
+Download and verify the archive yourself, then extract:
 
 ```bash
 VERSION=1.0.0
@@ -78,7 +96,7 @@ mkdir -p "${HOME}/.spring-voyage/releases/${VERSION}"
 tar -xzf /tmp/spring-voyage.tar.gz -C "${HOME}/.spring-voyage/releases/${VERSION}"
 ```
 
-The archive expands into `bundle/`, `cli/`, and `dispatcher/` under `~/.spring-voyage/releases/<v>/`. From there you can run `releases/<v>/bundle/deploy.sh up` directly after generating a `spring.env` (see [§ Build from source](#build-from-source) for the env template). For most operators `curl … install.sh | bash` is shorter and does the same work.
+The archive expands into `bundle/`, `cli/`, and `dispatcher/` under `~/.spring-voyage/releases/<v>/`. Run `releases/<v>/bundle/deploy.sh up` after generating a `spring.env` (see [§ Build from source](#build-from-source) for the env template).
 
 ### What ends up on disk
 
@@ -96,73 +114,17 @@ The archive expands into `bundle/`, `cli/`, and `dispatcher/` under `~/.spring-v
   voyage            # operator wrapper: status | logs | restart | version | install | uninstall
 ```
 
-### Uninstall
+### What the installer does (detail)
 
-`voyage uninstall` is first-class. Two modes:
-
-```bash
-# Default: stops containers, removes images/volumes, removes install-root
-# release assets and the ~/.local/bin/ symlinks. PRESERVES spring.env,
-# ~/.spring-voyage/host/, and ~/.spring-voyage/workspaces/.
-voyage uninstall
-
-# Factory reset: above + spring.env + host/ + workspaces/.
-voyage uninstall --purge
-
-# Skip the confirmation prompt (works for both default and --purge):
-voyage uninstall --yes
-voyage uninstall --purge --yes
-```
-
-Both modes are idempotent — re-running on a clean system exits 0.
-
-### Day-2 operations
-
-The `voyage` wrapper is the operator entry point for routine
-work against an installed stack. It is on `PATH` after install
-(`~/.local/bin/voyage`) and reads `SPRING_VOYAGE_HOME` /
-`SPRING_ENV_FILE` from the environment when you need to point it at
-a non-default install root.
-
-```bash
-# Pretty-printed status: install version, container state, dispatcher
-# PID + liveness, web URL, log paths. One screenful, no flags.
-voyage status
-
-# Print the installed version + platform image tag from manifest.json.
-voyage version
-
-# Tail all container logs (delegates to `deploy.sh logs`).
-voyage logs
-
-# Tail a single container.
-voyage logs spring-api
-
-# Tail the host-process dispatcher's log (not a container — special-cased
-# to ~/.spring-voyage/host/spring-dispatcher.log).
-voyage logs dispatcher
-
-# Restart the stack.
-voyage restart
-
-# Re-install Spring Voyage from the latest release (drives install.sh).
-voyage install
-```
-
-`voyage help` lists the full set, including the `install` and
-`uninstall` subcommands. For the day-to-day platform CLI (creating
-units, agents, secrets, and so on), use `spring` instead.
-
-### After install
-
-LLM provider credentials are tier-2 tenant defaults (not deployment config). The platform does not read them from `spring.env`. Set them once via the CLI or portal:
-
-```bash
-spring secret create --scope tenant anthropic-api-key --value 'sk-ant-...'
-spring secret create --scope tenant openai-api-key    --value 'sk-...'
-```
-
-See [§ Tier-2 tenant-default credentials](#tier-2-tenant-default-credentials--llm-runtime-credentials-post-deploy) for the full model. The same three-tier resolution chain is documented in [Managing Secrets](secrets.md).
+1. Validates pre-flight: not root, `bash >= 4`, `curl`, `tar`, `openssl`, `podman >= 4`, ports 80/443 free, `~/.local/bin` on PATH, `podman machine` running on macOS.
+2. Resolves the release tag (`--version`, `$SPRING_VOYAGE_VERSION`, or latest stable from the GitHub API).
+3. Downloads the per-RID host archive and `SHA256SUMS`; verifies the checksum.
+4. Pulls the platform image (`ghcr.io/cvoya-com/spring-voyage:<v>`).
+5. Prompts for `DEPLOY_HOSTNAME` (default `localhost`).
+6. Generates `~/.spring-voyage/spring.env` (mode 0600) — passwords, AES key, redirect URI, and image refs are all derived automatically.
+7. Starts the stack via `deploy.sh up`.
+8. Optionally drives the GitHub App manifest flow (`spring github-app register`) — a single browser click on GitHub. Skip it here and run it later when you want GitHub features.
+9. Prints a summary: install path, `spring.env` path, web URL, log location, and the uninstall command.
 
 The web URL is `http://localhost` for the default install, or `https://${DEPLOY_HOSTNAME}` once you point public DNS at the host and Caddy issues a Let's Encrypt certificate.
 

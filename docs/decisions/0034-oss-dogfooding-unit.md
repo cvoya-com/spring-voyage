@@ -10,7 +10,7 @@
 
 ## Context
 
-The v0.1 plan-of-record lists "SV is usable for further development of SV (dogfooding)" as a stretch criterion (`docs/plan/v0.1/README.md:28`). Realising it means a single, opinionated template that, when applied, gives an operator a working multi-role team that can plan, code, review, and triage against this repository — not a kit of parts that must be assembled. Four design questions had to be locked in before the package, the Dockerfiles, and the operator playbook were written:
+The v0.1 plan-of-record lists "SV is usable for further development of SV (dogfooding)" as a stretch criterion (`docs/archive/plan/v0.1/README.md:28`). Realising it means a single, opinionated template that, when applied, gives an operator a working multi-role team that can plan, code, review, and triage against this repository — not a kit of parts that must be assembled. Four design questions had to be locked in before the package, the Dockerfiles, and the operator playbook were written:
 
 1. What role decomposition reflects how the project actually ships?
 2. How are role-flavored images built without forking the agent-base?

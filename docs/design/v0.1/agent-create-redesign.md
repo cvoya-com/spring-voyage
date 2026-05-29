@@ -2,7 +2,7 @@
 
 > **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../architecture/README.md). Kept for context.
 
-Status: Design — implementation deferred. Refs `#1763` (UX redesign issue), `#1786` (units-are-agents architecture umbrella). Layers on top of [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md) (runtime / provider / model split) and **[ADR-0039](../../decisions/archive/0039-units-are-agents.md)** (units are agents — orchestration is runtime behaviour, not platform configuration). Sequenced alongside the broader platform work in [`docs/plan/v0.1/units-are-agents.md`](../../plan/v0.1/units-are-agents.md).
+Status: Design — implementation deferred. Refs `#1763` (UX redesign issue), `#1786` (units-are-agents architecture umbrella). Layers on top of [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md) (runtime / provider / model split) and **[ADR-0039](../../decisions/archive/0039-units-are-agents.md)** (units are agents — orchestration is runtime behaviour, not platform configuration). Sequenced alongside the broader platform work in [`docs/archive/plan/v0.1/units-are-agents.md`](../../archive/plan/v0.1/units-are-agents.md).
 
 This document is the implementation contract for the agent-create UX redesign described in `#1763`. It audits the three creation surfaces that exist today (the unit-tab "Add Agent" dialog, the standalone `/agents/create` wizard, and `spring agent create`), describes the unified target design under the units-are-agents framing recorded in ADR-0039, and slices the UX-side work for downstream PRs. **No production code is touched in this PR — the implementation lands separately.**
 
@@ -526,7 +526,7 @@ Consequences for this design:
 
 1. **No create-time unit mode toggle.** Units already are agents; the form needs no "create as unit-agent" path. Operators who want a composite agent create a unit (an agent with children); operators who want a leaf participant create an agent.
 2. **One execution config per unit.** A unit's execution config is both the unit's own runtime config and the default inherited by children. There is no separate "orchestration runtime" or "self-execution runtime" field; there is one `(runtime, model, image, hosting)` per the ADR-0038 shape.
-3. **No orchestration policy surface anywhere.** The agent-create form has no orchestration field, no strategy picker, no routing toggle. The unit-create wizard's strategy step is removed by ADR-0039 PR 6 (see [`units-are-agents.md`](../../plan/v0.1/units-are-agents.md)).
+3. **No orchestration policy surface anywhere.** The agent-create form has no orchestration field, no strategy picker, no routing toggle. The unit-create wizard's strategy step is removed by ADR-0039 PR 6 (see [`units-are-agents.md`](../../archive/plan/v0.1/units-are-agents.md)).
 4. **Packages install what they declare.** If an agent-create from-package path selects a package that declares units, the package result is unit creation, not "agent creation." The summary panel and success copy must be manifest-derived.
 5. **Multi-parent inheritance is enforced server-side.** This design's inheritance UX surfaces the conflict; the validation lives in `IExecutionConfigInheritanceResolver` (added in plan PR 2, wired in plan PR 3). The form does not own the rule; it surfaces it.
 
@@ -556,7 +556,7 @@ The unit-create wizard persists state in sessionStorage with schema versioning (
 
 ## 7. Implementation slicing
 
-This design is implemented as **per-task issues** under the [`#1786` umbrella](https://github.com/cvoya-com/spring-voyage/issues/1786), not as a small set of coarse PRs. The fine-grained task list and dependency graph live in [`docs/plan/v0.1/units-are-agents.md`](../../plan/v0.1/units-are-agents.md). The UX-side work for this design is **Phases I–L** in the plan: 33 small tasks covering the form schema (I1–I8), the unit-tab dialog rewrite (J1–J6), the three-paths Source step (K1–K10), and the CLI agent-create parity (L1–L9).
+This design is implemented as **per-task issues** under the [`#1786` umbrella](https://github.com/cvoya-com/spring-voyage/issues/1786), not as a small set of coarse PRs. The fine-grained task list and dependency graph live in [`docs/archive/plan/v0.1/units-are-agents.md`](../../archive/plan/v0.1/units-are-agents.md). The UX-side work for this design is **Phases I–L** in the plan: 33 small tasks covering the form schema (I1–I8), the unit-tab dialog rewrite (J1–J6), the three-paths Source step (K1–K10), and the CLI agent-create parity (L1–L9).
 
 Each task is sized for execution by a less-capable code-generation agent: concrete files, concrete deliverable, mechanically-verifiable acceptance, no architecture decisions left to the implementer. Cross-task dependencies are wired structurally on GitHub via the native `blockedBy` edge on each task issue (not stated in prose); the task picker walks the dependency graph and never starts a task whose prerequisites have not landed.
 
@@ -582,7 +582,7 @@ DESIGN.md updates land as task **K10** with the rest of Phase K. The `#1786` ADR
 - [ADR-0039](../../decisions/archive/0039-units-are-agents.md) — units are agents (orchestration is runtime behaviour, not platform configuration); the architectural prerequisite this design assumes
 - [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md) — runtime / image / provider / model split (the field semantics this design layers on)
 - [ADR-0035](../../decisions/0035-package-as-bundling-unit.md) — package-install pipeline (the catalog and file-upload paths this design consolidates against)
-- [Execution plan](../../plan/v0.1/units-are-agents.md) — fine-grained per-task breakdown for ADR-0039 implementation, including Phases I–L for this design's UX-side work
+- [Execution plan](../../archive/plan/v0.1/units-are-agents.md) — fine-grained per-task breakdown for ADR-0039 implementation, including Phases I–L for this design's UX-side work
 - `src/Cvoya.Spring.Web/DESIGN.md` §12.6 — inherit-from-parent indicator (the visual pattern this design reuses)
 - `src/Cvoya.Spring.Web/DESIGN.md` §12.12 / §12.13 — create-unit wizard parent-picker and image-history datalist (the patterns the agent wizard mirrors)
 - `CONVENTIONS.md` §13 — UI / CLI feature parity (the rule that gates §4 of this design)

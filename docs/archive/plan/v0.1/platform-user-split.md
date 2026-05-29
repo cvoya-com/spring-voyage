@@ -1,8 +1,8 @@
 # TenantUser / human split + connector identity location — execution plan
 
-> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../architecture/README.md). Kept for context.
+> **Historical planning record.** This describes planned work; for the current system see [docs/architecture/](../../../architecture/README.md). Kept for context.
 
-**Initiative.** Implementation of [ADR-0047 — TenantUser / human split; connector identity on the tenant user](../../decisions/0047-platform-user-human-split.md). Tracked under the umbrella [#2487](https://github.com/cvoya-com/spring-voyage/issues/2487) on milestone `v0.1`. The umbrella supersedes the original single-PR shape of #2487 (a localised webhook fix) and pulls forward `TenantUser` pieces originally scoped for v0.2 / v0.3.
+**Initiative.** Implementation of [ADR-0047 — TenantUser / human split; connector identity on the tenant user](../../../decisions/0047-platform-user-human-split.md). Tracked under the umbrella [#2487](https://github.com/cvoya-com/spring-voyage/issues/2487) on milestone `v0.1`. The umbrella supersedes the original single-PR shape of #2487 (a localised webhook fix) and pulls forward `TenantUser` pieces originally scoped for v0.2 / v0.3.
 
 This plan enumerates the **phase sequence by impact zone**, with the structural `blockedBy` ordering set at the phase grain. Per the umbrella's step-0 contract, individual issues are not pre-allocated here — each phase fans out into 1–3 single-PR sub-issues after this plan + ADR land and the ADR is moved to Accepted. The grain is "one phase, one or a handful of consecutive PRs."
 

@@ -9,7 +9,7 @@ For the conceptual picture — what each role does, why the team is structured t
 ## Prerequisites
 
 - **Spring Voyage installed and running.** Follow [Install](../../../README.md#install) if you haven't, then `voyage status` should show green.
-- **An LLM credential at tenant scope.** The engineer and PM agents run on Claude Code, so an `anthropic-oauth` secret is the natural fit. If you don't have it set yet:
+- **An LLM credential at tenant scope.** The engineer and PM agents run on Claude Code, so an `anthropic-oauth` secret is the natural fit. Set it via the portal (Settings → Tenant defaults, or any unit-creation wizard), or from the CLI if you don't have it set yet:
 
   ```bash
   spring secret create --scope tenant anthropic-oauth --value "<token from `claude setup-token`>"
