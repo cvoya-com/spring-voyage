@@ -2023,7 +2023,12 @@ public class SpringApiClient
     {
         var request = new SendMessageRequest
         {
-            To = new AddressDto { Scheme = toScheme, Path = toPath },
+            // `to` is a nullable ref in the contract, so Kiota models it as a
+            // composed-type wrapper; the CLI sends a single recipient, wrapped.
+            To = new SendMessageRequest.SendMessageRequest_to
+            {
+                AddressDto = new AddressDto { Scheme = toScheme, Path = toPath },
+            },
             Type = "Domain",
             ThreadId = threadId,
             Payload = new UntypedString(text),
