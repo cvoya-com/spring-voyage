@@ -39,6 +39,8 @@ The relationship is `participants = to ∪ ({from} if from is routable)` — "ev
 
 `respondTo` delivers `content` to the participants of the conversation that `message_id` belongs to, minus the caller. The agent names a `message_id` it already holds from the envelope — never a `thread_id` (#2747: internal ids do not cross the agent boundary). The platform resolves the message to its conversation, takes that conversation's current routable participant set, and delivers one-way to each member on the same conversation.
 
+> **Implementation note (added during #2887 / #2889 execution).** The tool id on the wire is **`sv.messaging.respond_to`** — lowercase dotted-snake, per the platform tool-id convention enforced by `ToolDefinition`; `respondTo` is the concept name used in this record. The payload argument is named `message` (consistent with `send` / `multicast`), not `content`.
+
 | Tool | Recipients chosen by | Use |
 |------|----------------------|-----|
 | `sv.messaging.send(recipients[] \| scope, content)` | the **agent** (explicit) | a new conversation, a subset, or adding someone |

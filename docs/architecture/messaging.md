@@ -116,6 +116,7 @@ acknowledgement** — the message was durably placed in each recipient's mailbox
 |------|--------------|
 | `sv.messaging.send(recipients \| scope, message, reason?)` | One SHARED thread for the whole participant set `{caller} ∪ recipients`. Every recipient sees the others in the inbound envelope's `to` field. |
 | `sv.messaging.multicast(recipients \| scope, message, reason?)` | N INDEPENDENT 1-1 threads `{caller, recipient_i}`. Each recipient sees only itself in the inbound envelope and only this pair's history via `sv.memory.history_with`. |
+| `sv.messaging.respond_to(message_id, message, reason?)` | CONTINUES the conversation `message_id` belongs to: the platform delivers to that conversation's current routable participants minus the caller, on the SAME thread (no fork). The agent names a `message_id` from the inbound envelope — never a thread id ([ADR-0064](../decisions/0064-conversation-participants-and-continuation.md)). |
 
 The calling participant is auto-included in every thread's participant set —
 the runtime does not list itself in `recipients`. Connector (`connector://`)
@@ -127,6 +128,15 @@ The runtime never names a `thread_id`. The platform derives it from the
 participant set per [ADR-0030](../decisions/0030-thread-model.md); shared
 history is reached via `sv.memory.history_with(participants=[…])` — the
 participant set IS the identifier.
+
+**Human and agent send paths converge on this primitive
+([#2887](https://github.com/cvoya-com/spring-voyage/issues/2887)).** The Web API
+send endpoint (`POST /api/v1/tenant/messages`) takes either a single `to` or a
+multi-party `recipients[]`; a multi-party send resolves ONE shared thread from
+`{sender} ∪ recipients` through the thread registry and fans the one message
+out to each recipient — exactly as `sv.messaging.send` does for an agent
+caller. A human-initiated engagement with N participants is therefore one
+conversation, not N per-recipient threads.
 
 - Delivery is **synchronous with bounded retry** inside the handler — there is no
   delivery queue. `agent:` / `unit:` / `human:` targets are virtual actors that
@@ -153,7 +163,7 @@ Every platform tool is named `sv.<area>.<verb>`:
 |------|-------|
 | `sv.directory.*` | `get_self`, `get_member`, `list_members`, `get_siblings`, `get_parents`, `get_status` |
 | `sv.memory.*` | Private memory: `add`, `get`, `list`, `search`, `update`, `delete`. Shared history (#2747): `history_with`, `engagements`, `search_messages` |
-| `sv.messaging.*` | `send`, `multicast` (both take `recipients[]` or `scope`; differ in thread identity per #2747) |
+| `sv.messaging.*` | `send`, `multicast` (both take `recipients[]` or `scope`; differ in thread identity per #2747), `respond_to` (continue a conversation by `message_id`, ADR-0064) |
 | `sv.runtime.*` | `report_progress`, `report_decision` |
 | `sv.expertise.*` | `search`, plus dynamic per-capability `sv.expertise.{slug}` tools |
 

@@ -90,13 +90,16 @@ The pub/sub infrastructure is broker-agnostic -- Redis for development, Kafka or
 
 ## Message delivery
 
-A runtime delivers a domain message through two platform MCP tools. Both return a **delivery acknowledgement** — the message was durably placed in the recipient's mailbox — never the recipient's reply.
+A runtime delivers a domain message through three platform MCP tools. All return a **delivery acknowledgement** — the message was durably placed in the recipient's mailbox — never the recipient's reply.
 
 | Tool | Thread shape |
 |------|--------------|
 | `sv.messaging.send` | One SHARED thread for `{caller} ∪ recipients`. Use when every recipient should see the others. |
 | `sv.messaging.multicast` | N INDEPENDENT 1-1 threads `{caller, recipient_i}`. Use when recipients should not see each other. |
+| `sv.messaging.respond_to` | Continue the conversation a `message_id` belongs to — the platform delivers to everyone already on it (minus the caller), on the same thread. Use to continue a conversation without rebuilding the recipient list. |
 
-Both tools take the same input shape — either an explicit `recipients` list or a relationship `scope` (`unit-members`, `siblings`) — and differ in thread identity, not input shape. The calling participant is auto-included in every participant set, so the runtime does not list itself in `recipients`. The runtime never names a `thread_id`: the platform derives it from the participant set (see [ADR-0030](../decisions/0030-thread-model.md)).
+`send` and `multicast` take the same input shape — either an explicit `recipients` list or a relationship `scope` (`unit-members`, `siblings`) — and differ in thread identity, not input shape. `respond_to` instead names a `message_id` the runtime received and lets the platform pick the recipients (the conversation's participants). The calling participant is auto-included in every participant set, so the runtime does not list itself in `recipients`. The runtime never names a `thread_id`: the platform derives it from the participant set (see [ADR-0030](../decisions/0030-thread-model.md)).
+
+The inbound envelope names the conversation's roster directly: alongside `from` and `to` it carries `participants` — the routable members of the conversation ("everyone you could reach here"), which is the set `respond_to` delivers to (see [ADR-0064](../decisions/0064-conversation-participants-and-continuation.md)). Human-initiated sends use the same primitive: a multi-party engagement created through the Web API resolves one shared thread from `{sender} ∪ recipients`, so every participant shares one conversation rather than splitting into per-recipient threads ([#2887](https://github.com/cvoya-com/spring-voyage/issues/2887)).
 
 There is no `delegate_to` / `fanout_to` tool. A runtime that wants to *delegate* sends a message whose content says so — "delegation" is message content the recipient's runtime interprets, not a platform mechanism. Multicast is useful for broadcast queries ("who can help with this Python issue?") or role-based work distribution when the recipients should not be aware of each other; `send` with a multi-element `recipients` list is the right tool when they should share a thread. The delivery contract and the full `sv.<area>.<verb>` tool surface are described in [Architecture: Messaging](../architecture/messaging.md).
