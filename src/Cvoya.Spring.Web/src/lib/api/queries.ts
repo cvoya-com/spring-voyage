@@ -102,6 +102,27 @@ type SliceOptions<T> = Pick<
   "enabled" | "refetchInterval" | "staleTime"
 >;
 
+/**
+ * Stopgap live-refresh backstops (#2771 / #2896).
+ *
+ * The portal's "Live" surfaces are driven by an SSE relay in `spring-api`,
+ * but in the split two-host deployment that relay cannot see activity
+ * events emitted by the actors in `spring-worker` — the activity bus is
+ * process-local (ADR-0052; `docs/architecture/observability.md`). So an
+ * agent's reply, and most worker-side activity, never pushes to the stream;
+ * it only lands in the DB and surfaces on the next remount. Until the
+ * cross-host bridge ships (#2896) we poll the backing queries on a short
+ * interval so new data appears without the operator navigating away and
+ * back.
+ *
+ * Two tiers: message + activity feeds should feel near-live; analytics
+ * rollups change slowly and their queries are heavier, so they poll less
+ * often. Both are removed (or relaxed to a rare safety net) once #2896
+ * lands.
+ */
+export const LIVE_BACKSTOP_REFETCH_INTERVAL_MS = 5_000;
+export const ANALYTICS_BACKSTOP_REFETCH_INTERVAL_MS = 30_000;
+
 // ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
@@ -888,6 +909,12 @@ export function useActivityQuery(
     queryFn: async () =>
       (await api.queryActivity(params)) as ActivityQueryResult,
     ...opts,
+    // #2771: live backstop — the `/activity` event feed and the explorer
+    // Activity tabs render from this query. Worker-emitted domain events
+    // don't all reach the SSE relay cross-host, so poll on a short interval
+    // until #2896. A caller-supplied `refetchInterval` still wins.
+    refetchInterval: opts?.refetchInterval ?? LIVE_BACKSTOP_REFETCH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -927,6 +954,10 @@ export function useAnalyticsThroughput(
         to: args.to,
       }) as Promise<ThroughputRollupResponse>,
     ...opts,
+    // #2771: analytics live backstop (slower tier — heavier rollup query,
+    // changes slowly). Poll until the cross-host stream bridge ships (#2896).
+    refetchInterval:
+      opts?.refetchInterval ?? ANALYTICS_BACKSTOP_REFETCH_INTERVAL_MS,
   });
 }
 
@@ -947,6 +978,9 @@ export function useAnalyticsWaits(
         to: args.to,
       }) as Promise<WaitTimeRollupResponse>,
     ...opts,
+    // #2771: analytics live backstop (slower tier). See `useAnalyticsThroughput`.
+    refetchInterval:
+      opts?.refetchInterval ?? ANALYTICS_BACKSTOP_REFETCH_INTERVAL_MS,
   });
 }
 
@@ -995,7 +1029,13 @@ export function useThread(
       }
     },
     enabled: opts?.enabled ?? Boolean(id),
-    refetchInterval: opts?.refetchInterval,
+    // #2771: live backstop. The SSE relay in `spring-api` cannot see the
+    // `MessageArrived` events that worker-side actors emit (process-local
+    // bus), so an agent's reply never pushes to the stream — poll the
+    // thread on a short interval so it appears without a remount. Removed
+    // once the cross-host bridge ships (#2896).
+    refetchInterval: opts?.refetchInterval ?? LIVE_BACKSTOP_REFETCH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
     staleTime: opts?.staleTime,
   });
 }
@@ -1062,7 +1102,12 @@ export function useConversation(
       }
     },
     enabled: opts?.enabled ?? Boolean(id),
-    refetchInterval: opts?.refetchInterval,
+    // #2771: live backstop — same cross-host gap as `useThread`; the
+    // observed thread won't update from worker-emitted events over SSE, so
+    // poll until #2896 lands. (The conversations *list* already backstops
+    // separately via `CONVERSATIONS_LIST_REFETCH_INTERVAL_MS`.)
+    refetchInterval: opts?.refetchInterval ?? LIVE_BACKSTOP_REFETCH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
     staleTime: opts?.staleTime,
   });
 }
