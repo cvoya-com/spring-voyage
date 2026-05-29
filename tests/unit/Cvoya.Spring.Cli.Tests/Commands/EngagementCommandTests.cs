@@ -370,16 +370,17 @@ public class EngagementCommandTests
         detail.Events.ShouldNotBeNull();
         detail.Events!.Count.ShouldBe(3);
 
-        // Client-side error filter (mirrors EngagementCommand.CreateErrorsCommand).
-        var errors = detail.Events
-            .Where(e =>
-                string.Equals(e.EventType, "ErrorOccurred", StringComparison.Ordinal)
-                || string.Equals(e.Severity, "Error", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        // #2890: assert the *product* predicate, not a copy. The prior test
+        // re-implemented the filter inline and ran it over the canned events,
+        // so it stayed green even if EngagementCommand's real filter broke.
+        var errors = detail.Events.Where(EngagementCommand.IsErrorEvent).ToList();
 
         errors.Count.ShouldBe(1);
         errors[0].EventType.ShouldBe("ErrorOccurred");
         (errors[0].Summary ?? string.Empty).ShouldContain("Dispatch failed");
+        // The Info-severity events (ThreadStarted, MessageArrived) are
+        // excluded — the predicate keys on event-type/severity.
+        errors.ShouldNotContain(e => e.EventType == "MessageArrived");
         handler.WasCalled.ShouldBeTrue();
     }
 
@@ -411,11 +412,8 @@ public class EngagementCommandTests
         var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
         var detail = await client.GetThreadAsync(threadId, TestContext.Current.CancellationToken);
 
-        var errors = detail.Events!
-            .Where(e =>
-                string.Equals(e.EventType, "ErrorOccurred", StringComparison.Ordinal)
-                || string.Equals(e.Severity, "Error", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        // #2890: assert the product predicate, not a re-implemented copy.
+        var errors = detail.Events!.Where(EngagementCommand.IsErrorEvent).ToList();
 
         errors.ShouldBeEmpty();
         handler.WasCalled.ShouldBeTrue();

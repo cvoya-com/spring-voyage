@@ -22,48 +22,36 @@ using Xunit;
 /// </summary>
 public class SlackPersonaBuilderTests
 {
-    [Fact]
-    public async Task ResolveAsync_AgentAddress_PullsDisplayNameFromResolver()
+    [Theory]
+    [InlineData(Address.AgentScheme)]
+    [InlineData(Address.UnitScheme)]
+    [InlineData(Address.HumanScheme)]
+    public async Task ResolveAsync_ForwardsCanonicalAddressToResolver_AndSurfacesReturnedName(
+        string scheme)
     {
+        // #2890: the prior three tests each stubbed the resolver to return a
+        // name and asserted that same name back — mock-validates-mock, and the
+        // scheme never reaches a branch (the builder forwards
+        // `address.ToString()` identically for agent/unit/human). The real,
+        // falsifiable behaviour is the *argument mapping*: the builder must
+        // call the resolver with the participant's canonical address string.
+        // The `Received` check fails if the builder ever forwarded the wrong
+        // key (e.g. the raw Guid), which a return-value assertion alone would
+        // not catch. A [Theory] across schemes documents that this holds for
+        // every address kind without pretending each is a distinct path.
         var ct = TestContext.Current.CancellationToken;
         var harness = TestHarness.Create();
-        var bob = new Address(Address.AgentScheme, new Guid("00000001-0000-0000-0000-000000000000"));
-        harness.NameResolver.ResolveAsync(bob.ToString(), Arg.Any<CancellationToken>())
-            .Returns(new ValueTask<string>("Bob"));
+        var participant = new Address(scheme, new Guid("00000001-0000-0000-0000-000000000000"));
+        harness.NameResolver.ResolveAsync(participant.ToString(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<string>("Resolved Name"));
 
-        var persona = await harness.Builder.ResolveAsync(bob, ct);
+        var persona = await harness.Builder.ResolveAsync(participant, ct);
 
-        persona.Username.ShouldBe("Bob");
+        await harness.NameResolver.Received(1)
+            .ResolveAsync(participant.ToString(), Arg.Any<CancellationToken>());
+        persona.Username.ShouldBe("Resolved Name");
         persona.IconUrl.ShouldStartWith(SlackPersonaBuilder.PlaceholderIconBaseUrl);
         persona.IconUrl.ShouldContain("d=identicon");
-    }
-
-    [Fact]
-    public async Task ResolveAsync_UnitAddress_PullsDisplayNameFromResolver()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var harness = TestHarness.Create();
-        var research = new Address(Address.UnitScheme, new Guid("00000002-0000-0000-0000-000000000000"));
-        harness.NameResolver.ResolveAsync(research.ToString(), Arg.Any<CancellationToken>())
-            .Returns(new ValueTask<string>("Research"));
-
-        var persona = await harness.Builder.ResolveAsync(research, ct);
-
-        persona.Username.ShouldBe("Research");
-    }
-
-    [Fact]
-    public async Task ResolveAsync_HumanAddress_PullsDisplayNameFromResolver()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var harness = TestHarness.Create();
-        var morgan = new Address(Address.HumanScheme, new Guid("00000003-0000-0000-0000-000000000000"));
-        harness.NameResolver.ResolveAsync(morgan.ToString(), Arg.Any<CancellationToken>())
-            .Returns(new ValueTask<string>("Morgan"));
-
-        var persona = await harness.Builder.ResolveAsync(morgan, ct);
-
-        persona.Username.ShouldBe("Morgan");
     }
 
     [Fact]
