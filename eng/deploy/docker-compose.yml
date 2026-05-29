@@ -358,8 +358,11 @@ services:
     restart: unless-stopped
     env_file: ../config/spring.env
     ports:
-      - "80:80"
-      - "443:443"
+      # Host-side mapping is configurable (default 80/443); Caddy still
+      # listens on 80/443 inside the container. Override in spring.env when
+      # the host already runs something on those ports.
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
       # Port 8443 is the tenant-facing listener. It is not published to the
       # host — tenant containers reach it in-network via spring-tenant-default.
       # Publishing here is intentionally omitted to keep it container-internal.

@@ -13,13 +13,16 @@
 #
 #   install.sh [--version <tag>] [--root <dir>] [--yes] [--force] [--no-start]
 #
-# Two prompts only:
+# Two prompts in the common path:
 #   1. DEPLOY_HOSTNAME (default `localhost`)
 #   2. Configure GitHub App for this deployment? (Y/n)
 #
-# `--yes` skips both. Passwords, AES keys, and paths are auto-generated or
-# auto-derived from the bundle's manifest.json. See ADR-0042 for the full
-# decision record.
+# Plus a conditional prompt: if a default host port (80/443/8090/5050) is
+# already in use, the installer offers to remap it and records the choice in
+# spring.env. `--yes` skips the two prompts and, on a port conflict, fails
+# with guidance instead of prompting. Passwords, AES keys, and paths are
+# auto-generated or auto-derived from the bundle's manifest.json. See
+# ADR-0042 for the full decision record.
 
 set -euo pipefail
 
@@ -65,6 +68,17 @@ info()   { printf "      %s\n" "$*"; }
 warn()   { printf "  ${YELLOW}!${NC}  %s\n" "$*" >&2; }
 fail()   { printf "\n  ${RED}✗${NC}  %s\n\n" "$*" >&2; exit 1; }
 
+# Build a "host[:port]" authority, omitting the port when it is the scheme
+# default (so the common 80/443 install keeps clean http://host URLs).
+http_authority() {
+  local host="$1" port="$2" default="$3"
+  if [[ "$port" == "$default" ]]; then
+    printf '%s' "$host"
+  else
+    printf '%s:%s' "$host" "$port"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Usage
 # ---------------------------------------------------------------------------
@@ -80,8 +94,9 @@ Options:
                     'v1.0.0', or 'spring-voyage-v1.0.0'. Defaults to
                     $SPRING_VOYAGE_VERSION or the latest stable release.
   --root <dir>      Install root (default: ~/.spring-voyage).
-  --yes             Non-interactive. Uses DEPLOY_HOSTNAME=localhost and
-                    skips the GitHub App manifest flow.
+  --yes             Non-interactive. Uses DEPLOY_HOSTNAME=localhost, skips
+                    the GitHub App manifest flow, and fails (rather than
+                    prompting) if a required host port is already in use.
   --force           Bypass the "already installed" refusal.
   --no-start        Generate spring.env and assets but do not invoke
                     `deploy.sh up`. Useful for CI bring-up that wants to
@@ -247,38 +262,119 @@ if [[ -f "${DISPATCHER_PID_FILE}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Pre-flight: ports
+# Pre-flight: host-published ports
 # ---------------------------------------------------------------------------
+# Spring Voyage publishes exactly four ports on the host. Everything else
+# (Postgres, the Dapr sidecars, the internal :8443 tenant listener, the
+# container-internal :8080/:3000) stays on the container networks and never
+# touches the host, so we don't check those.
+#
+#   80    Caddy HTTP         override CADDY_HTTP_PORT
+#   443   Caddy HTTPS        override CADDY_HTTPS_PORT
+#   8090  dispatcher         override SPRING_DISPATCHER_PORT
+#   5050  worker MCP server  override Mcp__Port
+#
+# Each override is sourced from spring.env by deploy.sh and
+# spring-voyage-host.sh, so any remap chosen here is persisted to the
+# installer-managed section of spring.env below and applied on every
+# `deploy.sh up`.
+
+# 0 = a process is listening, 1 = free, 2 = could not determine (no tool).
 port_in_use() {
   local port="$1"
-  # Try several detection paths; if none are available we skip silently.
   if command -v lsof >/dev/null 2>&1; then
-    lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
+    lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1 && return 0 || return 1
   elif command -v ss >/dev/null 2>&1; then
-    ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"
+    ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$" && return 0 || return 1
   elif command -v netstat >/dev/null 2>&1; then
-    netstat -an 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"
-  else
-    return 2
+    netstat -an 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$" && return 0 || return 1
   fi
+  return 2
+}
+
+# Scan upward from $1 for a port nothing is listening on (best-effort; an
+# "unknown" result counts as free since we cannot prove otherwise).
+next_free_port() {
+  local p="$1" i status
+  for (( i = 0; i < 200; i++ )); do
+    p=$(( p + 1 ))
+    (( p > 65535 )) && p=1025
+    status=0; port_in_use "$p" || status=$?
+    (( status != 0 )) && { printf '%s' "$p"; return 0; }
+  done
+  printf '%s' "$1"
+}
+
+PORT_CHECK_UNAVAILABLE=0
+
+# Resolve one host port. Honors an existing env override as the candidate,
+# prompts for an alternative when the candidate is taken and a TTY is
+# available, or fails with actionable guidance when non-interactive. Stores
+# the resolved value back into the named variable.
+resolve_host_port() {
+  local label="$1" varname="$2" default="$3"
+  local candidate="${!varname:-$default}"
+  local status=0
+  port_in_use "$candidate" || status=$?
+
+  if (( status == 2 )); then
+    PORT_CHECK_UNAVAILABLE=1
+    printf -v "$varname" '%s' "$candidate"
+    return 0
+  fi
+  if (( status == 1 )); then
+    printf -v "$varname" '%s' "$candidate"
+    return 0
+  fi
+
+  # Candidate is in use.
+  if [[ "$ASSUME_YES" -eq 1 ]] || { [[ ! -t 0 ]] && [[ ! -r /dev/tty ]]; }; then
+    fail "Port ${candidate} (${label}) is already in use. Free the service holding it, or set ${varname} to an open port and rerun — e.g. \`${varname}=<port> install.sh ...\` (or add \`${varname}=<port>\` to ${INSTALL_ROOT}/spring.env)."
+  fi
+
+  warn "Port ${candidate} (${label}) is already in use."
+  local suggestion answer
+  suggestion="$(next_free_port "$candidate")"
+  while :; do
+    printf '  %sNew %s port%s [%s]: ' "${BOLD}" "${label}" "${NC}" "${suggestion}" >&2
+    if [[ -t 0 ]]; then
+      IFS= read -r answer || answer=""
+    elif [[ -r /dev/tty ]]; then
+      IFS= read -r answer </dev/tty || answer=""
+    else
+      answer=""
+    fi
+    [[ -z "$answer" ]] && answer="$suggestion"
+    # ^[1-9][0-9]*$ rules out leading zeros (so no octal parse) and 0 itself,
+    # leaving only the upper bound to check.
+    if ! [[ "$answer" =~ ^[1-9][0-9]*$ ]] || (( answer > 65535 )); then
+      warn "Enter a port number between 1 and 65535."
+      continue
+    fi
+    status=0; port_in_use "$answer" || status=$?
+    if (( status == 0 )); then
+      warn "Port ${answer} is also in use; choose another."
+      suggestion="$(next_free_port "$answer")"
+      continue
+    fi
+    printf -v "$varname" '%s' "$answer"
+    ok "${label} -> port ${answer}"
+    return 0
+  done
 }
 
 if [[ "${SPRING_INSTALL_SKIP_PORT_CHECK:-0}" == "1" ]]; then
   warn "SPRING_INSTALL_SKIP_PORT_CHECK=1 — skipping port-availability check (intended for tests / sandboxed runs)."
 else
-  # Dispatcher port matches the default in spring.env.example
-  # (SPRING_DISPATCHER_PORT=8090). Operator overrides via env take effect.
-  DISPATCHER_PORT="${SPRING_DISPATCHER_PORT:-8090}"
-  PORT_CONFLICTS=()
-  for port in 80 443 "${DISPATCHER_PORT}"; do
-    if port_in_use "$port"; then
-      PORT_CONFLICTS+=("$port")
-    fi
-  done
-  if (( ${#PORT_CONFLICTS[@]} > 0 )); then
-    fail "Port(s) already bound: ${PORT_CONFLICTS[*]}. Caddy needs 80 and 443 free, and the dispatcher needs ${DISPATCHER_PORT}. Stop the service holding the port (e.g. system nginx, a prior dispatcher) and rerun."
+  resolve_host_port "Caddy HTTP"        CADDY_HTTP_PORT        80
+  resolve_host_port "Caddy HTTPS"       CADDY_HTTPS_PORT       443
+  resolve_host_port "dispatcher"        SPRING_DISPATCHER_PORT 8090
+  resolve_host_port "worker MCP server" Mcp__Port              5050
+  if (( PORT_CHECK_UNAVAILABLE == 1 )); then
+    warn "Could not verify port availability (no lsof/ss/netstat found). Proceeding anyway; if 'deploy.sh up' later fails with 'address already in use', set CADDY_HTTP_PORT / CADDY_HTTPS_PORT / SPRING_DISPATCHER_PORT / Mcp__Port in ${INSTALL_ROOT}/spring.env and rerun."
+  else
+    ok "Host ports free — HTTP ${CADDY_HTTP_PORT:-80}, HTTPS ${CADDY_HTTPS_PORT:-443}, dispatcher ${SPRING_DISPATCHER_PORT:-8090}, MCP ${Mcp__Port:-5050}"
   fi
-  ok "Ports 80, 443, ${DISPATCHER_PORT} free"
 fi
 
 # ---------------------------------------------------------------------------
@@ -581,7 +677,10 @@ if [[ -f "${SPRING_ENV_FILE}" ]]; then
   fi
 fi
 
-REDIRECT_URI="https://${DEPLOY_HOSTNAME}/api/v1/tenant/connectors/github/oauth/callback"
+# Caddy serves HTTPS on CADDY_HTTPS_PORT; include the port in the callback URL
+# when it is not the default 443 so the OAuth redirect resolves.
+REDIRECT_AUTHORITY="$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTPS_PORT:-443}" 443)"
+REDIRECT_URI="https://${REDIRECT_AUTHORITY}/api/v1/tenant/connectors/github/oauth/callback"
 DAPR_COMPONENTS_PATH="${INSTALL_ROOT}/current/dapr/components/delegated-spring-voyage-agent"
 
 # Copy template then append the installer-managed section. We do NOT edit
@@ -605,6 +704,21 @@ chmod 600 "${SPRING_ENV_FILE}"
   printf 'GitHub__OAuth__RedirectUri=%s\n' "${REDIRECT_URI}"
   printf 'Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath=%s\n' "${DAPR_COMPONENTS_PATH}"
   printf 'SPRING_DISPATCHER_BIN=%s\n' "${DISPATCHER_BIN}"
+  # Host-port overrides — emitted only when the pre-flight remapped a default
+  # off a conflict (or the operator pre-set one). When all four are at their
+  # defaults nothing is written and the spring.env.example values stand.
+  if [[ "${CADDY_HTTP_PORT:-80}" != "80" ]]; then
+    printf 'CADDY_HTTP_PORT=%s\n' "${CADDY_HTTP_PORT}"
+  fi
+  if [[ "${CADDY_HTTPS_PORT:-443}" != "443" ]]; then
+    printf 'CADDY_HTTPS_PORT=%s\n' "${CADDY_HTTPS_PORT}"
+  fi
+  if [[ "${SPRING_DISPATCHER_PORT:-8090}" != "8090" ]]; then
+    printf 'SPRING_DISPATCHER_PORT=%s\n' "${SPRING_DISPATCHER_PORT}"
+  fi
+  if [[ "${Mcp__Port:-5050}" != "5050" ]]; then
+    printf 'Mcp__Port=%s\n' "${Mcp__Port}"
+  fi
 } >> "${SPRING_ENV_FILE}"
 
 chmod 600 "${SPRING_ENV_FILE}"
@@ -689,8 +803,11 @@ else
   header "Install incomplete — stack did not start"
 fi
 
-WEB_URL="https://${DEPLOY_HOSTNAME}"
-[[ "$DEPLOY_HOSTNAME" == "localhost" ]] && WEB_URL="http://localhost"
+if [[ "$DEPLOY_HOSTNAME" == "localhost" ]]; then
+  WEB_URL="http://$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTP_PORT:-80}" 80)"
+else
+  WEB_URL="https://$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTPS_PORT:-443}" 443)"
+fi
 
 cat <<EOF
 

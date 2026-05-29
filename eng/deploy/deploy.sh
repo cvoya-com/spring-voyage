@@ -1022,9 +1022,19 @@ start_caddy() {
         die "Caddyfile not found at ${caddyfile}"
     fi
     log "using Caddyfile: ${caddyfile}"
+    # Host-published ports. Caddy always listens on 80/443 *inside* the
+    # container (the Caddyfile address derives from DEPLOY_SCHEME); only the
+    # host-side mapping is configurable. Override CADDY_HTTP_PORT /
+    # CADDY_HTTPS_PORT in spring.env when the host already runs something on
+    # 80/443 — install.sh sets these automatically when its pre-flight detects
+    # a conflict. Caveat: moving off 80/443 disables Caddy's automatic Let's
+    # Encrypt, which validates against the public host's 80/443; front Caddy
+    # with a reverse proxy or terminate TLS upstream in that case.
+    local caddy_http_port="${CADDY_HTTP_PORT:-80}"
+    local caddy_https_port="${CADDY_HTTPS_PORT:-443}"
     run_container spring-caddy \
         --env-file "${RESOLVED_ENV_FILE}" \
-        -p 80:80 -p 443:443 \
+        -p "${caddy_http_port}:80" -p "${caddy_https_port}:443" \
         -v "${caddyfile}:/etc/caddy/Caddyfile:ro,Z" \
         -v spring-caddy-data:/data \
         -v spring-caddy-config:/config \
