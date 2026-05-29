@@ -55,6 +55,30 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     private static readonly TimeSpan ShutdownBudget = TimeSpan.FromSeconds(10);
 
     /// <summary>
+    /// Stable id of a <em>second</em> Human "Hat" bound to the OSS operator
+    /// <c>TenantUser</c>, seeded by <see cref="TestDataSeeder"/> alongside the
+    /// primary operator Hat. Lets integration tests observe the multi-Hat
+    /// reconciliation the portal relies on (#2900, surfaced by #2888): the
+    /// auth-username Hat that <c>/auth/me</c> resolves is a <em>different</em>
+    /// Hat than a thread-participant Hat the same operator also wears, yet
+    /// both share the operator's <see cref="OssTenantUserIds.Operator"/> join
+    /// key. A single seeded operator Hat — where auth-username == primary ==
+    /// sending Hat — cannot model that case, so the multi-Hat defect locus is
+    /// structurally unobservable without this second row.
+    /// </summary>
+    /// <remarks>
+    /// The Hat is <em>not</em> pinned as <c>PrimaryHumanId</c>, so the
+    /// outbound sending-Hat resolver (<c>TenantUserHumanResolver</c>) keeps
+    /// selecting the primary <c>test-operator</c> Hat for sends that carry no
+    /// thread context — adding this row does not perturb existing message-send
+    /// tests. The username is unique, so the auth-username resolve (<c>/me</c>)
+    /// mints/looks-up its own distinct <c>local-dev-user</c> Hat rather than
+    /// colliding with this one.
+    /// </remarks>
+    public static readonly Guid OperatorThreadParticipantHumanId =
+        new("29000000-0000-0000-0000-000000002900");
+
+    /// <summary>
     /// Captured reference to the in-process <see cref="IHost"/>
     /// <see cref="WebApplicationFactory{TEntryPoint}"/> built for this
     /// fixture. We hold it so <see cref="DisposeAsync"/> can call
@@ -719,6 +743,29 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             {
                 tu.PrimaryHumanId = bound.Id;
                 tu.UpdatedAt = now;
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            // #2900: seed a SECOND Hat bound to the same operator TenantUser
+            // (NOT pinned as primary) so multi-Hat integration tests can
+            // observe the auth-username Hat (/me) differing from a
+            // thread-participant Hat the operator also wears, while both
+            // share the operator join key. See
+            // <see cref="OperatorThreadParticipantHumanId"/> for the
+            // rationale and why this does not perturb send-path tests.
+            var secondHat = await db.Humans.FirstOrDefaultAsync(
+                h => h.Id == OperatorThreadParticipantHumanId, cancellationToken);
+            if (secondHat is null)
+            {
+                db.Humans.Add(new Cvoya.Spring.Dapr.Data.Entities.HumanEntity
+                {
+                    Id = OperatorThreadParticipantHumanId,
+                    TenantId = OssTenantIds.Default,
+                    TenantUserId = OssTenantUserIds.Operator,
+                    Username = "operator-thread-participant",
+                    DisplayName = "Operator (thread-participant Hat)",
+                    CreatedAt = now,
+                });
                 await db.SaveChangesAsync(cancellationToken);
             }
         }
