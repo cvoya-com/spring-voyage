@@ -11,9 +11,12 @@ using Cvoya.Spring.Connector.Slack.Inbound;
 using Cvoya.Spring.Connector.Slack.Outbound;
 using Cvoya.Spring.Connector.Slack.WebApi;
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;
+using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Routing;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -372,6 +375,100 @@ public class SlackEventDispatcherTests
     private static JsonElement ParseEvent(string json) =>
         JsonSerializer.Deserialize<JsonElement>(json);
 
+    [Fact]
+    public async Task DispatchAsync_BoundUserReply_MultiParty_FannedOutMessagesReachAgentMailboxes()
+    {
+        // #2901 — the per-participant fan-out (#2885) is unit-tested at the
+        // IMessageRouter boundary; this composes it with a REAL MessageRouter
+        // so the fanned-out messages are actually DELIVERED to each agent's
+        // mailbox (proxy.ReceiveAsync): inbound Slack event → fan-out →
+        // routing → two mailboxes, end to end.
+        var ct = TestContext.Current.CancellationToken;
+        var harness = TestHarness.Create(singleUserMode: true, useRealRouter: true);
+        await harness.SeedBindingAsync(ct);
+
+        var svThreadId = new Guid("77777777-7777-7777-7777-777777777777");
+        await harness.ThreadMap.RecordAsync(
+            svThreadId, OperatorTenantUserId, "T-acme", "D-installer", "1700.333", ct);
+
+        var agentA = new Address(Address.AgentScheme, new Guid("aaaaaaaa-0000-0000-0000-0000000000a1"));
+        var agentB = new Address(Address.AgentScheme, new Guid("bbbbbbbb-0000-0000-0000-0000000000b1"));
+        harness.SeedThreadWithParticipants(svThreadId, new[]
+        {
+            new Address(Address.HumanScheme, PrimaryHumanId),
+            agentA,
+            agentB,
+        });
+
+        // Wire the directory + agent proxies so the real router resolves each
+        // agent address to a mailbox (substitute IAgent.ReceiveAsync).
+        Message? toA = null;
+        Message? toB = null;
+        var mailboxA = Substitute.For<IAgent>();
+        var mailboxB = Substitute.For<IAgent>();
+        mailboxA.ReceiveAsync(Arg.Do<Message>(m => toA = m), Arg.Any<CancellationToken>()).Returns((Message?)null);
+        mailboxB.ReceiveAsync(Arg.Do<Message>(m => toB = m), Arg.Any<CancellationToken>()).Returns((Message?)null);
+        WireAgentMailbox(harness, agentA, mailboxA);
+        WireAgentMailbox(harness, agentB, mailboxB);
+
+        var envelope = ParseEvent("""
+            {
+              "team_id": "T-acme",
+              "event": {
+                "type": "message",
+                "channel_type": "im",
+                "user": "U-installer",
+                "channel": "D-installer",
+                "thread_ts": "1700.333",
+                "text": "hello team"
+              }
+            }
+            """);
+
+        var outcome = await harness.Dispatcher.DispatchAsync(envelope, ct);
+
+        outcome.ShouldBe(SlackEventDispatchOutcome.Handled);
+
+        // Both agent mailboxes received the message — the fan-out reached each
+        // mailbox THROUGH the real router, not just the router boundary.
+        await mailboxA.Received(1).ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
+        await mailboxB.Received(1).ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
+        toA.ShouldNotBeNull();
+        toB.ShouldNotBeNull();
+
+        // Same logical inbound: shared From (the operator's Hat) + ThreadId,
+        // distinct message ids (#2885).
+        var threadIdString = svThreadId.ToString("N");
+        toA!.From.Scheme.ShouldBe(Address.HumanScheme);
+        toA.From.Id.ShouldBe(PrimaryHumanId);
+        toA.ThreadId.ShouldBe(threadIdString);
+        toB!.ThreadId.ShouldBe(threadIdString);
+        toA.Id.ShouldNotBe(toB.Id);
+
+        // One audit row per inbound, not one per recipient.
+        harness.AuditLog.Records.Count(r => r.EventType == "message.im").ShouldBe(1);
+    }
+
+    private static void WireAgentMailbox(TestHarness harness, Address agent, IAgent mailbox)
+    {
+        harness.DirectoryService!
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == agent.Id),
+                Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(agent, agent.Id, "Agent", "test", null, DateTimeOffset.UtcNow));
+        harness.AgentProxyResolver!
+            .Resolve(
+                Arg.Is<string>(s => string.Equals(s, Address.AgentScheme, StringComparison.OrdinalIgnoreCase)),
+                agent.Id.ToString("N"))
+            .Returns(mailbox);
+    }
+
+    private sealed class NoOpMessageWriter : Cvoya.Spring.Dapr.Threads.IMessageWriter
+    {
+        public Task WriteAsync(Message message, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+    }
+
     private sealed class TestHarness
     {
         public SlackEventDispatcher Dispatcher { get; }
@@ -381,6 +478,11 @@ public class SlackEventDispatcherTests
         public IMessageRouter MessageRouter { get; }
         public ITenantConnectorBindingStore BindingStore { get; }
         public IServiceProvider Provider { get; }
+
+        // Set only when the harness is built with a real MessageRouter
+        // (#2901); the test wires per-agent directory entries + proxies.
+        public IDirectoryService? DirectoryService { get; }
+        public IAgentProxyResolver? AgentProxyResolver { get; }
 
         private readonly bool _singleUserMode;
 
@@ -392,7 +494,9 @@ public class SlackEventDispatcherTests
             IMessageRouter messageRouter,
             ITenantConnectorBindingStore bindingStore,
             IServiceProvider provider,
-            bool singleUserMode)
+            bool singleUserMode,
+            IDirectoryService? directoryService = null,
+            IAgentProxyResolver? agentProxyResolver = null)
         {
             Dispatcher = dispatcher;
             WebApi = webApi;
@@ -402,9 +506,11 @@ public class SlackEventDispatcherTests
             BindingStore = bindingStore;
             Provider = provider;
             _singleUserMode = singleUserMode;
+            DirectoryService = directoryService;
+            AgentProxyResolver = agentProxyResolver;
         }
 
-        public static TestHarness Create(bool singleUserMode)
+        public static TestHarness Create(bool singleUserMode, bool useRealRouter = false)
         {
             var services = new ServiceCollection();
             services.AddLogging();
@@ -460,14 +566,41 @@ public class SlackEventDispatcherTests
             var auditLog = new RecordingAuditLog();
             services.AddSingleton<ISlackInboundAuditLog>(auditLog);
 
-            var messageRouter = Substitute.For<IMessageRouter>();
+            IMessageRouter messageRouter = Substitute.For<IMessageRouter>();
             messageRouter.RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
                 .Returns(Cvoya.Spring.Core.Result<Message?, RoutingError>.Success(null!));
-            services.AddSingleton(messageRouter);
+
+            // #2901 — when useRealRouter, swap the substitute for a REAL
+            // MessageRouter so the dispatcher's fanned-out messages are
+            // actually delivered to agent mailboxes (proxy.ReceiveAsync). The
+            // directory + agent proxies are exposed for the test to wire per
+            // recipient; the router persists through a no-op writer.
+            IDirectoryService? directoryService = null;
+            IAgentProxyResolver? agentProxyResolver = null;
+            if (useRealRouter)
+            {
+                directoryService = Substitute.For<IDirectoryService>();
+                agentProxyResolver = Substitute.For<IAgentProxyResolver>();
+                services.AddScoped<Cvoya.Spring.Dapr.Threads.IMessageWriter>(_ => new NoOpMessageWriter());
+            }
+            else
+            {
+                services.AddSingleton(messageRouter);
+            }
 
             services.AddSingleton<IUnboundUserRefusalGate, InMemoryUnboundUserRefusalGate>();
 
             var provider = services.BuildServiceProvider();
+
+            if (useRealRouter)
+            {
+                messageRouter = new Cvoya.Spring.Dapr.Routing.MessageRouter(
+                    directoryService!,
+                    agentProxyResolver!,
+                    Substitute.For<Cvoya.Spring.Dapr.Auth.IPermissionService>(),
+                    NullLoggerFactory.Instance,
+                    provider.GetRequiredService<IServiceScopeFactory>());
+            }
 
             var dispatcher = new SlackEventDispatcher(
                 provider.GetRequiredService<IServiceScopeFactory>(),
@@ -486,7 +619,9 @@ public class SlackEventDispatcherTests
                 messageRouter,
                 provider.GetRequiredService<ITenantConnectorBindingStore>(),
                 provider,
-                singleUserMode);
+                singleUserMode,
+                directoryService,
+                agentProxyResolver);
         }
 
         public async Task SeedBindingAsync(CancellationToken ct)
