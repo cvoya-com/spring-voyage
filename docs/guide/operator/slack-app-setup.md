@@ -420,8 +420,11 @@ Common failures and where to look:
 - **OAuth popup closes with `oauth_not_configured`.** One of the four Slack OAuth credential fields is missing across every persistence tier (tenant-secret, platform-secret, env-config). Check the platform logs for the exact `Slack OAuth <Key> is not configured` message — the message names the field and points at `spring connector slack install` (with `--write-env`, `--write-secrets`, or `--write-tenant-secrets`).
 - **Slash commands return "dispatch_failed"** in Slack. Either the platform is not reachable at the registered slash-command URL, the signature verification is failing (signing-secret mismatch), or the command is being invoked outside the bot DM — Slack's reply is the ephemeral DM-only refusal text per ADR-0061 § 5.
 
+**Now what?** Once the bot DM is live and `/sv-help` responds, see **[Using the Slack bot](slack-usage.md)** for the day-to-day usage model — the three slash commands, how SV threads map onto Slack threads, the refusal behaviours, and a one-minute end-to-end smoke test.
+
 ## Related documentation
 
+- [Using the Slack bot](slack-usage.md) — day-to-day usage once installed: the slash commands, SV-thread ↔ Slack-thread mapping, refusal behaviours, and a smoke test.
 - [Deployment guide](deployment.md) — env-file shape and quirks (the Slack block lives alongside the GitHub block).
 - [Managing Secrets](secrets.md) — tier model for OAuth credentials and the per-tenant bot-token / signing-secret rows the OAuth callback writes.
 - [Connectors operator guide](connectors.md) — installing, inspecting, and uninstalling connectors per tenant.
