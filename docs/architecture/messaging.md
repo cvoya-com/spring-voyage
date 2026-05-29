@@ -104,6 +104,8 @@ is the ordering invariant.
 > relationship) and worked in as a **collaboration** (the active workspace).
 > "Thread" is the system term used in code, schema, and APIs.
 
+**Connector-origin threads keep the connector in the key — by design ([#2909](https://github.com/cvoya-com/spring-voyage/issues/2909)).** A thread carrying a connector's inbound events is identified by `{connector://C, unit://U}`: that set is the durable identity for "events from connector `C` delivered to unit `U`", and the whole stream is queryable as that set. The connector is **provenance, not a peer** — it is non-routable, so the platform refuses the reverse direction (`U → C`): a connector address cannot be a messaging recipient (`UnroutableTarget`), and it never appears in the inbound envelope's routable `participants` / `to` ([ADR-0064](../decisions/0064-conversation-participants-and-continuation.md)). Consequently `sv.messaging.respond_to` on a connector-origin message delivers only to the routable members, and a conversation whose sole non-caller member is the connector resolves zero recipients. Retaining the connector in the key (rather than collapsing to `{unit}`) keeps the per-connector event stream a distinct, addressable set without ever making the connector a deliverable target.
+
 ## Message delivery
 
 A runtime delivers a message through two platform tools. Both take the same
