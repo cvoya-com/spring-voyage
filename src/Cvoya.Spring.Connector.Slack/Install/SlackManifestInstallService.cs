@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Net.Http;
 
 using Cvoya.Spring.Connector.Slack.Auth.OAuth;
+using Cvoya.Spring.Connector.Slack.Configuration;
 using Cvoya.Spring.Connector.Slack.Provisioning;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;
@@ -33,6 +34,7 @@ using Microsoft.Extensions.Logging;
 public class SlackManifestInstallService(
     IHttpClientFactory httpClientFactory,
     ISlackOAuthService oauthService,
+    ISlackOAuthOptionsResolver oauthOptionsResolver,
     ISecretStore secretStore,
     ISecretRegistry secretRegistry,
     ITenantContext tenantContext,
@@ -116,6 +118,21 @@ public class SlackManifestInstallService(
             AuthorizeUrl: authorize.AuthorizeUrl,
             State: authorize.State,
             WrittenSecretNames: written);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsOAuthConfiguredAsync(CancellationToken cancellationToken)
+    {
+        var options = await oauthOptionsResolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
+
+        // "Configured" means the full set the OAuth callback needs is
+        // present — not just the authorize-start pair. A partial set would
+        // start consent but fail at the token exchange, so we report it as
+        // not-configured and let the operator register a fresh app.
+        return !string.IsNullOrWhiteSpace(options.ClientId)
+            && !string.IsNullOrWhiteSpace(options.ClientSecret)
+            && !string.IsNullOrWhiteSpace(options.SigningSecret)
+            && !string.IsNullOrWhiteSpace(options.RedirectUri);
     }
 
     /// <summary>

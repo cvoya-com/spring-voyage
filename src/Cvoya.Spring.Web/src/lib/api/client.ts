@@ -45,6 +45,7 @@ import type {
   SlackAuthorizeResponse,
   SlackInstallRequest,
   SlackInstallResponse,
+  SlackInstallStatusResponse,
   TenantConnectorBindingResponse,
   TenantUserConnectorIdentityRequest,
   TenantUserConnectorIdentityResponse,
@@ -1615,6 +1616,14 @@ export const api = {
         "/api/v1/tenant/connectors/slack/install",
         { body },
       ),
+    ),
+  // Reports whether Slack OAuth credentials already resolve for this
+  // tenant (e.g. a prior `spring connector slack install`). The wizard
+  // uses this to offer a "connect now" shortcut that skips app
+  // registration and jumps straight to OAuth consent (#2882).
+  getSlackInstallStatus: async (): Promise<SlackInstallStatusResponse> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/connectors/slack/install/status"),
     ),
 
   // Connectors — Web Search typed surface.

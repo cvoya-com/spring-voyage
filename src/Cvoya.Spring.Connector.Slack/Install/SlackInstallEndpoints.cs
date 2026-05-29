@@ -42,6 +42,20 @@ public static class SlackInstallEndpoints
             .Produces<SlackInstallResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status502BadGateway);
+
+        group.MapGet("/install/status", InstallStatusAsync)
+            .WithName("GetSlackInstallStatus")
+            .WithSummary("Report whether Slack OAuth credentials are already configured for this tenant")
+            .WithTags("Connectors.Slack")
+            .Produces<SlackInstallStatusResponse>(StatusCodes.Status200OK);
+    }
+
+    private static async Task<IResult> InstallStatusAsync(
+        [FromServices] ISlackManifestInstallService service,
+        CancellationToken cancellationToken)
+    {
+        var configured = await service.IsOAuthConfiguredAsync(cancellationToken);
+        return Results.Ok(new SlackInstallStatusResponse(configured));
     }
 
     private static async Task<IResult> InstallAsync(
@@ -202,3 +216,12 @@ public record SlackInstallResponse(
     string? AuthorizeUrl,
     string? State,
     IReadOnlyList<string> WrittenSecretNames);
+
+/// <summary>Response body for <c>GET /install/status</c>.</summary>
+/// <param name="OauthConfigured">
+/// <c>true</c> when a complete set of Slack OAuth credentials (client id,
+/// client secret, signing secret, redirect uri) already resolves for this
+/// tenant — i.e. the operator can connect to Slack without registering a
+/// new app. The wizard uses this to offer the "connect now" shortcut.
+/// </param>
+public record SlackInstallStatusResponse(bool OauthConfigured);

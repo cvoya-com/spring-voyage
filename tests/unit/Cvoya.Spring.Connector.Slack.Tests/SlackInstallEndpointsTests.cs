@@ -188,6 +188,25 @@ public sealed class SlackInstallEndpointsTests
         body.GetProperty("detail").GetString()!.ShouldContain("token");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task InstallStatus_ReturnsOauthConfiguredFlag(bool configured)
+    {
+        var service = Substitute.For<ISlackManifestInstallService>();
+        service.IsOAuthConfiguredAsync(Arg.Any<CancellationToken>()).Returns(configured);
+
+        await using var host = await StartHostAsync(service);
+        using var client = new HttpClient();
+        var response = await client.GetAsync(
+            new Uri(host.BaseUri, "/install/status"),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await ReadJsonAsync(response);
+        body.GetProperty("oauthConfigured").GetBoolean().ShouldBe(configured);
+    }
+
     // ---- helpers ----
 
     private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response)

@@ -958,6 +958,16 @@ export type SlackInstallRequest = Schemas["SlackInstallRequest"];
 export type SlackInstallResponse = Schemas["SlackInstallResponse"];
 
 /**
+ * Response body for `GET /api/v1/tenant/connectors/slack/install/status`.
+ * `oauthConfigured` is true when a complete set of Slack OAuth credentials
+ * already resolves for the tenant (e.g. a prior `spring connector slack
+ * install`), so the wizard can offer a "connect now" shortcut that skips
+ * app registration (#2882).
+ * @public Consumed by `Cvoya.Spring.Web/app/connectors/slack/install`.
+ */
+export type SlackInstallStatusResponse = Schemas["SlackInstallStatusResponse"];
+
+/**
  * PUT /api/v1/tenant/connectors/web-search/units/{unitId}/config request body.
  * @public Consumed by `Cvoya.Spring.Connector.WebSearch/web/*` cross-workspace.
  */

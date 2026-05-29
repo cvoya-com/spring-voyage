@@ -55,6 +55,7 @@ public sealed class SlackManifestInstallServiceTests
 
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
     private readonly ISlackOAuthService _oauthService = Substitute.For<ISlackOAuthService>();
+    private readonly ISlackOAuthOptionsResolver _oauthOptionsResolver = Substitute.For<ISlackOAuthOptionsResolver>();
     private readonly ISecretStore _secretStore = Substitute.For<ISecretStore>();
     private readonly ISecretRegistry _secretRegistry = Substitute.For<ISecretRegistry>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
@@ -248,6 +249,41 @@ public sealed class SlackManifestInstallServiceTests
         await _oauthService.DidNotReceive().BeginAuthorizationAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task IsOAuthConfiguredAsync_AllFourCredentialsPresent_ReturnsTrue()
+    {
+        _oauthOptionsResolver.ResolveAsync(Arg.Any<CancellationToken>())
+            .Returns(new SlackOAuthOptions
+            {
+                ClientId = "cid",
+                ClientSecret = "csecret",
+                SigningSecret = "ssecret",
+                RedirectUri = "https://sv.example.com/api/v1/tenant/connectors/slack/oauth/callback",
+            });
+        var service = CreateService(new StubHttpMessageHandler());
+
+        (await service.IsOAuthConfiguredAsync(TestContext.Current.CancellationToken)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IsOAuthConfiguredAsync_PartialCredentials_ReturnsFalse()
+    {
+        // ClientId + RedirectUri would let authorization START, but the
+        // missing ClientSecret would fail the token exchange at callback —
+        // so a partial set reports as not-configured.
+        _oauthOptionsResolver.ResolveAsync(Arg.Any<CancellationToken>())
+            .Returns(new SlackOAuthOptions
+            {
+                ClientId = "cid",
+                ClientSecret = "",
+                SigningSecret = "ssecret",
+                RedirectUri = "https://sv.example.com/api/v1/tenant/connectors/slack/oauth/callback",
+            });
+        var service = CreateService(new StubHttpMessageHandler());
+
+        (await service.IsOAuthConfiguredAsync(TestContext.Current.CancellationToken)).ShouldBeFalse();
+    }
+
     private SlackManifestInstallService CreateService(StubHttpMessageHandler handler)
     {
         _httpClientFactory.CreateClient(SlackManifestInstallService.HttpClientName)
@@ -255,6 +291,7 @@ public sealed class SlackManifestInstallServiceTests
         return new SlackManifestInstallService(
             _httpClientFactory,
             _oauthService,
+            _oauthOptionsResolver,
             _secretStore,
             _secretRegistry,
             _tenantContext,

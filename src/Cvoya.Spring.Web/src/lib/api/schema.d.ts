@@ -2755,6 +2755,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/connectors/slack/install/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report whether Slack OAuth credentials are already configured for this tenant */
+        get: operations["GetSlackInstallStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/connectors/slack/config-schema": {
         parameters: {
             query?: never;
@@ -4411,6 +4428,9 @@ export interface components {
             authorizeUrl: null | string;
             state: null | string;
             writtenSecretNames: string[];
+        };
+        SlackInstallStatusResponse: {
+            oauthConfigured: boolean;
         };
         SubsystemConfigurationReport: {
             subsystemName: string;
@@ -11821,6 +11841,26 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetSlackInstallStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackInstallStatusResponse"];
                 };
             };
         };

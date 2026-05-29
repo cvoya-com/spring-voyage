@@ -9590,6 +9590,27 @@
         }
       }
     },
+    "/api/v1/tenant/connectors/slack/install/status": {
+      "get": {
+        "tags": [
+          "Connectors.Slack"
+        ],
+        "summary": "Report whether Slack OAuth credentials are already configured for this tenant",
+        "operationId": "GetSlackInstallStatus",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackInstallStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/connectors/slack/config-schema": {
       "get": {
         "tags": [
@@ -16349,6 +16370,17 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "SlackInstallStatusResponse": {
+        "required": [
+          "oauthConfigured"
+        ],
+        "type": "object",
+        "properties": {
+          "oauthConfigured": {
+            "type": "boolean"
           }
         }
       },

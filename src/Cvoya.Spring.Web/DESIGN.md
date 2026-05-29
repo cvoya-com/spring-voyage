@@ -470,6 +470,8 @@ v0.1 limitations (single bound user, DM-only operation) surface in panel copy wi
 - **Preview manifest** sends `dryRun: true` and renders the returned manifest JSON in a `<pre>` block — the browser equivalent of the CLI's `--dry-run`.
 - **Install in Slack** opens the OAuth popup synchronously (so the browser trusts the user-initiated `window.open`), POSTs `dryRun: false`, navigates the popup to the returned state-bearing `authorizeUrl`, then resolves on the same `awaitSlackOAuthHandoff` postMessage flow the Reconnect path uses. On success it toasts and routes back to `/settings`; an expired Configuration Token (`code = invalid_auth`) and popup-closed / timed-out outcomes surface as an inline error with retry guidance.
 
+**Connect-now shortcut.** On mount the wizard calls `GET /api/v1/tenant/connectors/slack/install/status`. When it reports `oauthConfigured: true` — the common case where an operator already ran `spring connector slack install` (any tier) but never finished the consent step — a **Credentials already configured** card appears above the form with a single **Connect to Slack** button. It skips app registration entirely and drives OAuth consent directly via `beginSlackOAuthAuthorize` + the shared popup-consent helper, then routes to `/settings`. The registration form stays below ("Or register a new Slack app") for operators who do want a fresh app.
+
 The endpoint persists the same four `slack-oauth-*` tenant secrets as `spring connector slack install --write-tenant-secrets` (a shared manifest + secret-name kernel keeps the two surfaces identical). The CLI verb stays for headless / CI / air-gapped installs.
 
 ### 11.3 Drawer-panel extension contract

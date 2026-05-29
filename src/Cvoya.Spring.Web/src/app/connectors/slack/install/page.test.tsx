@@ -22,7 +22,11 @@ vi.mock("@/lib/api/client", async () => {
   }
   return {
     ApiError: MockApiError,
-    api: { installSlackApp: vi.fn() },
+    api: {
+      installSlackApp: vi.fn(),
+      getSlackInstallStatus: vi.fn(),
+      beginSlackOAuthAuthorize: vi.fn(),
+    },
   };
 });
 
@@ -59,6 +63,9 @@ function typeConfigToken(value: string): void {
 describe("SlackInstallWizardPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: no credentials configured → the connect-now shortcut stays
+    // hidden and the form is the only path. Connect-now tests override this.
+    mockedApi.getSlackInstallStatus.mockResolvedValue({ oauthConfigured: false });
   });
 
   it("renders the three fields, the Socket Mode toggle, and both actions", async () => {
@@ -222,5 +229,57 @@ describe("SlackInstallWizardPage", () => {
     expect(mockPush).not.toHaveBeenCalled();
 
     openSpy.mockRestore();
+  });
+
+  it("shows the connect-now shortcut and runs OAuth consent when credentials are already configured", async () => {
+    mockedApi.getSlackInstallStatus.mockResolvedValue({ oauthConfigured: true });
+    mockedApi.beginSlackOAuthAuthorize.mockResolvedValue({
+      authorizeUrl: "https://slack.com/oauth/v2/authorize?state=st-9",
+      state: "st-9",
+    });
+    mockedHandoff.mockResolvedValue({ kind: "success" });
+
+    const popupStub = { close: vi.fn(), focus: vi.fn(), location: { href: "" } };
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(popupStub as unknown as Window);
+
+    await act(async () => {
+      render(<SlackInstallWizardPage />);
+    });
+
+    // The card surfaces once the status query resolves to configured.
+    const connectBtn = await screen.findByTestId("slack-install-connect-existing");
+    await act(async () => {
+      fireEvent.click(connectBtn);
+    });
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/settings"));
+    // Connect-now skips app registration — it never POSTs the install
+    // endpoint, only requests a consent URL.
+    expect(mockedApi.installSlackApp).not.toHaveBeenCalled();
+    expect(mockedApi.beginSlackOAuthAuthorize).toHaveBeenCalledOnce();
+    expect(popupStub.location.href).toBe(
+      "https://slack.com/oauth/v2/authorize?state=st-9",
+    );
+
+    openSpy.mockRestore();
+  });
+
+  it("hides the connect-now shortcut when no credentials are configured", async () => {
+    mockedApi.getSlackInstallStatus.mockResolvedValue({ oauthConfigured: false });
+
+    await act(async () => {
+      render(<SlackInstallWizardPage />);
+    });
+
+    // The registration form is present...
+    expect(
+      await screen.findByTestId("slack-install-config-token"),
+    ).toBeInTheDocument();
+    // ...but the connect-now shortcut is not.
+    expect(
+      screen.queryByTestId("slack-install-connect-existing"),
+    ).not.toBeInTheDocument();
   });
 });

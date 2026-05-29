@@ -37,6 +37,19 @@ public interface ISlackManifestInstallService
     Task<SlackManifestInstallResult> InstallAsync(
         SlackManifestInstallRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reports whether this tenant already has a complete set of Slack
+    /// OAuth credentials configured (client id, client secret, signing
+    /// secret, redirect uri) across any persistence tier (tenant → platform
+    /// → env, per <c>ISlackOAuthOptionsResolver</c>). The portal wizard uses
+    /// this to offer a "credentials already configured — connect now"
+    /// shortcut that skips app registration and jumps straight to OAuth
+    /// consent (#2882) — the common case for an operator who already ran
+    /// <c>spring connector slack install</c> but has not completed the
+    /// consent step.
+    /// </summary>
+    Task<bool> IsOAuthConfiguredAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>
