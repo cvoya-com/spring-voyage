@@ -1,6 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Package
 name: software-engineering
+displayName: Software Engineering
 description: A software engineering team — tech lead, backend engineer, and QA — wired up with triage / PR-review skills and a GitHub connector.
 version: 1.0.0
 readme: README.md
