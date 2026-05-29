@@ -13,9 +13,17 @@ using System.Text.Json;
 public record AddressDto(string Scheme, string Path);
 
 /// <summary>
-/// Request body for sending a message.
+/// Request body for sending a message. Supply exactly one of <see cref="To"/>
+/// (a single recipient — a 1-1 send or a reply on an existing thread) or
+/// <see cref="Recipients"/> (a multi-party send). A multi-party send resolves
+/// ONE shared thread from <c>{sender} ∪ recipients</c> so every recipient
+/// lands on the same conversation (#2887 / ADR-0064), mirroring the agent's
+/// <c>sv.messaging.send</c>.
 /// </summary>
-/// <param name="To">The destination address.</param>
+/// <param name="To">
+/// The single destination address. Mutually exclusive with
+/// <see cref="Recipients"/>; supply one or the other.
+/// </param>
 /// <param name="Type">The message type.</param>
 /// <param name="ThreadId">An optional thread identifier.</param>
 /// <param name="Payload">The message payload as a JSON element.</param>
@@ -28,12 +36,20 @@ public record AddressDto(string Scheme, string Path);
 /// any bound Human). An invalid or unbound id returns 400 with the
 /// <c>NoBoundHuman</c> code.
 /// </param>
+/// <param name="Recipients">
+/// The full recipient set for a multi-party send. Mutually exclusive with
+/// <see cref="To"/>. The server resolves a single shared thread from
+/// <c>{sender} ∪ recipients</c> and delivers the message to every recipient
+/// on it, so all recipients see each other and replies stay on the one
+/// thread (#2887). Duplicates and the sender are collapsed.
+/// </param>
 public record SendMessageRequest(
-    AddressDto To,
+    AddressDto? To,
     string Type,
     string? ThreadId,
     JsonElement Payload,
-    Guid? From = null);
+    Guid? From = null,
+    IReadOnlyList<AddressDto>? Recipients = null);
 
 /// <summary>
 /// Response body after sending a message.

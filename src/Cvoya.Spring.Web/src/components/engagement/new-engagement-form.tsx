@@ -3,10 +3,10 @@
 // New-engagement form (#1455 / #1456).
 //
 // Lets the operator pick one or more units / agents, write the opening
-// message, and submit. We POST the seed message to the first participant
-// (auto-generates a threadId) and then echo it to every additional
-// participant under the same threadId so they materialise as thread
-// participants too. On success, navigate to `/engagement/{threadId}`.
+// message, and submit. We POST one seed message carrying the full recipient
+// set; the server resolves a single shared thread from {sender} ∪ recipients
+// and fans out, so every participant lands on the same conversation (#2887).
+// On success, navigate to `/engagement/{threadId}`.
 //
 // Pre-populated participants flow in via `?participant=<scheme>://<path>`
 // query strings (read once on mount). The picker treats them like any
@@ -33,7 +33,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { useTenantTree } from "@/lib/api/queries";
-import { formatTranslatedError } from "@/lib/api/translate-error";
 import { cn } from "@/lib/utils";
 import type { TenantTreeNode } from "@/lib/api/types";
 
@@ -125,12 +124,19 @@ export function NewEngagementForm() {
       if (!body.trim()) {
         throw new Error("Write a first message.");
       }
-      const first = selected[0]!;
+      // #2887 — one send for the full participant set. The server resolves a
+      // single shared thread from {sender} ∪ recipients and fans out, so every
+      // participant lands on the same conversation. No client-side loop, no
+      // threadId pinning, no partial-fanout failure mode.
       const seed = await api.sendMessage({
-        to: { scheme: first.scheme, path: first.path },
+        to: null,
         type: "Domain",
         threadId: null,
         payload: body.trim(),
+        recipients: selected.map((ref) => ({
+          scheme: ref.scheme,
+          path: ref.path,
+        })),
       });
       const threadId = seed.threadId;
       if (!threadId) {
@@ -138,32 +144,10 @@ export function NewEngagementForm() {
           "The server did not return a thread id; the engagement was not created.",
         );
       }
-      const fanoutErrors: string[] = [];
-      for (const ref of selected.slice(1)) {
-        try {
-          await api.sendMessage({
-            to: { scheme: ref.scheme, path: ref.path },
-            type: "Domain",
-            threadId,
-            payload: body.trim(),
-          });
-        } catch (err) {
-          fanoutErrors.push(refKey(ref) + ": " + formatTranslatedError(err));
-        }
-      }
-      return { threadId, fanoutErrors };
+      return { threadId };
     },
-    onSuccess: ({ threadId, fanoutErrors }) => {
-      if (fanoutErrors.length > 0) {
-        toast({
-          title:
-            "Engagement started — some participants did not receive the seed",
-          description: fanoutErrors.join("\n"),
-          variant: "destructive",
-        });
-      } else {
-        toast({ title: "Engagement started" });
-      }
+    onSuccess: ({ threadId }) => {
+      toast({ title: "Engagement started" });
       router.push("/engagement/" + threadId);
     },
     onError: (err) => {

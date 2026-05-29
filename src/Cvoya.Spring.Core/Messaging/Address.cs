@@ -64,6 +64,22 @@ public record Address(
     public const string TenantUserScheme = "tenant-user";
 
     /// <summary>
+    /// True when this address names a participant the platform can deliver
+    /// to — an <see cref="AgentScheme"/>, <see cref="UnitScheme"/>, or
+    /// <see cref="HumanScheme"/> address. Connector origins
+    /// (<see cref="ConnectorScheme"/>, provenance-only per ADR-0048/0053)
+    /// and the auth principal (<see cref="TenantUserScheme"/>, resolved to a
+    /// <c>human://</c> Hat before routing per ADR-0047/0062) are
+    /// non-routable. Used to derive the envelope's routable
+    /// <c>participants</c> roster (ADR-0064) and to gate messaging-tool
+    /// recipients to addressable kinds.
+    /// </summary>
+    public bool IsRoutable =>
+        string.Equals(Scheme, AgentScheme, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Scheme, UnitScheme, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Scheme, HumanScheme, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Convenience accessor returning the Guid identity rendered in the
     /// canonical no-dash 32-char hex form. Useful for callers that need
     /// a string actor key (Dapr <c>ActorId</c> construction, log

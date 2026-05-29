@@ -57,6 +57,18 @@ public sealed class MessagingClient : IMessagingClient
         _mcpToken = mcpToken;
     }
 
+    /// <summary>
+    /// Test seam: builds the client over a caller-supplied
+    /// <see cref="HttpClient"/> (e.g. one wired to a stub
+    /// <see cref="HttpMessageHandler"/>) so the JSON-RPC wire shape can be
+    /// asserted without a live MCP server.
+    /// </summary>
+    internal MessagingClient(HttpClient httpClient, string mcpToken)
+    {
+        _httpClient = httpClient;
+        _mcpToken = mcpToken;
+    }
+
     /// <inheritdoc />
     /// <remarks>
     /// ADR-0051 retired the messaging REST surface that backed the result
@@ -90,7 +102,10 @@ public sealed class MessagingClient : IMessagingClient
 
         var arguments = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["address"] = BuildTargetAddress(targetUnitId),
+            // #2747 / #2889 — the tool contract takes `recipients[]`, not the
+            // pre-#2747 singular `address`. A single-recipient send is a
+            // one-element list; the platform adds the caller to the set.
+            ["recipients"] = new[] { BuildTargetAddress(targetUnitId) },
             ["message"] = prompt,
         };
 
@@ -118,7 +133,9 @@ public sealed class MessagingClient : IMessagingClient
 
         var arguments = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["addresses"] = targetUnitIds.Select(BuildTargetAddress).ToArray(),
+            // #2747 / #2889 — `recipients[]` is the current contract field for
+            // both send and multicast (the pre-#2747 `addresses` is gone).
+            ["recipients"] = targetUnitIds.Select(BuildTargetAddress).ToArray(),
             ["message"] = prompt,
         };
 

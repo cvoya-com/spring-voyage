@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sv.messaging.respond_to.input",
+  "description": "Input for sv.messaging.respond_to — a one-way message-delivery tool that CONTINUES an existing conversation. The platform delivers one message to the current routable participants of the conversation that `message_id` belongs to, minus you — the set shown as `participants` in the inbound envelope. You do NOT list recipients: the platform picks them (the conversation's roster), so continuing a conversation with everyone already on it is a single deterministic call instead of a reconstructed recipient list. The message lands on the same thread, so the conversation does not fork. Use sv.messaging.respond_to to respond to everyone already on a conversation; use sv.messaging.send to start a new conversation or address a different set, and sv.messaging.multicast to reach several recipients on independent 1-1 threads. Because `message_id` is durable, sv.messaging.respond_to also continues that conversation later — keep a `message_id` and respond to it at any time. Delivery is one-way: the call returns a delivery acknowledgement; any response from a participant arrives later as a separate inbound message.",
+  "type": "object",
+  "properties": {
+    "message_id": {
+      "type": "string",
+      "description": "The id of a message you received, taken verbatim from an inbound envelope's `message_id`. The platform resolves it to its conversation and delivers to that conversation's current routable participants, minus you. Never a thread id — internal thread ids never cross the tool boundary."
+    },
+    "message": {
+      "description": "The message payload to deliver. Opaque to the platform; a JSON string or object."
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "description": "Optional rationale recorded verbatim alongside the delivery record. Never the model's hidden chain-of-thought."
+    }
+  },
+  "required": ["message_id", "message"],
+  "additionalProperties": false
+}

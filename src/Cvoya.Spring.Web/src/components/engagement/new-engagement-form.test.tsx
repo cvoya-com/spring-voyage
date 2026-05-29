@@ -206,7 +206,7 @@ describe("NewEngagementForm — submit", () => {
     expect(sendMessageMock).not.toHaveBeenCalled();
   });
 
-  it("sends the seed to the first participant and navigates to the new thread", async () => {
+  it("sends one message with the picked participant in recipients[] and navigates", async () => {
     sendMessageMock.mockResolvedValueOnce({
       threadId: "thread-1",
       messageId: "msg-1",
@@ -222,71 +222,52 @@ describe("NewEngagementForm — submit", () => {
       expect(sendMessageMock).toHaveBeenCalledTimes(1);
     });
     expect(sendMessageMock).toHaveBeenCalledWith({
-      to: { scheme: "unit", path: "engineering" },
+      to: null,
       type: "Domain",
       threadId: null,
       payload: "Kick off the work.",
+      recipients: [{ scheme: "unit", path: "engineering" }],
     });
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith("/engagement/thread-1");
     });
   });
 
-  it("fans the seed out to additional participants under the same thread (1:M)", async () => {
-    sendMessageMock
-      .mockResolvedValueOnce({ threadId: "thread-7", messageId: "m-1" })
-      .mockResolvedValueOnce({ threadId: "thread-7", messageId: "m-2" });
+  it("sends ONE message carrying every picked participant in recipients[] — no per-recipient loop (#2887)", async () => {
+    // #2887 / #2890 — the form must POST a single send with the full recipient
+    // set; the server resolves one shared thread from {sender} ∪ recipients
+    // and fans out. The previous client looped one POST per recipient, and the
+    // old test forced both calls to echo the same stubbed threadId — so it
+    // proved the loop, never a real shared thread. Asserting a SINGLE call
+    // carrying all recipients is the real client contract: a regression back
+    // to looping (or dropping a recipient) fails this test.
+    sendMessageMock.mockResolvedValueOnce({
+      threadId: "thread-7",
+      messageId: "m-1",
+    });
     renderForm();
     fireEvent.click(screen.getByTestId("engagement-new-pick-unit-engineering"));
     fireEvent.click(screen.getByTestId("engagement-new-pick-agent-ada"));
     fireEvent.change(screen.getByTestId("engagement-new-body"), {
-      target: { value: "Multi-cast hello." },
+      target: { value: "Multi-party hello." },
     });
     fireEvent.click(screen.getByTestId("engagement-new-submit"));
 
     await waitFor(() => {
-      expect(sendMessageMock).toHaveBeenCalledTimes(2);
+      expect(sendMessageMock).toHaveBeenCalledTimes(1);
     });
-    // First call: seed to engineering with no threadId.
-    expect(sendMessageMock).toHaveBeenNthCalledWith(1, {
-      to: { scheme: "unit", path: "engineering" },
+    expect(sendMessageMock).toHaveBeenCalledWith({
+      to: null,
       type: "Domain",
       threadId: null,
-      payload: "Multi-cast hello.",
-    });
-    // Second call: same threadId echoed to ada.
-    expect(sendMessageMock).toHaveBeenNthCalledWith(2, {
-      to: { scheme: "agent", path: "ada" },
-      type: "Domain",
-      threadId: "thread-7",
-      payload: "Multi-cast hello.",
+      payload: "Multi-party hello.",
+      recipients: [
+        { scheme: "unit", path: "engineering" },
+        { scheme: "agent", path: "ada" },
+      ],
     });
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith("/engagement/thread-7");
     });
-  });
-
-  it("surfaces a partial-fanout warning toast but still navigates on first-success", async () => {
-    sendMessageMock
-      .mockResolvedValueOnce({ threadId: "thread-9", messageId: "m-1" })
-      .mockRejectedValueOnce(new Error("Permission denied for agent://ada"));
-    renderForm();
-    fireEvent.click(screen.getByTestId("engagement-new-pick-unit-engineering"));
-    fireEvent.click(screen.getByTestId("engagement-new-pick-agent-ada"));
-    fireEvent.change(screen.getByTestId("engagement-new-body"), {
-      target: { value: "Try anyway." },
-    });
-    fireEvent.click(screen.getByTestId("engagement-new-submit"));
-
-    await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/engagement/thread-9");
-    });
-    expect(
-      toastMock.mock.calls.some(([arg]) =>
-        /some participants did not receive/i.test(
-          (arg as { title?: string })?.title ?? "",
-        ),
-      ),
-    ).toBe(true);
   });
 });

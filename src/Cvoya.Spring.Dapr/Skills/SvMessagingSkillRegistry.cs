@@ -57,6 +57,9 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
     /// <summary>Tool name for <c>sv.messaging.multicast</c>.</summary>
     public const string MulticastTool = "sv.messaging.multicast";
 
+    /// <summary>Tool name for <c>sv.messaging.respond_to</c>.</summary>
+    public const string RespondToTool = "sv.messaging.respond_to";
+
     private readonly MessagingToolHandlers _handlers;
     private readonly ITenantContext _tenantContext;
     private readonly ILogger _logger;
@@ -83,6 +86,11 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
                 MulticastTool,
                 SchemaDescription(LoadSchema(assembly, "sv.messaging.multicast.input.schema.json")),
                 LoadSchema(assembly, "sv.messaging.multicast.input.schema.json"),
+                ToolCategories.Messaging),
+            new ToolDefinition(
+                RespondToTool,
+                SchemaDescription(LoadSchema(assembly, "sv.messaging.respond_to.input.schema.json")),
+                LoadSchema(assembly, "sv.messaging.respond_to.input.schema.json"),
                 ToolCategories.Messaging),
         };
     }
@@ -112,6 +120,7 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         {
             SendTool => InvokeSendAsync(arguments, context, cancellationToken),
             MulticastTool => InvokeMulticastAsync(arguments, context, cancellationToken),
+            RespondToTool => InvokeRespondToAsync(arguments, context, cancellationToken),
             _ => throw new SkillNotFoundException(toolName),
         };
     }
@@ -162,6 +171,34 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
             cancellationToken);
 
         return SerializeMulticastResult(result);
+    }
+
+    private async Task<JsonElement> InvokeRespondToAsync(
+        JsonElement arguments,
+        ToolCallContext context,
+        CancellationToken cancellationToken)
+    {
+        var caller = ResolveCaller(context);
+        if (!TryGetStringArgument(arguments, "message_id", out var messageIdValue)
+            || !GuidFormatter.TryParse(messageIdValue, out var targetMessageId))
+        {
+            throw new ArgumentException(
+                "sv.messaging.respond_to requires a 'message_id' string naming a message you received " +
+                "(the `message_id` from an inbound envelope).");
+        }
+
+        var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
+        var message = BuildMessage(caller, ExtractMessagePayload(arguments));
+
+        var result = await _handlers.HandleRespondToAsync(
+            caller,
+            _tenantContext.CurrentTenantId,
+            targetMessageId,
+            message,
+            reason,
+            cancellationToken);
+
+        return SerializeSendResult(result);
     }
 
     private static (IReadOnlyList<Address>? Recipients, MulticastScope? Scope) ParseRecipientsAndScope(

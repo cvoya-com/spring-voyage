@@ -32,6 +32,13 @@ using Microsoft.Extensions.DependencyInjection;
 /// the runtime sees the participants and asks for shared history via
 /// <c>sv.memory.history_with(participants=[…])</c>.
 /// </para>
+/// <para>
+/// The envelope carries both <c>to</c> (the recipients the sender targeted,
+/// receiver included, sender excluded) and <c>participants</c> (the full
+/// routable roster of the conversation, ADR-0064). <c>participants</c> is
+/// the set <c>sv.messaging.respond_to</c> delivers to, so the runtime can
+/// continue the conversation without reconstructing the roster itself.
+/// </para>
 /// </summary>
 internal static class InboundEnvelopeBuilder
 {
@@ -47,18 +54,29 @@ internal static class InboundEnvelopeBuilder
     /// </param>
     /// <param name="recipientParticipants">
     /// The non-sender participants of the thread the message was
-    /// delivered on. For <c>sv.messaging.send</c> this is every recipient
-    /// (so any one recipient sees the others); for
-    /// <c>sv.messaging.multicast</c> it is just the single recipient. The
-    /// runtime's own address always appears here when it is a recipient.
+    /// delivered on — the envelope's <c>to</c> field. For
+    /// <c>sv.messaging.send</c> this is every recipient (so any one
+    /// recipient sees the others); for <c>sv.messaging.multicast</c> it is
+    /// just the single recipient. The runtime's own address always appears
+    /// here when it is a recipient.
+    /// </param>
+    /// <param name="participants">
+    /// The full <b>routable</b> roster of the conversation (ADR-0064):
+    /// <c>to</c> together with the sender when the sender is itself routable
+    /// — "everyone you could reach here". Always includes the receiving
+    /// runtime; never includes a non-routable origin (a <c>connector://</c>
+    /// sender appears in <c>from</c> only). This is the set
+    /// <c>sv.messaging.respond_to</c> delivers to.
     /// </param>
     public static string Render(
         Message inbound,
         string? senderDisplayName,
-        IReadOnlyList<Address> recipientParticipants)
+        IReadOnlyList<Address> recipientParticipants,
+        IReadOnlyList<Address> participants)
     {
         ArgumentNullException.ThrowIfNull(inbound);
         ArgumentNullException.ThrowIfNull(recipientParticipants);
+        ArgumentNullException.ThrowIfNull(participants);
 
         var payloadText = MessagePayloadText.Extract(inbound.Payload);
         var fromRendered = string.IsNullOrWhiteSpace(senderDisplayName)
@@ -72,6 +90,9 @@ internal static class InboundEnvelopeBuilder
         sb.Append("- to: [")
             .Append(string.Join(", ", recipientParticipants.Select(a => a.ToString())))
             .AppendLine("]");
+        sb.Append("- participants: [")
+            .Append(string.Join(", ", participants.Select(a => a.ToString())))
+            .AppendLine("]");
         sb.Append("- message_id: ").AppendLine(GuidFormatter.Format(inbound.Id));
         sb.Append("- timestamp: ").AppendLine(
             inbound.Timestamp.ToString("O", CultureInfo.InvariantCulture));
@@ -80,12 +101,14 @@ internal static class InboundEnvelopeBuilder
         sb.AppendLine(RenderPayloadForHeader(payloadText, inbound.Payload));
         sb.AppendLine();
         sb.AppendLine("```json");
-        sb.AppendLine(RenderEnvelopeJson(inbound, senderDisplayName, recipientParticipants));
+        sb.AppendLine(RenderEnvelopeJson(inbound, senderDisplayName, recipientParticipants, participants));
         sb.AppendLine("```");
         sb.AppendLine();
         sb.AppendLine(
-            "Decide what to do. To send a message in response, call `sv.messaging.send` with the recipient address(es) and body. " +
-            "stdout text is a diagnostic reasoning trace only — no participant sees it.");
+            "Decide what to do. To continue this conversation with everyone here, call " +
+            "`sv.messaging.respond_to` with this `message_id` and your body. To start a new " +
+            "conversation or address a different set, call `sv.messaging.send` with the recipient " +
+            "address(es) and body. stdout text is a diagnostic reasoning trace only — no participant sees it.");
 
         return sb.ToString();
     }
@@ -116,7 +139,8 @@ internal static class InboundEnvelopeBuilder
     private static string RenderEnvelopeJson(
         Message inbound,
         string? senderDisplayName,
-        IReadOnlyList<Address> recipientParticipants)
+        IReadOnlyList<Address> recipientParticipants,
+        IReadOnlyList<Address> participants)
     {
         using var stream = new System.IO.MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -132,6 +156,13 @@ internal static class InboundEnvelopeBuilder
             foreach (var recipient in recipientParticipants)
             {
                 writer.WriteStringValue(recipient.ToString());
+            }
+            writer.WriteEndArray();
+            writer.WritePropertyName("participants");
+            writer.WriteStartArray();
+            foreach (var participant in participants)
+            {
+                writer.WriteStringValue(participant.ToString());
             }
             writer.WriteEndArray();
             writer.WriteString("message_id", GuidFormatter.Format(inbound.Id));
@@ -161,10 +192,12 @@ public interface IInboundEnvelopeResolver
 /// Default <see cref="IInboundEnvelopeResolver"/>: resolves the sender's
 /// display name via <see cref="IDirectoryService"/> (gracefully falling
 /// back to <c>null</c> when the sender has no directory row — typical for
-/// connectors) and the recipient participant set from
-/// <see cref="IThreadRegistry"/>, excluding the sender. Both lookups
-/// happen inside a fresh DI scope per call so the resolver itself can
-/// live as a singleton alongside the dispatcher.
+/// connectors) and the thread participant set from
+/// <see cref="IThreadRegistry"/>. Derives both the <c>to</c> field (the
+/// thread participants minus the sender) and the routable
+/// <c>participants</c> roster (ADR-0064). Both lookups happen inside a
+/// fresh DI scope per call so the resolver itself can live as a singleton
+/// alongside the dispatcher.
 /// </summary>
 public sealed class InboundEnvelopeResolver(
     IServiceScopeFactory scopeFactory) : IInboundEnvelopeResolver
@@ -181,40 +214,63 @@ public sealed class InboundEnvelopeResolver(
         var senderEntry = await directoryService
             .ResolveAsync(inbound.From, cancellationToken);
 
-        var recipientParticipants = await ResolveRecipientsAsync(
+        var (recipientParticipants, participants) = await ResolveParticipantsAsync(
             threadRegistry, inbound, cancellationToken);
 
         return InboundEnvelopeBuilder.Render(
             inbound,
             senderEntry?.DisplayName,
-            recipientParticipants);
+            recipientParticipants,
+            participants);
     }
 
-    private static async Task<IReadOnlyList<Address>> ResolveRecipientsAsync(
-        IThreadRegistry threadRegistry, Message inbound, CancellationToken ct)
+    /// <summary>
+    /// Resolves the two participant projections the envelope needs from the
+    /// thread's persisted participant set (#2596 / ADR-0030):
+    /// <list type="bullet">
+    ///   <item><description><c>to</c> — the thread participants minus the
+    ///   sender: the recipients the original sender targeted, the receiver
+    ///   among them.</description></item>
+    ///   <item><description><c>participants</c> — the full <b>routable</b>
+    ///   roster (ADR-0064): every routable thread member (agent / unit /
+    ///   human), so the receiver and the routable sender are both present;
+    ///   a non-routable origin (a <c>connector://</c> sender) is excluded —
+    ///   it appears in <c>from</c> only.</description></item>
+    /// </list>
+    /// When the thread can't be resolved (race during create, mismatched id)
+    /// both fall back to this hop's addresses so the envelope is still
+    /// useful.
+    /// </summary>
+    private static async Task<(IReadOnlyList<Address> To, IReadOnlyList<Address> Participants)>
+        ResolveParticipantsAsync(
+            IThreadRegistry threadRegistry, Message inbound, CancellationToken ct)
     {
-        // The thread's persisted participant set names every party that
-        // belongs on this conversation (#2596 / ADR-0030). Subtracting the
-        // sender yields the recipients the original sender targeted — the
-        // value the agent needs in the envelope's `to` field. When the
-        // thread can't be resolved (race during create, mismatched id) we
-        // fall back to the per-hop recipient so the envelope is still
-        // useful.
         if (!string.IsNullOrWhiteSpace(inbound.ThreadId))
         {
             var entry = await threadRegistry.ResolveAsync(inbound.ThreadId, ct);
             if (entry is { Participants.Count: > 0 })
             {
                 var senderKey = inbound.From.ToString();
-                var recipients = entry.Participants
+                var to = entry.Participants
                     .Where(a => !string.Equals(a.ToString(), senderKey, StringComparison.Ordinal))
                     .ToList();
-                if (recipients.Count > 0)
+                if (to.Count > 0)
                 {
-                    return recipients;
+                    var participants = entry.Participants
+                        .Where(a => a.IsRoutable)
+                        .ToList();
+                    return (to, participants);
                 }
             }
         }
-        return new[] { inbound.To };
+
+        // Thread unresolved: fall back to this hop's recipient for `to`, and
+        // the routable parties of this hop for `participants`.
+        var fallbackTo = new[] { inbound.To };
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var fallbackParticipants = new[] { inbound.To, inbound.From }
+            .Where(a => a.IsRoutable && seen.Add(a.ToString()))
+            .ToList();
+        return (fallbackTo, fallbackParticipants);
     }
 }
