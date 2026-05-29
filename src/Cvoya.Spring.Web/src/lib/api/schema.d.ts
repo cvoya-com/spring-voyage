@@ -4355,12 +4355,13 @@ export interface components {
             versions: components["schemas"]["SecretVersionEntry"][];
         };
         SendMessageRequest: {
-            to: components["schemas"]["AddressDto"];
+            to: null | components["schemas"]["AddressDto"];
             type: string;
             threadId: null | string;
             payload: components["schemas"]["JsonElement"];
             /** Format: uuid */
             from?: null | string;
+            recipients?: null | components["schemas"]["AddressDto"][];
         };
         SetBudgetRequest: {
             /** Format: double */
