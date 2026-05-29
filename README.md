@@ -1,4 +1,4 @@
-# Spring Voyage
+# Spring Voyage - A CVOYA project
 
 [![CI](https://github.com/cvoya-com/spring-voyage/actions/workflows/ci.yml/badge.svg)](https://github.com/cvoya-com/spring-voyage/actions/workflows/ci.yml)
 [![GitHub release](https://img.shields.io/github/v/release/cvoya-com/spring-voyage)](https://github.com/cvoya-com/spring-voyage/releases/latest)
@@ -13,6 +13,10 @@
 An open-source collaboration platform for teams of AI agents — and the humans they work with. Built on .NET and Dapr. Agents organize into composable **units**, connect to external systems through pluggable **connectors**, and communicate via typed **messages**. Orchestration is one mechanism inside a unit, not the whole of the platform.
 
 Project home: [spring.voyage](https://spring.voyage).
+
+## About
+
+Spring Voyage is developed by [Cvoya](https://cvoya.com) and led by [Savas Parastatidis](https://savas.me). For news, examples, and the wider project, visit [spring.voyage](https://spring.voyage).
 
 ## Vision
 
@@ -148,10 +152,6 @@ cd spring-voyage
 ```
 
 Prerequisites (.NET 10 SDK, Dapr CLI, Podman, PostgreSQL, Redis; optional Node.js / Python) and the local-dev loop are in [docs/developer/setup.md](docs/developer/setup.md). Architecture, project layout, and where to put new code are in [docs/developer/overview.md](docs/developer/overview.md). Operators do not need to clone the repository; the installer is the supported install path.
-
-## About
-
-Spring Voyage is developed by [Cvoya](https://cvoya.com) and led by [Savas Parastatidis](https://savas.me). For news, examples, and the wider project, visit [spring.voyage](https://spring.voyage).
 
 ## License
 
