@@ -19,19 +19,25 @@
 // This component is "use client" because it drives live SSE streaming,
 // TanStack Query hooks, and interactive composer state.
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Eye, MessageCircleQuestion } from "lucide-react";
 import { ApiErrorMessage } from "@/components/ui/api-error-message";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { RuntimeStatusBadge } from "@/components/runtime-status-badge";
-import { useThread, useCurrentUser, useInbox } from "@/lib/api/queries";
+import {
+  useThread,
+  useCurrentUser,
+  useInbox,
+  useCallerHumans,
+} from "@/lib/api/queries";
 import {
   addressOf,
   idOf,
   participantDisplayName,
   runtimeKindOf,
+  type AddressLike,
 } from "@/components/thread/role";
 import { EngagementTimeline } from "./engagement-timeline";
 import { EngagementComposer } from "./engagement-composer";
@@ -142,6 +148,7 @@ function EngagementDetailLoading() {
 export function EngagementDetail({ threadId }: EngagementDetailProps) {
   const threadQuery = useThread(threadId);
   const userQuery = useCurrentUser();
+  const callerHumansQuery = useCallerHumans();
   const inboxQuery = useInbox({ staleTime: 10_000 });
 
   // Composer mode: "information" (default) or "answer" (triggered by CTA).
@@ -155,18 +162,46 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
     [thread?.summary?.participants],
   );
 
-  // Determine whether the current authenticated human is a participant.
-  // #2082: identity is a typed Guid concept. The user profile exposes
-  // `id` (the actor's stable Guid); we compare against each participant's
-  // `id`, which the API guarantees alongside the display address. The
-  // pre-#2082 code compared `addressOf(p) === currentUser.address`, which
-  // silently misclassified the creator as an observer whenever the two
-  // rendering paths emitted different address shapes.
-  const currentUserId = userQuery.data?.id?.toLowerCase() ?? null;
-  const isParticipant = useMemo(() => {
-    if (!currentUserId) return false;
-    return participants.some((p) => idOf(p) === currentUserId);
-  }, [participants, currentUserId]);
+  // The set of Hat ids that resolve to "me" on this thread.
+  //
+  // #2888: an operator wears one Hat per unit (ADR-0062), so the Hat
+  // stamped on a unit-scoped thread — carried as the participant `id`,
+  // picked per-thread by TenantUserHumanResolver — differs from the
+  // auth-username Hat that `/auth/me` resolves. Gating "am I a
+  // participant?" on the lone `/me.id` (the pre-#2888 code) misclassified
+  // the operator as an observer on their own threads: observe banner, no
+  // composer, even where they were the literal sender. Gate on the
+  // caller's full bound-Hat set instead (`useCallerHumans()`, the same
+  // set powering the composer's "As…" selector). The `/auth/me` id is
+  // folded in as a floor so the check never narrows below the previous
+  // behaviour even if a bound Hat is momentarily absent from the set.
+  //
+  // #2082: identity is a typed Guid concept — compare on each
+  // participant's stable `id`, never on the display address (which has
+  // legitimately drifted between `scheme:<hex>` and `scheme:id:<hex>`).
+  const myHatIds = useMemo(() => {
+    const ids = new Set<string>();
+    const meId = userQuery.data?.id?.trim().toLowerCase();
+    if (meId) ids.add(meId);
+    for (const hat of callerHumansQuery.data ?? []) {
+      const hatId = hat.humanId?.trim().toLowerCase();
+      if (hatId) ids.add(hatId);
+    }
+    return ids;
+  }, [userQuery.data?.id, callerHumansQuery.data]);
+
+  const isMine = useCallback(
+    (p: AddressLike) => {
+      const id = idOf(p);
+      return id !== null && myHatIds.has(id);
+    },
+    [myHatIds],
+  );
+
+  const isParticipant = useMemo(
+    () => participants.some(isMine),
+    [participants, isMine],
+  );
 
   // Detect whether there's a pending question for this engagement in the inbox.
   // The inbox items carry `threadId` so we can match.
@@ -175,7 +210,11 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
     return inbox.some((item) => item.threadId === threadId);
   }, [inboxQuery.data, threadId]);
 
-  if (threadQuery.isPending || userQuery.isPending) {
+  if (
+    threadQuery.isPending ||
+    userQuery.isPending ||
+    callerHumansQuery.isPending
+  ) {
     return <EngagementDetailLoading />;
   }
 
@@ -198,16 +237,16 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
     );
   }
 
-  // Header label: display names of everyone except the current user.
-  // For observers (user not in participant list) we show every name so
-  // the header is meaningful. Names that fail to resolve to anything
-  // human-readable are dropped quietly rather than leaked as raw GUIDs
-  // — the previous fallback emitted strings like "agent:id:<uuid>",
-  // which is the bug tracked in #1630. #2082: filter by Guid identity
-  // rather than address string.
-  const otherParticipants = currentUserId
-    ? participants.filter((p) => idOf(p) !== currentUserId)
-    : participants;
+  // Header label: display names of everyone except the operator.
+  // For observers (none of the caller's Hats are participants) we show
+  // every name so the header is meaningful. Names that fail to resolve
+  // to anything human-readable are dropped quietly rather than leaked as
+  // raw GUIDs — the previous fallback emitted strings like
+  // "agent:id:<uuid>", which is the bug tracked in #1630. #2888: exclude
+  // every Hat that resolves to the operator (not just `/me.id`) so the
+  // operator's own unit-scoped sending Hat is not listed as a separate
+  // participant in the header.
+  const otherParticipants = participants.filter((p) => !isMine(p));
   const fallbackHeader =
     otherParticipants.length === 0
       ? "Just you"
