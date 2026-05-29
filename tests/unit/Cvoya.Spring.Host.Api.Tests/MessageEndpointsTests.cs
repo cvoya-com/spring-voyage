@@ -778,4 +778,92 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         messagesAfter.ShouldBe(messagesBefore);
         activityAfter.ShouldBe(activityBefore);
     }
+
+    [Fact]
+    public async Task SendMessage_MultiRecipient_CreatesOneSharedThreadWithAllParticipants()
+    {
+        // #2887 — a human-initiated multi-party send must yield ONE shared
+        // thread whose canonical participants are {sender} ∪ recipients, not
+        // a thread per recipient. Asserts the REAL persisted participant set
+        // resolved through IThreadRegistry, never a mocked threadId — the
+        // #2890 lesson (the prior portal test forced both POSTs to echo the
+        // same stubbed threadId and so proved nothing).
+        var ct = TestContext.Current.CancellationToken;
+
+        var unitId = new Guid("22222222-0000-0000-0000-0000000000a1");
+        var agentId = new Guid("11111111-0000-0000-0000-0000000000a1");
+
+        var unitEntry = new DirectoryEntry(
+            new Address("unit", unitId), unitId, "Magazine Director", "Unit", null, DateTimeOffset.UtcNow);
+        var agentEntry = new DirectoryEntry(
+            new Address("agent", agentId), agentId, "Fact Checker", "Agent", null, DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == unitId), Arg.Any<CancellationToken>())
+            .Returns(unitEntry);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == agentId), Arg.Any<CancellationToken>())
+            .Returns(agentEntry);
+
+        // Grant the operator Viewer on the unit so the endpoint precheck and
+        // the router gate both pass.
+        _factory.PermissionService.ResolveEffectivePermissionAsync(
+                Arg.Any<Address>(), unitId, Arg.Any<CancellationToken>())
+            .Returns(Cvoya.Spring.Dapr.Actors.PermissionLevel.Viewer);
+
+        Message? unitMsg = null;
+        Message? agentMsg = null;
+        var unit = Substitute.For<IAgent>();
+        unit.ReceiveAsync(Arg.Do<Message>(m => unitMsg = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        var agent = Substitute.For<IAgent>();
+        agent.ReceiveAsync(Arg.Do<Message>(m => agentMsg = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        _factory.AgentProxyResolver
+            .Resolve(Arg.Is<string>(s => string.Equals(s, "unit", StringComparison.OrdinalIgnoreCase)), unitId.ToString("N"))
+            .Returns(unit);
+        _factory.AgentProxyResolver
+            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)), agentId.ToString("N"))
+            .Returns(agent);
+
+        var request = new SendMessageRequest(
+            To: null,
+            Type: "Domain",
+            ThreadId: null,
+            Payload: JsonSerializer.SerializeToElement(new { Text = "good afternoon" }),
+            Recipients: new[]
+            {
+                new AddressDto("unit", unitId.ToString("N")),
+                new AddressDto("agent", agentId.ToString("N")),
+            });
+
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
+        body.ShouldNotBeNull();
+        body!.ThreadId.ShouldNotBeNullOrWhiteSpace();
+
+        // Both recipients received the SAME logical message on the SAME
+        // thread — one shared conversation, not two forked threads.
+        unitMsg.ShouldNotBeNull();
+        agentMsg.ShouldNotBeNull();
+        unitMsg!.ThreadId.ShouldBe(body.ThreadId);
+        agentMsg!.ThreadId.ShouldBe(body.ThreadId);
+        unitMsg.Id.ShouldBe(agentMsg.Id);
+
+        // The persisted thread's canonical participant set is {operator Hat,
+        // unit, agent} — resolved end-to-end through the real registry.
+        using var scope = _factory.Services.CreateScope();
+        var registry = scope.ServiceProvider.GetRequiredService<IThreadRegistry>();
+        var threadEntry = await registry.ResolveAsync(body.ThreadId!, ct);
+        threadEntry.ShouldNotBeNull();
+        var participantKeys = threadEntry!.Participants
+            .Select(p => $"{p.Scheme}:{p.Id:N}")
+            .ToList();
+        participantKeys.ShouldContain($"unit:{unitId:N}");
+        participantKeys.ShouldContain($"agent:{agentId:N}");
+        // The operator's resolved human:// Hat (the message From) is a participant too.
+        participantKeys.ShouldContain($"{unitMsg.From.Scheme}:{unitMsg.From.Id:N}");
+        threadEntry.Participants.Count.ShouldBe(3);
+    }
 }

@@ -101,7 +101,39 @@ public static class MessageEndpoints
             return Results.Problem(detail: $"Invalid message type: '{request.Type}'", statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var to = Address.For(request.To.Scheme, request.To.Path);
+        // #2887 — resolve the recipient set: exactly one of a single `To`
+        // (a 1-1 send or a reply on an existing thread) or `Recipients[]`
+        // (a multi-party send). A multi-party send resolves ONE shared thread
+        // from {sender} ∪ recipients below, mirroring sv.messaging.send, so
+        // every recipient lands on the same conversation instead of forking
+        // into per-recipient threads.
+        List<Address> recipients;
+        if (request.Recipients is { Count: > 0 })
+        {
+            if (request.To is not null)
+            {
+                return Results.Problem(
+                    detail: "Supply exactly one of 'to' or 'recipients', not both.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            recipients = new List<Address>(request.Recipients.Count);
+            foreach (var recipient in request.Recipients)
+            {
+                recipients.Add(Address.For(recipient.Scheme, recipient.Path));
+            }
+        }
+        else if (request.To is not null)
+        {
+            recipients = new List<Address> { Address.For(request.To.Scheme, request.To.Path) };
+        }
+        else
+        {
+            return Results.Problem(
+                detail: "Supply exactly one of 'to' or 'recipients'.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var messageId = Guid.NewGuid();
 
         // ADR-0062 § 3: Message.From must be a routable scheme
@@ -148,44 +180,78 @@ public static class MessageEndpoints
             from = callerAddress;
         }
 
-        // #2859: run the unit-permission gate BEFORE any persistence side-
-        // effect — thread-registry creation, activity-event emit, message
-        // envelope write. A forbidden send must leave the database
-        // completely clean (no `messages` row, no new `threads` row, no
-        // Activity event) so the Conversations / Engagements pages and the
-        // thread timeline don't surface phantom sends the recipient never
-        // received. The router runs its own gate (defence in depth for
-        // non-endpoint callers like connectors), but the persist sites
-        // above the router live in this handler, so the gate is hoisted
-        // here.
+        // The recipient set is a set: drop the sender (a human listing
+        // themselves) and any duplicates so the resolved thread and the
+        // fan-out match the caller's intent (mirrors HandleSendAsync's
+        // recipient dedupe).
+        var fromKey = from.ToString();
+        var seenRecipients = new HashSet<string>(StringComparer.Ordinal);
+        var dedupedRecipients = new List<Address>(recipients.Count);
+        foreach (var recipient in recipients)
+        {
+            var key = recipient.ToString();
+            if (string.Equals(key, fromKey, StringComparison.Ordinal))
+            {
+                continue;
+            }
+            if (seenRecipients.Add(key))
+            {
+                dedupedRecipients.Add(recipient);
+            }
+        }
+        recipients = dedupedRecipients;
+        if (recipients.Count == 0)
+        {
+            return Results.Problem(
+                detail: "The message has no recipients other than the sender.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // #2859: run the unit-permission gate for EVERY unit recipient BEFORE
+        // any persistence side-effect — thread-registry creation,
+        // activity-event emit, message envelope write. A forbidden send must
+        // leave the database completely clean (no `messages` row, no new
+        // `threads` row, no Activity event) so the Conversations /
+        // Engagements pages and the thread timeline don't surface phantom
+        // sends the recipient never received. The router runs its own gate
+        // (defence in depth for non-endpoint callers like connectors), but
+        // the persist sites above the router live in this handler, so the
+        // gate is hoisted here.
         //
         // Only Domain messages routed to unit:// destinations from a
         // permission-bearing principal (human:// or tenant-user://) need
         // the precheck. Control messages (HealthCheck / Cancel /
         // StatusQuery) and routings to other schemes pass through.
         if (messageType == MessageType.Domain
-            && string.Equals(to.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
             && (string.Equals(from.Scheme, Address.HumanScheme, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(from.Scheme, Address.TenantUserScheme, StringComparison.OrdinalIgnoreCase)))
         {
-            var unitEntry = await directoryService.ResolveAsync(to, cancellationToken);
-            if (unitEntry is null)
+            foreach (var recipient in recipients)
             {
-                return Results.Problem(
-                    detail: $"Address '{to.Scheme}://{to.Path}' not found",
-                    statusCode: StatusCodes.Status404NotFound);
-            }
+                if (!string.Equals(recipient.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
 
-            var permission = await permissionService.ResolveEffectivePermissionAsync(
-                from, unitEntry.ActorId, cancellationToken);
-            if (permission is null || (int)permission.Value < (int)PermissionLevel.Viewer)
-            {
-                // Match the router's PERMISSION_DENIED surface so the
-                // operator-visible 403 message is uniform regardless of
-                // which gate (endpoint precheck or router) caught it.
-                return Results.Problem(
-                    detail: $"Permission denied for address {to.Scheme}://{to.Path}",
-                    statusCode: StatusCodes.Status403Forbidden);
+                var unitEntry = await directoryService.ResolveAsync(recipient, cancellationToken);
+                if (unitEntry is null)
+                {
+                    return Results.Problem(
+                        detail: $"Address '{recipient.Scheme}://{recipient.Path}' not found",
+                        statusCode: StatusCodes.Status404NotFound);
+                }
+
+                var permission = await permissionService.ResolveEffectivePermissionAsync(
+                    from, unitEntry.ActorId, cancellationToken);
+                if (permission is null || (int)permission.Value < (int)PermissionLevel.Viewer)
+                {
+                    // Match the router's PERMISSION_DENIED surface so the
+                    // operator-visible 403 message is uniform regardless of
+                    // which gate (endpoint precheck or router) caught it.
+                    return Results.Problem(
+                        detail: $"Permission denied for address {recipient.Scheme}://{recipient.Path}",
+                        statusCode: StatusCodes.Status403Forbidden);
+                }
             }
         }
 
@@ -203,8 +269,15 @@ public static class MessageEndpoints
         {
             if (string.IsNullOrWhiteSpace(threadId))
             {
+                // #2887 — one shared thread for the whole send, keyed on the
+                // full participant set {sender} ∪ recipients. For a 1-1 send
+                // this is {from, to}; for a multi-party send every recipient
+                // resolves to the same thread so the conversation does not
+                // fork.
+                var participantSet = new List<Address>(recipients.Count + 1) { from };
+                participantSet.AddRange(recipients);
                 threadId = await threadRegistry.GetOrCreateAsync(
-                    new[] { from, to }, cancellationToken);
+                    participantSet, cancellationToken);
             }
             else if (!GuidFormatter.TryParse(threadId, out _))
             {
@@ -245,56 +318,74 @@ public static class MessageEndpoints
             }
         }
 
-        var message = new Message(
-            messageId,
-            from,
-            to,
-            messageType,
-            threadId,
-            request.Payload,
-            DateTimeOffset.UtcNow);
-
-        // ADR-0062 § 4: dual-stamp the audit envelope so the auth principal
-        // (the TenantUser that drove the send) is reconstructible from
-        // observation alone, alongside the routable `human://` From on the
-        // message. Best-effort: a publish failure must not block the send.
-        await OutboundMessageAuditEmitter.EmitAsync(
-            activityEventBus,
-            message,
-            callerAddress,
-            cancellationToken);
-
-        var result = await messageRouter.RouteAsync(message, cancellationToken);
-
-        if (!result.IsSuccess)
+        // Fan out one logical message (a single Message.Id) to every
+        // recipient on the shared thread (#2887). Mirrors sv.messaging.send:
+        // the persist is idempotent on Message.Id so a single row backs the
+        // conversation, and each RouteAsync delivers to one recipient's actor
+        // on the same thread. The audit envelope (ADR-0062 § 4) is emitted
+        // once for the logical send.
+        var auditEmitted = false;
+        Message? routedValue = null;
+        foreach (var recipient in recipients)
         {
-            var error = result.Error!;
-            return error.Code switch
+            var message = new Message(
+                messageId,
+                from,
+                recipient,
+                messageType,
+                threadId,
+                request.Payload,
+                DateTimeOffset.UtcNow);
+
+            // ADR-0062 § 4: dual-stamp the audit envelope so the auth
+            // principal (the TenantUser that drove the send) is
+            // reconstructible from observation alone, alongside the routable
+            // `human://` From on the message. Best-effort: a publish failure
+            // must not block the send.
+            if (!auditEmitted)
             {
-                "ADDRESS_NOT_FOUND" => Results.Problem(
-                    detail: error.Detail ?? error.Message,
-                    statusCode: StatusCodes.Status404NotFound),
-                "PERMISSION_DENIED" => Results.Problem(
-                    detail: error.Detail ?? error.Message,
-                    statusCode: StatusCodes.Status403Forbidden),
-                // #993: caller-side validation thrown by the destination
-                // actor surfaces as 400 with a stable `code` extension so
-                // clients can switch on it without parsing the message.
-                "CALLER_VALIDATION" => Results.Problem(
-                    title: "Bad Request",
-                    detail: error.Detail ?? error.Message,
-                    statusCode: StatusCodes.Status400BadRequest,
-                    extensions: new Dictionary<string, object?>
-                    {
-                        ["code"] = error.DetailCode,
-                    }),
-                _ => Results.Problem(
-                    detail: error.Message,
-                    statusCode: StatusCodes.Status502BadGateway),
-            };
+                await OutboundMessageAuditEmitter.EmitAsync(
+                    activityEventBus,
+                    message,
+                    callerAddress,
+                    cancellationToken);
+                auditEmitted = true;
+            }
+
+            var result = await messageRouter.RouteAsync(message, cancellationToken);
+
+            if (!result.IsSuccess)
+            {
+                var error = result.Error!;
+                return error.Code switch
+                {
+                    "ADDRESS_NOT_FOUND" => Results.Problem(
+                        detail: error.Detail ?? error.Message,
+                        statusCode: StatusCodes.Status404NotFound),
+                    "PERMISSION_DENIED" => Results.Problem(
+                        detail: error.Detail ?? error.Message,
+                        statusCode: StatusCodes.Status403Forbidden),
+                    // #993: caller-side validation thrown by the destination
+                    // actor surfaces as 400 with a stable `code` extension so
+                    // clients can switch on it without parsing the message.
+                    "CALLER_VALIDATION" => Results.Problem(
+                        title: "Bad Request",
+                        detail: error.Detail ?? error.Message,
+                        statusCode: StatusCodes.Status400BadRequest,
+                        extensions: new Dictionary<string, object?>
+                        {
+                            ["code"] = error.DetailCode,
+                        }),
+                    _ => Results.Problem(
+                        detail: error.Message,
+                        statusCode: StatusCodes.Status502BadGateway),
+                };
+            }
+
+            routedValue = result.Value;
         }
 
-        return Results.Ok(new MessageResponse(messageId, threadId, result.Value?.Payload));
+        return Results.Ok(new MessageResponse(messageId, threadId, routedValue?.Payload));
     }
 
     /// <summary>

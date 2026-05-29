@@ -16069,7 +16069,14 @@
         "type": "object",
         "properties": {
           "to": {
-            "$ref": "#/components/schemas/AddressDto"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AddressDto"
+              }
+            ]
           },
           "type": {
             "type": "string"
@@ -16089,6 +16096,15 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "recipients": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AddressDto"
+            }
           }
         }
       },
