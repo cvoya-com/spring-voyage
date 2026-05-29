@@ -301,13 +301,16 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.tag }}
 
-      - name: Extract changelog section
+      - name: Resolve release notes
         shell: bash
         run: |
           set -euo pipefail
-          notes="$(bash eng/release/extract-changelog-section.sh "Unreleased")"
+          # Body precedence: docs/releases/<version>.md → docs/releases/<base>.md
+          # → CHANGELOG [Unreleased]. See eng/release/resolve-release-notes.sh
+          # and docs/developer/releases.md § Release notes.
+          notes="$(bash eng/release/resolve-release-notes.sh "${RELEASE_VERSION}")"
           if [[ -z "$notes" ]]; then
-            echo "::warning::## [Unreleased] section in CHANGELOG.md is empty — release notes will be empty."
+            echo "::warning::Resolved release notes are empty (no docs/releases/${RELEASE_VERSION}.md, no release-line file, and an empty CHANGELOG [Unreleased])."
           fi
           # Write to a temp file so multiline content survives shell quoting
           # and the GITHUB_OUTPUT 256 KB limit.
