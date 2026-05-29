@@ -2116,8 +2116,8 @@ export default function CreateUnitPage() {
                           )}
                         </span>
                         <span className="flex-1">
-                          <span className="font-medium font-mono">
-                            {pkg.name}
+                          <span className="font-medium">
+                            {pkg.displayName ?? pkg.name}
                           </span>
                           {pkg.description && (
                             <span className="block text-xs text-muted-foreground">
