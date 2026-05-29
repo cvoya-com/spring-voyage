@@ -76,6 +76,7 @@ Owning registry: [`SvMessagingSkillRegistry`](../../src/Cvoya.Spring.Dapr/Skills
 | --- | --- |
 | `sv.messaging.send` | Send a one-way message to one or more recipients on a single shared thread. |
 | `sv.messaging.multicast` | Send the same message to several recipients, each on its own independent 1-1 thread. |
+| `sv.messaging.respond_to` | Continue the conversation a message belongs to — deliver to its current routable participants (minus the caller) on the same thread, addressed by `message_id` (ADR-0064). |
 
 ### `sv.progress.*` — turn-progress instrumentation
 
@@ -138,7 +139,7 @@ Owning registry: [`WebSearchSkillRegistry`](../../src/Cvoya.Spring.Connector.Web
 
 ## How the platform-contract layer relates to this doc
 
-The system-prompt platform-contract layer (rendered by `PlatformPromptProvider`) names the **fundamental-core** subset every agent sees in the prompt by default — `sv.messaging.send`, `sv.messaging.multicast`, `sv.memory.history_with`, `sv.memory.engagements`, `sv.memory.search_messages`, `sv.directory.list`, `sv.directory.lookup`, `sv.progress.report`, `sv.tools.list_categories`, `sv.tools.list`. That snippet is intentionally narrower than this doc — it names the seven-or-so tools an agent reading the prompt cold needs to know about to participate, and points at `sv.tools.list_categories` / `sv.tools.list(<category>)` for everything else. This doc is the union; the snippet is the surface delivered in-prompt.
+The system-prompt platform-contract layer (rendered by `PlatformPromptProvider`) names the **fundamental-core** subset every agent sees in the prompt by default — `sv.messaging.send`, `sv.messaging.multicast`, `sv.messaging.respond_to`, `sv.memory.history_with`, `sv.memory.engagements`, `sv.memory.search_messages`, `sv.directory.list`, `sv.directory.lookup`, `sv.progress.report`, `sv.tools.list_categories`, `sv.tools.list`. That snippet is intentionally narrower than this doc — it names the seven-or-so tools an agent reading the prompt cold needs to know about to participate, and points at `sv.tools.list_categories` / `sv.tools.list(<category>)` for everything else. This doc is the union; the snippet is the surface delivered in-prompt.
 
 A test (`PlatformPromptProviderCatalogCoversNamedToolsTests`) pins that the catalog-snippet's tool names are a subset of the doc's full inventory so the snippet cannot drift into naming a tool the platform does not actually register.
 
