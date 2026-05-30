@@ -103,8 +103,11 @@ require() {
 load_env() {
     if [[ -f "${ENV_FILE}" ]]; then
         set -a
+        # Exclude the GitHub connector credentials (GitHub__*): they are
+        # container-only, and the multi-word PEM would otherwise break `source`
+        # ("RSA: command not found"). The dispatcher needs only SPRING_* here.
         # shellcheck disable=SC1090
-        source "${ENV_FILE}"
+        source <(grep -v '^GitHub__' "${ENV_FILE}")
         set +a
     fi
 }
