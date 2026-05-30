@@ -1032,6 +1032,26 @@ start_caddy() {
     # with a reverse proxy or terminate TLS upstream in that case.
     local caddy_http_port="${CADDY_HTTP_PORT:-80}"
     local caddy_https_port="${CADDY_HTTPS_PORT:-443}"
+    # Rootless Podman cannot bind privileged host ports (below the kernel's
+    # net.ipv4.ip_unprivileged_port_start, default 1024). Fail with actionable
+    # guidance instead of the opaque "rootlessport cannot expose privileged
+    # port" error Podman emits at bind time. Linux + rootless only — macOS
+    # forwards host ports through the podman-machine VM, and rootful binds are
+    # unrestricted. install.sh resolves this in its pre-flight; this guard
+    # covers standalone `deploy.sh up` and the from-source setup.sh path.
+    if [[ "$(uname -s)" == "Linux" && "$(id -u)" -ne 0 ]]; then
+        local unpriv_floor
+        unpriv_floor="$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null \
+                        || sysctl -n net.ipv4.ip_unprivileged_port_start 2>/dev/null || echo 1024)"
+        [[ "$unpriv_floor" =~ ^[0-9]+$ ]] || unpriv_floor=1024
+        if (( caddy_http_port < unpriv_floor || caddy_https_port < unpriv_floor )); then
+            local unpriv_target=$(( caddy_http_port < caddy_https_port ? caddy_http_port : caddy_https_port ))
+            die "rootless Podman cannot bind Caddy host ports ${caddy_http_port}/${caddy_https_port} (kernel allows unprivileged binds only from port ${unpriv_floor} up). Either:
+  A) lower the threshold (keeps ${caddy_http_port}/${caddy_https_port} + automatic TLS):
+       echo 'net.ipv4.ip_unprivileged_port_start=${unpriv_target}' | sudo tee /etc/sysctl.d/99-spring-voyage.conf && sudo sysctl --system
+  B) use high ports (no sudo): set CADDY_HTTP_PORT/CADDY_HTTPS_PORT (>= ${unpriv_floor}) in spring.env and rerun."
+        fi
+    fi
     run_container spring-caddy \
         --env-file "${RESOLVED_ENV_FILE}" \
         -p "${caddy_http_port}:80" -p "${caddy_https_port}:443" \

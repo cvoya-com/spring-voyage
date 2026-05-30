@@ -304,7 +304,9 @@ run_uninstall() {
 # Variant of run_install that DOES NOT pass SPRING_INSTALL_SKIP_PORT_CHECK so
 # port-conflict tests can exercise the real port-availability path. The caller
 # may pass SPRING_DISPATCHER_PORT to point the dispatcher check at a port the
-# test fixture controls.
+# test fixture controls, Mcp__Port / CADDY_HTTP_PORT / CADDY_HTTPS_PORT to
+# preset host ports, and SPRING_INSTALL_UNPRIV_PORT_START to pin the kernel's
+# unprivileged-port floor for the rootless privileged-port check (Cases 13-15).
 run_install_with_port_check() {
   local home_dir="$1"; shift
   local stub_dir="$1"; shift
@@ -314,6 +316,10 @@ run_install_with_port_check() {
     SPRING_FIXTURE_PODMAN_LOG="${home_dir}/.spring-voyage/podman.log" \
     SPRING_FIXTURE_CLI_LOG="${home_dir}/.spring-voyage/cli.log" \
     SPRING_DISPATCHER_PORT="${SPRING_DISPATCHER_PORT:-}" \
+    Mcp__Port="${Mcp__Port:-}" \
+    CADDY_HTTP_PORT="${CADDY_HTTP_PORT:-}" \
+    CADDY_HTTPS_PORT="${CADDY_HTTPS_PORT:-}" \
+    SPRING_INSTALL_UNPRIV_PORT_START="${SPRING_INSTALL_UNPRIV_PORT_START:-}" \
     PATH="${stub_dir}:${PATH}" \
     bash "${INSTALL_SH}" --yes "$@"
 }
@@ -591,10 +597,10 @@ time.sleep(30)
     else
       ok "install.sh refused install with dispatcher port ${TEST_DISPATCHER_PORT} bound"
     fi
-    if grep -q "already bound" "${TMP_BASE}/run11.out" && grep -q "${TEST_DISPATCHER_PORT}" "${TMP_BASE}/run11.out"; then
+    if grep -q "already in use" "${TMP_BASE}/run11.out" && grep -q "${TEST_DISPATCHER_PORT}" "${TMP_BASE}/run11.out"; then
       ok "output mentions the conflicting dispatcher port ${TEST_DISPATCHER_PORT}"
     else
-      bad "output missing 'already bound' or the port number"
+      bad "output missing 'already in use' or the port number"
       cat "${TMP_BASE}/run11.out" >&2
     fi
     kill "$LISTENER_PID" 2>/dev/null || true
@@ -777,6 +783,96 @@ for help_args in "--help" "-h" "help" ""; do
     cat "${TMP_BASE}/wrapper-help-${label}.out" >&2
   fi
 done
+
+# ===========================================================================
+# Case 13: rootless privileged port — --yes fails fast with both remedies
+# ===========================================================================
+# Floor pinned to 1024 via SPRING_INSTALL_UNPRIV_PORT_START; Caddy ports 81/444
+# are below it (and free on any host), so a rootless bind would fail. The
+# dispatcher/MCP checks are pushed to high free ports so only the privileged-
+# port path is under test. The uname stub reports Linux so the (Linux-only)
+# check engages.
+hdr "Case 13 — rootless privileged port fails fast under --yes"
+HOME_DIR_13="${TMP_BASE}/home-13"
+STUB_DIR_13="${TMP_BASE}/stub-13"
+mkdir -p "${HOME_DIR_13}"
+make_stub_path "${STUB_DIR_13}" "Linux" "x86_64"
+if SPRING_INSTALL_UNPRIV_PORT_START=1024 \
+   CADDY_HTTP_PORT=81 CADDY_HTTPS_PORT=444 \
+   SPRING_DISPATCHER_PORT=18190 Mcp__Port=18191 \
+   run_install_with_port_check "${HOME_DIR_13}" "${STUB_DIR_13}" --no-start \
+   >"${TMP_BASE}/run13.out" 2>&1; then
+  bad "install.sh succeeded with sub-floor Caddy ports; expected rootless fail-fast"
+else
+  ok "install.sh failed fast on the rootless privileged-port condition"
+fi
+if grep -q "ip_unprivileged_port_start" "${TMP_BASE}/run13.out" \
+   && grep -q "CADDY_HTTP_PORT=8080" "${TMP_BASE}/run13.out" \
+   && grep -q "sudo sysctl" "${TMP_BASE}/run13.out"; then
+  ok "fail-fast output offers both remedies (lower threshold + high ports)"
+else
+  bad "fail-fast output missing the privileged-port remedies"
+  cat "${TMP_BASE}/run13.out" >&2
+fi
+# The check is in pre-flight, before any download — nothing should be written.
+assert_path_absent "${HOME_DIR_13}/.spring-voyage/current"    "no current symlink after fail-fast"
+assert_path_absent "${HOME_DIR_13}/.spring-voyage/spring.env" "no spring.env written after fail-fast"
+
+# ===========================================================================
+# Case 14: operator-preset high ports bypass the privileged-port check
+# ===========================================================================
+hdr "Case 14 — preset high ports bypass the privileged-port check"
+HOME_DIR_14="${TMP_BASE}/home-14"
+STUB_DIR_14="${TMP_BASE}/stub-14"
+mkdir -p "${HOME_DIR_14}"
+make_stub_path "${STUB_DIR_14}" "Linux" "x86_64"
+if SPRING_INSTALL_UNPRIV_PORT_START=1024 \
+   CADDY_HTTP_PORT=18080 CADDY_HTTPS_PORT=18443 \
+   SPRING_DISPATCHER_PORT=18190 Mcp__Port=18191 \
+   run_install_with_port_check "${HOME_DIR_14}" "${STUB_DIR_14}" --no-start \
+   >"${TMP_BASE}/run14.out" 2>&1; then
+  ok "install.sh proceeds with preset high ports under a 1024 floor"
+else
+  bad "install.sh failed despite preset high Caddy ports"
+  cat "${TMP_BASE}/run14.out" >&2
+fi
+ENV_FILE_14="${HOME_DIR_14}/.spring-voyage/spring.env"
+assert_contains "${ENV_FILE_14}" "^CADDY_HTTP_PORT=18080$"  "spring.env pins preset CADDY_HTTP_PORT"
+assert_contains "${ENV_FILE_14}" "^CADDY_HTTPS_PORT=18443$" "spring.env pins preset CADDY_HTTPS_PORT"
+
+# ===========================================================================
+# Case 15: already-lowered floor leaves default 80/443 untouched
+# ===========================================================================
+hdr "Case 15 — already-lowered floor leaves default 80/443 untouched"
+HOME_DIR_15="${TMP_BASE}/home-15"
+STUB_DIR_15="${TMP_BASE}/stub-15"
+mkdir -p "${HOME_DIR_15}"
+make_stub_path "${STUB_DIR_15}" "Linux" "x86_64"
+# Floor already at 80 → default 80/443 are bindable; no remap, no prompt, and
+# no CADDY_*_PORT override should be written to spring.env.
+if SPRING_INSTALL_UNPRIV_PORT_START=80 \
+   CADDY_HTTP_PORT='' CADDY_HTTPS_PORT='' \
+   SPRING_DISPATCHER_PORT=18190 Mcp__Port=18191 \
+   run_install_with_port_check "${HOME_DIR_15}" "${STUB_DIR_15}" --no-start \
+   >"${TMP_BASE}/run15.out" 2>&1; then
+  ok "install.sh proceeds with default 80/443 when the floor is already low"
+else
+  bad "install.sh failed with default ports despite a low unprivileged floor"
+  cat "${TMP_BASE}/run15.out" >&2
+fi
+ENV_FILE_15="${HOME_DIR_15}/.spring-voyage/spring.env"
+if grep -qE "^CADDY_HTTP_PORT=" "${ENV_FILE_15}" 2>/dev/null; then
+  bad "spring.env should not pin CADDY_HTTP_PORT when default 80 is bindable"
+  cat "${ENV_FILE_15}" >&2
+else
+  ok "spring.env leaves CADDY_HTTP_PORT at its default (no override written)"
+fi
+if grep -q "bindable under rootless Podman" "${TMP_BASE}/run15.out"; then
+  ok "install confirms Caddy ports are bindable (floor satisfied)"
+else
+  bad "install did not confirm rootless bindability"
+  cat "${TMP_BASE}/run15.out" >&2
+fi
 
 # ===========================================================================
 # Summary

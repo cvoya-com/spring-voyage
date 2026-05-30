@@ -237,7 +237,12 @@ is set for the agent.
 
 Rootless notes:
 - Podman 4.4+ required.
-- Ports 80 and 443 need `CAP_NET_BIND_SERVICE` or `net.ipv4.ip_unprivileged_port_start` lowered.
+- Publishing ports 80/443 rootless requires the kernel's unprivileged-port floor lowered to cover them — a *free* port is not the same as a *bindable* one. `install.sh` detects this in its pre-flight and offers to fix it; for a standalone `deploy.sh up` / `setup.sh` run, lower it yourself once (persists across reboots):
+  ```
+  echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-spring-voyage.conf
+  sudo sysctl --system
+  ```
+  This keeps 80/443 and automatic Let's Encrypt. The no-sudo alternative is to publish on high ports (`CADDY_HTTP_PORT`/`CADDY_HTTPS_PORT` ≥ 1024 in `spring.env`), which disables automatic ACME — terminate TLS upstream in that case. (`setcap cap_net_bind_service` on the `rootlessport`/`pasta` helper also works but is wiped on Podman upgrade.)
 - `host.containers.internal` requires Podman 4.1+ on Linux; older versions get `--add-host` added automatically.
 
 See `eng/deploy/README.md` for per-user agent networks and webhook relay.
