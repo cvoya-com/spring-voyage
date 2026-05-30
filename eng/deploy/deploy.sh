@@ -671,6 +671,38 @@ start_postgres() {
         "${POSTGRES_IMAGE:-docker.io/library/postgres:17}"
 }
 
+verify_postgres_password() {
+    # Postgres sets its password only on the FIRST init of an empty data volume.
+    # If a stale spring-postgres-data volume survives a previous install while
+    # spring.env's POSTGRES_PASSWORD was regenerated, every *network* client
+    # (worker, api, the Dapr postgres components) fails scram auth with 28P01 and
+    # crash-loops — surfacing only as "spring-worker did not become healthy" ~180s
+    # later, with the real cause (28P01) buried in container logs. Catch it here,
+    # in seconds, with an actionable message.
+    #
+    # The probe MUST use the network path (host=spring-postgres): pg_hba grants
+    # local/127.0.0.1 'trust' (no password check), so a loopback probe passes even
+    # with the wrong password — the same trap that hides the mismatch from the
+    # local psql in repair_dapr_state_schema_drift below.
+    local user="${POSTGRES_USER:-spring}" db="${POSTGRES_DB:-spring}" i
+    for i in 1 2 3; do
+        if podman exec -e PGPASSWORD="${POSTGRES_PASSWORD:-}" spring-postgres \
+               psql -h spring-postgres -U "${user}" -d "${db}" -tAc 'select 1' >/dev/null 2>&1; then
+            return 0
+        fi
+        if (( i < 3 )); then sleep 1; fi
+    done
+    die "postgres rejected the configured POSTGRES_PASSWORD over the network (scram auth / 28P01).
+  The 'spring-postgres-data' volume was initialized with a different password — almost
+  certainly a stale volume left by a previous install whose POSTGRES_PASSWORD differed
+  (postgres only honors POSTGRES_PASSWORD on the first init of an empty data volume).
+  For a clean install, wipe the volume and retry:
+      deploy.sh clean        # removes containers + volumes (or: voyage uninstall --purge)
+      deploy.sh up
+  To keep the existing database instead, restore its original POSTGRES_PASSWORD in
+  ${ENV_FILE} so it matches the volume."
+}
+
 repair_dapr_state_schema_drift() {
     # Dapr's Postgres component defaults tableName/metadataTableName to
     # unqualified names. Because this deployment connects as user "spring",
@@ -1231,6 +1263,9 @@ cmd_up() {
 
     start_postgres
     wait_healthy spring-postgres 60
+    # Fail fast on a stale-volume password mismatch (network/scram auth) before
+    # the worker hits it and crash-loops for 180s. See verify_postgres_password.
+    verify_postgres_password
     repair_dapr_state_schema_drift
     start_redis
     wait_healthy spring-redis 30

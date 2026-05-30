@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Unit tests for deploy.sh preflight_up() — the fresh-host guards added during
-# the #2925 install/deploy audit:
-#   - macOS without a running podman machine
-#   - a missing locally-built platform image (build.sh / install.sh not run)
-#   - a host-published port already in use
-#   - rootless Podman unable to bind privileged Caddy ports (80/443)
+# Unit tests for deploy.sh's `deploy.sh up` guards — the fresh-host checks added
+# during the install/deploy audit:
+#   preflight_up():
+#     - macOS without a running podman machine
+#     - a missing locally-built platform image (build.sh / install.sh not run)
+#     - a host-published port already in use
+#     - rootless Podman unable to bind privileged Caddy ports (80/443)
+#   verify_postgres_password():
+#     - a stale spring-postgres-data volume whose password no longer matches
+#       spring.env (network scram 28P01 → worker crash-loop)
 #
 # Strategy mirrors test-deploy-dispatcher-rebuild.sh: source deploy.sh's
 # function definitions (minus its main dispatch), then stub `uname` / `podman`
@@ -27,9 +31,11 @@ sed '/^main "\$@"/d' "${DEPLOYMENT_DIR}/deploy.sh" >"${DEPLOY_LIB}"
 # shellcheck disable=SC1090
 source "${DEPLOY_LIB}"
 
-# Consumed by the sourced preflight_up(); shellcheck can't see that through the
-# dynamic `source`, so mark them as used (exported) to avoid SC2034.
+# Consumed by the sourced preflight_up() / verify_postgres_password(); shellcheck
+# can't see that through the dynamic `source`, so mark them used (exported) to
+# avoid SC2034.
 export SPRING_PLATFORM_IMAGE CADDY_HTTP_PORT CADDY_HTTPS_PORT Mcp__Port
+export POSTGRES_USER POSTGRES_DB POSTGRES_PASSWORD
 
 PASS=0
 FAIL=0
@@ -182,6 +188,41 @@ if run_preflight; then
     ok "Case 7: macOS with running machine + image + free ports passes"
 else
     bad "Case 7: should pass on a healthy macOS host"; cat "${TMP_DIR}/out"
+fi
+
+# podman stub for the postgres-auth probe: exit ${1} for any `... psql ...` call.
+make_podman_pg() {
+    cat >"${STUB}/podman" <<PODMAN
+#!/usr/bin/env bash
+case " \$* " in
+  *" psql "*) exit ${1} ;;
+esac
+exit 0
+PODMAN
+    chmod +x "${STUB}/podman"
+}
+
+# ---------------------------------------------------------------------------
+# Case 8: postgres rejects the network password (stale-volume scram mismatch)
+# ---------------------------------------------------------------------------
+make_uname Linux; make_podman_pg 1     # psql probe → fail (28P01)
+POSTGRES_USER="spring"; POSTGRES_DB="spring"; POSTGRES_PASSWORD="some-current-pw"
+if ( verify_postgres_password ) >"${TMP_DIR}/out" 2>&1; then
+    bad "Case 8: expected postgres-auth failure, got success"; cat "${TMP_DIR}/out"
+else
+    { grep -q "spring-postgres-data" "${TMP_DIR}/out" && grep -q "POSTGRES_PASSWORD" "${TMP_DIR}/out"; } \
+        && ok "Case 8: postgres password mismatch fails fast with wipe guidance" \
+        || { bad "Case 8: wrong failure message"; cat "${TMP_DIR}/out"; }
+fi
+
+# ---------------------------------------------------------------------------
+# Case 9: postgres accepts the network password → verify passes
+# ---------------------------------------------------------------------------
+make_podman_pg 0       # psql probe → success
+if ( verify_postgres_password ) >"${TMP_DIR}/out" 2>&1; then
+    ok "Case 9: matching postgres password passes verify"
+else
+    bad "Case 9: should pass when postgres accepts the password"; cat "${TMP_DIR}/out"
 fi
 
 printf '\n  passed: %d\n  failed: %d\n' "${PASS}" "${FAIL}"
