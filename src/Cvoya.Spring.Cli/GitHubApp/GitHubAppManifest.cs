@@ -168,7 +168,7 @@ public static class GitHubAppManifest
     /// isn't publicly reachable (even an inactive one), so a loopback hook is
     /// omitted from the manifest rather than failing the whole registration.
     /// </summary>
-    private static bool IsPubliclyReachableHook(string webhookUrl)
+    internal static bool IsPubliclyReachableHook(string webhookUrl)
     {
         if (!Uri.TryCreate(webhookUrl, UriKind.Absolute, out var uri))
         {
