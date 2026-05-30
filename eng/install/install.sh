@@ -164,6 +164,10 @@ require_tool curl    "Install curl via your system package manager and rerun."
 require_tool tar     "Install tar via your system package manager and rerun."
 require_tool openssl "Install openssl via your system package manager and rerun."
 require_tool podman  "Install Podman 4+ (https://podman.io/) and rerun."
+# envsubst (gettext) is required by the bundle's deploy.sh (it expands ${VAR}
+# references in spring.env before passing it to podman). Checking it here avoids
+# a late failure at `deploy.sh up`, after the archive download and image pull.
+require_tool envsubst "Install gettext (Debian/Ubuntu: apt-get install gettext-base; macOS: brew install gettext) and rerun."
 
 # Podman 4+ required (rootless networking, host.containers.internal).
 podman_version="$(podman version --format '{{.Client.Version}}' 2>/dev/null || podman version | awk '/^Version:/{print $2; exit}')"
@@ -280,12 +284,16 @@ fi
 # `deploy.sh up`.
 
 # 0 = a process is listening, 1 = free, 2 = could not determine (no tool).
+# Prefer ss: it lists every listener from the kernel table regardless of owner,
+# so a non-root run still sees root-owned listeners (e.g. a system reverse proxy
+# on 80/443). lsof as a non-root user cannot see other users' sockets and would
+# report such a port free.
 port_in_use() {
   local port="$1"
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1 && return 0 || return 1
-  elif command -v ss >/dev/null 2>&1; then
+  if command -v ss >/dev/null 2>&1; then
     ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$" && return 0 || return 1
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1 && return 0 || return 1
   elif command -v netstat >/dev/null 2>&1; then
     netstat -an 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$" && return 0 || return 1
   fi
@@ -293,12 +301,16 @@ port_in_use() {
 }
 
 # Scan upward from $1 for a port nothing is listening on (best-effort; an
-# "unknown" result counts as free since we cannot prove otherwise).
+# "unknown" result counts as free since we cannot prove otherwise). The scan is
+# clamped to min_bindable_port, so on a rootless host it never returns a port
+# below the kernel's unprivileged floor (free but unbindable).
 next_free_port() {
-  local p="$1" i status
+  local p="$1" i status floor
+  floor="$(min_bindable_port)"
+  (( p < floor - 1 )) && p=$(( floor - 1 ))
   for (( i = 0; i < 200; i++ )); do
     p=$(( p + 1 ))
-    (( p > 65535 )) && p=1025
+    (( p > 65535 )) && p="$floor"
     status=0; port_in_use "$p" || status=$?
     (( status != 0 )) && { printf '%s' "$p"; return 0; }
   done
@@ -310,6 +322,32 @@ free_port_at_or_above() {
   local p="$1" status=0
   port_in_use "$p" || status=$?
   if (( status == 0 )); then next_free_port "$p"; else printf '%s' "$p"; fi
+}
+
+# Lowest host port a rootless publish can actually bind: on Linux the kernel's
+# unprivileged-port floor, elsewhere (macOS podman-machine) 1 — no such limit.
+# Keeps port suggestions bindable.
+min_bindable_port() {
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    local f; f="$(unprivileged_port_start)"
+    [[ "$f" =~ ^[0-9]+$ ]] && { printf '%s' "$f"; return 0; }
+  fi
+  printf '1'
+}
+
+# Suggest a free, bindable port when `candidate` (configured default `default`)
+# is taken. For a privileged default on a rootless host, jump to the conventional
+# high alternative (80->8080, 443->8443) — nearby low ports are also unbindable;
+# otherwise scan up from the candidate. Always >= the floor.
+suggest_port() {
+  local candidate="$1" default="$2"
+  local floor; floor="$(min_bindable_port)"
+  local base=$(( candidate + 1 ))
+  if (( default < floor )); then
+    base=$(( default + 8000 ))
+    (( base < floor )) && base="$floor"
+  fi
+  free_port_at_or_above "$base"
 }
 
 # ---------------------------------------------------------------------------
@@ -454,14 +492,14 @@ resolve_host_port() {
     return 0
   fi
 
-  # Candidate is in use.
+  # Candidate is in use — offer a free, bindable alternative.
+  local suggestion answer
+  suggestion="$(suggest_port "$candidate" "$default")"
   if [[ "$ASSUME_YES" -eq 1 ]] || { [[ ! -t 0 ]] && [[ ! -r /dev/tty ]]; }; then
-    fail "Port ${candidate} (${label}) is already in use. Free the service holding it, or set ${varname} to an open port and rerun — e.g. \`${varname}=<port> install.sh ...\` (or add \`${varname}=<port>\` to ${INSTALL_ROOT}/spring.env)."
+    fail "Port ${candidate} (${label}) is already in use. Set ${varname} to an open port and rerun — e.g. \`${varname}=${suggestion} install.sh ...\` (or add \`${varname}=${suggestion}\` to ${INSTALL_ROOT}/spring.env)."
   fi
 
   warn "Port ${candidate} (${label}) is already in use."
-  local suggestion answer
-  suggestion="$(next_free_port "$candidate")"
   while :; do
     printf '  %sNew %s port%s [%s]: ' "${BOLD}" "${label}" "${NC}" "${suggestion}" >&2
     if [[ -t 0 ]]; then
