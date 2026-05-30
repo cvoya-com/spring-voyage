@@ -5,17 +5,22 @@ namespace Cvoya.Spring.Cli.GitHubApp;
 
 using System;
 using System.Collections.Generic;
-using System.Text;
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 /// <summary>
-/// Builds the JSON payload that backs GitHub's
+/// Builds the JSON payload — and the auto-submitting HTML page — that back
+/// GitHub's
 /// <see href="https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest">
-/// App-from-manifest flow</see>. The manifest is POSTed to GitHub as a
-/// <c>manifest</c> form field on the creation URL — no authentication is
-/// involved until after the user confirms and GitHub redirects back with a
-/// one-time conversion code.
+/// App-from-manifest flow</see>. GitHub accepts the manifest <b>only</b> as a
+/// <c>manifest</c> form field on an HTTP <c>POST</c> to
+/// <c>/settings/apps/new</c>, carrying the <b>raw JSON</b> string. There is no
+/// supported <c>GET ?manifest=…</c> query-string variant — a browser opened at
+/// such a URL just renders the blank "create App" form, and the manifest is
+/// silently dropped. So the CLI serves a tiny local page whose form auto-POSTs
+/// the manifest (see <see cref="BuildAutoSubmitFormHtml"/>); the browser is
+/// pointed at that local page, not at github.com directly.
 /// </summary>
 /// <remarks>
 /// The permission and webhook-event sets MUST match what the shipped
@@ -63,10 +68,26 @@ public static class GitHubAppManifest
     /// unique on github.com — GitHub rejects name collisions at the
     /// conversion step with a specific error message.
     /// </summary>
+    /// <param name="Name">Globally-unique App name on github.com.</param>
+    /// <param name="WebhookUrl">The connector's webhook ingress URL (<c>hook_attributes.url</c>).</param>
+    /// <param name="RedirectUrl">
+    /// Where GitHub sends the browser (with the one-time <c>?code=</c>) after
+    /// the operator clicks <b>Create</b>. This is the CLI's <b>loopback</b>
+    /// listener — it exists only for the duration of the registration
+    /// handshake. Distinct from <see cref="OAuthCallbackUrl"/>.
+    /// </param>
+    /// <param name="OAuthCallbackUrl">
+    /// The deployment's user-to-server OAuth callback (<c>callback_urls</c>) —
+    /// where GitHub returns end users after they authorize the App at runtime.
+    /// Must match the connector's <c>GitHub__OAuth__RedirectUri</c>. When
+    /// <c>null</c> it falls back to <see cref="RedirectUrl"/> to preserve the
+    /// single-URL behaviour for callers that don't drive runtime OAuth.
+    /// </param>
     public sealed record Inputs(
         string Name,
         string WebhookUrl,
-        string CallbackUrl,
+        string RedirectUrl,
+        string? OAuthCallbackUrl = null,
         string? Description = null,
         string? HomepageUrl = null);
 
@@ -87,56 +108,95 @@ public static class GitHubAppManifest
         {
             throw new ArgumentException("Webhook URL is required.", nameof(inputs));
         }
-        if (string.IsNullOrWhiteSpace(inputs.CallbackUrl))
+        if (string.IsNullOrWhiteSpace(inputs.RedirectUrl))
         {
-            throw new ArgumentException("Callback URL is required.", nameof(inputs));
+            throw new ArgumentException("Redirect URL is required.", nameof(inputs));
         }
+
+        // redirect_url is the loopback (one-time conversion handshake);
+        // callback_urls is the deployment's runtime OAuth callback. They are
+        // genuinely different endpoints — only the legacy single-URL caller
+        // collapses them.
+        var oauthCallback = string.IsNullOrWhiteSpace(inputs.OAuthCallbackUrl)
+            ? inputs.RedirectUrl
+            : inputs.OAuthCallbackUrl;
 
         var manifest = new ManifestPayload(
             Name: inputs.Name,
             Url: inputs.HomepageUrl ?? "https://github.com/cvoya-com/spring-voyage",
             HookAttributes: new HookAttributes(Url: inputs.WebhookUrl, Active: true),
-            RedirectUrl: inputs.CallbackUrl,
-            CallbackUrls: new[] { inputs.CallbackUrl },
+            RedirectUrl: inputs.RedirectUrl,
+            CallbackUrls: new[] { oauthCallback },
             Description: inputs.Description
                 ?? "Spring Voyage GitHub connector — registered via `spring github-app register`.",
             Public: false,
             DefaultEvents: WebhookEvents,
             DefaultPermissions: Permissions);
 
-        // Use camelCase-preserving serialisation: GitHub's manifest schema
-        // is snake_case, which we declare explicitly on each property.
+        // GitHub's manifest schema is snake_case, declared explicitly on each
+        // property below.
         return JsonSerializer.Serialize(manifest, s_serializerOptions);
     }
 
     /// <summary>
-    /// Base64-encodes the manifest for inclusion as a query-string
-    /// parameter on GitHub's creation URL. GitHub expects a standard
-    /// UTF-8 JSON payload; the encoding protects against
-    /// shell/URL escape ambiguity in the manifest's embedded quotes.
-    /// </summary>
-    public static string BuildEncodedManifest(Inputs inputs)
-    {
-        var json = BuildJson(inputs);
-        return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
-    }
-
-    /// <summary>
-    /// Builds the absolute URL the CLI opens in the user's browser. When
+    /// Builds the GitHub endpoint the manifest form POSTs to. When
     /// <paramref name="org"/> is supplied the App is registered under the
-    /// org's settings instead of the authenticated user's account.
+    /// org's settings instead of the authenticated user's account. The
+    /// <paramref name="state"/> nonce is echoed back on GitHub's redirect so
+    /// the CLI can reject stray / forged callbacks (CSRF protection per
+    /// GitHub's docs).
     /// </summary>
-    public static string BuildCreationUrl(Inputs inputs, string? org = null)
+    public static string BuildPostActionUrl(string? org, string state)
     {
-        var encoded = BuildEncodedManifest(inputs);
-        // GitHub's own docs recommend POSTing a form containing the
-        // manifest. A query-string variant (`?manifest=<base64>`) is
-        // supported for one-shot links — that's what we use because the
-        // CLI is redirecting the user, not submitting a form.
         var prefix = string.IsNullOrWhiteSpace(org)
             ? "https://github.com/settings/apps/new"
             : $"https://github.com/organizations/{Uri.EscapeDataString(org)}/settings/apps/new";
-        return $"{prefix}?manifest={Uri.EscapeDataString(encoded)}";
+        return string.IsNullOrEmpty(state)
+            ? prefix
+            : $"{prefix}?state={Uri.EscapeDataString(state)}";
+    }
+
+    /// <summary>
+    /// Builds the self-contained HTML page the CLI's loopback listener serves
+    /// to the browser. The page carries the raw-JSON manifest in a hidden
+    /// <c>manifest</c> field and auto-submits a <c>POST</c> to GitHub — the
+    /// only delivery shape GitHub's manifest flow accepts. A visible
+    /// "Continue to GitHub" button is the no-JS fallback. After GitHub renders
+    /// the pre-filled create-App page and the operator clicks <b>Create</b>,
+    /// GitHub redirects back to <see cref="Inputs.RedirectUrl"/> (the same
+    /// loopback) with <c>?code=…&amp;state=…</c>.
+    /// </summary>
+    public static string BuildAutoSubmitFormHtml(Inputs inputs, string? org, string state)
+    {
+        // Raw JSON goes into a double-quoted attribute value; HtmlEncode
+        // escapes the embedded quotes (and &, <, >). The browser decodes it
+        // back to the exact JSON string when it submits the form, so GitHub
+        // receives the manifest verbatim.
+        var manifestAttr = WebUtility.HtmlEncode(BuildJson(inputs));
+        var actionAttr = WebUtility.HtmlEncode(BuildPostActionUrl(org, state));
+
+        return "<!doctype html>\n"
+            + "<html lang=\"en\">\n"
+            + "<head>\n"
+            + "  <meta charset=\"utf-8\">\n"
+            + "  <title>Spring Voyage — opening GitHub…</title>\n"
+            + "  <style>\n"
+            + "    body { font-family: system-ui, -apple-system, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem; color: #1f2328; }\n"
+            + "    h1 { font-size: 1.25rem; }\n"
+            + "    button { font: inherit; padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid #1f883d; background: #1f883d; color: #fff; cursor: pointer; }\n"
+            + "  </style>\n"
+            + "</head>\n"
+            + "<body>\n"
+            + "  <h1>Sending your GitHub App manifest to GitHub…</h1>\n"
+            + "  <p>You should be redirected to GitHub's pre-filled \"Create GitHub App\" page. "
+            + "If nothing happens, click the button below.</p>\n"
+            + "  <form id=\"sv-manifest-form\" method=\"post\" action=\"" + actionAttr + "\">\n"
+            + "    <input type=\"hidden\" name=\"manifest\" value=\"" + manifestAttr + "\">\n"
+            + "    <button type=\"submit\">Continue to GitHub &rarr;</button>\n"
+            + "  </form>\n"
+            + "  <script>document.getElementById('sv-manifest-form').submit();</script>\n"
+            + "</body>\n"
+            + "</html>\n";
     }
 
     // ----- DTO -----------------------------------------------------------

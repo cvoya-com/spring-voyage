@@ -38,9 +38,12 @@ public class GitHubAppCommandTests
 
         var output = stdout.ToString();
         output.ShouldContain("--dry-run");
-        output.ShouldContain("Manifest JSON:");
+        output.ShouldContain("Manifest JSON");
         output.ShouldContain("\"name\":\"Spring Voyage (dry)\"");
-        output.ShouldContain("https://github.com/settings/apps/new?manifest=");
+        // The dry-run prints GitHub's POST target (with the CSRF nonce), not a
+        // base64 ?manifest= GET URL — GitHub's manifest flow has no GET variant.
+        output.ShouldContain("https://github.com/settings/apps/new?state=");
+        output.ShouldNotContain("?manifest=");
     }
 
     [Fact]
@@ -59,7 +62,7 @@ public class GitHubAppCommandTests
             cancellationToken: CancellationToken.None,
             stdout: stdout);
 
-        stdout.ToString().ShouldContain("https://github.com/organizations/cvoya-com/settings/apps/new?manifest=");
+        stdout.ToString().ShouldContain("https://github.com/organizations/cvoya-com/settings/apps/new?state=");
     }
 
     [Fact]
@@ -111,28 +114,22 @@ public class GitHubAppCommandTests
 
         var stdout = new StringWriter();
 
-        // The browser-opener replacement triggers GitHub's redirect
-        // against our CLI listener. We can't know the CLI's ephemeral
-        // port here — but RunAsync binds the listener, bakes the URL
-        // containing that port, then invokes the opener with the full
-        // URL. So the opener can extract the port from the URL it was
-        // given and POST our canned `?code=...` back to that same port.
-        static async Task FakeBrowser(string creationUrl)
+        // The browser-opener replacement is handed the loopback page URL
+        // (http://127.0.0.1:<port>/). A real browser renders that page,
+        // auto-POSTs its manifest form to GitHub, and GitHub redirects back
+        // to the same loopback with ?code=&state=. We simulate that: fetch
+        // the served form, read the CSRF nonce off its POST action, then hit
+        // the loopback with the canned code + echoed state.
+        static async Task FakeBrowser(string localUrl)
         {
-            // The creation URL contains `redirect_url` encoded inside
-            // the base64 manifest. Easier to just re-parse the callback
-            // out of the manifest base64 payload.
-            var manifestBase64Encoded = creationUrl.Substring(creationUrl.IndexOf("manifest=", StringComparison.Ordinal) + "manifest=".Length);
-            var manifestBase64 = Uri.UnescapeDataString(manifestBase64Encoded);
-            var manifestJson = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(manifestBase64));
-            using var doc = System.Text.Json.JsonDocument.Parse(manifestJson);
-            var callback = doc.RootElement.GetProperty("redirect_url").GetString()!;
-
             // Small delay so the listener is blocked in GetContextAsync
-            // when the callback hits.
+            // when the requests hit.
             await Task.Delay(100);
             using var h = new HttpClient();
-            using var _ = await h.GetAsync($"{callback.TrimEnd('/')}/?code=happy-path-code");
+            var formHtml = await h.GetStringAsync(localUrl);
+            var state = System.Text.RegularExpressions.Regex
+                .Match(formHtml, "state=([0-9a-fA-F]+)").Groups[1].Value;
+            using var _ = await h.GetAsync($"{localUrl.TrimEnd('/')}/?code=happy-path-code&state={state}");
         }
 
         try
