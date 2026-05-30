@@ -265,6 +265,15 @@ exit 0
 PODMAN
   chmod +x "${stub_dir}/podman"
 
+  # envsubst stub — install.sh's pre-flight only checks presence (the bundle's
+  # deploy.sh, which actually uses envsubst, is stubbed in these tests). cat
+  # passthrough keeps it harmless if ever invoked.
+  cat > "${stub_dir}/envsubst" <<'ENVSUBST'
+#!/usr/bin/env bash
+cat
+ENVSUBST
+  chmod +x "${stub_dir}/envsubst"
+
   # Optional uname override for RID detection tests.
   if [[ -n "$fake_uname_s" ]]; then
     cat > "${stub_dir}/uname" <<UNAME
@@ -555,57 +564,50 @@ else
 fi
 
 # ===========================================================================
+# Deterministic host-port availability stub (used by Cases 11 and 13-15).
+# ===========================================================================
+# install.sh's port_in_use prefers lsof; this stub shadows it so a port reads
+# as "in use" iff it appears in the space-separated busy list (free otherwise),
+# making the port cases independent of the test host's real 80/443/5050 state
+# (and of whether python3 is installed).
+stub_ports() {
+  local dir="$1"; shift
+  local busy="$*"
+  cat > "${dir}/lsof" <<LSOF
+#!/usr/bin/env bash
+# install.sh calls: lsof -nP -iTCP:<port> -sTCP:LISTEN
+p=""
+for a in "\$@"; do case "\$a" in -iTCP:*) p="\${a#-iTCP:}";; esac; done
+for b in ${busy}; do [[ "\${p}" == "\${b}" ]] && exit 0; done
+exit 1
+LSOF
+  chmod +x "${dir}/lsof"
+}
+
+# ===========================================================================
 # Case 11: dispatcher port conflict fails install
 # ===========================================================================
-# We bind a TCP listener on a high free port and tell the installer to treat
-# that port as the dispatcher port (via SPRING_DISPATCHER_PORT). This avoids
-# colliding with 8090 if the developer machine has a real dispatcher running.
+# A controllable lsof stub marks the dispatcher port in use, so detection is
+# deterministic and independent of the host (and of python3 being installed).
 hdr "Case 11 — dispatcher port conflict fails install"
 HOME_DIR_11="${TMP_BASE}/home-11"
 STUB_DIR_11="${TMP_BASE}/stub-11"
 mkdir -p "${HOME_DIR_11}"
 make_stub_path "${STUB_DIR_11}" "Linux" "x86_64"
-
-# Pick a high port and bind it with python3. We require python3 here because
-# `nc -l` semantics differ wildly between BSD/macOS netcat and GNU netcat.
-if ! command -v python3 >/dev/null 2>&1; then
-  note "skipping Case 11: python3 not available to bind the test port"
+TEST_DISPATCHER_PORT="19790"
+stub_ports "${STUB_DIR_11}" "${TEST_DISPATCHER_PORT}"
+if SPRING_DISPATCHER_PORT="${TEST_DISPATCHER_PORT}" \
+   run_install_with_port_check "${HOME_DIR_11}" "${STUB_DIR_11}" --no-start \
+   >"${TMP_BASE}/run11.out" 2>&1; then
+  bad "install.sh succeeded with dispatcher port ${TEST_DISPATCHER_PORT} in use; expected failure"
 else
-  TEST_DISPATCHER_PORT="19790"
-  python3 -c "
-import socket, sys, time
-s = socket.socket()
-s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(('127.0.0.1', ${TEST_DISPATCHER_PORT}))
-s.listen()
-sys.stdout.write('ready\n'); sys.stdout.flush()
-time.sleep(30)
-" > "${TMP_BASE}/listener.out" &
-  LISTENER_PID="$!"
-  # Wait for 'ready' or up to ~3s.
-  for _ in 1 2 3 4 5 6; do
-    if grep -q ready "${TMP_BASE}/listener.out" 2>/dev/null; then break; fi
-    sleep 0.5
-  done
-  if ! kill -0 "$LISTENER_PID" 2>/dev/null; then
-    bad "test listener failed to start on port ${TEST_DISPATCHER_PORT}"
-  else
-    if SPRING_DISPATCHER_PORT="${TEST_DISPATCHER_PORT}" \
-       run_install_with_port_check "${HOME_DIR_11}" "${STUB_DIR_11}" --no-start \
-       >"${TMP_BASE}/run11.out" 2>&1; then
-      bad "install.sh succeeded with dispatcher port ${TEST_DISPATCHER_PORT} bound; expected failure"
-    else
-      ok "install.sh refused install with dispatcher port ${TEST_DISPATCHER_PORT} bound"
-    fi
-    if grep -q "already in use" "${TMP_BASE}/run11.out" && grep -q "${TEST_DISPATCHER_PORT}" "${TMP_BASE}/run11.out"; then
-      ok "output mentions the conflicting dispatcher port ${TEST_DISPATCHER_PORT}"
-    else
-      bad "output missing 'already in use' or the port number"
-      cat "${TMP_BASE}/run11.out" >&2
-    fi
-    kill "$LISTENER_PID" 2>/dev/null || true
-    wait "$LISTENER_PID" 2>/dev/null || true
-  fi
+  ok "install.sh refused install with dispatcher port ${TEST_DISPATCHER_PORT} in use"
+fi
+if grep -q "already in use" "${TMP_BASE}/run11.out" && grep -q "${TEST_DISPATCHER_PORT}" "${TMP_BASE}/run11.out"; then
+  ok "output mentions the conflicting dispatcher port ${TEST_DISPATCHER_PORT}"
+else
+  bad "output missing 'already in use' or the port number"
+  cat "${TMP_BASE}/run11.out" >&2
 fi
 
 # ===========================================================================
@@ -797,6 +799,7 @@ HOME_DIR_13="${TMP_BASE}/home-13"
 STUB_DIR_13="${TMP_BASE}/stub-13"
 mkdir -p "${HOME_DIR_13}"
 make_stub_path "${STUB_DIR_13}" "Linux" "x86_64"
+stub_ports "${STUB_DIR_13}"
 if SPRING_INSTALL_UNPRIV_PORT_START=1024 \
    CADDY_HTTP_PORT=81 CADDY_HTTPS_PORT=444 \
    SPRING_DISPATCHER_PORT=18190 Mcp__Port=18191 \
@@ -826,6 +829,7 @@ HOME_DIR_14="${TMP_BASE}/home-14"
 STUB_DIR_14="${TMP_BASE}/stub-14"
 mkdir -p "${HOME_DIR_14}"
 make_stub_path "${STUB_DIR_14}" "Linux" "x86_64"
+stub_ports "${STUB_DIR_14}"
 if SPRING_INSTALL_UNPRIV_PORT_START=1024 \
    CADDY_HTTP_PORT=18080 CADDY_HTTPS_PORT=18443 \
    SPRING_DISPATCHER_PORT=18190 Mcp__Port=18191 \
@@ -848,6 +852,7 @@ HOME_DIR_15="${TMP_BASE}/home-15"
 STUB_DIR_15="${TMP_BASE}/stub-15"
 mkdir -p "${HOME_DIR_15}"
 make_stub_path "${STUB_DIR_15}" "Linux" "x86_64"
+stub_ports "${STUB_DIR_15}"
 # Floor already at 80 → default 80/443 are bindable; no remap, no prompt, and
 # no CADDY_*_PORT override should be written to spring.env.
 if SPRING_INSTALL_UNPRIV_PORT_START=80 \

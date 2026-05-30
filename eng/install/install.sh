@@ -164,6 +164,10 @@ require_tool curl    "Install curl via your system package manager and rerun."
 require_tool tar     "Install tar via your system package manager and rerun."
 require_tool openssl "Install openssl via your system package manager and rerun."
 require_tool podman  "Install Podman 4+ (https://podman.io/) and rerun."
+# envsubst (gettext) is required by the bundle's deploy.sh (it expands ${VAR}
+# references in spring.env before passing it to podman). Checking it here avoids
+# a late failure at `deploy.sh up`, after the archive download and image pull.
+require_tool envsubst "Install gettext (Debian/Ubuntu: apt-get install gettext-base; macOS: brew install gettext) and rerun."
 
 # Podman 4+ required (rootless networking, host.containers.internal).
 podman_version="$(podman version --format '{{.Client.Version}}' 2>/dev/null || podman version | awk '/^Version:/{print $2; exit}')"

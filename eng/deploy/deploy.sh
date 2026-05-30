@@ -159,6 +159,28 @@ require() {
     command -v "$1" >/dev/null 2>&1 || die "required command '$1' not found on PATH"
 }
 
+# 0 = a process is listening on the port, 1 = free, 2 = could not determine.
+port_in_use() {
+    local port="$1"
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1 && return 0 || return 1
+    elif command -v ss >/dev/null 2>&1; then
+        ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$" && return 0 || return 1
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -an 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$" && return 0 || return 1
+    fi
+    return 2
+}
+
+# Echo the kernel's unprivileged-port floor (the rootless bind floor): a
+# rootless process cannot bind below it. /proc, then sysctl, then the default.
+unprivileged_port_floor() {
+    local v
+    v="$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null \
+         || sysctl -n net.ipv4.ip_unprivileged_port_start 2>/dev/null || echo 1024)"
+    [[ "$v" =~ ^[0-9]+$ ]] && printf '%s' "$v" || printf '1024'
+}
+
 load_env() {
     if [[ ! -f "${ENV_FILE}" ]]; then
         die "env file not found: ${ENV_FILE}. Run '${BASH_SOURCE[0]##*/} init' to generate one (creates spring.env from the example template and provisions a fresh AES-256 secrets key)."
@@ -1032,26 +1054,8 @@ start_caddy() {
     # with a reverse proxy or terminate TLS upstream in that case.
     local caddy_http_port="${CADDY_HTTP_PORT:-80}"
     local caddy_https_port="${CADDY_HTTPS_PORT:-443}"
-    # Rootless Podman cannot bind privileged host ports (below the kernel's
-    # net.ipv4.ip_unprivileged_port_start, default 1024). Fail with actionable
-    # guidance instead of the opaque "rootlessport cannot expose privileged
-    # port" error Podman emits at bind time. Linux + rootless only — macOS
-    # forwards host ports through the podman-machine VM, and rootful binds are
-    # unrestricted. install.sh resolves this in its pre-flight; this guard
-    # covers standalone `deploy.sh up` and the from-source setup.sh path.
-    if [[ "$(uname -s)" == "Linux" && "$(id -u)" -ne 0 ]]; then
-        local unpriv_floor
-        unpriv_floor="$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null \
-                        || sysctl -n net.ipv4.ip_unprivileged_port_start 2>/dev/null || echo 1024)"
-        [[ "$unpriv_floor" =~ ^[0-9]+$ ]] || unpriv_floor=1024
-        if (( caddy_http_port < unpriv_floor || caddy_https_port < unpriv_floor )); then
-            local unpriv_target=$(( caddy_http_port < caddy_https_port ? caddy_http_port : caddy_https_port ))
-            die "rootless Podman cannot bind Caddy host ports ${caddy_http_port}/${caddy_https_port} (kernel allows unprivileged binds only from port ${unpriv_floor} up). Either:
-  A) lower the threshold (keeps ${caddy_http_port}/${caddy_https_port} + automatic TLS):
-       echo 'net.ipv4.ip_unprivileged_port_start=${unpriv_target}' | sudo tee /etc/sysctl.d/99-spring-voyage.conf && sudo sysctl --system
-  B) use high ports (no sudo): set CADDY_HTTP_PORT/CADDY_HTTPS_PORT (>= ${unpriv_floor}) in spring.env and rerun."
-        fi
-    fi
+    # Rootless privileged-port bindability is validated up front in preflight_up
+    # (called by cmd_up) so the whole stack doesn't half-start before failing here.
     run_container spring-caddy \
         --env-file "${RESOLVED_ENV_FILE}" \
         -p "${caddy_http_port}:80" -p "${caddy_https_port}:443" \
@@ -1155,10 +1159,65 @@ resync_podman_machine_clock() {
 
 # ---------- commands ----------
 
+# Fail fast on fresh-host problems before we start mutating container state:
+#  - macOS without a running podman machine
+#  - a missing locally-built platform image (build.sh / install.sh not run)
+#  - host-published ports already occupied
+#  - rootless Podman unable to bind privileged Caddy ports (80/443)
+# This gives the from-source and standalone `deploy.sh up` paths the same
+# actionable errors install.sh produces, instead of a cryptic podman failure
+# part-way through the bring-up.
+preflight_up() {
+    # macOS needs a running podman machine before any podman call works.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        if ! podman machine list --format '{{.Running}}' 2>/dev/null | grep -q '^true$'; then
+            die "no running Podman machine. Run 'podman machine init && podman machine start' and retry."
+        fi
+    fi
+
+    # A locally-built platform image is never pulled from a registry, so a
+    # missing localhost/ ref means build.sh was not run. Registry refs (ghcr.io/…)
+    # are left alone — podman pulls those on first use.
+    local image="${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}"
+    if [[ "${image}" == localhost/* ]] && ! podman image exists "${image}" 2>/dev/null; then
+        die "platform image '${image}' is not in the local store — build it first (eng/build/build.sh), or for a release install let install.sh pull it."
+    fi
+
+    # Host-published container ports must be free. (The dispatcher's host port is
+    # validated by spring-voyage-host.sh's own health probe.) A missing
+    # lsof/ss/netstat yields 'unknown' (return 2) and we proceed rather than block.
+    local caddy_http="${CADDY_HTTP_PORT:-80}" caddy_https="${CADDY_HTTPS_PORT:-443}" mcp="${Mcp__Port:-5050}"
+    local entry label port
+    for entry in "Caddy HTTP:${caddy_http}" "Caddy HTTPS:${caddy_https}" "worker MCP:${mcp}"; do
+        label="${entry%%:*}"; port="${entry##*:}"
+        if port_in_use "${port}"; then
+            die "host port ${port} (${label}) is already in use. Free the service holding it, or set the matching override (CADDY_HTTP_PORT / CADDY_HTTPS_PORT / Mcp__Port) in ${ENV_FILE} and retry."
+        fi
+    done
+
+    # Rootless Podman cannot bind privileged ports below the kernel floor, even
+    # when free — fail with actionable guidance instead of the opaque
+    # "rootlessport cannot expose privileged port" error at bind time. Linux +
+    # rootless only (macOS forwards via the VM; rootful binds are unrestricted).
+    if [[ "$(uname -s)" == "Linux" && "$(id -u)" -ne 0 ]]; then
+        local floor; floor="$(unprivileged_port_floor)"
+        if (( caddy_http < floor || caddy_https < floor )); then
+            local target=$(( caddy_http < caddy_https ? caddy_http : caddy_https ))
+            die "rootless Podman cannot bind Caddy host ports ${caddy_http}/${caddy_https} (kernel allows unprivileged binds only from port ${floor} up). Either:
+  A) lower the threshold (keeps ${caddy_http}/${caddy_https} + automatic TLS):
+       echo 'net.ipv4.ip_unprivileged_port_start=${target}' | sudo tee /etc/sysctl.d/99-spring-voyage.conf && sudo sysctl --system
+  B) use high ports (no sudo): set CADDY_HTTP_PORT/CADDY_HTTPS_PORT (>= ${floor}) in spring.env and rerun."
+        fi
+    fi
+
+    return 0
+}
+
 cmd_up() {
     parse_up_options "$@"
     require podman
     load_env
+    preflight_up
     # Resync the container clock before starting the stack so the GitHub
     # connector never signs App JWTs with a post-sleep-skewed clock (#2595).
     resync_podman_machine_clock

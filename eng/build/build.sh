@@ -128,6 +128,17 @@ cmd_build() {
     done
 
     require podman
+    # The platform Dockerfile uses COPY --parents, which needs BuildKit/buildah
+    # 1.28+ (shipped with Podman 4.4). Fail clearly here rather than with a
+    # cryptic build error when build.sh is run directly (setup.sh's preflight
+    # enforces the same when the from-source flow goes through it).
+    local _pv _pmaj _pmin
+    _pv="$(podman --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+    _pmaj="${_pv%%.*}"; _pmin="$(printf '%s' "${_pv}" | cut -d. -f2)"
+    if [[ "${_pmaj}" =~ ^[0-9]+$ && "${_pmin}" =~ ^[0-9]+$ ]] \
+       && { (( _pmaj < 4 )) || { (( _pmaj == 4 )) && (( _pmin < 4 )); }; }; then
+        die "podman ${_pv} — 4.4+ required (the platform Dockerfile uses COPY --parents / buildah 1.28+). Upgrade: https://podman.io/docs/installation"
+    fi
     load_image_env
     log "building platform image: ${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}"
     podman build \
