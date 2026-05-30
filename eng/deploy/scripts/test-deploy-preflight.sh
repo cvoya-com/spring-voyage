@@ -225,5 +225,46 @@ else
     bad "Case 9: should pass when postgres accepts the password"; cat "${TMP_DIR}/out"
 fi
 
+# podman stub whose `rm` exits ${1} (everything else exits 0), for the
+# remove_container teardown-tolerance cases.
+make_podman_rm() {
+    cat >"${STUB}/podman" <<PODMAN
+#!/usr/bin/env bash
+[[ "\$1" == "rm" ]] && exit ${1}
+exit 0
+PODMAN
+    chmod +x "${STUB}/podman"
+}
+
+# ---------------------------------------------------------------------------
+# Case 10: `podman rm` exits non-zero (rootless netns cleanup quirk) but the
+# container is actually gone → remove_container tolerates it (warns, returns 0)
+# so teardown / restart continue instead of aborting under set -e.
+# ---------------------------------------------------------------------------
+make_podman_rm 1
+# container_exists: present on the first check (enter removal), gone afterwards.
+_cx=0
+container_exists() { _cx=$((_cx + 1)); [[ "${_cx}" -eq 1 ]]; }
+if ( remove_container "spring-foo" ) >"${TMP_DIR}/out" 2>&1; then
+    grep -qi "continuing" "${TMP_DIR}/out" \
+        && ok "Case 10: rm cleanup-error tolerated when the container is actually gone" \
+        || { bad "Case 10: tolerated but no warning emitted"; cat "${TMP_DIR}/out"; }
+else
+    bad "Case 10: remove_container should not fail when the container is gone"; cat "${TMP_DIR}/out"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 11: `podman rm` fails AND the container persists → genuine failure, die.
+# ---------------------------------------------------------------------------
+make_podman_rm 1
+container_exists() { return 0; }   # always still present
+if ( remove_container "spring-foo" ) >"${TMP_DIR}/out" 2>&1; then
+    bad "Case 11: remove_container should fail when the container persists"; cat "${TMP_DIR}/out"
+else
+    grep -qi "failed to remove" "${TMP_DIR}/out" \
+        && ok "Case 11: a genuine removal failure still dies" \
+        || { bad "Case 11: wrong failure message"; cat "${TMP_DIR}/out"; }
+fi
+
 printf '\n  passed: %d\n  failed: %d\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]
