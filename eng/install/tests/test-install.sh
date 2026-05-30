@@ -566,16 +566,25 @@ fi
 # ===========================================================================
 # Deterministic host-port availability stub (used by Cases 11 and 13-15).
 # ===========================================================================
-# install.sh's port_in_use prefers lsof; this stub shadows it so a port reads
-# as "in use" iff it appears in the space-separated busy list (free otherwise),
-# making the port cases independent of the test host's real 80/443/5050 state
-# (and of whether python3 is installed).
+# install.sh's port_in_use prefers ss, falling back to lsof; this shadows both so
+# a port reads as "in use" iff it appears in the space-separated busy list (free
+# otherwise), making the port cases independent of the test host's real
+# 80/443/5050 state (and of whether ss/lsof/python3 are installed).
 stub_ports() {
   local dir="$1"; shift
   local busy="$*"
+  # ss stub (primary on Linux): emit one LISTEN row per busy port; install.sh
+  # matches on awk field 4 ("*:<port>").
+  {
+    echo '#!/usr/bin/env bash'
+    for b in ${busy}; do echo "echo 'LISTEN 0 0 *:${b} *:*'"; done
+    echo 'exit 0'
+  } > "${dir}/ss"
+  chmod +x "${dir}/ss"
+  # lsof stub (fallback, e.g. macOS dev where ss is absent): exit 0 iff the
+  # queried -iTCP:<port> is in the busy list.
   cat > "${dir}/lsof" <<LSOF
 #!/usr/bin/env bash
-# install.sh calls: lsof -nP -iTCP:<port> -sTCP:LISTEN
 p=""
 for a in "\$@"; do case "\$a" in -iTCP:*) p="\${a#-iTCP:}";; esac; done
 for b in ${busy}; do [[ "\${p}" == "\${b}" ]] && exit 0; done

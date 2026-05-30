@@ -160,12 +160,15 @@ require() {
 }
 
 # 0 = a process is listening on the port, 1 = free, 2 = could not determine.
+# Prefer ss: it lists every listener from the kernel table regardless of owner,
+# so a non-root run still sees root-owned listeners (e.g. a system reverse proxy
+# on 80/443). lsof as a non-root user cannot see other users' sockets.
 port_in_use() {
     local port="$1"
-    if command -v lsof >/dev/null 2>&1; then
-        lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1 && return 0 || return 1
-    elif command -v ss >/dev/null 2>&1; then
+    if command -v ss >/dev/null 2>&1; then
         ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$" && return 0 || return 1
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1 && return 0 || return 1
     elif command -v netstat >/dev/null 2>&1; then
         netstat -an 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$" && return 0 || return 1
     fi
