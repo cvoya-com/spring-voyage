@@ -185,6 +185,61 @@ if [[ -z "$ORIGIN_SHA" ]] || ! git merge-base --is-ancestor "${LOCAL_SHA}" origi
   exit 1
 fi
 
+# ── Local main behind origin/main? ───────────────────────────────────────────
+#
+# The ancestor check above PASSES when HEAD is merely BEHIND origin/main (HEAD
+# is still reachable from it). Tagging then cuts the release from a stale commit,
+# silently omitting changes already merged to origin/main — e.g. a fix you
+# merged via PR but haven't pulled locally. (This bit us: a release was cut from
+# a local main that was behind, shipping without a just-merged fix.) Surface the
+# gap and let the operator choose: sync to origin/main, or deliberately release
+# the current commit.
+
+BEHIND_COUNT="$(git rev-list --count "${LOCAL_SHA}..origin/main" 2>/dev/null || echo 0)"
+if [[ "${BEHIND_COUNT}" -gt 0 ]]; then
+  echo ""
+  echo "⚠  Local HEAD is ${BEHIND_COUNT} commit(s) behind origin/main."
+  echo "     HEAD         ${LOCAL_SHA:0:12}  $(git log -1 --format=%s "${LOCAL_SHA}" 2>/dev/null)"
+  echo "     origin/main  ${ORIGIN_SHA:0:12}  $(git log -1 --format=%s origin/main 2>/dev/null)"
+  echo ""
+  echo "   Releasing now tags ${LOCAL_SHA:0:12} and OMITS these commits already on origin/main:"
+  git log --oneline "${LOCAL_SHA}..origin/main" 2>/dev/null | sed 's/^/       /'
+  echo ""
+
+  if [[ -t 0 ]] || [[ -r /dev/tty ]]; then
+    REPLY_SYNC=""
+    printf '   (s)ync to origin/main and release that, (p)roceed on current HEAD, or (a)bort? [s/p/a] '
+    if [[ -t 0 ]]; then
+      IFS= read -r REPLY_SYNC || REPLY_SYNC=""
+    else
+      IFS= read -r REPLY_SYNC </dev/tty || REPLY_SYNC=""
+    fi
+    case "${REPLY_SYNC}" in
+      [Ss]*)
+        echo "   Fast-forwarding local main to origin/main …"
+        if ! git merge --ff-only origin/main; then
+          echo "::error::Could not fast-forward to origin/main (uncommitted changes, or not on main?)."
+          echo "         Resolve with 'git pull --ff-only', then rerun."
+          exit 1
+        fi
+        LOCAL_SHA="$(git rev-parse HEAD)"
+        echo "   Synced — now at ${LOCAL_SHA:0:12}; releasing from origin/main."
+        ;;
+      [Pp]*)
+        echo "   Proceeding on current HEAD (${LOCAL_SHA:0:12}); the commits above will NOT be in this release."
+        ;;
+      *)
+        echo "   Aborted. Run 'git pull --ff-only' to sync, then rerun (or choose 'p' to release this commit deliberately)."
+        exit 1
+        ;;
+    esac
+  else
+    echo "::error::Local main is behind origin/main and there is no terminal to confirm intent."
+    echo "         Sync with 'git pull --ff-only origin main' and rerun, or run interactively to choose."
+    exit 1
+  fi
+fi
+
 # ── Local/remote tag divergence check ────────────────────────────────────────
 #
 # A local tag with no matching remote tag is unexpected state — it means a
