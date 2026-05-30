@@ -30,9 +30,9 @@ spring github-app register --name "Spring Voyage (<your-deployment>)"
 
 The verb:
 
-1. Builds a manifest scoped to **your** deployment URLs (callback, webhook, setup) and base64-encodes it.
-2. Binds a loopback HTTP listener on `127.0.0.1:<ephemeral-port>` for the conversion callback.
-3. Opens your browser on `https://github.com/settings/apps/new?manifest=…` (or `https://github.com/organizations/<org>/settings/apps/new?...` when you pass `--org <slug>`) — GitHub renders the "create App" confirmation page **pre-filled** with the right name, permissions, events, callback URL, and webhook URL. You click **Create**.
+1. Builds a manifest scoped to **your** deployment URLs (webhook + OAuth callback), carrying the App's name, permissions, and webhook-event subscriptions.
+2. Binds a loopback HTTP listener on `127.0.0.1:<ephemeral-port>` — it both serves the hand-off page in the next step and receives the conversion callback.
+3. Opens your browser at that local page (`http://127.0.0.1:<ephemeral-port>/`), which immediately POSTs the manifest to `https://github.com/settings/apps/new` (or `https://github.com/organizations/<org>/settings/apps/new` when you pass `--org <slug>`) — GitHub renders the "create App" confirmation page **pre-filled** with the right name, permissions, events, callback URL, and webhook URL. You click **Create**. (GitHub's manifest flow accepts the manifest only as a `POST` form field, so the CLI hands it off through this local page rather than linking straight to a pre-filled `github.com` URL.)
 4. GitHub redirects back to the loopback listener with a one-time conversion `code`.
 5. The CLI exchanges the code via `POST /app-manifests/{code}/conversions` and receives `app_id`, `slug`, `pem`, `webhook_secret`, `client_id`, and `client_secret` back in the response.
 6. The CLI writes `GitHub__AppId`, `GitHub__AppSlug`, `GitHub__PrivateKeyPem` (single-quoted, single-line, with literal `\n` between blocks), and `GitHub__WebhookSecret` to `eng/config/spring.env`. Pass `--write-secrets` to persist the same values as platform-scoped secrets via the registry instead of the env file.

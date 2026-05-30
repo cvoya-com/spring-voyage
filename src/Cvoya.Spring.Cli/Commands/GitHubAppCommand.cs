@@ -680,28 +680,35 @@ public static class GitHubAppCommand
         var persistence = ResolvePersistence(writeEnv, writeSecrets, dryRun);
 
         var resolvedWebhookUrl = ResolveWebhookUrl(webhookUrlOverride);
-        PrintPreamble(stdout, name, org, resolvedWebhookUrl, persistence);
+        var resolvedOAuthCallbackUrl = ResolveOAuthCallbackUrl();
+        PrintPreamble(stdout, name, org, resolvedWebhookUrl, resolvedOAuthCallbackUrl, persistence);
+
+        // CSRF nonce GitHub echoes back on the redirect, per the manifest-flow
+        // docs. The loopback listener rejects any redirect whose state doesn't
+        // match, so a stray hit on the port can't drive a foreign code through
+        // the conversion exchange.
+        var state = GenerateState();
 
         // ------------------------------------------------------------
-        // Dry-run short-circuit: build manifest, print URL, stop.
+        // Dry-run short-circuit: build manifest, print POST target, stop.
         // ------------------------------------------------------------
         if (dryRun)
         {
-            // No listener = use a placeholder callback URL. The URL is
-            // a no-op: the dry-run operator inspects the manifest, they
+            // No listener is bound, so the loopback redirect URL is a
+            // placeholder: the dry-run operator inspects the manifest, they
             // do not complete a flow.
             var dryInputs = new GitHubAppManifest.Inputs(
                 Name: name,
                 WebhookUrl: resolvedWebhookUrl,
-                CallbackUrl: "http://127.0.0.1:0/");
-            var dryUrl = GitHubAppManifest.BuildCreationUrl(dryInputs, org);
+                RedirectUrl: "http://127.0.0.1:0/",
+                OAuthCallbackUrl: resolvedOAuthCallbackUrl);
             stdout.WriteLine("--dry-run: no browser will open, no listener will bind, no network calls made.");
             stdout.WriteLine();
-            stdout.WriteLine("Manifest JSON:");
+            stdout.WriteLine("Manifest JSON (POSTed to GitHub as the `manifest` form field):");
             stdout.WriteLine(GitHubAppManifest.BuildJson(dryInputs));
             stdout.WriteLine();
-            stdout.WriteLine("Creation URL:");
-            stdout.WriteLine(dryUrl);
+            stdout.WriteLine("POST target (the auto-submitting form submits the manifest here):");
+            stdout.WriteLine($"  {GitHubAppManifest.BuildPostActionUrl(org, state)}");
             return;
         }
 
@@ -720,12 +727,18 @@ public static class GitHubAppCommand
             var manifestInputs = new GitHubAppManifest.Inputs(
                 Name: name,
                 WebhookUrl: resolvedWebhookUrl,
-                CallbackUrl: callbackUrl);
-            var creationUrl = GitHubAppManifest.BuildCreationUrl(manifestInputs, org);
+                RedirectUrl: callbackUrl,
+                OAuthCallbackUrl: resolvedOAuthCallbackUrl);
+            // GitHub accepts the manifest only as a POST form field, never as
+            // a GET query param. The listener serves a local page that
+            // auto-POSTs this manifest to GitHub, so we open the browser at
+            // the loopback page rather than at github.com directly.
+            var formHtml = GitHubAppManifest.BuildAutoSubmitFormHtml(manifestInputs, org, state);
 
             stdout.WriteLine($"Callback listener bound on 127.0.0.1:{port}.");
             stdout.WriteLine("Opening your browser at:");
-            stdout.WriteLine($"  {creationUrl}");
+            stdout.WriteLine($"  {callbackUrl}");
+            stdout.WriteLine("  (this local page forwards a pre-filled App manifest to GitHub — just click 'Create' there).");
             stdout.WriteLine();
             stdout.WriteLine("If the browser does not open automatically, paste the URL above.");
             stdout.WriteLine($"Waiting for the GitHub redirect (timeout {callbackTimeout.TotalSeconds:N0}s)...");
@@ -742,7 +755,7 @@ public static class GitHubAppCommand
             {
                 try
                 {
-                    await opener(creationUrl).ConfigureAwait(false);
+                    await opener(callbackUrl).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -751,7 +764,7 @@ public static class GitHubAppCommand
             }, cancellationToken);
 
             var code = await CallbackListener.WaitForCallbackCodeAsync(
-                listener, callbackTimeout, cancellationToken).ConfigureAwait(false);
+                listener, formHtml, state, callbackTimeout, cancellationToken).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(code))
             {
                 throw new GitHubAppRegisterException(
@@ -855,7 +868,24 @@ public static class GitHubAppCommand
         {
             return webhookOverride;
         }
+        return UrlPath.Combine(ResolveDeploymentEndpoint(), "/api/v1/webhooks/github");
+    }
 
+    /// <summary>
+    /// Derives the deployment's user-to-server OAuth callback URL — the value
+    /// GitHub records as the App's <c>callback_urls</c>. It must match the
+    /// connector's <c>GitHub__OAuth__RedirectUri</c> (see
+    /// docs/guide/operator/github-app-setup.md), so it is derived from the
+    /// same deployment endpoint as the webhook URL. This is distinct from the
+    /// loopback redirect the CLI binds for the one-time registration
+    /// handshake — that one is the ephemeral listener, this one is where
+    /// GitHub returns end users after they authorize the App at runtime.
+    /// </summary>
+    private static string ResolveOAuthCallbackUrl()
+        => UrlPath.Combine(ResolveDeploymentEndpoint(), "/api/v1/tenant/connectors/github/oauth/callback");
+
+    private static string ResolveDeploymentEndpoint()
+    {
         // Derive from the configured deployment endpoint. We can't know
         // whether that endpoint is reachable from the public internet —
         // that's the operator's responsibility — but the default makes
@@ -864,12 +894,16 @@ public static class GitHubAppCommand
         var config = CliConfig.Load();
         var endpoint = Environment.GetEnvironmentVariable("SPRING_API_URL")
             ?? config.Endpoint;
-        if (string.IsNullOrWhiteSpace(endpoint))
-        {
-            endpoint = "http://localhost:5000";
-        }
-        return UrlPath.Combine(endpoint, "/api/v1/webhooks/github");
+        return string.IsNullOrWhiteSpace(endpoint) ? "http://localhost:5000" : endpoint;
     }
+
+    /// <summary>
+    /// Generates the unguessable CSRF nonce sent to GitHub as the manifest
+    /// flow's <c>state</c> and verified on the redirect-back. 16 random bytes
+    /// of hex is plenty for a value that lives only for the callback window.
+    /// </summary>
+    private static string GenerateState()
+        => Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
 
     private static string DefaultEnvFilePath()
     {
@@ -882,7 +916,7 @@ public static class GitHubAppCommand
     }
 
     private static void PrintPreamble(
-        TextWriter stdout, string name, string? org, string webhookUrl, Persistence persistence)
+        TextWriter stdout, string name, string? org, string webhookUrl, string oauthCallbackUrl, Persistence persistence)
     {
         stdout.WriteLine("spring github-app register");
         stdout.WriteLine("==========================");
@@ -890,16 +924,17 @@ public static class GitHubAppCommand
         stdout.WriteLine("About to register a new GitHub App for this deployment.");
         stdout.WriteLine("This drives GitHub's App-from-manifest flow:");
         stdout.WriteLine();
-        stdout.WriteLine("  1. Your browser opens a GitHub 'create App' page.");
+        stdout.WriteLine("  1. Your browser opens GitHub's 'create App' page, pre-filled from a manifest.");
         stdout.WriteLine("  2. You click 'Create' (that's the only manual step).");
         stdout.WriteLine("  3. GitHub redirects back here with a one-time code.");
         stdout.WriteLine("  4. The CLI exchanges the code for the App ID, PEM, webhook secret.");
         stdout.WriteLine("  5. Credentials are persisted; install-URL is printed.");
         stdout.WriteLine();
-        stdout.WriteLine($"  App name:     {name}");
-        stdout.WriteLine($"  Owner:        {(string.IsNullOrWhiteSpace(org) ? "your user account" : $"org '{org}'")}");
-        stdout.WriteLine($"  Webhook URL:  {webhookUrl}");
-        stdout.WriteLine($"  Persistence:  {persistence}");
+        stdout.WriteLine($"  App name:       {name}");
+        stdout.WriteLine($"  Owner:          {(string.IsNullOrWhiteSpace(org) ? "your user account" : $"org '{org}'")}");
+        stdout.WriteLine($"  Webhook URL:    {webhookUrl}");
+        stdout.WriteLine($"  OAuth callback: {oauthCallbackUrl}");
+        stdout.WriteLine($"  Persistence:    {persistence}");
         stdout.WriteLine();
         stdout.WriteLine("Permissions requested (read):   issues, pull_requests, contents, metadata");
         stdout.WriteLine("Permissions requested (write):  issue_comment, statuses, checks");

@@ -10,22 +10,25 @@ using System.Threading;
 using System.Threading.Tasks;
 
 /// <summary>
-/// Small loopback HTTP server that waits for GitHub to redirect the
-/// browser back with a <c>?code=...</c> query string after the user
-/// confirms App creation. The ephemeral-port binding pattern is lifted
-/// from <c>McpServer</c> (#595 / PR #617): bind to port 0, read the
-/// OS-assigned port back, retry a handful of times on Address-In-Use
-/// collisions so a heavily loaded dev laptop doesn't spuriously fail
-/// the verb.
+/// Small loopback HTTP server that drives the browser side of GitHub's
+/// App-from-manifest handshake. It plays two roles on the same ephemeral
+/// port: first it serves an auto-submitting HTML form that POSTs the manifest
+/// to GitHub (GitHub has no GET query-string variant — see
+/// <see cref="GitHubAppManifest"/>), then it captures the
+/// <c>?code=…&amp;state=…</c> GitHub appends when it redirects the browser
+/// back after the operator clicks <b>Create</b>. The ephemeral-port binding
+/// pattern is lifted from <c>McpServer</c> (#595 / PR #617): bind to port 0,
+/// read the OS-assigned port back, retry a handful of times on
+/// Address-In-Use collisions so a heavily loaded dev laptop doesn't
+/// spuriously fail the verb.
 /// </summary>
 /// <remarks>
-/// The listener scope is intentionally tiny — it serves exactly one
-/// request, replies with a small success page, and shuts down. It does
-/// NOT handle concurrency, re-entrancy, or long-running serving. If a
-/// curious actor POSTs to the port before GitHub redirects, the first
-/// arrival wins — the verb's correctness hinges on the operator not
-/// hand-crafting requests at the callback URL during the 5-minute
-/// window.
+/// The listener serves the form page on the initial navigation, answers
+/// incidental requests (favicon, etc.) with 204, and returns as soon as a
+/// request carries a <c>code</c> whose <c>state</c> matches the nonce we
+/// issued. A mismatched <c>state</c> is treated as a stray / forged hit and
+/// ignored — the unguessable nonce is what protects the one-time code
+/// exchange during the wait window.
 /// </remarks>
 public static class CallbackListener
 {
@@ -116,13 +119,31 @@ public static class CallbackListener
     }
 
     /// <summary>
-    /// Waits for a single <c>GET /?code=...</c> request and returns the
-    /// code. Times out per <paramref name="timeout"/>; returns
+    /// Serves <paramref name="formHtml"/> (the auto-submitting manifest form)
+    /// on the initial browser navigation, then waits for GitHub to redirect
+    /// back with <c>?code=…</c>. Returns the conversion code once a request
+    /// arrives whose <c>state</c> matches <paramref name="expectedState"/>.
+    /// Incidental no-code requests (favicon, refreshes) are answered without
+    /// ending the wait. Times out per <paramref name="timeout"/>; returns
     /// <c>null</c> on timeout so the caller can render a resumable error
     /// rather than throwing.
     /// </summary>
+    /// <param name="listener">A started loopback listener.</param>
+    /// <param name="formHtml">
+    /// HTML served on the root navigation — see
+    /// <see cref="GitHubAppManifest.BuildAutoSubmitFormHtml"/>.
+    /// </param>
+    /// <param name="expectedState">
+    /// The CSRF nonce embedded in the form's POST action. A redirect-back
+    /// whose <c>state</c> does not match is ignored. Pass an empty string to
+    /// skip state verification (the legacy first-code-wins behaviour).
+    /// </param>
+    /// <param name="timeout">Total wait window across all requests.</param>
+    /// <param name="cancellationToken">Caller cancellation.</param>
     public static async Task<string?> WaitForCallbackCodeAsync(
         HttpListener listener,
+        string formHtml,
+        string expectedState,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
@@ -137,51 +158,100 @@ public static class CallbackListener
 
         try
         {
-            // HttpListener.GetContextAsync isn't cancellable; Abort() is
-            // the escape hatch. Register a callback that aborts the
-            // listener when our combined token fires.
+            // HttpListener.GetContextAsync isn't cancellable; Abort() is the
+            // escape hatch. Register a callback that aborts the listener when
+            // our combined token fires — that surfaces as a HttpListenerException
+            // out of GetContextAsync below, which we treat as a timeout.
             using var cancelReg = timeoutCts.Token.Register(() =>
             {
                 try { listener.Abort(); } catch { /* best-effort */ }
             });
 
-            HttpListenerContext context;
-            try
+            while (true)
             {
-                context = await listener.GetContextAsync().ConfigureAwait(false);
-            }
-            catch (HttpListenerException)
-            {
-                // Abort() surfaces here as ERROR_OPERATION_ABORTED — treat
-                // as timeout.
-                return null;
-            }
-            catch (ObjectDisposedException)
-            {
-                return null;
-            }
+                HttpListenerContext context;
+                try
+                {
+                    context = await listener.GetContextAsync().ConfigureAwait(false);
+                }
+                catch (HttpListenerException)
+                {
+                    // Abort() surfaces here as ERROR_OPERATION_ABORTED — treat
+                    // as timeout.
+                    return null;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return null;
+                }
 
-            var code = context.Request.QueryString["code"];
-            var response = context.Response;
-            response.StatusCode = (int)HttpStatusCode.OK;
-            response.ContentType = "text/html; charset=utf-8";
-            // The page stays on-screen after the redirect; keep it tiny,
-            // branded, and dependency-free (no JS, no CSS frameworks).
-            var body = string.IsNullOrWhiteSpace(code)
-                ? SuccessHtml("Missing code", "GitHub did not include a <code>code</code> query parameter. " +
-                    "Close this tab and re-run <code>spring github-app register</code>.")
-                : SuccessHtml("Spring Voyage — GitHub App registered",
-                    "You can close this tab. The CLI is finishing the handshake with GitHub.");
-            var buffer = System.Text.Encoding.UTF8.GetBytes(body);
-            response.ContentLength64 = buffer.Length;
-            await response.OutputStream.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
-            response.OutputStream.Close();
-            return code;
+                var request = context.Request;
+                var code = request.QueryString["code"];
+
+                if (!string.IsNullOrWhiteSpace(code))
+                {
+                    // GitHub echoes the nonce we put on the POST action URL.
+                    // A mismatch means this isn't our redirect — ignore it
+                    // and keep waiting rather than exchanging a foreign code.
+                    var state = request.QueryString["state"];
+                    if (!string.IsNullOrEmpty(expectedState)
+                        && !string.Equals(state, expectedState, StringComparison.Ordinal))
+                    {
+                        await RespondHtmlAsync(
+                            context,
+                            HttpStatusCode.BadRequest,
+                            SuccessHtml(
+                                "Unexpected callback",
+                                "This request did not originate from <code>spring github-app register</code>. " +
+                                "You can close this tab."),
+                            cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    await RespondHtmlAsync(
+                        context,
+                        HttpStatusCode.OK,
+                        SuccessHtml(
+                            "Spring Voyage — GitHub App registered",
+                            "You can close this tab. The CLI is finishing the handshake with GitHub."),
+                        cancellationToken).ConfigureAwait(false);
+                    return code;
+                }
+
+                // No code yet. The initial navigation lands on "/" — serve the
+                // auto-submitting manifest form there. Everything else
+                // (favicon, stray probes) gets a 204 so the wait continues.
+                if (string.Equals(request.Url?.AbsolutePath, "/", StringComparison.Ordinal))
+                {
+                    await RespondHtmlAsync(context, HttpStatusCode.OK, formHtml, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    context.Response.StatusCode = (int)HttpStatusCode.NoContent;
+                    context.Response.OutputStream.Close();
+                }
+            }
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             return null;
         }
+    }
+
+    private static async Task RespondHtmlAsync(
+        HttpListenerContext context,
+        HttpStatusCode statusCode,
+        string html,
+        CancellationToken cancellationToken)
+    {
+        var response = context.Response;
+        response.StatusCode = (int)statusCode;
+        response.ContentType = "text/html; charset=utf-8";
+        var buffer = System.Text.Encoding.UTF8.GetBytes(html);
+        response.ContentLength64 = buffer.Length;
+        await response.OutputStream.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+        response.OutputStream.Close();
     }
 
     private static string SuccessHtml(string title, string message)

@@ -137,22 +137,60 @@ public class CallbackListenerTests
     }
 
     [Fact]
-    public async Task WaitForCallbackCodeAsync_ReturnsCode_WhenRequestArrives()
+    public async Task WaitForCallbackCodeAsync_ServesForm_ThenReturnsCode_OnMatchingState()
     {
+        const string formHtml = "<!doctype html><html><body><form id=\"sv-manifest-form\"></form></body></html>";
         var (listener, port) = CallbackListener.BindHttpListenerWithRetry();
         try
         {
             var waitTask = CallbackListener.WaitForCallbackCodeAsync(
-                listener, TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+                listener, formHtml, "s1", TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             using var http = new HttpClient();
             // Small delay so the waiter is blocked on GetContextAsync
             // when the request arrives.
             await Task.Delay(50, TestContext.Current.CancellationToken);
-            using var _ = await http.GetAsync($"http://127.0.0.1:{port}/?code=test-code-123", TestContext.Current.CancellationToken);
+
+            // The initial navigation gets the auto-submit form, and the wait
+            // continues (the form POSTs to GitHub out-of-band).
+            var formResponse = await http.GetAsync($"http://127.0.0.1:{port}/", TestContext.Current.CancellationToken);
+            (await formResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+                .ShouldContain("sv-manifest-form");
+
+            // GitHub's redirect-back with code + the echoed state ends the wait.
+            using var _ = await http.GetAsync($"http://127.0.0.1:{port}/?code=test-code-123&state=s1", TestContext.Current.CancellationToken);
 
             var code = await waitTask;
             code.ShouldBe("test-code-123");
+        }
+        finally
+        {
+            listener.Stop();
+            ((IDisposable)listener).Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task WaitForCallbackCodeAsync_IgnoresMismatchedState_ThenAcceptsTheRealRedirect()
+    {
+        var (listener, port) = CallbackListener.BindHttpListenerWithRetry();
+        try
+        {
+            var waitTask = CallbackListener.WaitForCallbackCodeAsync(
+                listener, "<html></html>", "right-nonce", TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            using var http = new HttpClient();
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+
+            // A code carrying the wrong nonce is rejected (400) and ignored —
+            // a stray/forged hit can't drive a foreign code through.
+            var stray = await http.GetAsync($"http://127.0.0.1:{port}/?code=evil&state=wrong", TestContext.Current.CancellationToken);
+            stray.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+            // The genuine redirect (matching nonce) is accepted.
+            using var _ = await http.GetAsync($"http://127.0.0.1:{port}/?code=good&state=right-nonce", TestContext.Current.CancellationToken);
+
+            (await waitTask).ShouldBe("good");
         }
         finally
         {
@@ -168,7 +206,7 @@ public class CallbackListenerTests
         try
         {
             var code = await CallbackListener.WaitForCallbackCodeAsync(
-                listener, TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken);
+                listener, "<html></html>", "s", TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken);
             code.ShouldBeNull();
         }
         finally

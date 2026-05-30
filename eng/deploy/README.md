@@ -643,8 +643,11 @@ The verb drives GitHub's [App-from-manifest flow](https://docs.github.com/en/app
 
 1. Binds a loopback HTTP listener on `127.0.0.1:<ephemeral-port>` (retries
    on port collisions up to three times).
-2. Opens your browser at `https://github.com/settings/apps/new?manifest=<base64>`
-   with every permission + webhook event pre-filled.
+2. Opens your browser at a local hand-off page (`http://127.0.0.1:<port>/`)
+   that POSTs the manifest to `https://github.com/settings/apps/new`, so GitHub
+   renders the create-App page with every permission + webhook event pre-filled.
+   (GitHub's manifest flow accepts the manifest only as a `POST` form field —
+   there is no pre-fillable `?manifest=` GET URL.)
 3. You click **Create**. GitHub redirects back to the listener with a
    one-time code.
 4. CLI exchanges the code via `POST /app-manifests/{code}/conversions`
