@@ -889,6 +889,35 @@ else
 fi
 
 # ===========================================================================
+# Case 16: a port-conflict suggestion is bindable (>= the unprivileged floor)
+# ===========================================================================
+# Floor 1024; the default Caddy HTTP port (80) is marked in use. The replacement
+# the installer suggests must be bindable rootless (>= 1024) — not a nearby
+# privileged port like 81 that would just fail again at bind time.
+hdr "Case 16 — port-conflict suggestion is bindable (>= floor)"
+HOME_DIR_16="${TMP_BASE}/home-16"
+STUB_DIR_16="${TMP_BASE}/stub-16"
+mkdir -p "${HOME_DIR_16}"
+make_stub_path "${STUB_DIR_16}" "Linux" "x86_64"
+stub_ports "${STUB_DIR_16}" "80"
+if SPRING_INSTALL_UNPRIV_PORT_START=1024 \
+   CADDY_HTTP_PORT='' CADDY_HTTPS_PORT='' \
+   SPRING_DISPATCHER_PORT=18190 Mcp__Port=18191 \
+   run_install_with_port_check "${HOME_DIR_16}" "${STUB_DIR_16}" --no-start \
+   >"${TMP_BASE}/run16.out" 2>&1; then
+  bad "install.sh succeeded with Caddy HTTP port 80 in use; expected fail-fast"
+else
+  ok "install.sh failed fast on the in-use Caddy HTTP port"
+fi
+sug16="$(sed -n 's/.*CADDY_HTTP_PORT=\([0-9][0-9]*\).*/\1/p' "${TMP_BASE}/run16.out" | head -n1)"
+if [[ -n "$sug16" ]] && (( sug16 >= 1024 )); then
+  ok "suggested CADDY_HTTP_PORT=${sug16} is bindable (>= floor 1024)"
+else
+  bad "suggested port not bindable (got '${sug16:-none}', want >= 1024)"
+  cat "${TMP_BASE}/run16.out" >&2
+fi
+
+# ===========================================================================
 # Summary
 # ===========================================================================
 hdr "Summary"

@@ -301,12 +301,16 @@ port_in_use() {
 }
 
 # Scan upward from $1 for a port nothing is listening on (best-effort; an
-# "unknown" result counts as free since we cannot prove otherwise).
+# "unknown" result counts as free since we cannot prove otherwise). The scan is
+# clamped to min_bindable_port, so on a rootless host it never returns a port
+# below the kernel's unprivileged floor (free but unbindable).
 next_free_port() {
-  local p="$1" i status
+  local p="$1" i status floor
+  floor="$(min_bindable_port)"
+  (( p < floor - 1 )) && p=$(( floor - 1 ))
   for (( i = 0; i < 200; i++ )); do
     p=$(( p + 1 ))
-    (( p > 65535 )) && p=1025
+    (( p > 65535 )) && p="$floor"
     status=0; port_in_use "$p" || status=$?
     (( status != 0 )) && { printf '%s' "$p"; return 0; }
   done
@@ -318,6 +322,32 @@ free_port_at_or_above() {
   local p="$1" status=0
   port_in_use "$p" || status=$?
   if (( status == 0 )); then next_free_port "$p"; else printf '%s' "$p"; fi
+}
+
+# Lowest host port a rootless publish can actually bind: on Linux the kernel's
+# unprivileged-port floor, elsewhere (macOS podman-machine) 1 — no such limit.
+# Keeps port suggestions bindable.
+min_bindable_port() {
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    local f; f="$(unprivileged_port_start)"
+    [[ "$f" =~ ^[0-9]+$ ]] && { printf '%s' "$f"; return 0; }
+  fi
+  printf '1'
+}
+
+# Suggest a free, bindable port when `candidate` (configured default `default`)
+# is taken. For a privileged default on a rootless host, jump to the conventional
+# high alternative (80->8080, 443->8443) — nearby low ports are also unbindable;
+# otherwise scan up from the candidate. Always >= the floor.
+suggest_port() {
+  local candidate="$1" default="$2"
+  local floor; floor="$(min_bindable_port)"
+  local base=$(( candidate + 1 ))
+  if (( default < floor )); then
+    base=$(( default + 8000 ))
+    (( base < floor )) && base="$floor"
+  fi
+  free_port_at_or_above "$base"
 }
 
 # ---------------------------------------------------------------------------
@@ -462,14 +492,14 @@ resolve_host_port() {
     return 0
   fi
 
-  # Candidate is in use.
+  # Candidate is in use — offer a free, bindable alternative.
+  local suggestion answer
+  suggestion="$(suggest_port "$candidate" "$default")"
   if [[ "$ASSUME_YES" -eq 1 ]] || { [[ ! -t 0 ]] && [[ ! -r /dev/tty ]]; }; then
-    fail "Port ${candidate} (${label}) is already in use. Free the service holding it, or set ${varname} to an open port and rerun — e.g. \`${varname}=<port> install.sh ...\` (or add \`${varname}=<port>\` to ${INSTALL_ROOT}/spring.env)."
+    fail "Port ${candidate} (${label}) is already in use. Set ${varname} to an open port and rerun — e.g. \`${varname}=${suggestion} install.sh ...\` (or add \`${varname}=${suggestion}\` to ${INSTALL_ROOT}/spring.env)."
   fi
 
   warn "Port ${candidate} (${label}) is already in use."
-  local suggestion answer
-  suggestion="$(next_free_port "$candidate")"
   while :; do
     printf '  %sNew %s port%s [%s]: ' "${BOLD}" "${label}" "${NC}" "${suggestion}" >&2
     if [[ -t 0 ]]; then
