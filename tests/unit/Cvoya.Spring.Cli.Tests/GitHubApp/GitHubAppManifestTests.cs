@@ -22,20 +22,25 @@ public class GitHubAppManifestTests
         // This test locks the set of permissions requested at App creation
         // so the connector's skill bundles never silently outgrow them —
         // each additional scope must be added in both places deliberately.
-        GitHubAppManifest.Permissions["issues"].ShouldBe("read");
+        // Every key MUST be a real GitHub App permission resource — GitHub
+        // rejects the whole manifest otherwise. `issue_comment` is NOT one
+        // (it's a webhook event); commenting is granted by issues:write.
+        GitHubAppManifest.Permissions["issues"].ShouldBe("write");
         GitHubAppManifest.Permissions["pull_requests"].ShouldBe("read");
         GitHubAppManifest.Permissions["contents"].ShouldBe("read");
         GitHubAppManifest.Permissions["metadata"].ShouldBe("read");
-        GitHubAppManifest.Permissions["issue_comment"].ShouldBe("write");
         GitHubAppManifest.Permissions["statuses"].ShouldBe("write");
         GitHubAppManifest.Permissions["checks"].ShouldBe("write");
-        GitHubAppManifest.Permissions.Count.ShouldBe(7);
+        GitHubAppManifest.Permissions.Count.ShouldBe(6);
+        GitHubAppManifest.Permissions.ShouldNotContainKey("issue_comment");
     }
 
     [Fact]
     public void WebhookEvents_MatchConnectorContract()
     {
-        GitHubAppManifest.WebhookEvents.ShouldBe(new[] { "issues", "pull_request", "issue_comment", "installation" });
+        // No "installation": GitHub delivers it automatically and rejects it
+        // when listed in default_events.
+        GitHubAppManifest.WebhookEvents.ShouldBe(new[] { "issues", "pull_request", "issue_comment" });
     }
 
     [Fact]
@@ -66,11 +71,34 @@ public class GitHubAppManifestTests
         callbacks[0].GetString().ShouldBe("https://example.com/api/v1/tenant/connectors/github/oauth/callback");
 
         var events = root.GetProperty("default_events");
-        events.GetArrayLength().ShouldBe(4);
+        events.GetArrayLength().ShouldBe(3);
 
         var perms = root.GetProperty("default_permissions");
-        perms.GetProperty("issues").GetString().ShouldBe("read");
-        perms.GetProperty("issue_comment").GetString().ShouldBe("write");
+        perms.GetProperty("issues").GetString().ShouldBe("write");
+        perms.GetProperty("statuses").GetString().ShouldBe("write");
+        perms.TryGetProperty("issue_comment", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void BuildJson_LoopbackWebhook_MarksHookInactive()
+    {
+        // GitHub rejects an ACTIVE hook that isn't publicly reachable, so a
+        // localhost webhook (dev install) is registered inactive; a public
+        // one stays active.
+        var cases = new[]
+        {
+            ("https://localhost/api/v1/webhooks/github", false),
+            ("http://127.0.0.1:5000/api/v1/webhooks/github", false),
+            ("https://spring.example.com:8443/api/v1/webhooks/github", true),
+        };
+        foreach (var (webhook, expectActive) in cases)
+        {
+            var json = GitHubAppManifest.BuildJson(new GitHubAppManifest.Inputs(
+                Name: "x", WebhookUrl: webhook, RedirectUrl: "http://127.0.0.1:1/"));
+            using var doc = JsonDocument.Parse(json);
+            doc.RootElement.GetProperty("hook_attributes").GetProperty("active").GetBoolean()
+                .ShouldBe(expectActive, $"webhook={webhook}");
+        }
     }
 
     [Fact]

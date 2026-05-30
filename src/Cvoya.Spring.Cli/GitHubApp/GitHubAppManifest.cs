@@ -33,35 +33,44 @@ using System.Text.Json.Serialization;
 public static class GitHubAppManifest
 {
     /// <summary>
-    /// Hardcoded permissions requested on App creation. The OSS connector
-    /// relies on exactly these scopes; the private cloud repo extends via
-    /// runtime OAuth grant rather than requesting additional App scopes.
-    /// Keep this set MINIMAL — GitHub warns users on each extra permission
-    /// and every extra scope adds blast radius on a compromised key.
+    /// Permissions requested on App creation, keyed by GitHub's permission
+    /// resource names. These MUST be valid permission resources — GitHub
+    /// rejects the entire manifest if any key isn't real (notably
+    /// <c>issue_comment</c> is a webhook EVENT, not a permission; posting
+    /// issue and PR-conversation comments is granted by <c>issues: write</c>).
+    /// Keep the set MINIMAL — GitHub warns users on each extra permission and
+    /// every extra scope adds blast radius on a compromised key.
     /// </summary>
     public static IReadOnlyDictionary<string, string> Permissions { get; } =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            // Read scopes — the connector consumes issues, PRs, and file
-            // contents. `metadata: read` is mandatory for every App.
-            ["issues"] = "read",
+            // issues: write — read issue/PR metadata AND post comments on
+            // behalf of agents. PR *conversation* comments are created through
+            // the issues API, so issues:write covers commenting on issues and
+            // PRs alike (PR review comments on the diff would additionally need
+            // pull_requests:write — not requested until a skill needs it).
+            ["issues"] = "write",
             ["pull_requests"] = "read",
             ["contents"] = "read",
+            // metadata: read is mandatory for every App.
             ["metadata"] = "read",
-            // Write scopes — the connector posts comments, opens check
-            // runs, and sets commit statuses on behalf of agents.
-            ["issue_comment"] = "write",
+            // statuses / checks: write — set commit statuses and open check
+            // runs on agent-driven runs.
             ["statuses"] = "write",
             ["checks"] = "write",
         };
 
     /// <summary>
-    /// Webhook events the connector subscribes to. <c>installation</c> is
-    /// required so the platform learns when an operator installs or
-    /// uninstalls the App on a new org/repo.
+    /// Webhook events the connector subscribes to. Each must be a subscribable
+    /// event backed by one of <see cref="Permissions"/>, or GitHub rejects the
+    /// manifest. <c>installation</c> is intentionally absent: GitHub delivers
+    /// installation / installation_repositories events to every App
+    /// automatically, and listing it in <c>default_events</c> is rejected
+    /// ("Default events unsupported: installation") — the platform still
+    /// receives those events without subscribing.
     /// </summary>
     public static IReadOnlyList<string> WebhookEvents { get; } =
-        new[] { "issues", "pull_request", "issue_comment", "installation" };
+        new[] { "issues", "pull_request", "issue_comment" };
 
     /// <summary>
     /// Inputs to manifest creation. <see cref="Name"/> must be globally
@@ -121,10 +130,18 @@ public static class GitHubAppManifest
             ? inputs.RedirectUrl
             : inputs.OAuthCallbackUrl;
 
+        // GitHub's manifest validator rejects an ACTIVE hook whose URL isn't
+        // reachable over the public Internet (e.g. localhost on a dev install:
+        // "Hook url is not supported because it isn't reachable…"). Register a
+        // loopback hook INACTIVE so the App can still be created — local dev
+        // delivers events via `gh webhook forward` (a separate channel), and
+        // the operator points the hook at a public URL for production.
+        var hookActive = IsPubliclyReachableHook(inputs.WebhookUrl);
+
         var manifest = new ManifestPayload(
             Name: inputs.Name,
             Url: inputs.HomepageUrl ?? "https://github.com/cvoya-com/spring-voyage",
-            HookAttributes: new HookAttributes(Url: inputs.WebhookUrl, Active: true),
+            HookAttributes: new HookAttributes(Url: inputs.WebhookUrl, Active: hookActive),
             RedirectUrl: inputs.RedirectUrl,
             CallbackUrls: new[] { oauthCallback },
             Description: inputs.Description
@@ -136,6 +153,29 @@ public static class GitHubAppManifest
         // GitHub's manifest schema is snake_case, declared explicitly on each
         // property below.
         return JsonSerializer.Serialize(manifest, s_serializerOptions);
+    }
+
+    /// <summary>
+    /// Whether a webhook URL is reachable over the public Internet. False for
+    /// loopback hosts (<c>localhost</c>, <c>127.0.0.0/8</c>, <c>::1</c>,
+    /// <c>*.localhost</c>) — GitHub's manifest validator refuses an active hook
+    /// that isn't publicly reachable, so a loopback hook is registered inactive
+    /// rather than failing the whole registration.
+    /// </summary>
+    private static bool IsPubliclyReachableHook(string webhookUrl)
+    {
+        if (!Uri.TryCreate(webhookUrl, UriKind.Absolute, out var uri))
+        {
+            // Unparseable — don't second-guess the operator; leave it active.
+            return true;
+        }
+        var host = uri.Host;
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        return !(IPAddress.TryParse(host, out var ip) && IPAddress.IsLoopback(ip));
     }
 
     /// <summary>

@@ -89,10 +89,9 @@ Under **Repository permissions**, set exactly these scopes (no more — every ex
 | Permission | Access | Why |
 |------------|--------|-----|
 | **Contents** | Read-only | Read repository files for context (`README.md`, source files referenced from issues / PRs). |
-| **Issues** | Read-only | Surface issue bodies and metadata to agents. |
+| **Issues** | Read & write | Surface issue/PR bodies and metadata to agents, and post comments on their behalf. Comments on both issues and PR conversations go through the Issues API — there is **no** separate `issue_comment` permission. |
 | **Pull requests** | Read-only | Surface PR diffs and metadata to agents. |
 | **Metadata** | Read-only | Mandatory for every GitHub App. GitHub auto-selects this — leave it. |
-| **Issues and PR comments** (`issue_comment`) | Read & write | Post comments authored by agents. |
 | **Commit statuses** (`statuses`) | Read & write | Set commit statuses on agent-driven runs. |
 | **Checks** (`checks`) | Read & write | Open check runs on agent-driven runs. |
 
@@ -107,9 +106,8 @@ Tick exactly these events under **Subscribe to events**:
 - `Issues`
 - `Pull request`
 - `Issue comment`
-- `Installation`
 
-`Installation` is required so the connector learns when the App is installed or uninstalled on a new org or repo. The other three drive the agent activity bus. Leave every other event unticked.
+Do **not** tick `Installation` — GitHub delivers installation / uninstallation events to every App automatically, so it is not a subscribable event (and the App-from-manifest flow rejects it if listed). The connector still learns about installs without subscribing. The three events above drive the agent activity bus; leave every other event unticked.
 
 ### 5. Create the App and capture credentials
 
