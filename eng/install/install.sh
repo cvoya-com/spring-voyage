@@ -305,6 +305,133 @@ next_free_port() {
   printf '%s' "$1"
 }
 
+# Pick a free host port at or above $1 (falls back to next_free_port on conflict).
+free_port_at_or_above() {
+  local p="$1" status=0
+  port_in_use "$p" || status=$?
+  if (( status == 0 )); then next_free_port "$p"; else printf '%s' "$p"; fi
+}
+
+# ---------------------------------------------------------------------------
+# Rootless privileged-port handling (Linux only)
+# ---------------------------------------------------------------------------
+# A *free* port is not necessarily a *bindable* one. Under rootless Podman the
+# kernel blocks unprivileged binds below net.ipv4.ip_unprivileged_port_start
+# (default 1024), so Caddy's 80/443 host mapping fails at `deploy.sh up` with
+# "rootlessport cannot expose privileged port" even though the availability
+# check above passed. We detect that here, before the download, and either
+# lower the threshold (keeps 80/443 + automatic Let's Encrypt) or remap to
+# high ports. macOS is exempt — podman machine forwards host ports through its
+# VM and is not subject to this floor.
+
+# Echo the kernel's unprivileged-port floor. Honors SPRING_INSTALL_UNPRIV_PORT_START
+# (tests / advanced operators), then /proc, then sysctl, then the kernel default.
+unprivileged_port_start() {
+  if [[ -n "${SPRING_INSTALL_UNPRIV_PORT_START:-}" ]]; then
+    printf '%s' "${SPRING_INSTALL_UNPRIV_PORT_START}"; return 0
+  fi
+  local v
+  if [[ -r /proc/sys/net/ipv4/ip_unprivileged_port_start ]]; then
+    v="$(tr -d '[:space:]' < /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || true)"
+    [[ -n "$v" ]] && { printf '%s' "$v"; return 0; }
+  fi
+  if command -v sysctl >/dev/null 2>&1; then
+    v="$(sysctl -n net.ipv4.ip_unprivileged_port_start 2>/dev/null || true)"
+    [[ -n "$v" ]] && { printf '%s' "$v"; return 0; }
+  fi
+  printf '1024'
+}
+
+# Lower the floor to $1 (persisted under /etc/sysctl.d) via sudo. Returns
+# non-zero if sudo is unavailable or the operator declines / it fails.
+lower_unprivileged_port_start() {
+  local target="$1" conf="/etc/sysctl.d/99-spring-voyage.conf"
+  command -v sudo >/dev/null 2>&1 || return 1
+  info "Lowering net.ipv4.ip_unprivileged_port_start to ${target} (writes ${conf}; sudo may prompt)..."
+  sudo sh -c "printf 'net.ipv4.ip_unprivileged_port_start=%s\n' '${target}' > '${conf}'" || return 1
+  sudo sysctl --system >/dev/null 2>&1 || return 1
+  return 0
+}
+
+# Ensure the resolved Caddy host ports are bindable under rootless Podman.
+# Updates CADDY_HTTP_PORT / CADDY_HTTPS_PORT in place when it remaps.
+resolve_privileged_ports() {
+  [[ "$(uname -s)" == "Linux" ]] || return 0
+
+  local floor; floor="$(unprivileged_port_start)"
+  [[ "$floor" =~ ^[0-9]+$ ]] || floor=1024
+
+  local http="${CADDY_HTTP_PORT:-80}" https="${CADDY_HTTPS_PORT:-443}"
+  local below=""
+  if (( http  < floor )); then below+="HTTP ${http} "; fi
+  if (( https < floor )); then below+="HTTPS ${https} "; fi
+  if [[ -z "$below" ]]; then
+    ok "Caddy host ports bindable under rootless Podman (unprivileged floor = ${floor})"
+    return 0
+  fi
+  below="${below% }"
+
+  local target conf="/etc/sysctl.d/99-spring-voyage.conf"
+  target=$(( http < https ? http : https ))
+
+  warn "Rootless Podman cannot bind ${below} — the kernel allows unprivileged binds only from port ${floor} up (net.ipv4.ip_unprivileged_port_start)."
+
+  # Non-interactive: fail fast with both remedies (mirrors the port-conflict path).
+  if [[ "$ASSUME_YES" -eq 1 ]] || { [[ ! -t 0 ]] && [[ ! -r /dev/tty ]]; }; then
+    fail "Caddy's web ports are not bindable under rootless Podman. Pick one and rerun:
+       A) Lower the threshold (keeps ${http}/${https} + automatic TLS):
+            echo 'net.ipv4.ip_unprivileged_port_start=${target}' | sudo tee ${conf}
+            sudo sysctl --system
+       B) Use high host ports (no sudo; portal on :8080, automatic Let's Encrypt disabled):
+            CADDY_HTTP_PORT=8080 CADDY_HTTPS_PORT=8443 <install command>
+            (or add those two lines to ${INSTALL_ROOT}/spring.env)"
+  fi
+
+  # Interactive: offer both, recommend lowering the threshold.
+  info "How would you like to proceed?"
+  info "  1) Lower the threshold to ${target} — recommended; keeps ${http}/${https} + automatic TLS (needs sudo)"
+  info "  2) Use high ports 8080/8443 — no sudo; portal on :8080, automatic Let's Encrypt disabled"
+  local answer choice=""
+  while [[ -z "$choice" ]]; do
+    printf '  %sOption%s [1]: ' "${BOLD}" "${NC}" >&2
+    if [[ -t 0 ]]; then
+      IFS= read -r answer || answer=""
+    elif [[ -r /dev/tty ]]; then
+      IFS= read -r answer </dev/tty || answer=""
+    else
+      answer=""
+    fi
+    [[ -z "$answer" ]] && answer="1"
+    case "$answer" in
+      1|2) choice="$answer" ;;
+      *)   warn "Enter 1 or 2." ;;
+    esac
+  done
+
+  if [[ "$choice" == "1" ]]; then
+    if lower_unprivileged_port_start "$target"; then
+      floor="$(unprivileged_port_start)"; [[ "$floor" =~ ^[0-9]+$ ]] || floor=1024
+      if (( http >= floor && https >= floor )); then
+        ok "Lowered net.ipv4.ip_unprivileged_port_start to ${floor}; ${http}/${https} are now bindable."
+        return 0
+      fi
+      warn "Applied, but the floor is still ${floor}; falling back to high ports."
+    else
+      warn "Could not lower the threshold automatically (sudo unavailable or declined)."
+      info "Run it later if you want ${http}/${https} back:"
+      info "    echo 'net.ipv4.ip_unprivileged_port_start=${target}' | sudo tee ${conf} && sudo sysctl --system"
+      info "Falling back to high ports."
+    fi
+  fi
+
+  # Remap to high ports (option 2, or option 1 that could not lower the floor).
+  CADDY_HTTP_PORT="$(free_port_at_or_above 8080)"
+  CADDY_HTTPS_PORT="$(free_port_at_or_above 8443)"
+  warn "Using high host ports — HTTP ${CADDY_HTTP_PORT}, HTTPS ${CADDY_HTTPS_PORT}. Automatic Let's Encrypt is disabled off 80/443; terminate TLS upstream or front Caddy with a reverse proxy."
+  ok "Caddy host ports -> ${CADDY_HTTP_PORT}/${CADDY_HTTPS_PORT}"
+  return 0
+}
+
 PORT_CHECK_UNAVAILABLE=0
 
 # Resolve one host port. Honors an existing env override as the candidate,
@@ -375,6 +502,10 @@ else
   else
     ok "Host ports free — HTTP ${CADDY_HTTP_PORT:-80}, HTTPS ${CADDY_HTTPS_PORT:-443}, dispatcher ${SPRING_DISPATCHER_PORT:-8090}, MCP ${Mcp__Port:-5050}"
   fi
+  # A free port is not necessarily bindable: rootless Podman cannot publish
+  # privileged ports (80/443) below the kernel's unprivileged floor. Resolve
+  # that now (Linux only) so we don't fail at the very end of `deploy.sh up`.
+  resolve_privileged_ports
 fi
 
 # ---------------------------------------------------------------------------
