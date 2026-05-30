@@ -813,7 +813,7 @@ public static class GitHubAppCommand
             }
 
             await ExchangeAndPersistAsync(
-                code, persistence, envFilePathOverride, httpClientOverride,
+                code, resolvedWebhookUrl, persistence, envFilePathOverride, httpClientOverride,
                 githubApiBaseUrlOverride, stdout, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -892,7 +892,7 @@ public static class GitHubAppCommand
         }
 
         await ExchangeAndPersistAsync(
-            code, persistence, envFilePathOverride, httpClientOverride,
+            code, resolvedWebhookUrl, persistence, envFilePathOverride, httpClientOverride,
             githubApiBaseUrlOverride, stdout, cancellationToken).ConfigureAwait(false);
     }
 
@@ -903,6 +903,7 @@ public static class GitHubAppCommand
     /// </summary>
     private static async Task ExchangeAndPersistAsync(
         string code,
+        string webhookUrl,
         Persistence persistence,
         string? envFilePathOverride,
         HttpClient? httpClientOverride,
@@ -931,7 +932,7 @@ public static class GitHubAppCommand
                 _ => throw new InvalidOperationException("Unreachable persistence target."),
             };
 
-            PrintSuccess(stdout, result, outcome);
+            PrintSuccess(stdout, result, outcome, GitHubAppManifest.IsPubliclyReachableHook(webhookUrl));
         }
         finally
         {
@@ -1175,7 +1176,8 @@ public static class GitHubAppCommand
     }
 
     private static void PrintSuccess(
-        TextWriter stdout, ManifestConversionResult result, CredentialWriter.WriteOutcome outcome)
+        TextWriter stdout, ManifestConversionResult result, CredentialWriter.WriteOutcome outcome,
+        bool webhookRegistered)
     {
         stdout.WriteLine();
         stdout.WriteLine("GitHub App registered.");
@@ -1187,11 +1189,26 @@ public static class GitHubAppCommand
         {
             stdout.WriteLine($"  - {key}");
         }
-        if (outcome.MissingFields.Count > 0)
+
+        // A loopback / localhost deployment registers the App WITHOUT a webhook
+        // (GitHub rejects unreachable hooks), so GitHub returns no webhook
+        // secret. That's expected — surface it calmly and drop it from the
+        // "omitted" warning so the operator isn't told to rerun a healthy install.
+        var missing = outcome.MissingFields;
+        if (!webhookRegistered && missing.Any(f => string.Equals(f, "WebhookSecret", StringComparison.Ordinal)))
+        {
+            stdout.WriteLine();
+            stdout.WriteLine("Note: no webhook was registered — the webhook URL isn't publicly reachable");
+            stdout.WriteLine("(e.g. localhost), so GitHub issued no webhook secret. That's expected; for");
+            stdout.WriteLine("local-dev event delivery use `gh webhook forward`.");
+            missing = missing.Where(f => !string.Equals(f, "WebhookSecret", StringComparison.Ordinal)).ToList();
+        }
+
+        if (missing.Count > 0)
         {
             stdout.WriteLine();
             stdout.WriteLine("WARNING: GitHub omitted the following fields in its response:");
-            foreach (var field in outcome.MissingFields)
+            foreach (var field in missing)
             {
                 stdout.WriteLine($"  - {field}");
             }

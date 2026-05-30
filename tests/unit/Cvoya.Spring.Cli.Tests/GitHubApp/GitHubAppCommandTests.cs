@@ -166,6 +166,68 @@ public class GitHubAppCommandTests
         }
     }
 
+    [Fact(Timeout = 30_000)]
+    public async Task RunAsync_LoopbackWebhook_NoSecret_ExplainsInsteadOfWarning()
+    {
+        // A localhost deployment registers the App WITHOUT a webhook, so GitHub
+        // returns no webhook_secret. The CLI should explain that calmly, not
+        // emit the "omitted fields … Rerun if this looks wrong" warning.
+        using var mockGitHub = await MockGitHubServer.StartAsync(
+            responseJson: """
+                {
+                  "id": 9,
+                  "slug": "sv-localhost",
+                  "name": "Spring Voyage (localhost)",
+                  "pem": "-----BEGIN PRIVATE KEY-----\nCC\n-----END PRIVATE KEY-----",
+                  "client_id": "Iv1.local",
+                  "client_secret": "local-secret",
+                  "html_url": "https://github.com/apps/sv-localhost"
+                }
+                """,
+            statusCode: HttpStatusCode.Created);
+
+        var envDir = Path.Combine(Path.GetTempPath(), $"spring-localhost-{Guid.NewGuid()}");
+        Directory.CreateDirectory(envDir);
+        var envPath = Path.Combine(envDir, "spring.env");
+
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("spring-cli-test/1.0");
+        var stdout = new StringWriter();
+
+        static Task<string?> Paste() => Task.FromResult<string?>("loopback-code");
+
+        try
+        {
+            await GitHubAppCommand.RunAsync(
+                name: "Spring Voyage (localhost)",
+                org: null,
+                webhookUrlOverride: "https://localhost/api/v1/webhooks/github",
+                writeEnv: true,
+                writeSecrets: false,
+                envFilePathOverride: envPath,
+                dryRun: false,
+                callbackTimeout: TimeSpan.FromSeconds(20),
+                cancellationToken: CancellationToken.None,
+                httpClientOverride: http,
+                githubApiBaseUrlOverride: mockGitHub.BaseUrl,
+                stdout: stdout,
+                manual: true,
+                codeReaderOverride: Paste);
+
+            var output = stdout.ToString();
+            output.ShouldContain("GitHub App registered.");
+            // Calm explanation for the expected no-webhook case…
+            output.ShouldContain("no webhook was registered");
+            // …and NOT the alarming omitted-fields warning for the missing secret.
+            output.ShouldNotContain("Rerun if this looks wrong");
+            output.ShouldNotContain("WebhookSecret");
+        }
+        finally
+        {
+            Directory.Delete(envDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task RunAsync_RejectsBothWriteModes()
     {
