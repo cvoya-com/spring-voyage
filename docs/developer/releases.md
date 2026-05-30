@@ -92,7 +92,7 @@ Use `eng/release/release.sh` to cut a release. The script pushes the tag, watche
 
 `release.yml` creates the GitHub Release as a **draft** immediately after the CI gate succeeds (job: `create-draft-release`). Every publish job — agent images, platform image, sidecar SEA binaries, per-RID host archives, `Cvoya.Spring.Cli` NuGet tool, top-level `install.sh` and `install-<v>.sh` — attaches its assets to that draft. A final `finalize-release` job promotes the draft to a published release only after every publish job has succeeded.
 
-The consequence for operators watching the Releases page during a release: the entry shows up as a draft within a minute or two of the tag push and stays drafted for roughly 10–20 minutes (the long pole is the multi-arch image builds). If any publish job fails, the draft sits there until the workflow is re-run successfully; consumers never see a partially-published release. The GitHub Release title is `Spring Voyage v<version>` and the body is populated from the `[Unreleased]` section of `CHANGELOG.md` at the tagged commit, followed by an auto-generated asset reference table.
+The consequence for operators watching the Releases page during a release: the entry shows up as a draft within a minute or two of the tag push and stays drafted for roughly 10–20 minutes (the long pole is the multi-arch image builds). If any publish job fails, the draft sits there until the workflow is re-run successfully; consumers never see a partially-published release. The GitHub Release title is `Spring Voyage v<version>` and the body is resolved at the tagged commit by [`eng/release/resolve-release-notes.sh`](../../eng/release/resolve-release-notes.sh) — the curated `docs/releases/<version>.md` notes if present, otherwise the `[Unreleased]` section of `CHANGELOG.md` — followed by an auto-generated asset reference table. See [Release notes](#release-notes).
 
 ### Patch releases on prior versions
 
@@ -190,12 +190,25 @@ The container-registry tag is the prefix-stripped SemVer string (e.g., git tag `
 
 The canonical changelog is [`CHANGELOG.md`](../../CHANGELOG.md) at the repository root. It follows the [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) format. See [`CONTRIBUTING.md` § Changelog Expectations](../../CONTRIBUTING.md#changelog-expectations) for the per-PR convention.
 
+## Release notes
+
+The `CHANGELOG.md` is the exhaustive, per-PR technical record. The **release notes** are the human narrative that becomes the GitHub Release body — "what's in this release and why you'd care" for someone landing on the Releases page. They live under [`docs/releases/`](../../docs/releases/), one file per release line, checked in **before** the tag is cut.
+
+**How the body is resolved.** At tag time, `create-draft-release` runs [`eng/release/resolve-release-notes.sh <version>`](../../eng/release/resolve-release-notes.sh), which picks the body in this order, then the workflow appends the auto-generated asset/image tables:
+
+1. `docs/releases/<full-version>.md` — exact, e.g. `1.0.0-rc.1.md` (rarely needed).
+2. `docs/releases/<major.minor.patch>.md` — the release line, e.g. `1.0.0.md`. **The common case** — reused by every `-alpha`/`-beta`/`-rc` and the final stable cut of that version.
+3. `CHANGELOG.md` `[Unreleased]` — fallback when no curated file exists (preserves the prior behaviour; nothing breaks if you skip the notes file).
+
+**Authoring.** Run the `/release-notes` Claude Code command (defined in [`.claude/commands/release-notes.md`](../../.claude/commands/release-notes.md)) to draft or refresh `docs/releases/<line>.md` from the changelog, the README, and the previous notes; review it, then include it in the release-prep PR. Because the file is read from the **tagged commit**, it must be merged to `main` before `release.sh` is run. Conventions and the "no asset/image tables" rule are in [`docs/releases/README.md`](../../docs/releases/README.md).
+
 ## Helper Scripts
 
 | Script | Purpose |
 | --- | --- |
 | [`eng/release/release.sh`](../../eng/release/release.sh) | Orchestrates the full release: computes tags, pushes them in dependency order, waits on each workflow, verifies anonymous pull. Flags: `--pre alpha\|beta\|rc`, `--plan` (dry-run), `--force-retag`. |
-| [`eng/release/extract-changelog-section.sh`](../../eng/release/extract-changelog-section.sh) | Extracts a named section (default: `Unreleased`) from `CHANGELOG.md` and prints it to stdout. Used by `release.yml` to populate the GitHub Release body. |
+| [`eng/release/resolve-release-notes.sh`](../../eng/release/resolve-release-notes.sh) | Resolves the GitHub Release body for a version: curated `docs/releases/<version>.md` → release-line `docs/releases/<x.y.z>.md` → `CHANGELOG.md` `[Unreleased]` fallback. Used by `release.yml`. |
+| [`eng/release/extract-changelog-section.sh`](../../eng/release/extract-changelog-section.sh) | Extracts a named section (default: `Unreleased`) from `CHANGELOG.md` and prints it to stdout. The fallback used by `resolve-release-notes.sh`. |
 
 ## Summary Table
 
