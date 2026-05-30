@@ -191,9 +191,13 @@ load_env() {
     require envsubst
     # Source the env file for this script's use (e.g., image tags, DEPLOY_HOSTNAME).
     # Values are passed into containers via --env-file, not via the shell environment.
+    # Exclude the GitHub connector credentials (GitHub__*): they are container-only
+    # and the PEM is a multi-word value ("-----BEGIN RSA PRIVATE KEY-----") that
+    # `source` would otherwise try to run as a command ("RSA: command not found").
+    # They still reach the container verbatim through the --env-file path below.
     set -a
     # shellcheck disable=SC1090
-    source "${ENV_FILE}"
+    source <(grep -v '^GitHub__' "${ENV_FILE}")
     set +a
 
     # Tier-1 secrets-key gate: SPRING_SECRETS_AES_KEY (or Secrets__AesKeyFile)

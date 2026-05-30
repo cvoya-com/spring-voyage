@@ -266,5 +266,41 @@ else
         || { bad "Case 11: wrong failure message"; cat "${TMP_DIR}/out"; }
 fi
 
+# ---------------------------------------------------------------------------
+# Case 12: load_env tolerates the multi-word GitHub App PEM in spring.env.
+# `spring github-app register --write-env` writes
+#   GitHub__PrivateKeyPem=-----BEGIN RSA PRIVATE KEY-----\n…
+# unquoted (correct for podman's literal --env-file). load_env must NOT try to
+# `source` that as a command ("RSA: command not found") — GitHub__* are
+# container-only, excluded from the shell source, yet still flow to the
+# --env-file (RESOLVED) path for the container.
+# ---------------------------------------------------------------------------
+cat >"${STUB}/envsubst" <<'ENVSUBST'
+#!/usr/bin/env bash
+exec cat
+ENVSUBST
+chmod +x "${STUB}/envsubst"
+cat >"${ENV_FILE}" <<'PEMENV'
+DEPLOY_HOSTNAME=preflight-pem-host
+SPRING_SECRETS_AES_KEY=dGVzdGtleTAxMjM0NTY3ODlhYmNkZWZnaGlqa2w=
+GitHub__AppId=42
+GitHub__PrivateKeyPem=-----BEGIN RSA PRIVATE KEY-----\nAAAABBBBCCCC\n-----END RSA PRIVATE KEY-----
+PEMENV
+(
+    load_env
+    printf 'HOST=%s\n' "${DEPLOY_HOSTNAME}"
+    printf 'PEM_IN_SHELL=[%s]\n' "${GitHub__PrivateKeyPem:-}"
+    grep -q '^GitHub__PrivateKeyPem=' "${RESOLVED_ENV_FILE}" && printf 'RESOLVED_HAS_PEM=yes\n'
+) >"${TMP_DIR}/out" 2>&1
+if grep -qi "command not found" "${TMP_DIR}/out"; then
+    bad "Case 12: load_env executed PEM fragments (\"command not found\")"; cat "${TMP_DIR}/out"
+elif grep -q '^HOST=preflight-pem-host$' "${TMP_DIR}/out" \
+     && grep -q '^PEM_IN_SHELL=\[\]$' "${TMP_DIR}/out" \
+     && grep -q '^RESOLVED_HAS_PEM=yes$' "${TMP_DIR}/out"; then
+    ok "Case 12: load_env skips the multi-word GitHub__ PEM (kept for --env-file)"
+else
+    bad "Case 12: load_env did not handle the GitHub__ PEM as expected"; cat "${TMP_DIR}/out"
+fi
+
 printf '\n  passed: %d\n  failed: %d\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]
