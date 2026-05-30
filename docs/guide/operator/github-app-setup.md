@@ -42,6 +42,8 @@ Restart the platform after the file changes (`./deploy.sh restart` for Podman, `
 Run `spring github-app register --help` for the full flag list, including `--org`, `--write-env`, `--write-secrets`, `--env-path`, `--webhook-url`, `--oauth-callback-url`, and `--manual`.
 
 > **Deployment URLs.** The webhook URL and the App's user-OAuth `callback_urls` default to the CLI's configured endpoint (`SPRING_API_URL` / `~/.spring/config.json`, falling back to `http://localhost:5000`). On a real deployment, pass your public origin so GitHub can reach them — e.g. `--webhook-url https://<your-host>/api/v1/webhooks/github --oauth-callback-url https://<your-host>/api/v1/tenant/connectors/github/oauth/callback`. **`install.sh` does this for you**, deriving both from `DEPLOY_HOSTNAME` and the resolved Caddy HTTPS port so the App's `callback_urls` matches `GitHub__OAuth__RedirectUri` exactly.
+>
+> **Localhost installs:** GitHub refuses to register an App whose webhook isn't publicly reachable, and requires a webhook whenever events are subscribed. So when the webhook URL is `localhost` / loopback, the CLI registers the App **without a webhook or event subscriptions** — a valid API-only App. Local dev then receives events via `gh webhook forward` (below), which is independent of the App's own webhook.
 
 ### No browser on the host (headless / remote server)
 

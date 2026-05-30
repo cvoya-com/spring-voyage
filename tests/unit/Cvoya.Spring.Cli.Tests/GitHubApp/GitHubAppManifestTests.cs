@@ -80,25 +80,37 @@ public class GitHubAppManifestTests
     }
 
     [Fact]
-    public void BuildJson_LoopbackWebhook_MarksHookInactive()
+    public void BuildJson_LoopbackWebhook_OmitsHookAndEvents()
     {
-        // GitHub rejects an ACTIVE hook that isn't publicly reachable, so a
-        // localhost webhook (dev install) is registered inactive; a public
-        // one stays active.
-        var cases = new[]
-        {
-            ("https://localhost/api/v1/webhooks/github", false),
-            ("http://127.0.0.1:5000/api/v1/webhooks/github", false),
-            ("https://spring.example.com:8443/api/v1/webhooks/github", true),
-        };
-        foreach (var (webhook, expectActive) in cases)
+        // GitHub requires a publicly-reachable hook URL whenever events are
+        // subscribed — localhost satisfies neither ("isn't reachable" with a
+        // URL; "Hook url cannot be blank" without one). So a loopback webhook
+        // (dev install) omits BOTH the hook and default_events; a public one
+        // keeps both.
+        foreach (var webhook in new[]
+                 {
+                     "https://localhost/api/v1/webhooks/github",
+                     "http://127.0.0.1:5000/api/v1/webhooks/github",
+                 })
         {
             var json = GitHubAppManifest.BuildJson(new GitHubAppManifest.Inputs(
                 Name: "x", WebhookUrl: webhook, RedirectUrl: "http://127.0.0.1:1/"));
             using var doc = JsonDocument.Parse(json);
-            doc.RootElement.GetProperty("hook_attributes").GetProperty("active").GetBoolean()
-                .ShouldBe(expectActive, $"webhook={webhook}");
+            doc.RootElement.TryGetProperty("hook_attributes", out _)
+                .ShouldBeFalse($"loopback webhook {webhook} should omit hook_attributes");
+            doc.RootElement.TryGetProperty("default_events", out _)
+                .ShouldBeFalse($"loopback webhook {webhook} should omit default_events");
         }
+
+        var publicJson = GitHubAppManifest.BuildJson(new GitHubAppManifest.Inputs(
+            Name: "x",
+            WebhookUrl: "https://spring.example.com:8443/api/v1/webhooks/github",
+            RedirectUrl: "http://127.0.0.1:1/"));
+        using var publicDoc = JsonDocument.Parse(publicJson);
+        var hook = publicDoc.RootElement.GetProperty("hook_attributes");
+        hook.GetProperty("url").GetString().ShouldBe("https://spring.example.com:8443/api/v1/webhooks/github");
+        hook.GetProperty("active").GetBoolean().ShouldBeTrue();
+        publicDoc.RootElement.GetProperty("default_events").GetArrayLength().ShouldBe(3);
     }
 
     [Fact]

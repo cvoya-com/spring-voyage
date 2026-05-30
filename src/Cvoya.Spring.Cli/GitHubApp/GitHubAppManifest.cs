@@ -130,24 +130,30 @@ public static class GitHubAppManifest
             ? inputs.RedirectUrl
             : inputs.OAuthCallbackUrl;
 
-        // GitHub's manifest validator rejects an ACTIVE hook whose URL isn't
-        // reachable over the public Internet (e.g. localhost on a dev install:
-        // "Hook url is not supported because it isn't reachable…"). Register a
-        // loopback hook INACTIVE so the App can still be created — local dev
-        // delivers events via `gh webhook forward` (a separate channel), and
-        // the operator points the hook at a public URL for production.
-        var hookActive = IsPubliclyReachableHook(inputs.WebhookUrl);
+        // GitHub ties webhook events to a reachable hook: subscribing to events
+        // REQUIRES a non-blank, publicly-reachable hook URL. A loopback webhook
+        // (localhost on a dev install) satisfies neither — GitHub rejects the
+        // localhost URL ("Hook url is not supported … isn't reachable", even
+        // with active:false) AND rejects an empty hook when events are present
+        // ("Hook url cannot be blank"). So for a loopback webhook we OMIT BOTH
+        // the hook and the event subscriptions: the result is a valid API-only
+        // App, and local dev delivers events via `gh webhook forward` (a
+        // repo-level channel, independent of the App's hook). A public
+        // deployment gets the active hook + event subscriptions as usual.
+        var publicHook = IsPubliclyReachableHook(inputs.WebhookUrl);
+        var hookAttributes = publicHook ? new HookAttributes(Url: inputs.WebhookUrl, Active: true) : null;
+        var defaultEvents = publicHook ? WebhookEvents : null;
 
         var manifest = new ManifestPayload(
             Name: inputs.Name,
             Url: inputs.HomepageUrl ?? "https://github.com/cvoya-com/spring-voyage",
-            HookAttributes: new HookAttributes(Url: inputs.WebhookUrl, Active: hookActive),
+            HookAttributes: hookAttributes,
             RedirectUrl: inputs.RedirectUrl,
             CallbackUrls: new[] { oauthCallback },
             Description: inputs.Description
                 ?? "Spring Voyage GitHub connector — registered via `spring github-app register`.",
             Public: false,
-            DefaultEvents: WebhookEvents,
+            DefaultEvents: defaultEvents,
             DefaultPermissions: Permissions);
 
         // GitHub's manifest schema is snake_case, declared explicitly on each
@@ -158,9 +164,9 @@ public static class GitHubAppManifest
     /// <summary>
     /// Whether a webhook URL is reachable over the public Internet. False for
     /// loopback hosts (<c>localhost</c>, <c>127.0.0.0/8</c>, <c>::1</c>,
-    /// <c>*.localhost</c>) — GitHub's manifest validator refuses an active hook
-    /// that isn't publicly reachable, so a loopback hook is registered inactive
-    /// rather than failing the whole registration.
+    /// <c>*.localhost</c>) — GitHub's manifest validator refuses a hook that
+    /// isn't publicly reachable (even an inactive one), so a loopback hook is
+    /// omitted from the manifest rather than failing the whole registration.
     /// </summary>
     private static bool IsPubliclyReachableHook(string webhookUrl)
     {
@@ -254,12 +260,12 @@ public static class GitHubAppManifest
     internal sealed record ManifestPayload(
         [property: JsonPropertyName("name")] string Name,
         [property: JsonPropertyName("url")] string Url,
-        [property: JsonPropertyName("hook_attributes")] HookAttributes HookAttributes,
+        [property: JsonPropertyName("hook_attributes")] HookAttributes? HookAttributes,
         [property: JsonPropertyName("redirect_url")] string RedirectUrl,
         [property: JsonPropertyName("callback_urls")] IReadOnlyList<string> CallbackUrls,
         [property: JsonPropertyName("description")] string Description,
         [property: JsonPropertyName("public")] bool Public,
-        [property: JsonPropertyName("default_events")] IReadOnlyList<string> DefaultEvents,
+        [property: JsonPropertyName("default_events")] IReadOnlyList<string>? DefaultEvents,
         [property: JsonPropertyName("default_permissions")] IReadOnlyDictionary<string, string> DefaultPermissions);
 
     internal sealed record HookAttributes(
