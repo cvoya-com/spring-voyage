@@ -12,7 +12,13 @@ on:
     # (see #191 - NOTICE.md-only PR that couldn't merge). With build-mode none
     # running CodeQL on a doc-only PR is cheap (~2 min on the db reuse path)
     # so paying that cost beats the merge deadlock.
-  merge_group:
+    #
+    # No merge_group trigger on purpose: CodeQL isn't a required merge-queue
+    # check, and the queue deletes its temporary gh-readonly-queue ref the
+    # moment an entry merges. CodeQL would analyze that ref and then 404 on the
+    # SARIF upload ("ref ... not found") — a noisy red X that gates nothing.
+    # pull_request already gates PRs and push:main scans the merged result, so
+    # scanning the ephemeral merge-queue ref adds no coverage.
   schedule:
     - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
 
