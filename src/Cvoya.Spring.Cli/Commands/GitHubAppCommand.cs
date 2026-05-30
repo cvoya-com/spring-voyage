@@ -111,6 +111,22 @@ public static class GitHubAppCommand
                 "giving up (default 300s, matches GitHub's one-time-code TTL).",
             DefaultValueFactory = _ => 300,
         };
+        var oauthCallbackOption = new Option<string?>("--oauth-callback-url")
+        {
+            Description =
+                "Override the App's user-OAuth callback URL (manifest callback_urls). " +
+                "Must match the connector's GitHub__OAuth__RedirectUri. Defaults to " +
+                "<deployment-origin>/api/v1/tenant/connectors/github/oauth/callback.",
+        };
+        var manualOption = new Option<bool>("--manual")
+        {
+            Description =
+                "Force the no-browser flow: write the pre-filled manifest form to a " +
+                "file to open on a machine that has a browser, then paste back the code " +
+                "from GitHub's redirect. Auto-selected on hosts with no browser " +
+                "(e.g. a headless server).",
+            DefaultValueFactory = _ => false,
+        };
 
         var command = new Command(
             "register",
@@ -123,6 +139,8 @@ public static class GitHubAppCommand
         command.Options.Add(envPathOption);
         command.Options.Add(dryRunOption);
         command.Options.Add(timeoutOption);
+        command.Options.Add(oauthCallbackOption);
+        command.Options.Add(manualOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -134,6 +152,8 @@ public static class GitHubAppCommand
             var envPathOverride = parseResult.GetValue(envPathOption);
             var dryRun = parseResult.GetValue(dryRunOption);
             var timeoutSec = parseResult.GetValue(timeoutOption);
+            var oauthCallbackOverride = parseResult.GetValue(oauthCallbackOption);
+            var manual = parseResult.GetValue(manualOption);
 
             try
             {
@@ -141,10 +161,12 @@ public static class GitHubAppCommand
                     name: name,
                     org: org,
                     webhookUrlOverride: webhookOverride,
+                    oauthCallbackUrlOverride: oauthCallbackOverride,
                     writeEnv: writeEnv,
                     writeSecrets: writeSecrets,
                     envFilePathOverride: envPathOverride,
                     dryRun: dryRun,
+                    manual: manual,
                     callbackTimeout: TimeSpan.FromSeconds(Math.Max(1, timeoutSec)),
                     cancellationToken: ct).ConfigureAwait(false);
             }
@@ -665,7 +687,10 @@ public static class GitHubAppCommand
         HttpClient? httpClientOverride = null,
         string? githubApiBaseUrlOverride = null,
         Func<string, Task>? browserOpenerOverride = null,
-        TextWriter? stdout = null)
+        TextWriter? stdout = null,
+        string? oauthCallbackUrlOverride = null,
+        bool manual = false,
+        Func<Task<string?>>? codeReaderOverride = null)
     {
         stdout ??= Console.Out;
 
@@ -680,7 +705,7 @@ public static class GitHubAppCommand
         var persistence = ResolvePersistence(writeEnv, writeSecrets, dryRun);
 
         var resolvedWebhookUrl = ResolveWebhookUrl(webhookUrlOverride);
-        var resolvedOAuthCallbackUrl = ResolveOAuthCallbackUrl();
+        var resolvedOAuthCallbackUrl = ResolveOAuthCallbackUrl(oauthCallbackUrlOverride);
         PrintPreamble(stdout, name, org, resolvedWebhookUrl, resolvedOAuthCallbackUrl, persistence);
 
         // CSRF nonce GitHub echoes back on the redirect, per the manifest-flow
@@ -713,10 +738,24 @@ public static class GitHubAppCommand
         }
 
         // ------------------------------------------------------------
-        // Bind the loopback listener BEFORE we open the browser. The
-        // ephemeral port is captured into the callback URL embedded in
-        // the manifest we submit — no way to know it without binding
-        // first.
+        // Pick the flow. A supplied browser-opener (tests) forces the
+        // auto-capture path; otherwise --manual, or a host with no browser
+        // (a headless server), routes to the no-browser copy/paste flow.
+        // ------------------------------------------------------------
+        if (manual || (browserOpenerOverride is null && !CanOpenBrowser()))
+        {
+            await RunManualRegistrationAsync(
+                name, org, resolvedWebhookUrl, resolvedOAuthCallbackUrl, state,
+                persistence, envFilePathOverride, httpClientOverride, githubApiBaseUrlOverride,
+                codeReaderOverride, stdout, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // ------------------------------------------------------------
+        // Auto-capture: bind a loopback listener, open a local page that
+        // auto-POSTs the manifest to GitHub, then capture the ?code redirect.
+        // The ephemeral port is baked into the manifest's redirect_url — no
+        // way to know it without binding first.
         // ------------------------------------------------------------
         var (listener, port) = CallbackListener.BindHttpListenerWithRetry(
             maxAttempts: CallbackListener.DefaultMaxBindAttempts);
@@ -773,48 +812,239 @@ public static class GitHubAppCommand
                     exitCode: 2);
             }
 
-            // ------------------------------------------------------------
-            // Exchange the one-time code for credentials.
-            // ------------------------------------------------------------
-            var http = httpClientOverride ?? CreateDefaultHttpClient();
-            try
-            {
-                var conversion = new ManifestConversionClient(
-                    http,
-                    githubApiBaseUrlOverride ?? ManifestConversionClient.DefaultGitHubBaseUrl);
-                var result = await conversion.ExchangeCodeAsync(code, cancellationToken).ConfigureAwait(false);
-
-                // ------------------------------------------------------------
-                // Persist.
-                // ------------------------------------------------------------
-                var outcome = persistence switch
-                {
-                    Persistence.WriteEnv => await CredentialWriter.WriteEnvAsync(
-                        result,
-                        envFilePathOverride ?? DefaultEnvFilePath(),
-                        cancellationToken).ConfigureAwait(false),
-                    Persistence.WriteSecrets => await CredentialWriter.WriteSecretsAsync(
-                        result,
-                        ClientFactory.Create(),
-                        cancellationToken).ConfigureAwait(false),
-                    _ => throw new InvalidOperationException("Unreachable persistence target."),
-                };
-
-                PrintSuccess(stdout, result, outcome);
-            }
-            finally
-            {
-                if (httpClientOverride is null)
-                {
-                    http.Dispose();
-                }
-            }
+            await ExchangeAndPersistAsync(
+                code, persistence, envFilePathOverride, httpClientOverride,
+                githubApiBaseUrlOverride, stdout, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             try { listener.Stop(); } catch { /* best-effort */ }
             try { ((IDisposable)listener).Dispose(); } catch { /* best-effort */ }
         }
+    }
+
+    /// <summary>
+    /// No-browser registration flow for headless / remote hosts. Writes the
+    /// pre-filled auto-submit manifest form to a file the operator opens on a
+    /// machine that has a browser, then reads back the one-time code they copy
+    /// from GitHub's redirect. On a remote host that redirect lands on an
+    /// unreachable loopback URL — the code is still in the address bar, which
+    /// is what the operator pastes back.
+    /// </summary>
+    private static async Task RunManualRegistrationAsync(
+        string name,
+        string? org,
+        string resolvedWebhookUrl,
+        string resolvedOAuthCallbackUrl,
+        string state,
+        Persistence persistence,
+        string? envFilePathOverride,
+        HttpClient? httpClientOverride,
+        string? githubApiBaseUrlOverride,
+        Func<Task<string?>>? codeReaderOverride,
+        TextWriter stdout,
+        CancellationToken cancellationToken)
+    {
+        // redirect_url is where GitHub appends ?code after Create. We don't
+        // bind a listener in this flow — on a remote host the operator's
+        // browser can't reach the loopback anyway; they copy the code out of
+        // the address bar. PickFreePort just gives the URL a plausible port.
+        var redirectUrl = $"http://127.0.0.1:{CallbackListener.PickFreePort()}/";
+        var inputs = new GitHubAppManifest.Inputs(
+            Name: name,
+            WebhookUrl: resolvedWebhookUrl,
+            RedirectUrl: redirectUrl,
+            OAuthCallbackUrl: resolvedOAuthCallbackUrl);
+        var formHtml = GitHubAppManifest.BuildAutoSubmitFormHtml(inputs, org, state);
+
+        var formPath = ManualFormPath(envFilePathOverride);
+        await File.WriteAllTextAsync(formPath, formHtml, cancellationToken).ConfigureAwait(false);
+
+        stdout.WriteLine("No browser on this host — finishing the registration from a machine that has one.");
+        stdout.WriteLine();
+        stdout.WriteLine("  1. Copy the pre-filled manifest form to that machine and open it in a browser:");
+        stdout.WriteLine($"       {formPath}");
+        stdout.WriteLine("     e.g. from your local machine:");
+        stdout.WriteLine($"       scp <this-host>:{formPath} ./spring-github-app.html");
+        stdout.WriteLine("       # then open spring-github-app.html in your browser");
+        stdout.WriteLine("     (the form only POSTs a pre-filled App manifest to GitHub — it holds no secrets)");
+        stdout.WriteLine();
+        stdout.WriteLine("  2. Click \"Create GitHub App\" on the page GitHub shows.");
+        stdout.WriteLine();
+        stdout.WriteLine("  3. GitHub then redirects to a URL like");
+        stdout.WriteLine($"       {redirectUrl}?code=XXXXXXXX&state=...");
+        stdout.WriteLine("     which won't load on a remote host — that's expected. Copy the whole");
+        stdout.WriteLine("     address from your browser's address bar (or just the value after `code=`).");
+        stdout.WriteLine();
+        stdout.WriteLine("  4. Paste the redirect URL (or just the code) below and press Enter.");
+        stdout.WriteLine();
+        stdout.Write("  code> ");
+
+        var reader = codeReaderOverride ?? (() => Task.FromResult(ReadCodeFromTerminal()));
+        var pasted = await reader().ConfigureAwait(false);
+        var code = ExtractCode(pasted);
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            throw new GitHubAppRegisterException(
+                "No code provided. Re-run `spring github-app register --manual` and paste the " +
+                "`code` value from GitHub's redirect URL when prompted.",
+                exitCode: 2);
+        }
+
+        await ExchangeAndPersistAsync(
+            code, persistence, envFilePathOverride, httpClientOverride,
+            githubApiBaseUrlOverride, stdout, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Exchanges the one-time code via <c>POST /app-manifests/{code}/conversions</c>
+    /// and persists the returned credentials. Shared by the auto-capture and
+    /// manual flows.
+    /// </summary>
+    private static async Task ExchangeAndPersistAsync(
+        string code,
+        Persistence persistence,
+        string? envFilePathOverride,
+        HttpClient? httpClientOverride,
+        string? githubApiBaseUrlOverride,
+        TextWriter stdout,
+        CancellationToken cancellationToken)
+    {
+        var http = httpClientOverride ?? CreateDefaultHttpClient();
+        try
+        {
+            var conversion = new ManifestConversionClient(
+                http,
+                githubApiBaseUrlOverride ?? ManifestConversionClient.DefaultGitHubBaseUrl);
+            var result = await conversion.ExchangeCodeAsync(code, cancellationToken).ConfigureAwait(false);
+
+            var outcome = persistence switch
+            {
+                Persistence.WriteEnv => await CredentialWriter.WriteEnvAsync(
+                    result,
+                    envFilePathOverride ?? DefaultEnvFilePath(),
+                    cancellationToken).ConfigureAwait(false),
+                Persistence.WriteSecrets => await CredentialWriter.WriteSecretsAsync(
+                    result,
+                    ClientFactory.Create(),
+                    cancellationToken).ConfigureAwait(false),
+                _ => throw new InvalidOperationException("Unreachable persistence target."),
+            };
+
+            PrintSuccess(stdout, result, outcome);
+        }
+        finally
+        {
+            if (httpClientOverride is null)
+            {
+                http.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether this host can plausibly open a browser for the operator —
+    /// drives the choice between the auto-capture flow and the no-browser
+    /// copy/paste flow. Linux needs both a launcher (xdg-open / $BROWSER) and
+    /// a display; a headless server (no $DISPLAY, no xdg-open) returns false.
+    /// </summary>
+    private static bool CanOpenBrowser()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            || RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return true;
+        }
+        var hasDisplay = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))
+            || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
+        var hasLauncher = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BROWSER"))
+            || OnPath("xdg-open");
+        return hasDisplay && hasLauncher;
+    }
+
+    private static bool OnPath(string exe)
+    {
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+        foreach (var dir in path.Split(Path.PathSeparator))
+        {
+            if (string.IsNullOrEmpty(dir))
+            {
+                continue;
+            }
+            try
+            {
+                if (File.Exists(Path.Combine(dir, exe)))
+                {
+                    return true;
+                }
+            }
+            catch { /* ignore unreadable PATH entries */ }
+        }
+        return false;
+    }
+
+    /// <summary>Where the manual-flow HTML form is written: next to the target spring.env when known, else temp.</summary>
+    private static string ManualFormPath(string? envFilePathOverride)
+    {
+        var envPath = string.IsNullOrWhiteSpace(envFilePathOverride)
+            ? DefaultEnvFilePath()
+            : envFilePathOverride;
+        string? dir = null;
+        try { dir = Path.GetDirectoryName(Path.GetFullPath(envPath)); } catch { /* fall through */ }
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+        {
+            dir = Path.GetTempPath();
+        }
+        return Path.Combine(dir, "spring-github-app-register.html");
+    }
+
+    /// <summary>
+    /// Reads the pasted code / redirect URL from the controlling terminal,
+    /// falling back to /dev/tty when stdin is redirected (e.g. a
+    /// <c>curl | bash</c> installer) so the prompt still works.
+    /// </summary>
+    private static string? ReadCodeFromTerminal()
+    {
+        if (!Console.IsInputRedirected)
+        {
+            return Console.ReadLine();
+        }
+        try
+        {
+            if (File.Exists("/dev/tty"))
+            {
+                using var tty = new StreamReader("/dev/tty");
+                return tty.ReadLine();
+            }
+        }
+        catch { /* fall through to stdin */ }
+        return Console.ReadLine();
+    }
+
+    /// <summary>
+    /// Pulls the one-time code out of whatever the operator pasted — either
+    /// the full redirect URL (<c>…/?code=ABC&amp;state=…</c>) or the bare code.
+    /// </summary>
+    private static string? ExtractCode(string? pasted)
+    {
+        if (string.IsNullOrWhiteSpace(pasted))
+        {
+            return null;
+        }
+        pasted = pasted.Trim();
+        var idx = pasted.IndexOf("code=", StringComparison.Ordinal);
+        if (idx < 0)
+        {
+            return pasted;
+        }
+        var rest = pasted[(idx + "code=".Length)..];
+        var amp = rest.IndexOf('&');
+        var code = amp >= 0 ? rest[..amp] : rest;
+        return Uri.UnescapeDataString(code).Trim();
     }
 
     // ------------------------------------------------------------------
@@ -881,8 +1111,10 @@ public static class GitHubAppCommand
     /// handshake — that one is the ephemeral listener, this one is where
     /// GitHub returns end users after they authorize the App at runtime.
     /// </summary>
-    private static string ResolveOAuthCallbackUrl()
-        => UrlPath.Combine(ResolveDeploymentEndpoint(), "/api/v1/tenant/connectors/github/oauth/callback");
+    private static string ResolveOAuthCallbackUrl(string? overrideUrl)
+        => !string.IsNullOrWhiteSpace(overrideUrl)
+            ? overrideUrl
+            : UrlPath.Combine(ResolveDeploymentEndpoint(), "/api/v1/tenant/connectors/github/oauth/callback");
 
     private static string ResolveDeploymentEndpoint()
     {

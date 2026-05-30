@@ -846,10 +846,18 @@ if [[ -f "${SPRING_ENV_FILE}" ]]; then
   fi
 fi
 
-# Caddy serves HTTPS on CADDY_HTTPS_PORT; include the port in the callback URL
-# when it is not the default 443 so the OAuth redirect resolves.
+# Caddy serves HTTPS on CADDY_HTTPS_PORT; include the port in the public URLs
+# when it is not the default 443 so the OAuth redirect + webhook resolve. Both
+# URLs are handed to `spring github-app register` below so the GitHub App's
+# webhook URL and callback_urls point at THIS deployment — not the CLI's
+# localhost:5000 default — and callback_urls matches GitHub__OAuth__RedirectUri
+# exactly (GitHub validates the OAuth redirect_uri against it byte-for-byte).
 REDIRECT_AUTHORITY="$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTPS_PORT:-443}" 443)"
 REDIRECT_URI="https://${REDIRECT_AUTHORITY}/api/v1/tenant/connectors/github/oauth/callback"
+WEBHOOK_URL="https://${REDIRECT_AUTHORITY}/api/v1/webhooks/github"
+# Default App name suggestion; the operator can rename it on GitHub. Required by
+# the CLI and referenced in the re-run hints below, so compute it once here.
+DEFAULT_APP_NAME="spring-voyage-${DEPLOY_HOSTNAME//[^A-Za-z0-9]/-}"
 DAPR_COMPONENTS_PATH="${INSTALL_ROOT}/current/dapr/components/delegated-spring-voyage-agent"
 
 # Copy template then append the installer-managed section. We do NOT edit
@@ -936,15 +944,15 @@ if [[ "$STACK_STARTED" -eq 1 && "$ASSUME_YES" -eq 0 ]]; then
   GITHUB_APP_PROMPTED=1
   case "${answer:-Y}" in
     [Nn]|[Nn][Oo])
-      info "Skipped. To enable GitHub features later, run: spring github-app register --env-path ${SPRING_ENV_FILE}"
+      info "Skipped. To enable GitHub features later, run:"
+      info "  spring github-app register --name ${DEFAULT_APP_NAME} --webhook-url ${WEBHOOK_URL} --oauth-callback-url ${REDIRECT_URI} --env-path ${SPRING_ENV_FILE} --write-env"
       ;;
     *)
-      # Default app name suggestion; operator can change inside the GitHub
-      # creation UI. CLI requires --name to be set.
-      DEFAULT_APP_NAME="spring-voyage-${DEPLOY_HOSTNAME//[^A-Za-z0-9]/-}"
-      info "Running: spring github-app register --name ${DEFAULT_APP_NAME} --env-path ${SPRING_ENV_FILE} --write-env"
+      info "Running: spring github-app register --name ${DEFAULT_APP_NAME} --webhook-url ${WEBHOOK_URL} --oauth-callback-url ${REDIRECT_URI} --env-path ${SPRING_ENV_FILE} --write-env"
       if "${BIN_DIR}/spring" github-app register \
             --name "${DEFAULT_APP_NAME}" \
+            --webhook-url "${WEBHOOK_URL}" \
+            --oauth-callback-url "${REDIRECT_URI}" \
             --env-path "${SPRING_ENV_FILE}" \
             --write-env; then
         GITHUB_APP_CONFIGURED=1
@@ -957,7 +965,8 @@ if [[ "$STACK_STARTED" -eq 1 && "$ASSUME_YES" -eq 0 ]]; then
         fi
       else
         warn "spring github-app register failed or timed out."
-        info "Re-run later: spring github-app register --env-path ${SPRING_ENV_FILE} --write-env"
+        info "Re-run later:"
+        info "  spring github-app register --name ${DEFAULT_APP_NAME} --webhook-url ${WEBHOOK_URL} --oauth-callback-url ${REDIRECT_URI} --env-path ${SPRING_ENV_FILE} --write-env"
       fi
       ;;
   esac
@@ -1008,7 +1017,7 @@ fi
 if [[ "$GITHUB_APP_PROMPTED" -eq 0 || "$GITHUB_APP_CONFIGURED" -eq 0 ]]; then
   cat <<EOF
   Next: enable GitHub features
-    spring github-app register --env-path ${SPRING_ENV_FILE} --write-env
+    spring github-app register --name ${DEFAULT_APP_NAME} --webhook-url ${WEBHOOK_URL} --oauth-callback-url ${REDIRECT_URI} --env-path ${SPRING_ENV_FILE} --write-env
     # Then: SPRING_ENV_FILE=${SPRING_ENV_FILE} ${DEPLOY_SH} restart
 
 EOF

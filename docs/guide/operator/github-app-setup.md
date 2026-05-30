@@ -39,7 +39,20 @@ The verb:
 
 Restart the platform after the file changes (`./deploy.sh restart` for Podman, `docker compose --env-file ../config/spring.env up -d` from `eng/deploy/` for Compose) so the connector picks up the new credentials.
 
-Run `spring github-app register --help` for the full flag list, including `--org`, `--write-env`, `--write-secrets`, and `--env-path`.
+Run `spring github-app register --help` for the full flag list, including `--org`, `--write-env`, `--write-secrets`, `--env-path`, `--webhook-url`, `--oauth-callback-url`, and `--manual`.
+
+> **Deployment URLs.** The webhook URL and the App's user-OAuth `callback_urls` default to the CLI's configured endpoint (`SPRING_API_URL` / `~/.spring/config.json`, falling back to `http://localhost:5000`). On a real deployment, pass your public origin so GitHub can reach them — e.g. `--webhook-url https://<your-host>/api/v1/webhooks/github --oauth-callback-url https://<your-host>/api/v1/tenant/connectors/github/oauth/callback`. **`install.sh` does this for you**, deriving both from `DEPLOY_HOSTNAME` and the resolved Caddy HTTPS port so the App's `callback_urls` matches `GitHub__OAuth__RedirectUri` exactly.
+
+### No browser on the host (headless / remote server)
+
+On a server with no browser — a VPS, a container, an SSH session with no display — the CLI can't open GitHub for you, and your laptop can't reach the host's loopback listener. The verb detects this automatically (or pass `--manual` to force it) and switches to a copy/paste flow:
+
+1. It writes the **pre-filled** manifest form to `spring-github-app-register.html` next to your `spring.env` and prints the path.
+2. Copy that file to a machine that has a browser and open it — e.g. `scp <your-host>:~/.spring-voyage/spring-github-app-register.html .`, then open the file. The form POSTs the pre-filled manifest to GitHub; click **Create**.
+3. GitHub redirects to a `http://127.0.0.1:<port>/?code=…` URL that won't load on a remote host — that's expected. Copy the whole redirect URL (or just the `code=` value) from your browser's address bar.
+4. Paste it back at the CLI prompt. The CLI exchanges the code and writes the credentials exactly as the browser flow does.
+
+A future release will streamline this with an SSH-tunnel option that captures the code automatically.
 
 ## Path B — Manual registration
 
