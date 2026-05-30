@@ -662,6 +662,18 @@ The listener times out after 5 minutes; if you close the browser without
 confirming, re-run the verb. GitHub's own errors (e.g. "name has already
 been taken") are surfaced verbatim so you can rename with a suffix.
 
+**Headless / remote host (no browser):** the verb detects when it can't open a
+browser — or pass `--manual` — and instead writes the pre-filled form to
+`spring-github-app-register.html` next to your `spring.env`. Copy it to a
+machine with a browser, open it, click **Create**, then paste the redirect URL
+(or the `code=` value) from the address bar back at the CLI prompt.
+
+**Deployment URLs:** the webhook URL and the App's user-OAuth `callback_urls`
+default to the CLI's endpoint (`http://localhost:5000` if unset). On a real
+deployment pass `--webhook-url` / `--oauth-callback-url` with your public
+origin; `install.sh` does this automatically, deriving both from
+`DEPLOY_HOSTNAME` and the resolved Caddy HTTPS port.
+
 See [`docs/architecture/cli-and-web.md § GitHub App bootstrap verb (#631)`](../../docs/architecture/cli-and-web.md#github-app-bootstrap-verb-631)
 for the full flag list.
 

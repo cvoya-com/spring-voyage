@@ -66,6 +66,107 @@ public class GitHubAppCommandTests
     }
 
     [Fact]
+    public async Task RunAsync_DryRun_OAuthCallbackOverride_LandsInCallbackUrls()
+    {
+        var stdout = new StringWriter();
+        await GitHubAppCommand.RunAsync(
+            name: "x",
+            org: null,
+            webhookUrlOverride: "https://sv.example.com/api/v1/webhooks/github",
+            writeEnv: false,
+            writeSecrets: false,
+            envFilePathOverride: null,
+            dryRun: true,
+            callbackTimeout: TimeSpan.FromSeconds(5),
+            cancellationToken: CancellationToken.None,
+            stdout: stdout,
+            oauthCallbackUrlOverride: "https://sv.example.com/api/v1/tenant/connectors/github/oauth/callback");
+
+        // callback_urls in the manifest carries the OAuth-callback override —
+        // distinct from the webhook URL — so the App's user-OAuth callback
+        // matches the connector's GitHub__OAuth__RedirectUri on a real deployment.
+        stdout.ToString().ShouldContain(
+            "\"callback_urls\":[\"https://sv.example.com/api/v1/tenant/connectors/github/oauth/callback\"]");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task RunAsync_Manual_ExchangesPastedCode_WritesEnvFileAndForm()
+    {
+        // The no-browser flow: no listener, no browser. The CLI writes a
+        // pre-filled form next to spring.env and reads the code the operator
+        // pastes back from GitHub's redirect URL.
+        using var mockGitHub = await MockGitHubServer.StartAsync(
+            responseJson: """
+                {
+                  "id": 7,
+                  "slug": "sv-manual",
+                  "name": "Spring Voyage (manual)",
+                  "pem": "-----BEGIN PRIVATE KEY-----\nBB\n-----END PRIVATE KEY-----",
+                  "webhook_secret": "whsec_manual",
+                  "client_id": "Iv1.manual",
+                  "client_secret": "manual-secret",
+                  "html_url": "https://github.com/apps/sv-manual"
+                }
+                """,
+            statusCode: HttpStatusCode.Created);
+
+        var envDir = Path.Combine(Path.GetTempPath(), $"spring-manual-{Guid.NewGuid()}");
+        Directory.CreateDirectory(envDir);
+        var envPath = Path.Combine(envDir, "spring.env");
+
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("spring-cli-test/1.0");
+        var stdout = new StringWriter();
+
+        // The operator pastes the WHOLE redirect URL copied from the address
+        // bar; the CLI must extract the bare code from it.
+        static Task<string?> PasteRedirectUrl() =>
+            Task.FromResult<string?>("http://127.0.0.1:1/?code=manual-code-123&state=abc");
+
+        try
+        {
+            await GitHubAppCommand.RunAsync(
+                name: "Spring Voyage (manual)",
+                org: null,
+                webhookUrlOverride: "https://sv.example.com/api/v1/webhooks/github",
+                writeEnv: true,
+                writeSecrets: false,
+                envFilePathOverride: envPath,
+                dryRun: false,
+                callbackTimeout: TimeSpan.FromSeconds(20),
+                cancellationToken: CancellationToken.None,
+                httpClientOverride: http,
+                githubApiBaseUrlOverride: mockGitHub.BaseUrl,
+                stdout: stdout,
+                manual: true,
+                codeReaderOverride: PasteRedirectUrl);
+
+            // The pasted full URL was reduced to the bare code for the exchange.
+            mockGitHub.ReceivedPath.ShouldBe("/app-manifests/manual-code-123/conversions");
+            mockGitHub.ReceivedMethod.ShouldBe("POST");
+
+            var env = await File.ReadAllTextAsync(envPath, TestContext.Current.CancellationToken);
+            env.ShouldContain("GitHub__AppId=7");
+            env.ShouldContain("GitHub__WebhookSecret=whsec_manual");
+
+            var output = stdout.ToString();
+            output.ShouldContain("No browser on this host");
+
+            // The pre-filled POST form is written next to spring.env for the
+            // operator to open on a machine that has a browser.
+            var formPath = Path.Combine(envDir, "spring-github-app-register.html");
+            File.Exists(formPath).ShouldBeTrue();
+            var formHtml = await File.ReadAllTextAsync(formPath, TestContext.Current.CancellationToken);
+            formHtml.ShouldContain("method=\"post\"");
+            formHtml.ShouldContain("github.com/settings/apps/new");
+        }
+        finally
+        {
+            Directory.Delete(envDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task RunAsync_RejectsBothWriteModes()
     {
         await Should.ThrowAsync<GitHubAppRegisterException>(async () =>
