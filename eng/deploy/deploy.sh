@@ -606,7 +606,17 @@ remove_container() {
     local name="$1"
     if container_exists "${name}"; then
         log "removing existing container '${name}'"
-        podman rm -f "${name}" >/dev/null
+        # `podman rm -f` can exit non-zero on a rootless-Podman netns cleanup
+        # quirk ("rootless netns: kill network process: permission denied") even
+        # though the container IS removed. Under `set -e` that would abort the
+        # teardown loop — and since `restart` is down-then-up, it could leave the
+        # stack down. Tolerate it: only fail if the container actually survives.
+        if ! podman rm -f "${name}" >/dev/null 2>&1; then
+            if container_exists "${name}"; then
+                die "failed to remove container '${name}'"
+            fi
+            log "warning: container '${name}' was removed, but podman reported a cleanup error (rootless netns 'kill network process' quirk); continuing."
+        fi
     fi
 }
 
