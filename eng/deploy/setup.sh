@@ -311,6 +311,19 @@ DEPLOY_HOSTNAME=$(prompt "DEPLOY_HOSTNAME" "localhost")
 append DEPLOY_HOSTNAME "$DEPLOY_HOSTNAME"
 ok "DEPLOY_HOSTNAME=${DEPLOY_HOSTNAME}"
 
+# Public scheme — must match what Caddy serves ({$DEPLOY_SCHEME:http}://...).
+# A loopback host (localhost, *.localhost, 127.0.0.1, ::1) has no public cert,
+# so Caddy serves it over plain HTTP; a https://localhost redirect would hit
+# Caddy's 443 with no matching TLS site and the browser handshake is reset.
+# Derive the scheme from the hostname and pin DEPLOY_SCHEME so Caddy and the
+# OAuth redirect URI below always agree.
+case "${DEPLOY_HOSTNAME}" in
+  localhost | *.localhost | 127.0.0.1 | ::1) DEPLOY_SCHEME="http" ;;
+  *)                                          DEPLOY_SCHEME="https" ;;
+esac
+append DEPLOY_SCHEME "$DEPLOY_SCHEME"
+ok "DEPLOY_SCHEME=${DEPLOY_SCHEME}"
+
 # ---------------------------------------------------------------------------
 # 5. GitHub credentials
 # ---------------------------------------------------------------------------
@@ -329,8 +342,8 @@ info "The one value it does NOT write is the OAuth redirect URI — setup.sh"
 info "adds that for you now, derived from the hostname you entered above."
 info ""
 
-# OAuth redirect URI (derived from hostname — no prompt needed)
-REDIRECT_URI="https://${DEPLOY_HOSTNAME}/api/v1/tenant/connectors/github/oauth/callback"
+# OAuth redirect URI (derived from hostname + scheme above — no prompt needed)
+REDIRECT_URI="${DEPLOY_SCHEME}://${DEPLOY_HOSTNAME}/api/v1/tenant/connectors/github/oauth/callback"
 append GitHub__OAuth__RedirectUri "$REDIRECT_URI"
 ok "GitHub__OAuth__RedirectUri=${REDIRECT_URI}"
 info ""

@@ -846,15 +846,33 @@ if [[ -f "${SPRING_ENV_FILE}" ]]; then
   fi
 fi
 
-# Caddy serves HTTPS on CADDY_HTTPS_PORT; include the port in the public URLs
-# when it is not the default 443 so the OAuth redirect + webhook resolve. Both
-# URLs are handed to `spring github-app register` below so the GitHub App's
-# webhook URL and callback_urls point at THIS deployment — not the CLI's
-# localhost:5000 default — and callback_urls matches GitHub__OAuth__RedirectUri
-# exactly (GitHub validates the OAuth redirect_uri against it byte-for-byte).
-REDIRECT_AUTHORITY="$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTPS_PORT:-443}" 443)"
-REDIRECT_URI="https://${REDIRECT_AUTHORITY}/api/v1/tenant/connectors/github/oauth/callback"
-WEBHOOK_URL="https://${REDIRECT_AUTHORITY}/api/v1/webhooks/github"
+# Public scheme + authority for the OAuth redirect and webhook URLs. These must
+# match what Caddy actually serves: the Caddyfile site address is
+# {$DEPLOY_SCHEME:http}://{$DEPLOY_HOSTNAME}, and Caddy terminates TLS only for a
+# real FQDN (automatic Let's Encrypt). A loopback host (localhost, *.localhost,
+# 127.0.0.1, ::1) has no public certificate, so it is served over plain HTTP —
+# a browser redirect to https://localhost would hit Caddy's 443 with no matching
+# TLS site and the handshake is reset (ERR_CONNECTION_RESET). Derive the scheme
+# from the hostname and reuse it everywhere (env, redirect, webhook, summary).
+#
+# Include the host-published port in the authority when it is not the scheme
+# default (80/443) so the URLs resolve on a port-remapped install. Both URLs are
+# handed to `spring github-app register` below so the GitHub App's webhook URL
+# and callback_urls point at THIS deployment — not the CLI's localhost:5000
+# default — and callback_urls matches GitHub__OAuth__RedirectUri exactly (GitHub
+# validates the OAuth redirect_uri against it byte-for-byte).
+case "${DEPLOY_HOSTNAME}" in
+  localhost | *.localhost | 127.0.0.1 | ::1)
+    DEPLOY_SCHEME="http"
+    REDIRECT_AUTHORITY="$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTP_PORT:-80}" 80)"
+    ;;
+  *)
+    DEPLOY_SCHEME="https"
+    REDIRECT_AUTHORITY="$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTPS_PORT:-443}" 443)"
+    ;;
+esac
+REDIRECT_URI="${DEPLOY_SCHEME}://${REDIRECT_AUTHORITY}/api/v1/tenant/connectors/github/oauth/callback"
+WEBHOOK_URL="${DEPLOY_SCHEME}://${REDIRECT_AUTHORITY}/api/v1/webhooks/github"
 # Default App name suggestion; the operator can rename it on GitHub. Required by
 # the CLI and referenced in the re-run hints below, so compute it once here.
 DEFAULT_APP_NAME="spring-voyage-${DEPLOY_HOSTNAME//[^A-Za-z0-9]/-}"
@@ -878,6 +896,7 @@ chmod 600 "${SPRING_ENV_FILE}"
   printf 'POSTGRES_PASSWORD=%s\n' "${POSTGRES_PASSWORD}"
   printf 'SPRING_SECRETS_AES_KEY=%s\n' "${SPRING_SECRETS_AES_KEY}"
   printf 'DEPLOY_HOSTNAME=%s\n' "${DEPLOY_HOSTNAME}"
+  printf 'DEPLOY_SCHEME=%s\n' "${DEPLOY_SCHEME}"
   printf 'GitHub__OAuth__RedirectUri=%s\n' "${REDIRECT_URI}"
   printf 'Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath=%s\n' "${DAPR_COMPONENTS_PATH}"
   printf 'SPRING_DISPATCHER_BIN=%s\n' "${DISPATCHER_BIN}"
@@ -981,11 +1000,9 @@ else
   header "Install incomplete — stack did not start"
 fi
 
-if [[ "$DEPLOY_HOSTNAME" == "localhost" ]]; then
-  WEB_URL="http://$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTP_PORT:-80}" 80)"
-else
-  WEB_URL="https://$(http_authority "${DEPLOY_HOSTNAME}" "${CADDY_HTTPS_PORT:-443}" 443)"
-fi
+# Reuse the scheme + authority derived above so the printed portal URL matches
+# the scheme Caddy serves and the OAuth callback registered on the GitHub App.
+WEB_URL="${DEPLOY_SCHEME}://${REDIRECT_AUTHORITY}"
 
 cat <<EOF
 
