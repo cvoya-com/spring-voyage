@@ -1168,9 +1168,9 @@ public static class GitHubAppCommand
         stdout.WriteLine($"  OAuth callback: {oauthCallbackUrl}");
         stdout.WriteLine($"  Persistence:    {persistence}");
         stdout.WriteLine();
-        stdout.WriteLine("Permissions requested (read):   issues, pull_requests, contents, metadata");
-        stdout.WriteLine("Permissions requested (write):  issue_comment, statuses, checks");
-        stdout.WriteLine("Webhook events:                 issues, pull_request, issue_comment, installation");
+        stdout.WriteLine("Permissions requested (read):   pull_requests, contents, metadata");
+        stdout.WriteLine("Permissions requested (write):  issues, statuses, checks");
+        stdout.WriteLine("Webhook events:                 issues, pull_request, issue_comment");
         stdout.WriteLine();
     }
 
