@@ -264,6 +264,43 @@ describe("GitHubConnectorWizardStep", () => {
     });
   });
 
+  // The App-installations dropdown is gated by the auth choice, not by
+  // repo count: a PAT binding can't enumerate arbitrary repos, so the
+  // dropdown is meaningless on that branch. Mock a repo so the dropdown
+  // WOULD render in App mode, then flip to PAT and assert it's gone
+  // while the free-text qualified input stays.
+  it("hides the App-installations dropdown on the PAT branch but keeps the qualified input", async () => {
+    mocked.listGitHubRepositories.mockResolvedValue([repoFixture]);
+    mocked.listGitHubCollaborators.mockResolvedValue([]);
+    const onChange = vi.fn();
+
+    await act(async () => {
+      render(<GitHubConnectorWizardStep onChange={onChange} />);
+    });
+
+    await waitFor(() =>
+      expect(mocked.listGitHubRepositories).toHaveBeenCalled(),
+    );
+
+    // App mode (the default): the dropdown renders because a repo is
+    // visible.
+    expect(
+      screen.getByLabelText(APP_REPO_DROPDOWN_LABEL),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("github-auth-choice-pat"));
+    });
+
+    // PAT mode: the dropdown is gone even though a repo is visible, but
+    // the free-text qualified owner/repo input remains as the only
+    // repository control.
+    expect(screen.queryByLabelText(APP_REPO_DROPDOWN_LABEL)).toBeNull();
+    expect(
+      screen.getByLabelText(QUALIFIED_REPO_INPUT_LABEL),
+    ).toBeInTheDocument();
+  });
+
   // ADR-0047 §13: the auth-choice PAT path's "Authorize with GitHub"
   // button pre-mints a binding UUID, opens the popup, and listens for
   // the callback handoff. The handoff carries `patSecretName` +
