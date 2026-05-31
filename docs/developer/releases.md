@@ -71,6 +71,9 @@ Use `eng/release/release.sh` to cut a release. The script pushes the tag, watche
 # Cut an alpha release.
 ./eng/release/release.sh v1.0.0 --pre alpha
 
+# Cut an alpha release and make it the current "latest" (see below).
+./eng/release/release.sh v1.0.0 --pre alpha --latest
+
 # Cut a stable release.
 ./eng/release/release.sh v1.0.0
 ```
@@ -80,6 +83,7 @@ Use `eng/release/release.sh` to cut a release. The script pushes the tag, watche
 | Flag | Effect |
 | --- | --- |
 | `--pre alpha\|beta\|rc` | Append `-<suffix>.YYYYMMDD` to the semver argument. |
+| `--latest` | Move `:latest` to this release — the container `:latest` tags **and** the GitHub Release "Latest" badge. Redundant for stable (always latest); use it for `--pre`. See [Marking a pre-release as latest](#marking-a-pre-release-as-latest). |
 | `--plan` | Print the computed tag and exit 0; no tag pushed. |
 | `--force-retag` | Skip the idempotency guard (allows re-tagging an existing version). |
 
@@ -87,6 +91,26 @@ Use `eng/release/release.sh` to cut a release. The script pushes the tag, watche
 
 1. Before tagging, move the `## [Unreleased]` section in `CHANGELOG.md` to `## [X.Y.Z] - YYYY-MM-DD`, create a fresh empty `[Unreleased]` section, and merge a PR titled `Release vX.Y.Z`.
 2. Run `./eng/release/release.sh vX.Y.Z` from clean `main`.
+
+### Marking a pre-release as latest
+
+Two distinct surfaces answer "what is the latest release", and they move independently:
+
+- **Container `:latest` tags** in GHCR (`ghcr.io/cvoya-com/spring-voyage-*:latest`). The catalog packages under [`packages/`](../../packages/) pin `:latest` (e.g. `image: …/spring-voyage-claude-code-base:latest`), so this is the tag a `spring package install` / portal install actually pulls. If `:latest` does not exist, installs fail with `manifest unknown`.
+- **The GitHub Release "Latest" badge** on the Releases page.
+
+By default `release.yml` moves both only for **stable** releases; the immutable `:<version>` tag is the only thing a pre-release publishes. That is correct once `v1.0.0` ships, but during the pre-release line there is no stable release, so nothing carries `:latest` — and the `:latest`-pinning catalog packages cannot be installed.
+
+`--latest` opts a chosen pre-release into being latest. `release.sh --latest` writes a `Mark-Latest: true` trailer onto the **annotated** release tag; `release.yml`'s `resolve` job reads that trailer (or the `mark_latest` input on a manual `workflow_dispatch`) and exports `mark_latest`, which gates the `:latest` push for every image and the `gh release edit --latest` badge in `finalize-release`. The `:MAJOR_MINOR` channel tag (e.g. `:1.0`) is deliberately **not** affected — it stays stable-only so `:1.0` never resolves to a pre-release.
+
+```bash
+# During the v1.0.0 alpha line: cut today's alpha and make it the current default.
+./eng/release/release.sh v1.0.0 --pre alpha --latest
+```
+
+`:latest` only moves when a release explicitly claims it, so the most recently `--latest`-marked alpha stays latest until another release displaces it. Once `v1.0.0` (stable) ships it reclaims `:latest` automatically and `--latest` is no longer needed.
+
+To promote an **already-published** pre-release without cutting a new one, re-run the workflow for its tag with the input set: dispatch `release.yml` with `tag=spring-voyage-v<version>` and `mark_latest=true`.
 
 ### Draft-then-finalize behaviour
 

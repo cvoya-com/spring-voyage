@@ -184,6 +184,7 @@ No versions have been tagged yet. The entries below capture the repository's his
 
 ### Fixed
 
+- **Catalog package installs no longer fail with `ImagePullFailed` / `manifest unknown` during the pre-release line.** Catalog packages pin the rolling `:latest` image tag (e.g. `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest`), but `release.yml` only published the `:latest` container tags for **stable** releases — so while every release is a pre-release, `:latest` was never pushed and installs could not pull it. `eng/release/release.sh --latest` (and a `mark_latest` `workflow_dispatch` input for promoting an existing tag) now opt a chosen pre-release into moving both the container `:latest` tags and the GitHub Release "Latest" badge; intent travels on an annotated-tag `Mark-Latest: true` trailer read by `release.yml`'s `resolve` job. The `:MAJOR_MINOR` channel tag stays stable-only, and `release.sh` now also verifies the `:latest` tag (not just `:<version>`) when a release is latest-bearing ([#2970](https://github.com/cvoya-com/spring-voyage/issues/2970)).
 - Repoint `savasp/spring-voyage` URLs in README CI badge, quick-start docs, and ADRs 0001–0004 to the canonical `cvoya-com/spring-voyage` ([#2186](https://github.com/cvoya-com/spring-voyage/issues/2186)).
 - `UnitMembershipBackfillService` no longer crashes the host when the Dapr sidecar isn't ready on startup ([#387](https://github.com/cvoya-com/spring-voyage/pull/387)).
 - `UnitActor` orchestration resolution ([#313](https://github.com/cvoya-com/spring-voyage/pull/313)).
