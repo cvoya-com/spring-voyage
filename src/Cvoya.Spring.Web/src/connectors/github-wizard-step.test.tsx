@@ -878,4 +878,126 @@ describe("GitHubConnectorWizardStep", () => {
       );
     });
   });
+
+  // #2956: the auth choice renders unconditionally, so an operator can
+  // reach the PAT path even when the GitHub App is not configured
+  // (disabledReason). The manual secret-name path needs neither a
+  // configured App nor an OAuth session — the binding-create endpoint
+  // accepts a PAT-only config without `IsConnectorEnabled`.
+  it("reaches the PAT path and completes a binding when the App is not configured (#2956)", async () => {
+    mocked.listGitHubRepositories.mockRejectedValue(
+      new ApiError(404, "Not Found", {
+        disabled: true,
+        reason: "GitHub App not configured on this deployment.",
+      }),
+    );
+    const onChange = vi.fn();
+
+    await act(async () => {
+      render(<GitHubConnectorWizardStep onChange={onChange} />);
+    });
+
+    // App mode (the default) surfaces the not-configured guidance, but
+    // the auth choice is reachable while the repository control is not.
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          /GitHub connector not configured on this deployment\./,
+        ),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("github-auth-choice")).toBeInTheDocument();
+    expect(screen.queryByLabelText(QUALIFIED_REPO_INPUT_LABEL)).toBeNull();
+
+    // Flip to PAT: the not-configured panel disappears and the
+    // free-text repo + PAT secret controls render without an App.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("github-auth-choice-pat"));
+    });
+
+    expect(
+      screen.queryByText(
+        /GitHub connector not configured on this deployment\./,
+      ),
+    ).toBeNull();
+    expect(
+      screen.getByLabelText(QUALIFIED_REPO_INPUT_LABEL),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(QUALIFIED_REPO_INPUT_LABEL), {
+        target: { value: "octocat/Hello-World" },
+      });
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("github-pat-secret-name"), {
+        target: { value: "shared/github/pat" },
+      });
+    });
+
+    await waitFor(() => {
+      const last = onChange.mock.calls.at(-1)?.[0];
+      expect(last).toEqual(
+        expect.objectContaining({
+          repo: "octocat/Hello-World",
+          pat_secret_name: "shared/github/pat",
+        }),
+      );
+      expect(last?.appInstallationId).toBeUndefined();
+    });
+  });
+
+  // #2956: same reachability when the operator has not linked a GitHub
+  // OAuth session (missingOAuth). The manual secret-name path needs no
+  // OAuth session; only the in-PAT "Authorize with GitHub" convenience
+  // does.
+  it("reaches the PAT path and completes a binding when no OAuth session is linked (#2956)", async () => {
+    mocked.listGitHubRepositories.mockRejectedValue(
+      new ApiError(401, "Unauthorized", {
+        missingOAuth: true,
+        reason: "No GitHub OAuth session was supplied.",
+        authorizeUrl: "https://github.com/login/oauth/authorize?state=x",
+        state: "x",
+      }),
+    );
+    const onChange = vi.fn();
+
+    await act(async () => {
+      render(<GitHubConnectorWizardStep onChange={onChange} />);
+    });
+
+    // App mode surfaces the link-account guidance; PAT stays reachable.
+    await screen.findByTestId("github-missing-oauth");
+    expect(screen.getByTestId("github-auth-choice")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("github-auth-choice-pat"));
+    });
+
+    // PAT mode hides the App-only link-account panel and renders the
+    // manual path.
+    expect(screen.queryByTestId("github-missing-oauth")).toBeNull();
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(QUALIFIED_REPO_INPUT_LABEL), {
+        target: { value: "octocat/Hello-World" },
+      });
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("github-pat-secret-name"), {
+        target: { value: "shared/github/pat" },
+      });
+    });
+
+    await waitFor(() => {
+      const last = onChange.mock.calls.at(-1)?.[0];
+      expect(last).toEqual(
+        expect.objectContaining({
+          repo: "octocat/Hello-World",
+          pat_secret_name: "shared/github/pat",
+        }),
+      );
+      expect(last?.appInstallationId).toBeUndefined();
+    });
+  });
 });
