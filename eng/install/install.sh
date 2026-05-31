@@ -948,11 +948,16 @@ fi
 GITHUB_APP_PROMPTED=0
 GITHUB_APP_CONFIGURED=0
 if [[ "$STACK_STARTED" -eq 1 && "$ASSUME_YES" -eq 0 ]]; then
-  header "GitHub App registration"
-  info "Spring Voyage's GitHub connector needs a per-deployment GitHub App."
-  info "The CLI can drive the manifest flow now (single browser click on GitHub)."
-  info "You can also skip this and run \`spring github-app register\` later."
-  printf '  %sConfigure GitHub App for this deployment?%s [Y/n]: ' "${BOLD}" "${NC}" >&2
+  header "GitHub connector (optional)"
+  info "The GitHub connector has two auth paths — registering an App is optional:"
+  info "  • GitHub App — for repositories you OWN/operate (bot identity + webhooks)."
+  info "                 The CLI can register it now with a single browser click."
+  info "  • PAT        — for contributing to a repository you do NOT own (e.g. an"
+  info "                 open-source project). No App, no OAuth: you create a token"
+  info "                 later. This is the simplest setup."
+  info "Skip if you'll use a PAT (or are just trying things out); you can register an"
+  info "App anytime with \`spring github-app register\`."
+  printf '  %sRegister a GitHub App now?%s [y/N]: ' "${BOLD}" "${NC}" >&2
   if [[ -t 0 ]]; then
     IFS= read -r answer || answer=""
   elif [[ -r /dev/tty ]]; then
@@ -961,12 +966,8 @@ if [[ "$STACK_STARTED" -eq 1 && "$ASSUME_YES" -eq 0 ]]; then
     answer=""
   fi
   GITHUB_APP_PROMPTED=1
-  case "${answer:-Y}" in
-    [Nn]|[Nn][Oo])
-      info "Skipped. To enable GitHub features later, run:"
-      info "  spring github-app register --name ${DEFAULT_APP_NAME} --webhook-url ${WEBHOOK_URL} --oauth-callback-url ${REDIRECT_URI} --env-path ${SPRING_ENV_FILE} --write-env"
-      ;;
-    *)
+  case "${answer:-N}" in
+    [Yy]|[Yy][Ee][Ss])
       info "Running: spring github-app register --name ${DEFAULT_APP_NAME} --webhook-url ${WEBHOOK_URL} --oauth-callback-url ${REDIRECT_URI} --env-path ${SPRING_ENV_FILE} --write-env"
       if "${BIN_DIR}/spring" github-app register \
             --name "${DEFAULT_APP_NAME}" \
@@ -987,6 +988,10 @@ if [[ "$STACK_STARTED" -eq 1 && "$ASSUME_YES" -eq 0 ]]; then
         info "Re-run later:"
         info "  spring github-app register --name ${DEFAULT_APP_NAME} --webhook-url ${WEBHOOK_URL} --oauth-callback-url ${REDIRECT_URI} --env-path ${SPRING_ENV_FILE} --write-env"
       fi
+      ;;
+    *)
+      info "No GitHub App registered. Connect GitHub when ready — see the two options"
+      info "(PAT for repos you don't own; App for repos you do) in the summary below."
       ;;
   esac
 fi
@@ -1033,9 +1038,14 @@ fi
 
 if [[ "$GITHUB_APP_PROMPTED" -eq 0 || "$GITHUB_APP_CONFIGURED" -eq 0 ]]; then
   cat <<EOF
-  Next: enable GitHub features
-    spring github-app register --name ${DEFAULT_APP_NAME} --webhook-url ${WEBHOOK_URL} --oauth-callback-url ${REDIRECT_URI} --env-path ${SPRING_ENV_FILE} --write-env
-    # Then: SPRING_ENV_FILE=${SPRING_ENV_FILE} ${DEPLOY_SH} restart
+  Next: connect GitHub (optional — pick the path that fits)
+    • Contribute to a repo you DON'T own — use a PAT (no App, no OAuth):
+        spring secret create --scope tenant github-pat --value 'ghp_...'
+        spring connector bind --unit <unit> --type github --repo <owner>/<repo> --pat-secret-name github-pat
+    • Operate a repo you own — register the per-deployment GitHub App:
+        spring github-app register --name ${DEFAULT_APP_NAME} --webhook-url ${WEBHOOK_URL} --oauth-callback-url ${REDIRECT_URI} --env-path ${SPRING_ENV_FILE} --write-env
+        # Then: SPRING_ENV_FILE=${SPRING_ENV_FILE} ${DEPLOY_SH} restart
+    Which to use: https://github.com/${REPO_OWNER}/${REPO_NAME}/blob/main/docs/guide/operator/github-connector-auth.md
 
 EOF
 fi
