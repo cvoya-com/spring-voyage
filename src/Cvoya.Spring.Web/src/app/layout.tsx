@@ -10,6 +10,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Spring Voyage",
   description: "Collaboration dashboard for teams of AI agents",
+  icons: {
+    icon: "/brand/sailboat-light.png",
+  },
 };
 
 export const viewport: Viewport = {
