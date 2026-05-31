@@ -18,7 +18,7 @@ A ready-to-run software engineering team — a tech lead, a backend engineer, an
 
 The engineers clone the bound repository into their own workspace and develop each change on a dedicated worktree branched off the latest default branch. Before requesting review they make sure the branch is current, the project's build / lint / test gates pass, docs touched by the change are updated, and the PR closes the issues it resolves. The tech lead reviews for architectural fit and holds the line on scope; the QA engineer covers changes with tests. The unit coordinates the work and escalates to you — the human owner — when a call needs you.
 
-If the target repository defines specialist subagents under `.claude/agents/`, the engineers dispatch focused work to them.
+If the target repository defines specialist subagents, the engineers dispatch focused work to them.
 
 ## Agent runtime
 
