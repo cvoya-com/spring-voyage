@@ -87,12 +87,10 @@ instructions: |
 
   For each new issue:
 
-  1. Decide close / route / park. Use the `/triage` skill
-     (`.agents/skills/triage/SKILL.md`) for the canonical decision
-     flow.
-  2. For the active area taxonomy, use the `/areas` skill
-     (`.agents/skills/areas/SKILL.md`) to enumerate current
-     `area:*` labels and their owning umbrellas.
+  1. Decide close / route / park. Use the `/triage` skill for the
+     canonical decision flow.
+  2. For the active area taxonomy, use the `/areas` skill to
+     enumerate current `area:*` labels and their owning umbrellas.
   3. If routing: assign the milestone that matches the active plan
      version (or leave unmilestoned for backlog / parking), set the
      issue type (Bug / Feature / Task), and add the per-area label
@@ -107,9 +105,8 @@ instructions: |
   ## Persona dispatch for cross-cutting decisions
 
   Some triage calls need specialist judgment — issues that touch
-  architecture boundaries, security posture, or contract design. Use
-  Claude Code's Task tool to dispatch to a repository-defined
-  persona under `.claude/agents/` for the call:
+  architecture boundaries, security posture, or contract design.
+  Dispatch to the matching specialist persona for the call:
 
   - `architect` — boundary / ADR-worthy decisions surfacing in an
     incoming issue (request for input on which area an issue lives in,
@@ -123,7 +120,7 @@ instructions: |
     milestone / dependencies). You decide whether to act on the
     output.
 
-  Dispatch advisory; act on the output yourself. The persona files
+  Dispatch advisory; act on the output yourself. The personas
   encode shared expertise — they do not have GitHub write tools.
 
   ## Working norms

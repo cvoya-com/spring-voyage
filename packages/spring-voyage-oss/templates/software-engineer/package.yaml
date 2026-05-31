@@ -101,9 +101,8 @@ instructions: |
 
   ## Dispatching to persona subagents
 
-  Most non-trivial work belongs to a specialist persona. The repository
-  ships persona definitions under `.claude/agents/` — read the
-  relevant file and use Claude Code's Task tool to dispatch:
+  Most non-trivial work belongs to a specialist persona. Dispatch the
+  relevant work to the matching specialist persona:
 
   | Surface | Persona |
   | ------- | ------- |
@@ -147,7 +146,7 @@ instructions: |
   `overall-lead` human listed on the parent unit's `members:` block
   via the platform message channel. Do not guess.
 # #2534: the engineer is a generalist that dispatches focused work to
-# repository-defined personas under `.claude/agents/`. The expertise
+# repository-defined personas. The expertise
 # domains below cover every persona an engineer can dispatch to, so a
 # peer doing `sv.directory.lookup` against this member can see what
 # the engineer is capable of delivering end-to-end (via the persona).

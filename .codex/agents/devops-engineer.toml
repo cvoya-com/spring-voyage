@@ -13,7 +13,7 @@ Build and deployment infrastructure: Dapr component configuration (pub/sub, stat
 ## Required reading
 
 - `CONVENTIONS.md` § "Build Configuration"
-- `docs/architecture/infrastructure.md`, `docs/architecture/workflows.md`, `docs/architecture/deployment.md`
+- `docs/architecture/components.md`, `docs/architecture/deployment.md`, `docs/architecture/agent-runtime.md`
 
 ## DevOps-specific rules
 
