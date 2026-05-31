@@ -1132,7 +1132,7 @@ export function AgentCreateForm({
             label="Agent runtime"
             help={
               <>
-                ADR-0038 launcher key. Mirrors{" "}
+                The runtime that launches this agent. Mirrors{" "}
                 <code className="font-mono">--runtime</code>.
               </>
             }

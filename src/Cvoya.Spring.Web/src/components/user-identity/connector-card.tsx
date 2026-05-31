@@ -346,7 +346,7 @@ export function ConnectorIdentityCard({
         </CardTitle>
         <p className="text-xs text-muted-foreground">
           Display identity only. The auth credential this unit pushes
-          with lives on the unit binding (ADR-0047 §11), not here.
+          with lives on the unit binding, not here.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">

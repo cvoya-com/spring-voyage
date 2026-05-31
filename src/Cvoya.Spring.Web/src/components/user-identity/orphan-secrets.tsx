@@ -90,11 +90,11 @@ export function OrphanSecretsPanel(_props: OrphanSecretsPanelProps = {}) {
         <p className="text-xs text-muted-foreground">
           OAuth-acquired tokens written by the wizard&apos;s
           authorize-then-bind flow live as tenant secrets under
-          <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+          <code className="ml-1 rounded bg-muted px-1 py-0.5 text-[11px]">
             binding/&lt;id&gt;/&lt;connector&gt;/pat
           </code>
-          (ADR-0047 §5). If you authorized but never finished the
-          binding, the secret persists here for cleanup.
+          . If you authorized but never finished the binding, the
+          secret persists here for cleanup.
         </p>
       </CardHeader>
       <CardContent className="space-y-2">

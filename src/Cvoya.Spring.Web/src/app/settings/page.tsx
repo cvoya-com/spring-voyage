@@ -58,7 +58,7 @@ const SETTINGS_TILES: readonly SettingsTile[] = [
     href: "/settings/user-identity",
     label: "User identity",
     description:
-      "Your display identity per connector — GitHub login for @-mentions and reviewer invocations, etc. No PAT input (ADR-0047 §4).",
+      "Your display identity per connector — GitHub login for @-mentions and reviewer invocations, etc. No PAT input here.",
     icon: IdCard,
   },
   {
