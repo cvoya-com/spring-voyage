@@ -690,7 +690,136 @@ export function GitHubConnectorWizardStep({
         <span className="text-sm font-medium">GitHub connector</span>
       </div>
 
-      {disabledReason !== null && (
+      {/* Auth-choice sub-step (ADR-0047 §11). Exactly one of an App
+          installation or a PAT secret lands on the binding. Renders
+          unconditionally so the PAT path stays reachable even when the
+          GitHub App isn't configured (disabledReason) or no GitHub OAuth
+          session exists (missingOAuth) — a PAT binding needs neither. The
+          App-mode credential guidance and the repository dropdown below
+          adapt to the chosen branch. */}
+      <fieldset
+        className="space-y-2 rounded-md border border-border bg-background p-3"
+        data-testid="github-auth-choice"
+      >
+        <legend className="px-1 text-xs font-medium text-muted-foreground">
+          Auth choice
+        </legend>
+        <p className="text-[11px] text-muted-foreground">
+          Each binding stores one outbound credential. Pick an App
+          installation when the GitHub App is installed on the repo;
+          pick a PAT secret for repos the App is not installed on
+          (e.g. public repos, or credentials you control).
+        </p>
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-2 text-sm">
+          <input
+            type="radio"
+            name="github-auth-choice"
+            value="app"
+            checked={authChoice === "app"}
+            onChange={() => handleAuthChoiceChange("app")}
+            data-testid="github-auth-choice-app"
+            className="mt-1"
+          />
+          <span className="flex-1">
+            <span className="inline-flex items-center gap-1 font-medium">
+              <ShieldCheck
+                className="h-3.5 w-3.5"
+                aria-hidden="true"
+              />
+              Use an App installation
+            </span>
+            <span className="block text-[11px] text-muted-foreground">
+              Outbound writes mint installation tokens for the
+              picked App. Pick a row from the repository dropdown
+              below to auto-fill the installation id.
+            </span>
+            {authChoice === "app" && (
+              <span className="mt-1 block text-[11px] text-muted-foreground">
+                Installation id:{" "}
+                <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                  {installationId ?? "(none selected)"}
+                </code>
+              </span>
+            )}
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-2 text-sm">
+          <input
+            type="radio"
+            name="github-auth-choice"
+            value="pat"
+            checked={authChoice === "pat"}
+            onChange={() => handleAuthChoiceChange("pat")}
+            data-testid="github-auth-choice-pat"
+            className="mt-1"
+          />
+          <span className="flex-1">
+            <span className="inline-flex items-center gap-1 font-medium">
+              <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+              Use a PAT secret
+            </span>
+            <span className="block text-[11px] text-muted-foreground">
+              Outbound writes use a tenant secret holding a personal
+              access token. Recommended: authorize via GitHub (the
+              OAuth flow writes the secret automatically).
+              Alternative: paste an existing tenant secret name.
+            </span>
+            {authChoice === "pat" && (
+              <span className="mt-2 block space-y-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void authorizePat()}
+                  disabled={authorizingPat}
+                  data-testid="github-pat-authorize"
+                  aria-busy={authorizingPat}
+                >
+                  {authorizingPat ? (
+                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Github className="mr-1 h-4 w-4" />
+                  )}
+                  {authorizingPat
+                    ? "Opening…"
+                    : "Authorize with GitHub"}
+                </Button>
+                {awaitingPatCallback && (
+                  <span className="block text-[11px] text-muted-foreground">
+                    Finish authorization in the GitHub window. The
+                    secret name will fill in automatically.
+                  </span>
+                )}
+                {patAuthorizeError && (
+                  <span className="block text-[11px] text-destructive">
+                    Authorization did not complete:{" "}
+                    {patAuthorizeError}
+                  </span>
+                )}
+                <input
+                  type="text"
+                  aria-label="PAT secret name"
+                  data-testid="github-pat-secret-name"
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono"
+                  placeholder="binding/<id>/github/pat (or paste an existing tenant secret name)"
+                  value={patSecretName}
+                  onChange={(e) => setPatSecretName(e.target.value)}
+                />
+                <span className="block text-[11px] text-muted-foreground">
+                  The tenant secret name the binding stores. The
+                  OAuth flow writes
+                  <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+                    binding/&lt;id&gt;/github/pat
+                  </code>
+                  ; pasting an existing name overrides the default.
+                </span>
+              </span>
+            )}
+          </span>
+        </label>
+      </fieldset>
+
+      {authChoice === "app" && disabledReason !== null && (
         <div
           role="alert"
           className="rounded-md border border-info/50 bg-info/15 px-3 py-2 text-sm text-info"
@@ -729,10 +858,16 @@ export function GitHubConnectorWizardStep({
           >
             View deployment guide
           </a>
+          <p className="mt-2 text-xs text-foreground">
+            No GitHub App?{" "}
+            <span className="font-medium">Use a PAT secret</span> above to
+            bind this repository with a personal access token — the PAT
+            path needs neither the App nor a linked GitHub account.
+          </p>
         </div>
       )}
 
-      {disabledReason === null && missingOAuth !== null && (
+      {authChoice === "app" && disabledReason === null && missingOAuth !== null && (
         <div
           role="alert"
           className="space-y-3 rounded-md border border-info/50 bg-info/15 px-3 py-2 text-sm text-info"
@@ -770,6 +905,11 @@ export function GitHubConnectorWizardStep({
               </span>
             )}
           </div>
+          <p className="text-xs text-foreground">
+            Prefer not to link an account?{" "}
+            <span className="font-medium">Use a PAT secret</span> above —
+            the PAT path needs no OAuth session.
+          </p>
           {awaitingOAuthCallback && (
             <p className="text-xs text-foreground">
               Finish authorization in the GitHub window. This step will
@@ -784,297 +924,166 @@ export function GitHubConnectorWizardStep({
         </div>
       )}
 
-      {disabledReason === null && missingOAuth === null && (
-        <>
-          {/* Auth-choice sub-step. Exactly one of App installation /
-              PAT secret lands on the binding; the wizard surfaces the
-              trade-off first so the repository control below can adapt
-              to the chosen path (the App-installations dropdown is
-              meaningful only on the App branch). The two branches
-              share the validation wiring — the wire payload is gated
-              on the chosen branch having a usable value. */}
-          <fieldset
-            className="space-y-2 rounded-md border border-border bg-background p-3"
-            data-testid="github-auth-choice"
-          >
-            <legend className="px-1 text-xs font-medium text-muted-foreground">
-              Auth choice
-            </legend>
-            <p className="text-[11px] text-muted-foreground">
-              Each binding stores one outbound credential. Pick an App
-              installation when the GitHub App is installed on the repo;
-              pick a PAT secret for repos the App is not installed on
-              (e.g. public repos, or credentials you control).
-            </p>
-            <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-2 text-sm">
-              <input
-                type="radio"
-                name="github-auth-choice"
-                value="app"
-                checked={authChoice === "app"}
-                onChange={() => handleAuthChoiceChange("app")}
-                data-testid="github-auth-choice-app"
-                className="mt-1"
-              />
-              <span className="flex-1">
-                <span className="inline-flex items-center gap-1 font-medium">
-                  <ShieldCheck
-                    className="h-3.5 w-3.5"
-                    aria-hidden="true"
-                  />
-                  Use an App installation
-                </span>
-                <span className="block text-[11px] text-muted-foreground">
-                  Outbound writes mint installation tokens for the
-                  picked App. Pick a row from the repository dropdown
-                  below to auto-fill the installation id.
-                </span>
-                {authChoice === "app" && (
-                  <span className="mt-1 block text-[11px] text-muted-foreground">
-                    Installation id:{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                      {installationId ?? "(none selected)"}
-                    </code>
-                  </span>
-                )}
-              </span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-2 text-sm">
-              <input
-                type="radio"
-                name="github-auth-choice"
-                value="pat"
-                checked={authChoice === "pat"}
-                onChange={() => handleAuthChoiceChange("pat")}
-                data-testid="github-auth-choice-pat"
-                className="mt-1"
-              />
-              <span className="flex-1">
-                <span className="inline-flex items-center gap-1 font-medium">
-                  <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-                  Use a PAT secret
-                </span>
-                <span className="block text-[11px] text-muted-foreground">
-                  Outbound writes use a tenant secret holding a personal
-                  access token. Recommended: authorize via GitHub (the
-                  OAuth flow writes the secret automatically).
-                  Alternative: paste an existing tenant secret name.
-                </span>
-                {authChoice === "pat" && (
-                  <span className="mt-2 block space-y-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void authorizePat()}
-                      disabled={authorizingPat}
-                      data-testid="github-pat-authorize"
-                      aria-busy={authorizingPat}
+      {/* Repository (qualified `owner/repo`). App branch: the dropdown
+          (App-visible repos) plus the free-text input as a manual
+          fallback. PAT branch: only the free-text input (the App cannot
+          enumerate arbitrary repos), which needs neither the App nor an
+          OAuth session. The single input always carries the qualified
+          owner/repo string the binding stores. */}
+      {(authChoice === "pat" ||
+        (disabledReason === null && missingOAuth === null)) && (
+        <label className="block space-y-1">
+          <span className="text-xs text-muted-foreground">
+            Repository<span className="text-destructive"> *</span>
+          </span>
+          {authChoice === "app" &&
+            (repositories && repositories.length > 0 ? (
+              <div className="flex items-center gap-2">
+                <select
+                  aria-label="Repository (from GitHub App installations)"
+                  className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                  value={matchingDropdownRow}
+                  onChange={(e) =>
+                    handleRepoDropdownChange(e.target.value)
+                  }
+                  disabled={repoBusy}
+                >
+                  <option value="">
+                    {repoBusy
+                      ? "Loading repositories…"
+                      : "Select from App installations…"}
+                  </option>
+                  {repositories?.map((r) => (
+                    <option
+                      key={`${r.installationId}:${r.repositoryId}`}
+                      value={r.fullName}
                     >
-                      {authorizingPat ? (
-                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Github className="mr-1 h-4 w-4" />
-                      )}
-                      {authorizingPat
-                        ? "Opening…"
-                        : "Authorize with GitHub"}
-                    </Button>
-                    {awaitingPatCallback && (
-                      <span className="block text-[11px] text-muted-foreground">
-                        Finish authorization in the GitHub window. The
-                        secret name will fill in automatically.
-                      </span>
-                    )}
-                    {patAuthorizeError && (
-                      <span className="block text-[11px] text-destructive">
-                        Authorization did not complete:{" "}
-                        {patAuthorizeError}
-                      </span>
-                    )}
-                    <input
-                      type="text"
-                      aria-label="PAT secret name"
-                      data-testid="github-pat-secret-name"
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono"
-                      placeholder="binding/<id>/github/pat (or paste an existing tenant secret name)"
-                      value={patSecretName}
-                      onChange={(e) => setPatSecretName(e.target.value)}
-                    />
-                    <span className="block text-[11px] text-muted-foreground">
-                      The tenant secret name the binding stores. The
-                      OAuth flow writes
-                      <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
-                        binding/&lt;id&gt;/github/pat
-                      </code>
-                      ; pasting an existing name overrides the default.
-                    </span>
-                  </span>
-                )}
-              </span>
-            </label>
-          </fieldset>
-
-          {/* Repository (qualified `owner/repo`). On the App branch the
-              dropdown is populated from the App-visible repositories
-              and the free-text input below is the manual fallback; on
-              the PAT branch the dropdown is meaningless (the App can't
-              enumerate arbitrary repos) so only the free-text input
-              renders. The single input always carries the qualified
-              owner/repo string the binding stores. */}
-          <label className="block space-y-1">
-            <span className="text-xs text-muted-foreground">
-              Repository<span className="text-destructive"> *</span>
-            </span>
-            {authChoice === "app" &&
-              (repositories && repositories.length > 0 ? (
-                <div className="flex items-center gap-2">
-                  <select
-                    aria-label="Repository (from GitHub App installations)"
-                    className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-                    value={matchingDropdownRow}
-                    onChange={(e) =>
-                      handleRepoDropdownChange(e.target.value)
-                    }
-                    disabled={repoBusy}
-                  >
-                    <option value="">
-                      {repoBusy
-                        ? "Loading repositories…"
-                        : "Select from App installations…"}
+                      {r.fullName}
+                      {r.private ? " (private)" : ""}
                     </option>
-                    {repositories?.map((r) => (
-                      <option
-                        key={`${r.installationId}:${r.repositoryId}`}
-                        value={r.fullName}
-                      >
-                        {r.fullName}
-                        {r.private ? " (private)" : ""}
-                      </option>
-                    ))}
-                  </select>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void recheckRepositories()}
+                  aria-label="Refresh repositories"
+                  aria-busy={repoBusy}
+                  disabled={repoBusy}
+                >
+                  {repoBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            ) : (
+              <span
+                role="alert"
+                className="block rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning"
+              >
+                <span className="block font-medium">
+                  No GitHub repositories visible.
+                </span>
+                <span className="mt-1 block text-foreground">
+                  Install the GitHub App on a repository the unit will
+                  write to, or switch to &quot;Use a PAT secret&quot;
+                  above and type the{" "}
+                  <code>owner/repo</code> manually.
+                </span>
+                <span className="mt-2 flex flex-wrap items-center gap-2">
+                  {installUrl && (
+                    <a
+                      href={installUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-8 items-center gap-1 rounded-md border border-warning/60 bg-warning/10 px-3 text-sm font-medium text-warning transition-colors hover:bg-warning/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    >
+                      <Github className="h-4 w-4" aria-hidden="true" />
+                      Install GitHub App
+                    </a>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => void recheckRepositories()}
-                    aria-label="Refresh repositories"
-                    aria-busy={repoBusy}
-                    disabled={repoBusy}
+                    disabled={rechecking}
+                    aria-label="Recheck installations"
+                    aria-busy={rechecking}
+                    data-testid="github-recheck-installations"
                   >
-                    {repoBusy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                    {rechecking ? (
+                      <Loader2
+                        className="mr-1 h-4 w-4 animate-spin"
+                        aria-hidden="true"
+                      />
                     ) : (
-                      <RefreshCw className="h-4 w-4" />
+                      <RefreshCw
+                        className="mr-1 h-4 w-4"
+                        aria-hidden="true"
+                      />
+                    )}
+                    {rechecking ? "Rechecking…" : "Recheck installations"}
+                    {rechecking && (
+                      <span className="sr-only">
+                        Refreshing GitHub App installations
+                      </span>
                     )}
                   </Button>
-                </div>
-              ) : (
-                <span
-                  role="alert"
-                  className="block rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning"
-                >
-                  <span className="block font-medium">
-                    No GitHub repositories visible.
-                  </span>
-                  <span className="mt-1 block text-foreground">
-                    Install the GitHub App on a repository the unit will
-                    write to, or switch to &quot;Use a PAT secret&quot;
-                    above and type the{" "}
-                    <code>owner/repo</code> manually.
-                  </span>
-                  <span className="mt-2 flex flex-wrap items-center gap-2">
-                    {installUrl && (
-                      <a
-                        href={installUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex h-8 items-center gap-1 rounded-md border border-warning/60 bg-warning/10 px-3 text-sm font-medium text-warning transition-colors hover:bg-warning/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                      >
-                        <Github className="h-4 w-4" aria-hidden="true" />
-                        Install GitHub App
-                      </a>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void recheckRepositories()}
-                      disabled={rechecking}
-                      aria-label="Recheck installations"
-                      aria-busy={rechecking}
-                      data-testid="github-recheck-installations"
-                    >
-                      {rechecking ? (
-                        <Loader2
-                          className="mr-1 h-4 w-4 animate-spin"
-                          aria-hidden="true"
-                        />
-                      ) : (
-                        <RefreshCw
-                          className="mr-1 h-4 w-4"
-                          aria-hidden="true"
-                        />
-                      )}
-                      {rechecking ? "Rechecking…" : "Recheck installations"}
-                      {rechecking && (
-                        <span className="sr-only">
-                          Refreshing GitHub App installations
-                        </span>
-                      )}
-                    </Button>
-                  </span>
-                  {reposError && (
-                    <span className="mt-2 block text-xs text-muted-foreground">
-                      ({reposError})
-                    </span>
-                  )}
                 </span>
-              ))}
-            <input
-              type="text"
-              aria-label="Repository (qualified owner/repo)"
-              data-testid="github-repo-qualified"
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono"
-              placeholder="octocat/Hello-World"
-              value={repo}
-              onChange={(e) => {
-                setRepo(e.target.value);
-                // Free-typing breaks the dropdown selection so the
-                // installation id no longer auto-fills. Clear it; the
-                // operator either re-picks from the dropdown or
-                // switches to the PAT branch.
-                if (
-                  !repositories?.some((r) => r.fullName === e.target.value)
-                ) {
-                  setInstallationId(null);
-                }
-              }}
-            />
-            {repoValidationError !== null && (
-              <span
-                className="block text-[11px] text-destructive"
-                role="alert"
-                data-testid="github-repo-validation"
-              >
-                {repoValidationError}
+                {reposError && (
+                  <span className="mt-2 block text-xs text-muted-foreground">
+                    ({reposError})
+                  </span>
+                )}
               </span>
-            )}
-            <span className="block text-[11px] text-muted-foreground">
-              {authChoice === "app"
-                ? "Pick a repository from your App installations, or type it as owner/repo."
-                : "Type the repository as owner/repo (e.g. octocat/Hello-World)."}
-              {authChoice === "app" && matchingDropdownRow !== "" && (
-                <>
-                  {" "}
-                  Picked from App installation
-                  <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
-                    {installationId}
-                  </code>
-                  .
-                </>
-              )}
+            ))}
+          <input
+            type="text"
+            aria-label="Repository (qualified owner/repo)"
+            data-testid="github-repo-qualified"
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono"
+            placeholder="octocat/Hello-World"
+            value={repo}
+            onChange={(e) => {
+              setRepo(e.target.value);
+              // Free-typing breaks the dropdown selection so the
+              // installation id no longer auto-fills. Clear it; the
+              // operator either re-picks from the dropdown or
+              // switches to the PAT branch.
+              if (
+                !repositories?.some((r) => r.fullName === e.target.value)
+              ) {
+                setInstallationId(null);
+              }
+            }}
+          />
+          {repoValidationError !== null && (
+            <span
+              className="block text-[11px] text-destructive"
+              role="alert"
+              data-testid="github-repo-validation"
+            >
+              {repoValidationError}
             </span>
-          </label>
-        </>
+          )}
+          <span className="block text-[11px] text-muted-foreground">
+            {authChoice === "app"
+              ? "Pick a repository from your App installations, or type it as owner/repo."
+              : "Type the repository as owner/repo (e.g. octocat/Hello-World)."}
+            {authChoice === "app" && matchingDropdownRow !== "" && (
+              <>
+                {" "}
+                Picked from App installation
+                <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+                  {installationId}
+                </code>
+                .
+              </>
+            )}
+          </span>
+        </label>
       )}
 
       {disabledReason === null &&
@@ -1116,7 +1125,7 @@ export function GitHubConnectorWizardStep({
           </label>
         )}
 
-      {disabledReason === null && missingOAuth === null && authChoice === "pat" && (
+      {authChoice === "pat" && (
         <label className="block space-y-1">
           <span className="text-xs text-muted-foreground">
             Default reviewer
