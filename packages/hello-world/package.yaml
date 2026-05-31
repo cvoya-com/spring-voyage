@@ -2,20 +2,13 @@ apiVersion: spring.voyage/v1
 kind: Package
 name: hello-world
 displayName: Hello World
-description: A minimal connector-free catalog package — one unit, one agent. Useful as a smoke-test for the package install pipeline without any external connector binding.
+description: The minimal package — one unit, one agent, no connector, no skills. The smallest install-and-activate example.
 version: 1.0.0
 readme: README.md
 
-# #2115: every other catalog package shipped today (software-engineering,
-# product-management, spring-voyage-oss, and the OSS sub-units) declares
-# `requires: [{ connector: github }]` on at least one member, which forces
-# `spring package install` callers to supply a `--connector github=…`
-# binding before the install pipeline will accept the package. This package
-# intentionally declares NO `requires:` block on either the unit or the
-# agent so the install path can be exercised end-to-end without a stub
-# connector binding — load-bearing for fast-pool E2E coverage that doesn't
-# care about any specific connector.
+# This package intentionally declares NO `requires:` block on either the
+# unit or the agent, so `spring package install hello-world` runs end-to-end
+# without a connector binding — the smallest possible install.
 #
-# ADR-0043: directory layout is the manifest — no `content:` block. The
-# package ships exactly the artefacts discovered under `units/` and
-# `agents/`.
+# The directory layout is the manifest — no `content:` block. The package
+# ships exactly the artefacts discovered under `units/` and `agents/`.

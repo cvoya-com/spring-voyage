@@ -80,7 +80,7 @@ The repository ships catalogue packages under `packages/`:
 | Package | Purpose |
 |---------|---------|
 | `hello-world` | Minimal connector-free smoke test — one unit, one agent |
-| `example-simple` / `example-templated` | Authoring examples (plain and template-based) |
+| `templated-team` | Template-based authoring example |
 | `software-engineering` | A software-engineering unit |
 | `product-management` | A product-management unit |
 | `research` / `magazine` | Domain examples |

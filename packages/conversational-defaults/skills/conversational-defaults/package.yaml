@@ -1,4 +1,4 @@
 apiVersion: spring.voyage/v1
 kind: Skill
 name: conversational-defaults
-description: sv.conversational.defaults — package-specific guidance pointing fresh agents at the platform-layer prompt for the contract + always-on tool catalog (Layer 1), and surfacing the `memory` category this bundle grants on top (ADR-0056 §8; #2670 moved the named-core-tools catalog into Layer 1).
+description: sv.conversational.defaults — the default conversational bundle. Relies on the platform-provided response contract and tool catalog, and grants the `memory` category on top.

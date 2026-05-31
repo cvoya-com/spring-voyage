@@ -1,4 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Skill
-name: say-hello
-description: Casual hello opener — a one-line warm greeting.

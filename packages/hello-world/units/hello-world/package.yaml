@@ -1,7 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Unit
 name: hello-world
-description: A minimal one-agent unit that greets and acknowledges. Ships without any connector requirement so the install path is exercisable in fast-pool E2E.
+description: A minimal one-agent unit that greets and acknowledges. Ships without any connector requirement.
 ai:
   runtime: claude-code
   model:
@@ -18,9 +18,8 @@ members:
       notifications: ["escalation", "completion"]
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
-# #2115: deliberately no `requires:` block — the package's value is being
-# installable without a connector binding. Adding one here would defeat
-# the purpose.
+# Deliberately no `requires:` block — the package's value is being
+# installable without a connector binding.
 policies:
   communication: through-unit
   work_assignment: capability-match

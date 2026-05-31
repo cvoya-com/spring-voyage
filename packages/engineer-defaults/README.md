@@ -1,10 +1,14 @@
 # engineer-defaults
 
-The `sv.engineer.defaults` skill bundle (#2745).
+A skill bundle of guardrails for agents whose runtime is shell-heavy — engineers that build, test, and lint from a command line. It layers on top of the always-available platform tools.
 
-The platform-layer concurrent-threads guard names the two things the platform isolates per thread (workspace subtree + session storage) and the constraints that follow from what is shared (ephemeral ports, no process-global mutation). It stays universal so PM, analyst, and router agents see no signal noise. This bundle layers software-engineering-shaped guidance on top — the shell-tooling footguns that only matter for agents whose runtime is CLI-shell-heavy.
+It covers the shell-tooling footguns that matter when several threads share one agent process:
 
-Equip this bundle on engineer-shaped agents alongside the platform core; non-engineer agents leave it off.
+- Don't launch long-running watchers or dev servers that never exit on their own (`pytest --watch`, `npm run dev`, `cargo watch`, `dotnet watch run`, `tail -f`, …) — run builds, tests, and lint as one-shot commands.
+- Don't use broad process kills (`pkill -f`, `killall`) that would also match other threads' child processes; kill a specific child by PID.
+- Don't hand-roll a long-lived background service across turns; carry state through the runtime's session-resume instead.
+
+The general platform guardrails are universal; this bundle adds the engineer-specific layer. Equip it on engineer-shaped agents and leave it off PM, analyst, and router agents that don't run shell tooling.
 
 ## Coordinates
 
@@ -14,9 +18,3 @@ Equip this bundle on engineer-shaped agents alongside the platform core; non-eng
 | Skill | `engineer-defaults` |
 | Display name | `sv.engineer.defaults` |
 | Category | platform |
-
-## See also
-
-- [`docs/decisions/0041-actor-runtime-contract.md`](../../docs/decisions/0041-actor-runtime-contract.md) — the `concurrent_threads` two-mode contract this bundle layers onto.
-- [`docs/decisions/0056-tool-only-side-effects.md`](../../docs/decisions/0056-tool-only-side-effects.md) — the tool-only-side-effects framing the bundle's `sv.tools.*` reminder rides on.
-- [`docs/concepts/skills.md`](../../docs/concepts/skills.md) — skill-bundle composition / Layer 4 rendering.

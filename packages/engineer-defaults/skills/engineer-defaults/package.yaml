@@ -1,4 +1,4 @@
 apiVersion: spring.voyage/v1
 kind: Skill
 name: engineer-defaults
-description: sv.engineer.defaults — engineer-shaped guidance on top of the platform's universal concurrent-threads guard. Names the shell-tooling footguns that don't generalise to non-engineer agents.
+description: sv.engineer.defaults — engineer-shaped shell-tooling guardrails, on top of the platform's universal guardrails. Names the footguns that don't generalise to non-engineer agents.

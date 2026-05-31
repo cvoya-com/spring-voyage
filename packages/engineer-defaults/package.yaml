@@ -2,29 +2,19 @@ apiVersion: spring.voyage/v1
 kind: Package
 name: engineer-defaults
 displayName: Engineer Defaults
-description: Engineer-shaped defaults — guidance on top of the platform's universal concurrent-threads guard for agents whose tooling is CLI-shell-heavy.
+description: Engineer-shaped defaults — shell-tooling guardrails for agents whose runtime is command-line heavy, on top of the platform's universal guardrails.
 version: 1.0.0
 readme: README.md
 
-# #2745 carve-out — the `sv.engineer.defaults` skill bundle.
+# The `sv.engineer.defaults` skill bundle. The platform's universal
+# guardrails cover what every agent must respect when threads share a
+# process; this bundle adds the shell-tooling footguns that only matter for
+# command-line-heavy engineer agents — long-running watcher commands
+# (`npm run dev`, `dotnet watch run`, …) and broad process kills (`pkill`,
+# `killall`). They live here so engineer agents that equip this bundle get
+# the guidance and other agent classes aren't shown tool names they have no
+# model for.
 #
-# The platform-layer concurrent-threads guard (`LauncherPromptFragments
-# .ConcurrentThreadsGuard`) is rewritten as the universal core — it
-# names the two things the platform isolates per thread (workspace
-# subtree + session storage) and the constraints that follow from
-# what is shared (ephemeral ports, no process-global mutation).
-# Software-engineering-shaped agents have additional shell-tooling
-# footguns that don't generalise to PM / analyst / router agents:
-# long-running watcher commands (`pytest --watch`, `npm run dev`,
-# `dotnet watch run`, …) and broad process kills (`pkill`, `killall`).
-# Those names move here so engineer agents who equip this bundle get
-# the SE-specific guidance and other agent classes are not signal-
-# noised with tool names they have no model for.
-#
-# This package intentionally declares NO `requires:` block: the
-# bundle ships prose-only guidance and grants no tools beyond the
-# platform core. The `.tools.json` is the empty array.
-#
-# ADR-0043 §1 / §3: directory layout is the manifest — no `content:`
-# block. The package ships exactly the artefacts discovered under
-# `skills/`.
+# This package declares NO `requires:` block: the bundle ships prose-only
+# guidance and grants no tools beyond the platform core (`.tools.json` is an
+# empty array). The directory layout is the manifest — no `content:` block.

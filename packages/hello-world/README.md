@@ -1,17 +1,17 @@
-# Hello World Package
+# Hello World
 
-A minimal connector-free catalog package. Ships one unit (`hello-world`) and one agent (`greeter`) wired up with no `requires:` block on either side, so `spring package install hello-world` succeeds without a `--connector` flag.
+The smallest possible package — one unit, one agent, no connector, no skills. Install it to see the install-and-activate flow end to end with a single command, then use it as the skeleton for your own package.
 
 ## What this package ships
 
-- **Unit** (`units/`): `hello-world` — a single-member orchestrator that routes every incoming message to the greeter agent.
-- **Agent** (`agents/`): `greeter` (Greeter) — acknowledges incoming messages with a short friendly reply. No tools, no external calls.
+- **Unit** (`hello-world`) — a single-member orchestrator that routes every incoming message to the greeter agent.
+- **Agent** (`greeter`) — acknowledges incoming messages with a short, friendly reply. No tools, no external calls.
 
-## Why it exists
+Neither declares a `requires:` block, so `spring package install hello-world` succeeds without a `--connector` flag or any inputs.
 
-Every other catalog package shipped today (`software-engineering`, `product-management`, `spring-voyage-oss`, and the OSS sub-units) declares `requires: [{ connector: github }]` on at least one member, which forces `spring package install` callers to supply a `--connector github=…` binding before the install pipeline accepts the package.
+## Why start here
 
-E2E tests that exercise the install pipeline itself — not the GitHub connector behaviour — needed a stub binding workaround to get past the connector check. `hello-world` removes that workaround: the install path runs end-to-end with one operator action and no connector configuration.
+Every other team in the catalog pulls in a connector, multiple agents, or skills. `hello-world` strips all of that away so you can watch a unit and an agent come up, send the unit a message, and get a reply — the whole lifecycle, nothing else. Once that's clear, the other packages are just more of the same shape.
 
 ## Installing
 
@@ -21,7 +21,7 @@ E2E tests that exercise the install pipeline itself — not the GitHub connector
 spring package install hello-world
 ```
 
-No `--connector` flag, no `--input` flags, no other side-channel setup.
+No `--connector` flag, no `--input` flags, no other setup.
 
 ### Portal
 
@@ -29,10 +29,10 @@ Navigate to `/settings/packages/hello-world` and click **Install**. The wizard r
 
 ## Agent runtime
 
-The unit and agent both use the `claude-code` runtime backed by `claude-sonnet-4-6`, so the install Phase-2 activator finds a runtime it knows how to start. The container image is `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest`, the same baseline the other catalog packages use.
+The unit and agent both use the `claude-code` runtime backed by `claude-sonnet-4-6`, on the `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest` image — the same baseline the other catalog packages use.
 
 ## Policies
 
 - **Initiative**: attentive — agents act on incoming events up to 10 times per hour.
 - **Communication**: through-unit — the greeter replies through the unit orchestrator.
-- **Work assignment**: capability-match — only one agent in the unit, so this is trivially satisfied.
+- **Work assignment**: capability-match — with one agent in the unit, this is trivially satisfied.

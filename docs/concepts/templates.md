@@ -153,10 +153,10 @@ Folder form is for instances that grow their own companion files (READMEs, addit
 
 ## Worked example
 
-The [`example-templated`](../guide/user/declarative.md#building-example-templated-step-by-step) package in the repo demonstrates both kinds. The layout:
+The [`templated-team`](../guide/user/declarative.md#building-templated-team-step-by-step) package in the repo demonstrates both kinds. The layout:
 
 ```
-example-templated/
+templated-team/
 ├── package.yaml                              # kind: Package
 ├── templates/
 │   ├── software-engineer/                    # kind: AgentTemplate
@@ -180,7 +180,7 @@ example-templated/
                 └── package.yaml
 ```
 
-Installing `example-templated` activates one unit and five agents:
+Installing `templated-team` activates one unit and five agents:
 
 ```
 platform-eng (Unit)              ← concrete, from: engineering-team
@@ -195,7 +195,7 @@ platform-eng (Unit)              ← concrete, from: engineering-team
 
 Each of the three software-engineer instances overrides only `description:`. The `ai:`, `role:`, `capabilities:`, `instructions:`, and `expertise:` all flow through from the template.
 
-See the [declarative-configuration walkthrough](../guide/user/declarative.md#building-example-templated-step-by-step) for a step-by-step build of this package.
+See the [declarative-configuration walkthrough](../guide/user/declarative.md#building-templated-team-step-by-step) for a step-by-step build of this package.
 
 ## See also
 

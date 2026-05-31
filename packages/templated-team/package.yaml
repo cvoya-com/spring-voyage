@@ -1,0 +1,10 @@
+apiVersion: spring.voyage/v1
+kind: Package
+name: templated-team
+displayName: Templated Team
+description: A starter engineering team built from reusable templates — a team archetype (with a team lead and senior engineer) plus a software-engineer archetype instantiated three times under one unit. Shows how to define an agent or unit once and reuse it across many running instances.
+version: 1.0.0
+readme: README.md
+# The directory layout is the manifest: this package ships exactly the
+# artefacts discovered under templates/ and units/. Templates live under
+# templates/ and are cloned by concrete artefacts that declare `from:`.

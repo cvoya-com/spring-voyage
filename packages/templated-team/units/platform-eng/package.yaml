@@ -3,8 +3,8 @@ kind: Unit
 name: platform-eng
 description: Platform engineering team — concrete instance of the `engineering-team` template. Stamps the template's nested team-lead and senior-engineer, plus three software-engineer instances declared below.
 from: engineering-team
-# Inherits ai, instructions, execution, policies, humans from the
-# engineering-team template per ADR-0043 §5d. `members:` is omitted so
-# the template's stamped child tree (team-lead, senior-engineer) is the
-# member set, augmented by the three concrete agents under
+# Inherits ai, instructions, execution, policies, and the human owner from
+# the engineering-team template. `members:` is omitted, so the template's
+# stamped children (team-lead, senior-engineer) form the member set,
+# augmented by the three concrete agents under
 # `units/platform-eng/agents/` (ada, hopper, lovelace).

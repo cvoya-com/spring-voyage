@@ -1,36 +1,26 @@
-# Product Management Package
+# Product Management
 
-A domain package that ships a product squad — a product manager and a product designer — wired to a GitHub repository and equipped with triage, roadmap, sprint-planning, and design-review skills.
+A product squad — a product manager and a product designer — wired to a GitHub repository and equipped with triage, roadmap, sprint-planning, and design-review skills.
 
 ## What this package ships
 
-- **Agents** (`agents/`):
+- **Unit:** `product-squad` — routes each request to the PM or the designer based on what it needs, and keeps roadmap and design decisions aligned.
+- **Agents:**
   - `pm` (Product Manager) — triages incoming requests, maintains the roadmap, plans sprints, and writes requirements.
-  - `design` (Product Designer) — shapes user experience, produces design artifacts, and reviews proposals for usability and accessibility.
-- **Unit** (`units/`): `product-squad` — a hierarchical unit that routes work to the PM or designer based on the nature of the request and keeps roadmap and design decisions aligned.
-- **Skills** (`skills/`):
-  - `issue-triage` — classify and prioritize incoming GitHub issues against the current roadmap.
-  - `roadmap-management` — group work into themes and milestones, keep the roadmap current.
+  - `design` (Product Designer) — shapes the user experience, produces design artefacts, and reviews proposals for usability and accessibility.
+- **Skills:**
+  - `issue-triage` — classify and prioritise incoming issues against the current roadmap.
+  - `roadmap-management` — group work into themes and milestones and keep the roadmap current.
   - `sprint-planning` — scope, estimate, and sequence high-value work within team capacity.
   - `design-review` — evaluate design proposals for usability, accessibility, and consistency.
 
 ## Agent runtime
 
-All agents use the `claude-code` tool backed by `claude-sonnet-4-6`. The execution image is `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest` running under **podman**.
+All agents use the `claude-code` runtime backed by `claude-sonnet-4-6`, on the `ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest` image.
 
-## Connector
+## Connecting to GitHub
 
-The `product-squad` unit binds the **GitHub** connector and listens for `issues`, `issue_comment`, and `pull_request` events on the repository you specify at install time.
-
-## Required inputs
-
-| Input | Description |
-| --- | --- |
-| `github_owner` | GitHub owner (org or user) hosting the repository. |
-| `github_repo` | GitHub repository name. |
-| `github_installation_id` | GitHub App installation ID for the Spring Voyage App on the target repository. Find it at **GitHub → your org → Settings → GitHub Apps → Spring Voyage → Configure** — the ID appears in the URL. |
-
-## Installing the package
+The `product-squad` unit binds the **GitHub** connector and listens for `issues`, `issue_comment`, and `pull_request` events on the repository you choose at install time. Connect it through the Spring Voyage GitHub App or a personal access token — the install flow walks you through the choice.
 
 ### CLI
 
@@ -43,7 +33,7 @@ spring package install product-management \
 
 ### Portal
 
-Navigate to `/settings/packages/product-management` and click **Install**. The wizard pre-fills the input fields from the package's declared inputs — fill in the three GitHub values and submit.
+Navigate to `/settings/packages/product-management` and click **Install**. The wizard prompts for the GitHub repository and how to authenticate, then activates the squad.
 
 ## Policies
 
