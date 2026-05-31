@@ -12,7 +12,7 @@ Three kinds of entity are **routable actors** — each has a mailbox and can rec
 | **Unit** | A composite agent — group of agents that appears as one to the outside |
 | **Human** | A human participant in a unit |
 
-A **connector** also has a synthetic address (`connector:<id>`), but it is **not** a routable actor — it is a bridge to an external system (GitHub, Slack, etc.). A connector address appears only as a message's `From`, identifying the external origin of an inbound event; nothing routes a message *to* a connector. See [Connectors](connectors.md) and [ADR-0053 § 5](../decisions/0053-units-are-agents-and-one-way-delivery.md).
+A **connector** also has a synthetic address (`connector:<id>`), but it is **not** a routable actor — it is a bridge to an external system (GitHub, Slack, etc.). A connector address appears only as a message's `From`, identifying the external origin of an inbound event; nothing routes a message *to* a connector. See [Connectors](connectors.md) for details.
 
 A pub/sub **topic** is a separate primitive (see [Pub/Sub Topics](#pubsub-topics) below); it is not an addressable actor.
 
@@ -27,7 +27,7 @@ Every addressable entity has a stable `Guid` identity. An address is the pair `(
 
 There is no path-shaped address, no `@<uuid>` form, no namespace+name pair. The membership graph (which units a particular agent belongs to, which sub-units a unit contains, what tenant owns what) is walked at routing time inside the directory; it does not appear in the address string.
 
-Parsers are lenient — addresses carrying the dashed Guid form (`agent:8c5fab2a-8e7e-4b9c-92f1-d8a3b4c5d6e7`) parse just as well — but the canonical render always uses the no-dash form. Identifier conventions, the JSON-vs-URL split, manifest grammar, and CLI semantics are documented in [Data & identity](../architecture/data-and-identity.md).
+Parsers are lenient — addresses carrying the dashed Guid form (`agent:8c5fab2a-8e7e-4b9c-92f1-d8a3b4c5d6e7`) parse just as well — but the canonical render always uses the no-dash form.
 
 ## Messages
 
@@ -61,7 +61,7 @@ The platform never inspects the payload of a Domain message. Domain-specific sem
 
 Domain messages are **one-way events** — a notification that something happened, delivered to a unit or agent. The sender is not blocked waiting on a return value, and the platform does not route a "reply" back to the sender. When a unit/agent finishes processing a domain message, its output is **recorded on the thread**; if a response or follow-up is warranted, the unit/agent acts through its tools or sends a *new* one-way message on the thread. Request/reply, where a flow needs it, is a pattern built on threads — not a transport primitive.
 
-Control-plane queries (`StatusQuery`, `HealthCheck`) are the exception: they are synchronous infrastructure probes and return their result to the caller directly. See [ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md).
+Control-plane queries (`StatusQuery`, `HealthCheck`) are the exception: they are synchronous infrastructure probes and return their result to the caller directly.
 
 ### Routing is Platform-Controlled
 
@@ -72,7 +72,7 @@ The sender does not specify priority or urgency. The platform determines which m
    - A direct message enters the **per-thread FIFO channel** for its `ThreadId` — one queue per thread, processed concurrently across threads.
    - A pub/sub message, reminder, or timer enters the **observation channel**, batched for the initiative cognition loop.
 
-No sender can escalate their own message priority. The platform is the sole authority on routing. The agent mailbox is detailed in [Architecture: Messaging § The agent mailbox](../architecture/messaging.md#the-agent-mailbox).
+No sender can escalate their own message priority. The platform is the sole authority on routing.
 
 ## How Routing Works
 
@@ -80,7 +80,7 @@ All actors have flat, globally unique Dapr actor ids derived from their `Guid`. 
 
 **Permission enforcement** happens at resolution time. The directory walks the membership graph from the addressed actor toward the tenant root and at each boundary edge evaluates the permission rule against the sender; the walk returns either an actor id (permitted) or a structured deny (rejected). This is one synchronous check whose cost is O(membership depth), not per-hop forwarding.
 
-When the addressed actor is a unit (rather than a specific member), the unit applies its boundary filtering and invokes its own runtime; the runtime decides whether to answer directly or delegate to a child by delivering a message via the `sv.messaging.*` tools the launcher attaches (see [ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)).
+When the addressed actor is a unit (rather than a specific member), the unit applies its boundary filtering and invokes its own runtime; the runtime decides whether to answer directly or delegate to a child by delivering a message via the `sv.messaging.*` tools the launcher attaches.
 
 ## Pub/Sub Topics
 
@@ -98,8 +98,8 @@ A runtime delivers a domain message through three platform MCP tools. All return
 | `sv.messaging.multicast` | N INDEPENDENT 1-1 threads `{caller, recipient_i}`. Use when recipients should not see each other. |
 | `sv.messaging.respond_to` | Continue the conversation a `message_id` belongs to — the platform delivers to everyone already on it (minus the caller), on the same thread. Use to continue a conversation without rebuilding the recipient list. |
 
-`send` and `multicast` take the same input shape — either an explicit `recipients` list or a relationship `scope` (`unit-members`, `siblings`) — and differ in thread identity, not input shape. `respond_to` instead names a `message_id` the runtime received and lets the platform pick the recipients (the conversation's participants). The calling participant is auto-included in every participant set, so the runtime does not list itself in `recipients`. The runtime never names a `thread_id`: the platform derives it from the participant set (see [ADR-0030](../decisions/0030-thread-model.md)).
+`send` and `multicast` take the same input shape — either an explicit `recipients` list or a relationship `scope` (`unit-members`, `siblings`) — and differ in thread identity, not input shape. `respond_to` instead names a `message_id` the runtime received and lets the platform pick the recipients (the conversation's participants). The calling participant is auto-included in every participant set, so the runtime does not list itself in `recipients`. The runtime never names a `thread_id`: the platform derives it from the participant set.
 
-The inbound envelope names the conversation's roster directly: alongside `from` and `to` it carries `participants` — the routable members of the conversation ("everyone you could reach here"), which is the set `respond_to` delivers to (see [ADR-0064](../decisions/0064-conversation-participants-and-continuation.md)). Human-initiated sends use the same primitive: a multi-party engagement created through the Web API resolves one shared thread from `{sender} ∪ recipients`, so every participant shares one conversation rather than splitting into per-recipient threads ([#2887](https://github.com/cvoya-com/spring-voyage/issues/2887)).
+The inbound envelope names the conversation's roster directly: alongside `from` and `to` it carries `participants` — the routable members of the conversation ("everyone you could reach here"), which is the set `respond_to` delivers to. Human-initiated sends use the same primitive: a multi-party engagement created through the Web API resolves one shared thread from `{sender} ∪ recipients`, so every participant shares one conversation rather than splitting into per-recipient threads.
 
-There is no `delegate_to` / `fanout_to` tool. A runtime that wants to *delegate* sends a message whose content says so — "delegation" is message content the recipient's runtime interprets, not a platform mechanism. Multicast is useful for broadcast queries ("who can help with this Python issue?") or role-based work distribution when the recipients should not be aware of each other; `send` with a multi-element `recipients` list is the right tool when they should share a thread. The delivery contract and the full `sv.<area>.<verb>` tool surface are described in [Architecture: Messaging](../architecture/messaging.md).
+There is no `delegate_to` / `fanout_to` tool. A runtime that wants to *delegate* sends a message whose content says so — "delegation" is message content the recipient's runtime interprets, not a platform mechanism. Multicast is useful for broadcast queries ("who can help with this Python issue?") or role-based work distribution when the recipients should not be aware of each other; `send` with a multi-element `recipients` list is the right tool when they should share a thread.

@@ -2,15 +2,13 @@
 
 The Spring Voyage web portal (`Cvoya.Spring.Web`, a Next.js app) is a browser-based companion to the `spring` CLI. It surfaces the same resources — units, agents, engagements, activity, costs — through a point-and-click UI, and is the preferred surface for workflows that are awkward at the command line (configuring a GitHub App installation, editing per-membership overrides, reviewing filtered activity feeds).
 
-> **Doc-currency note.** This walkthrough reflects the current portal IA. Some routes and surface names shifted during the [#815](https://github.com/cvoya-com/spring-voyage/issues/815) redesign. If you spot drift, file it on that issue. The CLI-equivalent columns are authoritative because they reference shipped CLI verbs.
+> **Doc-currency note.** This walkthrough reflects the current portal IA. If you spot differences between portal and CLI behavior, file it as a bug. The CLI-equivalent columns are authoritative because they reference shipped CLI verbs.
 
 ## Launching the portal
 
 Open the deployment's configured web URL in a browser — `http://localhost` for
-a default install, or `https://<your-host>` once DNS and TLS are set up. If
-running the portal directly (`npm run dev` inside `src/Cvoya.Spring.Web/`),
-navigate to `http://localhost:3000`. Authentication uses the same token flow as
-the CLI.
+a default install, or `https://<your-host>` once DNS and TLS are set up.
+Authentication uses the same token flow as the CLI.
 
 ## Navigation
 
@@ -34,7 +32,7 @@ The left sidebar lists all top-level routes:
 
 Detail pages (`/units/{id}`, `/agents/{id}`, `/conversations/{id}`) are reached by clicking entity cards. A breadcrumb trail keeps navigation depth visible.
 
-A **Settings** hub at `/settings` collects cross-cutting configuration (the in-shell Settings drawer was retired in the #815 redesign):
+A **Settings** hub at `/settings` collects cross-cutting configuration:
 
 | Panel | What it does | CLI equivalent |
 |-------|--------------|----------------|
@@ -374,7 +372,7 @@ Engagements where the latest event is a message directed at you and you have not
 
 ## Engagements (`/conversations`, `/conversations/{id}`)
 
-The engagement surface is the portal's view of threads. The routes currently use `/conversations` (the pre-rename surface; rename to `/threads` tracks in [#1288](https://github.com/cvoya-com/spring-voyage/issues/1288)).
+The engagement surface is the portal's view of threads. The routes currently use `/conversations` for the engagement surface.
 
 ### Via CLI
 
@@ -388,7 +386,7 @@ spring thread list --unit engineering-team
 - **Filters** — unit, agent, participant, status. Filter values live in the URL query string (`?unit=…&status=active`).
 - **"Awaiting you"** panel — inbox rows at the top.
 - **Engagement grid** — one card per engagement with participants, status, and last-activity time.
-- **Live updates** — subscribes to the activity SSE stream; no polling.
+- **Live updates** — subscribes to the activity event stream; no polling.
 
 | Action | Portal | CLI |
 |--------|--------|-----|
@@ -401,9 +399,9 @@ spring thread list --unit engineering-team
 The thread view is the per-engagement workspace — the collaboration surface.
 
 - **Header** — thread id, status, participants, and a "View activity" pivot.
-- **Thread** — one bubble per event, role-attributed by sender scheme (`human:` right-aligned, `agent:` / `unit:` / `system:` left-aligned). `DecisionMade`, `StateChanged`, `WorkflowStepCompleted`, and `ReflectionCompleted` events collapse by default.
+- **Thread** — one bubble per event, role-attributed by sender scheme (`human:` right-aligned, `agent:` / `unit:` / `system:` left-aligned). Certain event types collapse by default.
 - **Composer** — textarea + recipient field. Submit on click or `⌘/Ctrl+Enter`.
-- **Live updates** — subscribes to the SSE stream filtered by thread.
+- **Live updates** — subscribes to the event stream filtered by thread.
 
 | Action | Portal | CLI |
 |--------|--------|-----|
@@ -527,4 +525,3 @@ spring activity list --source <unit:..|agent:..> \
 - [Observing Activity](observing.md) — activity and cost patterns.
 - [Declarative Configuration](declarative.md) — YAML package authoring and `spring package install`.
 - [Managing Secrets](../operator/secrets.md) — credential tiers and rotation.
-- Architecture: [Interfaces](../../architecture/interfaces.md).

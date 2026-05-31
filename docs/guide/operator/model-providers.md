@@ -2,19 +2,17 @@
 
 > Practical CLI workflows for installing, configuring, and maintaining model providers on a tenant. Audience: operators with some ops background but no prior Spring Voyage context.
 
-A **model provider** is the company whose API hosts a set of LLMs — `anthropic`, `openai`, `google`, `ollama`. The provider is the platform's credential and routing boundary: one credential row per `(tenant, provider, authMethod)`, one live-catalogue lookup per provider, shared across every runtime that targets that provider. The closed v0.1 set lives in [`eng/runtime-catalog/runtime-catalog.yaml`](../../../eng/runtime-catalog/runtime-catalog.yaml).
+A **model provider** is the company whose API hosts a set of LLMs — `anthropic`, `openai`, `google`, `ollama`. The provider is the platform's credential and routing boundary: one credential row per `(tenant, provider, authMethod)`, one live-catalogue lookup per provider, shared across every runtime that targets that provider.
 
 ## Providers vs runtimes
 
-[ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md) splits what was a single concept into three:
+The platform distinguishes three related concepts:
 
-- **AgentRuntime** — the in-container execution engine (Claude Code, Codex, Gemini CLI, Spring Voyage Agent). Picked at unit/agent create time. Closed set in v0.1: `claude-code`, `codex`, `gemini`, `spring-voyage`, `custom`.
-- **ModelProvider** — the company hosting the LLMs. The credential / routing boundary. Closed set in v0.1: `anthropic`, `openai`, `google`, `ollama`.
+- **AgentRuntime** — the in-container execution engine (Claude Code, Codex, Gemini CLI, Spring Voyage Agent). Picked at unit/agent create time.
+- **ModelProvider** — the company hosting the LLMs. The credential / routing boundary.
 - **Model** — a specific LLM, identified by the structured pair `{provider, id}`.
 
-Both runtimes and providers are declared as data in `eng/runtime-catalog/runtime-catalog.yaml`. The operator's job in this guide is to install **providers**. Runtimes are not installed per-tenant — they are picked at unit/agent create time from the catalogue's closed list. There is no `spring agent-runtime …` verb family; install/configure/refresh-models all live under `spring model-provider …`.
-
-See [`docs/architecture/agent-runtime.md`](../../architecture/agent-runtime.md) for the full architecture and [`docs/glossary.md`](../../glossary.md) for the term definitions.
+The operator's job in this guide is to install **providers**. Runtimes are not installed per-tenant — they are picked at unit/agent create time from the catalogue's closed list. There is no `spring agent-runtime …` verb family; install/configure/refresh-models all live under `spring model-provider …`.
 
 **Where this fits.** On a fresh OSS deployment the Worker host's bootstrap installs every catalogued provider onto the default tenant automatically — so on day one every provider is already visible to the wizard. You only reach for `install` / `uninstall` when curating (e.g. hiding Ollama in a cloud-only deployment, or reshaping the model list for a specific provider).
 
@@ -67,7 +65,7 @@ $ spring model-provider install openai \
 - `--default-model <id>` — pre-selected in the wizard.
 - `--base-url <url>` — for Ollama or OpenAI-compatible gateways.
 
-**Unknown provider id** → `spring` exits 1 with: `Model provider '<id>' is not registered with the host.` Valid ids are exactly the entries under `modelProviders:` in `eng/runtime-catalog/runtime-catalog.yaml` — the closed v0.1 set is `anthropic`, `openai`, `google`, `ollama`. Adding a fifth provider is a config-only edit when the wire format is OpenAI-compatible (otherwise also a new `IModelProviderAdapter` strategy); see [ADR-0038 § 3](../../decisions/0038-agent-runtime-and-model-provider-split.md#3-modelproviders-are-platform-configuration-alongside-agentruntimes-in-runtime-catalogyaml).
+**Unknown provider id** → `spring` exits 1 with: `Model provider '<id>' is not registered with the host.` Valid ids are exactly the entries in the platform's provider catalog — the closed v0.1 set is `anthropic`, `openai`, `google`, `ollama`.
 
 ## Validating a credential
 
@@ -173,7 +171,7 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 
 ## Unit validation lifecycle
 
-> **Backend-side validation — [#941](https://github.com/cvoya-com/spring-voyage/issues/941) landed.** The accept-time host-side probe was removed in #941. Credential / tool / model checks now run inside the chosen container image via `ArtefactValidationWorkflow`, a Dapr Workflow dispatched when a unit enters `Validating`. The operator-facing surface is the unit lifecycle and `spring unit revalidate` — there is no per-provider "validate this unit's credential" button.
+Credential / tool / model checks run inside the chosen container image when a unit enters validation. The operator-facing surface is the unit lifecycle and `spring unit revalidate` — there is no per-provider "validate this unit's credential" button.
 
 A new unit walks through:
 
@@ -198,35 +196,32 @@ Retry after fixing the underlying issue with:
 $ spring unit revalidate my-unit
 ```
 
-Allowed only from `Error` or `Stopped`. See [`cli-reference.md` → Validation exit codes](../../cli-reference.md#validation-exit-codes) for the exit-code table (20 – 27 map to `ArtefactValidationCodes`).
+Allowed only from `Error` or `Stopped`.
 
 ## Runtime-image contract (for unit images)
 
 The in-container probe interpreters shell out to a small toolset; every image used as a unit runtime must include the runnable binary the probe needs. Failing to satisfy this surfaces cleanly as `ToolMissing` (exit 22) — never as a cryptic credential-validation failure.
 
-| Runtime         | Provider(s) it dispatches to (v0.1) | Required binary in the image | Why |
-|-----------------|--------------------------------------|------------------------------|-----|
-| `claude-code`   | `anthropic`                          | `claude`                     | Credential and model probes invoke the Claude Code CLI directly. |
-| `codex`         | `openai`                             | `curl`                       | Credential + model probes call `api.openai.com` via `curl`. |
-| `gemini`        | `google`                             | `curl`                       | Credential + model probes call `generativelanguage.googleapis.com` via `curl`. |
-| `spring-voyage` | `anthropic` / `openai` / `google` / `ollama` | `curl`               | Credential + model probes call the active provider's endpoint via `curl`. |
+| Runtime         | Provider(s) | Required binary | Why |
+|-----------------|-------------|-----------------|-----|
+| `claude-code`   | `anthropic` | `claude` | Credential and model probes invoke the Claude Code CLI. |
+| `codex`         | `openai` | `curl` | Credential + model probes call the OpenAI API via `curl`. |
+| `gemini`        | `google` | `curl` | Credential + model probes call the Google API via `curl`. |
+| `spring-voyage` | all | `curl` | Credential + model probes call the active provider's endpoint via `curl`. |
 
-The runtime ↔ provider edges (and the per-edge `authMethod` and `credentialEnvVar` the launcher writes) live in `eng/runtime-catalog/runtime-catalog.yaml`; see [ADR-0038 § 4](../../decisions/0038-agent-runtime-and-model-provider-split.md#4-credential-matrix-is-derived-from-runtime-catalogyaml) for the projected matrix. The OSS images shipped by the default Worker deployment already satisfy the binary contract. Operators building custom images should keep the appropriate binary on `PATH` — `curl` is typically the smallest addition (an `apk add curl` or `apt-get install -y curl` step).
+The OSS images shipped by the default Worker deployment already satisfy the binary contract. Operators building custom images should keep the appropriate binary on `PATH` — `curl` is typically the smallest addition (an `apk add curl` or `apt-get install -y curl` step).
 
 ## Troubleshooting
 
-- **Unit stays in `Validating` forever.** The `ArtefactValidationWorkflow` dispatched but the dispatcher sidecar is unhealthy. Check the worker / dispatcher logs and confirm the Dapr sidecar responds on `/healthz`. `spring unit revalidate <name>` restarts the workflow cleanly once the underlying issue is fixed.
+- **Unit stays in `Validating` forever.** The validation workflow dispatched but the dispatcher sidecar is unhealthy. Check the worker / dispatcher logs and confirm the sidecar is healthy. `spring unit revalidate <name>` restarts the workflow cleanly once the underlying issue is fixed.
 - **Unit is in `Error` with `LastValidationError.Code == "ToolMissing"`.** The image does not carry the binary the probe needs (`curl`, `claude`, etc.). Rebuild the image per the runtime-image contract above.
 - **Unit is in `Error` with `LastValidationError.Code == "CredentialInvalid"`.** The provider rejected the credential (401 / 403). Update the secret (`spring secret …`) and run `spring unit revalidate <name>`. Confirm the credential resolves with `spring model-provider validate-credential <id>` first.
 - **Unit is in `Error` with `LastValidationError.Code == "ModelNotFound"`.** The requested model id is not in the provider's live catalogue. Refresh the catalogue (`spring model-provider refresh-models <id>`) or switch the unit to a listed model via `spring unit execution set <name> --model <id>` + `spring unit revalidate`.
 - **`credentials status` returns 404.** No observation has landed yet. Run `spring model-provider validate-credential <id> --credential <key>` to prime the row directly without rotating the catalogue, or exercise the provider via a unit dispatch.
-- **`install` silently "succeeds" but `list` doesn't show the provider.** Confirm the provider id exists under `modelProviders:` in `eng/runtime-catalog/runtime-catalog.yaml` — the closed v0.1 set is `anthropic`, `openai`, `google`, `ollama`. Install writes to the current tenant only.
+- **`install` silently "succeeds" but `list` doesn't show the provider.** Confirm the provider id is in the platform's catalogue — the closed v0.1 set is `anthropic`, `openai`, `google`, `ollama`. Install writes to the current tenant only.
 - **A model you pinned is missing from the wizard dropdown.** Re-check the configured list with `spring model-provider show <id>`. If the model is present in the list but absent in the wizard, refresh the portal session (the model list caches per session).
 
 ## See also
 
 - [Connector operator guide](connectors.md) — parallel guide for per-tenant connector installs.
-- [Architecture: Agent Runtime](../../architecture/agent-runtime.md) — the dispatcher, the launcher tiers, and how the runtime catalogue drives runtime selection.
-- [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md) — the AgentRuntime / ModelProvider split that this surface ships against.
-- [`eng/runtime-catalog/runtime-catalog.yaml`](../../../eng/runtime-catalog/runtime-catalog.yaml) — the closed v0.1 catalogue of runtimes and providers.
 - [CLI reference](../../cli-reference.md) — the canonical command-by-command surface.

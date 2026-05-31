@@ -17,7 +17,7 @@ A skill lives inside a package at `<package-root>/skills/<skill-name>/`:
         └── triage-and-assign.tools.json   # optional — required-tool declarations
 ```
 
-`package.yaml` carries the skill's name and a short description. The `.md` file is the **prompt body**. The optional `.tools.json` file declares the tools the skill expects to be available at runtime; the package install pipeline validates these declarations against the registered tool registries and rejects bundles whose required tools no registry exposes (see `Cvoya.Spring.Core.Skills.ISkillBundleValidator`). A prompt-only skill (no `.tools.json`) is valid — its `RequiredTools` list is simply empty.
+`package.yaml` carries the skill's name and a short description. The `.md` file is the **prompt body**. The optional `.tools.json` file declares the tools the skill expects to be available at runtime; the package install pipeline validates these declarations against the registered tool registries and rejects bundles whose required tools are unavailable. A prompt-only skill (no `.tools.json`) is valid — its required tools list is simply empty.
 
 The recursive layout is documented in detail in [Packages — Skills inside the recursive layout](packages.md#skills-inside-the-recursive-layout).
 
@@ -25,12 +25,12 @@ The recursive layout is documented in detail in [Packages — Skills inside the 
 
 A package only **ships** a skill. To make it visible to a particular subject, an operator **equips** it on a unit or an agent. Equipping is a per-subject store write keyed by the subject's actor id:
 
-| Subject | Store interface | State-store key prefix | Prompt layer the skill body feeds |
-|---|---|---|---|
-| Unit | `IUnitSkillBundleStore` | `Unit:SkillBundles:` | Layer 2 — Unit context |
-| Agent | `IAgentSkillBundleStore` | `Agent:SkillBundles:` | Layer 4 — Agent instructions |
+| Subject | State-store key prefix | Prompt layer the skill body feeds |
+|---|---|---|
+| Unit | `Unit:SkillBundles:` | Layer 2 — Unit context |
+| Agent | `Agent:SkillBundles:` | Layer 4 — Agent instructions |
 
-Both stores are JSON-document state-store records — a single per-subject blob carrying the resolved bundle list — and both share the same mutation surface (`SetAsync`, `AddAsync`, `RemoveAsync`, `DeleteAsync`). Each mutation re-resolves the supplied `SkillBundleReference` values through `ISkillBundleResolver` so the persisted record always carries the freshest prompt body and required-tools snapshot. The OSS resolver reads from the on-disk package tree; the private cloud repo swaps in a tenant-scoped resolver without touching call sites.
+Both stores persist the resolved bundle list as a single JSON document per subject. Each mutation re-resolves the skill reference so the persisted record always carries the freshest prompt body and required-tools snapshot.
 
 A unit binds a package's skill at the tenant level through `tenant_skill_bundle_bindings` (one row per `(tenant, package, skill)` with an `enabled` flag) before any per-subject equip can resolve — the tenant-filtering resolver short-circuits when the binding is absent or disabled. The binding is a tenant-wide gate; the per-subject store is the operator equip decision.
 
@@ -40,7 +40,7 @@ Unit-equipped and agent-equipped skills land in different prompt-assembly layers
 
 ## Prompt-assembly placement
 
-The platform assembles a four-layer prompt at every message turn (see [`docs/architecture/units-and-agents.md`](../architecture/units-and-agents.md#prompt-assembly)). The two skill-equip surfaces land in two of those layers:
+The platform assembles a four-layer prompt at every message turn. The two skill-equip surfaces land in two of those layers:
 
 | Layer | Source | Content | Equipped skills land here |
 |---|---|---|---|
@@ -55,23 +55,23 @@ Each layer renders its bundles inside an `### Skill Bundles` sub-section, with o
 
 A leaf agent that participates as a member of a unit sees **both** sets of bundles: the unit's via Layer 2 and its own via Layer 4 — no explicit inheritance table is involved. The platform reaches into the appropriate store at message-turn time:
 
-- The agent actor's prompt-assembly context reads from `IAgentSkillBundleStore` keyed by its own actor id (Layer 4).
-- The same path resolves the agent's owning unit(s) through `IUnitMembershipRepository.ListByAgentAsync` and reads `IUnitSkillBundleStore` keyed by each parent unit's actor id (Layer 2). The bundles from every parent are concatenated into a single Layer 2 section. ([#2363](https://github.com/cvoya-com/spring-voyage/issues/2363))
-- For a **unit** (which is itself an agent — [ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)) the actor's own id is the unit's id, so the unit-store keyed by `actorId` returns the unit's own equipped bundles. The membership walk above returns an empty list for a unit subject, so a unit still only renders its own entry.
+- The agent actor's prompt-assembly context reads its own equipped skills (Layer 4).
+- The same path resolves the agent's owning unit(s) and reads the unit's equipped skills (Layer 2). The bundles from every parent are concatenated into a single Layer 2 section.
+- For a **unit** (which is itself an agent) the actor's own id is the unit's id, so the unit-store returns the unit's own equipped bundles. A unit still only renders its own entry.
 
 Operators thinking about "what does this agent see at runtime" can reason about the two surfaces independently: equipping a skill on the unit affects every member's Layer 2 in one move; equipping on the agent extends only that agent's Layer 4.
 
 #### Multi-parent ordering and dedup
 
-An agent that belongs to more than one unit (M:N memberships, per [ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)) inherits Layer 2 bundles from every parent. The aggregation rules:
+An agent that belongs to more than one unit (M:N memberships) inherits Layer 2 bundles from every parent. The aggregation rules:
 
-- **Order: alphabetical by parent unit's `DisplayName`** (ordinal, case-insensitive). The display name is the only label the operator sees in the portal / CLI, so when two parents both equip distinct skills the assembled prompt's section order matches what they read on screen. The membership table's natural `CreatedAt` order is an internal-mutation timestamp the operator can't reason about and would surface arbitrarily-ordered sections.
-- **Dedup: first occurrence wins on `(packageName, skillName)`.** The agent's own keyed entry (the unit-as-agent case) is processed first, so a unit's own bundle always beats an inherited duplicate. Across parents, the alphabetically-first parent's copy wins.
-- **Cascading inheritance through nested units (sub-unit → parent unit) is out of scope for v0.1.** The walker only consults `IUnitMembershipRepository` (agent→unit), not `IUnitSubunitMembershipRepository`. Deeper inheritance is a separate design call.
+- **Order: alphabetical by parent unit's `DisplayName`** (ordinal, case-insensitive). The display name is the only label the operator sees in the portal / CLI, so when two parents both equip distinct skills the assembled prompt's section order matches what they read on screen.
+- **Dedup: first occurrence wins on `(packageName, skillName)`.** A unit's own bundle always beats an inherited duplicate. Across parents, the alphabetically-first parent's copy wins.
+- **Cascading inheritance through nested units (sub-unit → parent unit) is out of scope for v0.1.**
 
 ## Web API
 
-Per-subject equip surface (introduced in [#2360](https://github.com/cvoya-com/spring-voyage/issues/2360)):
+Per-subject equip surface:
 
 | Verb | Route | Body | Returns |
 |---|---|---|---|
@@ -101,7 +101,7 @@ Each response entry is an `EquippedSkillEntry`:
 
 ## CLI
 
-Each Web API verb has a CLI counterpart under `spring agent skills …` and `spring unit skills …` ([#2361](https://github.com/cvoya-com/spring-voyage/issues/2361)) — `list`, `add`, `remove`, `set`. The CLI never touches `HttpClient` directly; the verbs flow through the same generated Kiota client that powers the rest of the `spring` surface. See [`docs/cli-reference.md`](../cli-reference.md#spring-agentunit-skills-operator-equip-surface) for flag-level detail and the operator-equip flow in [`docs/guide/user/declarative.md`](../guide/user/declarative.md#equipping-skills-on-units-and-agents-2361).
+Each Web API verb has a CLI counterpart under `spring agent skills …` and `spring unit skills …` — `list`, `add`, `remove`, `set`. The CLI flows through the generated Kiota client. See [`docs/cli-reference.md`](../cli-reference.md#spring-agentunit-skills-operator-equip-surface) for flag-level detail and the operator-equip flow in [`docs/guide/user/declarative.md`](../guide/user/declarative.md#equipping-skills-on-units-and-agents).
 
 ## Addressing and versioning
 
@@ -111,9 +111,9 @@ Skill addressing is `<package>/<skill>`. No `@<version>` qualifier, no aliases. 
 
 | Concern | Storage | Granularity |
 |---|---|---|
-| Per-subject equip | `IUnit/IAgentSkillBundleStore` — JSON state-store doc keyed by subject id | One JSON record per `(tenant, subject)` carrying the resolved bundle list |
-| Tenant-level package gate | `tenant_skill_bundle_bindings` EF table | One row per `(tenant, package, skill)` with an `enabled` flag |
-| Authored body | Filesystem (OSS) or blob storage (cloud) under `<package-root>/skills/<name>/` | One markdown file + optional `.tools.json` per skill |
+| Per-subject equip | State-store document keyed by subject id | One JSON record per `(tenant, subject)` carrying the resolved bundle list |
+| Tenant-level package gate | Database table | One row per `(tenant, package, skill)` with an `enabled` flag |
+| Authored body | Filesystem under `<package-root>/skills/<name>/` | One markdown file + optional `.tools.json` per skill |
 
 The two layers compose: the binding row decides whether the tenant has access to a given `(package, skill)`; the per-subject store decides which subjects have equipped it. Removing the binding causes the resolver to refuse subsequent equip attempts but does not retroactively unequip subjects that have already persisted a snapshot — the next mutation on those subjects will surface the failure.
 
@@ -121,4 +121,4 @@ The two layers compose: the binding row decides whether the tenant has access to
 
 - **Skills are not tools.** A skill is authored prose plus optional tool requirements. A tool is the runtime-invocation surface. See [Tools](tools.md).
 - **Skills are not unit policies.** A policy is a structured JSON document that gates runtime behaviour. A skill is prose injected into the prompt.
-- **Skills are not memberships.** Equipping a skill on a unit does not move agents around; it just changes what the unit's Layer 2 contains for every dispatch on that unit. See [`docs/concepts/units-vs-agents.md`](units-vs-agents.md) for the structural side.
+- **Skills are not memberships.** Equipping a skill on a unit does not move agents around; it just changes what the unit's Layer 2 contains for every dispatch on that unit.

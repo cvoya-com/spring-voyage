@@ -38,15 +38,14 @@ A 404 means the connector is not installed on the current tenant — re-install 
 $ spring connector install github
 ```
 
-Install is idempotent. The CLI does not take typed config flags — each connector's tenant-level config shape is its own concern, and the current OSS connectors either carry no tenant-level config or manage it per-unit. When a connector ships typed tenant-config keys, `spring connector config set` gains support for them (tracked under #689's follow-ups).
+Install is idempotent. The CLI does not take typed config flags — each connector's tenant-level config shape is its own concern.
 
 Per-unit config — the GitHub repo, organisation, webhook events — is set via `spring connector bind --unit <name> --type github ...`, **not** via this tenant-install verb.
 
-**Unknown slug** → `spring` exits 1 with: `Connector '<slug>' is not registered.` Valid slugs match projects under `src/Cvoya.Spring.Connector.*` in the host. `spring connector catalog` only lists what's already installed on the tenant, so for the registered superset inspect the source tree (or hit the host's DI registry directly while debugging).
+**Unknown slug** → `spring` exits 1 with: `Connector '<slug>' is not registered.` Run `spring connector catalog` to list all available connectors for installation.
 
 ## Checking credential health
 
-> **Connector credential validation — scope note for [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** The in-container validation rework. retired the host-side probe for **agent runtimes** only; connector `POST /validate-credential` still runs on the API host (connectors don't yet have a container-image contract). The use-time watchdog described below remains the durable source of `Invalid` / `Revoked` signals for connectors. Rework tracked separately if/when connector probes move in-container.
 
 The credential-health store feeds two paths:
 - **Accept-time validation** — hitting `POST /api/v1/connectors/{slug}/validate-credential` writes the outcome. Subject to the rework banner above.
@@ -91,7 +90,7 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 
 - **`credentials status` returns 404.** No validation row has been recorded for this (connector, secret). For connectors with auth, run the wizard's validate button once to prime the row, or hit `POST /api/v1/connectors/{slug}/validate-credential` directly. For connectors without auth, this state is expected.
 - **Validate-credential returns `Unknown` with "does not require credentials".** The connector's `ValidateCredentialAsync` returns `null` by default. Arxiv and WebSearch are always in this state.
-- **`install` silently "succeeds" but `list` doesn't show the connector.** Confirm the connector package is registered in `src/Cvoya.Spring.Host.Api/Program.cs` (`AddCvoyaSpringConnector<Name>()` call); install writes to the current tenant only.
+- **`install` silently "succeeds" but `list` doesn't show the connector.** Confirm the connector package is registered with the API host at build time; install writes to the current tenant only.
 - **A unit fails to start after the connector was uninstalled.** The unit's per-unit binding row still references the connector; re-install the connector on the tenant, or unbind the unit via `spring connector unit-binding --unit <name>` → the DELETE path clears the binding.
 
 ## Connector-specific setup
@@ -100,10 +99,9 @@ Some connectors require the operator to register an app on the third-party side 
 
 - [GitHub connector auth options](github-connector-auth.md) — choosing between a GitHub App installation and a PAT, what each can do, and the simpler PAT-only path (no App, no OAuth) for contributing to a repo you don't own.
 - [GitHub App setup](github-app-setup.md) — per-deployment GitHub App, webhook URL, App ID / slug / private key, and the `gh webhook forward` local-dev recipe.
-- [Slack app setup](slack-app-setup.md) — per-deployment Slack app, OAuth scopes, redirect URL, event-subscription URL, slash-command URLs, signing secret, and a paste-ready manifest YAML. The OAuth credentials persist via `spring connector slack install` with one of three flags: `--write-env` (default; Tier-1 deployment config), `--write-secrets` (platform scope), or `--write-tenant-secrets` (tenant scope — recommended on a multi-tenant deployment so rotation is per-tenant, per [issue #2849](https://github.com/cvoya-com/spring-voyage/issues/2849)).
+- [Slack app setup](slack-app-setup.md) — per-deployment Slack app, OAuth scopes, redirect URL, event-subscription URL, slash-command URLs, signing secret, and a paste-ready manifest YAML. The OAuth credentials persist via `spring connector slack install` with one of three flags: `--write-env` (default; deployment config), `--write-secrets` (platform scope), or `--write-tenant-secrets` (tenant scope — recommended on a multi-tenant deployment so rotation is per-tenant).
 
 ## See also
 
-- [Model Providers operator guide](model-providers.md) — parallel guide for per-tenant model-provider installs (the LLM-side counterpart to connectors). Per [ADR-0038](../../decisions/0038-agent-runtime-and-model-provider-split.md), agent runtimes themselves are not per-tenant-installed — they are a closed v0.1 set picked at unit/agent create time.
-- [Architecture: Agent Runtime](../../architecture/agent-runtime.md) — the dispatcher, the launcher tiers, and how the runtime catalogue drives runtime selection.
+- [Model Providers operator guide](model-providers.md) — parallel guide for per-tenant model-provider installs.
 - [Per-unit connector binding](../user/units-and-agents.md) — wiring a unit to an installed connector.

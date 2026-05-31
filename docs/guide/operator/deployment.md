@@ -2,11 +2,11 @@
 
 This guide walks an operator from zero to a working single-host Spring Voyage deployment. Kubernetes and multi-region deployments are covered in the Spring Voyage Cloud repository; this guide targets the open-source single-host scenario (workstation, home server, or single server).
 
-For the architectural picture read [Architecture — Deployment](../../architecture/deployment.md) and [Architecture — Components](../../architecture/components.md) first. Operator tasks above provisioning (backups, DataProtection keys, migrations) live in [Developer — Operations](../../developer/operations.md).
+Operator tasks above provisioning (backups, key management, migrations) are covered separately.
 
 Two paths are supported:
 
-1. **Source-free installer (canonical).** Curlable `install.sh` — see [§ Quick install](#quick-install-source-free) below. Recorded in [ADR-0042](../../decisions/0042-local-operator-installer.md).
+1. **Source-free installer (canonical).** Curlable `install.sh` — see [§ Quick install](#quick-install-source-free) below.
 2. **Build from source.** Clone the repo and run `eng/build/build.sh && eng/deploy/deploy.sh up`. Covered in [§ Build from source](#build-from-source) further down.
 
 ## Prerequisites
@@ -176,20 +176,20 @@ curl -fsS http://localhost/health
 | `spring-web` | `localhost/spring-voyage:<tag>` | Next.js portal (port 3000) |
 | `spring-caddy` | `caddy:2` | Reverse proxy + TLS (host `:80`/`:443`); also tenant-to-platform ingress at `:8443` (see below) |
 
-Each .NET host talks to its own daprd sidecar container. See [Architecture — Deployment](../../architecture/deployment.md) for the topology rationale.
+Each .NET host talks to its own daprd sidecar container.
 
 ### Tenant-to-platform ingress
 
 Agent containers and workflow containers run on the `spring-tenant-default` bridge network and must reach the platform's authenticated REST API without crossing onto `spring-net`. Caddy is dual-attached to both networks and exposes a dedicated listener at port 8443 inside the tenant bridge.
 
-Tenant containers call the API at `http://spring-caddy:8443/api/v1/...` — the same authenticated surface external clients use, via the same auth middleware. No special-case routing or direct-infra-access shortcuts are involved (ADR 0028 Decision D).
+Tenant containers call the API at `http://spring-caddy:8443/api/v1/...` — the same authenticated surface external clients use, via the same auth middleware.
 
 ```
 # From inside spring-tenant-default (agent or workflow container):
 curl -H "Authorization: Bearer <token>" http://spring-caddy:8443/api/v1/units
 ```
 
-Port 8443 is not published to the host. It is accessible only from containers on `spring-tenant-default`. Production TLS hardening for this internal path is tracked in [#1375](https://github.com/cvoya-com/spring-voyage/issues/1375).
+Port 8443 is not published to the host. It is accessible only from containers on `spring-tenant-default`.
 
 ## Docker Compose
 
@@ -257,7 +257,7 @@ Components live under `eng/dapr/` in the repo. Two profiles ship in-tree: `eng/d
 
 ### Secrets-backing state store (`secretsstore`)
 
-`eng/dapr/components/production/secretsstore.yaml` is a second `state.postgresql` component dedicated to the OSS application-layer secret store (`DaprStateBackedSecretStore`). It pins `keyPrefix: none` so every host (`spring-api`, `spring-worker`, dispatcher) reads and writes through the same key namespace; the default `statestore` component uses Dapr's standard `keyPrefix: appid`, which silently scoped each secret by sidecar app-id and broke cross-host credential resolution (#2212). The actor / general state store cannot share `keyPrefix: none` because the Dapr actor runtime relies on the per-app prefix to partition actor state — hence the dedicated component.
+`eng/dapr/components/production/secretsstore.yaml` is a second `state.postgresql` component dedicated to the OSS application-layer secret store. It pins `keyPrefix: none` so every host (`spring-api`, `spring-worker`, dispatcher) reads and writes through the same key namespace; the default `statestore` component uses Dapr's standard `keyPrefix: appid`, which silently scoped each secret by sidecar app-id and broke cross-host credential resolution. The actor / general state store cannot share `keyPrefix: none` because the Dapr actor runtime relies on the per-app prefix to partition actor state — hence the dedicated component.
 
 ### Pub/sub (`pubsub`)
 
@@ -287,7 +287,7 @@ A missing `ConnectionStrings__SpringDb` is a hard startup error. `spring.env.exa
 Database__AutoMigrate=false
 ```
 
-See [Developer — Operations § Database Migrations](../../developer/operations.md#database-migrations) for the manual path.
+Manual migrations are available via separate operator documentation.
 
 **External Postgres (RDS, Cloud SQL, etc.):** remove `spring-postgres` from your compose file, update both connection strings, and set `sslmode=require` for a non-local database.
 
@@ -354,7 +354,7 @@ GitHub__WebhookSecret=<shared secret you configured on the GitHub App>
 
 The GitHub variables follow the .NET `Section__Key` convention and bind to the `GitHub:*` configuration section at startup. The short-form aliases `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` are NOT consumed — only the `GitHub__*` form is read by the binder.
 
-> **env-file quirks (#1186).** `spring.env` is read by three layers and each treats values differently:
+> **env-file quirks.** `spring.env` is read by three layers and each treats values differently:
 >
 > 1. `deploy.sh` sources it with `set -a; source spring.env` so bash can expand `${VAR}` references between keys (e.g. inside `ConnectionStrings__SpringDb`). Bash splits unquoted values on whitespace, so any value containing spaces or shell metacharacters — notably the PEM `-----BEGIN RSA PRIVATE KEY-----` line — must be **single-quoted**. Use single quotes (literal in bash) rather than double quotes to avoid `${...}` expansion of fragments that look like variables.
 > 2. `envsubst` expands `${VAR}` references in the file content; everything else passes through verbatim, so the surrounding quotes survive into the resolved file.
@@ -362,12 +362,12 @@ The GitHub variables follow the .NET `Section__Key` convention and bind to the `
 >
 > The connector strips one matching pair of surrounding quotes from `GitHub__PrivateKeyPem` and decodes literal `\n` -> real newline before `RSA.ImportFromPem`, so the single-quoted single-line PEM round-trips through bash + envsubst + podman without breaking parsing. The same trick can NOT rescue a quoted numeric `GitHub__AppId`: `long` binding happens before the connector sees the value, so a quoted numeric id silently binds as `0` and the connector reports `Disabled` with "GitHub App not configured." **Always leave `GitHub__AppId` unquoted.**
 
-> **GitHub App private key — PEM contents, not a path.** `GitHub__PrivateKeyPem` is the **contents** of the `.pem` file: either inlined verbatim, inlined as a single line with `\n` separators, or an absolute container-visible path whose file contents are valid PEM. `~` is **not** expanded by `--env-file`, so a value like `~/secrets/key.pem` reaches the container as the literal string `~/secrets/key.pem` — mount the file at a known absolute path if you want to reference it by path. Passing a path that does not resolve to a valid PEM fails the host at startup with a targeted error rather than waiting to return a 502 from the first `list-installations` call. See [Architecture — Connectors § disabled-with-reason](../../architecture/connectors.md#disabled-with-reason-pattern) for the validation model. If either variable is missing, the GitHub connector boots in a disabled state and `GET /api/v1/connectors/github/actions/list-installations` returns a structured `404` the portal and CLI render as "GitHub App not configured" instead of attempting the JWT sign.
+> **GitHub App private key — PEM contents, not a path.** `GitHub__PrivateKeyPem` is the **contents** of the `.pem` file: either inlined verbatim, inlined as a single line with `\n` separators, or an absolute container-visible path whose file contents are valid PEM. `~` is **not** expanded by `--env-file`, so a value like `~/secrets/key.pem` reaches the container as the literal string `~/secrets/key.pem` — mount the file at a known absolute path if you want to reference it by path. Passing a path that does not resolve to a valid PEM fails the host at startup with a targeted error rather than waiting to return a 502 from the first `list-installations` call. If either variable is missing, the GitHub connector boots in a disabled state and `GET /api/v1/connectors/github/actions/list-installations` returns a structured `404` the portal and CLI render as "GitHub App not configured" instead of attempting the JWT sign.
 
 ### Tier-2 tenant-default credentials — LLM runtime credentials (post-deploy)
 
 **LLM runtime credentials do NOT belong in `spring.env`.** They are tier-2
-tenant-default credentials (issue #615) stored in the secret registry so
+tenant-default credentials stored in the secret registry so
 they can be rotated without a restart, scoped per-unit, and audited.
 There is no env-variable fallback — if no tenant or unit secret is
 configured the platform surfaces a fail-clean "no LLM credentials
@@ -403,7 +403,7 @@ For local development against a laptop, use `eng/deploy/relay.sh` to open an SSH
 
 ### Cloud-grade secret stores
 
-For Azure Key Vault, HashiCorp Vault, AWS Secrets Manager, or Kubernetes Secrets, replace `eng/dapr/components/production/secretstore.yaml` with the corresponding Dapr component. Leave the component name `secretstore` — the other components reference the store by name so they continue to work unchanged. See [Developer — Secret store](../../developer/secret-store.md) for per-agent / per-unit secret scoping details.
+For Azure Key Vault, HashiCorp Vault, AWS Secrets Manager, or Kubernetes Secrets, replace `eng/dapr/components/production/secretstore.yaml` with the corresponding Dapr component. Leave the component name `secretstore` — the other components reference the store by name so they continue to work unchanged.
 
 ## Health checks
 
@@ -453,7 +453,7 @@ docker compose --env-file ../config/spring.env up -d
 
 **Before:** `pg_dump` the database and back up the `spring-dataprotection-keys` volume — it holds the key ring for auth cookies and OAuth tokens. **Never `docker volume rm spring-dataprotection-keys`** during an update.
 
-**After:** confirm `/health`, tail `spring-worker` logs for migration lines, run the smoke test above. Roll back by checking out the previous tag and re-running `up -d`. See [Developer — Operations § DataProtection](../../developer/operations.md#dataprotection-keys).
+**After:** confirm `/health`, tail `spring-worker` logs for migration lines, run the smoke test above. Roll back by checking out the previous tag and re-running `up -d`.
 
 ## Troubleshooting
 
@@ -463,7 +463,7 @@ docker compose --env-file ../config/spring.env up -d
 
 ### `spring-worker` logs `42P07: relation "..." already exists`
 
-Two instances are trying to run EF migrations against the same database. The OSS topology runs migrations only on `spring-worker`; confirm `Database__AutoMigrate=false` is set anywhere else and that you only ever run one Worker replica against a given database. Details in [Developer — Operations § Multi-replica deployments](../../developer/operations.md#multi-replica-deployments).
+Two instances are trying to run migrations against the same database. The topology runs migrations only on `spring-worker`; confirm `Database__AutoMigrate=false` is set anywhere else and that you only ever run one Worker replica against a given database.
 
 ### Dapr sidecar crashes with `components path not found`
 
@@ -512,12 +512,6 @@ If agents still cannot reach the host, confirm the per-user bridge network exist
 
 ## Related documentation
 
-- [Architecture — Deployment](../../architecture/deployment.md) — agent hosting modes, persistent agent lifecycle, solution structure.
-- [Architecture — Components](../../architecture/components.md) — Dapr building blocks, actors, infrastructure dependencies.
-- [Developer — Setup](../../developer/setup.md) — local dev loop without containers (`dapr run` + `dotnet run`).
-- [Developer — Operations](../../developer/operations.md) — migrations, DataProtection keys, backups.
-- [Developer — Secret store](../../developer/secret-store.md) — per-agent / per-unit secret scoping and rotation.
 - [`eng/install/README.md`](../../../eng/install/README.md) — installer/uninstaller details and troubleshooting.
 - [`eng/deploy/README.md`](../../../eng/deploy/README.md) — the build/deploy script reference, per-user agent networks, webhook relay.
 - [`eng/dapr/README.md`](../../../eng/dapr/README.md) — Dapr component and configuration reference.
-- [ADR-0042 — Local-host operator installer](../../decisions/0042-local-operator-installer.md) — design decisions behind `install.sh`/`uninstall.sh`.

@@ -4,11 +4,11 @@ Spring Voyage is an open-source collaboration platform for teams of AI agents --
 
 Autonomous AI agents -- organized into composable groups called **units** -- collaborate with each other and with humans on any domain: software engineering, product management, creative work, research, operations, and more.
 
-This document series describes the core concepts and abstractions that make up the Spring Voyage model. No code is shown here -- these documents focus on *what* the system is, not *how* it is built. For system design see [`docs/architecture/`](../architecture/README.md); for the "why" behind each major choice see the [ADRs](../decisions/README.md).
+This document series describes the core concepts and abstractions that make up the Spring Voyage model. No code is shown here -- these documents focus on *what* the system is, not *how* it is built.
 
 ## What the platform does, and does not, do
 
-**A unit IS an agent that has children.** Composition is recursive: a unit appears to its parent as a single agent. The platform **delivers messages; it does not orchestrate.** When a message reaches a unit, the unit's own runtime runs and decides whether to answer directly, hand work to a member, or fan it out — that decision lives in the runtime, not in platform configuration. There is no "orchestration strategy" the platform configures ([ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)).
+**A unit IS an agent that has children.** Composition is recursive: a unit appears to its parent as a single agent. The platform **delivers messages; it does not orchestrate.** When a message reaches a unit, the unit's own runtime runs and decides whether to answer directly, hand work to a member, or fan it out — that decision lives in the runtime, not in platform configuration.
 
 Routing work is only one slice of what happens inside a unit. Spring Voyage's bet is that **collaboration** between humans and agents is the bigger, still-under-explored category:
 

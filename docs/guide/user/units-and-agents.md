@@ -20,7 +20,7 @@ creation; add member agents, connectors, and policies incrementally.
 spring package install <package-name> [--input key=value ...]
 ```
 
-This installs all artefacts in the package atomically via `POST /api/v1/packages/install`. If any step fails, the whole install rolls back. The portal equivalent is the **From catalog** source on the `/units/create` wizard. Declarative YAML is shipped as a package and installed this way — there is no `spring apply` verb (see [ADR-0035](../../decisions/0035-package-as-bundling-unit.md)).
+This installs all artefacts in the package atomically. If any step fails, the whole install rolls back. The portal equivalent is the **From catalog** source on the `/units/create` wizard. Declarative YAML is shipped as a package and installed this way — there is no `spring apply` verb.
 
 ### Listing Units
 
@@ -68,7 +68,7 @@ Pass a YAML fragment instead of flags: `spring unit policy skill set eng-team -f
 
 ### Execution defaults
 
-Units and agents share an `execution:` block — `image`, the agent `runtime`, and a structured `model` (`{provider, id}`). The unit block is the default inherited by member agents; agents add `hosting`. See [Units & agents — Execution config inheritance](../../architecture/units-and-agents.md#execution-config-inheritance) for the resolution chain.
+Units and agents share an `execution:` block — `image`, the agent `runtime`, and a structured `model` (`{provider, id}`). The unit block is the default inherited by member agents; agents add `hosting`. Units inherit from the tenant, agents inherit from their unit.
 
 ```bash
 spring unit execution get   <unit>
@@ -144,12 +144,9 @@ Skills are authored capabilities shipped inside packages (artefacts with
 `kind: Skill`). Each skill carries a markdown prompt fragment plus an
 optional `<name>.tools.json` declaration of the tools its prose expects
 to invoke. Equipping a skill on a subject *concatenates that fragment*
-into the assembled prompt: equipped on a **unit**, the body lands in
-Layer 2 (unit context) and is visible to every member agent; equipped on
-an **agent**, it lands in Layer 4 (agent instructions) and is private to
-that agent. See [Units & agents — Prompt assembly](../../architecture/units-and-agents.md#prompt-assembly)
-for the four-layer model and `docs/concepts/skills.md` for the package
-authoring shape.
+into the assembled prompt: equipped on a **unit**, the body is visible to
+every member agent; equipped on an **agent**, it is private to that agent.
+See [Concepts: Skills](../../concepts/skills.md) for the package authoring shape.
 
 Addressing is always `<package>/<skill>`. No version pinning — operators
 who reinstall the package with new content pick up the new body on the
@@ -268,9 +265,9 @@ A denied request returns HTTP 403 with a `deniedDimension` field naming the rule
 
 ## How an agent's container is launched
 
-Every agent (ephemeral or persistent) goes through the same dispatch path: the dispatcher resolves the agent definition, calls `IAgentRuntimeLauncher.PrepareAsync` for an `AgentLaunchSpec`, starts a container, polls `GET /.well-known/agent.json` on the A2A endpoint (default port `8999`), and sends the turn over A2A. After the turn: ephemeral containers are torn down; persistent ones remain registered. See [ADR 0025](../../decisions/0025-unified-agent-launch-contract.md) and [Architecture — Agent runtime](../../architecture/agent-runtime.md).
+Every agent (ephemeral or persistent) goes through the same dispatch path: the dispatcher resolves the agent definition, starts a container, waits for it to come online, and sends the turn. After the turn: ephemeral containers are torn down; persistent ones remain registered.
 
-Every agent image must satisfy the **BYOI conformance contract** ([ADR 0027](../../decisions/0027-agent-image-conformance-contract.md)):
+Every agent image must satisfy the **BYOI conformance contract**:
 
 1. Expose A2A 0.3.x at `http://0.0.0.0:8999/`.
 2. Serve an Agent Card at `GET /.well-known/agent.json` with `protocolVersion: "0.3"`.
@@ -312,7 +309,7 @@ spring agent delete   <id>   # removes agent record; does NOT stop a running con
 - **deploy** is idempotent; redeploying a healthy agent is a no-op. `--image` overrides for this deployment only — useful for smoke-testing without changing the YAML.
 - **undeploy** stops the container and drops the registry entry; the agent record and history survive.
 - **delete** removes the directory record — call `undeploy` first to avoid a dangling container.
-- **scale** supports `--replicas 0` (undeploy) and `--replicas 1` (deploy) today. Values above 1 return a clear error until horizontal scale lands ([#362](https://github.com/cvoya-com/spring-voyage/issues/362)).
+- **scale** supports `--replicas 0` (undeploy) and `--replicas 1` (deploy) today. Values above 1 return a clear error.
 - **logs** prints stdout+stderr tail (default 200 lines). Agent must be deployed.
 - **status** shows directory info plus container state, health, and id for persistent agents. Use `--output json` for the full deployment block.
 
@@ -321,10 +318,10 @@ spring agent delete   <id>   # removes agent record; does NOT stop a running con
 Every unit and every agent has an **effective tool set** — the flat list of tools its runtime sees at dispatch. The portal surfaces it on the subject's **Config → Tools** sub-tab, split into three sections:
 
 - **Platform** (collapsed) — every `sv.*` tool the runtime ships with. Implicit for every subject; no operator action grants or revokes it.
-- **Connectors** — one group per bound connector that registers tools. Binding a connector to a unit auto-grants the whole namespace (`arxiv.*`, `websearch.*`, …) to that unit and to every agent in it; an inherited-from-unit badge appears on an agent's view when the grant flowed in from a parent unit. The GitHub connector binds the unit and ships container-side credentials but registers **no** `github.*` tools — agents use the in-container `gh` / `git` CLIs instead (see [Tools](../../concepts/tools.md)).
-- **Image** — the tools the agent's container image declared at `GET /a2a/tools`. Read-only and 1:1 with the running image.
+- **Connectors** — one group per bound connector that registers tools. Binding a connector to a unit auto-grants the whole namespace (`arxiv.*`, `websearch.*`, …) to that unit and to every agent in it; an inherited-from-unit badge appears on an agent's view when the grant flowed in from a parent unit. The GitHub connector binds the unit and ships container-side credentials but registers **no** `github.*` tools — agents use the in-container `gh` / `git` CLIs instead.
+- **Image** — the tools the agent's container image declared on startup. Read-only and 1:1 with the running image.
 
-The same array is available on the `effectiveTools` field of every `AgentResponse` / `UnitResponse`. See [Tools](../../concepts/tools.md) for the model, the precedence rules, and how each tier reaches the subject.
+The same array is available on every agent and unit response payload.
 
 ## Connector Management
 

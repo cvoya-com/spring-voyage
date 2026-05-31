@@ -23,19 +23,13 @@ The canonical names supersede the earlier ad-hoc shapes that mixed slash and und
 
 The first dotted segment is the namespace. `sv.*` belongs to the platform; connector-provided namespaces match the connector's slug (`arxiv.*`, `websearch.*`); container-image-provided namespaces are chosen by the agent author.
 
-Every platform MCP tool follows the finer-grained `sv.<area>.<verb>` taxonomy — `sv.` plus an area (`directory`, `memory`, `messaging`, `runtime`, `expertise`) plus a verb. See [Architecture: Messaging](../architecture/messaging.md#the-platform-mcp-tool-surface) for the full catalogue and [ADR-0054](../decisions/0054-one-mcp-server-one-execution-host.md) for the taxonomy decision.
+Every platform MCP tool follows the `sv.<area>.<verb>` taxonomy — `sv.` plus an area (`directory`, `memory`, `messaging`, `runtime`, `expertise`) plus a verb.
 
 > **No `github.*` platform tools.** The GitHub connector ships only the
-> binding lifecycle, webhook ingestion, App-auth, and per-launch runtime-context
-> contribution (#2380); it does **not** register an `ISkillRegistry`. Agents
+> binding lifecycle, webhook ingestion, and App-auth. Agents
 > bound to a unit with a GitHub binding receive the
-> `SPRING_CONNECTOR_GITHUB_*` env vars + the
-> `.spring/connectors/github/binding.json` context file inside their workspace
-> (under the `.spring/` namespace per ADR-0058) and use the in-container
-> `gh` and `git` CLIs for all GitHub workloads. Issues
-> [#2384](https://github.com/cvoya-com/spring-voyage/issues/2384) and
-> [#2383](https://github.com/cvoya-com/spring-voyage/issues/2383) record the
-> v0.1 decision.
+> `SPRING_CONNECTOR_GITHUB_*` env vars + the context file inside their workspace
+> and use the in-container `gh` and `git` CLIs for all GitHub workloads.
 
 ## The three tiers
 
@@ -63,7 +57,7 @@ The same data is available over HTTP on every `AgentResponse` / `UnitResponse` v
 
 **Platform tools** are part of the runtime. The platform's skill registries (the directory, memory, messaging, runtime, and expertise registries) declare the `sv.<area>.<verb>` tools they own, and the resolver surfaces them on every subject without writing a row anywhere. There is no operator action that grants or revokes a platform tool; the only way to drop one is to ship a runtime that does not register it.
 
-**Connector tools** ship with the connector package itself. A connector declares a `ToolNamespace` (defaulting to its slug) and registers its tool surface through the same `ISkillRegistry` seam every other registry uses. When an operator binds the connector to a unit, the binding write path auto-grants every `<ToolNamespace>.*` tool to that unit; unbinding revokes them; re-binding swaps cleanly. Authoring details live in the [connector developer guide](../guide/developer/connectors.md).
+**Connector tools** ship with the connector package itself. A connector declares a `ToolNamespace` (defaulting to its slug) and registers its tool surface through the same registration seam every other tool provider uses. When an operator binds the connector to a unit, the binding write path auto-grants every `<ToolNamespace>.*` tool to that unit; unbinding revokes them; re-binding swaps cleanly. Authoring details live in the [connector developer guide](../guide/developer/connectors.md).
 
 **Image tools** belong to the agent's container image. An agent built on the SDK uses `IToolRegistry.Register` to declare its tools in-process and `app.MapToolsEndpoint(registry)` to expose them at `GET /a2a/tools` on the same listener that already serves A2A. CLI-wrapped agents that go through the sidecar bake the tool manifest into the image at the path named by `SPRING_TOOLS_MANIFEST`. Either way, the platform's introspector calls `/a2a/tools` at deploy time and on image rotation; the result lands on the `image_tools` column of the subject's definition and feeds the resolver. The [agent-tools developer guide](../guide/developer/agent-tools.md) covers the authoring flow.
 
@@ -71,7 +65,7 @@ The same data is available over HTTP on every `AgentResponse` / `UnitResponse` v
 
 The grant model is **namespace-level**. Binding a connector grants every tool under its namespace; the `sv.*` namespace is granted implicitly on every subject; an image's declared tools are surfaced 1:1 for the subject running it. There is no per-tool toggle — an operator either has a namespace or does not.
 
-The resolver records provenance per tool and applies a defined precedence (`explicit > connector > platform > image`), so per-tool deny within a granted namespace can be layered in without changing the shape. An agent that needs a tighter surface than "the whole namespace" is granted a narrower namespace from a more focused connector or image.
+The resolver records provenance per tool with defined precedence (`explicit > connector > platform > image`). An agent that needs a tighter surface than "the whole namespace" is granted a narrower namespace from a more focused connector or image.
 
 ## See also
 
@@ -79,5 +73,3 @@ The resolver records provenance per tool and applies a defined precedence (`expl
 - [Connectors](connectors.md) — what a connector is and how it bridges an external system into a unit.
 - [Connector developer guide](../guide/developer/connectors.md) — authoring a connector that ships tools.
 - [Agent tools developer guide](../guide/developer/agent-tools.md) — registering custom tools from an agent image via the SDK.
-- [ADR-0040 — Actor state ownership matrix](../decisions/0040-actor-state-ownership-matrix.md) — the EF-authoritative shape that backs `agent_tool_grants` / `unit_tool_grants`.
-- [ADR-0043 — Recursive package format](../decisions/0043-recursive-package-format.md) — how a package ships skills (and the tools they carry) inside a unit or agent folder.

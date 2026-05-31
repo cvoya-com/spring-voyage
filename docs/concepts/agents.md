@@ -9,16 +9,8 @@ needs reasoning is ultimately delivered to an agent-shaped runtime invocation.
 A **unit** is an agent that has children. A **leaf agent** is an agent with no
 children. The dispatch path is the same for both, and both runtimes receive the
 same platform MCP tools — the child list does not gate the tool surface. See [Units](units.md) for the
-unit-specific layer, [Units vs agents](units-vs-agents.md) for the quick
-reference on what features apply to both vs only one,
-[ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md) for the
-unit-as-agent and one-way-delivery decision,
-[ADR-0038](../decisions/0038-agent-runtime-and-model-provider-split.md)
-for the runtime/model config split,
-[ADR-0046](../decisions/0046-unified-members-grammar.md) for the unified
-package-YAML `members:` grammar that declares agents alongside sub-units and
-humans, and [Agent runtime](../architecture/agent-runtime.md) for launcher
-details.
+unit-specific layer and [Units vs agents](units-vs-agents.md) for the quick
+reference on what features apply to both vs only one.
 
 ## Mailbox
 
@@ -47,13 +39,12 @@ agent values override inherited values per field.
 
 At dispatch time the platform resolves the effective execution config,
 assembles the prompt, resolves credentials, mints a per-turn MCP session token,
-and launches the selected runtime through `IAgentRuntimeLauncher`.
+and launches the selected runtime.
 
 The launcher owns runtime-specific setup: workspace files, environment
 variables, MCP wiring, and native tool attachment. The runtime then answers the
 message directly or delivers a message to another addressable target to
-coordinate work. See [Agent runtime](../architecture/agent-runtime.md) for the
-launch path.
+coordinate work.
 
 ## Leaf agent vs. unit
 
@@ -66,8 +57,7 @@ deliver work to a member.
 ## Platform MCP tools
 
 A runtime reaches the platform through one MCP server, with tools named
-`sv.<area>.<verb>` ([ADR-0054](../decisions/0054-one-mcp-server-one-execution-host.md)).
-The message-delivery surface is exactly two tools:
+`sv.<area>.<verb>`. The message-delivery surface is exactly two tools:
 
 | Tool | Description |
 | --- | --- |
@@ -78,10 +68,9 @@ Both tools take the same input shape — either an explicit `recipients` list or
 a relationship `scope` (`unit-members`, `siblings`) — and differ in thread
 identity, not input shape. The calling participant is auto-included in every
 participant set; the runtime does not list itself in `recipients`. The runtime
-never names a `thread_id` — the platform derives it from the participant set
-([ADR-0030](../decisions/0030-thread-model.md)). Connectors (`connector://`)
+never names a `thread_id` — the platform derives it from the participant set. Connectors
 can stamp inbound messages as the sender but cannot receive: passing a
-connector address as a recipient returns an `UnroutableTarget` error.
+connector address as a recipient returns an error.
 
 The platform delivers messages; it does not orchestrate. There is no
 `delegate_to` / `fanout_to` tool — "delegation" is message *content* the
@@ -91,14 +80,11 @@ delegates by sending a message via `sv.messaging.send` whose content says so.
 Discovery, inspection, memory, and runtime-status sit on the other areas —
 `sv.directory.*` (`list_members`, `get_member`, `get_status`, `get_siblings`,
 `get_parents`, `get_self`), `sv.memory.*` (private memory plus the
-participant-set shared timeline tools `history_with`, `engagements`,
-`search_messages` per [#2747](https://github.com/cvoya-com/spring-voyage/issues/2747)),
-`sv.expertise.*`, and `sv.runtime.*`.
+participant-set shared timeline tools), `sv.expertise.*`, and `sv.runtime.*`.
 Recording a routing decision on the activity stream is an optional, explicit
 `sv.runtime.report_decision` call; a plain `sv.messaging.*` delivery records a
 `MessageSent` activity and nothing more. The full catalogue is in
-[Architecture: Messaging](../architecture/messaging.md#the-platform-mcp-tool-surface)
-and [Tools](tools.md).
+[Tools](tools.md).
 
 The launcher attaches the platform MCP surface unconditionally for every
 `agent:` and `unit:` runtime; membership is not a gate. Unit operators and

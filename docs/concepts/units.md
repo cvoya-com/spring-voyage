@@ -5,8 +5,7 @@
 A **unit** is an [agent](agents.md) that owns children. Composition is
 recursive: a unit appears to its parent as a single agent. When a message
 reaches a unit, the unit's **own runtime runs** and decides whether to answer
-directly or hand work to a member — there is no separate orchestration layer
-([ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)).
+directly or hand work to a member — there is no separate orchestration layer.
 
 This page covers only the unit-specific layer. Shared concepts such as mailbox
 intake, execution config, runtime invocation, inheritance, and the platform
@@ -17,8 +16,7 @@ applies to both unit and leaf agent vs only one, see
 ## Children
 
 Units compose leaf agents, sub-units, and human team members. All three are
-declared on the unit's `members:` list with the unified [ADR-0046](../decisions/0046-unified-members-grammar.md)
-grammar — `- agent:`, `- unit:`, or `- human:`:
+declared on the unit's `members:` list with the unified grammar — `- agent:`, `- unit:`, or `- human:`:
 
 ```yaml
 members:
@@ -34,18 +32,13 @@ After install, the membership graph is editable through the API surface:
 
 - Member agents are assigned through `POST /api/v1/tenant/units/{id}/agents/{agentId}`.
 - Sub-units are added through `PUT /api/v1/tenant/units/{unitId}/memberships/{agentAddress}`.
-- Human team members are added through the unit-membership endpoints introduced
-  alongside [ADR-0046](../decisions/0046-unified-members-grammar.md); the
-  `unit_memberships_humans` row carries `roles`, `expertise`, and `notifications`
-  jsonb columns keyed by `(tenant, unit, human)`.
+- Human team members are added through the unit-membership endpoints.
 
 Agent and unit membership rows carry the same multi-valued `roles` /
-`expertise` jsonb columns ([ADR-0046 §8](../decisions/0046-unified-members-grammar.md));
-the fields are runtime metadata surfaced through the `sv.directory.list_members`
+`expertise` fields; these are runtime metadata surfaced through the `sv.directory.list_members`
 directory tool, not platform-decision inputs.
 
-The full member list is exposed to the runtime through `sv.directory.list_members`
-(see [`SvDirectorySkillRegistry`](../../src/Cvoya.Spring.Dapr/Skills/SvDirectorySkillRegistry.cs)).
+The full member list is exposed to the runtime through `sv.directory.list_members`.
 
 ## Permissions
 
@@ -56,9 +49,7 @@ govern what outside callers can see and which issues or work the unit is
 eligible to receive.
 
 Human *team-role* membership (declared on the package YAML's `members:` block)
-is orthogonal to *platform-role* permissions
-([ADR-0044 §1](../decisions/0044-team-role-vs-platform-role.md), preserved
-unchanged by [ADR-0046](../decisions/0046-unified-members-grammar.md)). A
+is orthogonal to *platform-role* permissions. A
 declaration on `members:` does not grant any platform authority; ACL grants
 stay on `unit_human_permissions` and are managed through the existing
 `/api/v1/tenant/units/{id}/humans/{humanId}/permissions` surface. See

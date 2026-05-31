@@ -74,7 +74,7 @@ Opt in with `./run.sh --llm` (or `--all`). Each of these self-skips cleanly when
 |----------|----------------------|
 | [`messaging/message-human-to-agent.sh`](../../../tests/e2e/cli/scenarios/messaging/message-human-to-agent.sh) | Human-to-agent round-trip — create unit + agent + membership, then `spring message send agent:<id>` with a thread id. Asserts the send succeeds and a `messageId` is returned. |
 | [`policy/policy-block-at-turn-time.sh`](../../../tests/e2e/cli/scenarios/policy/policy-block-at-turn-time.sh) | Policy enforcement at turn time — dispatches a message that would otherwise exercise a blocked tool, proving the server doesn't 5xx when a policy denies the action server-side. |
-| [`agents/spring-voyage-agent-turn.sh`](../../../tests/e2e/cli/scenarios/agents/spring-voyage-agent-turn.sh) | Spring Voyage Agent via A2A — creates an agent with `--runtime spring-voyage`, dispatches a turn, and confirms the `SpringVoyageAgentLauncher` + native A2A Spring Voyage Agent container can receive a task and return a response. |
+| [`agents/spring-voyage-agent-turn.sh`](../../../tests/e2e/cli/scenarios/agents/spring-voyage-agent-turn.sh) | Spring Voyage Agent via A2A — creates an agent with `--runtime spring-voyage`, dispatches a turn, and confirms the Spring Voyage agent launcher and native A2A container can receive a task and return a response. |
 
 ## Running a single scenario
 

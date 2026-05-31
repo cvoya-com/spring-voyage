@@ -9,13 +9,13 @@ This mirrors the [GitHub App setup](github-app-setup.md) model and the same trad
 - A leaked signing secret in one deployment cannot affect any other deployment.
 - The redirect URL, event URL, and slash-command URLs all point at the operator's deployment — no fragile redirect dance through a Spring-Voyage-controlled domain.
 
-Per [ADR-0061](../../decisions/0061-slack-connector-oss-shape.md) §1, the Slack binding is **tenant-scoped**: one Slack workspace per SV tenant, one bot identity per binding. OSS v0.1 is **single-bound-user, DM-only** (§§ 2.1, 2.2): the bound user is the OAuth installer, the bot operates only in its DM with that user, and the bot auto-leaves any channel it is invited to. **Slack Enterprise Grid installs are refused at install time** (§ 2.3) — register the app against a standard workspace.
+The Slack binding is **tenant-scoped**: one Slack workspace per SV tenant, one bot identity per binding. OSS v0.1 is **single-bound-user, DM-only**: the bound user is the OAuth installer, the bot operates only in its DM with that user, and the bot auto-leaves any channel it is invited to. **Slack Enterprise Grid installs are refused at install time** — register the app against a standard workspace.
 
-> **Prefer the browser?** The Spring Voyage portal ships a one-page install wizard at **Settings → Slack workspace → Install in Slack workspace** (`/connectors/slack/install`). Paste a Configuration Token (see [Generating the Configuration Token](#generating-the-configuration-token)), optionally tweak the app name / host / Socket Mode, click **Install in Slack**, and consent in the popup — no terminal, no `spring` CLI ([#2882](https://github.com/cvoya-com/spring-voyage/issues/2882)). It drives the same Slack [App Manifest API](https://api.slack.com/reference/manifests) as Path A and persists the credentials as **tenant-scoped** secrets, so the connector resolves them per call with no restart. The CLI paths below remain the right choice for headless / CI / air-gapped installs. Socket Mode local-dev still needs the manual app-level-token + `spring connector slack forward` step (see [Local-dev recipe](#local-dev-recipe)).
+> **Prefer the browser?** The Spring Voyage portal ships a one-page install wizard at **Settings → Slack workspace → Install in Slack workspace** (`/connectors/slack/install`). Paste a Configuration Token (see [Generating the Configuration Token](#generating-the-configuration-token)), optionally tweak the app name / host / Socket Mode, click **Install in Slack**, and consent in the popup — no terminal, no `spring` CLI. It drives the same Slack [App Manifest API](https://api.slack.com/reference/manifests) as Path A and persists the credentials as **tenant-scoped** secrets, so the connector resolves them per call with no restart. The CLI paths below remain the right choice for headless / CI / air-gapped installs. Socket Mode local-dev still needs the manual app-level-token + `spring connector slack forward` step (see [Local-dev recipe](#local-dev-recipe)).
 
 ## Document map
 
-- [Path A — `spring connector slack install` (recommended)](#path-a--spring-connector-slack-install-recommended) — one CLI verb that builds the manifest, drives Slack's [App Manifest API](https://api.slack.com/reference/manifests), captures the Client ID / Client Secret / Signing Secret, and writes them to one of three persistence targets: `eng/config/spring.env`, platform-scoped secrets, or **tenant-scoped secrets** ([issue #2849](https://github.com/cvoya-com/spring-voyage/issues/2849)). Replaces ~15 minutes of clicking through api.slack.com with a single command.
+- [Path A — `spring connector slack install` (recommended)](#path-a--spring-connector-slack-install-recommended) — one CLI verb that builds the manifest, drives Slack's [App Manifest API](https://api.slack.com/reference/manifests), captures the Client ID / Client Secret / Signing Secret, and writes them to one of three persistence targets: `eng/config/spring.env`, platform-scoped secrets, or **tenant-scoped secrets**. Replaces ~15 minutes of clicking through api.slack.com with a single command.
 - [Path B — Create from manifest (web UI)](#path-b--create-from-manifest-web-ui) — paste a YAML blob into Slack's "Create an app from a manifest" form. Useful when you can't run the CLI on the same host as `eng/config/spring.env`, or you want to inspect the manifest before submitting it.
 - [Path C — Manual registration](#path-c--manual-registration) — point-and-click on api.slack.com if you want to inspect every field Slack asks for.
 - [Required values](#required-values) — the four `Slack__OAuth__*` env vars every deployment ends up with, regardless of which path you took.
@@ -43,13 +43,13 @@ SV_SLACK_CONFIG_TOKEN=xoxe.xoxp-1-… \
 
 The verb:
 
-1. Builds a manifest scoped to **your** deployment URLs (redirect, events, interactions, slash-commands), embedding the exact bot-scope set from ADR-0061 § 6.
+1. Builds a manifest scoped to **your** deployment URLs (redirect, events, interactions, slash-commands).
 2. POSTs the manifest to Slack's `apps.manifest.validate` endpoint to surface scope / URL typos before any state is created.
 3. POSTs it to `apps.manifest.create`, which creates the app inside your workspace and returns `app_id`, `client_id`, `client_secret`, `signing_secret`, and `verification_token` in one shot.
 4. Writes `Slack__OAuth__ClientId`, `Slack__OAuth__ClientSecret`, `Slack__OAuth__SigningSecret`, and `Slack__OAuth__RedirectUri` to `eng/config/spring.env`. Three persistence flags are available — pick the one that matches how you want to rotate / audit the credentials:
    - `--write-env` (default) — appends the four values to `eng/config/spring.env` as Tier-1 deployment config. Restart the platform to pick up the new keys.
    - `--write-secrets` — persists the same values as **platform-scoped** secrets via the registry. Atomic — any failure rolls back every secret already written. No restart required.
-   - `--write-tenant-secrets` — persists the same values as **tenant-scoped** secrets via the registry. The runtime resolves credentials through the chain tenant-secret → platform-secret → env-config ([issue #2849](https://github.com/cvoya-com/spring-voyage/issues/2849)), so tenant-scoped writes win over either of the lower tiers. Atomic — same rollback contract as `--write-secrets`. No restart required.
+   - `--write-tenant-secrets` — persists the same values as **tenant-scoped** secrets via the registry. The runtime resolves credentials through the chain tenant-secret → platform-secret → env-config, so tenant-scoped writes win over either of the lower tiers. Atomic — same rollback contract as `--write-secrets`. No restart required.
 5. Prints the OAuth install URL the operator's browser visits next.
 
 Restart the platform after the file changes when you used `--write-env` (`./deploy.sh restart` for Podman, `docker compose --env-file ../config/spring.env up -d` from `eng/deploy/` for Compose) so the connector picks up the new env keys. With `--write-secrets` or `--write-tenant-secrets` no restart is needed — the runtime resolves credentials per call from the secret registry. Then drive the install from the SV portal — see [step 4 of Path B](#4-after-populating-springenv-install-the-app-to-your-workspace) for the portal-side flow (the same one applies regardless of which path created the app).
@@ -181,7 +181,7 @@ Under **Features → App Home**:
 
 - Tick **Always Show My Bot as Online**.
 - Set the bot's display name to `Spring Voyage` (or your preferred branding — this is what appears in users' DM sidebars and in `chat.postMessage` posts when the persona override is not applied).
-- Under **Show Tabs**, toggle the **Messages Tab** **on** and tick **Allow users to send Slash commands and messages from the messages tab**. Without this Slack defaults the tab off, the bound user sees _"Sending messages to this app has been turned off"_, and cannot DM the bot — which breaks the DM-only premise of [ADR-0061 § 2.2](../../decisions/0061-slack-connector-oss-shape.md). Leave the **Home Tab** off; the v0.1 connector ships no Home view.
+- Under **Show Tabs**, toggle the **Messages Tab** **on** and tick **Allow users to send Slash commands and messages from the messages tab**. Without this Slack defaults the tab off, the bound user sees _"Sending messages to this app has been turned off"_, and cannot DM the bot — which breaks the DM-only operation. Leave the **Home Tab** off; the v0.1 connector ships no Home view.
 
 ### 3. Configure OAuth + redirect URL
 
@@ -194,18 +194,18 @@ Under **OAuth & Permissions → Scopes → Bot Token Scopes**, add exactly these
 
 | Scope | Why |
 |-------|-----|
-| `chat:write` | Bot posts in DMs (ADR-0061 § 3, § 6). |
-| `chat:write.customize` | Persona overrides (`username`, `icon_url`) for SV participants other than the bound user (ADR-0061 § 3). |
-| `im:history` | Read DM messages from the bound user (ADR-0061 § 2.2). |
+| `chat:write` | Bot posts in DMs. |
+| `chat:write.customize` | Persona overrides (`username`, `icon_url`) for SV participants other than the bound user. |
+| `im:history` | Read DM messages from the bound user. |
 | `im:write` | Open / write DMs. |
 | `im:read` | DM metadata (member list confirmation). |
 | `users:read` | Resolve `user_id` → display name for the binding. |
 | `users:read.email` | Map the OAuth installer to an SV `TenantUser` by email (optional; pasteable fallback). |
 | `commands` | Slash commands (`/sv-thread`, `/sv-threads`, `/sv-help`). |
-| `channels:read` | Receive `member_joined_channel` so the bot can auto-leave public channels (ADR-0061 § 2.2). |
+| `channels:read` | Receive `member_joined_channel` so the bot can auto-leave public channels. |
 | `groups:read` | Same, for private channels. |
 
-Do **not** add `channels:history`, `groups:history`, `mpim:*`, `app_mentions:read`, or any `team:*` scope. Per ADR-0061 § 6 they are intentionally excluded from v0.1 — adding them widens the bot's reach beyond DM operation without enabling any feature the connector exercises.
+Do **not** add `channels:history`, `groups:history`, `mpim:*`, `app_mentions:read`, or any `team:*` scope. They are intentionally excluded from v0.1 — adding them widens the bot's reach beyond DM operation without enabling any feature the connector exercises.
 
 ### 4. Configure event subscriptions
 
@@ -214,8 +214,8 @@ Under **Features → Event Subscriptions**:
 - Toggle **Enable Events** on.
 - Set **Request URL** to `https://<your-host>/api/v1/tenant/connectors/slack/events`. Slack issues a one-time `url_verification` challenge against this URL; the connector signs every response with the workspace's signing secret, so the URL only goes green **after** you populate `Slack__OAuth__SigningSecret` in `spring.env` and restart the platform. If you are configuring the app for the first time, expect the green checkmark to appear after you complete [Required values](#required-values) and re-save this page.
 - Under **Subscribe to bot events**, add exactly:
-  - `message.im` — DM messages from the bound user (drives inbound routing per ADR-0061 § 3).
-  - `member_joined_channel` — fires when the bot is invited to any channel, so the connector can post the leave message and call `conversations.leave` per ADR-0061 § 2.2.
+  - `message.im` — DM messages from the bound user (drives inbound routing).
+  - `member_joined_channel` — fires when the bot is invited to any channel, so the connector can post the leave message and auto-leave.
 
 Leave every other event unticked.
 
@@ -224,7 +224,7 @@ Leave every other event unticked.
 Under **Features → Interactivity & Shortcuts**:
 
 - Toggle **Interactivity** on.
-- Set **Request URL** to `https://<your-host>/api/v1/tenant/connectors/slack/interactions`. This is the endpoint Slack hits when the user submits the `/sv-thread` modal (ADR-0061 § 5).
+- Set **Request URL** to `https://<your-host>/api/v1/tenant/connectors/slack/interactions`. This is the endpoint Slack hits when the user submits the `/sv-thread` modal.
 
 ### 6. Configure slash commands
 
@@ -250,7 +250,7 @@ Continue to [Required values](#required-values).
 
 ## Required values
 
-Whichever path you took, the deployment ends up with these four values populated — either in `eng/config/spring.env`, in the platform secret store (`--write-secrets`), or in the tenant secret store (`--write-tenant-secrets`, [issue #2849](https://github.com/cvoya-com/spring-voyage/issues/2849)). The runtime resolves each field per call through the chain tenant-secret → platform-secret → env-config, so a higher-priority entry transparently overrides a lower one:
+Whichever path you took, the deployment ends up with these four values populated — either in `eng/config/spring.env`, in the platform secret store (`--write-secrets`), or in the tenant secret store (`--write-tenant-secrets`). The runtime resolves each field per call through the chain tenant-secret → platform-secret → env-config, so a higher-priority entry transparently overrides a lower one:
 
 | Env var | Source | Notes |
 |---------|--------|-------|
@@ -281,13 +281,13 @@ Then drive the install from the SV portal:
 2. Click **Connect Slack** and approve the install in your workspace.
 3. The portal popup reports `Slack workspace '<team_id>' connected.` on success.
 
-The OAuth installer becomes the deployment's single bound user. Re-binding to a different workspace is supported — disconnect the existing binding from the portal, then run the OAuth flow again from the new workspace. The OAuth callback refuses Enterprise Grid installs with a structured `SlackEnterpriseGridUnsupported` error (ADR-0061 § 2.3).
+The OAuth installer becomes the deployment's single bound user. Re-binding to a different workspace is supported — disconnect the existing binding from the portal, then run the OAuth flow again from the new workspace. The OAuth callback refuses Enterprise Grid installs with a structured `SlackEnterpriseGridUnsupported` error.
 
 ## Local-dev recipe
 
 Slack apps normally require **publicly-reachable** event, interaction, and slash-command URLs — Slack signs each delivery from its own infrastructure, so `localhost` will not receive HTTPS deliveries. There are two ways around this for local development:
 
-- **[Socket Mode (recommended)](#local-dev-socket-mode-recommended)** — Slack delivers events over a WebSocket the bot opens outbound from your machine. No public URL, no tunnel infra. This is the Slack equivalent of `gh webhook forward` for GitHub.
+- **[Socket Mode (recommended)](#local-dev-socket-mode-recommended)** — Slack delivers events over a WebSocket the bot opens outbound from your machine. No public URL, no tunnel infra.
 - **[HTTPS tunnel](#local-dev-https-tunnel)** — register the app against a public hostname you forward to your machine (ngrok, Cloudflare Tunnel, `eng/deploy/relay.sh`).
 
 In both cases, register a **separate "dev" Slack app** — do not share one Slack app between dev and production. Sharing one app means dev and prod compete for the same bot OAuth token and event-delivery channel, and any OAuth re-install from one environment kicks the other off the bot identity.
@@ -417,10 +417,10 @@ After clicking **Connect Slack** in the portal, the OSS deployment ends up with 
 Common failures and where to look:
 
 - **Slack's "Verified" badge stays red on Event Subscriptions.** Either `Slack__OAuth__SigningSecret` is missing / wrong, the platform was not restarted after the env file changed, or the request URL on api.slack.com does not match what your deployment actually serves. Re-save the request URL after restart.
-- **OAuth popup closes with `SlackEnterpriseGridUnsupported`.** The workspace you are installing into is part of a Slack Enterprise Grid. Per ADR-0061 § 2.3 the v0.1 connector refuses Grid installs. Register the app against a standard (non-Grid) workspace.
+- **OAuth popup closes with `SlackEnterpriseGridUnsupported`.** The workspace you are installing into is part of a Slack Enterprise Grid. The v0.1 connector refuses Grid installs. Register the app against a standard (non-Grid) workspace.
 - **OAuth popup closes with `SlackWorkspaceConflict`.** This tenant is already bound to a different workspace. Disconnect the existing binding from `https://<your-host>/connectors/slack` first, then re-run the install.
 - **OAuth popup closes with `oauth_not_configured`.** One of the four Slack OAuth credential fields is missing across every persistence tier (tenant-secret, platform-secret, env-config). Check the platform logs for the exact `Slack OAuth <Key> is not configured` message — the message names the field and points at `spring connector slack install` (with `--write-env`, `--write-secrets`, or `--write-tenant-secrets`).
-- **Slash commands return "dispatch_failed"** in Slack. Either the platform is not reachable at the registered slash-command URL, the signature verification is failing (signing-secret mismatch), or the command is being invoked outside the bot DM — Slack's reply is the ephemeral DM-only refusal text per ADR-0061 § 5.
+- **Slash commands return "dispatch_failed"** in Slack. Either the platform is not reachable at the registered slash-command URL, the signature verification is failing (signing-secret mismatch), or the command is being invoked outside the bot DM — Slack's reply is the ephemeral DM-only refusal text.
 
 **Now what?** Once the bot DM is live and `/sv-help` responds, see **[Using the Slack bot](slack-usage.md)** for the day-to-day usage model — the three slash commands, how SV threads map onto Slack threads, the refusal behaviours, and a one-minute end-to-end smoke test.
 
@@ -430,6 +430,4 @@ Common failures and where to look:
 - [Deployment guide](deployment.md) — env-file shape and quirks (the Slack block lives alongside the GitHub block).
 - [Managing Secrets](secrets.md) — tier model for OAuth credentials and the per-tenant bot-token / signing-secret rows the OAuth callback writes.
 - [Connectors operator guide](connectors.md) — installing, inspecting, and uninstalling connectors per tenant.
-- [Architecture — Connectors](../../architecture/connectors.md) — `IConnectorType`, tenant-scoped bindings, and the Slack connector's place in the contract.
-- [ADR-0061 — Slack connector v0.1 OSS shape](../../decisions/0061-slack-connector-oss-shape.md) — the OSS restrictions, OAuth scopes, and forward-compat seams this doc operationalises.
 - Slack docs — [Creating an app from a manifest](https://api.slack.com/reference/manifests), [Verifying requests from Slack](https://api.slack.com/authentication/verifying-requests-from-slack), [OAuth v2 flow](https://api.slack.com/authentication/oauth-v2).
