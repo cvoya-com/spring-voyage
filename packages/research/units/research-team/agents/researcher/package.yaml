@@ -1,7 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Agent
 name: researcher
-description: Researcher — researcher agent.
+description: Researcher — breaks a question into sub-questions, gathers cited evidence, and synthesises a clear written answer.
 role: researcher
 capabilities: ["research", "investigation", "synthesis", "summarization"]
 ai:
@@ -36,5 +36,5 @@ execution:
   # Researchers gather sources and synthesise written answers — no
   # `Edit` / `Write` / `Bash` against the project tree. Dropping the
   # Claude Code default coding-assistant prompt keeps the model from
-  # carrying tool guidance it must not act on (#2696).
+  # carrying tool guidance it must not act on.
   systemPromptMode: replace

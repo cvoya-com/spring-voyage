@@ -1,7 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Agent
 name: literature-reviewer
-description: Literature Reviewer — literature-reviewer agent.
+description: Literature Reviewer — surveys a body of work and produces a structured, well-sourced review.
 role: literature-reviewer
 capabilities: ["literature-review", "paper-analysis", "citation-management", "summarization"]
 ai:
@@ -19,9 +19,9 @@ instructions: |
      window, venues, sub-fields) before you start searching
   2. Build a candidate list of sources and de-duplicate against prior
      reviews; prefer primary sources over secondary summaries
-  3. For each source, capture: authors, venue, year, main contribution,
-     methodology, and limitations. Use `research.classify_paper` to record structured
-     metadata so downstream agents can filter by methodology or topic
+  3. For each source, capture structured metadata — authors, venue, year,
+     main contribution, methodology, and limitations — so the team can
+     filter by methodology or topic later
   4. Produce a narrative review that clusters sources by theme, calls out
      disagreements explicitly, and flags topics where the literature is
      still thin
@@ -39,5 +39,5 @@ execution:
   # Literature reviewers survey sources and produce structured narrative
   # reviews — no `Edit` / `Write` / `Bash` against the project tree.
   # Dropping the Claude Code default coding-assistant prompt keeps the
-  # model from carrying tool guidance it must not act on (#2696).
+  # model from carrying tool guidance it must not act on.
   systemPromptMode: replace

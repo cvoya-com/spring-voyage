@@ -1,18 +1,18 @@
-# Magazine Domain Package
+# Magazine
 
 A **goal-driven editorial team** that produces a daily online edition.
-The user opens a conversation with the **Magazine Director** — the
-magazine's editor-in-chief — who plans the edition; the team coordinates
-through every stage of the editorial process, and a human publisher signs
-off before the edition is released.
+You open a conversation with the **Magazine Director** — the magazine's
+editor-in-chief — who plans the edition; the team coordinates through
+every stage of the editorial process, and a human publisher signs off
+before the edition is released.
 
 ## Why this package exists
 
-Most example packages illustrate one specific coordination shape:
+The catalog's other teams each illustrate one coordination shape:
 
 | Package | Shape |
 | --- | --- |
-| `software-engineering`, `product-management`, `spring-voyage-oss` | Delegation-shaped — a unit receives inbound work and routes it down to the member best suited to handle it. |
+| `software-engineering`, `product-management` | Delegation-shaped — a unit receives inbound work and routes it down to the member best suited to handle it. |
 | `research` | Team-leader-shaped — a coordinator picks the right specialist and holds the thread back to the requester. |
 | `magazine` | **Workflow-shaped** — a central decider (the editor) sets direction, members consult before going deep, and drafts flow through a sequence of specialist stages until a human approves the assembled output. |
 
@@ -124,19 +124,10 @@ Install via the CLI:
 spring package install magazine
 ```
 
-Or use the portal wizard's **From catalogue** source at `/units/create`
-and select **Magazine**. Both paths route through
-`POST /api/v1/packages/install` and activate all artefacts atomically.
+Or use the portal's **New Unit → Catalog** flow and select **Magazine**.
+Both paths activate all artefacts atomically.
 
 The team uses the **web-search** connector to source stories. Bind
 the unit to the web-search connector and configure a provider (the
 portal exposes a configuration UI on the unit's Connector tab; the
 CLI exposes `spring connector web-search …`).
-
-## Shape
-
-The directory layout mirrors the other in-tree domain packages
-(`packages/research/`, `packages/software-engineering/`) so the
-file-system package catalogue (`GET /api/v1/packages`) exposes it on
-the CLI (`spring package show magazine`) and the portal
-(`/packages/magazine`) without any extra wiring.

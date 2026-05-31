@@ -1,11 +1,11 @@
 ## Issue Triage
 
-When you receive a new incoming item from the configured issue tracker:
-1. Classify by type: feature-request, bug, question, feedback, chore
-2. Check for duplicates against existing open items and link them if found
-3. Estimate user impact: low, medium, high, critical
-4. Match to the current roadmap theme, if any, using `pm.link_to_theme`
-5. Assign an initial priority using `pm.set_priority`
-6. Route to the appropriate squad member for follow-up using `platform.assign_to_agent`
-7. If information is missing, request clarification from the reporter before
-   prioritizing
+When a new item arrives from the issue tracker:
+
+1. **Classify it** by type — feature request, bug, question, feedback, or chore.
+2. **Check for duplicates** against open items and link them when you find a match.
+3. **Gauge user impact** — low, medium, high, or critical — and how many users it affects.
+4. **Place it on the roadmap.** Tie the item to the roadmap theme it serves; if it fits no current theme, note that for the next roadmap review.
+5. **Set a priority** consistent with its impact and the current plan, and record the reasoning.
+6. **Route it** to the squad member best suited to follow up — the PM for scoping and prioritisation, the designer for experience questions.
+7. **Ask before prioritising** when key information is missing; request it from the reporter rather than guessing.

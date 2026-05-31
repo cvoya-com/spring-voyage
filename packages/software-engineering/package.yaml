@@ -5,4 +5,4 @@ displayName: Software Engineering
 description: A software engineering team — tech lead, backend engineer, and QA — wired up with triage / PR-review skills and a GitHub connector.
 version: 1.0.0
 readme: README.md
-# ADR-0043 §2: directory layout is the manifest — no `content:` block.
+# The directory layout is the manifest — no `content:` block.

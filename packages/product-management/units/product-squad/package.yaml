@@ -37,7 +37,7 @@ execution:
   # The team-leader role only ever calls `sv.messaging.*`, `sv.directory.*`,
   # and reads — never the Claude Code editing surface. Dropping the default
   # coding-assistant prompt keeps the model from carrying tool guidance it
-  # must not act on (#2696).
+  # must not act on.
   systemPromptMode: replace
 requires:
   - connector: github

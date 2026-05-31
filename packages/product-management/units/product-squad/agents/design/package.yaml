@@ -1,7 +1,7 @@
 apiVersion: spring.voyage/v1
 kind: Agent
 name: design
-description: Product Designer — product-designer agent.
+description: Product Designer — shapes user experience, produces design artefacts, and reviews proposals for usability and accessibility.
 role: product-designer
 capabilities: ["design", "design-review", "ux-research", "prototyping"]
 ai:
@@ -38,5 +38,5 @@ execution:
   # Designers produce design artefacts and review proposals — no
   # `Edit` / `Write` / `Bash` against the project tree. Dropping the
   # Claude Code default coding-assistant prompt keeps the model from
-  # carrying tool guidance it must not act on (#2696).
+  # carrying tool guidance it must not act on.
   systemPromptMode: replace

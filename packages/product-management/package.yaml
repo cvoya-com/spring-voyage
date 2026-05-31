@@ -5,4 +5,4 @@ displayName: Product Management
 description: Product squad — product management and design shaping and prioritising work.
 version: 1.0.0
 readme: README.md
-# ADR-0043 §2: directory layout is the manifest — no `content:` block.
+# The directory layout is the manifest — no `content:` block.

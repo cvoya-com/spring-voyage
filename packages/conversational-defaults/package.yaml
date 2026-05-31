@@ -2,27 +2,18 @@ apiVersion: spring.voyage/v1
 kind: Package
 name: conversational-defaults
 displayName: Conversational Defaults
-description: Default tool grants and platform-layer prompt fragment for conversational agents (ADR-0056).
+description: Default tool grants for conversational agents — the bundle every agent inherits.
 version: 1.0.0
 readme: README.md
 
-# ADR-0056 Wave 2 — the `sv.conversational.defaults` skill bundle.
+# The `sv.conversational.defaults` skill bundle — the default bundle every
+# agent inherits. It ships exactly one skill (`conversational-defaults`)
+# that grants the fundamental-core tools for a conversational agent. The
+# skill is referenced as `spring-voyage/conversational-defaults` from the
+# default agent wiring.
 #
-# This package ships exactly one skill (`conversational-defaults`) that
-# packages the fundamental-core tool grants and the
-# `[PLATFORM CONTRACT — NON-NEGOTIABLE]` platform-layer prompt fragment
-# documented in ADR-0056 §8 ("Default skill bundle: a fundamental core
-# plus discoverable categories"). The skill is referenced as
-# `spring-voyage/conversational-defaults:conversational-defaults` from
-# the default agent template wiring.
-#
-# This package intentionally declares NO `requires:` block: every tool
-# named by the bundle is a platform `sv.*` tool, implicitly granted to
-# every subject by `ToolGrantResolver`'s platform tier. The bundle's
-# `.tools.json` is a formal declaration of intent so the strict skill-
-# bundle validator (`DefaultSkillBundleValidator`, #2346) confirms each
-# tool's namespace is registered at install time, not at runtime.
-#
-# ADR-0043 §1 / §3: directory layout is the manifest — no `content:`
-# block. The package ships exactly the artefacts discovered under
-# `skills/`.
+# This package declares NO `requires:` block: every tool the bundle names is
+# a platform `sv.*` tool, implicitly granted to every subject. The
+# `.tools.json` declares those tools so the strict skill-bundle validator
+# can confirm each namespace is registered at install time. The directory
+# layout is the manifest — no `content:` block.

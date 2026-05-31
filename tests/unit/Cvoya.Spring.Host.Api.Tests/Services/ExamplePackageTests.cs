@@ -14,49 +14,18 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Smoke tests for the ADR-0043 example packages
-/// (<c>packages/example-simple/</c> and <c>packages/example-templated/</c>)
-/// shipped alongside the in-repo migration in chunk 4. These packages
-/// exist to demonstrate the recursive folder shape — instance-only and
-/// template-based — and so the on-disk authoring must continue to walk
-/// cleanly through the catalog walker + template resolver.
+/// Smoke tests for the in-repo catalog packages. The <c>templated-team</c>
+/// package exercises the template-based authoring shape (templates cloned
+/// via <c>from:</c>), and the parse theory below covers every package the
+/// platform ships, so the on-disk authoring must continue to walk cleanly
+/// through the catalog walker + template resolver.
 /// </summary>
 public class ExamplePackageTests
 {
     [Fact]
-    public async Task ExampleSimple_Walks_AsInstanceOnlyTree()
+    public async Task TemplatedTeam_Walks_AndTemplateResolverStampsChildren()
     {
-        var packageRoot = LocatePackageRoot("example-simple");
-        var yaml = await File.ReadAllTextAsync(
-            Path.Combine(packageRoot, "package.yaml"),
-            TestContext.Current.CancellationToken);
-
-        var resolved = await PackageManifestParser.ParseAndResolveAsync(
-            yaml, packageRoot,
-            cancellationToken: TestContext.Current.CancellationToken);
-
-        // One top-level unit (greeting-team) plus two nested concrete
-        // agents (friendly-greeter, polite-greeter) — both surface in the
-        // resolved Agents list since the walker indexes every artefact in
-        // the package regardless of depth (ADR-0043 §3).
-        resolved.Units.ShouldContain(u => u.Name == "greeting-team");
-        resolved.Agents.ShouldContain(a => a.Name == "friendly-greeter");
-        resolved.Agents.ShouldContain(a => a.Name == "polite-greeter");
-
-        // The two agent-scoped skills also surface — folder under the
-        // owning agent (ADR-0043 §3 "Artefacts can ship their own nested
-        // children").
-        resolved.Skills.ShouldContain(s => s.Name == "say-hello");
-        resolved.Skills.ShouldContain(s => s.Name == "say-hello-formally");
-
-        // example-simple ships connector-free.
-        resolved.RequiredConnectorSlugs.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task ExampleTemplated_Walks_AndTemplateResolverStampsChildren()
-    {
-        var packageRoot = LocatePackageRoot("example-templated");
+        var packageRoot = LocatePackageRoot("templated-team");
         var yaml = await File.ReadAllTextAsync(
             Path.Combine(packageRoot, "package.yaml"),
             TestContext.Current.CancellationToken);
@@ -93,7 +62,7 @@ public class ExamplePackageTests
         resolverOutput.Agents.ShouldContain(a => a.Name == "hopper");
         resolverOutput.Agents.ShouldContain(a => a.Name == "lovelace");
 
-        // example-templated ships connector-free.
+        // templated-team ships connector-free.
         resolved.RequiredConnectorSlugs.ShouldBeEmpty();
     }
 
@@ -103,18 +72,17 @@ public class ExamplePackageTests
     [InlineData("product-management")]
     [InlineData("software-engineering")]
     [InlineData("spring-voyage-oss")]
-    [InlineData("example-simple")]
-    [InlineData("example-templated")]
+    [InlineData("templated-team")]
     [InlineData("magazine")]
     [InlineData("conversational-defaults")]
     [InlineData("engineer-defaults")]
     public async Task EveryInRepoPackage_ParsesUnderRecursiveLayout(string packageName)
     {
         // Smoke: every in-repo package must walk cleanly under the
-        // ADR-0043 recursive folder layout. A regression that introduces
-        // a stray flat-shape file, a legacy `content:` block, or a
-        // folder-name / `name:` mismatch trips this check before it
-        // reaches a portal install attempt.
+        // recursive folder layout. A regression that introduces a stray
+        // flat-shape file, a legacy `content:` block, or a folder-name /
+        // `name:` mismatch trips this check before it reaches a portal
+        // install attempt.
         var packageRoot = LocatePackageRoot(packageName);
         var yaml = await File.ReadAllTextAsync(
             Path.Combine(packageRoot, "package.yaml"),

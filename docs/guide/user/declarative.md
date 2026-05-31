@@ -9,8 +9,7 @@ This guide covers how to build a Spring Voyage **package** as the canonical sour
 This guide:
 
 - Shows a minimal package skeleton.
-- Walks through building [`packages/example-simple/`](../../../packages/example-simple/) step by step — instances only, no templates.
-- Walks through building [`packages/example-templated/`](../../../packages/example-templated/) step by step — same shape, templated.
+- Walks through building [`packages/templated-team/`](../../../packages/templated-team/) step by step — a team assembled from reusable templates.
 - Covers the install-time flags: `--into`, `--as`, and how a multi-package install runs.
 - Lists common pitfalls.
 
@@ -64,158 +63,6 @@ spring package install hello
 
 The package's one top-level artefact (`hello-team`) activates at the tenant scope. That is the entire grammar.
 
-## Building `example-simple` step by step
-
-[`packages/example-simple/`](../../../packages/example-simple/) is the instance-only example package. Installing it produces one unit, two agents that are members of that unit, and one skill owned by each agent. There are no templates and no `from:` clones — every artefact is a concrete folder.
-
-### Step 1 — the package root
-
-```yaml
-# packages/example-simple/package.yaml
-apiVersion: spring.voyage/v1
-kind: Package
-name: example-simple
-description: ADR-0043 example — instance-only package with no templates. A single greeting team with two distinct greeter agents, each owning its own skill.
-version: 1.0.0
-readme: README.md
-# ADR-0043 §2: directory layout is the manifest — no `content:` block.
-```
-
-The `package.yaml` carries only metadata: `name`, `description`, `version`, optional `readme`. Notice there is no `content:` block listing the contained artefacts — the resolver discovers them by walking `./units/`, `./agents/`, etc.
-
-### Step 2 — the unit folder
-
-```
-example-simple/
-└── units/
-    └── greeting-team/
-        └── package.yaml
-```
-
-```yaml
-# packages/example-simple/units/greeting-team/package.yaml
-apiVersion: spring.voyage/v1
-kind: Unit
-name: greeting-team
-description: An ADR-0043 example unit — coordinates two greeter agents (one casual, one formal). Connector-free.
-ai:
-  runtime: claude-code
-  model:
-    provider: anthropic
-    id: claude-sonnet-4-6
-instructions: |
-  You coordinate a two-agent greeting team. Route casual / informal
-  greetings to friendly-greeter and formal / professional greetings to
-  polite-greeter. There are no other team members; do not invent
-  capabilities the package does not ship.
-members:
-  - agent: friendly-greeter
-  - agent: polite-greeter
-  - human:
-      roles: [owner]
-      notifications: ["escalation", "completion"]
-execution:
-  image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
-policies:
-  communication: through-unit
-  work_assignment: capability-match
-  expertise_sharing: advertise
-  initiative:
-    max_level: attentive
-    max_actions_per_hour: 10
-```
-
-Three things to notice:
-
-- The folder is named `greeting-team/`. The `name:` field inside its `package.yaml` is also `greeting-team`. Folder name must equal `name:` — disagreement is a parse error.
-- `members:` references its child agents by bare name (`friendly-greeter`, `polite-greeter`). The resolver looks those up by walking the unit folder's own `agents/` directory first.
-- The human team member is declared on the same `members:` list with the `- human:` discriminator ([ADR-0046 §1](../../decisions/0046-unified-members-grammar.md)). The OSS install policy resolves the entry to the install caller, mints a fresh `HumanEntity`, and adds a `unit_memberships_humans` row carrying `roles: [owner]` and the two notification subscriptions ([ADR-0046 §7](../../decisions/0046-unified-members-grammar.md)). The legacy top-level `humans:` block is gone; the parser rejects it with a structured `LegacyHumansBlock` error.
-
-### Step 3 — the agent folders
-
-```
-greeting-team/
-└── agents/
-    ├── friendly-greeter/
-    │   └── package.yaml
-    └── polite-greeter/
-        └── package.yaml
-```
-
-```yaml
-# packages/example-simple/units/greeting-team/agents/friendly-greeter/package.yaml
-apiVersion: spring.voyage/v1
-kind: Agent
-name: friendly-greeter
-description: Friendly Greeter — replies to incoming messages with a warm, casual acknowledgement. Owns the `say-hello` skill.
-role: greeter
-capabilities: ["greeting", "casual-tone"]
-ai:
-  runtime: claude-code
-  model:
-    provider: anthropic
-    id: claude-sonnet-4-6
-  environment:
-    image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
-instructions: |
-  You are a friendly, casual greeter. When you receive a message, reply
-  with a warm acknowledgement that uses the `say-hello` skill verbatim
-  as your opener, then a short personalised follow-up sentence.
-expertise:
-  - domain: casual-greeting
-    level: expert
-```
-
-`polite-greeter/package.yaml` is the mirror image — same shape, formal tone, owns `say-hello-formally` instead.
-
-Because both agent folders sit inside `units/greeting-team/agents/`, they are members of `greeting-team`, not tenant-level agents. The recursive layout makes ownership explicit: an agent's folder location *is* its parent.
-
-### Step 4 — the skill folders
-
-```
-friendly-greeter/
-└── skills/
-    └── say-hello/
-        ├── package.yaml
-        └── say-hello.md
-```
-
-```yaml
-# packages/example-simple/units/greeting-team/agents/friendly-greeter/skills/say-hello/package.yaml
-apiVersion: spring.voyage/v1
-kind: Skill
-name: say-hello
-description: Casual hello opener — a one-line warm greeting.
-```
-
-```markdown
-<!-- say-hello.md -->
-## say-hello
-
-Use this opener verbatim:
-
-> Hey there — thanks for the message!
-
-Follow it with a brief, personalised sentence that names the message's
-subject if one is identifiable.
-```
-
-The skill is owned by `friendly-greeter` and only granted to that one agent — it sits *inside* the agent folder, not in a sibling `skills/` directory. The agent-scoped grant means `polite-greeter`, even though it is a member of the same unit, does not see `say-hello`.
-
-### Step 5 — install
-
-```bash
-spring package install example-simple
-```
-
-The resolver walks the recursive layout, topo-sorts the artefacts, runs the two-phase install, and activates:
-
-- **1 Unit:** `greeting-team` at the tenant scope.
-- **2 Agents:** `friendly-greeter`, `polite-greeter`, both members of `greeting-team`.
-- **2 Skills:** `say-hello` granted to `friendly-greeter`, `say-hello-formally` granted to `polite-greeter`.
-
-The package ships connector-free, so no `--connector` flag is required.
-
 ## Equipping skills on units and agents (#2361)
 
 The declarative path above plants skills inside an agent folder so the package installer grants them at install time. After install, operators can also equip already-installed skill bundles onto units and agents from the CLI — useful for trying a bundle without re-publishing the package, or for assembling a working configuration before committing it back to YAML. The bundles still come from installed packages; equipping just attaches them to a subject and feeds the bundle prompt into Layer 2 (unit) or Layer 4 (agent) of the next dispatched prompt.
@@ -252,7 +99,7 @@ Templates ([ADR-0043 §5](../../decisions/0043-recursive-package-format.md#5-typ
 - You want a reusable archetype that other packages reference cross-package (an archetype library: a package that ships only `templates/` and no concrete artefacts).
 - The shape has nested children that should be stamped together (a unit template that ships a team-lead and a senior-engineer; every instance gets both).
 
-Skip templates when each artefact is a one-off — `example-simple` deliberately uses two concrete agents to keep the package readable. The cost of duplication for two distinct one-offs is zero.
+Skip templates when each artefact is a genuine one-off — two agents that share nothing are clearer as two concrete folders than as a template with a single instance. The cost of duplication for two distinct one-offs is zero.
 
 Conceptual background is in [Templates](../../concepts/templates.md).
 
@@ -317,18 +164,18 @@ members:
 
 Conceptual background is in [Humans](../../concepts/humans.md) (the install-time resolution model) and [Templates](../../concepts/templates.md) (the `HumanTemplate` section).
 
-## Building `example-templated` step by step
+## Building `templated-team` step by step
 
-[`packages/example-templated/`](../../../packages/example-templated/) is the templated counterpart to `example-simple`. Same problem shape (a unit with member agents); different authoring style. Installing it produces one unit and five agents — two stamped from a `UnitTemplate`'s nested children plus three stamped from an `AgentTemplate` referenced inline.
+[`packages/templated-team/`](../../../packages/templated-team/) builds a unit with member agents from reusable templates. Installing it produces one unit and five agents — two stamped from a `UnitTemplate`'s nested children plus three stamped from an `AgentTemplate` referenced inline.
 
 ### Step 1 — the package root
 
 ```yaml
-# packages/example-templated/package.yaml
+# packages/templated-team/package.yaml
 apiVersion: spring.voyage/v1
 kind: Package
-name: example-templated
-description: ADR-0043 example — template-based package. An engineering team archetype (UnitTemplate with nested children) and a software-engineer archetype (AgentTemplate) instantiated three times under one concrete unit.
+name: templated-team
+description: A team built from reusable templates — an engineering-team archetype (a UnitTemplate with nested children) and a software-engineer archetype (an AgentTemplate) instantiated three times under one concrete unit.
 version: 1.0.0
 readme: README.md
 ```
@@ -336,14 +183,14 @@ readme: README.md
 ### Step 2 — the `AgentTemplate`
 
 ```
-example-templated/
+templated-team/
 └── templates/
     └── software-engineer/
         └── package.yaml
 ```
 
 ```yaml
-# packages/example-templated/templates/software-engineer/package.yaml
+# packages/templated-team/templates/software-engineer/package.yaml
 apiVersion: spring.voyage/v1
 kind: AgentTemplate
 name: software-engineer
@@ -388,7 +235,7 @@ templates/
 ```
 
 ```yaml
-# packages/example-templated/templates/engineering-team/package.yaml
+# packages/templated-team/templates/engineering-team/package.yaml
 apiVersion: spring.voyage/v1
 kind: UnitTemplate
 name: engineering-team
@@ -420,7 +267,7 @@ policies:
 The two children under `engineering-team/agents/` (`team-lead`, `senior-engineer`) are concrete `kind: Agent` folders that look exactly like ordinary agent folders — the difference is purely positional. Because they live inside a `UnitTemplate`, they are stamped fresh under every consumer instance:
 
 ```yaml
-# packages/example-templated/templates/engineering-team/agents/team-lead/package.yaml
+# packages/templated-team/templates/engineering-team/agents/team-lead/package.yaml
 apiVersion: spring.voyage/v1
 kind: Agent
 name: team-lead
@@ -460,7 +307,7 @@ units/
 ```
 
 ```yaml
-# packages/example-templated/units/platform-eng/package.yaml
+# packages/templated-team/units/platform-eng/package.yaml
 apiVersion: spring.voyage/v1
 kind: Unit
 name: platform-eng
@@ -484,7 +331,7 @@ from: engineering-team
 ### Step 5 — the three stamped engineers
 
 ```yaml
-# packages/example-templated/units/platform-eng/agents/ada/package.yaml
+# packages/templated-team/units/platform-eng/agents/ada/package.yaml
 apiVersion: spring.voyage/v1
 kind: Agent
 name: ada
@@ -500,7 +347,7 @@ from: software-engineer
 ### Step 6 — install
 
 ```bash
-spring package install example-templated
+spring package install templated-team
 ```
 
 Activated tree:
@@ -521,34 +368,34 @@ Each agent gets a fresh Guid identity ([ADR-0036](../../decisions/0036-single-id
 ### `spring package install <pkg>` — default tenant scope
 
 ```bash
-spring package install example-simple
+spring package install hello-world
 ```
 
-Top-level artefacts (every artefact directly under the package's `agents/` or `units/`) install at the tenant scope. In `example-simple`, that means `greeting-team` becomes a tenant-level unit. Nested artefacts (agents under `greeting-team/agents/`, skills under each agent) are owned by their containing artefact regardless of install scope.
+Top-level artefacts (every artefact directly under the package's `agents/` or `units/`) install at the tenant scope. In `hello-world`, that means the `hello-world` unit becomes a tenant-level unit. Nested artefacts (the agents under a unit's `agents/`, the skills under each agent) are owned by their containing artefact regardless of install scope.
 
 ### `spring package install <pkg> --into <unit>` — bind top-level to a parent
 
 ```bash
-spring package install example-simple --into eng-portfolio
+spring package install hello-world --into eng-portfolio
 ```
 
-Every top-level agent in the package becomes a member of `eng-portfolio`; every top-level unit becomes a sub-unit of `eng-portfolio`. For `example-simple`, `greeting-team` becomes a sub-unit of `eng-portfolio` instead of a tenant-level unit. The package's internal structure (`greeting-team`'s own members, the skills owned by each member agent) is unaffected — `--into` rebinds only the package's top-level artefacts.
+Every top-level agent in the package becomes a member of `eng-portfolio`; every top-level unit becomes a sub-unit of `eng-portfolio`. For `hello-world`, the `hello-world` unit becomes a sub-unit of `eng-portfolio` instead of a tenant-level unit. The package's internal structure (the unit's own greeter member) is unaffected — `--into` rebinds only the package's top-level artefacts.
 
 `--into tenant` is the explicit form of the default. `--into <package-name>` is rejected — packages don't contain other packages' artefacts.
 
 ### `spring package install <pkg> --as <name>` — override the display name
 
 ```bash
-spring package install example-simple --as greeters-alpha
+spring package install hello-world --as my-greeter
 ```
 
-When the package has exactly one top-level activatable, `--as <name>` overrides that artefact's display name. For `example-simple`, the one top-level activatable is `greeting-team`; the install produces a unit displayed as `greeters-alpha`. The artefact's stable id is still platform-assigned (Guid per [ADR-0036](../../decisions/0036-single-identity-model.md)); only the operator-visible display name is overridden.
+When the package has exactly one top-level activatable, `--as <name>` overrides that artefact's display name. For `hello-world`, the one top-level activatable is the `hello-world` unit; the install produces a unit displayed as `my-greeter`. The artefact's stable id is still platform-assigned (a Guid); only the operator-visible display name is overridden.
 
 The flag rejects packages that ship more than one top-level activatable — there is no single artefact to rename. To install the same package multiple times under different display names, run multiple installs each with its own `--as <name>`:
 
 ```bash
-spring package install example-simple --as greeters-alpha
-spring package install example-simple --as greeters-beta
+spring package install hello-world --as greeter-alpha
+spring package install hello-world --as greeter-beta
 ```
 
 Each install gets independent Guid identities and an independent membership graph.
@@ -565,7 +412,7 @@ After an install:
 
 ```bash
 spring package list                          # everything in the catalog
-spring package show example-simple           # one package's manifest summary
+spring package show templated-team           # one package's manifest summary
 spring package status <install-id>           # phase + per-artefact state
 ```
 

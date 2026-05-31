@@ -1,8 +1,0 @@
-apiVersion: spring.voyage/v1
-kind: Package
-name: example-simple
-displayName: Simple Example
-description: ADR-0043 example — instance-only package with no templates. A single greeting team with two distinct greeter agents, each owning its own skill.
-version: 1.0.0
-readme: README.md
-# ADR-0043 §2: directory layout is the manifest — no `content:` block.

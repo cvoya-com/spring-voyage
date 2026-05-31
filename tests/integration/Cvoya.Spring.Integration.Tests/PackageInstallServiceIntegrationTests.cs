@@ -118,57 +118,7 @@ public class PackageInstallServiceIntegrationTests : IDisposable
             "unit_memberships row should link the greeter agent to the hello-world unit");
     }
 
-    // ── (2) example-simple ───────────────────────────────────────────────
-
-    [Fact]
-    public async Task InstallExampleSimple_HappyPath()
-    {
-        using var fx = BuildFixture();
-
-        var result = await fx.Service.InstallAsync(
-            new[] { LoadTarget("example-simple") },
-            TestContext.Current.CancellationToken);
-
-        result.PackageResults.Single().Status.ShouldBe(PackageInstallOutcome.Active);
-
-        await using var scope = fx.ScopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-
-        // 1 unit
-        var unitRows = await db.UnitDefinitions
-            .IgnoreQueryFilters()
-            .Where(u => u.DisplayName == "greeting-team")
-            .ToListAsync(TestContext.Current.CancellationToken);
-        unitRows.Count.ShouldBe(1);
-        var unitId = unitRows[0].Id;
-
-        // 2 agents
-        var friendly = await db.AgentDefinitions
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(a => a.DisplayName == "friendly-greeter",
-                TestContext.Current.CancellationToken);
-        friendly.ShouldNotBeNull();
-        var polite = await db.AgentDefinitions
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(a => a.DisplayName == "polite-greeter",
-                TestContext.Current.CancellationToken);
-        polite.ShouldNotBeNull();
-        friendly!.Id.ShouldNotBe(polite!.Id);
-
-        // Each agent has a unit_memberships row pointing at the greeting-team
-        // unit (the regression #2309 guard — pre-fix slug-resolution would
-        // have minted a different unit-id and stranded the agents).
-        var memberships = await db.UnitMemberships
-            .IgnoreQueryFilters()
-            .Where(m => m.UnitId == unitId)
-            .ToListAsync(TestContext.Current.CancellationToken);
-        memberships.Count.ShouldBe(2,
-            "the unit should resolve both members to its own Guid, not to phantom ids");
-        memberships.Select(m => m.AgentId).ShouldBe(
-            new[] { friendly.Id, polite.Id }, ignoreOrder: true);
-    }
-
-    // ── (2b) #2388: agent Definition carries the canonical execution block ─
+    // ── (2) #2388: agent Definition carries the canonical execution block ─
 
     /// <summary>
     /// Regression guard for #2388 bug 2. The install pipeline now projects
@@ -188,8 +138,8 @@ public class PackageInstallServiceIntegrationTests : IDisposable
     /// </summary>
     [Theory]
     [InlineData("hello-world", "greeter")]
-    [InlineData("example-simple", "friendly-greeter")]
-    [InlineData("example-simple", "polite-greeter")]
+    [InlineData("templated-team", "ada")]
+    [InlineData("templated-team", "hopper")]
     public async Task InstallPackage_AgentDefinition_CarriesCanonicalExecutionBlock(
         string packageName, string agentDisplayName)
     {
@@ -216,10 +166,10 @@ public class PackageInstallServiceIntegrationTests : IDisposable
             "so the auto-start gate (IAgentExecutionStore.Extract) can read image/model/runtime.");
         exec.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Object);
 
-        // Each catalog package above uses the ADR-0038 ai: shape with
-        // claude-code + anthropic + claude-sonnet-4-6 and the OSS claude
-        // base image. The persisted execution block is the one canonical
-        // shape (#2634): runtime + structured model{provider, id} + image.
+        // Each catalog package above uses the ai: shape with claude-code +
+        // anthropic + claude-sonnet-4-6 and the claude base image. The
+        // persisted execution block is the one canonical shape (#2634):
+        // runtime + structured model{provider, id} + image.
         exec.GetProperty("runtime").GetString().ShouldBe("claude-code");
         var execModel = exec.GetProperty("model");
         execModel.GetProperty("provider").GetString().ShouldBe("anthropic");
@@ -244,15 +194,15 @@ public class PackageInstallServiceIntegrationTests : IDisposable
         shape.Image.ShouldStartWith("ghcr.io/cvoya-com/spring-voyage-claude-code-base");
     }
 
-    // ── (3) example-templated ────────────────────────────────────────────
+    // ── (3) templated-team ───────────────────────────────────────────────
 
     [Fact]
-    public async Task InstallExampleTemplated_HappyPath()
+    public async Task InstallTemplatedTeam_HappyPath()
     {
         using var fx = BuildFixture();
 
         var result = await fx.Service.InstallAsync(
-            new[] { LoadTarget("example-templated") },
+            new[] { LoadTarget("templated-team") },
             TestContext.Current.CancellationToken);
 
         result.PackageResults.Single().Status.ShouldBe(PackageInstallOutcome.Active);
@@ -261,7 +211,7 @@ public class PackageInstallServiceIntegrationTests : IDisposable
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
         // Top-level unit: platform-eng (stamped from the engineering-team
-        // template — the concrete unit's name wins per ADR-0043 §5d).
+        // template — the concrete unit's name wins on override).
         var platformEng = await db.UnitDefinitions
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(u => u.DisplayName == "platform-eng",
@@ -512,8 +462,8 @@ public class PackageInstallServiceIntegrationTests : IDisposable
     /// entries from the in-repo OSS bundles, every package the existing
     /// integration suite already exercises continues to install cleanly
     /// under strict validation. The connector-free packages
-    /// (<c>hello-world</c>, <c>example-simple</c>, <c>example-templated</c>)
-    /// are the in-suite gate; the other in-repo packages
+    /// (<c>hello-world</c>, <c>templated-team</c>) are the in-suite gate;
+    /// the other in-repo packages
     /// (<c>spring-voyage-oss</c>, <c>software-engineering</c>,
     /// <c>product-management</c>, <c>research</c>) require connector
     /// bindings and are out of scope for the install-pipeline integration
@@ -523,8 +473,7 @@ public class PackageInstallServiceIntegrationTests : IDisposable
     /// </summary>
     [Theory]
     [InlineData("hello-world")]
-    [InlineData("example-simple")]
-    [InlineData("example-templated")]
+    [InlineData("templated-team")]
     public async Task InstallConnectorFreeInRepoPackage_StrictValidation_Succeeds(string packageName)
     {
         using var fx = BuildFixture();
