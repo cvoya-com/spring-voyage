@@ -9103,6 +9103,37 @@
         }
       }
     },
+    "/api/v1/tenant/connectors/github/oauth/result/{nonce}": {
+      "get": {
+        "tags": [
+          "Connectors.GitHub.OAuth"
+        ],
+        "summary": "Poll for an OAuth callback result by client nonce (browser-handoff fallback)",
+        "operationId": "GetGitHubOAuthResult",
+        "parameters": [
+          {
+            "name": "nonce",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthResultResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/connectors/arxiv/units/{unitId}/config": {
       "get": {
         "tags": [
@@ -15083,6 +15114,45 @@
           },
           "state": {
             "type": "string"
+          }
+        }
+      },
+      "OAuthResultResponse": {
+        "required": [
+          "ready",
+          "sessionId",
+          "login",
+          "error",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "ready": {
+            "type": "boolean"
+          },
+          "sessionId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "login": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

@@ -170,29 +170,40 @@ public static class CredentialBindingResolver
             return (null, null);
         }
 
-        // Best-effort parse: the package validator already accepted the
-        // YAML; we just want the (runtime, provider) pair from the `ai:`
-        // block. A malformed unit at this point has bigger problems and
-        // will fail elsewhere — return (null, null) so it's silently
-        // skipped here.
+        // Deserialise ONLY the `ai:` block. The previous full-UnitManifest
+        // parse walked `members:` AND `requires:` — but only the
+        // inline-member converter was registered here, not the
+        // RequirementEntry converter. A unit declaring a structured
+        // requirement (e.g. the Spring Voyage OSS unit's
+        // `requires: - connector: github / labels: …`) therefore threw and
+        // dropped the whole unit to (null, null), silently hiding its
+        // runtime credential. The runtime + provider live entirely in
+        // `ai:`; everything else is unmatched and ignored, so no member /
+        // requirement converter is needed. A genuinely malformed `ai:`
+        // still returns (null, null) — it will fail loudly elsewhere.
         try
         {
-            // ADR-0043 §5g: register the inline-or-reference converter so
-            // unit YAMLs whose `members:` list mixes scalar and inline
-            // mapping forms still deserialise cleanly. The caller only
-            // reads `.Ai`, but YamlDotNet walks every key on the document.
             var deserializer = new DeserializerBuilder()
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
-                .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
                 .IgnoreUnmatchedProperties()
                 .Build();
-            var manifest = deserializer.Deserialize<UnitManifest>(unit.Content);
+            var manifest = deserializer.Deserialize<AiOnlyManifest>(unit.Content);
             return (manifest?.Ai?.Runtime?.Trim(), manifest?.Ai?.Model?.Provider?.Trim());
         }
         catch
         {
             return (null, null);
         }
+    }
+
+    /// <summary>
+    /// Minimal projection that reads only the <c>ai:</c> block of a
+    /// unit / agent manifest, so credential derivation never deserialises
+    /// (and fails on) the richer <c>members:</c> / <c>requires:</c> shapes.
+    /// </summary>
+    private sealed class AiOnlyManifest
+    {
+        public AiManifest? Ai { get; set; }
     }
 
     private readonly record struct EdgeKey(string Provider, AuthMethod AuthMethod)

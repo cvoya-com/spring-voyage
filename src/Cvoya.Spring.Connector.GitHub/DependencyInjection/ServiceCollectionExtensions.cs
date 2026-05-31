@@ -191,6 +191,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient(GitHubOAuthHttpClient.HttpClientName);
         services.TryAddSingleton<IOAuthStateStore, InMemoryOAuthStateStore>();
         services.TryAddSingleton<IOAuthSessionStore, InMemoryOAuthSessionStore>();
+        services.TryAddSingleton<IOAuthResultStore, InMemoryOAuthResultStore>();
         services.TryAddSingleton<IGitHubOAuthHttpClient, GitHubOAuthHttpClient>();
         services.TryAddSingleton<IGitHubUserFetcher, OctokitGitHubUserFetcher>();
         // ADR-0047 §13: persists OAuth-issued tokens as tenant secrets

@@ -139,6 +139,7 @@ public static class PackageEndpoints
     private static async Task<IResult> GetPackageRequiredCredentialsAsync(
         string name,
         [FromServices] IPackageCatalogService catalog,
+        [FromServices] Services.PackageCatalogOptions catalogOptions,
         [FromServices] Cvoya.Spring.Manifest.IPackageCatalogProvider catalogProvider,
         [FromServices] Cvoya.Spring.Core.Catalog.IRuntimeCatalog runtimeCatalog,
         CancellationToken cancellationToken)
@@ -152,12 +153,22 @@ public static class PackageEndpoints
             return Results.NotFound();
         }
 
+        // Derive the on-disk package root the same way the install path does
+        // (ResolveTargetsFromCatalogAsync) so the parser can resolve the
+        // package's member unit/agent file references. Without it the
+        // resolved package has zero units and CollectRequired returns an
+        // empty set for every package — the wizard then never prompts for
+        // the member runtimes' credentials (e.g. the Claude OAuth token).
+        var packageRoot = string.IsNullOrWhiteSpace(catalogOptions.Root)
+            ? null
+            : System.IO.Path.Combine(catalogOptions.Root, name);
+
         Cvoya.Spring.Manifest.ResolvedPackage resolved;
         try
         {
             resolved = await Cvoya.Spring.Manifest.PackageManifestParser.ParseAndResolveAsync(
                 manifestYaml,
-                packageRoot: null,
+                packageRoot: packageRoot,
                 inputValues: null,
                 catalogProvider: catalogProvider,
                 cancellationToken: cancellationToken);
