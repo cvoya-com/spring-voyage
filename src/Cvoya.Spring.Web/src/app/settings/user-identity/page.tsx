@@ -66,8 +66,8 @@ export default function UserIdentityPage() {
           How Spring Voyage renders you in connector-side surfaces —
           your GitHub login for <code>@</code>-mentions and reviewer
           invocations, your Slack handle for direct-message rendering,
-          and so on. This page is strictly display identity (ADR-0047
-          §4); outbound credentials live on unit bindings.
+          and so on. This page is strictly display identity; outbound
+          credentials live on unit bindings.
         </p>
       </div>
 
@@ -107,7 +107,7 @@ export default function UserIdentityPage() {
           Your Hats
         </h2>
         <p className="text-xs text-muted-foreground">
-          The Humans bound to your account (ADR-0062). Each Hat is a
+          The Humans bound to your account. Each Hat is a
           role-slot you can receive messages on and reply as. Claim
           unbound Hats from a unit&apos;s Members tab.
         </p>

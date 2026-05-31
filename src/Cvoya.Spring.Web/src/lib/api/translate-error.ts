@@ -87,13 +87,13 @@ const translators: Record<string, ProblemTranslator> = {
     title:
       "Pick an auth choice for the GitHub binding (App installation or PAT secret).",
     nextStep:
-      "ADR-0047 §11: bindings pin one outbound credential at create time. Set either an App installation id or a tenant secret name addressing a PAT.",
+      "A binding pins one outbound credential at create time. Set either an App installation id or a tenant secret name addressing a PAT.",
   }),
   GitHubBindingAuthAmbiguous: () => ({
     title:
       "Only one of App installation id and PAT secret name may be set on a GitHub binding.",
     nextStep:
-      "ADR-0047 §11: the binding's outbound credential is single-valued. Clear one of the two fields.",
+      "The binding's outbound credential is single-valued. Clear one of the two fields.",
   }),
   // ADR-0047 §10 — cross-tenant `(owner, repo)` collision rejected at
   // binding-create time so the webhook routing key has no tenant
@@ -102,7 +102,7 @@ const translators: Record<string, ProblemTranslator> = {
     title: "Another tenant already binds this repository.",
     nextStep:
       stringField(problem, "detail") ??
-      "ADR-0047 §10: webhook routing keys are tenant-scoped. Ask the other tenant to release the binding, or pick a different repository.",
+      "Webhook routing keys are tenant-scoped. Ask the other tenant to release the binding, or pick a different repository.",
   }),
 };
 

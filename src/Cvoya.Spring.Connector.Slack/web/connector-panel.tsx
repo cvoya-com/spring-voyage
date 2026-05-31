@@ -161,7 +161,7 @@ function describeSlackError(err: unknown): SlackError {
         detail:
           typeof err.problem.detail === "string"
             ? err.problem.detail
-            : "ADR-0061 §2.4 — workspace installs are the only path that lands a binding. The Grid org-level install is a forward-compat slot tracked for a later release.",
+            : "Workspace installs are the only path that lands a binding. The Grid org-level install is planned for a later release.",
       };
     }
     if (err.status === 502) {
@@ -211,7 +211,7 @@ function describeCallbackError(error: string, message: string): SlackError {
       title: "Slack Enterprise Grid isn't supported in v0.1.",
       detail:
         message ||
-        "ADR-0061 §2.4 — workspace installs are the only path that lands a binding. The Grid org-level install is a forward-compat slot tracked for a later release.",
+        "Workspace installs are the only path that lands a binding. The Grid org-level install is planned for a later release.",
     };
   }
   if (error === "oauth_not_configured") {
@@ -579,7 +579,7 @@ function BoundState({
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-primary hover:underline"
         >
-          ADR-0061 §2
+          learn more
           <ExternalLink className="h-3 w-3" aria-hidden="true" />
         </a>
         .
@@ -703,7 +703,7 @@ function ErrorBanner({
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 underline"
           >
-            ADR-0061 §2.4
+            the documentation
             <ExternalLink className="h-3 w-3" aria-hidden="true" />
           </a>{" "}
           for the rationale.

@@ -370,7 +370,7 @@ function HumanIdentitySubTab(_props: { humanId: string }) {
       <CardContent className="space-y-2 text-sm text-muted-foreground">
         <p>
           Connector-native identities (e.g. GitHub login) now live on the
-          tenant-user principal, not the Human row (ADR-0047). The portal
+          tenant-user principal, not the Human row. The portal
           surface is{" "}
           <Link
             href="/settings/user-identity"

@@ -930,11 +930,11 @@ export function GitHubConnectorWizardStep({
               </span>
             )}
             <span className="block text-[11px] text-muted-foreground">
-              ADR-0047 §11: bindings store the qualified
-              <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+              Enter the repository as{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
                 owner/repo
               </code>
-              form.
+              .
               {matchingDropdownRow !== "" && (
                 <>
                   {" "}
@@ -962,11 +962,10 @@ export function GitHubConnectorWizardStep({
               Auth choice
             </legend>
             <p className="text-[11px] text-muted-foreground">
-              The binding pins one outbound credential at create time
-              (ADR-0047 §11). Pick App installation when the SV App is
-              installed on the repo; pick PAT secret for repos the App
-              is not installed on (e.g. public repos, operator-
-              controlled credentials).
+              The binding pins one outbound credential at create time.
+              Pick App installation when the SV App is installed on the
+              repo; pick PAT secret for repos the App is not installed
+              on (e.g. public repos, operator-controlled credentials).
             </p>
             <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-2 text-sm">
               <input
@@ -1018,10 +1017,10 @@ export function GitHubConnectorWizardStep({
                 </span>
                 <span className="block text-[11px] text-muted-foreground">
                   Outbound writes use a tenant secret addressing a
-                  personal access token (ADR-0047 §5). Recommended
-                  path: authorize via GitHub (the OAuth flow writes the
-                  secret automatically). Alternative: paste an existing
-                  tenant secret name.
+                  personal access token. Recommended path: authorize
+                  via GitHub (the OAuth flow writes the secret
+                  automatically). Alternative: paste an existing tenant
+                  secret name.
                 </span>
                 {authChoice === "pat" && (
                   <span className="mt-2 block space-y-2">
@@ -1065,8 +1064,8 @@ export function GitHubConnectorWizardStep({
                       onChange={(e) => setPatSecretName(e.target.value)}
                     />
                     <span className="block text-[11px] text-muted-foreground">
-                      The tenant secret name the binding stores
-                      (ADR-0047 §5). The OAuth flow writes
+                      The tenant secret name the binding stores. The
+                      OAuth flow writes
                       <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
                         binding/&lt;id&gt;/github/pat
                       </code>
