@@ -784,176 +784,15 @@ export function GitHubConnectorWizardStep({
         </div>
       )}
 
-      {disabledReason === null &&
-        missingOAuth === null &&
-        repositories &&
-        repositories.length === 0 && (
-          <div
-            role="alert"
-            className="rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning"
-          >
-            <p className="font-medium">No GitHub repositories visible.</p>
-            <p className="mt-1 text-foreground">
-              Install the GitHub App on a repository the unit will write to,
-              or pick the &quot;Use a PAT secret&quot; auth choice below and
-              type the qualified <code>owner/repo</code> manually.
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {installUrl && (
-                <a
-                  href={installUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-warning/60 bg-warning/10 px-3 text-sm font-medium text-warning transition-colors hover:bg-warning/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                >
-                  <Github className="h-4 w-4" aria-hidden="true" />
-                  Install GitHub App
-                </a>
-              )}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void recheckRepositories()}
-                disabled={rechecking}
-                aria-label="Recheck installations"
-                aria-busy={rechecking}
-                data-testid="github-recheck-installations"
-              >
-                {rechecking ? (
-                  <Loader2
-                    className="mr-1 h-4 w-4 animate-spin"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <RefreshCw
-                    className="mr-1 h-4 w-4"
-                    aria-hidden="true"
-                  />
-                )}
-                {rechecking ? "Rechecking…" : "Recheck installations"}
-                {rechecking && (
-                  <span className="sr-only">
-                    Refreshing GitHub App installations
-                  </span>
-                )}
-              </Button>
-            </div>
-            {reposError && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                ({reposError})
-              </p>
-            )}
-          </div>
-        )}
-
       {disabledReason === null && missingOAuth === null && (
         <>
-          {/* Repository (qualified `owner/repo`). The dropdown is
-              populated from the App-visible repositories; manual entry
-              is accepted when the operator is on the PAT branch (or
-              the App simply has no visibility into the target repo
-              yet). ADR-0047 §11 dropped the owner field; the single
-              input carries the qualified string. */}
-          <label className="block space-y-1">
-            <span className="text-xs text-muted-foreground">
-              Repository<span className="text-destructive"> *</span>
-            </span>
-            {repositories && repositories.length > 0 && (
-              <div className="flex items-center gap-2">
-                <select
-                  aria-label="Repository (from GitHub App installations)"
-                  className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-                  value={matchingDropdownRow}
-                  onChange={(e) =>
-                    handleRepoDropdownChange(e.target.value)
-                  }
-                  disabled={repoBusy}
-                >
-                  <option value="">
-                    {repoBusy
-                      ? "Loading repositories…"
-                      : "Select from App installations…"}
-                  </option>
-                  {repositories?.map((r) => (
-                    <option
-                      key={`${r.installationId}:${r.repositoryId}`}
-                      value={r.fullName}
-                    >
-                      {r.fullName}
-                      {r.private ? " (private)" : ""}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void recheckRepositories()}
-                  aria-label="Refresh repositories"
-                  aria-busy={repoBusy}
-                  disabled={repoBusy}
-                >
-                  {repoBusy ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            )}
-            <input
-              type="text"
-              aria-label="Repository (qualified owner/repo)"
-              data-testid="github-repo-qualified"
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono"
-              placeholder="octocat/Hello-World"
-              value={repo}
-              onChange={(e) => {
-                setRepo(e.target.value);
-                // Free-typing breaks the dropdown selection so the
-                // installation id no longer auto-fills. Clear it; the
-                // operator either re-picks from the dropdown or
-                // switches to the PAT branch.
-                if (
-                  !repositories?.some((r) => r.fullName === e.target.value)
-                ) {
-                  setInstallationId(null);
-                }
-              }}
-            />
-            {repoValidationError !== null && (
-              <span
-                className="block text-[11px] text-destructive"
-                role="alert"
-                data-testid="github-repo-validation"
-              >
-                {repoValidationError}
-              </span>
-            )}
-            <span className="block text-[11px] text-muted-foreground">
-              Enter the repository as{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                owner/repo
-              </code>
-              .
-              {matchingDropdownRow !== "" && (
-                <>
-                  {" "}
-                  Picked from App installation
-                  <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
-                    {installationId}
-                  </code>
-                  .
-                </>
-              )}
-            </span>
-          </label>
-
-          {/* Auth-choice sub-step (ADR-0047 §§ 6, 11). Exactly one of
-              App installation / PAT secret lands on the binding; the
-              wizard surfaces the trade-off explicitly so the operator
-              picks deliberately. The two branches share validation
-              wiring above — the wire payload is gated on the chosen
-              branch having a usable value. */}
+          {/* Auth-choice sub-step. Exactly one of App installation /
+              PAT secret lands on the binding; the wizard surfaces the
+              trade-off first so the repository control below can adapt
+              to the chosen path (the App-installations dropdown is
+              meaningful only on the App branch). The two branches
+              share the validation wiring — the wire payload is gated
+              on the chosen branch having a usable value. */}
           <fieldset
             className="space-y-2 rounded-md border border-border bg-background p-3"
             data-testid="github-auth-choice"
@@ -962,10 +801,10 @@ export function GitHubConnectorWizardStep({
               Auth choice
             </legend>
             <p className="text-[11px] text-muted-foreground">
-              The binding pins one outbound credential at create time.
-              Pick App installation when the SV App is installed on the
-              repo; pick PAT secret for repos the App is not installed
-              on (e.g. public repos, operator-controlled credentials).
+              Each binding stores one outbound credential. Pick an App
+              installation when the GitHub App is installed on the repo;
+              pick a PAT secret for repos the App is not installed on
+              (e.g. public repos, or credentials you control).
             </p>
             <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-2 text-sm">
               <input
@@ -988,7 +827,7 @@ export function GitHubConnectorWizardStep({
                 <span className="block text-[11px] text-muted-foreground">
                   Outbound writes mint installation tokens for the
                   picked App. Pick a row from the repository dropdown
-                  above to auto-fill the installation id.
+                  below to auto-fill the installation id.
                 </span>
                 {authChoice === "app" && (
                   <span className="mt-1 block text-[11px] text-muted-foreground">
@@ -1016,11 +855,10 @@ export function GitHubConnectorWizardStep({
                   Use a PAT secret
                 </span>
                 <span className="block text-[11px] text-muted-foreground">
-                  Outbound writes use a tenant secret addressing a
-                  personal access token. Recommended path: authorize
-                  via GitHub (the OAuth flow writes the secret
-                  automatically). Alternative: paste an existing tenant
-                  secret name.
+                  Outbound writes use a tenant secret holding a personal
+                  access token. Recommended: authorize via GitHub (the
+                  OAuth flow writes the secret automatically).
+                  Alternative: paste an existing tenant secret name.
                 </span>
                 {authChoice === "pat" && (
                   <span className="mt-2 block space-y-2">
@@ -1076,6 +914,166 @@ export function GitHubConnectorWizardStep({
               </span>
             </label>
           </fieldset>
+
+          {/* Repository (qualified `owner/repo`). On the App branch the
+              dropdown is populated from the App-visible repositories
+              and the free-text input below is the manual fallback; on
+              the PAT branch the dropdown is meaningless (the App can't
+              enumerate arbitrary repos) so only the free-text input
+              renders. The single input always carries the qualified
+              owner/repo string the binding stores. */}
+          <label className="block space-y-1">
+            <span className="text-xs text-muted-foreground">
+              Repository<span className="text-destructive"> *</span>
+            </span>
+            {authChoice === "app" &&
+              (repositories && repositories.length > 0 ? (
+                <div className="flex items-center gap-2">
+                  <select
+                    aria-label="Repository (from GitHub App installations)"
+                    className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                    value={matchingDropdownRow}
+                    onChange={(e) =>
+                      handleRepoDropdownChange(e.target.value)
+                    }
+                    disabled={repoBusy}
+                  >
+                    <option value="">
+                      {repoBusy
+                        ? "Loading repositories…"
+                        : "Select from App installations…"}
+                    </option>
+                    {repositories?.map((r) => (
+                      <option
+                        key={`${r.installationId}:${r.repositoryId}`}
+                        value={r.fullName}
+                      >
+                        {r.fullName}
+                        {r.private ? " (private)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void recheckRepositories()}
+                    aria-label="Refresh repositories"
+                    aria-busy={repoBusy}
+                    disabled={repoBusy}
+                  >
+                    {repoBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <span
+                  role="alert"
+                  className="block rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning"
+                >
+                  <span className="block font-medium">
+                    No GitHub repositories visible.
+                  </span>
+                  <span className="mt-1 block text-foreground">
+                    Install the GitHub App on a repository the unit will
+                    write to, or switch to &quot;Use a PAT secret&quot;
+                    above and type the{" "}
+                    <code>owner/repo</code> manually.
+                  </span>
+                  <span className="mt-2 flex flex-wrap items-center gap-2">
+                    {installUrl && (
+                      <a
+                        href={installUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex h-8 items-center gap-1 rounded-md border border-warning/60 bg-warning/10 px-3 text-sm font-medium text-warning transition-colors hover:bg-warning/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      >
+                        <Github className="h-4 w-4" aria-hidden="true" />
+                        Install GitHub App
+                      </a>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void recheckRepositories()}
+                      disabled={rechecking}
+                      aria-label="Recheck installations"
+                      aria-busy={rechecking}
+                      data-testid="github-recheck-installations"
+                    >
+                      {rechecking ? (
+                        <Loader2
+                          className="mr-1 h-4 w-4 animate-spin"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <RefreshCw
+                          className="mr-1 h-4 w-4"
+                          aria-hidden="true"
+                        />
+                      )}
+                      {rechecking ? "Rechecking…" : "Recheck installations"}
+                      {rechecking && (
+                        <span className="sr-only">
+                          Refreshing GitHub App installations
+                        </span>
+                      )}
+                    </Button>
+                  </span>
+                  {reposError && (
+                    <span className="mt-2 block text-xs text-muted-foreground">
+                      ({reposError})
+                    </span>
+                  )}
+                </span>
+              ))}
+            <input
+              type="text"
+              aria-label="Repository (qualified owner/repo)"
+              data-testid="github-repo-qualified"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono"
+              placeholder="octocat/Hello-World"
+              value={repo}
+              onChange={(e) => {
+                setRepo(e.target.value);
+                // Free-typing breaks the dropdown selection so the
+                // installation id no longer auto-fills. Clear it; the
+                // operator either re-picks from the dropdown or
+                // switches to the PAT branch.
+                if (
+                  !repositories?.some((r) => r.fullName === e.target.value)
+                ) {
+                  setInstallationId(null);
+                }
+              }}
+            />
+            {repoValidationError !== null && (
+              <span
+                className="block text-[11px] text-destructive"
+                role="alert"
+                data-testid="github-repo-validation"
+              >
+                {repoValidationError}
+              </span>
+            )}
+            <span className="block text-[11px] text-muted-foreground">
+              {authChoice === "app"
+                ? "Pick a repository from your App installations, or type it as owner/repo."
+                : "Type the repository as owner/repo (e.g. octocat/Hello-World)."}
+              {authChoice === "app" && matchingDropdownRow !== "" && (
+                <>
+                  {" "}
+                  Picked from App installation
+                  <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+                    {installationId}
+                  </code>
+                  .
+                </>
+              )}
+            </span>
+          </label>
         </>
       )}
 
