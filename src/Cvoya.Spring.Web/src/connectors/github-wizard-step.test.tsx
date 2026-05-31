@@ -563,7 +563,7 @@ describe("GitHubConnectorWizardStep", () => {
       });
 
       // The authorize call carries a poll nonce in clientState.
-      const clientState = mocked.beginGitHubOAuthAuthorize.mock.calls.at(-1)![0]
+      const clientState = mocked.beginGitHubOAuthAuthorize.mock.calls.at(-1)![0]!
         .clientState as string;
       expect(clientState).toMatch(/"nonce":"[0-9a-f]{32}"/);
 

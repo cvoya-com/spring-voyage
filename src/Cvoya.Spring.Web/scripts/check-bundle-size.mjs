@@ -140,8 +140,20 @@ const KB = 1024;
 //   Total uncompressed: ~3599 KB → cap 3650 KB
 //   Total gzipped:      ~1040 KB → cap 1075 KB
 //   Largest chunk (uncompressed): 360 KB → cap 450 KB (unchanged)
+//
+// Updated 2026-05-31 (#2968) when the GitHub-connector unit-creation
+// wizard gained the App-free "Paste a PAT" path, the Safari-safe OAuth
+// server-poll fallback, and the PAT inbound-webhook note, plus the
+// `api.getGitHubOAuthResult` client wrapper. No new dependencies; the
+// growth is the additional component code (plain React + shared
+// `@/components/ui/*` primitives) and the typed API surface. Gzipped
+// stayed comfortably within budget; only the uncompressed total crossed
+// its prior 3650 cap.
+//   Total uncompressed: ~3656 KB → cap 3700 KB
+//   Total gzipped:      ~1060 KB → cap 1075 KB (unchanged; still within)
+//   Largest chunk (uncompressed): 358 KB → cap 450 KB (unchanged)
 const BUDGETS = {
-  totalUncompressedKb: 3650,
+  totalUncompressedKb: 3700,
   totalGzippedKb: 1075,
   maxChunkUncompressedKb: 450,
 };
