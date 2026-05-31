@@ -111,7 +111,7 @@ The unit's leader will pick an engineer, delegate the work, and the engineer's c
 | Agent stuck in `Validating` | Image pull failed | `podman images \| grep spring-voyage-agent-oss` — if missing, the GHCR pull is still in progress or failed; check `voyage logs spring-worker`. |
 | Engineer agent opens a PR but the unit never sees the review comments | The PR doesn't carry `spring-voyage-team` | The team's instruction is to auto-label its own output; if a PR is missing the label, add it manually (`gh pr edit <n> --add-label spring-voyage-team`) and the feedback loop resumes. |
 
-Deeper troubleshooting and the package's design rationale are in the [operator dogfooding guide](../operator/dogfooding-oss-unit.md) and [ADR-0034](../../decisions/0034-oss-dogfooding-unit.md).
+Deeper troubleshooting and the package's design rationale are in the [operator dogfooding guide](../operator/dogfooding-oss-unit.md).
 
 ## What's next
 

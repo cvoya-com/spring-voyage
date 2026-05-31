@@ -9,7 +9,7 @@ This is the same model Renovate, Sentry self-hosted, Linear self-hosted, and Pro
 - A leaked key in one deployment cannot affect any other deployment.
 - The webhook URL, callback URL, and setup URL are all owned by the operator — no fragile redirect dance through a Spring-Voyage-controlled domain.
 
-This page is the operator-facing companion to [Deployment guide § Tier-1 platform credentials](deployment.md#tier-1-platform-credentials--github-app-identity-env-only). Pick **one** of the two paths below; both produce the same set of values in `eng/config/spring.env`.
+Pick **one** of the two paths below; both produce the same set of values in `eng/config/spring.env`.
 
 > **Do you even need the App?** If a unit only needs to act on a repository you do **not** own — e.g. contributing to an open-source project — a PAT is simpler and requires no App registration and no OAuth. See [GitHub connector auth options](github-connector-auth.md) to choose. Register the App when you operate the repo and want a bot identity (and, on a public deployment, an active webhook).
 
@@ -33,11 +33,11 @@ spring github-app register --name "Spring Voyage (<your-deployment>)"
 The verb:
 
 1. Builds a manifest scoped to **your** deployment URLs (webhook + OAuth callback), carrying the App's name, permissions, and webhook-event subscriptions.
-2. Binds a loopback HTTP listener on `127.0.0.1:<ephemeral-port>` — it both serves the hand-off page in the next step and receives the conversion callback.
-3. Opens your browser at that local page (`http://127.0.0.1:<ephemeral-port>/`), which immediately POSTs the manifest to `https://github.com/settings/apps/new` (or `https://github.com/organizations/<org>/settings/apps/new` when you pass `--org <slug>`) — GitHub renders the "create App" confirmation page **pre-filled** with the right name, permissions, events, callback URL, and webhook URL. You click **Create**. (GitHub's manifest flow accepts the manifest only as a `POST` form field, so the CLI hands it off through this local page rather than linking straight to a pre-filled `github.com` URL.)
+2. Binds a loopback HTTP listener on `127.0.0.1:<ephemeral-port>`.
+3. Opens your browser at that local page, which immediately POSTs the manifest to `https://github.com/settings/apps/new` (or `https://github.com/organizations/<org>/settings/apps/new` when you pass `--org <slug>`) — GitHub renders the "create App" confirmation page **pre-filled** with the right name, permissions, events, callback URL, and webhook URL. You click **Create**.
 4. GitHub redirects back to the loopback listener with a one-time conversion `code`.
-5. The CLI exchanges the code via `POST /app-manifests/{code}/conversions` and receives `app_id`, `slug`, `pem`, `webhook_secret`, `client_id`, and `client_secret` back in the response.
-6. The CLI writes `GitHub__AppId`, `GitHub__AppSlug`, `GitHub__PrivateKeyPem` (single-quoted, single-line, with literal `\n` between blocks), and `GitHub__WebhookSecret` to `eng/config/spring.env`. Pass `--write-secrets` to persist the same values as platform-scoped secrets via the registry instead of the env file.
+5. The CLI exchanges the code and receives the App credentials back.
+6. The CLI writes `GitHub__AppId`, `GitHub__AppSlug`, `GitHub__PrivateKeyPem` (single-quoted, single-line, with literal `\n` between blocks), and `GitHub__WebhookSecret` to `eng/config/spring.env`. Pass `--write-secrets` to persist the same values as platform-scoped secrets instead of the env file.
 
 Restart the platform after the file changes (`./deploy.sh restart` for Podman, `docker compose --env-file ../config/spring.env up -d` from `eng/deploy/` for Compose) so the connector picks up the new credentials.
 
@@ -126,7 +126,7 @@ Then install the App on at least one repository / organisation:
 1. On the App's settings page, click **Install App** in the left sidebar.
 2. Pick the account / org and the repositories you want the connector to act on. You can re-scope this list later from the same screen.
 
-> **App-installation scope is the SV-side subscription model.** Per [ADR-0045](../../decisions/0045-connector-domain-agnostic-platform.md), the platform does not create per-repo hooks on github.com — it relies on the App's own delivery channel. **Which repos the App is installed on determines what events SV receives.** SV silently drops deliveries from repos no unit is bound to (logged at `Information` so operators can correlate noise); the wasted-work trade-off is fine for typical OSS deployments and is minimised by installing the App on only the repos that have units bound to them. To scope SV down later, remove the unwanted repos from the App's installation on github.com — there is no SV-side action required.
+> **App-installation scope is the platform's subscription model.** The platform does not create per-repo hooks on github.com — it relies on the App's own delivery channel. **Which repos the App is installed on determines what events SV receives.** SV silently drops deliveries from repos no unit is bound to (logged at `Information` so operators can correlate noise); the wasted-work trade-off is fine for typical OSS deployments and is minimised by installing the App on only the repos that have units bound to them. To scope SV down later, remove the unwanted repos from the App's installation on github.com — there is no SV-side action required.
 
 ### 6. Populate `eng/config/spring.env`
 
@@ -155,7 +155,7 @@ Restart the platform so the connector reloads:
 docker compose --env-file ../config/spring.env up -d         # Compose (run from eng/deploy/)
 ```
 
-The single-quoted, single-line PEM convention round-trips through `bash` + `envsubst` + Podman / Docker `--env-file`. The connector decodes literal `\n` back to real newlines before parsing. See [Deployment guide § Tier-1 platform credentials](deployment.md#tier-1-platform-credentials--github-app-identity-env-only) for the full env-file quirks (`#1186`).
+The single-quoted, single-line PEM convention round-trips through `bash` + `envsubst` + Podman / Docker `--env-file`. The connector decodes literal `\n` back to real newlines before parsing.
 
 `GitHub__PrivateKeyPem` also accepts an absolute container-visible path to a `.pem` file. `~` is **not** expanded by `--env-file`, so mount the file at a known absolute path if you go this route.
 
@@ -239,16 +239,12 @@ A `204` response from the webhook ingress endpoint and a green "Last delivery wa
 
 If `list-installations` returns a structured `404` with a "GitHub App not configured" reason, the credentials did not bind. The most common causes are:
 
-- `GitHub__AppId` is quoted (it must be unquoted — see [Deployment guide § Tier-1 platform credentials](deployment.md#tier-1-platform-credentials--github-app-identity-env-only)).
+- `GitHub__AppId` is quoted (it must be unquoted).
 - `GitHub__PrivateKeyPem` is a path that does not resolve to a valid PEM inside the container.
 - The platform was not restarted after the env file changed.
-
-See [Architecture — Connectors § disabled-with-reason](../../architecture/connectors.md#disabled-with-reason-pattern) for the validation model.
 
 ## Related documentation
 
 - [Deployment guide § Tier-1 platform credentials](deployment.md#tier-1-platform-credentials--github-app-identity-env-only) — env-file shape and quirks.
-- [Managing Secrets § The three config tiers](secrets.md#the-three-config-tiers-615) — why GitHub App credentials are tier-1 (deployment identity) and not tier-2.
-- [GitHub Connector README](../../../src/Cvoya.Spring.Connector.GitHub/README.md) — the per-setting configuration table the connector binds.
-- [Architecture — Connectors](../../architecture/connectors.md) — the `IConnectorType` contract and the GitHub connector's disabled-with-reason model.
+- [Managing Secrets § The three config tiers](secrets.md#the-three-config-tiers) — why GitHub App credentials are tier-1 (deployment identity).
 - GitHub docs — [Registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app), [Generating a private key](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps).

@@ -1,20 +1,18 @@
 # Managing Secrets
 
-This guide covers day-to-day secret management: storing API tokens and credentials, rotating them safely, pruning old versions, and choosing scope. Envelope encryption internals and the audit decorator pattern live in [OSS Secret Store](../../developer/secret-store.md) and [Secret Audit Logging](../../developer/secret-audit.md).
+This guide covers day-to-day secret management: storing API tokens and credentials, rotating them safely, pruning old versions, and choosing scope.
 
-For the full architectural picture see [Security architecture — Secrets Stack](../../architecture/security.md#secrets-stack) and [Security architecture — Config tiers](../../architecture/security.md#config-tiers).
-
-## The three config tiers (#615)
+## The three config tiers
 
 Spring Voyage distinguishes three tiers of configuration so credentials live where they can be rotated, scoped, and audited independently:
 
 | Tier | Location | Examples | Who sets it |
 |------|----------|----------|-------------|
-| **Tier 1 — platform-deploy** | Env / `spring.env` / startup config | DB connection, Dapr wiring, `GitHub__AppId` / `GitHub__PrivateKeyPem` / `GitHub__WebhookSecret` (identity of the Spring Voyage instance itself as a GitHub App — every deployment registers its own App, see [Register your GitHub App](github-app-setup.md)); Slack OAuth credentials (`Slack__OAuth__*`) when persisted via `spring connector slack install --write-env` | Ops team at deploy time |
-| **Tier 2 — tenant-default** | Database (`SecretScope.Tenant`) | LLM runtime credentials (`anthropic-oauth`, `anthropic-api-key`, `openai-api-key`, `google-api-key`), tenant-wide observability / monitoring tokens | Tenant admin post-deploy |
-| **Tier 3 — unit-override** | Database (`SecretScope.Unit`) | Per-unit variants of any tier-2 credential (a unit that calls a different Anthropic account than the tenant default) | Unit operator |
+| **Tier 1 — platform-deploy** | Env / `spring.env` / startup config | DB connection, Dapr wiring, GitHub App credentials (see [Register your GitHub App](github-app-setup.md)); Slack OAuth credentials when persisted via `spring connector slack install --write-env` | Ops team at deploy time |
+| **Tier 2 — tenant-default** | Database | LLM runtime credentials (`anthropic-oauth`, `anthropic-api-key`, `openai-api-key`, `google-api-key`), tenant-wide observability / monitoring tokens | Tenant admin post-deploy |
+| **Tier 3 — unit-override** | Database | Per-unit variants of any tier-2 credential (a unit that calls a different Anthropic account than the tenant default) | Unit operator |
 
-LLM provider credentials explicitly belong to **tier 2**, not tier 1 — they are workload credentials, not deployment identity. The platform's tier-2 resolver ([`ILlmCredentialResolver`](../../../src/Cvoya.Spring.Core/Execution/ILlmCredentialResolver.cs)) reads them through the chain:
+LLM provider credentials explicitly belong to **tier 2**, not tier 1 — they are workload credentials, not deployment identity. The platform reads them through the chain:
 
 1. **Unit-scoped secret** (if the caller has a unit in context)
 2. **Tenant-scoped secret** (the inheritance fall-through from unit scope, or the direct read when there is no unit context — e.g. the unit-create wizard fetching the model catalog)
@@ -34,7 +32,7 @@ Plaintext enters exactly once (on `create` or `rotate`) and is never returned in
 
 > **Startup-time credentials live outside this registry.** The GitHub App `GitHub__AppId` / `GitHub__PrivateKeyPem` pair is sourced from `spring.env` before the registry is reachable. Each deployment registers its own GitHub App; see [Register your GitHub App](github-app-setup.md). If missing, the GitHub connector boots disabled; if malformed, the host refuses to start. Everything on this page covers runtime secrets the platform manages — the startup bootstrap pair is out of scope.
 
-> **Slack OAuth credentials can be Tier-1 or Tier-3 ([issue #2849](https://github.com/cvoya-com/spring-voyage/issues/2849)).** The Slack connector resolves its four OAuth credentials (`ClientId`, `ClientSecret`, `SigningSecret`, `RedirectUri`) per call through the chain **tenant-secret → platform-secret → env-config**. When `spring connector slack install --write-env` is used, the credentials live in `Slack__OAuth__*` env vars and are Tier-1 (deployment identity, no rotation through the registry). When `--write-tenant-secrets` is used, they live in the tenant-scoped registry and are Tier-3 — rotated, audited, and isolated per tenant exactly like any other tenant secret. `--write-secrets` (platform scope) sits between the two. Pick whichever scope matches how you want to rotate / audit the values; the runtime fall-through means all three can coexist during a migration.
+The Slack connector resolves its OAuth credentials per call through the chain **tenant-secret → platform-secret → env-config**. When `spring connector slack install --write-env` is used, the credentials live in `Slack__OAuth__*` env vars and are Tier-1. When `--write-tenant-secrets` is used, they live in the tenant-scoped registry and are Tier-2 — rotated, audited, and isolated per tenant exactly like any other tenant secret. `--write-secrets` (platform scope) sits between the two. Pick whichever scope matches how you want to rotate / audit the values.
 
 ## Surfaces
 
@@ -83,7 +81,7 @@ spring secret create --scope tenant observability-token --value "..."
 spring secret create --scope platform system-webhook-signing-key --value "..."
 ```
 
-The CLI prints name, scope, and timestamp on success — never the plaintext or backing key. Supply exactly one of `--value`, `--from-file`, or `--external-store-key`. The OSS default (`AllowAllSecretAccessPolicy`) permits all writes; production deployments use `ISecretAccessPolicy` to enforce RBAC.
+The CLI prints name, scope, and timestamp on success — never the plaintext or backing key. Supply exactly one of `--value`, `--from-file`, or `--external-store-key`. The OSS default permits all writes; production deployments can plug in a secret-access policy to enforce RBAC.
 
 ## Listing and inspecting
 
@@ -116,7 +114,7 @@ spring secret rotate \
 
 Use `--output json` to capture the `version` field in scripts. Rotation can flip origin (`ExternalReference` → `PlatformOwned` and vice versa); the registry records the transition for audit decorators.
 
-Prior versions remain resolvable by version pin until pruned. If a pinned version does not exist the resolver returns `NotFound` — it never silently substitutes another version. See [Security architecture — Multi-version coexistence](../../architecture/security.md#multi-version-coexistence-and-rotation).
+Prior versions remain resolvable by version pin until pruned. If a pinned version does not exist the resolver returns `NotFound` — it never silently substitutes another version.
 
 ## Pruning old versions
 
@@ -148,7 +146,6 @@ Spring Voyage has no first-class "environments" — production, staging, and dev
 4. Fall-through is gated by `Secrets:InheritTenantFromUnit` (default `true`).
 5. Tenant → Platform does **not** chain. Units cannot probe platform keys by name.
 
-See [ADR 0003](../../decisions/0003-secret-inheritance-unit-to-tenant.md) for full rationale.
 
 ### Tenant default with a unit override
 
@@ -230,7 +227,7 @@ spring unit create local-dev --runtime spring-voyage --model-provider ollama --a
 # → "Runtime 'spring-voyage' with provider 'ollama' does not require a credential."
 ```
 
-See the [CLI reference](../../cli-reference.md#spring-agent-and-spring-unit-execution-shorthand-flags) for the inline-credential flag set and the rejection matrix.
+See the CLI reference for the inline-credential flag set and the rejection matrix.
 
 ## Per-agent secrets
 
@@ -238,7 +235,7 @@ The OSS contract stops at unit scope. There is no `SecretScope.Agent`; every age
 
 For per-agent isolation today: spin up a single-agent unit for the agent that needs its own keys. This reuses the unit as the isolation boundary.
 
-See [ADR 0004 — Per-agent secrets](../../decisions/0004-per-agent-secrets.md) for the rationale and revisit criteria.
+This is a known limitation — please reach out if your use case requires per-agent secret isolation.
 
 ## Advanced: HTTP API
 
@@ -252,7 +249,7 @@ curl -sS -X POST "$SPRING_API_URL/api/v1/units/engineering-team/secrets" \
   -d '{"name": "openai-api-key", "value": "sk-live-..."}'
 ```
 
-Other verbs follow the same pattern: `GET` (list / versions), `POST` (create), `PUT` (rotate), `POST /prune?keep=<n>`, `DELETE`. See `src/Cvoya.Spring.Host.Api/Endpoints/SecretEndpoints.cs` for definitions.
+Other verbs follow the same pattern: `GET` (list / versions), `POST` (create), `PUT` (rotate), `POST /prune?keep=<n>`, `DELETE`. The HTTP API accepts the same verbs: `GET` (list / versions), `POST` (create), `PUT` (rotate), `POST /prune?keep=<n>`, `DELETE`.
 
 ## Best practices
 
@@ -262,5 +259,4 @@ Other verbs follow the same pattern: `GET` (list / versions), `POST` (create), `
 - **Prefer `--from-file` over `--value`.** Reading from a `tmpfs`-backed temp file keeps the plaintext out of shell history.
 - **Pick the narrowest scope.** Widening to tenant scope adds an access-policy probe on every unit resolve; don't pay that cost speculatively.
 - **Don't hand-edit the Dapr state store.** Backing slots use AES-GCM with `"{tenantId}:{storeKey}"` as associated data; a transplanted ciphertext breaks authentication.
-- **Configure a durable AES key on every deployment, including local dev.** The platform refuses to start without `SPRING_SECRETS_AES_KEY` (env) or `Secrets:AesKeyFile` (mounted file). The previous `Secrets:AllowEphemeralDevKey` flag has been removed: a per-process random key cannot work in the multi-process topology (spring-api / spring-worker share the same encrypted secret store), so an in-memory fallback silently corrupted every cross-process secret read. Generate a key with `openssl rand -base64 32` — see [OSS Secret Store](../../developer/secret-store.md).
-- **Use the audit decorator for "who read what."** The resolver emits a `SecretResolvePath` (`Direct`, `InheritedFromTenant`, `NotFound`) per resolve. See [Secret Audit Logging](../../developer/secret-audit.md).
+- **Configure a durable AES key on every deployment, including local dev.** The platform refuses to start without `SPRING_SECRETS_AES_KEY` (env) or `Secrets:AesKeyFile` (mounted file). Generate a key with `openssl rand -base64 32`.

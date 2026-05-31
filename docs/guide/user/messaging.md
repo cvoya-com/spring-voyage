@@ -2,15 +2,11 @@
 
 This guide covers how to send messages to agents, units, and humans on the Spring Voyage platform, how conversations form and evolve, and how to pick the right address for the job.
 
-For the internals — mailbox partitioning, cancellation semantics, pub/sub streaming — see [Messaging architecture](../../architecture/messaging.md).
-
 ## Concepts at a glance
 
-Spring Voyage models each routable participant — an agent, a unit (an agent that has children), a human — as an **actor** with a stable `Guid` identity. A **message** travels from a `From` address to a `To` address, carrying a **thread id** so the receiving actor knows which thread the message belongs to. A domain message is a **one-way event** — "something happened" — delivered to the recipient; the sender is never blocked on a return value ([ADR-0053](../../decisions/0053-units-are-agents-and-one-way-delivery.md)). A **connector** also has an address, but it is a non-routable bridge, not an actor — its address appears only as a message's `From`, identifying the external origin of an inbound event.
+Spring Voyage models each routable participant — an agent, a unit (an agent that has children), a human — as an **actor** with a stable `Guid` identity. A **message** travels from a `From` address to a `To` address, carrying a **thread id** so the receiving actor knows which thread the message belongs to. A domain message is a **one-way event** — "something happened" — delivered to the recipient; the sender is never blocked on a return value. A **connector** also has an address, but it is a non-routable bridge, not an actor — its address appears only as a message's `From`, identifying the external origin of an inbound event.
 
-An address is the pair `(scheme, Guid)` and renders on the wire as `scheme:<32-hex-no-dash>` — for example `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`. There is no path-shaped address; identity is the `Guid`. The platform does not inspect message content to decide routing; it reads the `To` scheme and id, looks the actor up in the directory, and delivers the message once. The actor on the receiving end — an `AgentActor`, `UnitActor`, or `HumanActor` — is responsible for turning the payload into work.
-
-See [Data & identity](../../architecture/data-and-identity.md) for the full identifier model (wire forms, parser rules, OSS default tenant id, manifest grammar, CLI search-with-context), and [Messaging architecture — Addressing](../../architecture/messaging.md#addressing-and-activation) for the routing surface.
+An address is the pair `(scheme, Guid)` and renders on the wire as `scheme:<32-hex-no-dash>` — for example `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`. There is no path-shaped address; identity is the `Guid`. The platform does not inspect message content to decide routing; it reads the `To` scheme and id, looks the actor up in the directory, and delivers the message once. The actor on the receiving end is responsible for turning the payload into work.
 
 ## Sending a message from the CLI
 
@@ -49,7 +45,7 @@ When the sender does not know (or does not want to pick) which member should han
 spring message send unit:dd55c4ea8d725e43a9df88d07af02b69 "Implement the login feature described in issue #15"
 ```
 
-The unit actor receives the message, applies boundary filtering, and invokes the unit's runtime through the same launcher path used for any agent. The runtime decides whether to answer directly or hand work to a child by sending it a message through the `sv.messaging.*` delivery tools (see [Units & agents](../../architecture/units-and-agents.md) and [ADR-0053](../../decisions/0053-units-are-agents-and-one-way-delivery.md)). There is no platform orchestration layer — "delegation" is message content the recipient's runtime interprets.
+The unit actor receives the message, applies boundary filtering, and invokes the unit's runtime through the same launcher path used for any agent. The runtime decides whether to answer directly or hand work to a child by sending it a message. There is no platform orchestration layer — "delegation" is message content the recipient's runtime interprets.
 
 ### Example: multicast
 
@@ -61,10 +57,10 @@ A thread is the durable record of one participant set's shared exchanges. Every 
 
 - **Creation.** Sending a message without `--thread` starts a new thread. The server assigns a fresh thread id and returns it to the sender.
 - **Continuation.** Sending additional messages with the same `--thread <id>` appends them to that thread. By default an agent processes each of its threads concurrently (one in-flight turn per thread), preserving per-thread FIFO order.
-- **Lifelong record ([ADR-0030](../../decisions/0030-thread-model.md)).** A thread is a persistent record of a participant set's shared exchanges — there is no system-level "close" verb. The legitimate "I'm done with this thread" semantic is a per-(thread, participant) `ParticipantStateChanged` transition to `removed`.
+- **Lifelong record.** A thread is a persistent record of a participant set's shared exchanges — there is no system-level "close" verb. The legitimate "I'm done with this thread" semantic is achieved through a state transition on the thread.
 - **One-way delivery.** When a turn completes, the runtime's response is **recorded on the originating thread** — it is never routed back to `Message.From`. A unit or agent that wants to respond sends a *new* one-way message on the thread.
 
-See [Messaging architecture — The agent mailbox](../../architecture/messaging.md#the-agent-mailbox) for the mailbox partitioning that makes this deadlock-free.
+Each agent processes its threads concurrently while preserving per-thread FIFO order.
 
 ### Follow-ups and reading a thread
 
@@ -116,11 +112,9 @@ See [Observing Activity](observing.md#threads-and-inbox) for more examples.
 | `unit`        | `unit:<32-hex-no-dash>`        | You want the unit's runtime to handle the work (answer directly or hand it to a child via the `sv.messaging.*` delivery tools). |
 | `human`       | `human:<32-hex-no-dash>`       | You want to deliver a message to a human participant (notifications, approvals, escalations).         |
 
-There is no `connector` send target: connectors are non-routable bridges ([ADR-0053](../../decisions/0053-units-are-agents-and-one-way-delivery.md)). A connector translates inbound external events into messages and exposes outbound skills agents invoke — you never send a message *to* one.
+There is no `connector` send target: connectors are non-routable bridges. A connector translates inbound external events into messages and exposes outbound skills agents invoke — you never send a message *to* one.
 
 Address parsers are lenient: the dashed Guid form (`agent:8c5fab2a-8e7e-4b9c-92f1-d8a3b4c5d6e7`) is accepted everywhere, but the canonical render uses the no-dash form. `display_name` is presentation-only — never an addressable handle. Use `spring agent show <name>` / `spring unit show <name>` to look up the canonical id when you only know a name.
-
-See [Data & identity](../../architecture/data-and-identity.md) for the wire-form rules and [Messaging architecture — Addressing](../../architecture/messaging.md#addressing-and-activation) for the resolution algorithm and permission model.
 
 ## Cross-unit messaging
 

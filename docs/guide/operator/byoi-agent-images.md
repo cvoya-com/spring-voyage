@@ -2,7 +2,7 @@
 
 > **Audience.** Operators and platform engineers who want to ship a custom agent container image — pre-baked with proprietary CLIs, internal trust anchors, a non-Debian distro, or rootless / non-default UID models — and have Spring Voyage's `A2AExecutionDispatcher` invoke it the same way it invokes the built-in launchers (Claude Code, Codex, Gemini, Spring Voyage Agent).
 
-> **Scope.** Step-by-step recipes for each of the three conformance paths defined in [ADR 0027](../../decisions/0027-agent-image-conformance-contract.md), with copy-pasteable Dockerfile snippets, the launcher env-var contract (`SPRING_AGENT_ARGV`, `SPRING_MCP_ENDPOINT`, …), version compatibility rules, and debugging tips.
+> **Scope.** Step-by-step recipes for each of the three conformance paths, with copy-pasteable Dockerfile snippets, the launcher env-var contract (`SPRING_AGENT_ARGV`, `SPRING_MCP_ENDPOINT`, …), version compatibility rules, and debugging tips.
 
 ---
 
@@ -30,7 +30,7 @@ Path 1 is the default. Pick path 2 when you can't use the recommended base. Pick
 
 ## Background: how the dispatcher launches your image
 
-When a turn arrives for an `agent:<id>` address whose `execution.runtime` matches your launcher (or one of the built-in launchers — Claude Code uses path 1, the Spring Voyage Agent uses path 3), the dispatcher executes the unified path documented in [ADR 0025](../../decisions/0025-unified-agent-launch-contract.md):
+When a turn arrives for an `agent:<id>` address whose `execution.runtime` matches your launcher (or one of the built-in launchers — Claude Code uses path 1, the Spring Voyage Agent uses path 3), the dispatcher executes the unified dispatch path:
 
 ```text
 A2AExecutionDispatcher.DispatchAsync(message, context)
@@ -80,11 +80,11 @@ docker build -t ghcr.io/my-org/my-claude-image:dev -f Dockerfile .
 
 That's the entire path 1 recipe. The bridge is the image's PID 1; the dispatcher dials `:8999`; your CLI is spawned per `message/send` with the argv vector the launcher stamps into `SPRING_AGENT_ARGV`.
 
-The built-in `Cvoya.Spring.Dapr.Execution.ClaudeCodeLauncher` is the canonical example of how a launcher pairs with a path-1 image:
+The built-in Claude Code launcher is the canonical example of how a launcher pairs with a path-1 image:
 
 - It leaves `AgentLaunchSpec.Argv` empty so the base image's ENTRYPOINT (the bridge) takes over.
-- It stamps `SPRING_AGENT_ARGV` with the CLI argv (`["claude","--print","--dangerously-skip-permissions"]`). Plain text output today; structured stream-json output is tracked in #2226.
-- It writes `CLAUDE.md` (the assembled prompt) and `.mcp.json` (the sidecar-local MCP-server-mode stdio command, per [ADR-0057](../../decisions/0057-sidecar-local-mcp-server.md)) into the workspace; the CLI never sees the per-turn MCP token, which the long-running sidecar writes to a workspace-resident token file and the per-turn MCP-server-mode child reads on startup.
+- It stamps `SPRING_AGENT_ARGV` with the CLI argv (`["claude","--print","--dangerously-skip-permissions"]`).
+- It writes `CLAUDE.md` (the assembled prompt) and `.mcp.json` (the sidecar-local MCP-server-mode stdio command) into the workspace.
 - It puts the same prompt on `AgentLaunchSpec.StdinPayload` so the bridge feeds it to `claude`'s stdin.
 
 A custom launcher pointed at your image would mirror that shape: leave `Argv` empty, set `SPRING_AGENT_ARGV` to whatever your CLI needs, and (optionally) set `StdinPayload` if your CLI consumes stdin.
@@ -97,7 +97,7 @@ Pick this path when path 1 doesn't fit: you need a non-Debian distro, your image
 
 The bridge is distributed as a per-target single-executable binary (SEA) attached to every GitHub Release: `spring-voyage-agent-sidecar-<v>-linux-amd64`, `spring-voyage-agent-sidecar-<v>-linux-arm64`, `spring-voyage-agent-sidecar-<v>-darwin-arm64`. No Node runtime required — the binary self-contains its V8 + libuv. Copy it into your image and set it as the ENTRYPOINT.
 
-`BRIDGE_VERSION` in the example below is the bridge SemVer — the same as the platform release version, since the unified `release.yml` publishes the bridge OCI image and the SEA binaries in lockstep on every `spring-voyage-v<version>` tag. Pick the version off the [Releases page](https://github.com/cvoya-com/spring-voyage/releases) and use the prefix-stripped SemVer (`1.0.0`, not `spring-voyage-v1.0.0`) — the asset URL embeds the bare SemVer in its filename.
+`BRIDGE_VERSION` in the example below is the bridge SemVer — the same as the platform release version. Pick the version off the [Releases page](https://github.com/cvoya-com/spring-voyage/releases) and use the prefix-stripped SemVer (`1.0.0`, not `spring-voyage-v1.0.0`) — the asset URL embeds the bare SemVer in its filename.
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
@@ -129,7 +129,7 @@ ENTRYPOINT ["/usr/local/bin/spring-voyage-agent-sidecar"]
 
 The SEA binaries are built from the same source as the path-1 base image; both ship in lockstep on every `spring-voyage-vX.Y.Z` tag.
 
-> **Historical note.** Earlier releases also published the bridge as an npm package `@cvoya/spring-voyage-agent-sidecar`, which let path-2 images install it with `npm install -g` on any Node-bearing distro. The npm package is no longer published as of 2026-05-13; previously published versions remain on npmjs.org but no new versions ship. The SEA binary is the supported path-2 install method going forward. The in-tree smoke fixture at [`tests/fixtures/byoi-path2/Dockerfile`](../../../tests/fixtures/byoi-path2/Dockerfile) still exercises the `npm install` path against a local `npm pack` of the in-tree sidecar source (not against npmjs.org), to keep CI coverage of that historical install shape while it remains technically supported.
+> **Historical note.** Earlier releases also published the bridge as an npm package `@cvoya/spring-voyage-agent-sidecar`. The npm package is no longer published; previously published versions remain on npmjs.org but no new versions ship. The SEA binary is the supported path-2 install method going forward.
 
 ---
 
@@ -155,7 +155,7 @@ ENTRYPOINT ["python", "agent.py"]
 
 Inside `agent.py` the agent constructs an `A2AStarletteApplication`, registers the JSON-RPC verbs (`message/send`, `tasks/cancel`, `tasks/get`), and serves it over uvicorn on `0.0.0.0:8999`. The Agent Card returned at `GET /.well-known/agent.json` carries `protocolVersion: "0.3"` and the `version` field your image advertises. There is no `SPRING_AGENT_ARGV` involvement on path 3 because the in-container process *is* the agent — nothing is spawned per turn.
 
-The corresponding launcher (`SpringVoyageAgentLauncher`) returns an `AgentLaunchSpec` with `Argv` left to the image's ENTRYPOINT and `A2APort = 8999`; the dispatcher dials the running A2A server directly.
+The corresponding launcher returns a launch spec with `Argv` left to the image's ENTRYPOINT and `A2APort = 8999`; the dispatcher dials the running A2A server directly.
 
 ---
 
@@ -165,7 +165,7 @@ Whichever path you pick, the dispatcher (and the launcher you configure for your
 
 ### `SPRING_AGENT_ARGV` (paths 1 and 2 only)
 
-A **JSON-encoded array of strings** the bridge spawns on every `message/send`. The bridge `JSON.parse`s it and execs the result as `argv[0]` with `argv[1..]` — no shell, no string-splitting, no `eval`. The JSON-array shape is non-negotiable: it's the only way to express argv elements that contain whitespace, backslashes, or quotes without ambiguity (see [#1063](https://github.com/cvoya-com/spring-voyage/issues/1063) for the original burn).
+A **JSON-encoded array of strings** the bridge spawns on every `message/send`. The bridge `JSON.parse`s it and execs the result as `argv[0]` with `argv[1..]` — no shell, no string-splitting, no `eval`. The JSON-array shape is non-negotiable: it's the only way to express argv elements that contain whitespace, backslashes, or quotes without ambiguity.
 
 Examples:
 
@@ -323,9 +323,7 @@ curl -fsS -X POST http://localhost:8999/ \
 
 A healthy bridge returns `result.task.status.state: "TASK_STATE_COMPLETED"` and a `result.task.artifacts` array carrying whatever the spawned process wrote to stdout. A failure surfaces as `result.task.status.state: "TASK_STATE_FAILED"` with the error in `result.task.status.message` (`role: "ROLE_AGENT"`).
 
-> **Why proto-style enum names?** The `message/send` result is the .NET A2A SDK's [`SendMessageResponse`](https://github.com/a2aproject/a2a-dotnet/blob/main/src/A2A/Models/SendMessageResponse.cs) — a field-presence wrapper around either `task` (an [`AgentTask`](https://github.com/a2aproject/a2a-dotnet/blob/main/src/A2A/Models/AgentTask.cs)) or `message` (a [`Message`](https://github.com/a2aproject/a2a-dotnet/blob/main/src/A2A/Models/Message.cs)). The SDK pins every enum (`TaskState`, `Role`, …) to the proto-style names via `[JsonStringEnumMemberName]` (see [`TaskState.cs`](https://github.com/a2aproject/a2a-dotnet/blob/main/src/A2A/Models/TaskState.cs) and [`Role.cs`](https://github.com/a2aproject/a2a-dotnet/blob/main/src/A2A/Models/Role.cs)) and rejects the lowercase A2A 0.3 spec form with a `JsonException`. The bridge picks the .NET-side casing because the SDK is the wire-stable consumer; tracked in [#1115](https://github.com/cvoya-com/spring-voyage/issues/1115).
->
-> The dispatcher's `tasks/get` and `tasks/cancel` calls deserialize the result as a bare `AgentTask` (no `task` wrapper), since `A2AClient.GetTaskAsync` and `CancelTaskAsync` are typed `Task<AgentTask>`. Only `message/send` requires the wrapper.
+The dispatcher's `tasks/get` and `tasks/cancel` calls deserialize the result as a bare `AgentTask` (no `task` wrapper). Only `message/send` requires the wrapper.
 
 ### Common pitfalls
 
@@ -333,9 +331,9 @@ A healthy bridge returns `result.task.status.state: "TASK_STATE_COMPLETED"` and 
 |---------|--------------|
 | Dispatcher logs `Failed to reach /.well-known/agent.json` after 60 s. | ENTRYPOINT isn't the bridge. PID 1 has to be the bridge (paths 1/2) or your A2A server (path 3). |
 | `message/send` returns `TASK_STATE_FAILED` immediately on every turn (paths 1/2). | `SPRING_AGENT_ARGV` is missing, mis-encoded (string instead of JSON array), or points at a binary that's not on PATH. |
-| Dispatcher logs `bridge version skew: expected 1.x, observed 0.x`. | The agent image is pinning an older bridge than the dispatcher's compatibility window allows. Re-base on a current `agent-base` tag, or bump the SEA binary version (or the legacy npm package version if you're still on the historical path-2 recipe). |
+| Dispatcher logs `bridge version skew: expected 1.x, observed 0.x`. | The agent image is pinning an older bridge than the dispatcher's compatibility window allows. Re-base on a current `agent-base` tag, or bump the SEA binary version. |
 | Agent picks up no MCP tools. | `SPRING_MCP_ENDPOINT` is unreachable from inside the container. On Linux + Podman you typically need `--add-host host.docker.internal:host-gateway`; the dispatcher already adds this to ephemeral configs, but a custom path-3 image must honour the env even if the network setup differs. |
-| Persistent agent restarts every few seconds. | The `PersistentAgentRegistry` health monitor is flagging `/.well-known/agent.json` as unhealthy. Read the dispatcher's logs for the failed probe response. A misconfigured proxy (returning HTML instead of JSON) is a common cause. |
+| Persistent agent restarts every few seconds. | The persistent agent registry health monitor is flagging `/.well-known/agent.json` as unhealthy. Read the dispatcher's logs for the failed probe response. A misconfigured proxy (returning HTML instead of JSON) is a common cause. |
 
 ---
 
@@ -352,10 +350,10 @@ The script publishes each image on a random host port, waits for `/.well-known/a
 
 ### `smoke-1087.sh` — full A2A round-trip across both bridge-bearing paths
 
-`tests/smoke/smoke-1087.sh` is the wire-level conformance smoke for the unified dispatch path. It boots an agent image, polls `/.well-known/agent.json`, fires an A2A `message/send`, and asserts a real response (`result.task.status.state == "TASK_STATE_COMPLETED"`, prompt echoed back via the bridge spawning `cat`). The proto-style enum names follow the .NET A2A SDK contract pinned via `[JsonStringEnumMemberName]`; see issue #1115 for the rationale. It covers both bridge-bearing conformance paths from ADR 0027:
+`tests/smoke/smoke-1087.sh` is the wire-level conformance smoke for the unified dispatch path. It boots an agent image, polls `/.well-known/agent.json`, fires an A2A `message/send`, and asserts a real response (`result.task.status.state == "TASK_STATE_COMPLETED"`, prompt echoed back via the bridge spawning `cat`). It covers both bridge-bearing conformance paths:
 
 ```bash
-# Path 1 only (default; what CI ran on every PR before #1120).
+# Path 1 only (default).
 bash tests/smoke/smoke-1087.sh
 bash tests/smoke/smoke-1087.sh --path 1
 
@@ -369,7 +367,7 @@ bash tests/smoke/smoke-1087.sh --path 2
 bash tests/smoke/smoke-1087.sh --path all
 ```
 
-The CI job `Agent images build + smoke` runs `--path all` on every PR that touches `eng/build/Dockerfile.agent-*`, `src/Cvoya.Spring.AgentSidecar/**`, `agents/spring-voyage-agent/**`, `tests/smoke/smoke-1087.sh`, or `tests/fixtures/byoi-path2/**` — so a sidecar source change, a Dockerfile change, or a smoke-script change exercises both BYOI conformance paths before merge. Path 3 (native A2A) stays gated behind `SMOKE_DAPR=1` pending [#1110](https://github.com/cvoya-com/spring-voyage/issues/1110).
+The CI job `Agent images build + smoke` runs `--path all` on every PR that touches agent image sources — so a sidecar source change, a Dockerfile change, or a smoke-script change exercises both BYOI conformance paths before merge.
 
 For the full ephemeral-dispatch round-trip (`StartAsync → readiness → A2A → ReleaseAsync`), the `EphemeralDispatchSmokeTests` integration test in `tests/integration/Cvoya.Spring.Integration.Tests/` runs against a real container runtime when you set `SPRING_RUN_DOCKER_SMOKE=1`:
 
@@ -382,9 +380,5 @@ SPRING_RUN_DOCKER_SMOKE=1 dotnet test tests/integration/Cvoya.Spring.Integration
 
 ## See also
 
-- ADR [0025](../../decisions/0025-unified-agent-launch-contract.md) — the unified dispatch path and the launcher contract (`AgentLaunchSpec`).
-- ADR [0026](../../decisions/0026-per-agent-container-scope.md) — why containers are per-agent, not per-unit.
-- ADR [0027](../../decisions/0027-agent-image-conformance-contract.md) — the canonical statement of the wire contract and the three conformance paths.
-- [`docs/architecture/agent-runtime.md`](../../architecture/agent-runtime.md) — full architecture of the dispatcher, the launcher tiers, and the BYOI conformance section that this guide operationalises.
-- [`src/Cvoya.Spring.AgentSidecar/README.md`](../../../src/Cvoya.Spring.AgentSidecar/README.md) — bridge wire contract reference (response headers, JSON-RPC verbs, env defaults).
-- [`tests/smoke/smoke-agent-images.sh`](../../../tests/smoke/smoke-agent-images.sh) — the smoke driver for the in-tree images.
+- [Spring Voyage GitHub Releases page](https://github.com/cvoya-com/spring-voyage/releases) — where to find the agent-base image tags and SEA binary versions.
+- [Connectors operator guide](connectors.md) — parallel guide for per-tenant connector installs.

@@ -2,7 +2,7 @@
 
 > **Audience.** Operators running Spring Voyage OSS who want to install the built-in dogfooding package on their tenant — a single unit with engineer and PM agents attached directly that uses the platform to develop the platform itself.
 
-> **Scope.** How to install and verify the package. For the conceptual overview — what each agent role is responsible for and how the unit's own runtime coordinates them — see [`docs/concepts/spring-voyage-oss.md`](../../concepts/spring-voyage-oss.md). For the design rationale, see [`docs/decisions/0034-oss-dogfooding-unit.md`](../../decisions/0034-oss-dogfooding-unit.md).
+> **Scope.** How to install and verify the package. For the conceptual overview and design details, see related documentation links at the end of this guide.
 
 ---
 
@@ -105,14 +105,14 @@ Should show a single entry:
 | ---- | ------ |
 | `spring-voyage-oss` | active |
 
-The `spring-voyage-oss` unit holds the single `github` connector binding (matching the qualified `owner/repo` and `installation_id` you supplied). Webhooks the GitHub App delivers for that repository land on the unit's mailbox as one-way domain messages; the unit's own runtime runs and hands each event to the engineer or PM agent that owns the work by sending it a message. Per [ADR-0047](../../decisions/0047-platform-user-human-split.md) §10 the webhook handler keys on `(tenant, owner, repo)` and fans out to every matching binding in the tenant — a property the package design relies on (the unit is the only binding) and that another unit family bound to the same repo would extend cleanly with its own filters.
+The `spring-voyage-oss` unit holds the single `github` connector binding (matching the qualified `owner/repo` and `installation_id` you supplied). Webhooks the GitHub App delivers for that repository land on the unit's mailbox; the unit's own runtime runs and hands each event to the engineer or PM agent that owns the work.
 
 The unit has:
 
 - `execution.hosting: persistent` on the engineer and PM agent templates so the agent containers stay warm across messages — appropriate for a team that runs continuously rather than per-request.
 - A per-agent persistent volume mounted at `$SPRING_WORKSPACE_PATH` (`/spring/workspace`). Each agent clones the bound repository into its own volume on first use and develops subsequent tasks from worktrees alongside the clone. The volume survives container restarts, so a recycled container resumes work without re-cloning. No host-side bind mount or pre-seeded checkout is required from the operator.
 
-Agent members do not bind the GitHub connector themselves; they inherit `$GITHUB_TOKEN` and the other GitHub env vars from the unit's binding via the platform's connector binding-walk (closest binding in the parent chain wins), so `gh` and `git` work in every container without further configuration. The workspace layout, env-var contract, and clone-and-refresh bootstrap each agent runs are documented once in [`docs/architecture/agent-runtime.md` § 4i — Per-agent workspace volume](../../architecture/agent-runtime.md#4i-per-agent-workspace-volume); the package's prompts reference it rather than redefining it per role.
+Agent members inherit `$GITHUB_TOKEN` and the other GitHub env vars from the unit's binding, so `gh` and `git` work in every container without further configuration.
 
 ---
 
@@ -159,7 +159,5 @@ Expected response: cites scope discipline, references the active plan-of-record 
 
 ## Where to go next
 
-- [`docs/concepts/spring-voyage-oss.md`](../../concepts/spring-voyage-oss.md) — what the unit is: agent-role responsibilities, router prompt, how it dogfoods the platform.
-- [`docs/decisions/0034-oss-dogfooding-unit.md`](../../decisions/0034-oss-dogfooding-unit.md) — why this design: role decomposition, FROM-agent-base + claude-code image strategy, `hosting: persistent`, connector binding at install time.
 - [`packages/spring-voyage-oss/README.md`](../../../packages/spring-voyage-oss/README.md) — package internals: unit and agent YAML layout, connector declaration, and post-install steps.
-- [`docs/guide/operator/byoi-agent-images.md`](byoi-agent-images.md) — conformance contract the OSS images satisfy (BYOI path 1).
+- [`docs/guide/operator/byoi-agent-images.md`](byoi-agent-images.md) — conformance contract the OSS images satisfy.

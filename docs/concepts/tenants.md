@@ -13,11 +13,11 @@ A tenant is the top-level boundary for:
 
 A tenant has a stable `Guid` identity and a `display_name`. The tenant row itself anchors the membership graph: top-level units appear as membership rows whose parent is the tenant, and the membership graph rooted there is the addressing fabric for the whole deployment. There is no separate "root unit" entity.
 
-The OSS deployment runs functionally single-tenant. Every fresh-install row is owned by the deterministic v5 UUID `OssTenantIds.Default` (`dd55c4ea-8d72-5e43-a9df-88d07af02b69`); see [Data & identity](../architecture/data-and-identity.md#the-oss-default-tenant).
+The OSS deployment runs functionally single-tenant. Every fresh-install row is owned by the well-known OSS default tenant (`dd55c4ea-8d72-5e43-a9df-88d07af02b69`).
 
 ## `TenantUser`: the authenticated principal
 
-A **`TenantUser`** is the authenticated principal of Spring Voyage scoped to **one tenant** ([ADR-0047 §1](../decisions/0047-platform-user-human-split.md)). It is a distinct actor kind from `Human` — the [`Human`](humans.md) row is a configuration entity declared by a package; the `TenantUser` is the entity that holds an authenticated session, owns display-side connector identities, and answers "who am I, on this connector, in this tenant?"
+A **`TenantUser`** is the authenticated principal of Spring Voyage scoped to **one tenant**. It is a distinct entity from `Human` — the [`Human`](humans.md) row is a configuration entity declared by a package; the `TenantUser` is the entity that holds an authenticated session, owns display-side connector identities, and answers "who am I, on this connector, in this tenant?"
 
 The natural key on `TenantUserEntity` is `(tenant_id, auth_subject)`, where `auth_subject` is the OAuth `sub` claim (nullable in OSS dev where the operator may not OAuth-authenticate — there the row is pinned by its deterministic UUID below).
 
@@ -25,17 +25,17 @@ The natural key on `TenantUserEntity` is `(tenant_id, auth_subject)`, where `aut
 
 A `TenantUser` belongs to exactly one tenant. The **same human authenticated against two tenants produces two distinct `TenantUser` rows**, each with its own connector-identity history. After OAuth login the system looks up every `TenantUser` whose `auth_subject` matches the OAuth `sub`; the caller picks a tenant context; subsequent requests operate in that tenant context. There is no global-user concept and no shared connector-identity history across tenants — a user who appears in two tenants and uses GitHub in both has two `TenantUserConnectorIdentity` rows for GitHub, one per tenant, and may legitimately have different handles configured per tenant.
 
-This is the deliberate counterpart to the cross-tenant isolation rules below ([Multi-Tenancy Isolation](#multi-tenancy-isolation)) — identity rows respect the same tenant boundary as data rows.
+Identity rows respect the same tenant boundary as data rows.
 
 ### Display-side connector identity lives here
 
-Connector handles — a GitHub login, a Slack member id, an email — are owned by the `TenantUser`, not by the `Human` row. The mapping rows live in `TenantUserConnectorIdentity` with the natural key `(tenant_id, tenant_user_id, connector_id)` and the narrow shape `{ username, display_handle? }` ([ADR-0047 §2](../decisions/0047-platform-user-human-split.md)). The row is strictly display identity — no PAT, no installation override, no auth fields. Outbound credentials live on the unit binding, never on the tenant-user row.
+Connector handles — a GitHub login, a Slack member id, an email — are owned by the `TenantUser`, not by the `Human` row. The mapping records are scoped to `(tenant_id, tenant_user_id, connector_id)` and carry `{ username, display_handle? }`. These are strictly display identity — no secrets, no installation override, no auth fields. Outbound credentials live on the unit binding, never on the tenant-user row.
 
 The `Human → TenantUser` mapping is the display / mention / attribution seam — see [Humans § Human → TenantUser display mapping](humans.md#human--tenantuser-display-mapping).
 
 ### OSS operator `TenantUser`
 
-The OSS deployment ships with exactly one `TenantUser` — the operator. The id is a deterministic v5 UUID pinned as `OssTenantUserIds.Operator` (`5c4c8e29-d91b-5b50-8651-64536cfb68ee`), derived from namespace `00000000-0000-0000-0000-000000000000` and label `cvoya/tenant-user/oss-operator` — the same recipe shape used by `OssTenantIds.Default` ([ADR-0047 §3](../decisions/0047-platform-user-human-split.md)). The constant is exposed on `src/Cvoya.Spring.Core/Tenancy/OssTenantUserIds.cs` with both dashed and no-dash string literals for grep-ability across configuration files, dashboards, and audit logs. See [Data & identity](../architecture/data-and-identity.md#the-oss-default-tenant).
+The OSS deployment ships with exactly one `TenantUser` — the operator. The id is a deterministic UUID derived from a standard recipe to ensure consistency across deployments. See the data model documentation for details.
 
 In OSS every `Human` resolves to this single tenant user — the operator's GitHub / Slack / Linear handles are configured once, on the operator's `TenantUserConnectorIdentity` rows, and serve every `Human` declared by every installed package.
 
@@ -63,11 +63,11 @@ Within a unit a human holds one of three roles:
 | **Operator** | Start/stop agents, interact with agents, view everything |
 | **Viewer** | Read-only access — state, activity feed, metrics, agent status |
 
-Permission resolution for a `(human, unit)` pair is **hierarchy-aware**: a direct grant wins, otherwise the nearest ancestor grant cascades down, and a unit can opt out of inheritance by being `Isolated`. The walk is depth-bounded and fails closed. See [Security § Authorisation](../architecture/security.md#authorisation) and [ADR-0013](../decisions/0013-hierarchy-aware-permission-resolution.md).
+Permission resolution for a `(human, unit)` pair is **hierarchy-aware**: a direct grant wins, otherwise the nearest ancestor grant cascades down, and a unit can opt out of inheritance by being `Isolated`. The walk is depth-bounded and fails closed.
 
 ## Tool authorisation
 
-What an agent may *do* is governed by its effective tool set and unit policy, not by a separate per-agent permission list. Every `sv.*` MCP tool call passes the effective-grant gate and unit-policy enforcement before the tool runs. See [Tools](tools.md) and [Architecture: Security](../architecture/security.md#tool-authorisation).
+What an agent may *do* is governed by its effective tool set and unit policy, not by a separate per-agent permission list. Every `sv.*` MCP tool call passes the effective-grant gate and unit-policy enforcement before the tool runs. See [Tools](tools.md).
 
 ## Tenant Policies
 

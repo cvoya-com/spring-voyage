@@ -4,7 +4,7 @@
 
 > **Scope.** The auth *choices* a binding can make and their trade-offs. For the mechanics of registering and installing the per-deployment GitHub App, see [GitHub App setup](github-app-setup.md). For the binding CLI/wizard, see [Per-unit connector binding](../user/units-and-agents.md).
 
-A GitHub connector binding stores a qualified `owner/repo` plus **exactly one** auth field ([ADR-0047](../../decisions/0047-platform-user-human-split.md) §11): a **GitHub App installation** or a **PAT secret**. The two map to fundamentally different GitHub identities, so the choice is not cosmetic — it decides *who* the action is attributed to and *what* it is allowed to do.
+A GitHub connector binding stores a qualified `owner/repo` plus **exactly one** auth field: a **GitHub App installation** or a **PAT secret**. The two map to fundamentally different GitHub identities, so the choice is not cosmetic — it decides *who* the action is attributed to and *what* it is allowed to do.
 
 ## The two identities GitHub gives you
 
@@ -33,7 +33,7 @@ Requires: `spring github-app register`, installing the App on the org/repo (admi
 
 ### PAT — repos you don't own (the OSS-contributor path)
 
-When you want a unit to contribute to a public repo you are **not** a maintainer of, you cannot install your App there — so the App path is a dead end, and the repo will never appear in the wizard's installation dropdown. Use a PAT instead. The unit then acts **as you**, with exactly your GitHub permissions: on a public repo that means open issues, comment, and fork → PR. ([ADR-0047](../../decisions/0047-platform-user-human-split.md) establishes "a PAT against a repo without the SV App installed" — its *use case 1* — as a first-class binding shape.)
+When you want a unit to contribute to a public repo you are **not** a maintainer of, you cannot install your App there — so the App path is a dead end, and the repo will never appear in the wizard's installation dropdown. Use a PAT instead. The unit then acts **as you**, with exactly your GitHub permissions: on a public repo that means open issues, comment, and fork → PR.
 
 **This is the simpler install.** For the contributor use case you can skip the GitHub App entirely — no `spring github-app register`, no "Link GitHub account" OAuth, and none of the `https`/`localhost` OAuth-callback setup that comes with the App. The whole GitHub setup is:
 
@@ -54,7 +54,7 @@ spring connector bind --unit <unit-id> --type github --repo owner/repo --pat-sec
 
 ## Webhooks (inbound events) with a PAT
 
-**Yes — inbound events work with a PAT binding.** The webhook handler routes deliveries on `(tenant, owner, repo)`, not on an installation ID ([ADR-0047](../../decisions/0047-platform-user-human-split.md) §10), so a delivery for `owner/repo` lands on a PAT binding exactly as it would on an App binding.
+**Yes — inbound events work with a PAT binding.** The webhook handler routes deliveries on `(tenant, owner, repo)`, so a delivery for `owner/repo` lands on a PAT binding exactly as it would on an App binding.
 
 The real gate is **not** the PAT — it's the forwarder. `gh webhook forward` (the local-dev inbound path) registers a short-lived forwarding hook, which requires **repository admin** on the target repo ([local-dev recipe](github-app-setup.md#local-dev-recipe)). Therefore:
 
@@ -82,5 +82,4 @@ So a shared App is not a permissions shortcut; at most it is a **UX** convenienc
 
 - [GitHub App setup](github-app-setup.md) — registering and installing the per-deployment App, and the `gh webhook forward` local-dev recipe.
 - [OSS dogfooding unit](dogfooding-oss-unit.md) — the App-installation path end to end against `cvoya-com/spring-voyage`.
-- [ADR-0047 — platform / user / human split](../../decisions/0047-platform-user-human-split.md) — the binding shape (§11), `(owner, repo)` webhook routing (§10), and the PAT-without-App use case.
 - [Secrets](secrets.md) — storing and scoping the PAT secret.

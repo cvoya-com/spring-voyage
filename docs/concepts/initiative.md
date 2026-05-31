@@ -13,6 +13,4 @@ It is a spectrum, not an on/off switch:
 
 Higher levels require more permissions. Initiative is governed by unit-level policies (allowed/blocked actions, cost limits, approval requirements) so it stays useful without being uncontrolled.
 
-To keep cost predictable, Spring Voyage runs initiative through a two-tier cognition model: a cheap, locally-hosted screening LLM filters incoming events, and the agent's primary LLM only reflects on the small fraction that warrants attention. See [ADR 0020 — Tiered cognition for initiative](../decisions/0020-tiered-cognition-for-initiative.md) for the rationale.
-
-For the full execution model — Tier 1/Tier 2 mechanics, the perceive-reflect-decide-act-learn loop, and policy enforcement — see [Architecture: Units & agents § Initiative](../architecture/units-and-agents.md#initiative).
+To keep cost predictable, Spring Voyage runs initiative through a two-tier cognition model: a cheap, locally-hosted screening LLM filters incoming events, and the agent's primary LLM only reflects on the small fraction that warrants attention.

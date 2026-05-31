@@ -2,25 +2,25 @@
 
 A **template** is an artefact folder that does not activate. It exists to be cloned. Templates separate the *type* of a unit, agent, or human team-member (its shared instructions, runtime, expertise, roles, …) from the *instances* that activate at install time. One software-engineer template, instantiated three times, ships three concrete agents with newly minted identities — each editable in isolation but starting from one shared definition.
 
-This page covers what templates are, when to use them, and how the `from:` operator stamps instances. The grammar for `AgentTemplate` and `UnitTemplate` lives in [ADR-0043 §5](../decisions/0043-recursive-package-format.md#5-type-and-instance-templates-are-non-activating-artefact-folders-cloned-by-from); the `HumanTemplate` addition is in [ADR-0046 §§4–5](../decisions/0046-unified-members-grammar.md); this page explains the why.
+This page covers what templates are, when to use them, and how the `from:` operator stamps instances.
 
 ## Why templates exist
 
-Without templates, a package that ships three agents with the same instructions, the same runtime, and the same expertise has to ship three folders of duplicated content. The duplication drifts the moment one instance is edited and the others aren't. The recursive folder layout from [ADR-0043 §1](../decisions/0043-recursive-package-format.md#1-every-standalone-artefact-is-a-folder-rooted-at-packageyaml) makes that problem more visible, not less — every duplicated agent also duplicates its companion files (READMEs, embedded skills).
+Without templates, a package that ships three agents with the same instructions, the same runtime, and the same expertise has to ship three folders of duplicated content. The duplication drifts the moment one instance is edited and the others aren't. The recursive folder layout makes that problem more visible, not less — every duplicated agent also duplicates its companion files (READMEs, embedded skills).
 
 Templates resolve the duplication without introducing a parallel grammar. A template is shaped exactly like the concrete artefact it stands in for; the only delta is non-activation and the `from:` clone operator. Three engineering teams from one definition is three thin `from:` references, not three folders that have to be kept in sync by hand.
 
 ## Template kinds
 
-| `kind:` | Stands in for | Folder lives under | Source |
-|---|---|---|---|
-| `AgentTemplate` | `kind: Agent` | `templates/` | [`AgentTemplateManifest.cs`](../../src/Cvoya.Spring.Manifest/AgentTemplateManifest.cs) |
-| `UnitTemplate` | `kind: Unit` | `templates/` | [`UnitTemplateManifest.cs`](../../src/Cvoya.Spring.Manifest/UnitTemplateManifest.cs) |
-| `HumanTemplate` | `- human:` member entry | `templates/` | [`HumanTemplateManifest.cs`](../../src/Cvoya.Spring.Manifest/HumanTemplateManifest.cs) |
+| `kind:` | Stands in for | Folder lives under |
+|---|---|---|
+| `AgentTemplate` | `kind: Agent` | `templates/` |
+| `UnitTemplate` | `kind: Unit` | `templates/` |
+| `HumanTemplate` | `- human:` member entry | `templates/` |
 
-All three are first-class kinds in the catalog ([ADR-0046 §4](../decisions/0046-unified-members-grammar.md) added `HumanTemplate` alongside the two from ADR-0043 §5). There is no `abstract: true` flag; the kind is the discriminator. An `AgentTemplate` accepts every field its concrete counterpart accepts (`ai:`, `instructions:`, `expertise:`, `requires:`, a nested `skills/` directory). A `UnitTemplate` additionally accepts `members:` / `policies:` and ships the same recursive subdirectories a concrete `Unit` does (`agents/`, `units/`, `skills/`, `templates/`). A `HumanTemplate` owns no sub-artefacts — humans have no child slots — so the folder carries only its `package.yaml`.
+All three are first-class kinds in the catalog. There is no `abstract: true` flag; the kind is the discriminator. An `AgentTemplate` accepts every field its concrete counterpart accepts (`ai:`, `instructions:`, `expertise:`, `requires:`, a nested `skills/` directory). A `UnitTemplate` additionally accepts `members:` / `policies:` and ships the same recursive subdirectories a concrete `Unit` does (`agents/`, `units/`, `skills/`, `templates/`). A `HumanTemplate` owns no sub-artefacts — humans have no child slots — so the folder carries only its `package.yaml`.
 
-Templates live in a `templates/` directory at any depth ([ADR-0043 §5b](../decisions/0043-recursive-package-format.md#5b-location)). A package's root may have `templates/`; a `UnitTemplate` may carry its own `templates/`; a concrete `Unit` may carry `templates/` for unit-scoped templates that don't leak into sibling units. All three template kinds sit side by side; the inner `kind:` field disambiguates.
+Templates live in a `templates/` directory at any depth. A package's root may have `templates/`; a `UnitTemplate` may carry its own `templates/`; a concrete `Unit` may carry `templates/` for unit-scoped templates that don't leak into sibling units. All three template kinds sit side by side; the inner `kind:` field disambiguates.
 
 ## The `from:` operator
 
@@ -34,7 +34,7 @@ description: Ada — software engineer specialised in numerical work.
 from: software-engineer
 ```
 
-At install time the resolver walks the template's full folder tree and produces fresh concrete artefacts. The bare form (`from: software-engineer`) resolves within the same package. The qualified form (`from: shared-archetypes/software-engineer@1.2.0`) reaches into another installed package using the same `<pkg>/<name>@<version>` grammar as every other cross-package reference ([ADR-0043 §5h](../decisions/0043-recursive-package-format.md#5h-cross-package-addressing)).
+At install time the resolver walks the template's full folder tree and produces fresh concrete artefacts. The bare form (`from: software-engineer`) resolves within the same package. The qualified form (`from: shared-archetypes/software-engineer@1.2.0`) reaches into another installed package using the same `<pkg>/<name>@<version>` grammar as every other cross-package reference.
 
 ## Stamping semantics
 
@@ -42,14 +42,14 @@ When a concrete instance declares `from: <template>`, the install resolver:
 
 1. Reads the template's outer `package.yaml`.
 2. Merges the consumer's outer fields per the override rules below.
-3. For each artefact under the template's `agents/`, `units/`, etc., produces a fresh concrete child of the consumer instance with a newly minted Guid identity ([ADR-0036](../decisions/0036-single-identity-model.md)).
+3. For each artefact under the template's `agents/`, `units/`, etc., produces a fresh concrete child of the consumer instance with a newly minted Guid identity.
 4. Recurses into the cloned children: a nested artefact inside the template that itself declares `from:` triggers another clone.
 
 Identity is Guid, so two instances of the same template can share display names — `engineering-1`'s `team-lead` and `engineering-2`'s `team-lead` are distinct concrete agents that happen to share a display string. Disambiguation is via parent unit.
 
 ### Override rules
 
-The outer concrete instance's body overrides the template's outer fields per [ADR-0043 §5d](../decisions/0043-recursive-package-format.md#5d-overrides):
+The outer concrete instance's body overrides the template's outer fields:
 
 - **Scalars** (e.g. `instructions:`) — the instance wins; the template's value flows through if the instance is absent.
 - **Maps** (e.g. `ai: { runtime, model }`) — deep merge; instance keys win at each level. An instance can pin its model without restating the runtime.
@@ -59,7 +59,7 @@ The outer concrete instance's body overrides the template's outer fields per [AD
 
 ## `HumanTemplate`
 
-A `HumanTemplate` is the reusable team-role definition stamped from a unit's `members:` block via `- human: { from: <template-name> }` ([ADR-0046 §4](../decisions/0046-unified-members-grammar.md)). The shape mirrors a single `- human:` member entry — no children, no sub-artefacts:
+A `HumanTemplate` is the reusable team-role definition stamped from a unit's `members:` block via `- human: { from: <template-name> }`. The shape mirrors a single `- human:` member entry — no children, no sub-artefacts:
 
 ```yaml
 # packages/spring-voyage-oss/templates/oss-operator/package.yaml
@@ -79,11 +79,11 @@ Stampable fields:
 |---|---|---|
 | `displayName` | scalar | Member entry's `displayName` wins; otherwise the template's value flows through. |
 | `description` | scalar | Same as `displayName`. |
-| `roles` | list | Member entry's list **fully replaces** the template's list when present ([ADR-0046 §5](../decisions/0046-unified-members-grammar.md)). |
+| `roles` | list | Member entry's list **fully replaces** the template's list when present. |
 | `expertise` | list | Full replacement. |
 | `notifications` | list | Full replacement. |
 
-The full-replacement semantics on multi-valued lists (`roles`, `expertise`, `notifications`) match the scalar-override / list-replace rule for `AgentTemplate` and `UnitTemplate` ([ADR-0043 §5d](../decisions/0043-recursive-package-format.md#5d-overrides)). Authors who want the template's list plus extras copy the template's list and add to it; there is no partial-merge keyword in v0.1.
+The full-replacement semantics on multi-valued lists (`roles`, `expertise`, `notifications`) match the scalar-override / list-replace rule for `AgentTemplate` and `UnitTemplate`. Authors who want the template's list plus extras copy the template's list and add to it; there is no partial-merge keyword in v0.1.
 
 Stamping examples:
 
@@ -98,9 +98,9 @@ members:
       expertise: [compliance, security]
 ```
 
-Each stamped entry mints a fresh `HumanEntity` at install time — two stampings of the same template produce two distinct rows. The resolution policy (`IPackageHumanResolutionPolicy`) decides whether to mint anew or to bind to an existing tenant member; see [Humans § Install-time resolution](humans.md#install-time-resolution).
+Each stamped entry mints a fresh `HumanEntity` at install time — two stampings of the same template produce two distinct rows. The install-time resolution policy decides whether to mint anew or to bind to an existing tenant member; see [Humans § Install-time resolution](humans.md#install-time-resolution).
 
-Cross-package addressing follows the same `<pkg>/<name>@<version>` grammar as the other template kinds ([ADR-0037 §5](../decisions/0037-package-schema-decomposition.md)):
+Cross-package addressing follows the same `<pkg>/<name>@<version>` grammar as the other template kinds:
 
 ```yaml
 members:
@@ -109,7 +109,7 @@ members:
 
 ## Snapshot binding
 
-The instance binds to the resolved template body **at install time** — the cloned tree is captured into the instance's persisted definition ([ADR-0043 §5f](../decisions/0043-recursive-package-format.md#5f-snapshot-binding)). Editing the template later does not auto-propagate to already-installed instances. A "template upgrade" flow that re-resolves dependents against a new template is on the roadmap; today's installs are independent of subsequent template edits.
+The instance binds to the resolved template body **at install time** — the cloned tree is captured into the instance's persisted definition. Editing the template later does not auto-propagate to already-installed instances. A "template upgrade" flow that re-resolves dependents against a new template is on the roadmap; today's installs are independent of subsequent template edits.
 
 The consequence: an in-place edit of a template affects future installs, not existing ones. Re-installing a package against an updated template version produces a fresh install with the new shape, distinct from the previous install. This makes upgrades observable rather than silent.
 
@@ -124,11 +124,11 @@ name: platform-eng
 from: archetypes/engineering-team@1.0.0
 ```
 
-This is the cross-package archetype-library pattern. Cycle detection and install ordering flow through unchanged — the resolver treats `from:` edges the same as `members:` edges when walking the dependency graph ([ADR-0043 §7](../decisions/0043-recursive-package-format.md#7-cross-package-cycle-detection-extends-across-folder-boundaries)).
+This is the cross-package archetype-library pattern. Cycle detection and install ordering flow through unchanged — the resolver treats `from:` edges the same as `members:` edges when walking the dependency graph.
 
 ## Templates are optional
 
-Nothing in the package grammar requires a package to use templates. A package that ships only concrete `kind: Unit` / `kind: Agent` folders and no `templates/` directory is fully valid ([ADR-0043 §5i](../decisions/0043-recursive-package-format.md#5i-templates-are-optional)). Replicating identical definitions is a legitimate authoring style — the operator chose simplicity over reuse.
+Nothing in the package grammar requires a package to use templates. A package that ships only concrete `kind: Unit` / `kind: Agent` folders and no `templates/` directory is fully valid. Replicating identical definitions is a legitimate authoring style — the operator chose simplicity over reuse.
 
 Reach for templates when:
 
@@ -140,7 +140,7 @@ Skip templates when the package ships a small set of one-off artefacts and the d
 
 ## Inline form
 
-A parent's `members:` list admits inline `from:` entries ([ADR-0043 §5g](../decisions/0043-recursive-package-format.md#5g-inline-form)) — useful for the "fan three engineers out of one template" case without giving each instance its own folder:
+A parent's `members:` list admits inline `from:` entries — useful for the "fan three engineers out of one template" case without giving each instance its own folder:
 
 ```yaml
 members:
@@ -202,6 +202,4 @@ See the [declarative-configuration walkthrough](../guide/user/declarative.md#bui
 - [Packages](packages.md) — the recursive folder layout, `kind:`, install scope.
 - [Humans](humans.md) — the team-member kind that `HumanTemplate` stands in for, plus the install-time resolution model.
 - [Agents](agents.md), [Units](units.md) — what `AgentTemplate` / `UnitTemplate` stand in for.
-- [ADR-0043 §5](../decisions/0043-recursive-package-format.md#5-type-and-instance-templates-are-non-activating-artefact-folders-cloned-by-from) — the type / instance separation decision.
-- [ADR-0046](../decisions/0046-unified-members-grammar.md) — adds `HumanTemplate` and the multi-valued-list replacement semantics.
 - [Declarative configuration](../guide/user/declarative.md) — step-by-step walkthroughs.

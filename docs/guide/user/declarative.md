@@ -13,11 +13,11 @@ This guide:
 - Covers the install-time flags: `--into`, `--as`, and how a multi-package install runs.
 - Lists common pitfalls.
 
-Conceptual background is in [Packages](../../concepts/packages.md), [Templates](../../concepts/templates.md), and [Humans](../../concepts/humans.md); the schema decisions are in [ADR-0043](../../decisions/0043-recursive-package-format.md), [ADR-0037](../../decisions/0037-package-schema-decomposition.md), [ADR-0035](../../decisions/0035-package-as-bundling-unit.md), and [ADR-0046](../../decisions/0046-unified-members-grammar.md) (the unified `members:` grammar this guide follows).
+Conceptual background is in [Packages](../../concepts/packages.md), [Templates](../../concepts/templates.md), and [Humans](../../concepts/humans.md).
 
 ## The recursive folder layout
 
-Every artefact in a package is a **folder** whose root file is named `package.yaml`. The `kind:` discriminator tells the parser what the folder is. The conventional subdirectories — `units/`, `agents/`, `skills/`, `templates/` — apply at every depth ([ADR-0043 §2](../../decisions/0043-recursive-package-format.md), amended by [ADR-0046 §2](../../decisions/0046-unified-members-grammar.md) to drop `workflows/` and `connectors/`). There is no `content:` block on the package manifest; the directory layout *is* the manifest.
+Every artefact in a package is a **folder** whose root file is named `package.yaml`. The `kind:` discriminator tells the parser what the folder is. The conventional subdirectories — `units/`, `agents/`, `skills/`, `templates/` — apply at every depth. There is no `content:` block on the package manifest; the directory layout *is* the manifest.
 
 A minimal package skeleton:
 
@@ -63,7 +63,7 @@ spring package install hello
 
 The package's one top-level artefact (`hello-team`) activates at the tenant scope. That is the entire grammar.
 
-## Equipping skills on units and agents (#2361)
+## Equipping skills on units and agents
 
 The declarative path above plants skills inside an agent folder so the package installer grants them at install time. After install, operators can also equip already-installed skill bundles onto units and agents from the CLI — useful for trying a bundle without re-publishing the package, or for assembling a working configuration before committing it back to YAML. The bundles still come from installed packages; equipping just attaches them to a subject and feeds the bundle prompt into Layer 2 (unit) or Layer 4 (agent) of the next dispatched prompt.
 
@@ -93,7 +93,7 @@ The same verbs apply to units (`spring unit skills …`) with identical semantic
 
 ## When to use templates — sidebar
 
-Templates ([ADR-0043 §5](../../decisions/0043-recursive-package-format.md#5-type-and-instance-templates-are-non-activating-artefact-folders-cloned-by-from)) are an **optional** mechanism. The grammar is exactly the same as for concrete artefacts; the only delta is non-activation plus the `from:` operator. Reach for templates when:
+Templates are an **optional** mechanism. The grammar is exactly the same as for concrete artefacts; the only delta is non-activation plus the `from:` operator. Reach for templates when:
 
 - The package ships two or more instances of the same shape — for example, three software-engineer agents that share instructions, runtime, and expertise but differ only in display name.
 - You want a reusable archetype that other packages reference cross-package (an archetype library: a package that ships only `templates/` and no concrete artefacts).
@@ -105,7 +105,7 @@ Conceptual background is in [Templates](../../concepts/templates.md).
 
 ## Adding a human team member
 
-A unit's `members:` list carries human team members alongside agents and sub-units with the `- human:` discriminator ([ADR-0046 §1](../../decisions/0046-unified-members-grammar.md)). The slot is **inline-only** — humans own no sub-artefacts, so there is no `humans/<name>/` folder shape.
+A unit's `members:` list carries human team members alongside agents and sub-units with the `- human:` discriminator. The slot is **inline-only** — humans own no sub-artefacts, so there is no `humans/<name>/` folder shape.
 
 ```yaml
 # minimal — one role, no notifications
@@ -120,7 +120,7 @@ members:
       notifications: [escalation, completion]
 ```
 
-All fields are optional. The OSS install policy resolves every declaration to the install caller (minting a fresh `HumanEntity` per entry); hosted policies decide whether to mint anew or to bind to an existing tenant member ([ADR-0046 §10](../../decisions/0046-unified-members-grammar.md)). The membership row in `unit_memberships_humans` is keyed by `(tenant, unit, human)`; `roles` / `expertise` / `notifications` are jsonb columns on the row.
+All fields are optional. The OSS install policy resolves every declaration to the install caller (minting a fresh human entry per declaration); hosted policies decide whether to mint anew or to bind to an existing tenant member. The membership row is keyed by tenant, unit, and human; `roles` / `expertise` / `notifications` are stored as structured data on the row.
 
 The `roles` list is multi-valued and case-insensitive; duplicates within one entry collapse at parse time. Notifications stay human-only — agents have no notification surface.
 
@@ -155,7 +155,7 @@ members:
   - human: { from: oss-operator, roles: [security_lead] }  # roles replaces [owner]
 ```
 
-The member entry's `roles`, `expertise`, and `notifications` fully replace the template's values when present ([ADR-0046 §5](../../decisions/0046-unified-members-grammar.md)); scalars (`displayName`, `description`) follow the scalar-override rule. Cross-package addressing uses the same `<pkg>/<name>@<version>` grammar as `AgentTemplate` / `UnitTemplate`:
+The member entry's `roles`, `expertise`, and `notifications` fully replace the template's values when present; scalars (`displayName`, `description`) follow the scalar-override rule. Cross-package addressing uses the same `<pkg>/<name>@<version>` grammar as `AgentTemplate` / `UnitTemplate`:
 
 ```yaml
 members:
@@ -313,11 +313,10 @@ kind: Unit
 name: platform-eng
 description: Platform engineering team — concrete instance of the `engineering-team` template. Stamps the template's nested team-lead and senior-engineer, plus three software-engineer instances declared below.
 from: engineering-team
-# Inherits ai, instructions, execution, policies from the engineering-team
-# template per ADR-0043 §5d. `members:` is omitted so the template's
-# stamped member set (the team-lead and senior-engineer agents plus the
-# - human: owner entry) flows through unchanged. The three concrete
-# `from: software-engineer` agents under `units/platform-eng/agents/`
+# Inherits ai, instructions, execution, policies from the engineering-team template.
+# `members:` is omitted so the template's stamped member set (the team-lead and
+# senior-engineer agents plus the - human: owner entry) flows through unchanged.
+# The three concrete `from: software-engineer` agents under `units/platform-eng/agents/`
 # (ada, hopper, lovelace) augment the stamped set.
 ```
 
@@ -338,8 +337,8 @@ name: ada
 description: Ada — software engineer specialised in numerical / algorithmic work. Concrete instance of the `software-engineer` template.
 from: software-engineer
 # Inherits ai, role, capabilities, instructions, expertise from the
-# software-engineer template per ADR-0043 §5d. The instance overrides
-# description only; everything else flows through.
+# software-engineer template. The instance overrides description only;
+# everything else flows through.
 ```
 
 `hopper/package.yaml` and `lovelace/package.yaml` follow the same shape — each declares `from: software-engineer`, each overrides only its `description:`. The `ai:`, `role:`, `capabilities:`, `instructions:`, and `expertise:` all flow through from the template per the scalar-and-deep-merge override rules.
@@ -361,7 +360,7 @@ platform-eng (Unit)
 └── lovelace          (Agent, concrete, from: software-engineer)
 ```
 
-Each agent gets a fresh Guid identity ([ADR-0036](../../decisions/0036-single-identity-model.md)). Installing the package a second time under a different display name (`--as platform-eng-2`) produces a second, independent `platform-eng` with its own five fresh-identity agents — including a *second* `team-lead`-named agent that shares the display string but not the underlying entity.
+Each agent gets a fresh Guid identity. Installing the package a second time under a different display name (`--as platform-eng-2`) produces a second, independent `platform-eng` with its own five fresh-identity agents — including a *second* `team-lead`-named agent that shares the display string but not the underlying entity.
 
 ## Install flags
 
@@ -402,7 +401,7 @@ Each install gets independent Guid identities and an independent membership grap
 
 ## Multi-package installs
 
-`spring package install A B C` installs multiple packages in one operator action. The pipeline topo-sorts the batch by cross-package references and installs them under a single `install_id`. Cross-package references resolve first against the in-flight batch, then against the tenant's already-installed packages; missing references abort the install with a precise error naming the offending package and reference. See [ADR-0035 §14](../../decisions/0035-package-as-bundling-unit.md#14-multi-package-install) for the full grammar.
+`spring package install A B C` installs multiple packages in one operator action. The pipeline topo-sorts the batch by cross-package references and installs them under a single `install_id`. Cross-package references resolve first against the in-flight batch, then against the tenant's already-installed packages; missing references abort the install with a precise error naming the offending package and reference.
 
 Inputs are namespaced by package: `--input A.foo=bar --input B.baz=qux`. The `--into <unit>` and `--as <name>` flags apply to every target in the batch.
 
@@ -431,9 +430,9 @@ spring package abort <install-id>            # discard the staging rows; uninsta
 
 **Names are package-scoped, not folder-scoped.** Two agents named `architect` cannot coexist in the same package, even if they live in different parts of the folder tree (`units/eng/agents/architect/` and `agents/architect/`). The catalog indexes artefacts by `name:` within a package.
 
-**`content:` is removed.** The previous package layout listed contained artefacts in a `content:` block on `package.yaml`. That block is gone. The resolver walks the conventional subdirectories (`units/`, `agents/`, `skills/`, `templates/`) and treats every direct child folder as one artefact. Install ordering is derived from `requires:` topology; if you need B to install after A, declare `requires:` on B. See the [ADR-0043 §8 migration table](../../decisions/0043-recursive-package-format.md#8-migration-hard-rename-parse-error-on-the-flat-shape-no-shim) for the full set of migration errors and the exact error names; [ADR-0046 §2](../../decisions/0046-unified-members-grammar.md) covers the `workflows/` and `connectors/` removals.
+**`content:` is removed.** The previous package layout listed contained artefacts in a `content:` block on `package.yaml`. That block is gone. The resolver walks the conventional subdirectories (`units/`, `agents/`, `skills/`, `templates/`) and treats every direct child folder as one artefact. Install ordering is derived from `requires:` topology; if you need B to install after A, declare `requires:` on B. The `workflows/` and `connectors/` subdirectories are also removed.
 
-**Humans live on `members:`, not on a separate top-level block.** Pre-[ADR-0046](../../decisions/0046-unified-members-grammar.md) unit manifests carried a top-level `humans:` block; that shape is removed and the parser rejects it with `LegacyHumansBlock`. Add a `- human:` entry to the unit's `members:` list ([ADR-0046 §1](../../decisions/0046-unified-members-grammar.md)) — see the "Adding a human team member" subsection above.
+**Humans live on `members:`, not on a separate top-level block.** Unit manifests with a top-level `humans:` block are no longer supported. Add a `- human:` entry to the unit's `members:` list instead — see the "Adding a human team member" subsection above.
 
 **Inner `package.yaml` files do not declare `version:`.** `version:` lives only on the install-root `package.yaml`. Inner artefacts inherit from the container. An inner `version:` is a parse error (`UnexpectedInnerVersion`).
 
@@ -448,4 +447,3 @@ spring package abort <install-id>            # discard the staging rows; uninsta
 - [Humans](../../concepts/humans.md) — team-role / platform-role split, install-time resolution, post-install editing.
 - [Examples](examples.md) — index of the in-tree example packages and the CLI scenario suite.
 - [`spring package` CLI reference](../../cli-reference.md) — full flag set, exit codes, recovery surface.
-- [ADR-0046](../../decisions/0046-unified-members-grammar.md), [ADR-0043](../../decisions/0043-recursive-package-format.md), [ADR-0037](../../decisions/0037-package-schema-decomposition.md), [ADR-0035](../../decisions/0035-package-as-bundling-unit.md) — the schema and install-pipeline decisions.

@@ -1,6 +1,6 @@
 # Units vs agents — quick reference
 
-A **unit is an agent** ([ADR-0053](../decisions/0053-units-are-agents-and-one-way-delivery.md)). This page is the one-screen reference for what that means for decision-making: which features apply to both, what's unique to each, and how to decide when designing a new surface, endpoint, or UX.
+A **unit is an agent**. This page is the one-screen reference for what that means for decision-making: which features apply to both, what's unique to each, and how to decide when designing a new surface, endpoint, or UX.
 
 ## What's the same
 
@@ -37,7 +37,7 @@ There are only a handful of real differences. They flow from one structural fact
 | **Recursively-enforced policies** | Policies set on a unit cascade to its children (skill / model / cost / execution-mode dimensions). Policies set on a leaf agent are local. |
 | **Connector binding** | A unit owns a connector binding that translates external events (GitHub webhooks, Slack messages, etc.) into platform messages. Agents inherit connector reachability from their owning unit; they cannot bind connectors directly. The Agent × Config → Connector sub-tab is a read-only inherited view of the owning unit's binding. |
 | **Membership operations** | Add / remove member agents and sub-units via the membership endpoints. Leaf agents only participate as members. |
-| **Multi-parent membership** | An agent can belong to multiple parent units (M:N); a sub-unit has exactly one parent. See [Units & agents](../architecture/units-and-agents.md#the-membership-graph). |
+| **Multi-parent membership** | An agent can belong to multiple parent units (M:N); a sub-unit has exactly one parent. |
 | **Expertise aggregation** | A unit's effective expertise is the union of its own declared expertise plus its children's. Leaf-agent expertise is just what the agent declares. |
 | **Human-permission grants** | Units own per-subject human grants for configure / operate / view. Leaf agents inherit through their owning unit. |
 
@@ -73,8 +73,7 @@ Both subjects are addressable. The schemes differ:
 The `agent:` and `unit:` schemes encode containment shape, but the scheme does
 not gate behaviour: both resolve to the same actor kind on the messaging
 dimension and both see the same `sv.messaging.*` delivery tools. Addresses are
-`(scheme, Guid)` pairs; see [Messaging](messaging.md) and
-[Data & identity](../architecture/data-and-identity.md).
+`(scheme, Guid)` pairs; see [Messaging](messaging.md).
 
 ## `execution.hosting`
 
@@ -82,14 +81,13 @@ dimension and both see the same `sv.messaging.*` delivery tools. Addresses are
 manifests (and on agent / unit templates). The two modes are `ephemeral`
 (default — a fresh container per turn) and `persistent` (a long-lived
 container). Member agents inherit the parent unit's value when neither they
-nor their template declares one. See [Deployment](../architecture/deployment.md)
-for the hosting modes.
+nor their template declares one.
 
 ## Humans are subjects, not agents
 
 A **human** is a third kind of subject — addressable, can be a member of a unit, can participate in threads — but **not an agent**. A human implements only the message-receiving contract; the agent-shaped surfaces (memory, skills, traces, execution config, runtime, deployment) do not apply. See [Humans](humans.md) for the concept (including the install-time resolution model and the team-role / platform-role split).
 
-In the package grammar, humans live on the same `members:` list as agents and sub-units, under the `- human:` discriminator ([ADR-0046](../decisions/0046-unified-members-grammar.md)). There is no separate top-level `humans:` block — the parser rejects the legacy shape with a structured `LegacyHumansBlock` error.
+In the package grammar, humans live on the same `members:` list as agents and sub-units, under the `- human:` discriminator. There is no separate top-level `humans:` block — the parser rejects the legacy shape with a structured `LegacyHumansBlock` error.
 
 If you find yourself designing a feature that wants to apply to "everything in a unit's member set", remember it's a heterogeneous set: agents (which include sub-units) and humans. Different shapes, different surfaces.
 
@@ -99,8 +97,6 @@ The runtime path treats unit and leaf agent identically. Splitting unit-* and ag
 
 See also:
 
-- [ADR-0053 — Units are agents; one-way delivery](../decisions/0053-units-are-agents-and-one-way-delivery.md) — the durable architecture decision.
 - [Agents](agents.md) — the agent-layer concept doc.
 - [Units](units.md) — the unit-specific layer doc.
 - [Humans](humans.md) — humans as subjects (not agents).
-- [AGENTS.md](../../AGENTS.md) — top-level project rules.

@@ -69,7 +69,7 @@ spring agent create \
     --image ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
 ```
 
-When you message a unit with members, the unit's runtime decides whether to answer directly, hand the work to a member, or fan it out — that decision lives in the unit's runtime instructions, not in platform configuration (see [ADR-0053](../../decisions/0053-units-are-agents-and-one-way-delivery.md)). See [model providers](../operator/model-providers.md) for the full matrix of runtimes, providers, and credential shapes.
+When you message a unit with members, the unit's runtime decides whether to answer directly, hand the work to a member, or fan it out — that decision lives in the unit's runtime instructions, not in platform configuration. See [model providers](../operator/model-providers.md) for the full matrix of runtimes, providers, and credential shapes.
 
 ## What's next
 
