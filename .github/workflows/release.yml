@@ -50,6 +50,11 @@ on:
         description: "Tag to release (e.g. spring-voyage-v1.0.0). Required for manual runs."
         required: true
         type: string
+      mark_latest:
+        description: "Move :latest (images + GitHub 'Latest' badge) to this release. Stable releases are always latest; tick this to promote a pre-release (e.g. during the v1.0.0 alpha phase)."
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -83,6 +88,9 @@ jobs:
       version: ${{ steps.r.outputs.version }}
       major_minor: ${{ steps.r.outputs.major_minor }}
       is_prerelease: ${{ steps.r.outputs.is_prerelease }}
+      # true when :latest (container tags + GitHub Release badge) should point
+      # at this release: always for stable, opt-in for pre-releases (#2970).
+      mark_latest: ${{ steps.r.outputs.mark_latest }}
     steps:
       - name: Resolve release tag and version components
         id: r
@@ -91,6 +99,9 @@ jobs:
           INPUT_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ github.ref_name }}
           EVENT_NAME: ${{ github.event_name }}
+          # Untrusted inputs routed through env (never interpolated into run).
+          MARK_LATEST_INPUT: ${{ inputs.mark_latest }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -127,14 +138,45 @@ jobs:
             is_prerelease="true"
           fi
 
+          # ── Resolve "mark latest" intent (#2970) ─────────────────────────
+          # :latest (container tags + the GitHub Release "Latest" badge)
+          # always follows the newest STABLE release. A pre-release is latest
+          # only when the operator opted in, surfaced two ways:
+          #   • a `Mark-Latest: true` trailer on the annotated release tag,
+          #     written by `release.sh --latest` (the push-triggered path); or
+          #   • the workflow_dispatch `mark_latest` input (manual promotion of
+          #     an existing tag).
+          # :<major_minor> is deliberately NOT affected — that channel pointer
+          # stays stable-only so `:1.0` never resolves to a pre-release.
+          mark_latest="false"
+          if [[ "$is_prerelease" == "false" ]]; then
+            mark_latest="true"
+          elif [[ "$MARK_LATEST_INPUT" == "true" ]]; then
+            mark_latest="true"
+          else
+            # Inspect the tag object for the annotated-tag marker. Lightweight
+            # tags (object.type != "tag") and transient API errors leave
+            # mark_latest=false — the safe default is "not latest".
+            tag_ref_json="$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${release_tag}" 2>/dev/null || true)"
+            obj_type="$(jq -r '.object.type // ""' <<<"$tag_ref_json" 2>/dev/null || true)"
+            obj_sha="$(jq -r '.object.sha // ""' <<<"$tag_ref_json" 2>/dev/null || true)"
+            if [[ "$obj_type" == "tag" && -n "$obj_sha" ]]; then
+              tag_message="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${obj_sha}" --jq '.message' 2>/dev/null || true)"
+              if grep -qiE '^[[:space:]]*Mark-Latest:[[:space:]]*true[[:space:]]*$' <<<"$tag_message"; then
+                mark_latest="true"
+              fi
+            fi
+          fi
+
           {
             echo "tag=$release_tag"
             echo "version=$release_version"
             echo "major_minor=$major_minor"
             echo "is_prerelease=$is_prerelease"
+            echo "mark_latest=$mark_latest"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Resolved: tag=$release_tag version=$release_version major_minor=$major_minor is_prerelease=$is_prerelease"
+          echo "Resolved: tag=$release_tag version=$release_version major_minor=$major_minor is_prerelease=$is_prerelease mark_latest=$mark_latest"
 
   # ── 2. CI gate ─────────────────────────────────────────────────────────────
   #
@@ -293,6 +335,7 @@ jobs:
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+      MARK_LATEST: ${{ needs.resolve.outputs.mark_latest }}
       MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
 
     steps:
@@ -336,21 +379,20 @@ jobs:
             echo
             echo "| Image | Tags |"
             echo "| --- | --- |"
-            if [[ "$IS_PRERELEASE" == "false" ]]; then
-              echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`              | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\`             | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\`              | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`                   | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-            else
-              echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\`              | \`${RELEASE_VERSION}\` (pre-release) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\`        | \`${RELEASE_VERSION}\` (pre-release) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\`             | \`${RELEASE_VERSION}\` (pre-release) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\`              | \`${RELEASE_VERSION}\` (pre-release) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\`                   | \`${RELEASE_VERSION}\` (pre-release) |"
-            fi
+            # Tag column each image carries (#2970):
+            #   stable          → :<version>, :<major_minor>, :latest
+            #   pre + latest    → :<version>, :latest
+            #   pre, not latest → :<version> only
+            mm_tag=""; latest_tag=""
+            [[ "$IS_PRERELEASE" == "false" ]] && mm_tag=", \`${MAJOR_MINOR}\`"
+            [[ "$MARK_LATEST" == "true" ]] && latest_tag=", \`latest\`"
+            tagcol="\`${RELEASE_VERSION}\`${mm_tag}${latest_tag}"
+            echo "| \`ghcr.io/cvoya-com/spring-voyage\` (platform) | ${tagcol} |"
+            echo "| \`ghcr.io/cvoya-com/spring-voyage-agent-base\` | ${tagcol} |"
+            echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\` | ${tagcol} |"
+            echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\` | ${tagcol} |"
+            echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\` | ${tagcol} |"
+            echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | ${tagcol} |"
             echo
             echo "### Release-attached files"
             echo
@@ -446,6 +488,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
       MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+      MARK_LATEST: ${{ needs.resolve.outputs.mark_latest }}
     steps:
       - uses: actions/checkout@v6
 
@@ -470,13 +513,14 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           # :<version> is always pushed (stable and pre-release alike).
-          # :<major_minor> and :latest move only on stable releases. The
-          # metadata-action `enable=` clause emits exactly the right subset
-          # based on the resolved is_prerelease output.
+          # :<major_minor> moves only on stable releases; :latest moves on
+          # stable OR on a pre-release explicitly marked latest (resolve's
+          # mark_latest output, #2970). The metadata-action `enable=` clauses
+          # emit exactly the right subset.
           tags: |
             type=raw,value=${{ env.RELEASE_VERSION }}
             type=raw,value=${{ env.MAJOR_MINOR }},enable=${{ env.IS_PRERELEASE == 'false' }}
-            type=raw,value=latest,enable=${{ env.IS_PRERELEASE == 'false' }}
+            type=raw,value=latest,enable=${{ env.MARK_LATEST == 'true' }}
           labels: |
             org.opencontainers.image.title=spring-voyage-agent-base
             org.opencontainers.image.description=Recommended base image for Spring Voyage agents (BYOI conformance path 1; bundles the A2A sidecar bridge from #1087).
@@ -728,6 +772,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
       MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+      MARK_LATEST: ${{ needs.resolve.outputs.mark_latest }}
 
     steps:
       - uses: actions/checkout@v6
@@ -768,18 +813,24 @@ jobs:
           docker push "${TARGET_BASE}:${RELEASE_VERSION}"
           echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
 
+          # :<major_minor> moves only on stable releases (semver channel).
           if [[ "$IS_PRERELEASE" == "false" ]]; then
             docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:${MAJOR_MINOR}"
             docker push "${TARGET_BASE}:${MAJOR_MINOR}"
             echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
+          else
+            echo "Pre-release: skipping :${MAJOR_MINOR} tag for claude-code-base"
+          fi
 
+          # :latest moves on stable OR on a pre-release marked latest (#2970).
+          if [[ "$MARK_LATEST" == "true" ]]; then
             docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:latest"
             docker push "${TARGET_BASE}:latest"
             echo "Pushed ${TARGET_BASE}:latest"
           else
-            echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for claude-code-base"
+            echo "Not latest: skipping :latest tag for claude-code-base"
           fi
 
       - name: Tag and push gemini-base
@@ -792,18 +843,24 @@ jobs:
           docker push "${TARGET_BASE}:${RELEASE_VERSION}"
           echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
 
+          # :<major_minor> moves only on stable releases (semver channel).
           if [[ "$IS_PRERELEASE" == "false" ]]; then
             docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:${MAJOR_MINOR}"
             docker push "${TARGET_BASE}:${MAJOR_MINOR}"
             echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
+          else
+            echo "Pre-release: skipping :${MAJOR_MINOR} tag for gemini-base"
+          fi
 
+          # :latest moves on stable OR on a pre-release marked latest (#2970).
+          if [[ "$MARK_LATEST" == "true" ]]; then
             docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:latest"
             docker push "${TARGET_BASE}:latest"
             echo "Pushed ${TARGET_BASE}:latest"
           else
-            echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for gemini-base"
+            echo "Not latest: skipping :latest tag for gemini-base"
           fi
 
       - name: Tag and push codex-base
@@ -816,18 +873,24 @@ jobs:
           docker push "${TARGET_BASE}:${RELEASE_VERSION}"
           echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
 
+          # :<major_minor> moves only on stable releases (semver channel).
           if [[ "$IS_PRERELEASE" == "false" ]]; then
             docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:${MAJOR_MINOR}"
             docker push "${TARGET_BASE}:${MAJOR_MINOR}"
             echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
+          else
+            echo "Pre-release: skipping :${MAJOR_MINOR} tag for codex-base"
+          fi
 
+          # :latest moves on stable OR on a pre-release marked latest (#2970).
+          if [[ "$MARK_LATEST" == "true" ]]; then
             docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:latest"
             docker push "${TARGET_BASE}:latest"
             echo "Pushed ${TARGET_BASE}:latest"
           else
-            echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for codex-base"
+            echo "Not latest: skipping :latest tag for codex-base"
           fi
 
       - name: Tag and push spring-voyage-agent (native A2A runtime)
@@ -840,16 +903,24 @@ jobs:
           docker push "${TARGET_BASE}:${RELEASE_VERSION}"
           echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
 
+          # :<major_minor> moves only on stable releases (semver channel).
           if [[ "$IS_PRERELEASE" == "false" ]]; then
             docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:${MAJOR_MINOR}"
             docker push "${TARGET_BASE}:${MAJOR_MINOR}"
             echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
+          else
+            echo "Pre-release: skipping :${MAJOR_MINOR} tag for spring-voyage-agent"
+          fi
 
+          # :latest moves on stable OR on a pre-release marked latest (#2970).
+          if [[ "$MARK_LATEST" == "true" ]]; then
             docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
               "${TARGET_BASE}:latest"
             docker push "${TARGET_BASE}:latest"
             echo "Pushed ${TARGET_BASE}:latest"
+          else
+            echo "Not latest: skipping :latest tag for spring-voyage-agent"
           fi
 
       # Visibility: see the note on publish-agent-base-image — these
@@ -863,17 +934,16 @@ jobs:
             echo
             echo "| Image | Tags |"
             echo "| --- | --- |"
-            if [[ "$IS_PRERELEASE" == "false" ]]; then
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-            else
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\` | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\` | \`${RELEASE_VERSION}\` (pre-release) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\` | \`${RELEASE_VERSION}\` (pre-release) |"
-              echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | \`${RELEASE_VERSION}\` (pre-release) |"
-            fi
+            # Tag column each image carries (#2970): :<version> always;
+            # :<major_minor> on stable only; :latest on stable or marked pre.
+            mm_tag=""; latest_tag=""
+            [[ "$IS_PRERELEASE" == "false" ]] && mm_tag=", \`${MAJOR_MINOR}\`"
+            [[ "$MARK_LATEST" == "true" ]] && latest_tag=", \`latest\`"
+            tagcol="\`${RELEASE_VERSION}\`${mm_tag}${latest_tag}"
+            echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\` | ${tagcol} |"
+            echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\` | ${tagcol} |"
+            echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\` | ${tagcol} |"
+            echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | ${tagcol} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ── 8. Publish OSS role agent images ───────────────────────────────────────
@@ -902,6 +972,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
       MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+      MARK_LATEST: ${{ needs.resolve.outputs.mark_latest }}
     steps:
       - uses: actions/checkout@v6
 
@@ -928,7 +999,7 @@ jobs:
           tags: |
             type=raw,value=${{ env.RELEASE_VERSION }}
             type=raw,value=${{ env.MAJOR_MINOR }},enable=${{ env.IS_PRERELEASE == 'false' }}
-            type=raw,value=latest,enable=${{ env.IS_PRERELEASE == 'false' }}
+            type=raw,value=latest,enable=${{ env.MARK_LATEST == 'true' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.name }}
             org.opencontainers.image.description=Spring Voyage OSS role agent image — ${{ matrix.name }} (#1536).
@@ -979,6 +1050,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
       MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+      MARK_LATEST: ${{ needs.resolve.outputs.mark_latest }}
       TARGET_BASE: ghcr.io/cvoya-com/spring-voyage
 
     steps:
@@ -1005,13 +1077,14 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           # :<version> is always pushed (stable and pre-release alike).
-          # :<major_minor> and :latest move only on stable releases. The
-          # metadata-action `enable=` clause emits exactly the right subset
-          # based on the resolved is_prerelease output.
+          # :<major_minor> moves only on stable releases; :latest moves on
+          # stable OR on a pre-release explicitly marked latest (resolve's
+          # mark_latest output, #2970). The metadata-action `enable=` clauses
+          # emit exactly the right subset.
           tags: |
             type=raw,value=${{ env.RELEASE_VERSION }}
             type=raw,value=${{ env.MAJOR_MINOR }},enable=${{ env.IS_PRERELEASE == 'false' }}
-            type=raw,value=latest,enable=${{ env.IS_PRERELEASE == 'false' }}
+            type=raw,value=latest,enable=${{ env.MARK_LATEST == 'true' }}
           labels: |
             org.opencontainers.image.title=spring-voyage
             org.opencontainers.image.description=Spring Voyage platform image — .NET 10 API + Worker hosts, Next.js web dashboard, Dapr CLI. One image serves spring-api, spring-worker, spring-web containers; the command selects which process runs.
@@ -1042,11 +1115,12 @@ jobs:
             echo
             echo "| Image | Tags |"
             echo "| --- | --- |"
-            if [[ "$IS_PRERELEASE" == "false" ]]; then
-              echo "| \`${TARGET_BASE}\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
-            else
-              echo "| \`${TARGET_BASE}\` | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
-            fi
+            # Tag column (#2970): :<version> always; :<major_minor> on stable
+            # only; :latest on stable or a pre-release marked latest.
+            mm_tag=""; latest_tag=""
+            [[ "$IS_PRERELEASE" == "false" ]] && mm_tag=", \`${MAJOR_MINOR}\`"
+            [[ "$MARK_LATEST" == "true" ]] && latest_tag=", \`latest\`"
+            echo "| \`${TARGET_BASE}\` | \`${RELEASE_VERSION}\`${mm_tag}${latest_tag} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ── 10. Assemble bundle staging tree (#2243) ───────────────────────────────
@@ -1692,6 +1766,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+      MARK_LATEST: ${{ needs.resolve.outputs.mark_latest }}
 
     steps:
       - name: Promote draft release to published
@@ -1707,15 +1782,29 @@ jobs:
             prerelease_flag="--prerelease"
           fi
 
+          # Move the GitHub "Latest" badge deterministically (#2970): stable
+          # releases and pre-releases explicitly marked latest claim it; every
+          # other pre-release explicitly disclaims it (--latest=false) so a
+          # prior marked pre-release keeps the badge and a newer non-latest
+          # pre-release does not silently displace it. A release can be both
+          # --prerelease and --latest (GitHub allows it; this is exactly the
+          # "newest alpha is the current default" case during the v1.0.0 line).
+          if [[ "$MARK_LATEST" == "true" ]]; then
+            latest_flag="--latest"
+          else
+            latest_flag="--latest=false"
+          fi
+
           # `gh release edit --draft=false` promotes the draft. If this job
           # re-runs against an already-published release the call is a no-op
-          # on the draft bit and only re-asserts --prerelease; safe either
-          # way.
+          # on the draft bit and only re-asserts --prerelease / --latest; safe
+          # either way.
           # shellcheck disable=SC2086
           gh release edit "${RELEASE_TAG}" \
             --draft=false \
             --repo "${REPO}" \
-            ${prerelease_flag}
+            ${prerelease_flag} \
+            ${latest_flag}
           echo "GitHub Release published: https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
 
   # ── 14. Bump Homebrew formula ──────────────────────────────────────────────

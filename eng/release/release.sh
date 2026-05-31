@@ -17,6 +17,13 @@
 # Options:
 #   --pre <alpha|beta|rc>   Append a date-anchored pre-release suffix:
 #                           -<suffix>.YYYYMMDD  (same-day re-runs add .1, .2, …)
+#   --latest                Move :latest to this release — both the container
+#                           `:latest` tags (which the catalog packages pin) and
+#                           the GitHub Release "Latest" badge. Stable releases
+#                           are already latest, so this only matters for --pre:
+#                           use it to make a chosen alpha the current default
+#                           during the v1.0.0 pre-release line. The :MAJOR_MINOR
+#                           channel tag (e.g. :1.0) still moves on stable only.
 #   --plan                  Dry-run: print the computed tag and exit 0 without pushing.
 #   --force-retag           Skip the idempotency guard (re-tag an existing version).
 #   -h, --help              Show this help and exit.
@@ -25,15 +32,20 @@
 #   ./eng/release/release.sh v1.0.0 --pre alpha     →  spring-voyage-v1.0.0-alpha.20260504
 #   ./eng/release/release.sh 1.0.0  --pre rc        →  spring-voyage-v1.0.0-rc.20260504
 #   ./eng/release/release.sh v1.0.0                 →  spring-voyage-v1.0.0  (stable)
+#   ./eng/release/release.sh v1.0.0 --pre alpha --latest   → that alpha becomes :latest
 #   ./eng/release/release.sh v1.0.0 --pre alpha --plan
 #
 # Tag pushed:
 #   spring-voyage-v<version>   →  release.yml  (single unified workflow)
+#   With --latest the tag is annotated with a `Mark-Latest: true` trailer;
+#   release.yml's resolve job reads it to decide whether :latest moves.
 #
 # Verification:
 #   After the workflow succeeds, greps packages/**/*.yaml for
-#   `image: ghcr.io/cvoya-com/*` references and checks each is
-#   anonymously pullable via `podman manifest inspect --no-creds`.
+#   `image: ghcr.io/cvoya-com/*` references and checks each is anonymously
+#   pullable via `podman manifest inspect --no-creds`. The immutable :<version>
+#   tag is always checked; when the release is latest-bearing (stable, or --pre
+#   with --latest) the `:latest` tag the packages actually pin is checked too.
 #
 # Requirements:
 #   - gh CLI authenticated (`gh auth status`) with repo + workflow scopes
@@ -60,6 +72,7 @@ WORKFLOW_NAME="release.yml"
 PRE_RELEASE=""
 DRY_RUN=false
 FORCE_RETAG=false
+MARK_LATEST=false
 BASE_SEMVER=""
 
 usage() {
@@ -77,6 +90,10 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       shift 2
+      ;;
+    --latest)
+      MARK_LATEST=true
+      shift
       ;;
     --plan)
       DRY_RUN=true
@@ -152,6 +169,20 @@ fi
 RELEASE_VERSION="v${FULL_SEMVER}"
 RELEASE_TAG="spring-voyage-${RELEASE_VERSION}"
 
+# ── Resolve "will this release be latest?" ───────────────────────────────────
+#
+# Stable releases are always latest. A pre-release is latest only when the
+# operator passed --latest; that intent is carried to release.yml on the tag
+# (an annotated `Mark-Latest: true` trailer — see push_and_wait). WILL_BE_LATEST
+# drives the local --plan preview and the post-release :latest verification.
+WILL_BE_LATEST=false
+if [[ -z "$PRE_RELEASE" || "$MARK_LATEST" == "true" ]]; then
+  WILL_BE_LATEST=true
+fi
+if [[ "$MARK_LATEST" == "true" && -z "$PRE_RELEASE" ]]; then
+  echo "ℹ  --latest is redundant for a stable release (stable is always latest); proceeding."
+fi
+
 # ── Dry-run / --plan mode ─────────────────────────────────────────────────────
 
 if [[ "$DRY_RUN" == "true" ]]; then
@@ -159,13 +190,19 @@ if [[ "$DRY_RUN" == "true" ]]; then
   echo ""
   echo "  Full version : ${RELEASE_VERSION}"
   echo "  Tag to push  : ${RELEASE_TAG}"
+  if [[ -n "$PRE_RELEASE" ]]; then
+    echo "  Pre-release  : yes (${PRE_RELEASE})"
+  else
+    echo "  Pre-release  : no (stable)"
+  fi
+  echo "  Marked latest: ${WILL_BE_LATEST}$( [[ "$WILL_BE_LATEST" == "true" && -n "$PRE_RELEASE" ]] && echo "  (annotated tag → :latest images + GitHub badge)" )"
   echo "  Workflow     : ${WORKFLOW_NAME}"
   echo ""
   echo "  Step 1  push tag  ${RELEASE_TAG}"
   echo "          wait for  ${WORKFLOW_NAME}"
   echo ""
   echo "  Step 2  verify anonymous pull for all ghcr.io/cvoya-com/* images"
-  echo "          referenced in packages/**/*.yaml"
+  echo "          referenced in packages/**/*.yaml ($( [[ "$WILL_BE_LATEST" == "true" ]] && echo ":<version> and :latest" || echo ":<version> only"))"
   exit 0
 fi
 
@@ -276,7 +313,16 @@ push_and_wait() {
 
   echo ""
   echo "▶  Pushing tag ${tag} …"
-  git tag "${tag}"
+  if [[ "$MARK_LATEST" == "true" ]]; then
+    # Annotated tag carries the "mark latest" intent to release.yml: the
+    # resolve job reads the `Mark-Latest: true` trailer off the tag object and
+    # moves :latest (images + GitHub badge) to this release. Normal releases
+    # stay lightweight, so resolve sees no marker and leaves :latest in place.
+    echo "   (annotating with Mark-Latest: true → this release becomes :latest)"
+    git tag -a "${tag}" -m "Spring Voyage release ${RELEASE_VERSION}" -m "Mark-Latest: true"
+  else
+    git tag "${tag}"
+  fi
   git push origin "${tag}"
 
   echo "   Waiting for workflow '${workflow_name}' to register …"
@@ -335,19 +381,31 @@ mapfile -t IMAGES < <(
     | sort -u
 )
 
+# Tags to verify per image. The immutable :<version> tag is always published.
+# When this release is latest-bearing (stable, or --pre with --latest), also
+# verify the floating `:latest` tag — that is exactly the tag the catalog
+# packages pin, so checking it here catches the "packages reference :latest but
+# :latest was never pushed for a pre-release" failure that motivated #2970.
+VERIFY_TAGS=("${IMAGE_TAG}")
+if [[ "$WILL_BE_LATEST" == "true" ]]; then
+  VERIFY_TAGS+=("latest")
+fi
+
 if [[ ${#IMAGES[@]} -eq 0 ]]; then
   echo "   No ghcr.io/cvoya-com/* image references found in packages — skipping."
 else
   FAILED=()
   for base in "${IMAGES[@]}"; do
-    ref="${base}:${IMAGE_TAG}"
-    echo -n "   ${ref} … "
-    if podman manifest inspect --no-creds "${ref}" > /dev/null 2>&1; then
-      echo "✓"
-    else
-      echo "✗  FAIL"
-      FAILED+=("${ref}")
-    fi
+    for t in "${VERIFY_TAGS[@]}"; do
+      ref="${base}:${t}"
+      echo -n "   ${ref} … "
+      if podman manifest inspect --no-creds "${ref}" > /dev/null 2>&1; then
+        echo "✓"
+      else
+        echo "✗  FAIL"
+        FAILED+=("${ref}")
+      fi
+    done
   done
 
   if [[ ${#FAILED[@]} -gt 0 ]]; then
@@ -358,6 +416,11 @@ else
     done
     echo ""
     echo "         Check that each GHCR package is set to public visibility."
+    if printf '%s\n' "${FAILED[@]}" | grep -q ':latest$'; then
+      echo "         A failing :latest tag means this release did not move :latest."
+      echo "         For a pre-release, re-run with --latest (or dispatch release.yml"
+      echo "         with mark_latest=true) so the catalog packages can pull it."
+    fi
     exit 1
   fi
 fi
