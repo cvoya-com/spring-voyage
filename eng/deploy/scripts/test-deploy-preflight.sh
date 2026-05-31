@@ -4,7 +4,8 @@
 #   preflight_up():
 #     - macOS without a running podman machine
 #     - a missing locally-built platform image (build.sh / install.sh not run)
-#     - a host-published port already in use
+#     - a host-published port in use by a foreign holder (abort) vs. one held by
+#       this deployment's own service container (skip — issue #2962 regression)
 #     - rootless Podman unable to bind privileged Caddy ports (80/443)
 #   verify_postgres_password():
 #     - a stale spring-postgres-data volume whose password no longer matches
@@ -144,7 +145,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Case 5: a host-published port already in use → die naming the port
+# Case 5: a host-published port held by a FOREIGN process — no Spring container
+# publishes it (make_podman's `ps` output is empty) → die naming the port. The
+# #2962 self-holder skip must not weaken this fresh-host conflict guard.
 # ---------------------------------------------------------------------------
 make_uname Linux; make_podman 0 true
 unprivileged_port_floor() { echo 80; }
@@ -300,6 +303,59 @@ elif grep -q '^HOST=preflight-pem-host$' "${TMP_DIR}/out" \
     ok "Case 12: load_env skips the multi-word GitHub__ PEM (kept for --env-file)"
 else
     bad "Case 12: load_env did not handle the GitHub__ PEM as expected"; cat "${TMP_DIR}/out"
+fi
+
+# podman stub for the self-vs-foreign port-holder check (#2962): image present,
+# machine running, and `podman ps` prints the lines staged in ${PS_FILE}
+# (Names|Ports) so spring_container_publishing_port() can classify the holder.
+PS_FILE="${TMP_DIR}/ps_output"
+make_podman_ps() {
+    cat >"${STUB}/podman" <<PODMAN
+#!/usr/bin/env bash
+if [[ "\$1 \$2" == "image exists" ]]; then exit 0; fi
+if [[ "\$1 \$2" == "machine list" ]]; then echo "true"; exit 0; fi
+if [[ "\$1" == "ps" ]]; then cat "${PS_FILE}" 2>/dev/null; exit 0; fi
+exit 0
+PODMAN
+    chmod +x "${STUB}/podman"
+}
+
+# ---------------------------------------------------------------------------
+# Case 13: re-`up` over this deployment's own live stack — the busy host port is
+# published by our own spring-caddy → skip it and pass (issue #2962). Before the
+# fix, #2930's guard `die`d here on the deployment's own already-running caddy.
+# ---------------------------------------------------------------------------
+make_uname Linux; make_podman_ps
+unprivileged_port_floor() { echo 80; }
+SPRING_PLATFORM_IMAGE="localhost/spring-voyage:latest"
+CADDY_HTTP_PORT="8080"; CADDY_HTTPS_PORT="8443"; Mcp__Port="5050"
+port_in_use() { [[ "$1" == "8080" ]] && return 0 || return 1; }   # our Caddy HTTP
+printf 'spring-caddy|0.0.0.0:8080->80/tcp, 0.0.0.0:8443->443/tcp\n' >"${PS_FILE}"
+if run_preflight; then
+    grep -q "published by this deployment's own 'spring-caddy'" "${TMP_DIR}/out" \
+        && ok "Case 13: a port held by our own spring-caddy is skipped, not a conflict" \
+        || { bad "Case 13: passed but without the self-holder log line"; cat "${TMP_DIR}/out"; }
+else
+    bad "Case 13: re-up over our own live stack should pass preflight"; cat "${TMP_DIR}/out"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 14: the busy host port is published by a FOREIGN container (not spring-*)
+# → still abort. The self-holder skip is scoped to our own containers, so the
+# #2930 fresh-host guard is preserved against any other holder.
+# ---------------------------------------------------------------------------
+make_uname Linux; make_podman_ps
+unprivileged_port_floor() { echo 80; }
+SPRING_PLATFORM_IMAGE="localhost/spring-voyage:latest"
+CADDY_HTTP_PORT="8080"; CADDY_HTTPS_PORT="8443"; Mcp__Port="5050"
+port_in_use() { [[ "$1" == "5050" ]] && return 0 || return 1; }   # MCP busy
+printf 'some-other-tool|0.0.0.0:5050->5050/tcp\n' >"${PS_FILE}"   # foreign, not spring-*
+if run_preflight; then
+    bad "Case 14: a foreign container holding the port must still abort"; cat "${TMP_DIR}/out"
+else
+    { grep -q "already in use" "${TMP_DIR}/out" && grep -q "5050" "${TMP_DIR}/out"; } \
+        && ok "Case 14: a non-spring container on the port still fails (guard preserved)" \
+        || { bad "Case 14: wrong failure message"; cat "${TMP_DIR}/out"; }
 fi
 
 printf '\n  passed: %d\n  failed: %d\n' "${PASS}" "${FAIL}"

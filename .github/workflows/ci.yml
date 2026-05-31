@@ -1226,6 +1226,10 @@ jobs:
         shell: bash
         run: bash eng/deploy/scripts/test-deploy-dispatcher-rebuild.sh
 
+      - name: Verify deploy.sh up preflight guards
+        shell: bash
+        run: bash eng/deploy/scripts/test-deploy-preflight.sh
+
   dispatcher-smoke:
     name: Dispatcher smoke (Tier 1)
     runs-on: ubuntu-latest
