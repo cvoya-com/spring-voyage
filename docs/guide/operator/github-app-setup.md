@@ -11,6 +11,8 @@ This is the same model Renovate, Sentry self-hosted, Linear self-hosted, and Pro
 
 This page is the operator-facing companion to [Deployment guide § Tier-1 platform credentials](deployment.md#tier-1-platform-credentials--github-app-identity-env-only). Pick **one** of the two paths below; both produce the same set of values in `eng/config/spring.env`.
 
+> **Do you even need the App?** If a unit only needs to act on a repository you do **not** own — e.g. contributing to an open-source project — a PAT is simpler and requires no App registration and no OAuth. See [GitHub connector auth options](github-connector-auth.md) to choose. Register the App when you operate the repo and want a bot identity (and, on a public deployment, an active webhook).
+
 ## Document map
 
 - [Path A — `spring github-app register` (recommended)](#path-a--spring-github-app-register-recommended) — one CLI verb that drives GitHub's [App-from-manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest), opens the pre-filled "create App" page, captures the conversion code on a loopback listener, and writes the env file for you.
