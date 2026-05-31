@@ -53,9 +53,9 @@ interface UnitTreeProps {
  *
  * The container carries `role="tree"`. Each row is a `treeitem` with
  * `aria-selected`, `aria-level`, and (for branches) `aria-expanded`. Click
- * on the row body selects the node; click on the twisty toggles
- * expansion without changing selection — operators can survey a subtree
- * without losing context.
+ * on the row body selects the node and, for branch nodes, toggles
+ * expansion; the twisty button also toggles expansion without changing
+ * selection — operators can survey a subtree without losing context.
  *
  * Keyboard navigation follows the APG treeview pattern: arrow keys walk
  * visible rows, Home/End jump to extremes, →/← expand/collapse (or
@@ -362,7 +362,7 @@ function TreeRow({
         data-testid={`tree-row-${node.id}`}
         data-kind={node.kind}
         data-status={node.status}
-        onClick={() => onSelect(node.id)}
+        onClick={() => { onSelect(node.id); if (hasChildren) onToggle(node.id); }}
         // Indentation is driven by aria-level: 14px per level, plus 8px
         // outside padding so the twisty has a comfortable hit target on
         // the very first level.
