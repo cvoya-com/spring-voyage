@@ -939,9 +939,19 @@ public static class PackageManifestParser
                 .Build();
             manifest = deserializer.Deserialize<TManifest>(artefact.Content);
         }
-        catch
+        catch (Exception ex)
         {
-            return;
+            // Never silently swallow. A parse failure here would drop this
+            // artefact's `requires:` connectors from the package's union —
+            // which later surfaces as a misleading "connector 'X' is not
+            // declared by this package" 400 the moment the operator supplies
+            // that very binding (the requirement vanished, so the binding
+            // looks undeclared). Fail loudly, naming the artefact, so the
+            // real cause is visible instead of a phantom one downstream.
+            throw new PackageParseException(
+                $"Failed to parse artefact '{artefact.Name}' while computing the package's " +
+                $"connector-requirements union: {ex.Message}",
+                ex);
         }
 
         var requires = getRequires(manifest);

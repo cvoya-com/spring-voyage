@@ -40,10 +40,27 @@ public static class ConnectorBindingResolver
     /// <summary>
     /// Resolves the per-unit connector bindings.
     /// </summary>
+    /// <param name="package">The resolved package being installed.</param>
+    /// <param name="packageBindings">Operator-supplied package-scope bindings, keyed by slug.</param>
+    /// <param name="unitBindings">Operator-supplied per-unit override bindings.</param>
+    /// <param name="knownConnectorSlugs">
+    /// The slugs of every connector type registered on this deployment. A
+    /// supplied binding whose slug the package does not declare is an
+    /// operator-added <em>extra</em> connector — perfectly legal: an
+    /// operator may bind a connector a package author did not require (e.g.
+    /// adding GitHub to <c>hello-world</c>). It is applied to the package's
+    /// top-level unit(s). Only a slug that matches <em>no registered
+    /// connector type</em> is rejected as an <see cref="UnknownConnectorBindingEntry"/>.
+    /// When <see langword="null"/> the resolver cannot tell a real connector
+    /// from a typo, so it accepts every supplied slug (the install pipeline
+    /// always passes the live set; this null path is for callers/tests that
+    /// don't care about typo rejection).
+    /// </param>
     public static ConnectorBindingResolution Resolve(
         ResolvedPackage package,
         IReadOnlyDictionary<string, ConnectorBinding>? packageBindings,
-        IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? unitBindings)
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? unitBindings,
+        IReadOnlySet<string>? knownConnectorSlugs = null)
     {
         ArgumentNullException.ThrowIfNull(package);
 
@@ -57,10 +74,21 @@ public static class ConnectorBindingResolver
         var missing = new List<ConnectorBindingMissing>();
         var unknown = new List<UnknownConnectorBindingEntry>();
 
-        // 1. Validate that every supplied slug is declared by the package.
+        // A supplied slug is only "unknown" when it matches no registered
+        // connector type. A registered-but-undeclared slug is an operator-
+        // added extra (allowed) — see `knownConnectorSlugs`. With no known
+        // set, nothing is rejected here (the caller opted out of the check).
+        bool IsUnknown(string slug) =>
+            !declaredSlugs.Contains(slug)
+            && knownConnectorSlugs is not null
+            && !knownConnectorSlugs.Contains(slug);
+
+        // 1. Reject only genuinely-unknown connector types (typos / connectors
+        //    not installed on this deployment). Undeclared-but-registered
+        //    slugs fall through and are applied as extras below.
         foreach (var slug in packageBindings.Keys)
         {
-            if (!declaredSlugs.Contains(slug))
+            if (IsUnknown(slug))
             {
                 unknown.Add(new UnknownConnectorBindingEntry(slug, "package", null));
             }
@@ -69,7 +97,7 @@ public static class ConnectorBindingResolver
         {
             foreach (var slug in perUnit.Keys)
             {
-                if (!declaredSlugs.Contains(slug))
+                if (IsUnknown(slug))
                 {
                     unknown.Add(new UnknownConnectorBindingEntry(slug, "unit", unitName));
                 }
@@ -88,9 +116,22 @@ public static class ConnectorBindingResolver
             }
         }
 
+        // Operator-added extras: package-scope bindings for slugs no artefact
+        // declared. They have no `requires:` edge to attach to, so they bind
+        // to the package's top-level unit(s) and member agents inherit the
+        // credential through the parent-chain binding-walk (#2380). Skipped
+        // when the slug was rejected as unknown above.
+        var extraPackageSlugs = packageBindings.Keys
+            .Where(s => !declaredSlugs.Contains(s) && !IsUnknown(s))
+            .ToList();
+        var topLevelUnitNames = new HashSet<string>(
+            package.Units.Where(u => u.IsTopLevel).Select(u => u.Name),
+            StringComparer.OrdinalIgnoreCase);
+
         // 3. Walk each member unit. Apply the package-scope binding for
         //    every slug the unit declared in its `requires:` block (per
-        //    ADR-0037 D3); overlay any explicit unit-scope override.
+        //    ADR-0037 D3); attach operator-added extras to top-level units;
+        //    overlay any explicit unit-scope override.
         var unitNames = package.Units
             .Where(u => !u.IsCrossPackage)
             .Select(u => u.Name)
@@ -112,6 +153,15 @@ public static class ConnectorBindingResolver
                     {
                         combined[slug] = binding;
                     }
+                }
+            }
+
+            // Attach operator-added extras to the package's top-level units.
+            if (topLevelUnitNames.Contains(unitName))
+            {
+                foreach (var slug in extraPackageSlugs)
+                {
+                    combined[slug] = packageBindings[slug];
                 }
             }
 

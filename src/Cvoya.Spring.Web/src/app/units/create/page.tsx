@@ -776,6 +776,21 @@ export default function CreateUnitPage() {
     return result;
   }, [selectedPackageQuery.data]);
 
+  // Connectors the selected catalog package *requires* (declared with
+  // `required: true`). The Connector step must not let the operator skip
+  // one — skipping lands a 400 `ConnectorBindingMissing` at install. The
+  // operator may still ADD a connector the package does not declare (the
+  // server binds the extra to the package's top-level unit); only the
+  // declared-required ones are gated here.
+  const requiredConnectorSlugs = useMemo<string[]>(() => {
+    const decls = selectedPackageQuery.data?.connectorDeclarations;
+    if (!decls || decls.length === 0) return [];
+    return decls
+      .filter((d) => d.required)
+      .map((d) => d.type)
+      .filter((t): t is string => typeof t === "string" && t.length > 0);
+  }, [selectedPackageQuery.data]);
+
   // #1672: the legacy `githubPrefill` shim has been removed. The catalog
   // package now declares its connector dependency through the manifest's
   // `connectors:` block (#1670) and the install request carries the
@@ -1046,7 +1061,25 @@ export default function CreateUnitPage() {
   // Step 3 validation depends on source branch.
   const validateStep3 = (): string | null => {
     if (form.source === "catalog") {
-      // Catalog step 3 is Connector — skip is always valid.
+      // A connector the package *requires* must be bound — skipping it (or
+      // binding a different connector instead of it) fails the install with
+      // ConnectorBindingMissing. Adding a connector the package does NOT
+      // declare is still fine (the server binds the extra to the top-level
+      // unit); only the declared-required ones are gated here.
+      if (requiredConnectorSlugs.length > 0) {
+        if (
+          form.connectorSlug === null ||
+          !requiredConnectorSlugs.includes(form.connectorSlug)
+        ) {
+          return `This package requires the ${requiredConnectorSlugs.join(", ")} connector — select it below and complete its configuration to continue.`;
+        }
+        if (form.connectorConfig === null) {
+          return "Finish filling the connector configuration to continue.";
+        }
+        return null;
+      }
+      // No required connector: binding one is optional. Only an incomplete
+      // in-progress config blocks Next.
       if (form.connectorSlug !== null && form.connectorConfig === null) {
         return "Finish filling the connector configuration, or choose Skip.";
       }
@@ -1805,7 +1838,15 @@ export default function CreateUnitPage() {
     }
     if (step === 3) {
       if (form.source === "catalog") {
-        // Catalog step 3 = Connector — skip always allowed.
+        // A connector the package requires must be bound (can't Skip it).
+        if (requiredConnectorSlugs.length > 0) {
+          return (
+            form.connectorSlug !== null &&
+            requiredConnectorSlugs.includes(form.connectorSlug) &&
+            form.connectorConfig !== null
+          );
+        }
+        // Otherwise Skip is allowed; a started config must be completed.
         if (form.connectorSlug === null) return true;
         return form.connectorConfig !== null;
       }
@@ -1834,7 +1875,19 @@ export default function CreateUnitPage() {
     ollamaModelsLoading,
     modelIsSelected,
     missingRequiredCatalogInputs,
+    requiredConnectorSlugs,
   ]);
+
+  // Display name for a connector slug, from the live connector-type
+  // catalogue (falls back to a humanised slug). Shared by the connector
+  // step's disabled-reason hint and its required-connector labels.
+  const connectorDisplayName = useCallback(
+    (slug: string): string => {
+      const match = connectorTypes?.find((c) => c.typeSlug === slug);
+      return match?.displayName ?? (slug === "github" ? "GitHub" : slug);
+    },
+    [connectorTypes],
+  );
 
   // Single source of truth for the runtime/provider readiness diagnosis
   // on the Execution step (scratch branch). Computed once and consumed
@@ -1892,38 +1945,85 @@ export default function CreateUnitPage() {
     return runtimeProviderIssue;
   }, [step, runtimeProviderIssue]);
 
-  // Issue #927-followup (post-T-07): explain *why* Next is disabled on
-  // the Execution step. Without this hint the wizard can dead-end
-  // silently — the Model dropdown only renders when the model-provider
-  // catalogue returns a matching provider for the runtime, so an
-  // unreachable platform API or an uninstalled provider collapses the
-  // model surface and leaves the operator staring at a disabled button
-  // with no way to diagnose. We surface the most specific actionable
-  // reason, in priority order, mirroring the gates `canGoNext` /
-  // `validateStep3` consult.
+  // Issue #927-followup (post-T-07): explain *why* Next is disabled.
+  // Without this hint the wizard can dead-end silently. We surface the
+  // most specific actionable reason, in priority order, mirroring the
+  // gates `canGoNext` / `validateStep{3,4}` consult. Two surfaces use
+  // this string: the inline `<p>` beside Next and the Next button's
+  // hover `title`.
+  //
+  // Covers two steps that can leave Next disabled with no on-screen
+  // explanation:
+  //   • Connector step (catalog step 3 / scratch step 4): the connector
+  //     sub-form bubbles `null` until it produces a complete config.
+  //   • Execution step (scratch step 3): the Model dropdown only renders
+  //     when the model-provider catalogue returns a matching provider, so
+  //     an unreachable API or an uninstalled provider collapses the model
+  //     surface and leaves the operator staring at a disabled button.
   const nextDisabledReason = useMemo<string | null>(() => {
-    if (form.source !== "scratch" || step !== 3) return null;
+    // Nothing to explain when Next is already enabled.
     if (canGoNext) return null;
-    if (form.runtime === "custom") return null;
-    if (modelProvidersQuery.isPending) {
-      return "Loading the model-provider catalogue…";
+
+    // Connector step. The common GitHub dead-end is an operator who
+    // pasted a PAT but never clicked "Use this token" (the save step is
+    // easy to miss) and/or left the repository blank — neither path
+    // needs the Spring Voyage GitHub App, so spell out both, plus the
+    // always-available Skip escape hatch.
+    const onConnectorStep =
+      (form.source === "catalog" && step === 3) ||
+      (form.source === "scratch" && step === 4);
+    if (onConnectorStep) {
+      // "Skip" is only an option when the package requires no connector.
+      const skipHint =
+        form.source === "catalog" && requiredConnectorSlugs.length === 0
+          ? " Or choose Skip to set it up after install."
+          : "";
+
+      // A connector the package requires hasn't been selected yet.
+      if (
+        form.source === "catalog" &&
+        requiredConnectorSlugs.length > 0 &&
+        (form.connectorSlug === null ||
+          !requiredConnectorSlugs.includes(form.connectorSlug))
+      ) {
+        const names = requiredConnectorSlugs.map(connectorDisplayName).join(", ");
+        return `This package requires the ${names} connector. Select it below and complete its configuration to continue — you can add other connectors too.`;
+      }
+
+      // A connector is selected but its configuration is incomplete.
+      if (form.connectorSlug !== null && form.connectorConfig === null) {
+        const name = connectorDisplayName(form.connectorSlug);
+        if (form.connectorSlug === "github") {
+          return `To continue, finish the ${name} connector below: enter the repository as owner/repo, and choose an auth method — pick an App installation, or select 'Use a PAT secret', paste your token, and click 'Use this token'.${skipHint}`;
+        }
+        return `Finish configuring the ${name} connector below to continue.${skipHint}`;
+      }
     }
-    if (runtimeProviderIssue !== null) return runtimeProviderIssue;
-    if (
-      !runtimeDescriptor.isProviderFixed &&
-      form.modelProviderId.trim() === ""
-    ) {
-      return `Pick a model provider for the ${runtimeDescriptor.displayName} runtime.`;
+
+    // Execution step (scratch branch, step 3).
+    if (form.source === "scratch" && step === 3) {
+      if (form.runtime === "custom") return null;
+      if (modelProvidersQuery.isPending) {
+        return "Loading the model-provider catalogue…";
+      }
+      if (runtimeProviderIssue !== null) return runtimeProviderIssue;
+      if (
+        !runtimeDescriptor.isProviderFixed &&
+        form.modelProviderId.trim() === ""
+      ) {
+        return `Pick a model provider for the ${runtimeDescriptor.displayName} runtime.`;
+      }
+      if (isOllamaDapr && ollamaModelsLoading) {
+        return "Loading the model list from the Ollama server…";
+      }
+      if (!showModelDropdown) {
+        return "No model catalog is available yet — wait for the catalog to load, or pick a different runtime.";
+      }
+      if (!modelIsSelected) {
+        return "Select a model from the dropdown to continue.";
+      }
     }
-    if (isOllamaDapr && ollamaModelsLoading) {
-      return "Loading the model list from the Ollama server…";
-    }
-    if (!showModelDropdown) {
-      return "No model catalog is available yet — wait for the catalog to load, or pick a different runtime.";
-    }
-    if (!modelIsSelected) {
-      return "Select a model from the dropdown to continue.";
-    }
+
     return null;
   }, [
     form.source,
@@ -1931,6 +2031,10 @@ export default function CreateUnitPage() {
     canGoNext,
     form.runtime,
     form.modelProviderId,
+    form.connectorSlug,
+    form.connectorConfig,
+    requiredConnectorSlugs,
+    connectorDisplayName,
     runtimeDescriptor,
     modelProvidersQuery.isPending,
     runtimeProviderIssue,
@@ -2434,40 +2538,68 @@ export default function CreateUnitPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
-            <p className="text-muted-foreground">
-              Optionally bind this package install to a connector. Skip to
-              configure a connector later from the unit&apos;s Connector tab.
-            </p>
+            {requiredConnectorSlugs.length > 0 ? (
+              <p
+                className="rounded-md border border-info/50 bg-info/10 px-3 py-2 text-foreground"
+                data-testid="connector-required-banner"
+              >
+                This package requires the{" "}
+                <span className="font-medium">
+                  {requiredConnectorSlugs.map(connectorDisplayName).join(", ")}
+                </span>{" "}
+                connector. Bind it below to continue — you can also add other
+                connectors the package doesn&apos;t require.
+              </p>
+            ) : (
+              <p className="text-muted-foreground">
+                Optionally bind this package install to a connector — including
+                one the package doesn&apos;t require. Skip to configure a
+                connector later from the unit&apos;s Connector tab.
+              </p>
+            )}
             {connectorTypesError && (
               <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 Failed to load connectors: {connectorTypesError}
               </p>
             )}
             <div className="space-y-2">
-              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border p-3">
-                <input
-                  type="radio"
-                  name="connector-choice"
-                  checked={form.connectorSlug === null}
-                  onChange={() =>
-                    setForm((prev) => ({
-                      ...prev,
-                      connectorSlug: null,
-                      connectorTypeId: null,
-                      connectorConfig: null,
-                    }))
-                  }
-                  className="mt-1"
-                />
-                <span>
-                  <span className="font-medium">Skip</span>
-                  <span className="block text-xs text-muted-foreground">
-                    Install without a connector binding.
+              {/* Skip is only offered when the package requires no connector.
+                  When one is required, skipping it would fail the install
+                  (ConnectorBindingMissing), so the option is withheld. */}
+              {requiredConnectorSlugs.length === 0 && (
+                <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border p-3">
+                  <input
+                    type="radio"
+                    name="connector-choice"
+                    checked={form.connectorSlug === null}
+                    onChange={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        connectorSlug: null,
+                        connectorTypeId: null,
+                        connectorConfig: null,
+                      }))
+                    }
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="font-medium">Skip</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Install without a connector binding.
+                    </span>
                   </span>
-                </span>
-              </label>
-              {connectorTypes?.map((c) => {
+                </label>
+              )}
+              {[...(connectorTypes ?? [])]
+                .sort((a, b) => {
+                  const ar = a.typeSlug !== null && requiredConnectorSlugs.includes(a.typeSlug) ? 0 : 1;
+                  const br = b.typeSlug !== null && requiredConnectorSlugs.includes(b.typeSlug) ? 0 : 1;
+                  return ar - br;
+                })
+                .map((c) => {
                 const isSelected = form.connectorSlug === c.typeSlug;
+                const isRequired =
+                  c.typeSlug !== null && requiredConnectorSlugs.includes(c.typeSlug);
                 const WizardStep = getConnectorWizardStep(c.typeSlug);
                 return (
                   <label
@@ -2493,7 +2625,17 @@ export default function CreateUnitPage() {
                         className="mt-1"
                       />
                       <span className="flex-1">
-                        <span className="font-medium">{c.displayName}</span>
+                        <span className="flex items-center gap-2">
+                          <span className="font-medium">{c.displayName}</span>
+                          {isRequired && (
+                            <span
+                              className="rounded-full border border-info/50 bg-info/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-info"
+                              data-testid="connector-required-badge"
+                            >
+                              Required
+                            </span>
+                          )}
+                        </span>
                         <span className="block text-xs text-muted-foreground">
                           {c.description}
                         </span>
@@ -3095,9 +3237,19 @@ export default function CreateUnitPage() {
                   {nextDisabledReason}
                 </p>
               )}
-              <Button onClick={handleNext} disabled={!canGoNext}>
-                Next
-              </Button>
+              {/* Wrap so the hover hint reaches the cursor even when the
+                  button is disabled — `disabled:pointer-events-none`
+                  swallows hover on the button itself, so the title lives
+                  on the span. */}
+              <span
+                className="inline-flex"
+                title={nextDisabledReason ?? undefined}
+                data-testid="next-button-wrapper"
+              >
+                <Button onClick={handleNext} disabled={!canGoNext}>
+                  Next
+                </Button>
+              </span>
             </div>
           )}
         </div>

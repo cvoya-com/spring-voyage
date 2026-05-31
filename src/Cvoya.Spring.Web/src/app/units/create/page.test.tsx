@@ -46,6 +46,8 @@ const startUnit = vi.fn();
 const deployPersistentAgent = vi.fn();
 
 const listConnectorTypes = vi.fn();
+const listConnectors = vi.fn();
+const getPackage = vi.fn();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -59,6 +61,8 @@ vi.mock("@/lib/api/client", () => ({
     ) => getProviderCredentialStatus(p, authMethod),
     getConnectorTypes: vi.fn().mockResolvedValue([]),
     listConnectorTypes: () => listConnectorTypes(),
+    listConnectors: () => listConnectors(),
+    getPackage: (name: string) => getPackage(name),
     // ADR-0035 install API (catalog branch) + direct unit-create
     // (scratch branch).
     installPackages: (targets: unknown) => installPackages(targets),
@@ -299,6 +303,11 @@ function seedDefaultMocks() {
     makeStatus({ provider: "anthropic", resolvable: true, source: "tenant" }),
   );
   listConnectorTypes.mockResolvedValue([]);
+  listConnectors.mockResolvedValue([]);
+  // Default: package detail resolves to null (no connector declarations),
+  // so the connector step's required-connector gating stays inert unless a
+  // test opts in by returning declarations.
+  getPackage.mockResolvedValue(null);
   listPackages.mockResolvedValue([]);
   deleteUnit.mockResolvedValue(undefined);
   revalidateUnit.mockResolvedValue(undefined);
@@ -522,6 +531,69 @@ describe("CreateUnitPage — catalog branch (#1563)", () => {
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith("/explorer");
     });
+  });
+
+  it("surfaces a package's required connector — banner, badge, no Skip, gated Next", async () => {
+    listPackages.mockResolvedValue([
+      {
+        name: "oss",
+        description: "Dogfooding org.",
+        unitTemplateCount: 1,
+        agentTemplateCount: 0,
+        skillCount: 0,
+      },
+    ]);
+    // Package detail declares github as a REQUIRED connector.
+    getPackage.mockResolvedValue({
+      name: "oss",
+      displayName: "OSS",
+      description: "Dogfooding org.",
+      readme: "",
+      version: "1.0.0",
+      unitTemplates: [],
+      agentTemplates: [],
+      skills: [],
+      humanTemplates: [],
+      connectorDeclarations: [{ type: "github", required: true, defaults: null }],
+      content: [],
+      execution: null,
+    });
+    // Two connectors registered; the wizard must mark the required one and
+    // still list the other (operators may add an undeclared connector).
+    listConnectors.mockResolvedValue([
+      { typeId: "gh", typeSlug: "github", displayName: "GitHub", description: "GitHub" },
+      { typeId: "ws", typeSlug: "web-search", displayName: "Web Search", description: "Search" },
+    ]);
+
+    renderPage();
+    const clickNext = async () => {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
+      });
+    };
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("source-card-catalog"));
+    });
+    await clickNext(); // → Package
+    const pkgBtn = await screen.findByTestId("package-option-oss");
+    await act(async () => {
+      fireEvent.click(pkgBtn);
+    });
+    await clickNext(); // → Connector
+
+    // Required connector is announced and badged; Skip is withheld.
+    expect(
+      await screen.findByTestId("connector-required-banner"),
+    ).toHaveTextContent(/requires the GitHub connector/i);
+    expect(screen.getByTestId("connector-required-badge")).toBeInTheDocument();
+    expect(screen.queryByText("Skip")).not.toBeInTheDocument();
+
+    // Next is gated with an actionable reason until the required connector is bound.
+    expect(
+      await screen.findByTestId("next-disabled-reason"),
+    ).toHaveTextContent(/requires the GitHub connector/i);
+    expect(screen.getByRole("button", { name: /^next$/i })).toBeDisabled();
   });
 
   it("translates missing connector ProblemDetails during catalog install", async () => {

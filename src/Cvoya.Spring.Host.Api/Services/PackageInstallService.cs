@@ -73,6 +73,23 @@ public class PackageInstallService : IPackageInstallService
         _catalogProvider = catalogProvider;
     }
 
+    // The slugs of every connector type registered on this deployment.
+    // Resolved from a fresh scope (never constructor-injected): the
+    // IConnectorType implementations sit downstream of the connector binding
+    // store, so injecting IEnumerable<IConnectorType> into a service on that
+    // path forms a singleton DI cycle. The connector-binding resolver uses
+    // this set to distinguish an operator-added extra connector — registered
+    // but not declared by the package, which is allowed — from a typo, which
+    // is rejected with UnknownConnectorSlug.
+    private IReadOnlySet<string> GetKnownConnectorSlugs()
+    {
+        using var scope = _scopeFactory.CreateScope();
+        return scope.ServiceProvider
+            .GetServices<IConnectorType>()
+            .Select(c => c.Slug)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <inheritdoc />
     public async Task<InstallResult> InstallAsync(
         IReadOnlyList<InstallTarget> targets,
@@ -148,10 +165,11 @@ public class PackageInstallService : IPackageInstallService
         // the install request was structurally wrong, not just incomplete.
         var allMissing = new List<ConnectorBindingMissing>();
         UnknownConnectorBindingEntry? firstUnknown = null;
+        var knownConnectorSlugs = GetKnownConnectorSlugs();
         foreach (var (target, pkg) in resolvedTargets)
         {
             var resolution = ConnectorBindingResolver.Resolve(
-                pkg, target.PackageBindings, target.UnitBindings);
+                pkg, target.PackageBindings, target.UnitBindings, knownConnectorSlugs);
             if (resolution.UnknownSlugs.Count > 0 && firstUnknown is null)
             {
                 firstUnknown = resolution.UnknownSlugs[0];
@@ -647,7 +665,7 @@ public class PackageInstallService : IPackageInstallService
             // not need rehydration here — they are already on the unit row.
             var rehydratedPackageBindings = await LoadPackageScopeBindingsAsync(installId, cancellationToken);
             var rehydratedResolution = ConnectorBindingResolver.Resolve(
-                pkg, rehydratedPackageBindings, unitBindings: null);
+                pkg, rehydratedPackageBindings, unitBindings: null, GetKnownConnectorSlugs());
 
             // #1679: re-run the execution resolver from the parsed YAML
             // so retries apply the same merged defaults the original
