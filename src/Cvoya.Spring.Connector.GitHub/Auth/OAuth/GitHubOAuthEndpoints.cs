@@ -54,6 +54,12 @@ public static class GitHubOAuthEndpoints
             .WithTags("Connectors.GitHub.OAuth")
             .Produces<OAuthSessionResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/oauth/result/{nonce}", GetOAuthResultAsync)
+            .WithName("GetGitHubOAuthResult")
+            .WithSummary("Poll for an OAuth callback result by client nonce (browser-handoff fallback)")
+            .WithTags("Connectors.GitHub.OAuth")
+            .Produces<OAuthResultResponse>(StatusCodes.Status200OK);
     }
 
     private static async Task<IResult> AuthorizeAsync(
@@ -124,6 +130,7 @@ public static class GitHubOAuthEndpoints
         [FromQuery] string? error,
         [FromQuery(Name = "error_description")] string? errorDescription,
         [FromServices] IOAuthStateStore stateStore,
+        [FromServices] IOAuthResultStore resultStore,
         [FromServices] IGitHubOAuthService service,
         CancellationToken ct)
     {
@@ -132,7 +139,20 @@ public static class GitHubOAuthEndpoints
         // unchanged so the portal can display GitHub's own wording.
         if (!string.IsNullOrEmpty(error))
         {
-            var targetOrigin = await ConsumeTargetOriginAsync(state, stateStore, ct);
+            var stateEntry = await ConsumeStateEntryAsync(state, stateStore, ct);
+            var targetOrigin = TryReadTargetOrigin(stateEntry?.ClientState);
+            var nonce = TryReadNonce(stateEntry?.ClientState);
+            if (!string.IsNullOrWhiteSpace(nonce))
+            {
+                resultStore.Put(nonce, new OAuthCallbackResult(
+                    SessionId: null,
+                    Login: null,
+                    PatSecretName: null,
+                    BindingId: null,
+                    Error: error,
+                    Reason: errorDescription ?? error));
+            }
+
             return CallbackPage(
                 sessionId: null,
                 login: null,
@@ -166,6 +186,18 @@ public static class GitHubOAuthEndpoints
             }
 
             var session = await service.GetSessionAsync(result.SessionId, ct);
+            var nonce = TryReadNonce(session?.ClientState);
+            if (!string.IsNullOrWhiteSpace(nonce))
+            {
+                resultStore.Put(nonce, new OAuthCallbackResult(
+                    SessionId: result.SessionId,
+                    Login: result.Login,
+                    PatSecretName: result.PatSecretName,
+                    BindingId: result.BindingId?.ToString("N"),
+                    Error: null,
+                    Reason: null));
+            }
+
             return CallbackPage(
                 sessionId: result.SessionId,
                 login: result.Login,
@@ -294,7 +326,31 @@ public static class GitHubOAuthEndpoints
         }
     }
 
-    private static async Task<string?> ConsumeTargetOriginAsync(
+    private static string? TryReadNonce(string? clientState)
+    {
+        if (string.IsNullOrWhiteSpace(clientState))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(clientState);
+            if (!document.RootElement.TryGetProperty("nonce", out var nonceElement) ||
+                nonceElement.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            return nonceElement.GetString();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<OAuthStateEntry?> ConsumeStateEntryAsync(
         string? state,
         IOAuthStateStore stateStore,
         CancellationToken ct)
@@ -304,8 +360,20 @@ public static class GitHubOAuthEndpoints
             return null;
         }
 
-        var entry = await stateStore.ConsumeAsync(state, ct);
-        return TryReadTargetOrigin(entry?.ClientState);
+        return await stateStore.ConsumeAsync(state, ct);
+    }
+
+    private static IResult GetOAuthResultAsync(
+        string nonce,
+        [FromServices] IOAuthResultStore resultStore)
+    {
+        var r = resultStore.Consume(nonce);
+        return Results.Ok(new OAuthResultResponse(
+            Ready: r is not null,
+            SessionId: r?.SessionId,
+            Login: r?.Login,
+            Error: r?.Error,
+            Reason: r?.Reason));
     }
 
     private static async Task<IResult> RevokeAsync(
@@ -428,3 +496,28 @@ public record OAuthSessionResponse(
     string? ClientState,
     string? PatSecretName = null,
     string? BindingId = null);
+
+/// <summary>
+/// Response shape for <c>GET /oauth/result/{nonce}</c>. Always 200 OK — the
+/// caller polls until <see cref="Ready"/> is <c>true</c> or times out.
+/// </summary>
+/// <param name="Ready">
+/// <c>true</c> when the callback has completed and this response carries the
+/// result; <c>false</c> when the result is not yet available (keep polling).
+/// </param>
+/// <param name="SessionId">
+/// The server-issued session id on success; <c>null</c> when <see cref="Ready"/>
+/// is <c>false</c> or the callback completed with an error.
+/// </param>
+/// <param name="Login">
+/// The GitHub login on success; <c>null</c> when <see cref="Ready"/> is
+/// <c>false</c> or the callback completed with an error.
+/// </param>
+/// <param name="Error">Short error code when the callback failed; <c>null</c> on success.</param>
+/// <param name="Reason">Human-readable error description when the callback failed; <c>null</c> on success.</param>
+public record OAuthResultResponse(
+    bool Ready,
+    string? SessionId,
+    string? Login,
+    string? Error,
+    string? Reason);

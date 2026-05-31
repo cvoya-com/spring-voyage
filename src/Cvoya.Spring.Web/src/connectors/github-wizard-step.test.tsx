@@ -26,6 +26,8 @@ vi.mock("@/lib/api/client", async () => {
       listGitHubCollaborators: vi.fn(),
       getGitHubInstallUrl: vi.fn(),
       beginGitHubOAuthAuthorize: vi.fn(),
+      getGitHubOAuthResult: vi.fn(),
+      createTenantSecret: vi.fn(),
     },
   };
 });
@@ -237,25 +239,43 @@ describe("GitHubConnectorWizardStep", () => {
       fireEvent.click(screen.getByTestId("github-auth-choice-pat"));
     });
 
-    // While the PAT secret name is empty the wizard must NOT bubble a
+    // While no token has been saved the wizard must NOT bubble a
     // payload — the PAT branch is incomplete.
     await waitFor(() => {
       const last = onChange.mock.calls.at(-1)?.[0];
       expect(last).toBeNull();
     });
 
+    // Paste a token and "Use this token": the wizard stores it as a
+    // tenant secret (App-free) and wires pat_secret_name to the name.
+    mocked.createTenantSecret.mockResolvedValue({
+      name: "ignored",
+      scope: "Tenant",
+      createdAt: "2026-01-01T00:00:00Z",
+    });
+
     await act(async () => {
-      fireEvent.change(screen.getByTestId("github-pat-secret-name"), {
-        target: { value: "ops/github/pat" },
+      fireEvent.change(screen.getByTestId("github-pat-token"), {
+        target: { value: "ghp_exampletoken" },
       });
     });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("github-pat-save"));
+    });
+
+    await waitFor(() =>
+      expect(mocked.createTenantSecret).toHaveBeenCalled(),
+    );
+    const savedBody = mocked.createTenantSecret.mock.calls.at(-1)![0];
+    expect(savedBody.name).toMatch(/^binding\/[0-9a-f]{32}\/github\/pat$/);
+    expect(savedBody.value).toBe("ghp_exampletoken");
 
     await waitFor(() => {
       const last = onChange.mock.calls.at(-1)?.[0];
       expect(last).toEqual(
         expect.objectContaining({
           repo: "acme/platform",
-          pat_secret_name: "ops/github/pat",
+          pat_secret_name: savedBody.name,
         }),
       );
       // App branch fields must not leak across the auth-choice
@@ -299,91 +319,6 @@ describe("GitHubConnectorWizardStep", () => {
     expect(
       screen.getByLabelText(QUALIFIED_REPO_INPUT_LABEL),
     ).toBeInTheDocument();
-  });
-
-  // ADR-0047 §13: the auth-choice PAT path's "Authorize with GitHub"
-  // button pre-mints a binding UUID, opens the popup, and listens for
-  // the callback handoff. The handoff carries `patSecretName` +
-  // `bindingId`; the wizard auto-fills the secret-name field.
-  it("pre-mints a bindingId and accepts the OAuth-callback patSecretName (ADR-0047 §13)", async () => {
-    mocked.listGitHubRepositories.mockResolvedValue([repoFixture]);
-    mocked.listGitHubCollaborators.mockResolvedValue([]);
-    mocked.beginGitHubOAuthAuthorize.mockResolvedValue({
-      authorizeUrl: "https://github.com/login/oauth/authorize?state=fresh",
-      state: "fresh",
-    });
-    const popup = {
-      focus: vi.fn(),
-      close: vi.fn(),
-      closed: false,
-      location: { href: "" },
-    } as unknown as Window;
-    const open = vi
-      .spyOn(window, "open")
-      .mockReturnValue(popup);
-    const onChange = vi.fn();
-
-    try {
-      await act(async () => {
-        render(<GitHubConnectorWizardStep onChange={onChange} />);
-      });
-
-      await waitFor(() =>
-        expect(mocked.listGitHubRepositories).toHaveBeenCalled(),
-      );
-
-      await act(async () => {
-        fireEvent.change(screen.getByLabelText(APP_REPO_DROPDOWN_LABEL), {
-          target: { value: "acme/platform" },
-        });
-      });
-
-      await act(async () => {
-        fireEvent.click(screen.getByTestId("github-auth-choice-pat"));
-      });
-
-      await act(async () => {
-        fireEvent.click(screen.getByTestId("github-pat-authorize"));
-      });
-
-      await waitFor(() =>
-        expect(mocked.beginGitHubOAuthAuthorize).toHaveBeenCalled(),
-      );
-      const lastCall = mocked.beginGitHubOAuthAuthorize.mock.calls.at(-1)![0];
-      expect(lastCall).toEqual(
-        expect.objectContaining({
-          intent: "binding-wizard",
-          bindingId: expect.stringMatching(/^[0-9a-f]{32}$/),
-        }),
-      );
-
-      // Simulate the OAuth callback page's postMessage handoff.
-      const bindingId = lastCall!.bindingId as string;
-      await act(async () => {
-        window.dispatchEvent(
-          new MessageEvent("message", {
-            origin: window.location.origin,
-            data: {
-              type: "spring-voyage:github-oauth-session",
-              sessionId: "sess-bind",
-              login: "octocat",
-              patSecretName: `binding/${bindingId}/github/pat`,
-              bindingId,
-            },
-          }),
-        );
-      });
-
-      await waitFor(() => {
-        const last = onChange.mock.calls.at(-1)?.[0];
-        expect(last?.pat_secret_name).toBe(
-          `binding/${bindingId}/github/pat`,
-        );
-        expect(last?.appInstallationId).toBeUndefined();
-      });
-    } finally {
-      open.mockRestore();
-    }
   });
 
   it("shows the install-app banner when no repositories are visible", async () => {
@@ -576,6 +511,77 @@ describe("GitHubConnectorWizardStep", () => {
         ).toBe(true);
       });
     } finally {
+      open.mockRestore();
+      window.sessionStorage.removeItem("springvoyage:github-oauth-session-id");
+    }
+  });
+
+  // Safari-safe fallback: when the popup→opener postMessage / localStorage
+  // handoff is blocked (Safari storage partitioning), the wizard polls the
+  // server result store by the nonce it put in clientState and accepts the
+  // session from the poll — no browser message is dispatched here.
+  it("recovers the OAuth session via server-poll when the browser handoff is blocked", async () => {
+    mocked.listGitHubRepositories.mockRejectedValueOnce(
+      new ApiError(401, "Unauthorized", {
+        missingOAuth: true,
+        reason: "No GitHub OAuth session was supplied.",
+        authorizeUrl: "https://github.com/login/oauth/authorize?state=old",
+        state: "old",
+      }),
+    );
+    mocked.beginGitHubOAuthAuthorize.mockResolvedValue({
+      authorizeUrl: "https://github.com/login/oauth/authorize?state=fresh",
+      state: "fresh",
+    });
+    mocked.listGitHubRepositories.mockResolvedValue([repoFixture]);
+    mocked.listGitHubCollaborators.mockResolvedValue([]);
+    mocked.getGitHubOAuthResult.mockResolvedValue({
+      ready: true,
+      sessionId: "sess-poll",
+      login: "octocat",
+      error: null,
+      reason: null,
+    });
+    const popup = {
+      focus: vi.fn(),
+      close: vi.fn(),
+      closed: false,
+      location: { href: "" },
+    } as unknown as Window;
+    const open = vi.spyOn(window, "open").mockReturnValue(popup);
+    const onChange = vi.fn();
+
+    try {
+      await act(async () => {
+        render(<GitHubConnectorWizardStep onChange={onChange} />);
+      });
+      await screen.findByTestId("github-missing-oauth");
+
+      vi.useFakeTimers();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("github-link-account"));
+      });
+
+      // The authorize call carries a poll nonce in clientState.
+      const clientState = mocked.beginGitHubOAuthAuthorize.mock.calls.at(-1)![0]
+        .clientState as string;
+      expect(clientState).toMatch(/"nonce":"[0-9a-f]{32}"/);
+
+      // No postMessage is dispatched (Safari). Advance past the first poll
+      // tick (1.5s): the ready result lands and the session is accepted.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1600);
+      });
+
+      expect(mocked.getGitHubOAuthResult).toHaveBeenCalled();
+      expect(mocked.listGitHubRepositories).toHaveBeenLastCalledWith(
+        "sess-poll",
+      );
+      expect(
+        window.sessionStorage.getItem("springvoyage:github-oauth-session-id"),
+      ).toBe("sess-poll");
+    } finally {
+      vi.useRealTimers();
       open.mockRestore();
       window.sessionStorage.removeItem("springvoyage:github-oauth-session-id");
     }
@@ -863,10 +869,10 @@ describe("GitHubConnectorWizardStep", () => {
     );
     expect((patRadio as HTMLInputElement).checked).toBe(true);
 
-    const secret = screen.getByTestId(
-      "github-pat-secret-name",
-    ) as HTMLInputElement;
-    expect(secret.value).toBe("binding/abc/github/pat");
+    // With a secret already wired, the PAT sub-step shows the saved
+    // indicator naming the secret — not a raw-token input.
+    const saved = screen.getByTestId("github-pat-saved");
+    expect(saved).toHaveTextContent("binding/abc/github/pat");
 
     await waitFor(() => {
       const last = onChange.mock.calls.at(-1)?.[0];
@@ -881,9 +887,9 @@ describe("GitHubConnectorWizardStep", () => {
 
   // #2956: the auth choice renders unconditionally, so an operator can
   // reach the PAT path even when the GitHub App is not configured
-  // (disabledReason). The manual secret-name path needs neither a
-  // configured App nor an OAuth session — the binding-create endpoint
-  // accepts a PAT-only config without `IsConnectorEnabled`.
+  // (disabledReason). The paste-PAT path needs neither a configured App
+  // nor an OAuth session — the token is stored as a tenant secret and
+  // the binding-create endpoint accepts a PAT-only config.
   it("reaches the PAT path and completes a binding when the App is not configured (#2956)", async () => {
     mocked.listGitHubRepositories.mockRejectedValue(
       new ApiError(404, "Not Found", {
@@ -924,23 +930,36 @@ describe("GitHubConnectorWizardStep", () => {
       screen.getByLabelText(QUALIFIED_REPO_INPUT_LABEL),
     ).toBeInTheDocument();
 
+    mocked.createTenantSecret.mockResolvedValue({
+      name: "ignored",
+      scope: "Tenant",
+      createdAt: "2026-01-01T00:00:00Z",
+    });
     await act(async () => {
       fireEvent.change(screen.getByLabelText(QUALIFIED_REPO_INPUT_LABEL), {
         target: { value: "octocat/Hello-World" },
       });
     });
     await act(async () => {
-      fireEvent.change(screen.getByTestId("github-pat-secret-name"), {
-        target: { value: "shared/github/pat" },
+      fireEvent.change(screen.getByTestId("github-pat-token"), {
+        target: { value: "ghp_token" },
       });
     });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("github-pat-save"));
+    });
+
+    await waitFor(() =>
+      expect(mocked.createTenantSecret).toHaveBeenCalled(),
+    );
+    const savedName = mocked.createTenantSecret.mock.calls.at(-1)![0].name;
 
     await waitFor(() => {
       const last = onChange.mock.calls.at(-1)?.[0];
       expect(last).toEqual(
         expect.objectContaining({
           repo: "octocat/Hello-World",
-          pat_secret_name: "shared/github/pat",
+          pat_secret_name: savedName,
         }),
       );
       expect(last?.appInstallationId).toBeUndefined();
@@ -948,9 +967,8 @@ describe("GitHubConnectorWizardStep", () => {
   });
 
   // #2956: same reachability when the operator has not linked a GitHub
-  // OAuth session (missingOAuth). The manual secret-name path needs no
-  // OAuth session; only the in-PAT "Authorize with GitHub" convenience
-  // does.
+  // OAuth session (missingOAuth). The paste-PAT path needs no OAuth
+  // session and no SV GitHub App.
   it("reaches the PAT path and completes a binding when no OAuth session is linked (#2956)", async () => {
     mocked.listGitHubRepositories.mockRejectedValue(
       new ApiError(401, "Unauthorized", {
@@ -978,23 +996,36 @@ describe("GitHubConnectorWizardStep", () => {
     // manual path.
     expect(screen.queryByTestId("github-missing-oauth")).toBeNull();
 
+    mocked.createTenantSecret.mockResolvedValue({
+      name: "ignored",
+      scope: "Tenant",
+      createdAt: "2026-01-01T00:00:00Z",
+    });
     await act(async () => {
       fireEvent.change(screen.getByLabelText(QUALIFIED_REPO_INPUT_LABEL), {
         target: { value: "octocat/Hello-World" },
       });
     });
     await act(async () => {
-      fireEvent.change(screen.getByTestId("github-pat-secret-name"), {
-        target: { value: "shared/github/pat" },
+      fireEvent.change(screen.getByTestId("github-pat-token"), {
+        target: { value: "ghp_token" },
       });
     });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("github-pat-save"));
+    });
+
+    await waitFor(() =>
+      expect(mocked.createTenantSecret).toHaveBeenCalled(),
+    );
+    const savedName = mocked.createTenantSecret.mock.calls.at(-1)![0].name;
 
     await waitFor(() => {
       const last = onChange.mock.calls.at(-1)?.[0];
       expect(last).toEqual(
         expect.objectContaining({
           repo: "octocat/Hello-World",
-          pat_secret_name: "shared/github/pat",
+          pat_secret_name: savedName,
         }),
       );
       expect(last?.appInstallationId).toBeUndefined();

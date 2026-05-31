@@ -57,9 +57,20 @@ export function writeStoredOAuthSessionId(value: string | null): void {
   }
 }
 
-export function buildOAuthClientState(): string | null {
+export function buildOAuthClientState(nonce?: string): string | null {
   if (typeof window === "undefined") return null;
-  return JSON.stringify({ targetOrigin: window.location.origin });
+  // `nonce` (optional): a client-minted correlation id the OAuth callback
+  // echoes into a short-lived server result store, so the portal can POLL
+  // for the outcome (GET …/oauth/result/{nonce}) instead of depending on
+  // the popup→opener postMessage / localStorage handoff — which Safari
+  // breaks via storage partitioning after the cross-origin github.com
+  // bounce. The nonce never reaches GitHub (it rides in clientState, kept
+  // server-side on the state entry / session, not in the GitHub `state`).
+  return JSON.stringify(
+    nonce === undefined
+      ? { targetOrigin: window.location.origin }
+      : { targetOrigin: window.location.origin, nonce },
+  );
 }
 
 /**

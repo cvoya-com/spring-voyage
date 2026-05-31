@@ -2583,6 +2583,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/connectors/github/oauth/result/{nonce}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll for an OAuth callback result by client nonce (browser-handoff fallback) */
+        get: operations["GetGitHubOAuthResult"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/connectors/arxiv/units/{unitId}/config": {
         parameters: {
             query?: never;
@@ -4121,6 +4138,13 @@ export interface components {
         OAuthAuthorizeResponse: {
             authorizeUrl: string;
             state: string;
+        };
+        OAuthResultResponse: {
+            ready: boolean;
+            sessionId: null | string;
+            login: null | string;
+            error: null | string;
+            reason: null | string;
         };
         OAuthSessionResponse: {
             sessionId: string;
@@ -11459,6 +11483,28 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetGitHubOAuthResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                nonce: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthResultResponse"];
                 };
             };
         };

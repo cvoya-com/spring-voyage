@@ -35,7 +35,15 @@
 //   the install step (the wizard renders the bubbled error).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Github, KeyRound, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import {
+  Check,
+  ExternalLink,
+  Github,
+  KeyRound,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ApiError, api } from "@/lib/api/client";
@@ -267,18 +275,26 @@ export function GitHubConnectorWizardStep({
   const [oAuthLinkError, setOAuthLinkError] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState(false);
 
-  // OAuth-for-PAT state (ADR-0047 §13). The auth-choice sub-step pre-
-  // mints a binding UUID before opening the popup so the OAuth
-  // callback writes its secret under `binding/<id-no-dash>/github/
-  // pat`; the wizard reuses the same id on the binding-create call.
-  // We keep the minted id alive across re-renders so the operator can
-  // retry the popup without re-allocating.
+  // Safari-safe OAuth handoff for "Link GitHub account". The callback page's
+  // postMessage / localStorage handoff is broken by Safari's storage
+  // partitioning (after the popup's cross-origin github.com bounce), so the
+  // wizard ALSO polls a server result store keyed by a client nonce.
+  // `oauthHandledRef` dedupes whichever channel (postMessage, storage, or
+  // poll) lands first; `linkPollStopRef` cancels the in-flight poll.
+  const oauthHandledRef = useRef<boolean>(false);
+  const linkPollStopRef = useRef<(() => void) | null>(null);
+
+  // App-free PAT path (ADR-0047 §5/§11, reshaped). The operator pastes a
+  // GitHub Personal Access Token; the wizard stores it as a tenant secret
+  // under `binding/<id>/github/pat` and wires `pat_secret_name` to it.
+  // No SV GitHub App, no OAuth popup — the binding's runtime resolver
+  // reads the token by name at SecretScope.Tenant. `pendingBindingIdRef`
+  // holds the minted secret-name id across re-renders; `patToken` holds
+  // the raw value only until "Use this token" writes the secret.
   const pendingBindingIdRef = useRef<string | null>(null);
-  const [authorizingPat, setAuthorizingPat] = useState(false);
-  const [awaitingPatCallback, setAwaitingPatCallback] = useState(false);
-  const [patAuthorizeError, setPatAuthorizeError] = useState<string | null>(
-    null,
-  );
+  const [patToken, setPatToken] = useState("");
+  const [savingPat, setSavingPat] = useState(false);
+  const [patSaveError, setPatSaveError] = useState<string | null>(null);
 
   const fetchRepositories = useCallback(async () => {
     let list: GitHubRepositoryResponse[] = [];
@@ -311,8 +327,12 @@ export function GitHubConnectorWizardStep({
         setRepositories([]);
       }
     }
-    if (disabled === null && missing === null && list.length === 0) {
+    if (disabled === null && missing === null) {
       try {
+        // Always fetch: the install URL carries the App slug, which the
+        // App-installation display names ("Installation used: <slug>…").
+        // When the list is empty it also powers the "Install GitHub App"
+        // call-to-action below.
         const { url } = await api.getGitHubInstallUrl();
         setInstallUrl(url);
       } catch {
@@ -359,6 +379,8 @@ export function GitHubConnectorWizardStep({
   const linkGitHubAccount = useCallback(async () => {
     setLinkingOAuth(true);
     setOAuthLinkError(null);
+    oauthHandledRef.current = false;
+    linkPollStopRef.current?.();
     const popup = window.open(
       "",
       "spring-voyage-github-oauth",
@@ -373,11 +395,54 @@ export function GitHubConnectorWizardStep({
     }
     setAwaitingOAuthCallback(true);
     popup.focus();
+    // Correlation nonce (rides in clientState, never sent to GitHub) so the
+    // wizard can poll the server for the result when the browser handoff
+    // is blocked (Safari storage partitioning).
+    const nonce = mintBindingId();
     try {
       const result = await api.beginGitHubOAuthAuthorize({
-        clientState: buildOAuthClientState(),
+        clientState: buildOAuthClientState(nonce),
       });
       popup.location.href = result.authorizeUrl;
+
+      // Poll the server result store as a browser-agnostic fallback to the
+      // postMessage / localStorage handoff. Whichever channel lands first
+      // wins (deduped via oauthHandledRef). Gives up after 3 minutes.
+      let stopped = false;
+      const startedAt = Date.now();
+      const stop = () => {
+        stopped = true;
+        linkPollStopRef.current = null;
+      };
+      linkPollStopRef.current = stop;
+      const tick = async () => {
+        if (stopped || oauthHandledRef.current) {
+          stop();
+          return;
+        }
+        try {
+          const res = await api.getGitHubOAuthResult(nonce);
+          if (res?.ready && !oauthHandledRef.current) {
+            oauthHandledRef.current = true;
+            stop();
+            if (res.error) {
+              setAwaitingOAuthCallback(false);
+              setOAuthLinkError(res.reason ?? res.error);
+            } else if (res.sessionId) {
+              void acceptOAuthSession(res.sessionId);
+            }
+            return;
+          }
+        } catch {
+          // Transient poll failure — keep trying until the deadline.
+        }
+        if (Date.now() - startedAt > 180_000) {
+          stop();
+          return;
+        }
+        window.setTimeout(() => void tick(), 1500);
+      };
+      window.setTimeout(() => void tick(), 1500);
     } catch (err) {
       popup.close();
       setAwaitingOAuthCallback(false);
@@ -385,82 +450,62 @@ export function GitHubConnectorWizardStep({
     } finally {
       setLinkingOAuth(false);
     }
-  }, []);
+  }, [acceptOAuthSession]);
 
   /**
-   * Pre-mints a binding UUID, opens the OAuth popup with the
-   * `binding-wizard` intent, and waits for the callback page's
-   * postMessage / localStorage handoff. The handoff carries the
-   * persisted `patSecretName` + `bindingId` (ADR-0047 §13); the local
-   * state is updated as soon as the payload arrives.
+   * App-free PAT path (ADR-0047 §5/§11, reshaped). Stores the pasted
+   * Personal Access Token as a tenant secret under
+   * `binding/<id>/github/pat` and wires `pat_secret_name` to it. The
+   * binding's runtime resolver reads the token by that name at
+   * `SecretScope.Tenant` (GitHubBindingAuthResolver.ResolvePatAsync), so
+   * no SV GitHub App is involved on this path. The raw token is cleared
+   * from component state as soon as the secret write returns.
    */
-  const authorizePat = useCallback(async () => {
-    setPatAuthorizeError(null);
-    setAuthorizingPat(true);
-    const popup = window.open(
-      "",
-      "spring-voyage-github-oauth-pat",
-      "popup,width=720,height=760",
-    );
-    if (popup === null) {
-      setPatAuthorizeError(
-        "Your browser blocked the GitHub authorization window.",
-      );
-      setAuthorizingPat(false);
+  const savePatToken = useCallback(async () => {
+    const token = patToken.trim();
+    if (token === "") {
+      setPatSaveError("Paste a GitHub personal access token first.");
       return;
     }
-    setAwaitingPatCallback(true);
-    popup.focus();
+    setSavingPat(true);
+    setPatSaveError(null);
     try {
       const bindingId = mintBindingId();
       pendingBindingIdRef.current = bindingId;
-      const result = await api.beginGitHubOAuthAuthorize({
-        clientState: buildOAuthClientState(),
-        intent: "binding-wizard",
-        bindingId,
-      });
-      popup.location.href = result.authorizeUrl;
+      const secretName = `binding/${bindingId}/github/pat`;
+      await api.createTenantSecret({ name: secretName, value: token });
+      setPatSecretName(secretName);
+      setPatToken("");
+      setAuthChoice("pat");
+      setInstallationId(null);
     } catch (err) {
-      popup.close();
-      setAwaitingPatCallback(false);
-      pendingBindingIdRef.current = null;
-      setPatAuthorizeError(formatTranslatedError(err));
+      setPatSaveError(formatTranslatedError(err));
     } finally {
-      setAuthorizingPat(false);
+      setSavingPat(false);
     }
-  }, []);
+  }, [patToken]);
 
   useEffect(() => {
     const allowedOrigins = getAllowedOAuthCallbackOrigins();
     const handlePayload = (value: unknown) => {
       const payload = parseOAuthCallbackPayload(value);
       if (payload === null) return;
+      // Only the App-installation "Link GitHub account" flow uses this
+      // browser handoff now — it carries a session id (and, on failure,
+      // an error). The PAT path is App-free and never opens a popup. The
+      // server-poll fallback shares oauthHandledRef so only the first
+      // channel to land is acted on.
+      if (oauthHandledRef.current) return;
       if (payload.error) {
+        oauthHandledRef.current = true;
+        linkPollStopRef.current?.();
         setAwaitingOAuthCallback(false);
-        setAwaitingPatCallback(false);
-        // Route the error to whichever flow is in flight.
-        if (pendingBindingIdRef.current !== null) {
-          setPatAuthorizeError(payload.reason ?? payload.error);
-          pendingBindingIdRef.current = null;
-        } else {
-          setOAuthLinkError(payload.reason ?? payload.error);
-        }
+        setOAuthLinkError(payload.reason ?? payload.error);
         return;
       }
-      // Binding-wizard handoff: persist the secret name + binding id on
-      // the local form so the wizard's binding-create call rides
-      // through the PAT branch.
-      if (payload.patSecretName) {
-        setPatSecretName(payload.patSecretName);
-        setAuthChoice("pat");
-        // Clear App-side state — the binding's auth is mutually-
-        // exclusive (ADR-0047 §11) and the form's onChange must not
-        // bubble both fields.
-        setInstallationId(null);
-        setAwaitingPatCallback(false);
-        pendingBindingIdRef.current = null;
-      }
       if (payload.sessionId) {
+        oauthHandledRef.current = true;
+        linkPollStopRef.current?.();
         void acceptOAuthSession(payload.sessionId);
       }
     };
@@ -484,6 +529,7 @@ export function GitHubConnectorWizardStep({
     return () => {
       window.removeEventListener("message", handleMessage);
       window.removeEventListener("storage", handleStorage);
+      linkPollStopRef.current?.();
     };
   }, [acceptOAuthSession]);
 
@@ -659,7 +705,8 @@ export function GitHubConnectorWizardStep({
       // auth is single-valued.
       setPatSecretName("");
       pendingBindingIdRef.current = null;
-      setAwaitingPatCallback(false);
+      setPatToken("");
+      setPatSaveError(null);
     } else {
       // Switching to PAT clears the App installation id so the wire
       // shape only carries the chosen field.
@@ -669,6 +716,15 @@ export function GitHubConnectorWizardStep({
   };
 
   const repoBusy = reposLoading || rechecking;
+
+  // App slug parsed from the install URL
+  // (`https://github.com/apps/<slug>/installations/new`) so the
+  // App-installation display can name the App backing the repo list.
+  const appSlug = useMemo(() => {
+    if (installUrl === null) return null;
+    const match = installUrl.match(/\/apps\/([^/]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }, [installUrl]);
 
   // The repository dropdown only renders rows the operator can pick
   // *and* the App has visibility into. When the qualified-repo input
@@ -729,16 +785,32 @@ export function GitHubConnectorWizardStep({
               Use an App installation
             </span>
             <span className="block text-[11px] text-muted-foreground">
-              Outbound writes mint installation tokens for the
-              picked App. Pick a row from the repository dropdown
-              below to auto-fill the installation id.
+              Best for repositories where you&apos;ve installed the
+              Spring Voyage GitHub App (including your private repos).
+              The unit acts as the App (a bot identity) and outbound
+              writes mint short-lived installation tokens. Pick a
+              repository from the dropdown below to select its
+              installation.
             </span>
             {authChoice === "app" && (
               <span className="mt-1 block text-[11px] text-muted-foreground">
-                Installation id:{" "}
-                <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                  {installationId ?? "(none selected)"}
-                </code>
+                {installationId == null ? (
+                  <>Installation: pick a repository below to select one.</>
+                ) : (
+                  <>
+                    Installation used:{" "}
+                    <a
+                      href={`https://github.com/settings/installations/${installationId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-info underline-offset-2 hover:underline"
+                      data-testid="github-installation-link"
+                    >
+                      {appSlug ?? "GitHub App"} (installation ID:{" "}
+                      {installationId})
+                    </a>
+                  </>
+                )}
               </span>
             )}
           </span>
@@ -759,60 +831,110 @@ export function GitHubConnectorWizardStep({
               Use a PAT secret
             </span>
             <span className="block text-[11px] text-muted-foreground">
-              Outbound writes use a tenant secret holding a personal
-              access token. Recommended: authorize via GitHub (the
-              OAuth flow writes the secret automatically).
-              Alternative: paste an existing tenant secret name.
+              No Spring Voyage GitHub App required. Paste a GitHub
+              personal access token you control — the unit acts as you
+              and can reach any repository your token&apos;s scopes
+              allow. The token is stored as a tenant secret and never
+              shown again.
             </span>
             {authChoice === "pat" && (
               <span className="mt-2 block space-y-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void authorizePat()}
-                  disabled={authorizingPat}
-                  data-testid="github-pat-authorize"
-                  aria-busy={authorizingPat}
-                >
-                  {authorizingPat ? (
-                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Github className="mr-1 h-4 w-4" />
-                  )}
-                  {authorizingPat
-                    ? "Opening…"
-                    : "Authorize with GitHub"}
-                </Button>
-                {awaitingPatCallback && (
-                  <span className="block text-[11px] text-muted-foreground">
-                    Finish authorization in the GitHub window. The
-                    secret name will fill in automatically.
+                {patSecretName.trim() !== "" ? (
+                  <span
+                    className="flex items-start gap-1.5 rounded-md border border-info/50 bg-info/15 px-2 py-1.5 text-[11px] text-foreground"
+                    data-testid="github-pat-saved"
+                  >
+                    <Check
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0 text-info"
+                      aria-hidden="true"
+                    />
+                    <span>
+                      Token saved as{" "}
+                      <code className="rounded bg-muted px-1 py-0.5 font-mono">
+                        {patSecretName}
+                      </code>
+                      . Enter the repository below as{" "}
+                      <code>owner/repo</code> to finish.{" "}
+                      <button
+                        type="button"
+                        className="font-medium underline underline-offset-2"
+                        onClick={() => {
+                          setPatSecretName("");
+                          pendingBindingIdRef.current = null;
+                        }}
+                      >
+                        Use a different token
+                      </button>
+                    </span>
                   </span>
+                ) : (
+                  <>
+                    <span className="block text-[11px] text-muted-foreground">
+                      <a
+                        href="https://github.com/settings/tokens/new?description=Spring+Voyage&scopes=repo"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-medium text-info underline-offset-2 hover:underline"
+                      >
+                        Create a token on GitHub
+                        <ExternalLink
+                          className="h-3 w-3"
+                          aria-hidden="true"
+                        />
+                      </a>{" "}
+                      with the{" "}
+                      <code className="rounded bg-muted px-1 py-0.5">
+                        repo
+                      </code>{" "}
+                      scope (classic), or a fine-grained token granting
+                      Contents: read, Issues: read/write, Pull requests:
+                      read, Commit statuses: read/write, and Checks:
+                      read/write.
+                    </span>
+                    <span className="flex gap-2">
+                      <input
+                        type="password"
+                        aria-label="GitHub personal access token"
+                        data-testid="github-pat-token"
+                        autoComplete="off"
+                        className="h-9 w-full flex-1 rounded-md border border-input bg-background px-3 text-sm font-mono"
+                        placeholder="ghp_… or github_pat_…"
+                        value={patToken}
+                        onChange={(e) => setPatToken(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void savePatToken();
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void savePatToken()}
+                        disabled={savingPat || patToken.trim() === ""}
+                        data-testid="github-pat-save"
+                        aria-busy={savingPat}
+                      >
+                        {savingPat ? (
+                          <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                        ) : (
+                          <KeyRound className="mr-1 h-4 w-4" />
+                        )}
+                        {savingPat ? "Saving…" : "Use this token"}
+                      </Button>
+                    </span>
+                    {patSaveError && (
+                      <span
+                        className="block text-[11px] text-destructive"
+                        data-testid="github-pat-save-error"
+                      >
+                        Could not save the token: {patSaveError}
+                      </span>
+                    )}
+                  </>
                 )}
-                {patAuthorizeError && (
-                  <span className="block text-[11px] text-destructive">
-                    Authorization did not complete:{" "}
-                    {patAuthorizeError}
-                  </span>
-                )}
-                <input
-                  type="text"
-                  aria-label="PAT secret name"
-                  data-testid="github-pat-secret-name"
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono"
-                  placeholder="binding/<id>/github/pat (or paste an existing tenant secret name)"
-                  value={patSecretName}
-                  onChange={(e) => setPatSecretName(e.target.value)}
-                />
-                <span className="block text-[11px] text-muted-foreground">
-                  The tenant secret name the binding stores. The
-                  OAuth flow writes
-                  <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
-                    binding/&lt;id&gt;/github/pat
-                  </code>
-                  ; pasting an existing name overrides the default.
-                </span>
               </span>
             )}
           </span>
@@ -1201,6 +1323,19 @@ export function GitHubConnectorWizardStep({
         <legend className="text-xs text-muted-foreground">
           Webhook events
         </legend>
+        {authChoice === "pat" && (
+          <p className="rounded-md border border-info/40 bg-info/10 px-2 py-1.5 text-[11px] text-foreground">
+            On the PAT path, Spring Voyage doesn&apos;t register a repository
+            webhook. Inbound events reach this unit only when the Spring
+            Voyage GitHub App is installed on the repository, or — for local
+            development — via{" "}
+            <code className="rounded bg-muted px-1 py-0.5">
+              gh webhook forward
+            </code>
+            . The token still authenticates all outbound writes (issue and
+            PR comments, pull requests, statuses).
+          </p>
+        )}
         <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
           <input
             type="checkbox"

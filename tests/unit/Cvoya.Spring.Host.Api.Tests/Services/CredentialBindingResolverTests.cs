@@ -168,6 +168,63 @@ public class CredentialBindingResolverTests
         missing.ConsumingUnits.ShouldBe(new[] { "u1", "u2" });
     }
 
+    // Regression: a unit that declares a STRUCTURED `requires:` (connector +
+    // labels) and inline-stamp `members:` — the Spring Voyage OSS shape —
+    // must still surface its runtime credential. The previous derivation
+    // deserialised the whole UnitManifest (walking `requires:`/`members:`)
+    // without the RequirementEntry converter, so it threw and silently
+    // dropped the unit to no-credential. The fix reads only the `ai:` block.
+    [Fact]
+    public void CollectRequired_DerivesCredential_WhenUnitHasStructuredRequiresAndInlineMembers()
+    {
+        const string content =
+            "apiVersion: spring.voyage/v1\n" +
+            "kind: Unit\n" +
+            "name: oss-like\n" +
+            "ai:\n" +
+            "  runtime: claude-code\n" +
+            "  model:\n" +
+            "    provider: anthropic\n" +
+            "    id: claude-opus-4-7\n" +
+            "members:\n" +
+            "  - agent: { name: ada, from: software-engineer, displayName: \"Ada\" }\n" +
+            "  - human:\n" +
+            "      roles: [overall-lead]\n" +
+            "requires:\n" +
+            "  - connector: github\n" +
+            "    labels:\n" +
+            "      include:\n" +
+            "        - spring-voyage-team\n";
+
+        var pkg = new ResolvedPackage
+        {
+            Name = "test",
+            Kind = PackageKind.UnitPackage,
+            InputValues = new Dictionary<string, string>(),
+            Units = new[]
+            {
+                new ResolvedArtefact
+                {
+                    Name = "oss-like",
+                    Kind = ArtefactKind.Unit,
+                    ResolvedPath = Path.Combine(Path.GetTempPath(), "oss-like.yaml"),
+                    Content = content,
+                },
+            },
+            Agents = System.Array.Empty<ResolvedArtefact>(),
+            Skills = System.Array.Empty<ResolvedArtefact>(),
+            HumanTemplates = System.Array.Empty<ResolvedArtefact>(),
+        };
+
+        var required = CredentialBindingResolver.CollectRequired(pkg, Catalog);
+
+        required.Count.ShouldBe(1);
+        required.Single().Provider.ShouldBe("anthropic");
+        required.Single().AuthMethod.ShouldBe(AuthMethod.Oauth);
+        required.Single().CredentialEnvVar.ShouldBe("CLAUDE_CODE_OAUTH_TOKEN");
+        required.Single().ConsumingUnits.ShouldBe(new[] { "oss-like" });
+    }
+
     private static ResolvedPackage MakePackage(params (string Name, string Runtime, string Provider)[] units)
     {
         var artefacts = units

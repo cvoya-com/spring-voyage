@@ -1509,6 +1509,22 @@ export const api = {
       ),
     ),
   /**
+   * Polls for an OAuth callback result by the client-minted `nonce` carried
+   * in `clientState`. The browser-handoff-free fallback for the "Link GitHub
+   * account" popup: Safari partitions the popup's localStorage and nulls
+   * window.opener after the github.com bounce, so the postMessage/storage
+   * handoff never reaches the opener. The callback records the outcome in a
+   * short-lived single-read server store; the wizard polls this until
+   * `ready` flips true. Always 200; `ready=false` means "not yet".
+   */
+  getGitHubOAuthResult: async (nonce: string) =>
+    unwrap(
+      await fetchClient.GET(
+        "/api/v1/tenant/connectors/github/oauth/result/{nonce}",
+        { params: { path: { nonce } } },
+      ),
+    ),
+  /**
    * Lists the collaborators on a single repository (#1133). The wizard's
    * Reviewer dropdown calls this whenever the repo selection changes;
    * the installation id is required so the connector mints the right
