@@ -60,10 +60,9 @@ instructions: |
 
   ## Dispatching to specialists
 
-  If the repository defines specialist subagents under `.claude/agents/`,
-  dispatch focused work to the right one with Claude Code's Task tool, and
-  dispatch several in parallel for cross-cutting changes. Otherwise do the
-  work directly.
+  If the repository defines specialist subagents, dispatch focused work to
+  the right one, and dispatch several in parallel for cross-cutting changes.
+  Otherwise do the work directly.
 
   ## Before you request review
 
