@@ -175,6 +175,25 @@ port_in_use() {
     return 2
 }
 
+# Echo the name of a running Spring Voyage service container (spring-*) that
+# publishes the given host port, or nothing. A port held by one of *our own*
+# containers is not a real conflict: `cmd_up` recreates every service
+# (run_container → remove_container then recreate), freeing and rebinding the
+# port. preflight_up uses this to tell a self-conflict (skip) from a foreign
+# holder (abort) — issue #2962, a regression from #2930's fresh-host port guard.
+# Matches the host side of podman's "IP:HOSTPORT->CTRPORT/proto" mapping, i.e.
+# ":<port>->", so a container-side port never false-matches.
+spring_container_publishing_port() {
+    local port="$1" name ports
+    while IFS='|' read -r name ports; do
+        [[ "${name}" == spring-* ]] || continue
+        [[ "${ports}" == *":${port}->"* ]] || continue
+        printf '%s' "${name}"
+        return 0
+    done < <(podman ps --format '{{.Names}}|{{.Ports}}' 2>/dev/null)
+    return 1
+}
+
 # Echo the kernel's unprivileged-port floor (the rootless bind floor): a
 # rootless process cannot bind below it. /proc, then sysctl, then the default.
 unprivileged_port_floor() {
@@ -1235,11 +1254,19 @@ preflight_up() {
     # Host-published container ports must be free. (The dispatcher's host port is
     # validated by spring-voyage-host.sh's own health probe.) A missing
     # lsof/ss/netstat yields 'unknown' (return 2) and we proceed rather than block.
+    # A port held by one of THIS deployment's own service containers is not a real
+    # conflict — `up` recreates every service, which frees and rebinds it — so we
+    # skip it and only abort for a foreign holder (issue #2962, a regression from
+    # this guard added in #2930 that broke the rebuild-and-redeploy loop).
     local caddy_http="${CADDY_HTTP_PORT:-80}" caddy_https="${CADDY_HTTPS_PORT:-443}" mcp="${Mcp__Port:-5050}"
-    local entry label port
+    local entry label port holder
     for entry in "Caddy HTTP:${caddy_http}" "Caddy HTTPS:${caddy_https}" "worker MCP:${mcp}"; do
         label="${entry%%:*}"; port="${entry##*:}"
         if port_in_use "${port}"; then
+            if holder="$(spring_container_publishing_port "${port}")" && [[ -n "${holder}" ]]; then
+                log "host port ${port} (${label}) is published by this deployment's own '${holder}' — 'up' recreates it and rebinds the port; continuing."
+                continue
+            fi
             die "host port ${port} (${label}) is already in use. Free the service holding it, or set the matching override (CADDY_HTTP_PORT / CADDY_HTTPS_PORT / Mcp__Port) in ${ENV_FILE} and retry."
         fi
     done
