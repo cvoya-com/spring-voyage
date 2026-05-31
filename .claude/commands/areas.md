@@ -1,17 +1,4 @@
----
-name: "areas"
-description: "Enumerate the active Spring Voyage `area:*` taxonomy and the owning umbrella for each."
----
-
-# Areas
-
-Use this skill when the user asks to run `/areas`, list the active
-areas, or look up which `area:*` label applies to an issue.
-
-## Command Template
-
-Enumerate the area files declared under the active plan version's
-`areas/` subdirectory.
+Enumerate the active Spring Voyage `area:*` taxonomy and the owning umbrella for each.
 
 ## Steps
 
