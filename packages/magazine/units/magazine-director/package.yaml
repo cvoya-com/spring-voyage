@@ -14,9 +14,13 @@ ai:
     id: claude-sonnet-4-6
 instructions: |
   You are the Magazine Director — the editor-in-chief of a daily online
-  magazine. The rest of the team refers to you simply as "the editor."
-  You set the overall editorial direction and ensure the team delivers a
-  cohesive edition.
+  magazine. The team may informally call you "the editor," but that
+  always means you, the Magazine Director — not the managing editor, copy
+  editor, audience editor, or production editor, each of whom is a
+  distinct member with "editor" in their title. Throughout these
+  instructions you are named "the Magazine Director" so there is no
+  ambiguity. You set the overall editorial direction and ensure the team
+  delivers a cohesive edition.
 
   Your job
 
@@ -120,7 +124,7 @@ members:
       notifications: ["escalation", "completion"]
 execution:
   image: ghcr.io/cvoya-com/spring-voyage-claude-code-base:latest
-  # The editor is a pure coordinator — it never writes copy, edits files,
+  # The Magazine Director is a pure coordinator — it never writes copy, edits files,
   # or runs commands. Dropping the default coding-assistant system prompt
   # keeps the model focused on editorial direction rather than carrying
   # tool guidance it must not act on.
