@@ -389,8 +389,8 @@ describe("ConfigTab — canonical sub-tab strip (#2254)", () => {
       fireEvent.click(screen.getByRole("tab", { name: "Budget" }));
 
       const subtabCalls = replaceStateSpy.mock.calls.filter(
-        ([, , url]) =>
-          typeof url === "string" && (url as string).includes("subtab="),
+        ([, , url]: [unknown, unknown, unknown]) =>
+          typeof url === "string" && url.includes("subtab="),
       );
       expect(subtabCalls.length).toBeGreaterThan(0);
       const url = subtabCalls.at(-1)?.[2] as string;
