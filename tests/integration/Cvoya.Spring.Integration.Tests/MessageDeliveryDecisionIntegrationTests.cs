@@ -211,25 +211,6 @@ public class MessageDeliveryDecisionIntegrationTests
                 Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
-        // #2576 — a stateful in-memory hop actor per thread.
-        var hopActorsById = new Dictionary<string, IThreadHopActor>();
-        var actorProxyFactory = Substitute.For<IActorProxyFactory>();
-        actorProxyFactory
-            .CreateActorProxy<IThreadHopActor>(Arg.Any<ActorId>(), nameof(ThreadHopActor))
-            .Returns(call =>
-            {
-                var id = call.ArgAt<ActorId>(0).GetId();
-                if (!hopActorsById.TryGetValue(id, out var actor))
-                {
-                    var count = 0;
-                    actor = Substitute.For<IThreadHopActor>();
-                    actor.IncrementAsync().Returns(_ => Task.FromResult(++count));
-                    hopActorsById[id] = actor;
-                }
-
-                return actor;
-            });
-
         // ADR-0049 — tighten the delivery retry budget so the
         // terminal-failure path exhausts in milliseconds under test.
         var deliveryOptions = Options.Create(new MessageDeliveryOptions
@@ -243,7 +224,6 @@ public class MessageDeliveryDecisionIntegrationTests
 
         var deliveryService = new MessageDeliveryService(
             agentProxyResolver,
-            actorProxyFactory,
             new SingleTenantMessageTenantResolver(),
             scopeFactory,
             Substitute.For<ILogger<MessageDeliveryService>>(),

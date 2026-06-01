@@ -38,7 +38,6 @@ public class MessageDeliveryServiceTests
     private static readonly Guid OtherTenantId = new("ffffffff-0000-0000-0000-000000000099");
 
     private readonly IAgentProxyResolver _agentProxyResolver = Substitute.For<IAgentProxyResolver>();
-    private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly IMessageTenantResolver _tenantResolver = Substitute.For<IMessageTenantResolver>();
     private readonly RecordingThreadRegistry _threadRegistry = new();
     private readonly RecordingMessageWriter _messageWriter = new();
@@ -50,45 +49,6 @@ public class MessageDeliveryServiceTests
     {
         _tenantResolver.GetTenantForAddressAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(TenantId);
-    }
-
-    [Fact]
-    public async Task EnsureHopBudget_UnderLimit_DoesNotThrow()
-    {
-        var hopActor = StubHopActor(1, 2, 3);
-        var service = CreateService(maxHopCount: 16);
-
-        // Three hops on the same thread, all under the limit.
-        await service.EnsureHopBudgetAsync(Guid.NewGuid(), CancellationToken.None);
-        await service.EnsureHopBudgetAsync(Guid.NewGuid(), CancellationToken.None);
-        await service.EnsureHopBudgetAsync(Guid.NewGuid(), CancellationToken.None);
-
-        await hopActor.Received(3).IncrementAsync();
-    }
-
-    [Fact]
-    public async Task EnsureHopBudget_ExceedsLimit_ThrowsDepthExceeded()
-    {
-        // The hop actor reports a count past the limit — the cycle terminates.
-        StubHopActor(17);
-        var service = CreateService(maxHopCount: 16);
-
-        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
-            service.EnsureHopBudgetAsync(Guid.NewGuid(), CancellationToken.None));
-
-        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.DepthExceeded);
-    }
-
-    [Fact]
-    public async Task EnsureHopBudget_AtLimit_DoesNotThrow()
-    {
-        // Hop count exactly at the limit is still permitted; only a count
-        // strictly past it is rejected.
-        StubHopActor(16);
-        var service = CreateService(maxHopCount: 16);
-
-        await Should.NotThrowAsync(() =>
-            service.EnsureHopBudgetAsync(Guid.NewGuid(), CancellationToken.None));
     }
 
     [Fact]
@@ -156,17 +116,6 @@ public class MessageDeliveryServiceTests
             service.DeliverWithRetryAsync(caller, target, CreateMessage(), CancellationToken.None));
 
         ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.DeliveryFailed);
-    }
-
-    private IThreadHopActor StubHopActor(params int[] returnsSequence)
-    {
-        var hopActor = Substitute.For<IThreadHopActor>();
-        var queue = new Queue<int>(returnsSequence);
-        hopActor.IncrementAsync().Returns(_ => queue.Count > 0 ? queue.Dequeue() : returnsSequence[^1]);
-        _actorProxyFactory
-            .CreateActorProxy<IThreadHopActor>(Arg.Any<ActorId>(), nameof(ThreadHopActor))
-            .Returns(hopActor);
-        return hopActor;
     }
 
     [Fact]
@@ -413,10 +362,9 @@ public class MessageDeliveryServiceTests
         delivered[0].ThreadId.ShouldBe(delivered[1].ThreadId);
     }
 
-    private MessageDeliveryService CreateService(int maxHopCount = 16) =>
+    private MessageDeliveryService CreateService() =>
         new(
             _agentProxyResolver,
-            _actorProxyFactory,
             _tenantResolver,
             ScopeFactoryWith(_threadRegistry, _messageWriter),
             _logger,
@@ -425,7 +373,6 @@ public class MessageDeliveryServiceTests
                 MaxAttempts = 3,
                 Budget = TimeSpan.FromSeconds(2),
                 InitialBackoff = TimeSpan.FromMilliseconds(1),
-                MaxHopCount = maxHopCount,
             }));
 
     private IServiceScopeFactory ScopeFactoryWith(

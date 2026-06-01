@@ -42,13 +42,6 @@ public sealed class MessageDeliveryException : Exception
         // the calling model the platform is degraded and to retry.
         public const string DeliveryFailed = nameof(DeliveryFailed);
 
-        // ADR-0049 / #2576 — raised by MessageDeliveryService when a thread's
-        // per-thread hop counter (the ThreadHopActor) exceeds
-        // MessageDeliveryOptions.MaxHopCount. This replaces the
-        // call-stack depth guard removed under ADR-0049: one-way delivery has
-        // no call stack, so the guard is carried on the message thread instead.
-        public const string DepthExceeded = nameof(DepthExceeded);
-
         // ADR-0039 §3 gate 6 — cross-tenant containment. The token's
         // tenantId claim must match the resolved tenant of the caller (and,
         // when applicable, the target). Any mismatch surfaces with this

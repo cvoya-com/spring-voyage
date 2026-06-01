@@ -300,15 +300,6 @@ public class SlackOutboundDeliveryWireUpIntegrationTests
             services.AddScoped<IMessageWriter, NoopMessageWriter>();
             services.AddSingleton(Substitute.For<IMessageTenantResolver>());
 
-            // Hop counter actor — return 1 for every increment so we never
-            // exceed MaxHopCount. The delivery hot path opens an actor proxy
-            // for the per-thread hop counter but only when EnsureHopBudgetAsync
-            // is called explicitly; DeliverWithRetryAsync itself doesn't
-            // touch it. We still register the factory so the service can
-            // construct without missing dependencies.
-            var actorProxyFactory = Substitute.For<IActorProxyFactory>();
-            services.AddSingleton(actorProxyFactory);
-
             // Agent proxy resolver — the recipient mailbox stub.
             var receiverAgent = Substitute.For<IAgent>();
             receiverAgent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
@@ -324,7 +315,6 @@ public class SlackOutboundDeliveryWireUpIntegrationTests
                 MaxAttempts = 1,
                 Budget = TimeSpan.FromSeconds(2),
                 InitialBackoff = TimeSpan.FromMilliseconds(1),
-                MaxHopCount = 16,
             }));
 
             // MessageDeliveryService itself.

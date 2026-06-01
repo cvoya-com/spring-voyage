@@ -32,8 +32,8 @@ public sealed record DeliveryOutcome(
 /// Shared delivery seam for the platform messaging tools (ADR-0048 /
 /// ADR-0049). The platform delivers messages; it does not orchestrate.
 /// <see cref="MessagingToolHandlers"/> uses this service to validate the
-/// caller / target, bound the per-thread hop count, and synchronously
-/// deliver a message to one or many mailboxes with bounded retry.
+/// caller / target and synchronously deliver a message to one or many
+/// mailboxes with bounded retry.
 /// <para>
 /// Each delivery resolves its own thread from the <c>(caller, target)</c>
 /// participant set via <see cref="IThreadRegistry"/> (#2596 / ADR-0030).
@@ -47,7 +47,6 @@ public sealed record DeliveryOutcome(
 /// </summary>
 public class MessageDeliveryService(
     IAgentProxyResolver agentProxyResolver,
-    IActorProxyFactory actorProxyFactory,
     IMessageTenantResolver tenantResolver,
     IServiceScopeFactory scopeFactory,
     ILogger<MessageDeliveryService> logger,
@@ -125,34 +124,6 @@ public class MessageDeliveryService(
                 $"Cannot deliver to '{target}': the '{Address.ConnectorScheme}' scheme is non-routable. " +
                 "Connectors are senders only — they translate external events into inbound messages " +
                 "but do not receive replies. Pick a routable participant (agent, unit, or human).");
-        }
-    }
-
-    /// <summary>
-    /// Increments the per-thread message-delivery hop counter (#2576) and
-    /// throws <see cref="MessageDeliveryException"/> with
-    /// <see cref="MessageDeliveryException.RejectCodes.DepthExceeded"/>
-    /// when the new count exceeds
-    /// <see cref="MessageDeliveryOptions.MaxHopCount"/>. Called once per
-    /// <c>sv.messaging.send</c> / <c>sv.messaging.multicast</c> call before
-    /// any delivery attempt, so a fan-out cycle terminates at the limit.
-    /// </summary>
-    public async Task EnsureHopBudgetAsync(Guid threadId, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-
-        var hopActor = actorProxyFactory.CreateActorProxy<IThreadHopActor>(
-            new ActorId(GuidFormatter.Format(threadId)),
-            nameof(ThreadHopActor));
-
-        var hopCount = await hopActor.IncrementAsync();
-        if (hopCount > _deliveryOptions.MaxHopCount)
-        {
-            throw new MessageDeliveryException(
-                MessageDeliveryException.RejectCodes.DepthExceeded,
-                $"Thread '{GuidFormatter.Format(threadId)}' exceeded the message-delivery hop limit " +
-                $"of {_deliveryOptions.MaxHopCount} (hop {hopCount}). The conversation is likely in a " +
-                "delivery cycle; no further messages will be delivered on this thread.");
         }
     }
 

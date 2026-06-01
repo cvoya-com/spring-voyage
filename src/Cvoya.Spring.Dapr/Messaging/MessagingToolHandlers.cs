@@ -131,9 +131,6 @@ public class MessagingToolHandlers(
         var participantSet = new List<Address>(recipients.Count + 1) { caller };
         participantSet.AddRange(recipients);
 
-        // #2576 — one hop per send call, regardless of fan-out width.
-        await deliveryService.EnsureHopBudgetAsync(threadId, ct);
-
         if (!string.IsNullOrWhiteSpace(reason))
         {
             logger.LogInformation(
@@ -202,9 +199,6 @@ public class MessagingToolHandlers(
             MessageDeliveryService.EnsureCanReceive(recipient);
             await deliveryService.EnsureTargetTenantAsync(recipient, tenantId, ct);
         }
-
-        // #2576 — one hop per multicast call, regardless of fan-out width.
-        await deliveryService.EnsureHopBudgetAsync(threadId, ct);
 
         if (!string.IsNullOrWhiteSpace(reason))
         {
@@ -295,10 +289,6 @@ public class MessagingToolHandlers(
             MessageDeliveryService.EnsureCanReceive(recipient);
             await deliveryService.EnsureTargetTenantAsync(recipient, tenantId, ct);
         }
-
-        // #2576 — one hop per respondTo call, keyed on the conversation's own
-        // thread so a continuation cycle terminates at the limit.
-        await deliveryService.EnsureHopBudgetAsync(threadId, ct);
 
         if (!string.IsNullOrWhiteSpace(reason))
         {
