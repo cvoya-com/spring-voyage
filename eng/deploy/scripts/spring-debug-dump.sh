@@ -196,6 +196,17 @@ SELECT json_build_object(
     ) ORDER BY a.timestamp, a.id) FROM spring.activity_events a)
 );
 SQL
+
+# Actor inboxes (queued, not-yet-dispatched messages) live in the Dapr actor
+# state store — public.state — under keys
+# '…||AgentActor||{id}||Agent:Channel:{threadId}', each value a serialized
+# ThreadChannel. Extracted with a SEPARATE query so a deployment without
+# public.state (or a renamed actor state store) cannot break the core export.
+cat > "${OUT}/tools/extract_inboxes.sql" <<'SQL'
+SELECT coalesce(json_agg(json_build_object('key', s.key, 'value', s.value) ORDER BY s.key), '[]'::json)
+FROM public.state s
+WHERE s.key LIKE '%Agent:Channel:%';
+SQL
 }
 
 # write_enrich_py — emit the stdlib-only post-processor that turns the raw
@@ -203,7 +214,8 @@ SQL
 write_enrich_py() {
 cat > "${OUT}/tools/enrich.py" <<'PY'
 #!/usr/bin/env python3
-"""Split raw_snapshot.json into enriched exports. Args: <raw_snapshot.json> <out_dir>."""
+"""Split raw_snapshot.json into enriched exports.
+Args: <raw_snapshot.json> <out_dir> [<raw_inboxes.json>]."""
 import json
 import re
 import sys
@@ -211,6 +223,35 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 RAW, OUT = sys.argv[1], sys.argv[2]
+INBOXES = sys.argv[3] if len(sys.argv) > 3 else None
+
+# MessageType enum order (Cvoya.Spring.Core.Messaging.MessageType) — actor state
+# may serialise Type as the name ("Domain") or the ordinal (0); map both.
+MESSAGE_TYPES = ["Domain", "Cancel", "StatusQuery", "HealthCheck", "PolicyUpdate", "Amendment"]
+
+
+def ci_get(d, *names):
+    """Case-insensitive, multi-name field lookup. The Dapr actor-state JSON
+    casing is not guaranteed (web-defaults camelCase vs PascalCase default), so
+    inbox decoding must tolerate both."""
+    if not isinstance(d, dict):
+        return None
+    lower = {k.lower(): v for k, v in d.items()}
+    for n in names:
+        if n.lower() in lower:
+            return lower[n.lower()]
+    return None
+
+
+def norm_type(t):
+    return MESSAGE_TYPES[t] if isinstance(t, int) and 0 <= t < len(MESSAGE_TYPES) else t
+
+
+def content_of(payload):
+    if isinstance(payload, dict):
+        v = ci_get(payload, "content")
+        return v if isinstance(v, str) else None
+    return payload if isinstance(payload, str) else None
 
 
 def md_to_plain(md):
@@ -363,6 +404,76 @@ def main():
                              "source": rec["source"]["name"]})
     activities.sort(key=lambda x: (x["timestamp"], x["id"]))
 
+    # ---- actor inboxes (Dapr Agent:Channel state = queued, not-yet-processed
+    # messages). Read defensively (casing/enum form not guaranteed) and always
+    # keep the raw channel value alongside the decode.
+    def resolve_addr(a):
+        scheme = hexid = None
+        if isinstance(a, dict):
+            scheme, hexid = ci_get(a, "Scheme"), str(ci_get(a, "Id") or "")
+        elif isinstance(a, str) and ":" in a:
+            scheme, _, hexid = a.partition(":")
+        hexn = (hexid or "").replace("-", "")
+        src = hex_map.get(hexn)
+        return {"scheme": scheme,
+                "id": hex_to_uuid(hexn) if len(hexn) == 32 else (hexid or None),
+                "ref": src["ref"] if src else (f"{scheme}:{hexn}" if scheme and hexn else None),
+                "name": src["name"] if src else None}
+
+    inbox_raw = []
+    if INBOXES:
+        try:
+            with open(INBOXES, encoding="utf-8") as f:
+                inbox_raw = json.load(f) or []
+        except (OSError, json.JSONDecodeError):
+            inbox_raw = []
+
+    inboxes = []
+    for row in inbox_raw:
+        key = row.get("key", "")
+        val = row.get("value")
+        if isinstance(val, str):
+            try:
+                val = json.loads(val)
+            except json.JSONDecodeError:
+                val = None
+        # key: appid||ActorType||actorHex||Agent:Channel:{threadId}
+        parts = key.split("||")
+        state_key = parts[3] if len(parts) > 3 else ""
+        thread_id = state_key.split("Agent:Channel:", 1)[-1] if "Agent:Channel:" in state_key else None
+        actor_hex = (parts[2] if len(parts) > 2 else "").replace("-", "")
+        actor_src = hex_map.get(actor_hex)
+        queued = []
+        for m in (ci_get(val, "Messages") or []):
+            md = content_of(ci_get(m, "Payload"))
+            queued.append({
+                "messageId": ci_get(m, "Id"),
+                "type": norm_type(ci_get(m, "Type")),
+                "from": resolve_addr(ci_get(m, "From")),
+                "to": resolve_addr(ci_get(m, "To")),
+                "threadId": ci_get(m, "ThreadId"),
+                "timestamp": ci_get(m, "Timestamp"),
+                "content": {"markdown": md, "plain": md_to_plain(md)},
+            })
+        inboxes.append({
+            "actorType": parts[1] if len(parts) > 1 else None,
+            "actor": {"id": hex_to_uuid(actor_hex) if len(actor_hex) == 32 else None,
+                      "ref": actor_src["ref"] if actor_src else None,
+                      "name": actor_src["name"] if actor_src else None},
+            "threadId": thread_id,
+            "dispatching": ci_get(val, "Dispatching"),
+            "createdAt": ci_get(val, "CreatedAt"),
+            "queuedCount": len(queued),
+            "messages": queued,
+            "stateKey": key,
+            "rawValue": val,
+        })
+    inboxes.sort(key=lambda x: (x["actor"]["name"] or "", x["threadId"] or ""))
+    inbox_by_actor = defaultdict(int)
+    for i in inboxes:
+        inbox_by_actor[i["actor"]["name"] or i["actor"]["id"] or "?"] += i["queuedCount"]
+    inbox_queued_total = sum(i["queuedCount"] for i in inboxes)
+
     # ---- write everything
     with open(f"{OUT}/messages.jsonl", "w", encoding="utf-8") as f:
         for m in messages:
@@ -373,6 +484,7 @@ def main():
     dump("messages.json", messages)
     dump("threads.json", threads)
     dump("participants.json", participants)
+    dump("inboxes.json", inboxes)
 
     def span(times):
         times = [t for t in times if t]
@@ -403,6 +515,11 @@ def main():
         "messageTimeSpan": span([m["sentAt"] for m in messages]),
         "byDirection": dict(sorted(direction.items(), key=lambda kv: -kv[1])),
         "byMessageType": counter(m["type"] for m in messages),
+        "actorInboxes": {
+            "channelCount": len(inboxes),
+            "queuedTotal": inbox_queued_total,
+            "byActor": dict(sorted(inbox_by_actor.items(), key=lambda kv: -kv[1])),
+        },
         "participants": [
             {"ref": p["ref"], "name": p["name"], "scheme": p["scheme"],
              "messagesSent": p["messagesSent"], "messagesReceived": p["messagesReceived"],
@@ -414,8 +531,8 @@ def main():
             for t in sorted(threads, key=lambda x: -x["messageCount"])],
     })
     print(f"messages={len(messages)} threads={len(threads)} participants={len(participants)} "
-          f"activities={len(activities)} totalActivityCost={round(total_cost, 4)} "
-          f"errors+warnings={len(problems)}")
+          f"activities={len(activities)} inboxChannels={len(inboxes)} inboxQueued={inbox_queued_total} "
+          f"totalActivityCost={round(total_cost, 4)} errors+warnings={len(problems)}")
 
 
 if __name__ == "__main__":
@@ -445,14 +562,15 @@ A diagnostic snapshot of a local Podman deployment, collected by
 | `db/spring_schema.sql` | Schema only. |
 | `db/row_counts.tsv` | Row count per table (desc). |
 | `db/tables/<schema>.<table>.json` | Every table as a JSON array. |
-| `db/dapr/state.json` | Dapr actor state store (`public.state`). |
+| `db/dapr/state.json` | Dapr actor state store (`public.state`) — incl. actor inboxes (`Agent:Channel:*` per-thread queues), lifecycle status, workflow history. |
 | `db/interactions/raw_snapshot.json` | Atomic snapshot: messages + threads + participants + activities. |
 | `db/interactions/messages.jsonl` | One enriched message per line (names resolved; markdown + plain). |
 | `db/interactions/threads.json` | Threads = unique participant sets + per-thread aggregates. |
 | `db/interactions/participants.json` | Participant directory + sent/received/thread counts. |
 | `db/interactions/activities.jsonl` | The activity-event stream (source resolved, per-event cost). |
 | `db/interactions/activities-summary.json` | Activity rollup: by type/severity/source, total cost, errors. |
-| `db/interactions/summary.json` | Headline counts, time span, direction matrix. |
+| `db/interactions/inboxes.json` | Decoded actor inboxes — queued (not-yet-processed) messages per agent/thread from Dapr `Agent:Channel:*` state, raw channel value preserved. |
+| `db/interactions/summary.json` | Headline counts, time span, direction matrix, inbox totals. |
 | `logs/<container>.log` | `podman logs --timestamps` per spring-* container. |
 | `infra/` | ps / inspect / stats / info, networks, volumes, images, events timeline. |
 | `redis/` | Redis INFO + key inventory + values. |
@@ -570,8 +688,12 @@ if [[ "${DO_DB}" -eq 1 ]] && container_running "${PG_CONTAINER}"; then
     write_enrich_py
     if run "extract interactions+activities" \
             'psql_in -At < "${OUT}/tools/extract.sql" > "${OUT}/db/interactions/raw_snapshot.json"'; then
+        # Actor inbox channels — a separate query so a missing public.state cannot
+        # break the export above. Best-effort; enrich decodes it when present.
+        run "extract actor inboxes" \
+            'psql_in -At < "${OUT}/tools/extract_inboxes.sql" > "${OUT}/db/interactions/raw_inboxes.json"'
         if command -v python3 >/dev/null 2>&1; then
-            run "enrich exports" 'python3 "${OUT}/tools/enrich.py" "${OUT}/db/interactions/raw_snapshot.json" "${OUT}/db/interactions"'
+            run "enrich exports" 'python3 "${OUT}/tools/enrich.py" "${OUT}/db/interactions/raw_snapshot.json" "${OUT}/db/interactions" "${OUT}/db/interactions/raw_inboxes.json"'
         else
             log "python3 not found — keeping raw_snapshot.json, skipping enriched exports"
             printf -- '- enriched exports (python3 missing)\n' >>"${SKIPS}"
