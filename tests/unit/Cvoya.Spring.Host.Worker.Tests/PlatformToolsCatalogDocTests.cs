@@ -89,6 +89,115 @@ public class PlatformToolsCatalogDocTests
     }
 
     /// <summary>
+    /// Pins the doc's "Category usage guidance" section against the
+    /// single-source-of-truth <see cref="PlatformToolCatalog"/> (#2988):
+    /// each category's summary and usage-guidance prose is reproduced
+    /// verbatim in the doc (modulo whitespace / line-wrapping), so the
+    /// user-facing copy cannot drift from the prose the runtime serves an
+    /// agent from <c>sv.tools.list</c>. Editing the catalog without
+    /// re-syncing this doc section fails the build.
+    /// </summary>
+    [Fact]
+    public void CategoryGuidance_MatchesCatalog()
+    {
+        var docByToken = ParseCategoryGuidanceFromDoc();
+
+        var failures = new List<string>();
+        foreach (var category in PlatformToolCatalog.Categories)
+        {
+            if (!docByToken.TryGetValue(category.Token, out var docBlock))
+            {
+                failures.Add(
+                    $"category '{category.Token}': no " +
+                    $"<!-- platform-tool-catalog:{category.Token} --> block found in the doc.");
+                continue;
+            }
+
+            var expected = Normalise(category.Summary + " " + category.UsageGuidance);
+            var actual = Normalise(docBlock);
+            if (!string.Equals(expected, actual, StringComparison.Ordinal))
+            {
+                failures.Add(
+                    $"category '{category.Token}': doc guidance does not match the catalog." +
+                    Environment.NewLine + "  expected: " + expected +
+                    Environment.NewLine + "  doc:      " + actual);
+            }
+        }
+
+        failures.ShouldBeEmpty(
+            "docs/reference/platform-tools.md \"Category usage guidance\" section is out of sync " +
+            "with src/Cvoya.Spring.Core/Skills/PlatformToolCatalog.cs. Edit the catalog, then " +
+            "reproduce its Summary + UsageGuidance verbatim in the matching " +
+            "<!-- platform-tool-catalog:<token> --> block:" + Environment.NewLine +
+            string.Join(Environment.NewLine, failures));
+    }
+
+    /// <summary>
+    /// Extracts each category's doc prose from the
+    /// <c>&lt;!-- platform-tool-catalog:&lt;token&gt; --&gt;</c> …
+    /// <c>&lt;!-- /platform-tool-catalog:&lt;token&gt; --&gt;</c> markers,
+    /// stripping markdown blockquote prefixes (<c>&gt; </c>) and the
+    /// bold-token label line so the remainder is the summary + guidance
+    /// text to compare. Whitespace is normalised by the caller.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string> ParseCategoryGuidanceFromDoc()
+    {
+        var text = File.ReadAllText(CatalogDocPath);
+
+        var blocks = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (Match match in CategoryBlockRegex.Matches(text))
+        {
+            var token = match.Groups["token"].Value;
+            var body = match.Groups["body"].Value;
+
+            // Drop the blockquote markers so the prose compares cleanly.
+            var stripped = body.Replace("\n>", "\n").Replace("> ", " ");
+            blocks[token] = stripped;
+        }
+
+        return blocks;
+    }
+
+    /// <summary>
+    /// Matches one category block delimited by the open/close HTML-comment
+    /// markers and captures the token and inner body. The body includes
+    /// the bold-token summary line and the blockquote guidance; both are
+    /// folded into the compared text (the bold <c>**`token`** — summary</c>
+    /// line carries the summary, which the catalog string also leads with).
+    /// </summary>
+    private static readonly Regex CategoryBlockRegex = new(
+        @"<!-- platform-tool-catalog:(?<token>[a-z][a-z0-9_]*) -->" +
+        @"(?<body>.*?)" +
+        @"<!-- /platform-tool-catalog:\k<token> -->",
+        RegexOptions.Compiled | RegexOptions.Singleline);
+
+    /// <summary>
+    /// Collapses every run of whitespace to a single space, strips the
+    /// markdown emphasis / code markers the doc adds around the token
+    /// label, and trims — so a verbatim catalog string and its
+    /// naturally-wrapped doc rendering compare equal.
+    /// </summary>
+    private static string Normalise(string s)
+    {
+        // The doc renders the summary line as "**`token`** — summary";
+        // the catalog string is "summary". Drop the markdown emphasis,
+        // the backticked token label, and the leading em-dash so only the
+        // prose remains.
+        var withoutMarkup = MarkdownLabelRegex.Replace(s, " ");
+        return WhitespaceRegex.Replace(withoutMarkup, " ").Trim();
+    }
+
+    /// <summary>
+    /// Strips the doc-only <c>**`&lt;token&gt;`** —</c> label prefix and
+    /// stray emphasis markers so the compared text is prose only.
+    /// </summary>
+    private static readonly Regex MarkdownLabelRegex = new(
+        @"\*\*`[a-z][a-z0-9_]*`\*\*\s*—",
+        RegexOptions.Compiled);
+
+    private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
+
+    /// <summary>
     /// Reads every <c>`tool.name`</c>-shaped backtick code span from the
     /// doc's markdown tables. The doc consistently uses backticked tool
     /// names in its tables, so the lexer below — backticks around a

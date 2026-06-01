@@ -43,11 +43,15 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// <b>Category descriptions and usage guidance.</b> The per-category
 /// summaries and the <c>usage_guidance</c> string the listing tool
-/// returns live as static data on this registry — the categories are a
-/// platform contract, not a per-registry surface. Registries that ship
-/// tools in a category populate the category through the
-/// <see cref="ToolDefinition.Category"/> field; the discovery surface
-/// joins the two sides at enumeration time.
+/// returns are the single-source-of-truth
+/// <see cref="PlatformToolCatalog"/> in <c>Cvoya.Spring.Core</c>. The
+/// categories are a platform contract, not a per-registry surface, and
+/// the same prose feeds the user-facing catalog doc
+/// (<c>docs/reference/platform-tools.md</c>), CI-pinned against the
+/// catalog so the runtime-facing and user-facing copies cannot drift.
+/// Registries that ship tools in a category populate the category
+/// through the <see cref="ToolDefinition.Category"/> field; the
+/// discovery surface joins the two sides at enumeration time.
 /// </para>
 /// </remarks>
 public sealed class SvToolsDiscoverySkillRegistry : ISkillRegistry
@@ -74,78 +78,6 @@ public sealed class SvToolsDiscoverySkillRegistry : ISkillRegistry
           }
         }
         """);
-
-    /// <summary>
-    /// Built-in category metadata. Each entry pairs the canonical token
-    /// (the value tools stamp on <see cref="ToolDefinition.Category"/>)
-    /// with a one-line summary surfaced by
-    /// <see cref="ListCategoriesTool"/> and an extended
-    /// usage-guidance string surfaced by <see cref="ListTool"/>.
-    /// </summary>
-    private static readonly IReadOnlyList<CategoryDescriptor> KnownCategories =
-    [
-        new(
-            ToolCategories.Messaging,
-            "Send a one-way message to humans, agents, or units.",
-            "Use sv.messaging.send to deliver a message to one or more " +
-            "humans, agents, or units; every recipient lands on a single " +
-            "shared thread with the caller. Use sv.messaging.multicast to " +
-            "deliver the same message to several recipients, each on its " +
-            "own independent 1-1 thread with the caller (or to a resolved " +
-            "scope: unit-members, siblings). Valid recipient kinds are " +
-            "human, agent, and unit; connector addresses appear on inbound " +
-            "messages as a sender but are non-routable and are rejected " +
-            "synchronously with an UnroutableTarget error. Delivery is " +
-            "one-way (ADR-0049): each call returns a delivery " +
-            "acknowledgement; any response from a recipient arrives later " +
-            "as a separate inbound message."),
-        new(
-            ToolCategories.Directory,
-            "Look up agents, units, and humans by address, role, or expertise.",
-            "Use sv.directory.lookup when you already know an address (for " +
-            "example the sender of the inbound message) and need the entry's " +
-            "role / expertise / status. Use sv.directory.list to enumerate " +
-            "members of a unit, the caller's siblings, or peers matching a " +
-            "role or expertise filter. Every entry carries enough to act on " +
-            "(address, display name, role, expertise, advisory live status) — " +
-            "feed an address back into sv.messaging.send to reach the entry."),
-        new(
-            ToolCategories.Observability,
-            "Emit progress and decision signals operators can see live.",
-            "Use sv.progress.report to publish a narrative progress beat with " +
-            "an optional 0..1 fraction so a long-running turn is not silent " +
-            "until completion. The platform records these as RuntimeProgress " +
-            "activities visible in the portal and CLI live-tail."),
-        new(
-            ToolCategories.Tools,
-            "Discover capability categories and their full tool definitions.",
-            "Call sv.tools.list_categories on startup to see what your " +
-            "tool surface contains beyond the fundamental core, then call " +
-            "sv.tools.list(category) to retrieve the full tool definitions " +
-            "(name + description + JSON input schema) and category-level " +
-            "usage guidance for any category you need to act through."),
-        new(
-            ToolCategories.Memory,
-            "Private memory and shared participant-set history.",
-            "Two surfaces on the same category. Private memory: use " +
-            "sv.memory.add to record long-term entries that survive across " +
-            "conversations or short-term working notes scoped to a thread; " +
-            "sv.memory.list / sv.memory.search to retrieve; " +
-            "sv.memory.update / sv.memory.delete to mutate. Caller-scoped " +
-            "— another agent's entries are not visible. Shared history: " +
-            "sv.memory.engagements lists the participant sets you share a " +
-            "timeline with (most-recent activity first); " +
-            "sv.memory.history_with(participants=[…]) fetches the full " +
-            "timeline shared with a participant set (your own address is " +
-            "auto-included — do not list yourself); " +
-            "sv.memory.search_messages free-text-searches across the " +
-            "timelines you participate in, optionally scoped to a single " +
-            "participant set. The agent never names a thread_id — the " +
-            "participant set identifies the timeline."),
-    ];
-
-    private static readonly IReadOnlyDictionary<string, CategoryDescriptor> KnownCategoryIndex =
-        KnownCategories.ToDictionary(c => c.Name, StringComparer.Ordinal);
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger _logger;
@@ -360,13 +292,13 @@ public sealed class SvToolsDiscoverySkillRegistry : ISkillRegistry
     }
 
     private static string ResolveCategoryDescription(string name) =>
-        KnownCategoryIndex.TryGetValue(name, out var descriptor)
-            ? descriptor.Description
+        PlatformToolCatalog.ByToken.TryGetValue(name, out var category)
+            ? category.Summary
             : string.Empty;
 
     private static string ResolveCategoryUsageGuidance(string name) =>
-        KnownCategoryIndex.TryGetValue(name, out var descriptor)
-            ? descriptor.UsageGuidance
+        PlatformToolCatalog.ByToken.TryGetValue(name, out var category)
+            ? category.UsageGuidance
             : string.Empty;
 
     private static string RequireStringArg(JsonElement args, string name)
@@ -390,14 +322,4 @@ public sealed class SvToolsDiscoverySkillRegistry : ISkillRegistry
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.Clone();
     }
-
-    /// <summary>
-    /// Pairs a category token with the short summary
-    /// <see cref="ListCategoriesTool"/> returns and the extended
-    /// usage-guidance text <see cref="ListTool"/> returns.
-    /// </summary>
-    private sealed record CategoryDescriptor(
-        string Name,
-        string Description,
-        string UsageGuidance);
 }

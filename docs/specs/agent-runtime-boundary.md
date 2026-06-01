@@ -352,6 +352,8 @@ Beyond the send path (§ 4), the platform MCP server exposes a broader tool surf
 | `sv.tools.*` | Tool self-discovery (`list_categories`, `list`). |
 | Connector tier (`github.*`, `arxiv.*`, `websearch.*`, …) | Gated by an active connector binding on the owning/ancestor unit. |
 
+The per-category *usage guidance* an agent receives from `sv.tools.list(<category>)` — the "when to reach for each tool" prose, not the per-tool schemas — is the single source of truth `PlatformToolCatalog`, reproduced and CI-pinned in [`docs/reference/platform-tools.md` § "Category usage guidance"](../reference/platform-tools.md#category-usage-guidance--svtoolslistcategory). This spec summarises the namespaces only; that section is authoritative for the guidance text.
+
 > **Superseded names.** Earlier drafts of this spec referenced `store`, `recall`, `peek_pending`, `message.retract`, and `sv.thread.*`. None exist under those names: memory is `sv.memory.add` / `sv.memory.search`; conversation history is `sv.memory.engagements` / `history_with` / `search_messages`; there is no poll-the-queue tool (inbound is pushed per § 1.2.4) and no message-retraction tool (retraction is a persistence concept surfaced as a badge, not an agent-callable action).
 
 ---

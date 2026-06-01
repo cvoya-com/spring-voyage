@@ -97,6 +97,46 @@ Owning registry: [`SvToolsDiscoverySkillRegistry`](../../src/Cvoya.Spring.Dapr/S
 | `sv.tools.list_categories` | Enumerate the capability categories available to the calling agent. |
 | `sv.tools.list` | Return the full tool definitions (name + description + input schema) for a named category. |
 
+## Category usage guidance — `sv.tools.list(<category>)`
+
+The discovery surface groups the `sv.*` tools above into capability **categories**. `sv.tools.list_categories` returns a one-line **summary** per category; `sv.tools.list(<category>)` returns an extended **usage-guidance** string describing *when* to reach for each tool the category enumerates.
+
+This prose is the single source of truth `PlatformToolCatalog` ([`src/Cvoya.Spring.Core/Skills/PlatformToolCatalog.cs`](../../src/Cvoya.Spring.Core/Skills/PlatformToolCatalog.cs)) — the same strings the runtime serves to an agent are reproduced verbatim below. A CI test (`PlatformToolsCatalogDocTests.CategoryGuidance_MatchesCatalog`) normalises whitespace and fails the build if this section and the catalog diverge, and a second test (`PlatformToolCatalogConsistencyTests`) fails the build if a category's guidance stops naming a tool the category enumerates — so neither this doc nor the agent-facing guidance can drift from the registered tool set. Edit the catalog, not the prose here; then re-run the tests to sync this block.
+
+The blocks below are delimited by `platform-tool-catalog:<token>` HTML comments the sync test keys on — keep them intact when regenerating.
+
+<!-- platform-tool-catalog:messaging -->
+**`messaging`** — Send a one-way message to humans, agents, or units.
+
+> Use sv.messaging.send to deliver a message to one or more humans, agents, or units; every recipient lands on a single shared thread with the caller. Use sv.messaging.multicast to deliver the same message to several recipients, each on its own independent 1-1 thread with the caller (or to a resolved scope: unit-members, siblings). Use sv.messaging.respond_to to continue an existing conversation — the platform delivers to everyone already on the thread a message_id belongs to (minus the caller). Valid recipient kinds are human, agent, and unit; connector addresses appear on inbound messages as a sender but are non-routable and are rejected synchronously with an UnroutableTarget error. Delivery is one-way (ADR-0049): each call returns a delivery acknowledgement; any response from a recipient arrives later as a separate inbound message.
+<!-- /platform-tool-catalog:messaging -->
+
+<!-- platform-tool-catalog:directory -->
+**`directory`** — Look up agents, units, and humans by address, role, or expertise.
+
+> Use sv.directory.lookup when you already know an address (for example the sender of the inbound message) and need the entry's role / expertise / status. Use sv.directory.list to enumerate members of a unit, the caller's siblings, or peers matching a role or expertise filter. To walk the unit hierarchy explicitly, use sv.directory.get_self for the calling entity, sv.directory.get_member for a single entity by uuid, sv.directory.list_members for a unit's direct members, sv.directory.get_siblings for entities sharing a parent, sv.directory.get_parents for an entity's parents, and sv.directory.get_status for an entity's advisory runtime-status snapshot. Every entry carries enough to act on (address, display name, role, expertise, advisory live status) — feed an address back into sv.messaging.send to reach the entry.
+<!-- /platform-tool-catalog:directory -->
+
+<!-- platform-tool-catalog:observability -->
+**`observability`** — Emit progress and decision signals operators can see live.
+
+> Use sv.progress.report to publish a narrative progress beat with an optional 0..1 fraction so a long-running turn is not silent until completion. Use sv.runtime.report_decision to record a structured routing / delegation decision so the choice is visible on the activity stream. The platform records these as RuntimeProgress and DecisionMade activities visible in the portal and CLI live-tail.
+<!-- /platform-tool-catalog:observability -->
+
+<!-- platform-tool-catalog:tools -->
+**`tools`** — Discover capability categories and their full tool definitions.
+
+> Call sv.tools.list_categories on startup to see what your tool surface contains beyond the fundamental core, then call sv.tools.list(category) to retrieve the full tool definitions (name + description + JSON input schema) and category-level usage guidance for any category you need to act through.
+<!-- /platform-tool-catalog:tools -->
+
+<!-- platform-tool-catalog:memory -->
+**`memory`** — Private memory and shared participant-set history.
+
+> Two surfaces on the same category. Private memory: use sv.memory.add to record long-term entries that survive across conversations or short-term working notes scoped to a thread; sv.memory.get to read one entry by id; sv.memory.list / sv.memory.search to retrieve; sv.memory.update / sv.memory.delete to mutate. Caller-scoped — another agent's entries are not visible. Shared history: sv.memory.engagements lists the participant sets you share a timeline with (most-recent activity first); sv.memory.history_with(participants=[…]) fetches the full timeline shared with a participant set (your own address is auto-included — do not list yourself); sv.memory.search_messages free-text-searches across the timelines you participate in, optionally scoped to a single participant set. The agent never names a thread_id — the participant set identifies the timeline.
+<!-- /platform-tool-catalog:memory -->
+
+> The `expertise` category (dynamic per-tenant `sv.expertise.<slug>` tools) carries no static usage-guidance entry — its membership varies per tenant and the tools are being folded into directory discovery (#2989), so there is no fixed prose to pin.
+
 ## Connector-tier tools — `github.*` / `arxiv.*` / `websearch.*` namespaces
 
 These tools live outside the `sv.*` namespace because they are connector-emitted: the registry's tools surface only on agents whose owning-or-ancestor unit has an active binding to the relevant connector type, and the grant pipeline (#2335) gates visibility per binding. Connector tools are not platform-universal; they are listed here for completeness so the catalog covers every namespace.
@@ -133,7 +173,7 @@ Owning registry: [`WebSearchSkillRegistry`](../../src/Cvoya.Spring.Connector.Web
 
 The system-prompt platform-contract layer (rendered by `PlatformPromptProvider`) names the **fundamental-core** subset every agent sees in the prompt by default — `sv.messaging.send`, `sv.messaging.multicast`, `sv.messaging.respond_to`, `sv.memory.history_with`, `sv.memory.engagements`, `sv.memory.search_messages`, `sv.directory.list`, `sv.directory.lookup`, `sv.progress.report`, `sv.tools.list_categories`, `sv.tools.list`. That snippet is intentionally narrower than this doc — it names the seven-or-so tools an agent reading the prompt cold needs to know about to participate, and points at `sv.tools.list_categories` / `sv.tools.list(<category>)` for everything else. This doc is the union; the snippet is the surface delivered in-prompt.
 
-A test (`PlatformPromptProviderCatalogCoversNamedToolsTests`) pins that the catalog-snippet's tool names are a subset of the doc's full inventory so the snippet cannot drift into naming a tool the platform does not actually register.
+`PlatformPromptProviderTests.NamesEveryFundamentalCoreToolWithOneLinePurpose` pins the exact set of fundamental-core tool names the in-prompt snippet enumerates, so the snippet cannot silently grow or shrink. The **category-level** usage guidance the runtime serves from `sv.tools.list(<category>)` is the single source of truth `PlatformToolCatalog` ([`src/Cvoya.Spring.Core/Skills/PlatformToolCatalog.cs`](../../src/Cvoya.Spring.Core/Skills/PlatformToolCatalog.cs)) — the same strings reproduced in the "Category usage guidance" section above and CI-pinned to it.
 
 ## Excluded from the static catalog
 
@@ -143,8 +183,9 @@ A test (`PlatformPromptProviderCatalogCoversNamedToolsTests`) pins that the cata
 
 1. Add or remove the tool's `ToolDefinition` row in its owning `ISkillRegistry` source file.
 2. Update the corresponding table row in this document.
-3. Run the test below — it fails until the doc matches the registered set.
+3. To change a category's summary or usage guidance, edit `PlatformToolCatalog` ([`src/Cvoya.Spring.Core/Skills/PlatformToolCatalog.cs`](../../src/Cvoya.Spring.Core/Skills/PlatformToolCatalog.cs)) — **not** the prose in the "Category usage guidance" section — then reproduce the new `Summary` + `UsageGuidance` verbatim in the matching `<!-- platform-tool-catalog:<token> -->` block.
+4. Run the tests below — they fail until the doc matches the registered tool set and the catalog. (`--filter` runs zero tests on these Microsoft.Testing.Platform projects; run the whole project.)
 
 ```bash
-dotnet test --project tests/unit/Cvoya.Spring.Dapr.Tests --filter "FullyQualifiedName~PlatformToolsCatalogDocTests"
+dotnet test --project tests/unit/Cvoya.Spring.Host.Worker.Tests
 ```
