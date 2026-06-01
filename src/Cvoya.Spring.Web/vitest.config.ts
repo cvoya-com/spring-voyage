@@ -80,13 +80,15 @@ export default defineConfig({
         "src/connectors/registry.ts",
         ".next/**",
       ],
-      // Floor — chosen below the current measured baseline (lines ≈ 70%,
-      // functions ≈ 56%, branches ≈ 78%, statements ≈ 70% as of 2026-04-21)
+      // Floor — chosen below the current measured baseline (lines ≈ 74.8%,
+      // functions ≈ 68.6%, branches ≈ 68.5%, statements ≈ 73% as of
+      // 2026-06-01, re-baselined after vitest 3→4 upgrade — v8 counts more
+      // branch points in v4, so the same code scores lower)
       // so coverage erosion fails CI. Ratchet upward as the suite grows.
       thresholds: {
         lines: 65,
         functions: 50,
-        branches: 70,
+        branches: 67,
         statements: 65,
       },
     },
