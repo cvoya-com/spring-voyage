@@ -316,12 +316,16 @@ public class GitHubAppCommandTests
             mockGitHub.ReceivedPath.ShouldBe("/app-manifests/happy-path-code/conversions");
             mockGitHub.ReceivedMethod.ShouldBe("POST");
 
-            // Credentials landed in the env file.
+            // Credentials landed in the env file. Plain tokens stay bare (the
+            // numeric AppId in particular must not be quoted — quotes break the
+            // .NET long binder); the PEM is single-quoted because it carries
+            // whitespace, so `source spring.env` no longer runs "RSA" (#2960).
             var envContents = await File.ReadAllTextAsync(envPath, TestContext.Current.CancellationToken);
             envContents.ShouldContain("GitHub__AppId=42");
             envContents.ShouldContain("GitHub__AppSlug=spring-voyage-test");
             envContents.ShouldContain("GitHub__WebhookSecret=whsec_42");
-            envContents.ShouldContain("GitHub__PrivateKeyPem=-----BEGIN PRIVATE KEY-----\\nAAAA\\n-----END PRIVATE KEY-----");
+            envContents.ShouldContain(
+                "GitHub__PrivateKeyPem='-----BEGIN PRIVATE KEY-----\\nAAAA\\n-----END PRIVATE KEY-----'");
 
             // Success message printed.
             var output = stdout.ToString();

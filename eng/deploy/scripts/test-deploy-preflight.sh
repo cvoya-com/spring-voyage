@@ -271,12 +271,13 @@ fi
 
 # ---------------------------------------------------------------------------
 # Case 12: load_env tolerates the multi-word GitHub App PEM in spring.env.
-# `spring github-app register --write-env` writes
-#   GitHub__PrivateKeyPem=-----BEGIN RSA PRIVATE KEY-----\n…
-# unquoted (correct for podman's literal --env-file). load_env must NOT try to
-# `source` that as a command ("RSA: command not found") — GitHub__* are
-# container-only, excluded from the shell source, yet still flow to the
-# --env-file (RESOLVED) path for the container.
+# `spring github-app register --write-env` now single-quotes the PEM (#2960):
+#   GitHub__PrivateKeyPem='-----BEGIN RSA PRIVATE KEY-----\n…'
+# but PRE-FIX files (and any hand-edited file) may carry it UNQUOTED. This
+# fixture writes the unquoted form on purpose to prove load_env stays robust
+# either way: GitHub__* are container-only, excluded from the shell `source`
+# (so bash never tries to run "RSA" → "command not found"), yet still flow to
+# the --env-file (RESOLVED) path for the container.
 # ---------------------------------------------------------------------------
 cat >"${STUB}/envsubst" <<'ENVSUBST'
 #!/usr/bin/env bash

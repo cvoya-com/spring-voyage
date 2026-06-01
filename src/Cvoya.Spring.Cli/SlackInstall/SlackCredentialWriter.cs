@@ -113,7 +113,14 @@ public static class SlackCredentialWriter
             "docs/architecture/connectors.md and ADR-0061 for the OSS Slack connector shape.");
         foreach (var (key, value) in pairs)
         {
-            appended.AppendLine($"{key}={value}");
+            // Parity with the GitHub writer (#2960): route through the shared
+            // formatter so any value carrying whitespace or a shell
+            // metacharacter is single-quoted and survives `source spring.env`
+            // without word-splitting. Every value Slack returns here (AppId,
+            // client/signing/verification tokens, the redirect URL) is a plain
+            // token, so in practice all are written bare and the runtime binds
+            // them verbatim — the quoting is a forward-looking safety net.
+            appended.AppendLine(Utilities.EnvFileFormatting.FormatLine(key, value));
         }
 
         var dir = Path.GetDirectoryName(envFilePath);

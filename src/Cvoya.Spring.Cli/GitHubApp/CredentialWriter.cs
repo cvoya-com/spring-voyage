@@ -147,21 +147,16 @@ public static class CredentialWriter
     }
 
     private static string FormatEnvLine(string key, string value)
-    {
-        // PEM blocks contain embedded newlines. Docker Compose's
-        // --env-file syntax does NOT support multi-line values, and
-        // neither does Podman (which is what deploy.sh uses). Convert
-        // newlines to the literal two-character sequence "\n" — the
-        // .NET host reads env vars that way and the GitHub PEM round-
-        // trips cleanly.
-        //
-        // This mirrors the convention documented in spring.env.example
-        // for the PrivateKeyPem key.
-        var escaped = value
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace("\n", "\\n", StringComparison.Ordinal);
-        return $"{key}={escaped}";
-    }
+        // PEM blocks contain embedded newlines AND whitespace
+        // ("-----BEGIN RSA PRIVATE KEY-----"). Newlines are collapsed to the
+        // literal "\n" (neither --env-file reader supports multi-line values)
+        // and the value is single-quoted so a shell that `source`s the file
+        // does not word-split it and try to run "RSA" (#2960). The numeric
+        // GitHub__AppId stays bare — quoting it would break the .NET long
+        // binder. See EnvFileFormatting / spring.env.example for the
+        // convention. The runtime's NormaliseInputKey strips the quotes and
+        // decodes "\n" on the way back in.
+        => Utilities.EnvFileFormatting.FormatLine(key, value);
 
     /// <summary>
     /// Writes credentials as platform-scoped secrets via the existing
