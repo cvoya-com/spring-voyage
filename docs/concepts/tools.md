@@ -16,14 +16,12 @@ The canonical names supersede the earlier ad-hoc shapes that mixed slash and und
 
 | Earlier name | Canonical name |
 |---|---|
-| `directory/search` | `sv.expertise.search` |
-| `expertise/{slug}` | `sv.expertise.{slug}` |
 | `arxiv_search`, `arxiv_fetch_abstract` | `arxiv.search`, `arxiv.fetch_abstract` |
 | `websearch_query`, `websearch_summarize` | `websearch.query`, `websearch.summarize` |
 
 The first dotted segment is the namespace. `sv.*` belongs to the platform; connector-provided namespaces match the connector's slug (`arxiv.*`, `websearch.*`); container-image-provided namespaces are chosen by the agent author.
 
-Every platform MCP tool follows the `sv.<area>.<verb>` taxonomy — `sv.` plus an area (`directory`, `memory`, `messaging`, `runtime`, `expertise`) plus a verb.
+Every platform MCP tool follows the `sv.<area>.<verb>` taxonomy — `sv.` plus an area (`directory`, `memory`, `messaging`, `runtime`, `progress`, `tools`) plus a verb. Expertise discovery is part of the `sv.directory.*` surface: `sv.directory.list` filters peers by `expertise` and every directory entry carries its expertise list.
 
 > **No `github.*` platform tools.** The GitHub connector ships only the
 > binding lifecycle, webhook ingestion, and App-auth. Agents
@@ -55,7 +53,7 @@ The same data is available over HTTP on every `AgentResponse` / `UnitResponse` v
 
 ## Where each tier comes from
 
-**Platform tools** are part of the runtime. The platform's skill registries (the directory, memory, messaging, runtime, and expertise registries) declare the `sv.<area>.<verb>` tools they own, and the resolver surfaces them on every subject without writing a row anywhere. There is no operator action that grants or revokes a platform tool; the only way to drop one is to ship a runtime that does not register it.
+**Platform tools** are part of the runtime. The platform's skill registries (the directory, memory, messaging, runtime, progress, and tool-discovery registries) declare the `sv.<area>.<verb>` tools they own, and the resolver surfaces them on every subject without writing a row anywhere. There is no operator action that grants or revokes a platform tool; the only way to drop one is to ship a runtime that does not register it.
 
 **Connector tools** ship with the connector package itself. A connector declares a `ToolNamespace` (defaulting to its slug) and registers its tool surface through the same registration seam every other tool provider uses. When an operator binds the connector to a unit, the binding write path auto-grants every `<ToolNamespace>.*` tool to that unit; unbinding revokes them; re-binding swaps cleanly. Authoring details live in the [connector developer guide](../guide/developer/connectors.md).
 

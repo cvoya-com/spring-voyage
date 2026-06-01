@@ -31,33 +31,15 @@ internal static class ServiceCollectionExtensionsRouting
     internal static IServiceCollection AddCvoyaSpringRouting(
         this IServiceCollection services)
     {
-        // Agents-as-skills surface (#359 — rework of closed #532). The
-        // catalog derives the skill surface live from the expertise
-        // directory (#487 / #498) rather than from a startup snapshot, so
-        // directory mutations (agent gains expertise, unit boundary
-        // changes) propagate on the next enumeration. The invoker is the
-        // protocol-agnostic seam that skill callers use instead of
-        // IMessageRouter directly — the default implementation routes
-        // through the bus so the boundary / permission / policy / activity
-        // chain runs end-to-end; the future A2A gateway (#539) will slot in
-        // here as an alternative implementation. TryAdd* so downstream
-        // hosts (test harnesses, tenant-scoped wrappers, #539 gateway) can
-        // pre-register their own catalog / invoker and keep it.
-        services.TryAddSingleton<IExpertiseSkillCatalog, ExpertiseSkillCatalog>();
-        services.TryAddSingleton<ISkillInvoker, MessageRouterSkillInvoker>();
-        services.TryAddSingleton<ExpertiseSkillRegistry>();
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, ExpertiseSkillRegistry>(
-            sp => sp.GetRequiredService<ExpertiseSkillRegistry>()));
-
-        // Directory-search meta-skill registry (#542). Advertises
-        // `directory/search` alongside the `expertise/*` surface so planners
-        // can call it BEFORE any other skill to resolve "I need something
-        // that does X" into a concrete slug. Registered via
-        // TryAddEnumerable so the cloud host can add its own search registry
-        // (e.g. a tenant-scoped variant) without displacing this one.
-        services.TryAddSingleton<DirectorySearchSkillRegistry>();
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, DirectorySearchSkillRegistry>(
-            sp => sp.GetRequiredService<DirectorySearchSkillRegistry>()));
+        // Expertise discovery is caller-aware and lives on sv.directory
+        // (#2989). The dynamic `sv.expertise.{slug}` capability tools and the
+        // `sv.expertise.search` meta-skill — plus their caller-agnostic
+        // ISkillInvoker / IExpertiseSkillCatalog indirection — were removed:
+        // an agent finds peers with a given expertise through
+        // sv.directory.list / sv.directory.lookup (the `expertise` filter +
+        // per-entry expertise list), which already run the caller-aware
+        // ToolCallContext path. The HTTP expertise-search surface
+        // (POST /api/v1/directory/search → IExpertiseSearch) is unchanged.
 
         // Spring Voyage directory tools (#2231, extended in #2491).
         // Exposes sv.directory.get_self, sv.directory.get_member, sv.directory.list_members,

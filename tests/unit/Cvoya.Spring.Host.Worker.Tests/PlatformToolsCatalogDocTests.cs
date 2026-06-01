@@ -6,7 +6,6 @@ namespace Cvoya.Spring.Host.Worker.Tests;
 using System.Text.RegularExpressions;
 
 using Cvoya.Spring.Core.Skills;
-using Cvoya.Spring.Dapr.Skills;
 using Cvoya.Spring.Host.Worker.Composition;
 
 using Microsoft.AspNetCore.Builder;
@@ -30,11 +29,10 @@ using Xunit;
 /// updating the doc fails the build.
 /// </para>
 /// <para>
-/// <see cref="ExpertiseSkillRegistry"/> is exempted from the equality
-/// check because its tool surface is dynamic per tenant — it publishes
-/// <c>sv.expertise.&lt;slug&gt;</c> entries pulled from the
-/// <c>IExpertiseSkillCatalog</c> at runtime. The doc documents the
-/// dynamic mechanism but does not list per-slug entries.
+/// Every platform <see cref="ISkillRegistry"/> now publishes a fixed tool
+/// surface, so the equality check has no dynamic-registry exemption. (The
+/// dynamic <c>sv.expertise.&lt;slug&gt;</c> surface was removed in #2989 —
+/// expertise discovery is the caller-aware <c>sv.directory.*</c> tools.)
 /// </para>
 /// </remarks>
 public class PlatformToolsCatalogDocTests
@@ -140,8 +138,7 @@ public class PlatformToolsCatalogDocTests
     /// <summary>
     /// Iterates the Worker's DI-resolved <see cref="ISkillRegistry"/>
     /// set, calls <see cref="ISkillRegistry.GetToolDefinitions"/>, and
-    /// returns the union — minus the dynamic-by-design tool surface from
-    /// <see cref="ExpertiseSkillRegistry"/>.
+    /// returns the union of every tool name.
     /// </summary>
     private static IReadOnlySet<string> ResolveStaticallyRegisteredToolNames()
     {
@@ -151,15 +148,6 @@ public class PlatformToolsCatalogDocTests
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var registry in registries)
         {
-            // ExpertiseSkillRegistry publishes one sv.expertise.<slug>
-            // tool per agent expertise — the surface is dynamic per
-            // tenant and is documented in the doc as a separate
-            // mechanism rather than enumerated row-by-row.
-            if (registry is ExpertiseSkillRegistry)
-            {
-                continue;
-            }
-
             foreach (var tool in registry.GetToolDefinitions())
             {
                 names.Add(tool.Name);

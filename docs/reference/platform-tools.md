@@ -33,15 +33,7 @@ Owning registry: [`SvDirectorySkillRegistry`](../../src/Cvoya.Spring.Dapr/Skills
 | `sv.directory.list` | Resolve members / siblings / peers matching a role / expertise filter (fundamental-core). |
 | `sv.directory.lookup` | Resolve a known canonical address (scheme:32-hex) to a single directory entry. |
 
-### `sv.expertise.*` — expertise search
-
-Owning registry: [`DirectorySearchSkillRegistry`](../../src/Cvoya.Spring.Dapr/Skills/DirectorySearchSkillRegistry.cs). Category: `directory`. Effective-grant rule: always-on (platform). Stability: stable.
-
-| Tool | Description |
-| --- | --- |
-| `sv.expertise.search` | Search the expertise directory by free-text query or structured filters; each hit carries a capability slug that can then be invoked as `sv.expertise.{slug}`. |
-
-> [`ExpertiseSkillRegistry`](../../src/Cvoya.Spring.Dapr/Skills/ExpertiseSkillRegistry.cs) additionally publishes one `sv.expertise.<slug>` tool per registered agent expertise skill at runtime. The set varies per tenant and is therefore not enumerated in this static catalog; an operator's agents discover them at runtime via the MCP `tools/list` surface.
+> Expertise discovery is part of the directory surface above. `sv.directory.list` resolves peers matching an `expertise` filter and every entry carries its `expertise` list, so an agent finds "who has expertise X" through the caller-aware directory tools (#2989). The dynamic `sv.expertise.*` capability tools and the `sv.expertise.*` search meta-skill were removed in #2989. The HTTP expertise-search surface (`POST /api/v1/directory/search`) is unchanged and is not an MCP tool.
 
 ### `sv.memory.*` — agent private memory
 
@@ -145,7 +137,6 @@ A test (`PlatformPromptProviderCatalogCoversNamedToolsTests`) pins that the cata
 
 ## Excluded from the static catalog
 
-- **Dynamically-registered agent expertise skills** (`sv.expertise.<slug>` via `ExpertiseSkillRegistry`). The set varies per tenant and per agent and is reconciled at runtime; the CI sync test treats `ExpertiseSkillRegistry` as a known-dynamic registry and does not require it to match this doc.
 - **Custom connector tools** added by third-party connector packages outside this repository. The CI sync test only enforces coverage of registries linked into the platform's solution.
 
 ## Editing this doc

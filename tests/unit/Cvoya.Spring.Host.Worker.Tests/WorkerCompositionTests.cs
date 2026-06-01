@@ -76,9 +76,10 @@ public class WorkerCompositionTests
 
         var registries = provider.GetServices<ISkillRegistry>().ToList();
 
-        // ExpertiseSkillRegistry + DirectorySearchSkillRegistry from the Dapr
-        // module plus one per connector package (GitHub / Arxiv / WebSearch)
-        // — a non-empty set is the contract the Worker depends on.
+        // The sv.* platform registries from the Dapr module (directory,
+        // memory, messaging, runtime, progress, tools) plus one per connector
+        // package (GitHub / Arxiv / WebSearch) — a non-empty set is the
+        // contract the Worker depends on.
         registries.ShouldNotBeEmpty();
         registries.ShouldAllBe(r => r != null);
     }

@@ -26,12 +26,10 @@ using System.Runtime.Serialization;
 /// Optional JSON-schema document (serialised as a string so the record stays
 /// <see cref="DataContractSerializer"/>-safe across Dapr actor remoting —
 /// <c>JsonElement</c> is not DataContract-serialisable). When non-null this
-/// entry has a <em>typed contract</em> and the platform considers the
-/// capability skill-callable — the agents-as-skills rework (#359) projects
-/// these onto the skill surface through
-/// <c>ExpertiseSkillRegistry</c>. Consultative-only expertise (free-form
-/// advice, no structured request shape) leaves this <c>null</c> and stays
-/// message-only. See <c>docs/architecture/agent-runtime.md</c> § Skill registries.
+/// entry has a <em>typed contract</em>: it advertises a structured request
+/// shape, surfaced as the <c>typedContract</c> flag on directory-search hits.
+/// Consultative-only expertise (free-form advice, no structured request shape)
+/// leaves this <c>null</c>.
 /// </param>
 [DataContract]
 public record ExpertiseDomain(
