@@ -52,17 +52,14 @@ public class MessagingToolHandlersTests
     private static readonly Guid OtherChildAgentId = new("aaaaaaaa-0000-0000-0000-000000000002");
 
     private readonly IAgentProxyResolver _agentProxyResolver = Substitute.For<IAgentProxyResolver>();
-    private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly IMessageTenantResolver _tenantResolver = Substitute.For<IMessageTenantResolver>();
     private readonly IUnitMemberGraphStore _memberGraphStore = Substitute.For<IUnitMemberGraphStore>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
-    private readonly IThreadHopActor _hopActor = Substitute.For<IThreadHopActor>();
     private readonly RecordingThreadRegistry _threadRegistry = new();
     private readonly IMessageQueryService _messageQuery = Substitute.For<IMessageQueryService>();
 
     private readonly Dictionary<string, IAgent> _agents = new();
     private readonly List<ActivityEvent> _publishedEvents = [];
-    private int _hopCount;
 
     public MessagingToolHandlersTests()
     {
@@ -79,11 +76,6 @@ public class MessagingToolHandlersTests
 
         _tenantResolver.GetTenantForAddressAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(TenantId);
-
-        _hopActor.IncrementAsync().Returns(_ => ++_hopCount);
-        _actorProxyFactory
-            .CreateActorProxy<IThreadHopActor>(Arg.Any<ActorId>(), nameof(ThreadHopActor))
-            .Returns(_hopActor);
     }
 
     [Fact]
@@ -204,22 +196,6 @@ public class MessagingToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleSend_IncrementsHopCounterOnce_RegardlessOfRecipientCount()
-    {
-        var handlers = CreateHandlers();
-        var t1 = Agent(ChildAgentId);
-        var t2 = Agent(OtherChildAgentId);
-        RegisterAgent(t1);
-        RegisterAgent(t2);
-
-        await handlers.HandleSendAsync(
-            Unit(), TenantId, [t1, t2], scope: null, CreateMessage(),
-            reason: null, threadId: Guid.NewGuid(), CancellationToken.None);
-
-        await _hopActor.Received(1).IncrementAsync();
-    }
-
-    [Fact]
     public async Task HandleSend_CallerOnlyRecipient_ThrowsInvalidRequestAfterDedupe()
     {
         // #2747 — recipients is a set; the caller is auto-included, so
@@ -295,29 +271,6 @@ public class MessagingToolHandlersTests
     }
 
     [Fact]
-    public async Task HandleSend_HopCycle_TerminatesAtMaxHopCount()
-    {
-        var handlers = CreateHandlers(maxHopCount: 16);
-        var target = Agent(ChildAgentId);
-        RegisterAgent(target);
-        var threadId = Guid.NewGuid();
-
-        for (var i = 0; i < 16; i++)
-        {
-            await handlers.HandleSendAsync(
-                Unit(), TenantId, [target], scope: null, CreateMessage(),
-                reason: null, threadId, CancellationToken.None);
-        }
-
-        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
-            handlers.HandleSendAsync(
-                Unit(), TenantId, [target], scope: null, CreateMessage(),
-                reason: null, threadId, CancellationToken.None));
-
-        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.DepthExceeded);
-    }
-
-    [Fact]
     public async Task HandleMulticast_ExplicitRecipients_DeliversToEach()
     {
         var handlers = CreateHandlers();
@@ -341,7 +294,7 @@ public class MessagingToolHandlersTests
     [Fact]
     public async Task HandleMulticast_PartialFailure_ReportsPerRecipientOutcome()
     {
-        var handlers = CreateHandlers(maxHopCount: 16);
+        var handlers = CreateHandlers();
         var t1 = Agent(ChildAgentId);
         var t2 = Agent(OtherChildAgentId);
         var ok = RegisterAgent(t1);
@@ -501,7 +454,6 @@ public class MessagingToolHandlersTests
     }
 
     private MessagingToolHandlers CreateHandlers(
-        int maxHopCount = 16,
         IUnitMembershipRepository? membershipRepo = null)
     {
         var services = new ServiceCollection();
@@ -518,7 +470,6 @@ public class MessagingToolHandlersTests
 
         var deliveryService = new MessageDeliveryService(
             _agentProxyResolver,
-            _actorProxyFactory,
             _tenantResolver,
             scopeFactory,
             Substitute.For<ILogger<MessageDeliveryService>>(),
@@ -527,7 +478,6 @@ public class MessagingToolHandlersTests
                 MaxAttempts = 3,
                 Budget = TimeSpan.FromSeconds(2),
                 InitialBackoff = TimeSpan.FromMilliseconds(1),
-                MaxHopCount = maxHopCount,
             }));
 
         return new MessagingToolHandlers(

@@ -65,7 +65,6 @@ public class SvMessagingSkillRegistryTests
         // we exercise the happy path through MessagingToolHandlersTests.
         var deliveryService = new MessageDeliveryService(
             Substitute.For<IAgentProxyResolver>(),
-            Substitute.For<IActorProxyFactory>(),
             Substitute.For<IMessageTenantResolver>(),
             Substitute.For<IServiceScopeFactory>(),
             Substitute.For<ILogger<MessageDeliveryService>>(),
