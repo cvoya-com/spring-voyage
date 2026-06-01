@@ -5,7 +5,7 @@
 - **Related ADRs:** [0030](0030-thread-model.md) — thread model (participant-set identity, single `AgentMemory`) this record builds on; [0060](0060-participant-set-agent-api-and-structured-envelope.md) — participant-set agent API (the substrate for coordination-via-threads); [0059](0059-prompt-assembly-pipeline.md) — prompt-assembly pipeline (where the Platform-Contract clause lands); [0056](0056-tool-only-side-effects.md) — tool-only side effects (fundamental-core criterion for what the prompt advertises); [0053](0053-units-are-agents-and-one-way-delivery.md) — units are agents / one-way delivery (a unit can be a decision authority by convention).
 - **Related docs:** [`docs/concepts/threads.md`](../concepts/threads.md); [`docs/architecture/messaging.md`](../architecture/messaging.md); [`docs/architecture/open-questions.md`](../architecture/open-questions.md) (push-vs-pull stays open); [`docs/developer/incident-reports/2026.06.01-magazine-first-edition.md`](../developer/incident-reports/2026.06.01-magazine-first-edition.md).
 - **Related code:** `src/Cvoya.Spring.Dapr/Skills/{SvMemorySkillRegistry,SvMemoryHistoryRegistry}.cs`; `src/Cvoya.Spring.Dapr/Memory/EfMemoryStore.cs`; `src/Cvoya.Spring.Dapr/Prompts/PlatformPromptProvider.cs`; `src/Cvoya.Spring.AgentRuntimes/Launchers/ClaudeCodeLauncher.cs`.
-- **Related issues:** [#2980](https://github.com/cvoya-com/spring-voyage/issues/2980) (incident), [#2993](https://github.com/cvoya-com/spring-voyage/issues/2993) (design consolidation), [#2984](https://github.com/cvoya-com/spring-voyage/issues/2984) (surface + contract; absorbs the closed #2987), [#2985](https://github.com/cvoya-com/spring-voyage/issues/2985) (resume + concurrency), [#2977](https://github.com/cvoya-com/spring-voyage/issues/2977) (workspace-volume wipe), [#2990](https://github.com/cvoya-com/spring-voyage/issues/2990) / [#2991](https://github.com/cvoya-com/spring-voyage/issues/2991) (message get + JSON content), [#1301](https://github.com/cvoya-com/spring-voyage/issues/1301) (push/pull — open), [#1292](https://github.com/cvoya-com/spring-voyage/issues/1292) / [#1293](https://github.com/cvoya-com/spring-voyage/issues/1293) (deferred), [#2994](https://github.com/cvoya-com/spring-voyage/issues/2994) (magazine-unit prose instantiation).
+- **Related issues:** [#2980](https://github.com/cvoya-com/spring-voyage/issues/2980) (incident), [#2993](https://github.com/cvoya-com/spring-voyage/issues/2993) (design consolidation), [#2984](https://github.com/cvoya-com/spring-voyage/issues/2984) (surface + contract; absorbs the closed #2987), [#2985](https://github.com/cvoya-com/spring-voyage/issues/2985) (resume + concurrency), [#2977](https://github.com/cvoya-com/spring-voyage/issues/2977) (workspace-volume wipe), [#2990](https://github.com/cvoya-com/spring-voyage/issues/2990) / [#2991](https://github.com/cvoya-com/spring-voyage/issues/2991) (message get + JSON content), [#1301](https://github.com/cvoya-com/spring-voyage/issues/1301) (push/pull — open), [#1292](https://github.com/cvoya-com/spring-voyage/issues/1292) / [#1293](https://github.com/cvoya-com/spring-voyage/issues/1293) (deferred), [#2994](https://github.com/cvoya-com/spring-voyage/issues/2994) (magazine-unit prose instantiation), [#2997](https://github.com/cvoya-com/spring-voyage/issues/2997) (consolidate to a single durable memory).
 
 ## Context
 
@@ -13,7 +13,7 @@ A real multi-agent unit run — a magazine editorial team, 722 messages over 73 
 
 What actually exists today (verified against source):
 
-- `sv.memory.*` is a durable, owner-scoped Postgres store with `kind` = `long_term` (cross-conversation) or `short_term` (thread-scoped working notes); search is Postgres full-text (no embeddings). **But the platform system prompt advertises only the shared-history tools — the durable private CRUD surface is unadvertised** (audit finding F1).
+- `sv.memory.*` is a durable, owner-scoped Postgres store; search is Postgres full-text (no embeddings). It currently carries a `kind` = `long_term` / `short_term` axis (short-term tagged with a `thread_id`) — a recall-scoping vestige of ADR-0030's per-entry `thread_id` / `threadOnly` model. **The platform system prompt advertises only the shared-history tools — the durable private CRUD surface is unadvertised** (audit finding F1).
 - The **message log is already agent-queryable** (`sv.memory.history_with` / `engagements` / `search_messages`) — server-stamped, immutable, participant-set keyed.
 - Native Claude Code **file memory is on the disposable workspace volume** (wiped on reclaim; `--resume` reloads only the transcript, with no memory injection) and collides under concurrent threads.
 - **There is no shared cross-member store.** `sv.memory.*` is strictly owner-scoped; `IUnitStateCoordinator` is operator-tier config, not a runtime blackboard. Threads (ADR-0030 / ADR-0060) are participant-set timelines: append-only, multi-writer.
@@ -28,7 +28,7 @@ The failure was not the absence of a single store. It was (a) no *reliable* dura
 |---|---|---|
 | Conversational continuity | "what were we just saying" | **session resume — a cache**, never the durable store |
 | Episodic / attribution | "what did I / we actually say" | **the message log** (`history_with` / `search_messages` / `get_messages`) — authoritative |
-| Semantic / decisions / working notes | "what did we decide / learn; my notes" | **`sv.memory.*`** (canonical durable per-agent store) |
+| Semantic / decisions (durable knowledge) | "what did we decide / learn" | **`sv.memory.*`** (canonical durable per-agent store) |
 | Fit-to-context | "what do I see this turn" | push/pull assembly — **open (#1301)** |
 
 Corollary: **never trust an agent's self-report over the message log.** The disavowal failures were an agent contradicting messages it had genuinely sent; the log is the incorruptible ground truth and the cheap fix.
@@ -36,6 +36,8 @@ Corollary: **never trust an agent's self-report over the message log.** The disa
 ### 2. Keystone
 
 `sv.memory.*` is the **canonical durable cross-thread store**. Native file memory is **per-session scratch** — best-effort, not relied on for cross-thread or cross-lifecycle state.
+
+`sv.memory.*` is a **single, undifferentiated durable memory** — the `long_term` / `short_term` kind is removed (#2997). The split duplicated boundaries this ADR already draws: **thread-scoped, episodic, shared context lives in the thread** (its natural home, persisting for the participant set's lifetime — ADR-0030 / ADR-0060), and **private within-conversation scratch lives in session / file memory**. A binary, platform-imposed kind added a redundant third axis and promised a thread-lifetime eviction it never delivered (short-term entries were never garbage-collected when the thread's participants went away). The "don't treat this as durable" signal moves from a data-model enum to the Platform-Contract clause: write durable knowledge / decisions to the store; keep scratch in the thread or session. Per-thread **visibility / permission** scoping (a real future need — #1292) is a separate *policy* axis, reintroduced only when a forcing case demands it — not a memory kind.
 
 ### 3. Surface + contract the durable store
 
@@ -61,6 +63,7 @@ This ADR is the gating artifact: the surfacing/contract work (#2984) and the res
 ## Consequences
 
 - File memory is demoted to scratch; #2977 still must land so scratch and `--resume` transcripts survive mid-run; #2985 narrows to in-session-scratch durability + write-collision safety.
+- `sv.memory.*` consolidates to a **single durable memory** — the `long_term` / `short_term` kind is removed (#2997). Thread-scoped context lives in the thread; private scratch in session / file; the durable-vs-scratch discipline lives in the Platform-Contract clause, not a data-model enum.
 - A unit agent can be a *decision authority* by convention (units-are-agents, ADR-0053), but only a **reliable** one once its durable memory lands (#2984) — the incident's unit agent disavowed its own rulings because its sessions were wiped.
 - Multi-agent units coordinate by advertising decisions to participant-set threads under prompt-level authority. This is validated first **in prose** by the magazine unit (#2994), before any platform mechanism — a real test of the model.
 - **Rejected:** a mutable shared "blackboard" store with locks. It imports deadlock, lock-ordering, and contention, and is unnecessary: append-only threads remove write-write conflict, and "who decides" is an instruction-level convention. (This reverses an earlier framing in #2993 that floated a single-writer shared store; @savasp's correction — multi-writer thread + prompt-level authority — is the accepted shape.)
