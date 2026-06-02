@@ -172,6 +172,36 @@ public class ClaudeCodeLauncher(
     internal const string ClaudeConfigDirRelative = ".claude";
 
     /// <summary>
+    /// Env var that disables Claude Code's native <i>auto-memory</i> — the
+    /// cross-session feature where the model accumulates notes under
+    /// <c>&lt;CLAUDE_CONFIG_DIR&gt;/projects/&lt;cwd-mangled&gt;/memory/</c>
+    /// (a <c>MEMORY.md</c> index plus topic files, auto-loaded at session
+    /// start). Verified against the Claude Code docs: the feature ships
+    /// since CLI v2.1.59 and is on by default, so it is active on the
+    /// pinned 2.1.x agent image unless turned off here.
+    /// </summary>
+    /// <remarks>
+    /// ADR-0065 keystone: <c>sv.memory.*</c> is the canonical durable
+    /// cross-thread store; native file memory is per-session scratch only.
+    /// Auto-memory is keyed by the git repo / cwd, so every thread of one
+    /// agent — which share a single workspace volume, cwd, and
+    /// <see cref="ClaudeConfigDirEnvVar"/> — would share <b>one</b> memory
+    /// directory. That shared dir is two defects at once: under
+    /// <c>concurrent_threads: true</c> concurrent turns collide on the same
+    /// files with "File has been modified since read" (#2982 finding D),
+    /// and a thread-private note leaks into every other thread's recall
+    /// while being silently lost on a volume reclaim (#2999) — the
+    /// false-durability trap behind the #2980 incident's self-disavowal.
+    /// Disabling auto-memory leaves durable state with exactly one home
+    /// (<c>sv.memory.*</c>, advertised by the #2984 Platform-Contract
+    /// clause). It is distinct from the per-thread session transcript
+    /// (<c>&lt;sid&gt;.jsonl</c>, keyed by <c>thread.id</c>) — a separate
+    /// knob (<c>CLAUDE_CODE_SKIP_PROMPT_HISTORY</c>) governs that — so
+    /// within-thread <c>--resume</c> continuity is preserved. #2985.
+    /// </remarks>
+    internal const string DisableAutoMemoryEnvVar = "CLAUDE_CODE_DISABLE_AUTO_MEMORY";
+
+    /// <summary>
     /// Argv vector the A2A bridge (agent-base ENTRYPOINT) spawns inside the
     /// container on every <c>message/send</c>. Encoded as a JSON array string
     /// in <c>SPRING_AGENT_ARGV</c> so the bridge can recover the exact
@@ -354,6 +384,14 @@ public class ClaudeCodeLauncher(
             // the session file survives container restart and can be
             // resumed by the next --resume <sid> invocation.
             [ClaudeConfigDirEnvVar] = $"{workspaceMountNoSlash}/{ClaudeConfigDirRelative}",
+            // #2985 / ADR-0065: turn off Claude Code's native auto-memory so
+            // durable cross-thread state has exactly one home (sv.memory.*)
+            // and concurrent threads can't collide on the single per-repo
+            // memory dir (#2982 finding D). The per-thread <sid>.jsonl
+            // transcript is unaffected, so --resume continuity within a
+            // thread is preserved. See DisableAutoMemoryEnvVar for the full
+            // rationale.
+            [DisableAutoMemoryEnvVar] = "1",
             // ADR-0055 §5: per-member workspace mount path. ADR-0057 §3:
             // the long-running A2A sidecar writes the per-turn MCP token
             // to <SPRING_WORKSPACE_PATH>/.spring/bridge/mcp-token
