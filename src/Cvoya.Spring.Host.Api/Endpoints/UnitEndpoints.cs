@@ -518,15 +518,22 @@ public static class UnitEndpoints
                 new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorId)), nameof(UnitActor));
             return await proxy.GetStatusAsync(cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller went away (client disconnect / request abort). Don't
+            // fabricate a status for a response nobody will read — propagate.
+            throw;
+        }
         catch (Exception ex)
         {
             // Non-fatal: the unit exists in the directory but its actor has not yet
-            // persisted state (fresh registration) or is unreachable. Returning Draft
-            // preserves the directory-first read path, but the failure must be visible.
+            // persisted state (fresh registration) or is unreachable. Surface Unknown
+            // — a read-time degraded indicator — rather than Draft, which would be
+            // indistinguishable from a genuinely unconfigured unit (#3006 finding I).
             logger.LogWarning(ex,
-                "Failed to read persisted status for unit {UnitId}; reporting Draft.",
+                "Failed to read persisted status for unit {UnitId}; reporting Unknown.",
                 unitId);
-            return LifecycleStatus.Draft;
+            return LifecycleStatus.Unknown;
         }
     }
 

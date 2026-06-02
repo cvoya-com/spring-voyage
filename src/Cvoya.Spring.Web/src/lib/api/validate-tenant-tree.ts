@@ -29,7 +29,9 @@ const NODE_KINDS = ["Tenant", "Unit", "Agent", "Human"] as const;
 // Mirrors the `NodeStatus` union in `@/components/units/aggregate`.
 // `draft`, `stopping`, and `validating` were added in #1032 when the
 // tenant-tree endpoint started emitting the unit's real lifecycle status
-// instead of pinning every node to `"running"`.
+// instead of pinning every node to `"running"`. `unknown` (#3006) is the
+// read-failure / degraded indicator the endpoint emits when an actor-state
+// read fails or is canceled.
 const NODE_STATUSES = [
   "running",
   "starting",
@@ -39,6 +41,7 @@ const NODE_STATUSES = [
   "error",
   "draft",
   "validating",
+  "unknown",
 ] as const;
 
 type NodeKind = (typeof NODE_KINDS)[number];

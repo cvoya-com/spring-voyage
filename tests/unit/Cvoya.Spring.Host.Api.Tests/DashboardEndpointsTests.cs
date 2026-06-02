@@ -53,7 +53,7 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
 
-        // Two units (one Running, one Draft) and one agent.
+        // Two units (one Running, one Unknown — its actor read throws) and one agent.
         var entries = new List<DirectoryEntry>
         {
             new(new Address("unit", Unit_Unit1_Id), Actor1_Id, "Unit One", "First unit", null, DateTimeOffset.UtcNow),
@@ -62,7 +62,7 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
         };
         _factory.DirectoryService.ListAllAsync(Arg.Any<CancellationToken>()).Returns(entries);
 
-        // Unit-1 is Running, Unit-2 defaults to Draft (proxy throws).
+        // Unit-1 is Running; Unit-2's proxy throws → reported as Unknown (#3006 finding I).
         var runningProxy = Substitute.For<IUnitActor>();
         runningProxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(LifecycleStatus.Running);
 
@@ -102,7 +102,7 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
         summary.AgentCount.ShouldBe(1);
         summary.TotalCost.ShouldBe(25.50m);
         summary.UnitsByStatus.ShouldContainKeyAndValue(LifecycleStatus.Running, 1);
-        summary.UnitsByStatus.ShouldContainKeyAndValue(LifecycleStatus.Draft, 1);
+        summary.UnitsByStatus.ShouldContainKeyAndValue(LifecycleStatus.Unknown, 1);
         summary.RecentActivity.Count.ShouldBe(1);
         summary.RecentActivity[0].Summary.ShouldBe("Agent received message");
 
@@ -111,7 +111,7 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
         summary.Units[0].Name.ShouldBe(Unit_Unit1_Id.ToString("N"));
         summary.Units[0].Status.ShouldBe(LifecycleStatus.Running);
         summary.Units[1].Name.ShouldBe(Unit_Unit2_Id.ToString("N"));
-        summary.Units[1].Status.ShouldBe(LifecycleStatus.Draft);
+        summary.Units[1].Status.ShouldBe(LifecycleStatus.Unknown);
 
         summary.Agents.Count.ShouldBe(1);
         summary.Agents[0].Name.ShouldBe(Agent_Agent1_Id.ToString("N"));

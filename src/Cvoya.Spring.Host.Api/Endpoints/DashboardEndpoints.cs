@@ -184,12 +184,16 @@ public static class DashboardEndpoints
                 new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorId)), nameof(UnitActor));
             statusTask = proxy.GetStatusAsync(cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw; // caller aborted — don't fabricate a status (#3006 finding I)
+        }
         catch (Exception ex)
         {
             logger.LogWarning(ex,
-                "Failed to start status read for unit {UnitName}; reporting Draft.",
+                "Failed to start status read for unit {UnitName}; reporting Unknown.",
                 unitPath);
-            return LifecycleStatus.Draft;
+            return LifecycleStatus.Unknown;
         }
 
         try
@@ -223,12 +227,16 @@ public static class DashboardEndpoints
 
             return LifecycleStatus.Starting;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw; // caller aborted — don't fabricate a status (#3006 finding I)
+        }
         catch (Exception ex)
         {
             logger.LogWarning(ex,
-                "Failed to read status for unit {UnitName}; reporting Draft.",
+                "Failed to read status for unit {UnitName}; reporting Unknown.",
                 unitPath);
-            return LifecycleStatus.Draft;
+            return LifecycleStatus.Unknown;
         }
     }
 

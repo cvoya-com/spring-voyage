@@ -243,11 +243,18 @@ public static class ActivityEndpoints
 
         try
         {
-            await foreach (var evt in channel.Reader.ReadAllAsync(cancellationToken))
+            // Drain the channel, emitting an SSE keepalive comment during idle
+            // gaps so the stream doesn't get torn down at a proxy/client idle
+            // timeout during quiet periods (#3006 finding H).
+            while (await SseKeepAlive.WaitForDataOrKeepAliveAsync(
+                channel.Reader, httpContext.Response, cancellationToken))
             {
-                var json = JsonSerializer.Serialize(evt);
-                await httpContext.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
-                await httpContext.Response.Body.FlushAsync(cancellationToken);
+                while (channel.Reader.TryRead(out var evt))
+                {
+                    var json = JsonSerializer.Serialize(evt);
+                    await httpContext.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+                    await httpContext.Response.Body.FlushAsync(cancellationToken);
+                }
             }
         }
         catch (OperationCanceledException)

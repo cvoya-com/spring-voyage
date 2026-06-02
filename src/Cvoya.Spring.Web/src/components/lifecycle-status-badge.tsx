@@ -3,11 +3,12 @@
 // Single-source-of-truth lifecycle badge for units and agents (#2372).
 //
 // Renders the same {Draft, Validating, Stopped, Starting, Running, Stopping,
-// Error} vocabulary that the backend's shared `LifecycleStatus` enum emits
-// (#2364). The badge variant + dot colour mirror the rules previously
-// inlined in `unit-card.tsx`, extended to cover the full 7-state set so the
-// agent card / list / detail header can drop the legacy
-// "enabled ? running : stopped" projection.
+// Error, Unknown} vocabulary that the backend's shared `LifecycleStatus` enum
+// emits (#2364, #3006). `Unknown` is the read-time degraded indicator the API
+// returns when an actor-state read fails or is canceled. The badge variant +
+// dot colour mirror the rules previously inlined in `unit-card.tsx`, extended
+// to cover the full state set so the agent card / list / detail header can
+// drop the legacy "enabled ? running : stopped" projection.
 //
 // Accepts both PascalCase wire values (`UnitResponse.status`,
 // `AgentResponse.lifecycleStatus`) and lowercase tree values
@@ -31,6 +32,7 @@ const STATUS_VARIANT: Record<
   Running: "success",
   Stopping: "warning",
   Error: "destructive",
+  Unknown: "warning",
 };
 
 const STATUS_DOT: Record<LifecycleStatus, string> = {
@@ -41,6 +43,7 @@ const STATUS_DOT: Record<LifecycleStatus, string> = {
   Running: "bg-success",
   Stopping: "bg-warning",
   Error: "bg-destructive",
+  Unknown: "bg-warning",
 };
 
 const KNOWN: readonly LifecycleStatus[] = [
@@ -51,21 +54,23 @@ const KNOWN: readonly LifecycleStatus[] = [
   "Running",
   "Stopping",
   "Error",
+  "Unknown",
 ];
 
 /**
  * Normalise the wire value to PascalCase. The tree carries lowercase
- * (`"running"`), API responses carry PascalCase (`"Running"`). Unknown /
- * null collapses to `"Draft"` so the badge still renders rather than
- * blowing up on a contract drift.
+ * (`"running"`), API responses carry PascalCase (`"Running"`). A null /
+ * unrecognised value collapses to `"Unknown"` (#3006) — an honest degraded
+ * indicator rather than masquerading as `"Draft"` — so the badge still
+ * renders rather than blowing up on a contract drift.
  */
 export function normaliseLifecycleStatus(
   input: LifecycleStatusInput,
 ): LifecycleStatus {
-  if (!input) return "Draft";
+  if (!input) return "Unknown";
   const normalised = (input.charAt(0).toUpperCase() +
     input.slice(1).toLowerCase()) as LifecycleStatus;
-  return KNOWN.includes(normalised) ? normalised : "Draft";
+  return KNOWN.includes(normalised) ? normalised : "Unknown";
 }
 
 interface LifecycleStatusBadgeProps {
@@ -78,7 +83,7 @@ interface LifecycleStatusBadgeProps {
 }
 
 /**
- * Pill rendering the 7-state lifecycle status. The dot mirrors the badge
+ * Pill rendering the lifecycle status. The dot mirrors the badge
  * colour and is reused by the tree row + detail-pane header as a
  * standalone glyph via {@link LifecycleStatusDot}.
  */

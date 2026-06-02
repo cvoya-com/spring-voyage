@@ -8,7 +8,11 @@ export type NodeStatus =
   | "stopping"
   | "error"
   | "draft"
-  | "validating";
+  | "validating"
+  // #3006: read-time degraded indicator — the server emits this when a unit's
+  // actor-state read failed or was canceled (rather than reporting a misleading
+  // "draft"). Mirrored in `validate-tenant-tree.ts`'s `NODE_STATUSES`.
+  | "unknown";
 
 interface BaseNode {
   /** Stable identifier — used as React `key`, URL `?node=`, and index key. */
@@ -133,7 +137,12 @@ export interface SubtreeAggregate {
 // stronger than a plain stopped subtree but doesn't outrank a node
 // that's actively transitioning / erroring.
 const STATUS_RANK: Record<NodeStatus, number> = {
-  error: 7,
+  error: 8,
+  // `unknown` (#3006) is a read-failure / degraded indicator — rank it just
+  // below `error` so a unit whose status couldn't be read surfaces on a
+  // collapsed branch ahead of transitional states, but never outranks a real
+  // error.
+  unknown: 7,
   starting: 6,
   stopping: 5,
   validating: 4,

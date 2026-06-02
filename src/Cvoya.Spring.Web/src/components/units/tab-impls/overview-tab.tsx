@@ -283,7 +283,7 @@ function UnitOverviewBody({ unit }: { unit: UnitNode }) {
           modelProvider={executionQuery.data?.model?.provider ?? null}
         />
       )}
-      <UnitIssuesSection unitName={unit.name} />
+      <UnitIssuesSection unitId={unit.id} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
@@ -398,8 +398,11 @@ function UnitOverviewBody({ unit }: { unit: UnitNode }) {
  * #2160: thin wrapper that fetches the unit's issues view and renders
  * the panel. Extracted so the Overview body stays declarative.
  */
-function UnitIssuesSection({ unitName }: { unitName: string }) {
-  const { data } = useUnitIssues(unitName, { includeDescendants: true });
+function UnitIssuesSection({ unitId }: { unitId: string }) {
+  // #3006 finding F: query by the unit's UUID (`unit.id`), not its display
+  // name. The API resolves the issues view by Guid; a display name yields a
+  // clean 404 (it previously threw a logged InvalidAddressIdException).
+  const { data } = useUnitIssues(unitId, { includeDescendants: true });
   return <IssuesPanel view={data ?? null} subjectKind="unit" />;
 }
 
