@@ -872,14 +872,13 @@ public class A2AExecutionDispatcherTests
         var message = CreateMessage(threadId: Guid.NewGuid().ToString("D"));
         // Pre-flight probe goes through PersistentAgentRegistry.ProbeLivenessAsync,
         // which uses the registry's container runtime (not the dispatcher's).
-        // Configure both so the pre-flight passes; SendHttpJsonAsync on the
-        // dispatcher's runtime throws so the catch path marks Unhealthy.
+        // #3002: the catch now runs a *confirming* liveness probe before marking
+        // unhealthy, so the registry's probe is hit twice — first the pre-flight
+        // (must pass so the dispatch reaches the work POST), then the confirming
+        // probe (returns dead so the catch marks Unhealthy). Sequence true→false.
         _persistentContainerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(true));
-        _containerRuntime.ProbeContainerHttpAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(true));
+            .Returns(Task.FromResult(true), Task.FromResult(false));
         _containerRuntime.SendHttpJsonAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("connection refused"));
@@ -890,11 +889,58 @@ public class A2AExecutionDispatcherTests
 
         var after = await _persistentRegistry.TryGetAsync(AgentId, TestContext.Current.CancellationToken);
         after.ShouldNotBeNull();
-        // Status flipped to Unhealthy by MarkUnhealthyAsync, but UpdatedAt
-        // is unchanged: the freshness gate must distinguish "container
-        // alive" signals from "container died" flags.
+        // Status flipped to Unhealthy by MarkUnhealthyAsync (the confirming
+        // probe showed the container is down), but UpdatedAt is unchanged: the
+        // freshness gate must distinguish "container alive" signals from
+        // "container died" flags.
         after!.HealthStatus.ShouldBe(AgentHealthStatus.Unhealthy);
         after.UpdatedAt.ShouldBe(beforeUpdatedAt);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_PersistentAgent_A2ACallThrowsButContainerStillLive_DoesNotMarkUnhealthy()
+    {
+        // #3002: a work-path A2A failure on a container that is STILL responsive
+        // (a transient transport blip, or a long/slow turn that ended in a 502)
+        // must NOT arm the destructive restart. The catch runs a confirming
+        // liveness probe; when it shows the container alive, the agent is left
+        // Healthy and the next dispatch re-tries it — only the error is
+        // surfaced, never a restart. This is the core regression guard for the
+        // ~88s "hang then restart storm" the issue describes.
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId,
+                "My Agent",
+                "instructions",
+                new AgentExecutionConfig(Runtime: "claude", Image: Image, Hosting: AgentHostingMode.Persistent)));
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        await _persistentRegistry.RegisterAsync(
+            AgentId,
+            new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/"),
+            "existing-container",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var message = CreateMessage(threadId: Guid.NewGuid().ToString("D"));
+        // Both the pre-flight AND the confirming probe see the container alive.
+        _persistentContainerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+        _containerRuntime.SendHttpJsonAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("transient 502 after a long turn"));
+
+        var act = () => _dispatcher.DispatchAsync(
+            message, context: null, TestContext.Current.CancellationToken);
+        await Should.ThrowAsync<Exception>(act);
+
+        // Container still live → the dispatch failure did NOT mark it unhealthy
+        // (#3002). It stays Healthy so the next dispatch simply re-tries.
+        var after = await _persistentRegistry.TryGetAsync(AgentId, TestContext.Current.CancellationToken);
+        after.ShouldNotBeNull();
+        after!.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
+        after.ConsecutiveFailures.ShouldBe(0);
     }
 
     [Fact]

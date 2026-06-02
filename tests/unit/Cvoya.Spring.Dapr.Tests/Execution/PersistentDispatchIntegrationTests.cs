@@ -257,9 +257,14 @@ public class PersistentDispatchIntegrationTests
         // rather than the new pre-flight-routed restart path. The crash-
         // detection pre-flight semantics are covered by the dedicated
         // test below (PreFlight_DeadAgent_RoutesToRestart).
+        // #3002: the catch now runs a confirming liveness probe before marking
+        // unhealthy. Sequence the probe true→false: the pre-flight passes, then
+        // the confirming probe reports the container dead so the failure does
+        // arm the restart. (The "still-live → not marked" path is covered by
+        // A2AExecutionDispatcherTests.…A2ACallThrowsButContainerStillLive…)
         _containerRuntime.ProbeContainerHttpAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(true);
+            .Returns(true, false);
 
         // HttpClient that will cause the A2A call to fail.
         _httpClientFactory.CreateClient(Arg.Any<string>()).Returns(new HttpClient());
