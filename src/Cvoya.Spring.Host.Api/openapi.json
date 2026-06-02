@@ -14755,7 +14755,7 @@
             "type": "string"
           },
           "content": {
-            "type": "string"
+            "$ref": "#/components/schemas/JsonElement"
           },
           "createdAt": {
             "type": "string",

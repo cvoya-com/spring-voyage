@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Memory;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Messaging;
 
 /// <summary>
@@ -30,7 +32,13 @@ public interface IMemoryStore
     /// </summary>
     /// <param name="owner">Owning agent or unit address.</param>
     /// <param name="kind">Long-term or short-term kind.</param>
-    /// <param name="content">Raw entry text.</param>
+    /// <param name="content">
+    /// The entry content, as a JSON value. A plain text note is a JSON
+    /// string; structured state is a JSON object/array. The value is
+    /// persisted to a <c>jsonb</c> column and its JSON kind is preserved
+    /// on read. Must not be <see cref="JsonValueKind.Undefined"/> or
+    /// <see cref="JsonValueKind.Null"/>.
+    /// </param>
     /// <param name="source">
     /// Optional origin of the entry (e.g. message id). May be
     /// <c>null</c> when the entry has no upstream reference.
@@ -44,7 +52,7 @@ public interface IMemoryStore
     Task<MemoryEntry> AddAsync(
         Address owner,
         MemoryKind kind,
-        string content,
+        JsonElement content,
         string? source,
         Guid? threadId,
         CancellationToken cancellationToken = default);
@@ -76,7 +84,12 @@ public interface IMemoryStore
     /// Results are ordered by relevance (highest first) using the
     /// underlying storage layer's full-text ranking; the EF / Postgres
     /// implementation uses <c>ts_rank</c> against a GIN-indexed
-    /// <c>to_tsvector('english', content)</c> column.
+    /// <c>to_tsvector('english', content)</c> expression. Because
+    /// <c>content</c> is <c>jsonb</c>, <c>to_tsvector</c> extracts the
+    /// string values from the document (top-level text for a string
+    /// entry; the string-typed values for a structured entry — object
+    /// keys are not indexed), so structured memories are searchable by
+    /// the text they contain.
     /// </summary>
     /// <param name="owner">Owning agent or unit.</param>
     /// <param name="query">Free-text search query.</param>
@@ -92,14 +105,19 @@ public interface IMemoryStore
 
     /// <summary>
     /// Mutates the content of an existing entry. Pass <c>null</c> for
-    /// the content to leave it untouched (partial-update semantics).
-    /// Returns the updated entry, or <c>null</c> when the entry does
-    /// not exist or is owned by a different addressable.
+    /// the content to leave it untouched (partial-update semantics); a
+    /// non-null <paramref name="content"/> replaces the value, and its
+    /// JSON kind may differ from the original (text ↔ structured). The
+    /// <see cref="JsonElement"/> must not be
+    /// <see cref="JsonValueKind.Undefined"/> or
+    /// <see cref="JsonValueKind.Null"/>. Returns the updated entry, or
+    /// <c>null</c> when the entry does not exist or is owned by a
+    /// different addressable.
     /// </summary>
     Task<MemoryEntry?> UpdateAsync(
         Address owner,
         Guid id,
-        string? content,
+        JsonElement? content,
         CancellationToken cancellationToken = default);
 
     /// <summary>

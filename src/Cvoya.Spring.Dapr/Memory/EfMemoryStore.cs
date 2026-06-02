@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Memory;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Memory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Data;
@@ -22,14 +24,26 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <para>
+/// <b>Content shape.</b> <c>content</c> is a <c>jsonb</c> column holding
+/// the entry as a JSON value (a JSON string for a plain text note; an
+/// object/array for structured state). <see cref="MemoryEntry.Content"/>
+/// is a <see cref="JsonElement"/>; this store serialises it in and parses
+/// it back out, so the JSON kind round-trips without callers
+/// stringifying by hand.
+/// </para>
+/// <para>
 /// <b>Full-text search.</b> The store prefers Postgres FTS — keys the
 /// query off <c>EF.Functions.ToTsVector("english", content).Matches(
 /// EF.Functions.PlainToTsQuery("english", query))</c>, ordered by
-/// <c>ts_rank</c> desc — and falls back to case-insensitive substring
+/// <c>ts_rank</c> desc. Because <c>content</c> is <c>jsonb</c>, the
+/// <c>to_tsvector(jsonb)</c> overload extracts the document's string
+/// values (top-level text for a string entry; string-typed values for a
+/// structured one), so structured memories are searchable by the text
+/// they contain. The store falls back to case-insensitive substring
 /// matching when the active provider is not Postgres (notably the EF
-/// in-memory provider used by the fast unit tests). The fallback keeps
-/// the unit tests provider-agnostic; production code path is exercised
-/// by the integration suite on a real Postgres instance.
+/// in-memory provider used by the unit + integration tests); the
+/// substring fallback is an approximation of the Postgres relevance
+/// path, not a parity guarantee.
 /// </para>
 /// </remarks>
 public sealed class EfMemoryStore : IMemoryStore
@@ -53,13 +67,13 @@ public sealed class EfMemoryStore : IMemoryStore
     public async Task<MemoryEntry> AddAsync(
         Address owner,
         MemoryKind kind,
-        string content,
+        JsonElement content,
         string? source,
         Guid? threadId,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        ArgumentException.ThrowIfNullOrWhiteSpace(content);
+        EnsureStorableContent(content);
         if (kind == MemoryKind.ShortTerm && !threadId.HasValue)
         {
             throw new ArgumentException("Short-term entries require a thread id.", nameof(threadId));
@@ -76,7 +90,7 @@ public sealed class EfMemoryStore : IMemoryStore
             OwnerId = owner.Id,
             Kind = (int)kind,
             ThreadId = kind == MemoryKind.LongTerm ? null : threadId,
-            Content = content,
+            Content = Serialize(content),
             Source = source,
             CreatedAt = now,
             UpdatedAt = now,
@@ -177,7 +191,9 @@ public sealed class EfMemoryStore : IMemoryStore
         {
             // Postgres-native full-text path: GIN(to_tsvector('english',
             // content)) index makes the Matches() predicate cheap and
-            // ts_rank gives a deterministic relevance ordering.
+            // ts_rank gives a deterministic relevance ordering. content
+            // is jsonb, so to_tsvector uses the jsonb overload and
+            // tokenises the document's string values.
             rows = await baseQuery
                 .Where(m => EF.Functions
                     .ToTsVector("english", m.Content)
@@ -191,10 +207,10 @@ public sealed class EfMemoryStore : IMemoryStore
         }
         else
         {
-            // Provider fallback (EF in-memory used in unit tests):
-            // case-insensitive substring match on Content, ordered by
-            // recency. The integration suite covers the real Postgres
-            // FTS path.
+            // Provider fallback (EF in-memory used in unit + integration
+            // tests): case-insensitive substring match on the raw JSON
+            // text, ordered by recency. Approximates the Postgres
+            // relevance path (which is the production code path).
             var needle = query.Trim();
             rows = await baseQuery
                 .Where(m => m.Content.ToLower().Contains(needle.ToLower()))
@@ -210,7 +226,7 @@ public sealed class EfMemoryStore : IMemoryStore
     public async Task<MemoryEntry?> UpdateAsync(
         Address owner,
         Guid id,
-        string? content,
+        JsonElement? content,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(owner);
@@ -229,10 +245,15 @@ public sealed class EfMemoryStore : IMemoryStore
         }
 
         var mutated = false;
-        if (content is not null && !string.Equals(content, row.Content, StringComparison.Ordinal))
+        if (content is { } newContent)
         {
-            row.Content = content;
-            mutated = true;
+            EnsureStorableContent(newContent);
+            var serialized = Serialize(newContent);
+            if (!string.Equals(serialized, row.Content, StringComparison.Ordinal))
+            {
+                row.Content = serialized;
+                mutated = true;
+            }
         }
 
         if (mutated)
@@ -278,9 +299,42 @@ public sealed class EfMemoryStore : IMemoryStore
             Id: row.Id,
             Owner: new Address(row.OwnerScheme, row.OwnerId),
             Kind: (MemoryKind)row.Kind,
-            Content: row.Content,
+            Content: Parse(row.Content),
             Source: row.Source,
             ThreadId: row.ThreadId,
             CreatedAt: row.CreatedAt,
             UpdatedAt: row.UpdatedAt);
+
+    /// <summary>
+    /// Serialises a content <see cref="JsonElement"/> to its raw JSON
+    /// text for the <c>jsonb</c> column (Postgres re-canonicalises on
+    /// write; the in-memory provider stores the text verbatim).
+    /// </summary>
+    private static string Serialize(JsonElement content) =>
+        JsonSerializer.Serialize(content);
+
+    /// <summary>
+    /// Parses the stored raw JSON back into a detached
+    /// <see cref="JsonElement"/> (cloned so it outlives the parsing
+    /// document).
+    /// </summary>
+    private static JsonElement Parse(string rawJson)
+    {
+        using var doc = JsonDocument.Parse(rawJson);
+        return doc.RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Rejects content that carries no memory: a missing
+    /// (<see cref="JsonValueKind.Undefined"/>) or explicit JSON
+    /// <c>null</c> value.
+    /// </summary>
+    private static void EnsureStorableContent(JsonElement content)
+    {
+        if (content.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+        {
+            throw new ArgumentException(
+                "Memory content must be a non-null JSON value.", nameof(content));
+        }
+    }
 }

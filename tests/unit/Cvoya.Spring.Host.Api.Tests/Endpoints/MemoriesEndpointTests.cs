@@ -168,7 +168,7 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var body = await response.Content.ReadFromJsonAsync<MemoriesResponse>(JsonOptions, ct);
         body.ShouldNotBeNull();
         body!.LongTerm.Count.ShouldBe(1);
-        body.LongTerm[0].Content.ShouldContain("brown");
+        body.LongTerm[0].Content.GetString().ShouldNotBeNull().ShouldContain("brown");
     }
 
     [Fact]
@@ -187,7 +187,31 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var body = await response.Content.ReadFromJsonAsync<MemoryEntry>(JsonOptions, ct);
         body.ShouldNotBeNull();
         body!.Id.ShouldBe(GuidFormatter.Format(memoryId));
-        body.Content.ShouldBe("specific entry");
+        body.Content.ValueKind.ShouldBe(JsonValueKind.String);
+        body.Content.GetString().ShouldBe("specific entry");
+    }
+
+    [Fact]
+    public async Task GetAgentMemoryById_StructuredContent_SurfacesNativeJson()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        ArrangeDirectoryHit("agent", "rosa-json", agentId);
+
+        var memoryId = SeedMemoryRowRaw(
+            agentId, kind: 0,
+            rawJsonContent: """{"status":"published","piece":3}""", threadId: null);
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/agents/{agentId:N}/memories/{memoryId:N}", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<MemoryEntry>(JsonOptions, ct);
+        body.ShouldNotBeNull();
+        // content surfaces as a native JSON object, not a stringified blob.
+        body!.Content.ValueKind.ShouldBe(JsonValueKind.Object);
+        body.Content.GetProperty("status").GetString().ShouldBe("published");
+        body.Content.GetProperty("piece").GetInt32().ShouldBe(3);
     }
 
     [Fact]
@@ -213,7 +237,14 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
+    // Seeds a text memory: the jsonb content column holds the text as a
+    // JSON string (mirrors how EfMemoryStore serialises a JsonElement).
     private Guid SeedMemoryRow(Guid ownerId, int kind, string content, Guid? threadId)
+        => SeedMemoryRowRaw(ownerId, kind, JsonSerializer.Serialize(content), threadId);
+
+    // Seeds a memory with raw JSON content (a structured object/array, or
+    // a pre-serialised JSON string) directly into the jsonb column.
+    private Guid SeedMemoryRowRaw(Guid ownerId, int kind, string rawJsonContent, Guid? threadId)
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
@@ -225,7 +256,7 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
             OwnerId = ownerId,
             Kind = kind,
             ThreadId = threadId,
-            Content = content,
+            Content = rawJsonContent,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
         });

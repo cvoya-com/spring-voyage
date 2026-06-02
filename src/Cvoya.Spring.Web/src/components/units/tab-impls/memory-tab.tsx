@@ -281,7 +281,15 @@ function MemorySection({
               className="space-y-1 px-3 py-2"
               data-testid={`${testIdRoot}-${section}-item-${entry.id}`}
             >
-              <p className="whitespace-pre-wrap break-words">{entry.content}</p>
+              {typeof entry.content === "string" ? (
+                <p className="whitespace-pre-wrap break-words">
+                  {entry.content}
+                </p>
+              ) : (
+                <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs">
+                  {JSON.stringify(entry.content, null, 2)}
+                </pre>
+              )}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span title={String(entry.createdAt)}>
                   {timeAgo(entry.createdAt as unknown as string)}

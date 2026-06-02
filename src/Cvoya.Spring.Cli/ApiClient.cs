@@ -3362,6 +3362,81 @@ public class SpringApiClient
     }
 
     /// <summary>
+    /// Walks a Kiota <see cref="UntypedNode"/> tree (the shape Kiota
+    /// deserialises an empty-schema <c>JsonElement</c> property into — e.g.
+    /// a memory entry's <c>content</c>) and emits the equivalent
+    /// <see cref="System.Text.Json.JsonElement"/>. The inverse of
+    /// <see cref="JsonElementToUntypedNode"/>; lets read paths render
+    /// structured content with <c>System.Text.Json</c> without touching
+    /// Kiota internals. The returned element is detached (cloned) so it
+    /// outlives the parsing document.
+    /// </summary>
+    internal static System.Text.Json.JsonElement UntypedNodeToJsonElement(UntypedNode? node)
+    {
+        using var stream = new System.IO.MemoryStream();
+        using (var writer = new System.Text.Json.Utf8JsonWriter(stream))
+        {
+            WriteUntypedNode(writer, node);
+        }
+        using var doc = System.Text.Json.JsonDocument.Parse(stream.ToArray());
+        return doc.RootElement.Clone();
+    }
+
+    private static void WriteUntypedNode(System.Text.Json.Utf8JsonWriter writer, UntypedNode? node)
+    {
+        switch (node)
+        {
+            case null:
+            case UntypedNull:
+                writer.WriteNullValue();
+                break;
+            case UntypedObject obj:
+                writer.WriteStartObject();
+                foreach (var pair in obj.GetValue())
+                {
+                    writer.WritePropertyName(pair.Key);
+                    WriteUntypedNode(writer, pair.Value);
+                }
+                writer.WriteEndObject();
+                break;
+            case UntypedArray arr:
+                writer.WriteStartArray();
+                foreach (var item in arr.GetValue())
+                {
+                    WriteUntypedNode(writer, item);
+                }
+                writer.WriteEndArray();
+                break;
+            case UntypedString s:
+                writer.WriteStringValue(s.GetValue());
+                break;
+            case UntypedBoolean b:
+                writer.WriteBooleanValue(b.GetValue());
+                break;
+            case UntypedInteger i:
+                writer.WriteNumberValue(i.GetValue());
+                break;
+            case UntypedLong l:
+                writer.WriteNumberValue(l.GetValue());
+                break;
+            case UntypedDouble d:
+                writer.WriteNumberValue(d.GetValue());
+                break;
+            case UntypedFloat f:
+                writer.WriteNumberValue(f.GetValue());
+                break;
+            case UntypedDecimal m:
+                writer.WriteNumberValue(m.GetValue());
+                break;
+            default:
+                // Unknown node kind: emit null rather than throw — this is
+                // a display path, not a round-trip contract.
+                writer.WriteNullValue();
+                break;
+        }
+    }
+
+    /// <summary>
     /// Returns the current credential-health row for a connector, or
     /// <c>null</c> when no validation has been recorded yet.
     /// </summary>

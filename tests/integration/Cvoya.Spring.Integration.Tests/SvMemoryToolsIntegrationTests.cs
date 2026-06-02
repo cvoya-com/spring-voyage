@@ -155,6 +155,49 @@ public sealed class SvMemoryToolsIntegrationTests : IDisposable
         searchJson.GetArrayLength().ShouldBe(0);
     }
 
+    [Fact]
+    public async Task StructuredJsonContent_RoundTripsThroughTheToolSurface()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var caller = AgentCaller(Guid.NewGuid(), Guid.NewGuid());
+
+        // 1. Capture a structured JSON memory (an "edition status board").
+        var addJson = await _registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryAddTool,
+            ParseArgs("""{"content":{"piece":3,"status":"published","headline":"Spring arrives"},"kind":"long_term"}"""),
+            caller, ct);
+        var memoryId = ReadGuid(addJson, "id");
+
+        // content comes back as a native object, not a stringified blob.
+        var added = addJson.GetProperty("content");
+        added.ValueKind.ShouldBe(JsonValueKind.Object);
+        added.GetProperty("status").GetString().ShouldBe("published");
+
+        // 2. get round-trips the object with its structure intact.
+        var getJson = await _registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryGetTool,
+            ParseArgs($$"""{"id":"{{memoryId:N}}"}"""),
+            caller, ct);
+        getJson.GetProperty("content").GetProperty("headline").GetString()
+            .ShouldBe("Spring arrives");
+
+        // 3. search finds it by a contained value and returns native JSON.
+        var searchJson = await _registry.InvokeAsync(
+            SvMemorySkillRegistry.MemorySearchTool,
+            ParseArgs("""{"query":"published"}"""),
+            caller, ct);
+        searchJson.GetArrayLength().ShouldBe(1);
+        searchJson[0].GetProperty("content").ValueKind.ShouldBe(JsonValueKind.Object);
+
+        // 4. update can replace structured content with a plain text note.
+        var updateJson = await _registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryUpdateTool,
+            ParseArgs($$"""{"id":"{{memoryId:N}}","content":"archived"}"""),
+            caller, ct);
+        updateJson.GetProperty("content").ValueKind.ShouldBe(JsonValueKind.String);
+        updateJson.GetProperty("content").GetString().ShouldBe("archived");
+    }
+
     private static ToolCallContext AgentCaller(Guid agentId, Guid threadId) =>
         new(GuidFormatter.Format(agentId), Address.AgentScheme, GuidFormatter.Format(threadId));
 

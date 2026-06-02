@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Memory;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Messaging;
 
 /// <summary>
@@ -28,7 +30,13 @@ using Cvoya.Spring.Core.Messaging;
 /// Discriminator between owner-scoped <see cref="MemoryKind.LongTerm"/>
 /// and owner+thread-scoped <see cref="MemoryKind.ShortTerm"/>.
 /// </param>
-/// <param name="Content">Raw entry text.</param>
+/// <param name="Content">
+/// The entry content, as a JSON value. A plain text note is a JSON
+/// string (<see cref="JsonValueKind.String"/>); structured state is a
+/// JSON object/array. The JSON kind is preserved end to end — the
+/// storage layer persists this as a Postgres <c>jsonb</c> column — so
+/// callers never stringify-and-reparse by hand.
+/// </param>
 /// <param name="Source">
 /// Optional origin of the entry (e.g. message id, conversation id,
 /// document reference). Omitted when the entry has no referenceable
@@ -48,7 +56,7 @@ public record MemoryEntry(
     Guid Id,
     Address Owner,
     MemoryKind Kind,
-    string Content,
+    JsonElement Content,
     string? Source,
     Guid? ThreadId,
     DateTimeOffset CreatedAt,
