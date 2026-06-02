@@ -85,6 +85,20 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     }
 
     [Fact]
+    public async Task StartUnit_NonGuidId_Returns404WithoutThrowing()
+    {
+        // #2981 §4: a non-Guid id (e.g. a slug) must surface as a clean 404
+        // rather than an ungraceful error from Address.For throwing
+        // InvalidAddressIdException on the raw id. Mirrors GetUnitAsync's
+        // validate-first guard so /start behaves like its sibling endpoints.
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await _client.PostAsync("/api/v1/tenant/units/not-a-guid/start", content: null, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task StopUnit_HappyPath_Returns202AndTransitionsToStopped()
     {
         var ct = TestContext.Current.CancellationToken;

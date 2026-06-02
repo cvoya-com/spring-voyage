@@ -548,6 +548,49 @@ public class PersistentAgentRegistryTests : IDisposable
     }
 
     [Fact]
+    public async Task RunHealthChecksAsync_AfterResumableStop_DoesNotReviveStoppedAgent()
+    {
+        // #2981 §4: a resumable stop routes through StopContainerAsync, which
+        // removes the persistent_agent_runtime row while preserving the volume
+        // (#2999). With no row, the background health sweep has nothing to
+        // probe and cannot resurrect the stopped agent — the health-timer
+        // relaunch loop the issue worried about is already neutralised by
+        // #2999's row removal. This pins the invariant so a future change that
+        // re-probes or re-launches a stopped agent trips the regression.
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(false));
+
+        var endpoint = new Uri("http://localhost:8999/");
+        var definition = new AgentDefinition(Agent1Id, "Test Agent", null,
+            new AgentExecutionConfig("claude-code", "image:v1", Hosting: AgentHostingMode.Persistent));
+        // Wire the provider so any (unwanted) restart attempt would actually
+        // proceed into DeployAsync — failing the DidNotReceive assertions
+        // below — rather than short-circuiting on a missing definition.
+        _agentProvider.GetByIdAsync(Agent1Id, Arg.Any<CancellationToken>()).Returns(definition);
+        await _registry.RegisterAsync(Agent1Id, endpoint, "container-1", definition, cancellationToken: Ct);
+
+        // Resumable stop: removes the row, preserves the volume.
+        await _registry.StopContainerAsync(Agent1Id, CancellationToken.None);
+
+        // Several sweeps (past the restart threshold) must not probe, relaunch,
+        // or re-register the stopped agent.
+        for (var i = 0; i < PersistentAgentRegistry.UnhealthyThreshold + 1; i++)
+        {
+            await _registry.RunHealthChecksAsync();
+        }
+
+        (await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct)).ShouldBeNull();
+        await _containerRuntime.DidNotReceive().ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _containerRuntime.DidNotReceive().StartAsync(
+            Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
+        // And the resumable stop must NOT reclaim the volume (delete-only, #2999).
+        await _containerRuntime.DidNotReceive().RemoveVolumeAsync(
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task UndeployAsync_WhenTracked_ReclaimsVolume()
     {
         // #2999: genuine decommission (UndeployAsync) stops the container AND
