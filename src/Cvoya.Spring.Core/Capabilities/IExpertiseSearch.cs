@@ -4,11 +4,11 @@
 namespace Cvoya.Spring.Core.Capabilities;
 
 /// <summary>
-/// Searches the expertise directory (#542 — companion to #541's
-/// <c>ISkillRegistry</c> / <c>IExpertiseSkillCatalog</c>). A planner, CLI
-/// operator, or portal user that knows "I need something that refactors
-/// Python" but does NOT know the exact slug calls through this interface
-/// to resolve the capability description into concrete slugs + owners.
+/// Searches the expertise directory (#542). A CLI operator or portal user
+/// that knows "I need something that refactors Python" but does NOT know the
+/// exact slug calls through this interface (over the HTTP
+/// <c>POST /api/v1/directory/search</c> endpoint) to resolve the capability
+/// description into concrete slugs + owners.
 /// </summary>
 /// <remarks>
 /// <para>

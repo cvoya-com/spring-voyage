@@ -42,7 +42,4 @@ public static class ToolCategories
     /// shared history.
     /// </summary>
     public const string Memory = "memory";
-
-    /// <summary>Capability-typed expertise tools (<c>sv.expertise.{slug}</c>).</summary>
-    public const string Expertise = "expertise";
 }
