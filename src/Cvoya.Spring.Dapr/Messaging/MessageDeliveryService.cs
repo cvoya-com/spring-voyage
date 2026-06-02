@@ -159,14 +159,25 @@ public class MessageDeliveryService(
     }
 
     /// <summary>
-    /// Delivers a message to one target with bounded retry (ADR-0049 §4). A
+    /// Delivers a message to one target with bounded retry (ADR-0053 §4). A
     /// successful <c>ReceiveAsync</c> is a durable mailbox enqueue and the
-    /// fast-enqueue invariant (§5) means it returns in milliseconds — the
+    /// fast-enqueue invariant means it returns in milliseconds — the
     /// loop blocks only on the enqueue, never on the recipient's runtime.
     /// Only transient infrastructure failures are retried; an
     /// <see cref="MessageDeliveryException"/> (validation) is never retried and
     /// propagates immediately. A retry budget exhausted by transient failures
     /// surfaces as a terminal <see cref="MessageDeliveryException"/>.
+    /// <para>
+    /// #3004 — each attempt is bounded by
+    /// <see cref="MessageDeliveryOptions.PerAttemptTimeout"/> (capped by the
+    /// remaining <see cref="MessageDeliveryOptions.Budget"/>). The fast-enqueue
+    /// invariant does not hold while the target actor is busy under load (the
+    /// ~88s A2A hang, #3002), so without the cap a single attempt hangs to the
+    /// Dapr actor proxy's default <c>HttpClient.Timeout</c> (~100s) and the
+    /// message is dropped. A hit per-attempt timeout is treated as a transient
+    /// failure (retried within budget); only caller-initiated cancellation
+    /// (<paramref name="ct"/>) propagates.
+    /// </para>
     /// <para>
     /// <paramref name="threadParticipants"/> overrides the per-hop default
     /// <c>{caller, target}</c> participant set. <c>sv.messaging.multicast</c>
@@ -226,9 +237,30 @@ public class MessageDeliveryService(
         {
             ct.ThrowIfCancellationRequested();
 
+            // #3004 — never start an attempt with no budget left, and bound each
+            // attempt to min(PerAttemptTimeout, remaining budget). Without this
+            // cap a single proxy.ReceiveAsync hangs to the Dapr actor proxy's
+            // default HttpClient.Timeout (~100s) whenever the target actor is
+            // busy under load — the message is then lost and the agent resends
+            // (#2982). The cap fails the attempt fast so it can be retried.
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            var attemptTimeout = _deliveryOptions.PerAttemptTimeout < remaining
+                ? _deliveryOptions.PerAttemptTimeout
+                : remaining;
+
             try
             {
-                await proxy.ReceiveAsync(outbound, ct);
+                using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                attemptCts.CancelAfter(attemptTimeout);
+
+                // Pass the attempt-scoped token so the Dapr actor proxy aborts
+                // the underlying HTTP call when the per-attempt deadline fires.
+                await proxy.ReceiveAsync(outbound, attemptCts.Token);
 
                 // #2818 — notify every registered connector observer that a
                 // delivery just landed in the recipient's mailbox. Resolved
@@ -238,7 +270,9 @@ public class MessageDeliveryService(
                 // singleton DI cycle via IConnectorType ↔ binding store).
                 // Observers run sequentially so a single thread's deliveries
                 // appear in arrival order on the downstream surface; any
-                // observer exception is logged and the next observer runs.
+                // observer exception is logged and the next observer runs. They
+                // run on the caller token, not the attempt deadline — they are
+                // post-delivery, not part of the bounded enqueue.
                 await NotifyDeliveryObserversAsync(
                     caller,
                     target,
@@ -248,9 +282,27 @@ public class MessageDeliveryService(
 
                 return;
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
+                // The caller cancelled — propagate, never swallow.
                 throw;
+            }
+            catch (OperationCanceledException ex)
+            {
+                // #3004 — the per-attempt deadline fired (attemptCts), not the
+                // caller. A hung mailbox enqueue is transient infrastructure
+                // (ADR-0053 §4); retry it within the budget instead of letting a
+                // ~100s HttpClient.Timeout cancel the whole send and drop the
+                // message.
+                lastTransient = ex;
+                logger.LogWarning(
+                    ex,
+                    "Delivery attempt {Attempt}/{MaxAttempts} for message {MessageId} to {Target} timed out after {Timeout}.",
+                    attempt,
+                    _deliveryOptions.MaxAttempts,
+                    message.Id,
+                    target,
+                    attemptTimeout);
             }
             catch (MessageDeliveryException)
             {
@@ -259,7 +311,7 @@ public class MessageDeliveryService(
             }
             catch (Exception ex)
             {
-                // ADR-0049 §4 — the only thing that can fail a mailbox
+                // ADR-0053 §4 — the only thing that can fail a mailbox
                 // enqueue is transient infrastructure. Retry within budget.
                 lastTransient = ex;
                 logger.LogWarning(
@@ -276,13 +328,13 @@ public class MessageDeliveryService(
                 break;
             }
 
-            var remaining = deadline - DateTimeOffset.UtcNow;
-            if (remaining <= TimeSpan.Zero)
+            var backoffRemaining = deadline - DateTimeOffset.UtcNow;
+            if (backoffRemaining <= TimeSpan.Zero)
             {
                 break;
             }
 
-            var delay = backoff < remaining ? backoff : remaining;
+            var delay = backoff < backoffRemaining ? backoff : backoffRemaining;
             await Task.Delay(delay, ct);
             backoff += backoff;
         }

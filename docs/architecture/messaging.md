@@ -143,7 +143,13 @@ conversation, not N per-recipient threads.
 - Delivery is **synchronous with bounded retry** inside the handler — there is no
   delivery queue. `agent:` / `unit:` / `human:` targets are virtual actors that
   always activate, so the only delivery failure is transient infrastructure; an
-  invalid target is caught by synchronous validation.
+  invalid target is caught by synchronous validation. Each enqueue attempt is
+  bounded by a **per-attempt timeout** ([#3004](https://github.com/cvoya-com/spring-voyage/issues/3004)):
+  while the fast-enqueue invariant holds the attempt returns in milliseconds, but
+  if a busy actor blocks it under load (the ~88s A2A hang, [#3002](https://github.com/cvoya-com/spring-voyage/issues/3002))
+  the attempt is cancelled and retried as transient within the budget instead of
+  hanging to the Dapr actor proxy's default `HttpClient.Timeout` (~100s) and
+  dropping the message. Guaranteed delivery past the budget is a v0.2 concern.
 - Both failure classes — validation failure, terminal delivery failure — surface
   as **synchronous tool errors**. Failure is never a message, so there is no
   system sender address.
