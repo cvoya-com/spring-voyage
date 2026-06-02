@@ -20,13 +20,13 @@ using Microsoft.Kiota.Abstractions.Serialization;
 /// </summary>
 public static class MemoryCommand
 {
-    /// <summary>Allowed values for the <c>--kind</c> filter flag.</summary>
-    public static readonly string[] KindKeys = ["long_term", "short_term"];
+    /// <summary>Allowed values for the <c>--scope</c> filter flag.</summary>
+    public static readonly string[] ScopeKeys = ["agent", "thread"];
 
     private static readonly OutputFormatter.Column<MemoryRow>[] MemoryColumns =
     {
         new("id", r => r.Id),
-        new("kind", r => r.Kind),
+        new("scope", r => r.Scope),
         new("content", r => r.Content),
         new("source", r => r.Source),
         new("threadId", r => r.ThreadId),
@@ -36,7 +36,7 @@ public static class MemoryCommand
 
     private sealed record MemoryRow(
         string Id,
-        string Kind,
+        string Scope,
         string Content,
         string? Source,
         string? ThreadId,
@@ -83,23 +83,23 @@ public static class MemoryCommand
     private static Command CreateAgentListCommand(Option<string> outputOption)
     {
         var agentArg = new Argument<string>("agent") { Description = "Agent id or display_name." };
-        var kindOption = KindOption();
+        var scopeOption = ScopeOption();
         var limitOption = LimitOption();
         var offsetOption = OffsetOption();
 
         var command = new Command(
             "list",
-            "List the agent's memory entries, most-recent first. Filter by --kind; " +
+            "List the agent's memory entries, most-recent first. Filter by --scope; " +
             "page with --limit and --offset.");
         command.Arguments.Add(agentArg);
-        command.Options.Add(kindOption);
+        command.Options.Add(scopeOption);
         command.Options.Add(limitOption);
         command.Options.Add(offsetOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var idOrName = parseResult.GetValue(agentArg)!;
-            var kind = parseResult.GetValue(kindOption);
+            var scope = parseResult.GetValue(scopeOption);
             var limit = parseResult.GetValue(limitOption);
             var offset = parseResult.GetValue(offsetOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
@@ -108,7 +108,7 @@ public static class MemoryCommand
             var id = await ResolveAgentAsync(client, idOrName, ct);
             if (id is null) return;
 
-            var view = await client.GetAgentMemoriesAsync(id, kind, limit, offset, ct);
+            var view = await client.GetAgentMemoriesAsync(id, scope, limit, offset, ct);
             PrintMemoriesList(view, output);
         });
 
@@ -178,7 +178,7 @@ public static class MemoryCommand
             Description = "Free-text search query. Postgres FTS — results are ordered by relevance.",
             Required = true,
         };
-        var kindOption = KindOption();
+        var scopeOption = ScopeOption();
         var limitOption = LimitOption();
 
         var command = new Command(
@@ -187,14 +187,14 @@ public static class MemoryCommand
             "results are ordered by relevance (highest first).");
         command.Arguments.Add(agentArg);
         command.Options.Add(queryOption);
-        command.Options.Add(kindOption);
+        command.Options.Add(scopeOption);
         command.Options.Add(limitOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var idOrName = parseResult.GetValue(agentArg)!;
             var query = parseResult.GetValue(queryOption)!;
-            var kind = parseResult.GetValue(kindOption);
+            var scope = parseResult.GetValue(scopeOption);
             var limit = parseResult.GetValue(limitOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
@@ -202,7 +202,7 @@ public static class MemoryCommand
             var id = await ResolveAgentAsync(client, idOrName, ct);
             if (id is null) return;
 
-            var view = await client.SearchAgentMemoriesAsync(id, query, kind, limit, ct);
+            var view = await client.SearchAgentMemoriesAsync(id, query, scope, limit, ct);
             PrintMemoriesList(view, output);
         });
 
@@ -214,23 +214,23 @@ public static class MemoryCommand
     private static Command CreateUnitListCommand(Option<string> outputOption)
     {
         var unitArg = new Argument<string>("unit") { Description = "Unit id or display_name." };
-        var kindOption = KindOption();
+        var scopeOption = ScopeOption();
         var limitOption = LimitOption();
         var offsetOption = OffsetOption();
 
         var command = new Command(
             "list",
-            "List the unit's memory entries, most-recent first. Filter by --kind; " +
+            "List the unit's memory entries, most-recent first. Filter by --scope; " +
             "page with --limit and --offset.");
         command.Arguments.Add(unitArg);
-        command.Options.Add(kindOption);
+        command.Options.Add(scopeOption);
         command.Options.Add(limitOption);
         command.Options.Add(offsetOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var idOrName = parseResult.GetValue(unitArg)!;
-            var kind = parseResult.GetValue(kindOption);
+            var scope = parseResult.GetValue(scopeOption);
             var limit = parseResult.GetValue(limitOption);
             var offset = parseResult.GetValue(offsetOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
@@ -239,7 +239,7 @@ public static class MemoryCommand
             var id = await ResolveUnitAsync(client, idOrName, ct);
             if (id is null) return;
 
-            var view = await client.GetUnitMemoriesAsync(id, kind, limit, offset, ct);
+            var view = await client.GetUnitMemoriesAsync(id, scope, limit, offset, ct);
             PrintMemoriesList(view, output);
         });
 
@@ -309,7 +309,7 @@ public static class MemoryCommand
             Description = "Free-text search query. Postgres FTS — results are ordered by relevance.",
             Required = true,
         };
-        var kindOption = KindOption();
+        var scopeOption = ScopeOption();
         var limitOption = LimitOption();
 
         var command = new Command(
@@ -318,14 +318,14 @@ public static class MemoryCommand
             "results are ordered by relevance (highest first).");
         command.Arguments.Add(unitArg);
         command.Options.Add(queryOption);
-        command.Options.Add(kindOption);
+        command.Options.Add(scopeOption);
         command.Options.Add(limitOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var idOrName = parseResult.GetValue(unitArg)!;
             var query = parseResult.GetValue(queryOption)!;
-            var kind = parseResult.GetValue(kindOption);
+            var scope = parseResult.GetValue(scopeOption);
             var limit = parseResult.GetValue(limitOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
@@ -333,7 +333,7 @@ public static class MemoryCommand
             var id = await ResolveUnitAsync(client, idOrName, ct);
             if (id is null) return;
 
-            var view = await client.SearchUnitMemoriesAsync(id, query, kind, limit, ct);
+            var view = await client.SearchUnitMemoriesAsync(id, query, scope, limit, ct);
             PrintMemoriesList(view, output);
         });
 
@@ -342,13 +342,13 @@ public static class MemoryCommand
 
     // ----- Shared option factories --------------------------------------
 
-    private static Option<string?> KindOption()
+    private static Option<string?> ScopeOption()
     {
-        var option = new Option<string?>("--kind")
+        var option = new Option<string?>("--scope")
         {
-            Description = "Filter to a single kind. Allowed: " + string.Join(", ", KindKeys) + ".",
+            Description = "Filter to a single scope. Allowed: " + string.Join(", ", ScopeKeys) + ".",
         };
-        option.AcceptOnlyFromAmong(KindKeys);
+        option.AcceptOnlyFromAmong(ScopeKeys);
         return option;
     }
 
@@ -404,12 +404,12 @@ public static class MemoryCommand
             return;
         }
 
-        // Combine the two axes into a single ordered table — most operators
+        // Combine the two scopes into a single ordered table — most operators
         // want a single view of "what does this subject remember?" rather
         // than two parallel sections. Sort by createdAt desc to match the
         // server's ListAsync ordering.
-        var rows = ((view.ShortTerm ?? new List<MemoryEntry>())
-                .Concat(view.LongTerm ?? new List<MemoryEntry>()))
+        var rows = ((view.Agent ?? new List<MemoryEntry>())
+                .Concat(view.Thread ?? new List<MemoryEntry>()))
             .OrderByDescending(e => e.CreatedAt ?? DateTimeOffset.MinValue)
             .Select(ToRow)
             .ToList();
@@ -436,7 +436,7 @@ public static class MemoryCommand
     private static MemoryRow ToRow(MemoryEntry entry) =>
         new(
             Id: entry.Id ?? string.Empty,
-            Kind: entry.Kind ?? string.Empty,
+            Scope: entry.Scope ?? string.Empty,
             Content: RenderContentCell(entry.Content),
             Source: entry.Source,
             ThreadId: entry.ThreadId,

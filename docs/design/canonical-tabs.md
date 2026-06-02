@@ -312,12 +312,12 @@ The Human surface is **view-only** (no composer) because the Human page is obser
 
 Subjects: Tenant, Unit, Agent.
 
-Canonical component: a unified `<MemoryTab>` parameterised by `{ kind, id }`. Today `agent-memory.tsx` and `unit-memory.tsx` are byte-for-byte duplicates aside from the `useMemories(scope, id)` argument; `tenant-memory.tsx` is a static empty state. The unification (#2257) collapses all three into one component.
+Canonical component: a unified `<MemoryTab>` parameterised by `{ kind, id }`. Today `agent-memory.tsx` and `unit-memory.tsx` are byte-for-byte duplicates aside from the `useMemories(subject, id)` argument; `tenant-memory.tsx` is a static empty state. The unification (#2257) collapses all three into one component.
 
 | Content | Tenant | Unit | Agent | Canonical home |
 |---|---|---|---|---|
-| Short-term memory list | A* (always empty in v0.1) | A | A | this tab |
-| Long-term memory list | A* (always empty in v0.1) | A | A | this tab |
+| Agent-scoped memory list | A* (always empty in v0.1) | A | A | this tab |
+| Thread-scoped memory list | A* (always empty in v0.1) | A | A | this tab |
 | Empty state ("Write API ships in v2.1") | A | A | A | this tab |
 
 ### 5.5 Members

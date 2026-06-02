@@ -134,8 +134,9 @@ public static class PlatformToolCatalog
             ToolCategories.Memory,
             "Private memory and shared participant-set history.",
             "Two surfaces on the same category. Private memory: use " +
-            "sv.memory.add to record long-term entries that survive across " +
-            "conversations or short-term working notes scoped to a thread; " +
+            "sv.memory.add to record agent-scoped entries recalled across all " +
+            "your conversations (the default) or thread-scoped notes recalled " +
+            "only within the current conversation (scope='thread'); " +
             "sv.memory.get to read one entry by id; sv.memory.list / " +
             "sv.memory.search to retrieve; sv.memory.update / " +
             "sv.memory.delete to mutate. Caller-scoped — another agent's " +

@@ -16,7 +16,7 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// Platform-level <see cref="ISkillRegistry"/> implementing the
 /// <c>sv.memory_*</c> tools (#2342). Lets the agent runtime read,
-/// write, and recall its own memory at runtime — long-term recall as
+/// write, and recall its own memory at runtime — agent-scoped recall as
 /// well as thread-scoped working notes — without any operator-tier
 /// surface.
 /// </summary>
@@ -30,12 +30,20 @@ using Microsoft.Extensions.Logging;
 /// through this surface — owner-scoping is non-negotiable.
 /// </para>
 /// <para>
-/// <b>Short-term entries.</b> <c>sv.memory.add</c> with
-/// <c>kind = "short_term"</c> defaults <c>thread_id</c> to the caller's
-/// active thread (sourced from <see cref="ToolCallContext.ThreadId"/>)
-/// when the tool argument is omitted. Explicit <c>thread_id</c>
-/// arguments override the default, which the LLM uses when stitching
-/// notes onto a parallel thread it already remembers.
+/// <b>Thread-scoped entries.</b> <c>sv.memory.add</c> with
+/// <c>scope = "thread"</c> binds the entry to the caller's active thread
+/// (sourced from <see cref="ToolCallContext.ThreadId"/>) when the
+/// <c>thread_id</c> argument is omitted. An explicit <c>thread_id</c>
+/// overrides the default, which the LLM uses when stitching notes onto a
+/// parallel thread it already remembers. Agent-scoped entries (the
+/// default) carry no thread binding.
+/// </para>
+/// <para>
+/// <b>Recall filter</b> (#2997, ADR-0065). <c>sv.memory.list</c> /
+/// <c>sv.memory.search</c> always recall agent-scoped entries, but
+/// recall thread-scoped entries only while operating inside their
+/// thread — the caller's active thread is passed as the recall thread,
+/// so a private note from one conversation never surfaces in another.
 /// </para>
 /// <para>
 /// <b>UUID-only public surface.</b> The wire shape never accepts or
@@ -70,8 +78,8 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
     /// <summary>Maximum allowed page size.</summary>
     public const int MaxLimit = 200;
 
-    private const string KindLongTerm = "long_term";
-    private const string KindShortTerm = "short_term";
+    private const string ScopeAgent = "agent";
+    private const string ScopeThread = "thread";
 
     private static readonly JsonElement MemoryAddSchema = ParseSchema("""
         {
@@ -80,9 +88,9 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
           "required": ["content"],
           "properties": {
             "content": { "type": ["string", "object", "array", "number", "boolean"], "description": "Entry content. A string is stored as text; a JSON object/array (or other JSON value) is stored as structured JSON and round-trips on read with its type preserved." },
-            "kind": { "type": "string", "enum": ["long_term", "short_term"], "default": "long_term" },
+            "scope": { "type": "string", "enum": ["agent", "thread"], "default": "agent", "description": "Recall scope. 'agent' (default) is durable knowledge recalled across all your conversations; 'thread' keeps the note to the current conversation only (e.g. a per-conversation alias or working note)." },
             "source": { "type": "string", "description": "Optional origin reference (message id, conversation id, document reference)." },
-            "thread_id": { "type": "string", "description": "Stable Guid identifier of the thread to associate the entry with. Required for short_term entries; defaults to the active thread when omitted." }
+            "thread_id": { "type": "string", "description": "Stable Guid identifier of the thread to bind a thread-scoped entry to. Only meaningful when scope='thread'; defaults to your active conversation when omitted, and is ignored for agent-scoped entries." }
           }
         }
         """);
@@ -103,7 +111,7 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "kind": { "type": "string", "enum": ["long_term", "short_term"], "description": "Optional kind filter." },
+            "scope": { "type": "string", "enum": ["agent", "thread"], "description": "Optional scope filter: 'agent' for cross-conversation memory, 'thread' for this conversation's private notes." },
             "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
             "offset": { "type": "integer", "minimum": 0, "default": 0 }
           }
@@ -117,7 +125,7 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
           "required": ["query"],
           "properties": {
             "query": { "type": "string", "description": "Free-text search query." },
-            "kind": { "type": "string", "enum": ["long_term", "short_term"], "description": "Optional kind filter." },
+            "scope": { "type": "string", "enum": ["agent", "thread"], "description": "Optional scope filter (see sv.memory.list)." },
             "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
           }
         }
@@ -152,12 +160,12 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
             new ToolDefinition(
                 MemoryAddTool,
                 "Capture a new memory entry owned by the calling agent or unit. " +
-                "Long-term entries survive across conversations; short-term entries " +
-                "are scoped to a thread and intended for working notes — pass " +
-                "kind='short_term' (defaults to long_term). content may be a string " +
-                "(text) or a JSON object/array (structured state) and round-trips with " +
-                "its type preserved. Returns " +
-                "{ id, owner, kind, content, source, thread_id, created_at, updated_at }.",
+                "Agent-scoped entries (the default) are recalled across all your " +
+                "conversations; thread-scoped entries (pass scope='thread') are " +
+                "private notes recalled only within the current conversation. content " +
+                "may be a string (text) or a JSON object/array (structured state) and " +
+                "round-trips with its type preserved. Returns " +
+                "{ id, owner, scope, content, source, thread_id, created_at, updated_at }.",
                 MemoryAddSchema,
                 ToolCategories.Memory),
             new ToolDefinition(
@@ -169,16 +177,21 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
             new ToolDefinition(
                 MemoryListTool,
                 "List memory entries owned by the caller, most-recent first. " +
-                "Optional filter: kind ('long_term' / 'short_term'). " +
-                "Pagination via limit (default 50, max 200) and offset.",
+                "Inside a conversation you see your agent-scoped entries plus " +
+                "this conversation's thread-scoped notes (other conversations' " +
+                "thread-scoped notes are not recalled). Optional filter: scope " +
+                "('agent' / 'thread'). Pagination via limit (default 50, max 200) " +
+                "and offset.",
                 MemoryListSchema,
                 ToolCategories.Memory),
             new ToolDefinition(
                 MemorySearchTool,
                 "Free-text search over the caller's memory entries. Backed by " +
                 "Postgres full-text search; results are ordered by relevance " +
-                "(highest first). Optional kind filter narrows the search " +
-                "scope. limit defaults to 50 (max 200).",
+                "(highest first). Agent-scoped entries are always searched; " +
+                "thread-scoped entries are searched only within their own " +
+                "conversation. Optional scope filter narrows further. limit " +
+                "defaults to 50 (max 200).",
                 MemorySearchSchema,
                 ToolCategories.Memory),
             new ToolDefinition(
@@ -235,12 +248,12 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
     {
         var owner = ParseCaller(context);
         var content = RequireJsonContent(args, "content");
-        var kind = ParseKindArg(args, MemoryKind.LongTerm);
+        var scope = ParseScopeArg(args, MemoryScope.Agent);
         var source = TryReadStringArg(args, "source");
-        var threadId = ParseThreadId(args, kind, context);
+        var threadId = ResolveAddThreadId(args, scope, context);
 
-        var entry = await _memoryStore.AddAsync(owner, kind, content, source, threadId, ct);
-        _logger.LogDebug("sv.memory.add owner={Owner} kind={Kind} id={Id}", owner, kind, entry.Id);
+        var entry = await _memoryStore.AddAsync(owner, content, source, threadId, ct);
+        _logger.LogDebug("sv.memory.add owner={Owner} scope={Scope} id={Id}", owner, scope, entry.Id);
         return SerializeEntry(entry);
     }
 
@@ -255,9 +268,9 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
     private async Task<JsonElement> MemoryListAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
     {
         var owner = ParseCaller(context);
-        var kind = TryParseKind(args);
+        var (scope, recallThreadId) = ResolveRecallFilter(args, context);
         var (limit, offset) = ParsePaging(args);
-        var entries = await _memoryStore.ListAsync(owner, kind, limit, offset, ct);
+        var entries = await _memoryStore.ListAsync(owner, scope, recallThreadId, limit, offset, ct);
         return SerializePagedMemoryList(entries, limit, offset);
     }
 
@@ -265,9 +278,9 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
     {
         var owner = ParseCaller(context);
         var query = RequireStringArg(args, "query");
-        var kind = TryParseKind(args);
+        var (scope, recallThreadId) = ResolveRecallFilter(args, context);
         var (limit, _) = ParsePaging(args);
-        var entries = await _memoryStore.SearchAsync(owner, query, kind, limit, ct);
+        var entries = await _memoryStore.SearchAsync(owner, query, scope, recallThreadId, limit, ct);
         return SerializeRawMemoryList(entries);
     }
 
@@ -310,58 +323,81 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
         return new Address(scheme, guid);
     }
 
-    private static MemoryKind ParseKindArg(JsonElement args, MemoryKind fallback)
+    private static MemoryScope ParseScopeArg(JsonElement args, MemoryScope fallback)
     {
-        var explicitKind = TryParseKind(args);
-        return explicitKind ?? fallback;
+        var explicitScope = TryParseScope(args);
+        return explicitScope ?? fallback;
     }
 
-    private static MemoryKind? TryParseKind(JsonElement args)
+    private static MemoryScope? TryParseScope(JsonElement args)
     {
         if (args.ValueKind != JsonValueKind.Object)
         {
             return null;
         }
-        if (!args.TryGetProperty("kind", out var prop) || prop.ValueKind != JsonValueKind.String)
+        if (!args.TryGetProperty("scope", out var prop) || prop.ValueKind != JsonValueKind.String)
         {
             return null;
         }
         var raw = prop.GetString();
-        if (string.Equals(raw, KindLongTerm, StringComparison.Ordinal))
+        if (string.Equals(raw, ScopeAgent, StringComparison.Ordinal))
         {
-            return MemoryKind.LongTerm;
+            return MemoryScope.Agent;
         }
-        if (string.Equals(raw, KindShortTerm, StringComparison.Ordinal))
+        if (string.Equals(raw, ScopeThread, StringComparison.Ordinal))
         {
-            return MemoryKind.ShortTerm;
+            return MemoryScope.Thread;
         }
-        throw new ArgumentException($"Argument 'kind' must be '{KindLongTerm}' or '{KindShortTerm}'.");
+        throw new ArgumentException($"Argument 'scope' must be '{ScopeAgent}' or '{ScopeThread}'.");
     }
 
-    private static Guid? ParseThreadId(JsonElement args, MemoryKind kind, ToolCallContext context)
+    /// <summary>
+    /// Resolves the thread binding for <c>sv.memory.add</c> (#2997).
+    /// Agent-scoped entries carry no binding (an explicit
+    /// <c>thread_id</c> is ignored). Thread-scoped entries bind to the
+    /// explicit <c>thread_id</c> when supplied, else the caller's active
+    /// thread; a thread-scoped add with neither is a deterministic error.
+    /// </summary>
+    private static Guid? ResolveAddThreadId(JsonElement args, MemoryScope scope, ToolCallContext context)
     {
+        if (scope == MemoryScope.Agent)
+        {
+            return null;
+        }
         var explicitId = TryReadGuidArg(args, "thread_id");
         if (explicitId.HasValue)
         {
             return explicitId;
         }
-        if (kind == MemoryKind.LongTerm)
-        {
-            return null;
-        }
-        // Short-term default: inherit the caller's active thread when
-        // ToolCallContext.ThreadId is a parseable Guid. The MCP server
-        // passes the ThreadId as a 32-char no-dash hex string, but a
-        // tool caller that builds a context manually may supply
-        // something else — surface a deterministic error in that case.
+        // The MCP server passes ThreadId as a 32-char no-dash hex string;
+        // a manually-built context may supply something else — surface a
+        // deterministic error in that case.
         if (!GuidFormatter.TryParse(context.ThreadId, out var threadGuid))
         {
             throw new SpringException(
-                "Short-term memory requires a thread id; the caller's active " +
+                "Thread-scoped memory requires a thread; the caller's active " +
                 $"thread '{context.ThreadId}' is not a parseable Guid and no " +
                 "explicit thread_id argument was supplied.");
         }
         return threadGuid;
+    }
+
+    /// <summary>
+    /// Builds the (scope filter, recall thread) pair for the recall path
+    /// (#2997, ADR-0065). Thread-scoped entries are recalled only within
+    /// the caller's active thread; agent-scoped entries always. When the
+    /// caller has no resolvable active thread it is not operating inside
+    /// any conversation, so recall is restricted to agent-scoped entries.
+    /// </summary>
+    private static (MemoryScope? Scope, Guid? RecallThreadId) ResolveRecallFilter(
+        JsonElement args, ToolCallContext context)
+    {
+        var scope = TryParseScope(args);
+        if (!GuidFormatter.TryParse(context.ThreadId, out var activeThread))
+        {
+            return (MemoryScope.Agent, null);
+        }
+        return (scope, activeThread);
     }
 
     private static (int Limit, int Offset) ParsePaging(JsonElement args)
@@ -573,7 +609,7 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
         writer.WriteString("scheme", entry.Owner.Scheme);
         writer.WriteString("id", entry.Owner.Path);
         writer.WriteEndObject();
-        writer.WriteString("kind", entry.Kind == MemoryKind.ShortTerm ? KindShortTerm : KindLongTerm);
+        writer.WriteString("scope", entry.Scope == MemoryScope.Thread ? ScopeThread : ScopeAgent);
         writer.WritePropertyName("content");
         entry.Content.WriteTo(writer);
         if (entry.Source is { } src)

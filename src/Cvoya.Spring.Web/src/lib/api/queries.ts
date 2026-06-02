@@ -1818,20 +1818,25 @@ export function useTenantTree(
  * `query` is set).
  */
 export interface UseMemoriesOptions extends SliceOptions<MemoriesResponse> {
-  kind?: "long_term" | "short_term";
+  /** Memory recall-scope filter (#2997): 'agent' or 'thread'. */
+  scope?: "agent" | "thread";
   limit?: number;
   offset?: number;
   query?: string;
 }
 
 /**
- * Read (or search) the short-term + long-term memory entries for a
+ * Read (or search) the agent- and thread-scoped memory entries for a
  * unit or agent (#2342). When `options.query` is set the GET endpoint
  * runs Postgres FTS and orders by relevance; otherwise the entries
  * come back most-recent first.
+ *
+ * @param subject Which addressable owns the memory — `unit` or `agent`.
+ *   Distinct from `opts.scope`, which is the memory recall-scope axis
+ *   (`agent` / `thread`, #2997).
  */
 export function useMemories(
-  scope: "unit" | "agent",
+  subject: "unit" | "agent",
   id: string,
   opts?: UseMemoriesOptions,
 ): UseQueryResult<MemoriesResponse, Error> {
@@ -1839,18 +1844,18 @@ export function useMemories(
   // page / search combinations cache separately and bookmarks via
   // back-button stay correct.
   const queryParams = {
-    kind: opts?.kind,
+    scope: opts?.scope,
     limit: opts?.limit,
     offset: opts?.offset,
     query: opts?.query,
   };
   return useQuery({
     queryKey:
-      scope === "unit"
+      subject === "unit"
         ? [...queryKeys.memories.unit(id), queryParams]
         : [...queryKeys.memories.agent(id), queryParams],
     queryFn: () =>
-      scope === "unit"
+      subject === "unit"
         ? api.getUnitMemories(id, queryParams)
         : api.getAgentMemories(id, queryParams),
     enabled: opts?.enabled ?? Boolean(id),

@@ -13,7 +13,7 @@ A unit and a leaf agent share every aspect of being an agent. Anything that appl
 | Credentials / secrets (with parent-chain inheritance) | Unit + Agent |
 | Skills (equipped capabilities) | Unit + Agent |
 | Traces (per-execution introspection) | Unit + Agent |
-| Memory (short-term + long-term) | Unit + Agent |
+| Memory (agent- + thread-scoped) | Unit + Agent |
 | Activity feed + per-model cost rollup | Unit + Agent |
 | Messages / thread participation | Unit + Agent |
 | Budget (per-subject daily-budget) | Unit + Agent |

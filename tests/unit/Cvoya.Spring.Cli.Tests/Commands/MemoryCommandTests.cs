@@ -23,19 +23,19 @@ public class MemoryCommandTests
     [Fact]
     public void AgentMemoryList_ParsesWithFilters()
     {
-        var parseResult = ParseAgent("agent memory list ada --kind long_term --limit 25 --offset 10");
+        var parseResult = ParseAgent("agent memory list ada --scope agent --limit 25 --offset 10");
 
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue<string>("agent").ShouldBe("ada");
-        parseResult.GetValue<string?>("--kind").ShouldBe("long_term");
+        parseResult.GetValue<string?>("--scope").ShouldBe("agent");
         parseResult.GetValue<int?>("--limit").ShouldBe(25);
         parseResult.GetValue<int?>("--offset").ShouldBe(10);
     }
 
     [Fact]
-    public void AgentMemoryList_RejectsUnknownKind()
+    public void AgentMemoryList_RejectsUnknownScope()
     {
-        var parseResult = ParseAgent("agent memory list ada --kind nope");
+        var parseResult = ParseAgent("agent memory list ada --scope nope");
         parseResult.Errors.ShouldNotBeEmpty();
     }
 
@@ -64,13 +64,13 @@ public class MemoryCommandTests
     }
 
     [Fact]
-    public void AgentMemorySearch_ParsesQueryKindLimit()
+    public void AgentMemorySearch_ParsesQueryScopeLimit()
     {
         var parseResult = ParseAgent(
-            "agent memory search ada --query \"react hooks\" --kind short_term --limit 5");
+            "agent memory search ada --query \"react hooks\" --scope thread --limit 5");
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue<string>("--query").ShouldBe("react hooks");
-        parseResult.GetValue<string?>("--kind").ShouldBe("short_term");
+        parseResult.GetValue<string?>("--scope").ShouldBe("thread");
         parseResult.GetValue<int?>("--limit").ShouldBe(5);
     }
 
@@ -102,13 +102,13 @@ public class MemoryCommandTests
     }
 
     [Fact]
-    public void UnitMemorySearch_ParsesQueryKindLimit()
+    public void UnitMemorySearch_ParsesQueryScopeLimit()
     {
         var parseResult = ParseUnit(
-            "unit memory search engineering --query design --kind long_term --limit 25");
+            "unit memory search engineering --query design --scope agent --limit 25");
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue<string>("--query").ShouldBe("design");
-        parseResult.GetValue<string?>("--kind").ShouldBe("long_term");
+        parseResult.GetValue<string?>("--scope").ShouldBe("agent");
         parseResult.GetValue<int?>("--limit").ShouldBe(25);
     }
 

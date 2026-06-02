@@ -14,6 +14,12 @@ using Cvoya.Spring.Core.Messaging;
 /// </summary>
 /// <remarks>
 /// <para>
+/// The <see cref="Scope"/> axis (#2997, ADR-0065) is <b>derived from</b>
+/// <see cref="ThreadId"/> rather than stored: a null thread binding is
+/// agent-scoped, a non-null binding is thread-scoped. The two therefore
+/// can never disagree.
+/// </para>
+/// <para>
 /// Topics were intentionally dropped from this record (#2342 follow-up).
 /// They will return later as a *type* of memory once the memory model
 /// evolves to a graph — collapsing the topic / entry split into a single
@@ -22,13 +28,9 @@ using Cvoya.Spring.Core.Messaging;
 /// </remarks>
 /// <param name="Id">Stable Guid identifier for the entry.</param>
 /// <param name="Owner">
-/// Address of the owning agent or unit. Long-term entries are scoped on
-/// this alone; short-term entries are scoped on
+/// Address of the owning agent or unit. Agent-scoped entries are scoped
+/// on this alone; thread-scoped entries are scoped on
 /// <c>(Owner, ThreadId)</c>.
-/// </param>
-/// <param name="Kind">
-/// Discriminator between owner-scoped <see cref="MemoryKind.LongTerm"/>
-/// and owner+thread-scoped <see cref="MemoryKind.ShortTerm"/>.
 /// </param>
 /// <param name="Content">
 /// The entry content, as a JSON value. A plain text note is a JSON
@@ -43,9 +45,8 @@ using Cvoya.Spring.Core.Messaging;
 /// upstream.
 /// </param>
 /// <param name="ThreadId">
-/// The thread the entry was captured in. Required for
-/// <see cref="MemoryKind.ShortTerm"/>; null for
-/// <see cref="MemoryKind.LongTerm"/>.
+/// The thread the entry is bound to. Non-null for thread-scoped entries
+/// (see <see cref="Scope"/>); null for agent-scoped entries.
 /// </param>
 /// <param name="CreatedAt">UTC timestamp the entry was first captured.</param>
 /// <param name="UpdatedAt">
@@ -55,9 +56,17 @@ using Cvoya.Spring.Core.Messaging;
 public record MemoryEntry(
     Guid Id,
     Address Owner,
-    MemoryKind Kind,
     JsonElement Content,
     string? Source,
     Guid? ThreadId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt)
+{
+    /// <summary>
+    /// Recall scope, derived from <see cref="ThreadId"/>:
+    /// <see cref="MemoryScope.Agent"/> when there is no thread binding,
+    /// <see cref="MemoryScope.Thread"/> otherwise. Never persisted —
+    /// always computed from the thread binding (#2997).
+    /// </summary>
+    public MemoryScope Scope => ThreadId is null ? MemoryScope.Agent : MemoryScope.Thread;
+}

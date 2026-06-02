@@ -235,16 +235,16 @@ function assertOk(result: FetchResult<unknown>): void {
  * so the underlying fetchClient skips the `?` altogether.
  */
 function buildMemoriesQuery(options?: {
-  kind?: "long_term" | "short_term";
+  scope?: "agent" | "thread";
   limit?: number;
   offset?: number;
   query?: string;
 }):
-  | { kind?: string; limit?: number; offset?: number; query?: string }
+  | { scope?: string; limit?: number; offset?: number; query?: string }
   | undefined {
   if (!options) return undefined;
-  const q: { kind?: string; limit?: number; offset?: number; query?: string } = {};
-  if (options.kind) q.kind = options.kind;
+  const q: { scope?: string; limit?: number; offset?: number; query?: string } = {};
+  if (options.scope) q.scope = options.scope;
   if (typeof options.limit === "number") q.limit = options.limit;
   if (typeof options.offset === "number") q.offset = options.offset;
   if (options.query) q.query = options.query;
@@ -2220,13 +2220,13 @@ export const api = {
 
   // Memories inspector (#2342). Read-only — operator write parity
   // ships in v0.2 (#2357). Optional query params:
-  //   kind=long_term|short_term — narrow to a single axis
+  //   scope=agent|thread — narrow to a single recall scope (#2997)
   //   limit, offset — offset paging (server caps limit at 500)
   //   query — Postgres FTS over the entry content (relevance-ordered)
   getUnitMemories: async (
     id: string,
     options?: {
-      kind?: "long_term" | "short_term";
+      scope?: "agent" | "thread";
       limit?: number;
       offset?: number;
       query?: string;
@@ -2243,7 +2243,7 @@ export const api = {
   getAgentMemories: async (
     id: string,
     options?: {
-      kind?: "long_term" | "short_term";
+      scope?: "agent" | "thread";
       limit?: number;
       offset?: number;
       query?: string;

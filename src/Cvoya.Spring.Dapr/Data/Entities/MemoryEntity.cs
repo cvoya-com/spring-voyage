@@ -8,9 +8,11 @@ using Cvoya.Spring.Core.Tenancy;
 /// <summary>
 /// Persists one memory entry owned by an agent or unit (#2342). The
 /// <c>(tenant_id, owner_scheme, owner_id)</c> triple scopes every read /
-/// write per ADR-0036. Long-term entries carry <c>thread_id == null</c>;
-/// short-term entries carry a non-null <c>thread_id</c> so a future
-/// thread-lifecycle hook can prune them when the thread ends.
+/// write per ADR-0036. The recall scope is <b>derived from</b>
+/// <c>thread_id</c> (#2997, ADR-0065): agent-scoped entries carry
+/// <c>thread_id == null</c>; thread-scoped entries carry a non-null
+/// <c>thread_id</c> binding them to one thread. There is no stored
+/// scope/kind column, so the scope can never drift from the binding.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -45,16 +47,10 @@ public class MemoryEntity : ITenantScopedEntity
     public Guid OwnerId { get; set; }
 
     /// <summary>
-    /// Memory kind discriminator (int representation of
-    /// <see cref="Cvoya.Spring.Core.Memory.MemoryKind"/>): 0 = LongTerm,
-    /// 1 = ShortTerm. Stored as <c>int</c> so the column survives
-    /// future enum additions without DDL changes.
-    /// </summary>
-    public int Kind { get; set; }
-
-    /// <summary>
-    /// Thread id for short-term entries; <c>null</c> for long-term
-    /// entries.
+    /// Thread binding that determines the entry's recall scope (#2997):
+    /// <c>null</c> for agent-scoped entries, a thread id for
+    /// thread-scoped entries. The scope is derived from this column;
+    /// there is no separate scope/kind column.
     /// </summary>
     public Guid? ThreadId { get; set; }
 

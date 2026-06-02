@@ -6,10 +6,10 @@ import type { UnitNode, AgentNode } from "../aggregate";
 const useMemoriesMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
   useMemories: (
-    scope: string,
+    subject: string,
     id: string,
     options?: Record<string, unknown>,
-  ) => useMemoriesMock(scope, id, options),
+  ) => useMemoriesMock(subject, id, options),
 }));
 
 import UnitMemoryTab from "./unit-memory";
@@ -19,9 +19,9 @@ describe("UnitMemoryTab (wrapper)", () => {
     useMemoriesMock.mockReset();
   });
 
-  it("delegates to the unified MemoryTab with scope=unit", () => {
+  it("delegates to the unified MemoryTab with subject=unit", () => {
     useMemoriesMock.mockReturnValue({
-      data: { shortTerm: [], longTerm: [] },
+      data: { agent: [], thread: [] },
       isLoading: false,
       error: null,
     });

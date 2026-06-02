@@ -24,14 +24,22 @@ using Cvoya.Spring.Core.Messaging;
 /// implementations (vector recall, encrypted-at-rest, …) without
 /// taking a dependency on EF or any concrete storage layer.
 /// </para>
+/// <para>
+/// <b>Scope is derived, not stored</b> (#2997, ADR-0065). An entry's
+/// <see cref="MemoryScope"/> follows directly from its <c>thread_id</c>:
+/// no thread binding is <see cref="MemoryScope.Agent"/>-scoped, a
+/// thread binding is <see cref="MemoryScope.Thread"/>-scoped.
+/// </para>
 /// </remarks>
 public interface IMemoryStore
 {
     /// <summary>
-    /// Captures a new memory entry for <paramref name="owner"/>.
+    /// Captures a new memory entry for <paramref name="owner"/>. The
+    /// entry's scope is implied by <paramref name="threadId"/>: a null
+    /// thread binding stores an agent-scoped entry, a non-null binding
+    /// stores a thread-scoped one (#2997).
     /// </summary>
     /// <param name="owner">Owning agent or unit address.</param>
-    /// <param name="kind">Long-term or short-term kind.</param>
     /// <param name="content">
     /// The entry content, as a JSON value. A plain text note is a JSON
     /// string; structured state is a JSON object/array. The value is
@@ -44,14 +52,13 @@ public interface IMemoryStore
     /// <c>null</c> when the entry has no upstream reference.
     /// </param>
     /// <param name="threadId">
-    /// Required for <see cref="MemoryKind.ShortTerm"/>; ignored (and
-    /// persisted as <c>null</c>) for <see cref="MemoryKind.LongTerm"/>.
+    /// The thread to bind the entry to. <c>null</c> stores an
+    /// agent-scoped entry; a value stores a thread-scoped entry.
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The persisted entry, with server-assigned id + timestamps.</returns>
     Task<MemoryEntry> AddAsync(
         Address owner,
-        MemoryKind kind,
         JsonElement content,
         string? source,
         Guid? threadId,
@@ -60,7 +67,9 @@ public interface IMemoryStore
     /// <summary>
     /// Returns the entry identified by <paramref name="id"/> if it
     /// exists and is owned by <paramref name="owner"/>; otherwise
-    /// <c>null</c>.
+    /// <c>null</c>. A direct id fetch is owner-scoped only — it is not
+    /// subject to the thread recall filter applied by
+    /// <see cref="ListAsync"/> / <see cref="SearchAsync"/>.
     /// </summary>
     Task<MemoryEntry?> GetAsync(
         Address owner,
@@ -69,12 +78,31 @@ public interface IMemoryStore
 
     /// <summary>
     /// Lists entries owned by <paramref name="owner"/>, optionally
-    /// filtered by <paramref name="kind"/>. Ordered by <c>CreatedAt</c>
-    /// desc so the most recent entries surface first.
+    /// filtered by <paramref name="scope"/> and restricted by the thread
+    /// recall filter. Ordered by <c>CreatedAt</c> desc so the most recent
+    /// entries surface first.
     /// </summary>
+    /// <param name="owner">Owning agent or unit.</param>
+    /// <param name="scope">
+    /// Optional scope filter. <see cref="MemoryScope.Agent"/> selects
+    /// entries with no thread binding; <see cref="MemoryScope.Thread"/>
+    /// selects thread-bound entries; <c>null</c> selects both.
+    /// </param>
+    /// <param name="recallThreadId">
+    /// Recall filter (#2997, ADR-0065). When non-null, thread-scoped
+    /// entries are restricted to this thread (agent-scoped entries are
+    /// always included) — i.e. an agent operating inside a thread recalls
+    /// only that thread's private notes. When <c>null</c>, no thread
+    /// restriction is applied (the operator inspector path, which sees
+    /// every thread's entries).
+    /// </param>
+    /// <param name="limit">Maximum entries to return.</param>
+    /// <param name="offset">Offset into the result set for paging.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     Task<IReadOnlyList<MemoryEntry>> ListAsync(
         Address owner,
-        MemoryKind? kind,
+        MemoryScope? scope,
+        Guid? recallThreadId,
         int limit,
         int offset,
         CancellationToken cancellationToken = default);
@@ -93,13 +121,19 @@ public interface IMemoryStore
     /// </summary>
     /// <param name="owner">Owning agent or unit.</param>
     /// <param name="query">Free-text search query.</param>
-    /// <param name="kind">Optional kind filter.</param>
+    /// <param name="scope">Optional scope filter (see <see cref="ListAsync"/>).</param>
+    /// <param name="recallThreadId">
+    /// Thread recall filter (see <see cref="ListAsync"/>): restricts
+    /// thread-scoped hits to this thread when non-null; unrestricted when
+    /// <c>null</c>.
+    /// </param>
     /// <param name="limit">Maximum hits to return.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<IReadOnlyList<MemoryEntry>> SearchAsync(
         Address owner,
         string query,
-        MemoryKind? kind,
+        MemoryScope? scope,
+        Guid? recallThreadId,
         int limit,
         CancellationToken cancellationToken = default);
 
