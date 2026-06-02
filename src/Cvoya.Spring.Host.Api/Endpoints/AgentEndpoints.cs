@@ -705,9 +705,12 @@ public static class AgentEndpoints
             if (replicas == 0)
             {
                 // Scale-to-zero intent: the caller asked to deploy with 0
-                // replicas. Treat as undeploy and return the canonical empty
-                // shape so CLIs see a consistent wire contract.
-                await executionGateway.UndeployAsync(actorId, cancellationToken);
+                // replicas. This is a resumable stop — the agent still exists
+                // and can be redeployed — so it stops the container while
+                // preserving the per-agent workspace volume (durable memory)
+                // per ADR-0029 (#2999). Returns the canonical empty shape so
+                // CLIs see a consistent wire contract.
+                await executionGateway.StopAgentContainerAsync(actorId, cancellationToken);
                 // The wire shape preserves the URL-path agent id so callers
                 // see a stable AgentId across the request/response pair, even
                 // when (in test fixtures) the directory entry's ActorId is
@@ -740,7 +743,11 @@ public static class AgentEndpoints
         }
 
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
-        await executionGateway.UndeployAsync(actorId, cancellationToken);
+        // Undeploy is a resumable stop — the agent definition survives and can
+        // be redeployed — so it preserves the per-agent workspace volume
+        // (durable memory) per ADR-0029; only agent delete reclaims it
+        // (#2999). StopAgentContainerAsync is the volume-preserving teardown.
+        await executionGateway.StopAgentContainerAsync(actorId, cancellationToken);
 
         // Always return the canonical "not running" shape so the CLI can
         // treat the response the same whether the agent was running or not.

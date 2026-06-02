@@ -75,10 +75,14 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
             .ResolveAsync(Arg.Is<Address>(a => a.Id == Agent_Idle_Id), Arg.Any<CancellationToken>())
             .Returns(AgentEntry(Agent_Idle_Id));
 
-        // The gateway's UndeployAsync is idempotent — the worker returns the
-        // canonical "not running" state when nothing is tracked.
+        // #2999: undeploy is a resumable stop — it tears the container down via
+        // the volume-preserving StopAgentContainerAsync (durable memory survives
+        // for a later redeploy), NOT the volume-reclaiming UndeployAsync. The
+        // verb is idempotent — the worker returns the canonical "not running"
+        // state when nothing is tracked.
+        _factory.ExecutionHostGateway.ClearReceivedCalls();
         _factory.ExecutionHostGateway
-            .UndeployAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .StopAgentContainerAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(PersistentAgentDeploymentState.NotRunning(Actor1_Id.ToString("N")));
 
         var response = await _client.PostAsync($"/api/v1/tenant/agents/{Agent_Idle_Id:N}/undeploy", content: null, ct);
@@ -90,6 +94,11 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
         body.Running.ShouldBeFalse();
         body.HealthStatus.ShouldBe("unknown");
         body.ContainerId.ShouldBeNull();
+
+        await _factory.ExecutionHostGateway.Received(1)
+            .StopAgentContainerAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _factory.ExecutionHostGateway.DidNotReceive()
+            .UndeployAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

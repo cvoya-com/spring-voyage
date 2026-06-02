@@ -959,10 +959,31 @@ public static class UnitEndpoints
 
         if (!isForce || status == LifecycleStatus.Draft || status == LifecycleStatus.Stopped)
         {
-            // Clean-path delete. No runtime teardown required — the gate above
-            // already proved the container / sidecar / webhook are either gone
-            // or never existed.
+            // Clean-path delete. The container / sidecar / webhook are already
+            // gone or never existed (the gate above proved Stopped/Draft) — but
+            // a resumable /stop now deliberately PRESERVES each member's
+            // workspace volume (durable memory) per ADR-0029 (#2999), so the
+            // delete — not /stop — is where those volumes are finally
+            // reclaimed. The reclaim runs even though the runtime rows are
+            // already gone (UndeployAsync reclaims unconditionally); it is a
+            // no-op for never-deployed members. Best-effort: a reclaim failure
+            // is logged but must not block the directory unregister.
             var displayName = string.IsNullOrWhiteSpace(entry.DisplayName) ? id : entry.DisplayName;
+
+            try
+            {
+                await UndeployPersistentAgentMembersAsync(
+                    entry.ActorId, membershipRepository, executionGateway, logger, reclaimVolume: true, cancellationToken);
+                await UndeployUnitAsAgentRuntimeAsync(
+                    entry.ActorId, executionGateway, reclaimVolume: true, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Clean-path delete: workspace-volume reclaim failed for unit {UnitId}; continuing with directory unregister.",
+                    id);
+            }
+
             await directoryService.UnregisterAsync(address, cancellationToken);
 
             // #2528: emit a StateChanged event so the portal's SSE-driven
@@ -1051,8 +1072,10 @@ public static class UnitEndpoints
         {
             // #2397: persistent-agent members own their own containers + Dapr
             // sidecars; the unit-level teardown above does not touch them.
+            // Force-delete is a genuine decommission, so reclaim each member's
+            // workspace volume along with its container (#2999).
             await UndeployPersistentAgentMembersAsync(
-                actorId, membershipRepository, executionGateway, logger, cancellationToken);
+                actorId, membershipRepository, executionGateway, logger, reclaimVolume: true, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -1066,12 +1089,13 @@ public static class UnitEndpoints
             // #2708: a unit-as-agent (ADR-0039) runs its own router runtime
             // under the unit's id as a persistent agent. The members cascade
             // above never enumerates this runtime — it isn't in the unit's
-            // members collection — so a separate undeploy is needed to drop
+            // members collection — so a separate teardown is needed to drop
             // the container and reclaim the workspace volume (which still
-            // holds the agent's live credentials). Idempotent: a no-op for
-            // ephemeral units or for units whose router was never deployed.
+            // holds the agent's live credentials). Force-delete reclaims the
+            // volume (#2999). Idempotent: a no-op for ephemeral units or for
+            // units whose router was never deployed.
             await UndeployUnitAsAgentRuntimeAsync(
-                actorId, executionGateway, cancellationToken);
+                actorId, executionGateway, reclaimVolume: true, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -1314,17 +1338,20 @@ public static class UnitEndpoints
             Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId),
             connectorConfigStore, connectorTypes, logger, cancellationToken);
 
-        // Undeploy any persistent-agent members so their per-agent containers
-        // + Dapr sidecars do not survive the unit's Stopped state (#2397).
-        // The A2A dispatcher only reaps ephemeral per-conversation containers;
-        // persistent deployments hang on the agent registry until something
-        // calls UndeployAsync. Best-effort — a lookup failure logs and lets
-        // the unit transition to Stopped, mirroring the connector-dispatch
-        // pattern above; the operator can fall back to force-delete.
+        // Stop each persistent-agent member's container + Dapr sidecar so they
+        // do not survive the unit's Stopped state (#2397). The A2A dispatcher
+        // only reaps ephemeral per-conversation containers; persistent
+        // deployments hang on the agent registry until something stops them.
+        // A unit stop is RESUMABLE (paired with /start), so reclaimVolume is
+        // false — each member's workspace volume (durable memory) is preserved
+        // across the stop per ADR-0029 (#2999); only delete/force-delete
+        // reclaims it. Best-effort — a lookup failure logs and lets the unit
+        // transition to Stopped, mirroring the connector-dispatch pattern
+        // above; the operator can fall back to force-delete.
         try
         {
             await UndeployPersistentAgentMembersAsync(
-                entry.ActorId, membershipRepository, executionGateway, logger, cancellationToken);
+                entry.ActorId, membershipRepository, executionGateway, logger, reclaimVolume: false, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -1335,15 +1362,16 @@ public static class UnitEndpoints
 
         // #2708: a unit-as-agent (ADR-0039) runs its own router runtime under
         // the unit's id. The members cascade above never enumerates it, so a
-        // separate undeploy is needed before the unit transitions to Stopped
-        // — without this, the container and its workspace volume (which
-        // still holds the agent's live credentials) survive the stop and the
-        // subsequent clean-path delete leaks them. Idempotent: a no-op for
-        // ephemeral units or for units whose router was never deployed.
+        // separate teardown is needed before the unit transitions to Stopped.
+        // A unit stop is RESUMABLE, so reclaimVolume is false — the router's
+        // container is stopped but its workspace volume (durable memory) is
+        // preserved across the stop per ADR-0029 (#2999); the subsequent
+        // delete/force-delete reclaims it. Idempotent: a no-op for ephemeral
+        // units or for units whose router was never deployed.
         try
         {
             await UndeployUnitAsAgentRuntimeAsync(
-                entry.ActorId, executionGateway, cancellationToken);
+                entry.ActorId, executionGateway, reclaimVolume: false, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -1797,16 +1825,19 @@ public static class UnitEndpoints
     /// unit actor's auto-start hook; the stop path is endpoint-only today).
     /// </summary>
     /// <summary>
-    /// Iterates every member of the unit and undeploys any persistent-agent
-    /// deployment so the per-agent container + Dapr sidecar do not survive
-    /// the unit's Stopped state (#2397). Best-effort per agent: an undeploy
-    /// failure on one member is logged and recorded but does not block the
-    /// others, mirroring the per-step pattern in <see cref="ForceDeleteUnitAsync"/>.
+    /// Iterates every member of the unit and tears down any persistent-agent
+    /// deployment so the per-agent container + Dapr sidecar do not survive the
+    /// unit's teardown (#2397). When <paramref name="reclaimVolume"/> is
+    /// <c>false</c> (a resumable unit stop) each member's per-agent workspace
+    /// volume — its durable memory — is preserved per ADR-0029 (#2999); when
+    /// <c>true</c> (unit force-delete) the volumes are reclaimed along with the
+    /// containers. Best-effort per agent: a teardown failure on one member is
+    /// logged and recorded but does not block the others, mirroring the
+    /// per-step pattern in <see cref="ForceDeleteUnitAsync"/>.
     /// <para>
-    /// <see cref="IExecutionHostGateway.UndeployAsync"/> is
-    /// idempotent — it is a no-op when nothing is deployed — so non-persistent
-    /// agents (ephemeral runtime, or persistent agents that were never
-    /// deployed) cost only a delegated lookup on the execution host.
+    /// Both gateway verbs are idempotent — a no-op when nothing is deployed —
+    /// so non-persistent agents (ephemeral runtime, or persistent agents that
+    /// were never deployed) cost only a delegated lookup on the execution host.
     /// </para>
     /// </summary>
     private static async Task UndeployPersistentAgentMembersAsync(
@@ -1814,6 +1845,7 @@ public static class UnitEndpoints
         IUnitMembershipRepository membershipRepository,
         IExecutionHostGateway executionGateway,
         ILogger logger,
+        bool reclaimVolume,
         CancellationToken ct)
     {
         var memberships = await membershipRepository.ListByUnitAsync(unitActorId, ct);
@@ -1827,37 +1859,48 @@ public static class UnitEndpoints
             var agentId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(membership.AgentId);
             try
             {
-                await executionGateway.UndeployAsync(agentId, ct);
+                if (reclaimVolume)
+                {
+                    await executionGateway.UndeployAsync(agentId, ct);
+                }
+                else
+                {
+                    await executionGateway.StopAgentContainerAsync(agentId, ct);
+                }
             }
             catch (Exception ex)
             {
                 logger.LogError(ex,
-                    "Undeploy failed for persistent-agent member {AgentId} of unit {UnitId}; continuing unit stop.",
+                    "Teardown failed for persistent-agent member {AgentId} of unit {UnitId}; continuing.",
                     agentId, Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorId));
             }
         }
     }
 
     /// <summary>
-    /// Undeploys the unit-as-agent's own router runtime (#2708). A unit-as-agent
+    /// Tears down the unit-as-agent's own router runtime (#2708). A unit-as-agent
     /// (ADR-0039) deploys under the unit's id via
     /// <c>PersistentAgentLifecycle.DeployAsync</c>; that container does not
     /// appear in the unit's <c>members:</c> collection, so the per-member
     /// cascade in <see cref="UndeployPersistentAgentMembersAsync"/> never
-    /// touches it. Calling
-    /// <see cref="IExecutionHostGateway.UndeployAsync"/> with the unit's id
-    /// drops both the router container and the per-agent workspace volume
-    /// (which still holds the agent's live credentials). The gateway is
-    /// idempotent: a no-op when no runtime is tracked (ephemeral units, or
-    /// persistent units whose router was never deployed).
+    /// touches it. When <paramref name="reclaimVolume"/> is <c>false</c> (a
+    /// resumable unit stop) the router container is stopped but its per-agent
+    /// workspace volume — durable memory — is preserved per ADR-0029 (#2999);
+    /// when <c>true</c> (unit force-delete) both the container and the volume
+    /// (which still holds the agent's live credentials) are reclaimed. The
+    /// gateway is idempotent: a no-op when no runtime is tracked (ephemeral
+    /// units, or persistent units whose router was never deployed).
     /// </summary>
     private static Task UndeployUnitAsAgentRuntimeAsync(
         Guid unitActorId,
         IExecutionHostGateway executionGateway,
+        bool reclaimVolume,
         CancellationToken ct)
     {
         var unitId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorId);
-        return executionGateway.UndeployAsync(unitId, ct);
+        return reclaimVolume
+            ? executionGateway.UndeployAsync(unitId, ct)
+            : executionGateway.StopAgentContainerAsync(unitId, ct);
     }
 
     private static async Task DispatchConnectorStopAsync(

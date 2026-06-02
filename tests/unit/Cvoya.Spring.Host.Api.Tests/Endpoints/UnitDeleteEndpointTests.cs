@@ -54,6 +54,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(LifecycleStatus.Stopped);
+        _factory.ExecutionHostGateway.ClearReceivedCalls();
 
         var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}", ct);
 
@@ -62,6 +63,13 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         await _factory.DirectoryService.Received(1).UnregisterAsync(
             Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ActorId_Guid),
             Arg.Any<CancellationToken>());
+
+        // #2999: a resumable /stop preserved the members' + router's workspace
+        // volumes, so the clean-path delete is where they are finally reclaimed.
+        // It drives the volume-reclaiming UndeployAsync against the unit-as-agent
+        // router id (members reclaim too, via the membership cascade).
+        await _factory.ExecutionHostGateway.Received(1)
+            .UndeployAsync(ActorId, Arg.Any<CancellationToken>());
 
         // #2528: clean-path delete emits a StateChanged event so the
         // portal's SSE-driven tree refresh fires without a manual reload.
@@ -179,12 +187,16 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
-    public async Task DeleteUnit_Force_FromStopped_SkipsTeardown()
+    public async Task DeleteUnit_Force_FromStopped_SkipsContainerTeardownButReclaimsVolumes()
     {
-        // When the unit is already in a clean state, ?force=true should not invoke
-        // teardown — the fast path still applies.
+        // When the unit is already in a clean (Stopped) state, ?force=true takes
+        // the fast clean-delete path — it does NOT re-run the unit-container
+        // teardown (StopUnitContainerAsync). #2999: it DOES reclaim the member +
+        // router workspace volumes that the resumable /stop preserved, via the
+        // volume-reclaiming UndeployAsync.
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(LifecycleStatus.Stopped);
+        _factory.ExecutionHostGateway.ClearReceivedCalls();
 
         var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}?force=true", ct);
 
@@ -192,6 +204,8 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         await _factory.ExecutionHostGateway.DidNotReceive()
             .StopUnitContainerAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _factory.ExecutionHostGateway.Received(1)
+            .UndeployAsync(ActorId, Arg.Any<CancellationToken>());
 
         // #2528: clean-path delete emits a StateChanged event so the portal's
         // SSE-driven tree refresh fires. Previously the test asserted no event

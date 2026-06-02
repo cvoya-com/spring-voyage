@@ -194,12 +194,14 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     }
 
     [Fact]
-    public async Task StopUnit_PersistentAgentMembers_UndeploysEachBeforeStopped()
+    public async Task StopUnit_PersistentAgentMembers_StopsEachPreservingVolumeBeforeStopped()
     {
-        // #2397: /stop must iterate the unit's members and undeploy each
-        // persistent-agent deployment so the per-agent container + Dapr
-        // sidecar do not survive Stopped. The /stop endpoint never drives
-        // unit-container lifecycle itself (#371).
+        // #2397: /stop must iterate the unit's members and tear down each
+        // persistent-agent container + Dapr sidecar so they do not survive
+        // Stopped. #2999: a unit stop is RESUMABLE, so each member is stopped
+        // via the volume-preserving StopAgentContainerAsync (durable memory
+        // survives), NOT the volume-reclaiming UndeployAsync. The /stop
+        // endpoint never drives unit-container lifecycle itself (#371).
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
@@ -236,6 +238,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
             });
         });
         var client = probingFactory.CreateClient();
+        _factory.ExecutionHostGateway.ClearReceivedCalls();
 
         var response = await client.PostAsync($"/api/v1/tenant/units/{UnitName}/stop", content: null, ct);
 
@@ -243,6 +246,14 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
 
         await membershipRepo.Received(1)
             .ListByUnitAsync(ActorId_Guid, Arg.Any<CancellationToken>());
+
+        // #2999: each member (2) + the unit-as-agent router (1) is torn down
+        // via the volume-PRESERVING verb; the volume-reclaiming UndeployAsync
+        // is never called on a resumable stop.
+        await _factory.ExecutionHostGateway.Received(3)
+            .StopAgentContainerAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _factory.ExecutionHostGateway.DidNotReceive()
+            .UndeployAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
 
         // The unit still transitions through Stopping → Stopped after the
         // member teardown.
@@ -294,15 +305,17 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     }
 
     [Fact]
-    public async Task StopUnit_UndeploysUnitAsAgentRouter()
+    public async Task StopUnit_StopsUnitAsAgentRouterPreservingVolume()
     {
         // #2708: a unit-as-agent (ADR-0039) runs its own router runtime
         // under the unit's id. The members cascade does not enumerate this
         // runtime — it is not in the unit's members collection — so /stop
-        // must call UndeployAsync against the unit's own id to drop the
-        // router container + workspace volume (which still holds the
-        // agent's live credentials). The gateway is idempotent: a no-op
-        // for ephemeral units, so this fires unconditionally.
+        // must tear down the router container against the unit's own id.
+        // #2999: a unit stop is RESUMABLE, so the router is stopped via the
+        // volume-preserving StopAgentContainerAsync (its workspace volume +
+        // credentials survive for a later /start), NOT the volume-reclaiming
+        // UndeployAsync. The gateway is idempotent: a no-op for ephemeral
+        // units, so this fires unconditionally.
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
@@ -318,17 +331,21 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         await _factory.ExecutionHostGateway.Received(1)
+            .StopAgentContainerAsync(ActorId, Arg.Any<CancellationToken>());
+        await _factory.ExecutionHostGateway.DidNotReceive()
             .UndeployAsync(ActorId, Arg.Any<CancellationToken>());
         await proxy.Received(1).TransitionAsync(LifecycleStatus.Stopped, Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task StopUnit_UnitAsAgentRouterUndeployThrows_StillTransitionsToStopped()
+    public async Task StopUnit_UnitAsAgentRouterStopThrows_StillTransitionsToStopped()
     {
         // The router-teardown step is best-effort, same shape as the
         // members teardown (#2397) — a hard failure is logged and
         // swallowed so the unit still reaches Stopped. The operator's
         // recovery path is /force-delete for leaked containers (#2708).
+        // #2999: a resumable stop tears the router down via the
+        // volume-preserving StopAgentContainerAsync.
         var ct = TestContext.Current.CancellationToken;
 
         var proxy = Substitute.For<IUnitActor>();
@@ -340,7 +357,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         ArrangeResolved(proxy);
         _factory.ExecutionHostGateway.ClearReceivedCalls();
         _factory.ExecutionHostGateway
-            .UndeployAsync(ActorId, Arg.Any<CancellationToken>())
+            .StopAgentContainerAsync(ActorId, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("worker offline"));
 
         var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/stop", content: null, ct);

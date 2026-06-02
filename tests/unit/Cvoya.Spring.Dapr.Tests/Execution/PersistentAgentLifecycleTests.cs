@@ -229,13 +229,20 @@ public class PersistentAgentLifecycleTests
         result.ShouldBeTrue();
         await _containerRuntime.Received()
             .StopAsync("container-abc", Arg.Any<CancellationToken>());
+        // #2999: UndeployAsync is the genuine-decommission verb — it reclaims
+        // the per-agent workspace volume (contrast StopContainerAsync below).
+        await _containerRuntime.Received()
+            .RemoveVolumeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         var entry = await _registry.TryGetAsync(AgentAId, ct);
         entry.ShouldBeNull();
     }
 
     [Fact]
-    public async Task Scale_WithZeroReplicas_Undeploys()
+    public async Task Scale_WithZeroReplicas_StopsContainerPreservingVolume()
     {
+        // #2999: scale-to-zero is a resumable stop — it removes the running
+        // container + registry entry but preserves the per-agent workspace
+        // volume (durable memory), so RemoveVolumeAsync is never called.
         var ct = TestContext.Current.CancellationToken;
         var endpoint = new Uri("http://localhost:8999/");
         await _registry.RegisterAsync(AgentAId, endpoint, "container-abc", definition: null, cancellationToken: ct);
@@ -244,6 +251,69 @@ public class PersistentAgentLifecycleTests
 
         var entry = await _registry.TryGetAsync(AgentAId, ct);
         entry.ShouldBeNull();
+        await _containerRuntime.Received()
+            .StopAsync("container-abc", Arg.Any<CancellationToken>());
+        await _containerRuntime.DidNotReceive()
+            .RemoveVolumeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StopContainer_WhenRegistered_StopsContainerPreservingVolume()
+    {
+        // #2999: the volume-preserving teardown used by resumable stops
+        // (unit stop, agent undeploy, scale-to-zero). Drops the entry + stops
+        // the container, but never reclaims the workspace volume.
+        var ct = TestContext.Current.CancellationToken;
+        var endpoint = new Uri("http://localhost:8999/");
+        await _registry.RegisterAsync(AgentAId, endpoint, "container-abc", definition: null, cancellationToken: ct);
+
+        var result = await _lifecycle.StopContainerAsync(AgentAId, ct);
+
+        result.ShouldBeTrue();
+        await _containerRuntime.Received()
+            .StopAsync("container-abc", Arg.Any<CancellationToken>());
+        await _containerRuntime.DidNotReceive()
+            .RemoveVolumeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        (await _registry.TryGetAsync(AgentAId, ct)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Deploy_WhenUnhealthyEntryExists_StopsOldContainerPreservingVolume()
+    {
+        // #2999 regression: a health-restart / redeploy stops the old
+        // (unhealthy) container via StopContainerAsync — preserving the
+        // per-agent workspace volume (durable memory + `claude --resume`
+        // transcripts) — rather than UndeployAsync, which reclaimed it and
+        // silently wiped agent memory mid-run. We halt the relaunch at
+        // PrepareAsync (after the old container is torn down) and assert the
+        // volume was never reclaimed.
+        var ct = TestContext.Current.CancellationToken;
+        var endpoint = new Uri("http://localhost:8999/");
+        await _registry.RegisterAsync(AgentAId, endpoint, "container-old", definition: null, cancellationToken: ct);
+        await _registry.MarkUnhealthyAsync(AgentAId, cancellationToken: ct);
+
+        _agentProvider.GetByIdAsync(AgentAId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentAId,
+                "A",
+                null,
+                new AgentExecutionConfig("claude", "img", Hosting: AgentHostingMode.Persistent),
+                UnitId: AgentAId));
+
+        // Halt the relaunch right after the old container is torn down.
+        _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("test stops here"));
+
+        await Should.ThrowAsync<InvalidOperationException>(
+            () => _lifecycle.DeployAsync(AgentAId, cancellationToken: ct));
+
+        // Old container WAS stopped before the relaunch...
+        await _containerRuntime.Received()
+            .StopAsync("container-old", Arg.Any<CancellationToken>());
+        // ...but its workspace volume was NOT reclaimed (the bug called
+        // UndeployAsync, which shells out to RemoveVolumeAsync).
+        await _containerRuntime.DidNotReceive()
+            .RemoveVolumeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
