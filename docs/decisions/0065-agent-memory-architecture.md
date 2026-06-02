@@ -48,6 +48,8 @@ Thread-scoped memory is worth keeping and is distinct on both sides: it is **not
 
 The platform advertises durable memory through a **thin, always-pushed Platform-Contract clause** — *read relevant memory at the start of a turn; record decisions / completion before ending a turn* — with the concrete `sv.memory.*` tool surface auto-injected (not left to discovery). This resolves audit finding F1 (the now-closed #2987) and is implemented in #2984. Keeping the clause a thin behavioural pointer respects ADR-0056 §8's fundamental-core criterion.
 
+> **Update (2026-06-02) — F1 fully closed.** #2984 delivered the behavioural clause but left the durable-store CRUD tools (`add`/`get`/`list`/`search`/`update`/`delete`) and `get_messages` **unnamed in the system prompt** — only the three shared-history tools were enumerated, so F1 was only partially closed and the durable surface was still effectively left to discovery (which agents did not perform). This change completes Decision 3: the platform-tool catalog now enumerates the **full** `sv.memory.*` surface, and the durable-memory clause both names the durable-store tools inline and *actively promotes* their use (recall at turn start; record before turn end; "when in doubt, record it"). The surface is therefore promoted into the in-prompt fundamental core — see the [ADR-0056](0056-tool-only-side-effects.md) §8 amendment of the same date.
+
 ### 4. Team coordination uses threads + instruction-level authority — **not** a shared-state primitive
 
 - A thread is a participant set (ADR-0030 / ADR-0060): **append-only and multi-writer** — any participant may post. There is no "location" to overwrite, so there is **no write-write conflict, no lock, and no compare-and-set** at the storage layer.

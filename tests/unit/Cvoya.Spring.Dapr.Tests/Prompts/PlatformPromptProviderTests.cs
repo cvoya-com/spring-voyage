@@ -251,13 +251,27 @@ public class PlatformPromptProviderTests
         // following it is the core tool surface every agent gets.
         result.ShouldContain("Platform-tool catalog");
 
-        // ADR-0056 §8 fundamental-core list — every name and nothing
-        // extra. Renaming or dropping a tool here must update the ADR
-        // first.
+        // The in-prompt fundamental-core list (ADR-0056 §8, as amended to
+        // promote the full sv.memory.* surface into the core per ADR-0065
+        // Decision 3 / audit finding F1). Renaming, dropping, or adding a
+        // tool here must update the ADR-0056 §8 amendment first. The
+        // durable-store CRUD tools (add/get/list/search/update/delete) and
+        // sv.memory.get_messages are no longer left to runtime discovery.
         var expected = new[]
         {
             "sv.messaging.send",
             "sv.messaging.multicast",
+            "sv.messaging.respond_to",
+            "sv.memory.add",
+            "sv.memory.get",
+            "sv.memory.list",
+            "sv.memory.search",
+            "sv.memory.update",
+            "sv.memory.delete",
+            "sv.memory.engagements",
+            "sv.memory.history_with",
+            "sv.memory.search_messages",
+            "sv.memory.get_messages",
             "sv.directory.list",
             "sv.directory.lookup",
             "sv.progress.report",
@@ -268,6 +282,58 @@ public class PlatformPromptProviderTests
         {
             result.ShouldContain(name, customMessage: $"core-tool {name} must be named in the platform-instructions section.");
         }
+    }
+
+    /// <summary>
+    /// Pins ADR-0065 Decision 3 / audit finding F1 (the durable private
+    /// CRUD surface was previously unadvertised): the platform prompt now
+    /// names every durable-store <c>sv.memory.*</c> tool — the surface an
+    /// agent uses to record and recall cross-turn state — so the model does
+    /// not have to discover them at runtime (which, in practice, it never
+    /// did — the cross-turn memory loss of #2980).
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_AdvertisesDurableMemoryCrudToolSurface()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        foreach (var tool in new[]
+        {
+            "sv.memory.add",
+            "sv.memory.get",
+            "sv.memory.list",
+            "sv.memory.search",
+            "sv.memory.update",
+            "sv.memory.delete",
+        })
+        {
+            result.ShouldContain(tool, customMessage: $"durable-memory tool {tool} must be advertised in the platform prompt (ADR-0065 F1).");
+        }
+    }
+
+    /// <summary>
+    /// Pins the durable-memory promotion (per @savasp): the contract does
+    /// not merely list the memory tools — it actively tells the runtime to
+    /// recall at the start of every turn and record before the end, and
+    /// names the concrete tools inline in the durable-memory clause so the
+    /// behavioural pointer and the tool surface are co-located.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_ActivelyPromotesDurableMemoryUse()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        // The durable-memory clause names the recall / record tools inline.
+        result.ShouldContain("call `sv.memory.search`");
+        result.ShouldContain("call `sv.memory.add`");
+
+        // Active-promotion language — habit-forming, not optional.
+        result.ShouldContain("make it a habit every turn");
+        result.ShouldContain("When in doubt, record it");
     }
 
     /// <summary>
