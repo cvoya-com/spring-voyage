@@ -105,6 +105,27 @@ The managing editor is the channel for routine cross-member notes —
 the editor sees connections across the room and routes the right
 information to the right member.
 
+Three norms keep this from turning into duplicated traffic now that
+more than one member can reach most destinations:
+
+1. **Single sender.** Exactly one role owns each outbound artifact or
+   answer; nobody sends what another role owns. The human publisher has
+   a single point of contact — the production editor delivers the
+   edition and the editor handles sign-off and escalation; no other
+   member messages the publisher.
+2. **Share key actions to the team thread.** Any member may post a key
+   action or status that peers need — a stage finished, a piece
+   re-routed, a late change — to the whole-agent-team thread via
+   `send()` (one shared, recallable thread), not `multicast()` (which
+   makes N private one-to-one copies and fragments the picture). This
+   informational sharing is open to everyone; binding *decisions* stay
+   the editor's and managing editor's to advertise. Members calibrate
+   hard — what peers must act on, not a play-by-play.
+3. **Check before you send or ask.** Before delivering an artifact or
+   asking a peer for one, a member checks the team thread to see if it
+   is already handled, so nobody re-delivers or re-requests work that is
+   already there.
+
 ### How assignments carry routing
 
 Every assignment a member receives carries four things: the brief
