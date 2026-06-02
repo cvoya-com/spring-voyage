@@ -4,7 +4,11 @@
 namespace Cvoya.Spring.Dapr.Execution;
 
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Dapr.Data;
 
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -42,8 +46,23 @@ using Microsoft.Extensions.Logging;
 public class AgentVolumeManager(
     IContainerRuntime containerRuntime,
     IAgentBootstrapAuthStore bootstrapAuthStore,
-    ILoggerFactory loggerFactory) : IHostedService
+    ILoggerFactory loggerFactory,
+    // #3005: the orphan-volume GC reconciler reads agent/unit definitions to
+    // build its keep-set. Optional so existing test fixtures that construct the
+    // manager with the original three args still compose — when null the
+    // reconciler is disabled (no DB access available). Production DI always
+    // supplies the built-in IServiceScopeFactory.
+    IServiceScopeFactory? scopeFactory = null) : IHostedService
 {
+    /// <summary>Number of <see cref="ReclaimAsync"/> attempts before giving up
+    /// and deferring to the GC reconciler. A container teardown that is still
+    /// settling makes the first <c>volume rm</c> fail (dispatcher 500) or defer
+    /// ("in use"); a couple of backed-off retries clear the common race (#3005).</summary>
+    private const int MaxReclaimAttempts = 3;
+
+    /// <summary>Backoff before the first reclaim retry; doubled each attempt.</summary>
+    private static readonly TimeSpan InitialReclaimBackoff = TimeSpan.FromMilliseconds(500);
+
     /// <summary>
     /// Env var name the D1 spec mandates for the workspace mount path.
     /// Delegates to <see cref="AgentWorkspaceContract.WorkspacePathEnvVar"/>.
@@ -125,27 +144,74 @@ public class AgentVolumeManager(
         // agent with the same id.
         bootstrapAuthStore.Revoke(agentId);
 
-        try
+        // #3005: a reclaim that races the container teardown leaks the volume —
+        // RemoveVolumeAsync either throws (dispatcher 500 because the container
+        // is not fully gone) or defers silently ("in use"). Retry a few times
+        // with backoff and confirm the volume is actually gone before declaring
+        // success; the GC reconciler is the backstop if it still isn't.
+        var backoff = InitialReclaimBackoff;
+        for (var attempt = 1; attempt <= MaxReclaimAttempts; attempt++)
         {
-            await containerRuntime.RemoveVolumeAsync(volumeName, ct);
+            try
+            {
+                await containerRuntime.RemoveVolumeAsync(volumeName, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    EventIds.VolumeReclaimFailed,
+                    ex,
+                    "Attempt {Attempt}/{Max} to remove workspace volume {VolumeName} (agent {AgentId}) failed: {Message}",
+                    attempt, MaxReclaimAttempts, volumeName, agentId, ex.Message);
+            }
 
-            _logger.LogInformation(
-                EventIds.VolumeReclaimed,
-                "Workspace volume {VolumeName} reclaimed for agent {AgentId}",
-                volumeName, agentId);
+            // RemoveVolumeAsync may have deferred without throwing (an "in use"
+            // race that the runtime warns-and-swallows), so confirm removal.
+            if (!await VolumeExistsAsync(volumeName, ct).ConfigureAwait(false))
+            {
+                _logger.LogInformation(
+                    EventIds.VolumeReclaimed,
+                    "Workspace volume {VolumeName} reclaimed for agent {AgentId}",
+                    volumeName, agentId);
+                return;
+            }
+
+            if (attempt < MaxReclaimAttempts)
+            {
+                try
+                {
+                    await Task.Delay(backoff, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                backoff += backoff;
+            }
         }
-        catch (Exception ex)
-        {
-            // Reclamation failures are logged but do not block the caller —
-            // the agent registry entry is removed regardless. An operator can
-            // reclaim orphaned volumes with `podman volume prune`.
-            _logger.LogWarning(
-                EventIds.VolumeReclaimFailed,
-                ex,
-                "Failed to reclaim workspace volume {VolumeName} for agent {AgentId}; " +
-                "volume may need manual cleanup via `podman volume rm {VolumeName}`",
-                volumeName, agentId, volumeName);
-        }
+
+        // Still present after every attempt — do not block the caller (the
+        // registry entry is removed regardless). The orphan-volume GC
+        // reconciler will reclaim it once the container is gone.
+        _logger.LogWarning(
+            EventIds.VolumeReclaimFailed,
+            "Workspace volume {VolumeName} (agent {AgentId}) still present after {Max} reclaim attempts; " +
+            "the orphan-volume GC reconciler will retry. Manual cleanup: `podman volume rm {VolumeName}`",
+            volumeName, agentId, MaxReclaimAttempts, volumeName);
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when a volume named exactly <paramref name="volumeName"/>
+    /// still exists. Uses the volume's own name as the list prefix and checks
+    /// for an exact match. Best-effort: a listing failure surfaces as
+    /// <c>false</c> (treated as "gone"), deferring any genuine leak to the GC
+    /// reconciler rather than spinning the reclaim retry loop.
+    /// </summary>
+    private async Task<bool> VolumeExistsAsync(string volumeName, CancellationToken ct)
+    {
+        var matches = await containerRuntime.ListVolumesAsync(volumeName, ct).ConfigureAwait(false);
+        return matches is not null && matches.Contains(volumeName, StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -190,6 +256,119 @@ public class AgentVolumeManager(
         }
     }
 
+    /// <summary>
+    /// Reclaims orphaned <c>spring-ws-*</c> workspace volumes — those with no
+    /// live owning agent/unit definition (#3005). A volume leaks when a reclaim
+    /// races the container teardown; this background sweep is the durable
+    /// backstop (and cleans up volumes leaked by earlier runs). Internal so
+    /// tests can drive it directly.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The orphan criterion is deliberately <b>"no live definition"</b>, NOT
+    /// "no <c>persistent_agent_runtime</c> row" as the issue first framed it.
+    /// Post-#2999 a <i>resumably-stopped</i> agent has its runtime row removed
+    /// while its volume is preserved (durable memory survives the stop); GC'ing
+    /// on the absence of a runtime row would re-wipe stopped agents' memory and
+    /// regress #2999. Agent/unit definitions cover both stopped and running
+    /// agents. The runtime-row set is folded into the keep-set as well — pure
+    /// belt-and-suspenders for any entity mid-lifecycle — so a volume is
+    /// reclaimed only when <b>neither</b> a definition nor a runtime row
+    /// references it.
+    /// </para>
+    /// <para>
+    /// Disabled (no-op) when no <see cref="IServiceScopeFactory"/> was supplied,
+    /// and skips the whole sweep on any enumeration failure so a transient
+    /// runtime/DB hiccup never triggers a false-positive reclaim.
+    /// </para>
+    /// </remarks>
+    internal async Task ReconcileOrphanVolumesAsync(CancellationToken ct)
+    {
+        if (scopeFactory is null)
+        {
+            return;
+        }
+
+        IReadOnlyList<string> volumes;
+        try
+        {
+            volumes = await containerRuntime.ListVolumesAsync(AgentVolumeNaming.Prefix, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Orphan-volume reconciler could not list {Prefix}* volumes; skipping this sweep",
+                AgentVolumeNaming.Prefix);
+            return;
+        }
+
+        if (volumes.Count == 0)
+        {
+            return;
+        }
+
+        HashSet<string> keep;
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            var agentIds = await db.AgentDefinitions.IgnoreQueryFilters()
+                .Select(a => a.Id).ToListAsync(ct).ConfigureAwait(false);
+            var unitIds = await db.UnitDefinitions.IgnoreQueryFilters()
+                .Select(u => u.Id).ToListAsync(ct).ConfigureAwait(false);
+            var runtimeIds = await db.PersistentAgentRuntime.AsNoTracking()
+                .Select(r => r.AgentId).ToListAsync(ct).ConfigureAwait(false);
+
+            keep = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var id in agentIds.Concat(unitIds).Concat(runtimeIds))
+            {
+                keep.Add(AgentVolumeNaming.ForAgent(GuidFormatter.Format(id)));
+            }
+        }
+        catch (Exception ex)
+        {
+            // A keep-set we cannot fully build risks a false-positive reclaim,
+            // so skip the sweep entirely rather than delete on partial data.
+            _logger.LogWarning(
+                ex,
+                "Orphan-volume reconciler could not load the keep-set; skipping this sweep to avoid a false-positive reclaim");
+            return;
+        }
+
+        var orphans = volumes.Where(v => !keep.Contains(v)).ToList();
+        if (orphans.Count == 0)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            EventIds.VolumeOrphanReclaiming,
+            "Orphan-volume reconciler found {Count} workspace volume(s) with no live agent/unit definition; reclaiming.",
+            orphans.Count);
+
+        foreach (var orphan in orphans)
+        {
+            _logger.LogWarning(
+                EventIds.VolumeOrphanReclaiming,
+                "Reclaiming orphan workspace volume {VolumeName} (no live agent/unit definition).",
+                orphan);
+            try
+            {
+                await containerRuntime.RemoveVolumeAsync(orphan, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    EventIds.VolumeReclaimFailed,
+                    ex,
+                    "Failed to reclaim orphan workspace volume {VolumeName}; will retry next sweep",
+                    orphan);
+            }
+        }
+    }
+
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -217,6 +396,11 @@ public class AgentVolumeManager(
         try
         {
             await RecordVolumeMetricsAsync(CancellationToken.None);
+            // #3005: piggyback the volume-metrics cadence to GC orphaned
+            // spring-ws-* volumes (e.g. left behind by a reclaim that failed
+            // while the container was still tearing down). Self-contained
+            // error handling inside, but the outer catch is the safety net.
+            await ReconcileOrphanVolumesAsync(CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -308,5 +492,6 @@ public class AgentVolumeManager(
         public static readonly EventId VolumeReclaimed = new(2262, nameof(VolumeReclaimed));
         public static readonly EventId VolumeReclaimFailed = new(2263, nameof(VolumeReclaimFailed));
         public static readonly EventId VolumeMetricsRecorded = new(2264, nameof(VolumeMetricsRecorded));
+        public static readonly EventId VolumeOrphanReclaiming = new(2265, nameof(VolumeOrphanReclaiming));
     }
 }

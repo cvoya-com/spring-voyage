@@ -1251,7 +1251,18 @@ public static class UnitEndpoints
         CancellationToken cancellationToken)
     {
         var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.UnitEndpoints");
-        var address = Address.For("unit", id);
+
+        // Validate the id is a parseable Guid before building the address.
+        // Address.For throws InvalidAddressIdException on a non-Guid id, so a
+        // slug (or any malformed id) reaching the raw Address.For below would
+        // surface as an ungraceful error rather than a clean not-found. Mirror
+        // GetUnitAsync's guard so /start matches the sibling endpoints (#2981).
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(id, out var unitGuid))
+        {
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var address = new Address("unit", unitGuid);
         var entry = await directoryService.ResolveAsync(address, cancellationToken);
 
         if (entry is null)

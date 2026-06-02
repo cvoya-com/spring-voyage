@@ -629,6 +629,37 @@ public class ProcessContainerRuntime(
             $"Failed to remove volume {volumeName}. Exit code: {exitCode}. Stderr: {stderr}");
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> ListVolumesAsync(string prefix, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
+
+        // `volume ls --filter name=<prefix> --format {{.Name}}` lists matching
+        // volume names, one per line. The `name` filter is a substring/regex
+        // match on both podman and docker, so we additionally enforce the
+        // prefix client-side — a GC reconciler must never delete a volume that
+        // merely *contains* the platform prefix elsewhere in its name.
+        var (exitCode, stdout, stderr) = await RunProcessAsync(
+            binaryName,
+            ["volume", "ls", "--filter", $"name={prefix}", "--format", "{{.Name}}"],
+            ct);
+
+        if (exitCode != 0)
+        {
+            // Best-effort: never throw out of an enumeration the background
+            // reconciler drives — return empty so this sweep is a no-op.
+            _logger.LogWarning(
+                "Failed to list volumes with prefix {Prefix} using {Binary}. Exit code: {ExitCode}. Stderr: {Stderr}",
+                prefix, binaryName, exitCode, stderr);
+            return Array.Empty<string>();
+        }
+
+        return stdout
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(name => name.StartsWith(prefix, StringComparison.Ordinal))
+            .ToList();
+    }
+
     /// <summary>
     /// Resolves a named volume to its host-side mount point by shelling out to
     /// <c>volume inspect --format {{.Mountpoint}}</c>. Returns <c>null</c> when

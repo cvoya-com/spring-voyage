@@ -159,4 +159,54 @@ public class VolumesEndpointsTests : IClassFixture<DispatcherWebApplicationFacto
         body.ShouldNotBeNull();
         body!.SizeBytes.ShouldBe(2048L);
     }
+
+    // ── GET /v1/volumes?prefix= (#3005) ────────────────────────────────────
+
+    [Fact]
+    public async Task ListVolumes_WithoutToken_Returns401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync(
+            "/v1/volumes?prefix=spring-ws-", TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task ListVolumes_MissingPrefix_Returns400()
+    {
+        _factory.ContainerRuntime.ClearSubstitute();
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.GetAsync(
+            "/v1/volumes", TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        await _factory.ContainerRuntime.DidNotReceive()
+            .ListVolumesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ListVolumes_Authorized_DelegatesToRuntimeAndReturnsNames()
+    {
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .ListVolumesAsync("spring-ws-", Arg.Any<CancellationToken>())
+            .Returns(new List<string> { "spring-ws-a", "spring-ws-b" });
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.GetAsync(
+            "/v1/volumes?prefix=spring-ws-", TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ListVolumesResponse>(
+            TestContext.Current.CancellationToken);
+        body.ShouldNotBeNull();
+        body!.Names.ShouldBe(new[] { "spring-ws-a", "spring-ws-b" });
+        await _factory.ContainerRuntime.Received(1)
+            .ListVolumesAsync("spring-ws-", Arg.Any<CancellationToken>());
+    }
 }

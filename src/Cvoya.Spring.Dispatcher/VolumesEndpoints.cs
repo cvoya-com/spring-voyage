@@ -37,6 +37,8 @@ public static class VolumesEndpoints
             new(6022, nameof(VolumeMetricsRequested));
         public static readonly EventId VolumeRejected =
             new(6023, nameof(VolumeRejected));
+        public static readonly EventId VolumeListRequested =
+            new(6024, nameof(VolumeListRequested));
     }
 
     /// <summary>
@@ -47,10 +49,41 @@ public static class VolumesEndpoints
         var group = endpoints.MapGroup("/v1/volumes").RequireAuthorization();
 
         group.MapPost("/", CreateAsync);
+        group.MapGet("/", ListAsync);
         group.MapDelete("/{name}", RemoveAsync);
         group.MapGet("/{name}/metrics", GetMetricsAsync);
 
         return endpoints;
+    }
+
+    /// <summary>
+    /// <c>GET /v1/volumes?prefix=</c> — lists the names of all volumes whose
+    /// name begins with the requested prefix. Backs the worker-side
+    /// workspace-volume GC reconciler (#3005).
+    /// </summary>
+    internal static async Task<IResult> ListAsync(
+        [FromQuery] string? prefix,
+        IContainerRuntime runtime,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Dispatcher.Volumes");
+
+        if (string.IsNullOrWhiteSpace(prefix))
+        {
+            return Results.BadRequest(new DispatcherErrorResponse
+            {
+                Code = "prefix_required",
+                Message = "Query parameter 'prefix' is required.",
+            });
+        }
+
+        logger.LogInformation(
+            EventIds.VolumeListRequested,
+            "Listing volumes with prefix={Prefix}", prefix);
+
+        var names = await runtime.ListVolumesAsync(prefix, cancellationToken);
+        return Results.Ok(new ListVolumesResponse { Names = names });
     }
 
     /// <summary>
@@ -173,4 +206,14 @@ public record VolumeMetricsResponse
 
     /// <summary>Timestamp of the most recent write to the volume, or null if unavailable.</summary>
     public DateTimeOffset? LastWrite { get; init; }
+}
+
+/// <summary>
+/// Wire shape returned by <c>GET /v1/volumes?prefix=</c> — the names of all
+/// volumes whose name begins with the requested prefix (#3005).
+/// </summary>
+public record ListVolumesResponse
+{
+    /// <summary>The matching volume names; empty when none match.</summary>
+    public IReadOnlyList<string> Names { get; init; } = Array.Empty<string>();
 }

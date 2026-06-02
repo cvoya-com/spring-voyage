@@ -230,6 +230,26 @@ public interface IContainerRuntime
     Task RemoveVolumeAsync(string volumeName, CancellationToken ct = default);
 
     /// <summary>
+    /// Lists the names of all volumes whose name begins with
+    /// <paramref name="prefix"/>. Used by the per-agent workspace-volume GC
+    /// reconciler (#3005) to enumerate platform-managed <c>spring-ws-*</c>
+    /// volumes for orphan detection, and by the reclaim path to confirm a
+    /// removal actually took effect.
+    /// </summary>
+    /// <remarks>
+    /// Best-effort and non-throwing: implementations return an empty list
+    /// rather than throwing when enumeration fails or is unavailable, so the
+    /// background reconciler never crashes the host on a transient runtime
+    /// hiccup. The <paramref name="prefix"/> match is enforced by the
+    /// implementation even if the underlying runtime's name filter is a looser
+    /// substring/regex match.
+    /// </remarks>
+    /// <param name="prefix">The volume-name prefix to match (e.g. <c>spring-ws-</c>).</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>The matching volume names; empty when none match or on failure.</returns>
+    Task<IReadOnlyList<string>> ListVolumesAsync(string prefix, CancellationToken ct = default);
+
+    /// <summary>
     /// Returns volume-level metrics (size in bytes, last-write timestamp)
     /// for the named volume. The platform collects these to emit
     /// volume-size and growth-rate telemetry per ADR-0029 — the content of

@@ -30,11 +30,16 @@ using Microsoft.Extensions.Logging;
 /// probe lands, so the call is guaranteed to hit a live HTTP listener.
 /// </para>
 /// <para>
-/// Failure semantics are deliberately forgiving: any non-200, timeout, or
-/// parse failure logs a warning and persists an empty array. The deploy
-/// still succeeds — the agent simply has no image-tier tools until the
-/// next successful introspection. This matches the brief's "don't fail
-/// the deploy" guarantee.
+/// Failure semantics (#3003): the fetch is retried a few times with backoff
+/// (a relaunched agent's sidecar may not be listening for the first few
+/// hundred milliseconds). A non-200, timeout, transport error, or parse
+/// failure that persists across all attempts logs a warning and <b>preserves
+/// the previously-cached <c>image_tools</c></b> rather than overwriting it
+/// with an empty array — so a transient race never drops a live agent's real
+/// tool list. A <i>successful</i> fetch that returns an empty array (a
+/// legitimately tool-less image) is authoritative and does overwrite the
+/// cache. Either way the deploy still succeeds — introspection is never
+/// load-bearing on boot.
 /// </para>
 /// <para>
 /// The implementation walks both <c>agent_definitions</c> and
@@ -59,6 +64,36 @@ public sealed class HttpAgentToolsIntrospector : IAgentToolsIntrospector
     public const string ToolsPath = "a2a/tools";
 
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// Number of <c>GET /a2a/tools</c> attempts before giving up and keeping
+    /// the previously-cached <c>image_tools</c> (#3003). On (re)launch the
+    /// sidecar may not be listening yet — the first fetch hits a connection
+    /// refusal milliseconds before the listener binds — so a single attempt
+    /// would persist an empty array and drop the agent's real tool list.
+    /// </summary>
+    private const int MaxFetchAttempts = 3;
+
+    /// <summary>
+    /// Backoff before the first retry; doubled on each subsequent attempt.
+    /// Kept short — the failure mode this covers is a not-yet-bound listener,
+    /// which resolves within a few hundred milliseconds of the readiness probe.
+    /// </summary>
+    private static readonly TimeSpan InitialRetryBackoff = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// Outcome of <see cref="FetchToolsAsync"/>: distinguishes a successful
+    /// fetch (a clean 200 + valid JSON, possibly an empty array — a
+    /// legitimately tool-less image) from a failed fetch (transport error,
+    /// timeout, non-2xx, or invalid JSON, after retries). Only a successful
+    /// fetch is persisted; a failed fetch preserves the prior cache (#3003).
+    /// </summary>
+    private readonly record struct FetchResult(bool Fetched, IReadOnlyList<ToolDefinition> Tools)
+    {
+        public static readonly FetchResult Failed = new(false, Array.Empty<ToolDefinition>());
+
+        public static FetchResult Success(IReadOnlyList<ToolDefinition> tools) => new(true, tools);
+    }
 
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
@@ -119,13 +154,57 @@ public sealed class HttpAgentToolsIntrospector : IAgentToolsIntrospector
         ArgumentNullException.ThrowIfNull(endpoint);
 
         var toolsUri = new Uri(endpoint, ToolsPath);
-        var tools = await FetchToolsAsync(toolsUri, cancellationToken).ConfigureAwait(false);
-        await PersistAsync(agentId, tools, cancellationToken).ConfigureAwait(false);
-        return tools;
+        var result = await FetchToolsAsync(toolsUri, cancellationToken).ConfigureAwait(false);
+
+        if (!result.Fetched)
+        {
+            // #3003: the fetch failed (transport error, timeout, non-2xx, or
+            // invalid JSON — after retries). Do NOT persist: overwriting
+            // image_tools with an empty array here would drop a relaunched
+            // agent's real tool list on a transient not-yet-listening race.
+            // Preserve whatever was last cached; the next successful
+            // introspection (deploy / image rotation) refreshes it.
+            _logger.LogWarning(
+                "Agent /a2a/tools at {Uri} could not be introspected after {Attempts} attempt(s); " +
+                "preserving the previously-cached image_tools for {AgentId} (skipping persist).",
+                toolsUri, MaxFetchAttempts, agentId);
+            return Array.Empty<ToolDefinition>();
+        }
+
+        // A successful fetch — even an empty array (a legitimately tool-less
+        // image) — is authoritative and overwrites the cache.
+        await PersistAsync(agentId, result.Tools, cancellationToken).ConfigureAwait(false);
+        return result.Tools;
     }
 
-    private async Task<IReadOnlyList<ToolDefinition>> FetchToolsAsync(
+    private async Task<FetchResult> FetchToolsAsync(
         Uri toolsUri,
+        CancellationToken cancellationToken)
+    {
+        var backoff = InitialRetryBackoff;
+        for (var attempt = 1; ; attempt++)
+        {
+            var result = await TryFetchOnceAsync(toolsUri, attempt, cancellationToken).ConfigureAwait(false);
+            if (result.Fetched)
+            {
+                return result;
+            }
+
+            if (attempt >= MaxFetchAttempts)
+            {
+                return FetchResult.Failed;
+            }
+
+            // Caller cancellation propagates out of Task.Delay (it is the only
+            // token here); a not-yet-bound listener resolves within the backoff.
+            await Task.Delay(backoff, cancellationToken).ConfigureAwait(false);
+            backoff += backoff;
+        }
+    }
+
+    private async Task<FetchResult> TryFetchOnceAsync(
+        Uri toolsUri,
+        int attempt,
         CancellationToken cancellationToken)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -140,14 +219,14 @@ public sealed class HttpAgentToolsIntrospector : IAgentToolsIntrospector
             using var response = await client.SendAsync(request, cts.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning(
-                    "Agent /a2a/tools at {Uri} returned non-success status {Status}; persisting empty image_tools.",
-                    toolsUri, (int)response.StatusCode);
-                return Array.Empty<ToolDefinition>();
+                _logger.LogDebug(
+                    "Agent /a2a/tools at {Uri} returned non-success status {Status} (attempt {Attempt}/{Max}).",
+                    toolsUri, (int)response.StatusCode, attempt, MaxFetchAttempts);
+                return FetchResult.Failed;
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
-            return ParseTools(stream, toolsUri);
+            return ParseFetchedTools(stream, toolsUri, attempt);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -156,35 +235,35 @@ public sealed class HttpAgentToolsIntrospector : IAgentToolsIntrospector
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Agent /a2a/tools at {Uri} timed out after {Timeout}; persisting empty image_tools.",
-                toolsUri, DefaultTimeout);
-            return Array.Empty<ToolDefinition>();
+            _logger.LogDebug(
+                "Agent /a2a/tools at {Uri} timed out after {Timeout} (attempt {Attempt}/{Max}).",
+                toolsUri, DefaultTimeout, attempt, MaxFetchAttempts);
+            return FetchResult.Failed;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(
+            _logger.LogDebug(
                 ex,
-                "Agent /a2a/tools at {Uri} failed: {Message}; persisting empty image_tools.",
-                toolsUri, ex.Message);
-            return Array.Empty<ToolDefinition>();
+                "Agent /a2a/tools at {Uri} failed (attempt {Attempt}/{Max}): {Message}.",
+                toolsUri, attempt, MaxFetchAttempts, ex.Message);
+            return FetchResult.Failed;
         }
     }
 
-    private IReadOnlyList<ToolDefinition> ParseTools(System.IO.Stream stream, Uri toolsUri)
+    private FetchResult ParseFetchedTools(System.IO.Stream stream, Uri toolsUri, int attempt)
     {
         try
         {
             using var document = JsonDocument.Parse(stream);
-            return ParseTools(document.RootElement);
+            return FetchResult.Success(ParseTools(document.RootElement));
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(
+            _logger.LogDebug(
                 ex,
-                "Agent /a2a/tools at {Uri} produced invalid JSON; persisting empty image_tools.",
-                toolsUri);
-            return Array.Empty<ToolDefinition>();
+                "Agent /a2a/tools at {Uri} produced invalid JSON (attempt {Attempt}/{Max}).",
+                toolsUri, attempt, MaxFetchAttempts);
+            return FetchResult.Failed;
         }
     }
 

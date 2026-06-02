@@ -774,13 +774,39 @@ public class A2AExecutionDispatcher(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Container failed mid-dispatch — mark unhealthy for next dispatch.
-            // Pass the container ID so a concurrent restart that already replaced
-            // the container is not poisoned by a stale failure (#2159).
-            _logger.LogWarning(ex,
-                "A2A call to persistent agent {AgentId} failed; marking unhealthy for restart",
-                agentId);
-            await persistentAgentRegistry.MarkUnhealthyAsync(agentId, containerId, cancellationToken);
+            // #3002: a single work-path failure is NOT, by itself, proof the
+            // container is dead. A long, legitimately-slow turn can surface a
+            // transient transport error (e.g. a 502 from the dispatcher proxy
+            // on a momentary podman-exec/network blip) while the agent is alive
+            // and still working. Slamming it to the restart threshold here tore
+            // the container down — killing live work and, pre-#2999, wiping the
+            // agent's memory. Confirm the container is actually gone with an
+            // independent liveness probe (the same agent-card GET the pre-flight
+            // at the top of this method uses) before arming the destructive
+            // restart. A genuinely crashed container fails the probe in
+            // sub-100ms (TCP RST), so #2092's fast crash detection is preserved;
+            // a live-but-slow agent is left running and the next dispatch
+            // re-tries it. The original failure is always rethrown — only the
+            // restart is gated, not the error surfaced to the caller.
+            var confirmedDead = await ConfirmContainerDeadAsync(agentId, containerId);
+            if (confirmedDead)
+            {
+                // Pass the container ID so a concurrent restart that already
+                // replaced the container is not poisoned by a stale failure (#2159).
+                _logger.LogWarning(ex,
+                    "A2A call to persistent agent {AgentId} failed and a confirming liveness probe shows " +
+                    "the container is down; marking unhealthy for restart",
+                    agentId);
+                await persistentAgentRegistry.MarkUnhealthyAsync(agentId, containerId, cancellationToken);
+            }
+            else
+            {
+                _logger.LogWarning(ex,
+                    "A2A call to persistent agent {AgentId} failed, but a confirming liveness probe shows the " +
+                    "container is still responsive (likely a transient or slow-turn error); NOT restarting (#3002)",
+                    agentId);
+            }
+
             throw;
         }
         finally
@@ -799,6 +825,62 @@ public class A2AExecutionDispatcher(
         // cancelled after we got the response.
         await persistentAgentRegistry.RecordDispatchHeartbeatAsync(agentId, CancellationToken.None);
         return outcome;
+    }
+
+    /// <summary>
+    /// Confirms whether the container backing <paramref name="agentId"/> is
+    /// actually dead before a single work-path dispatch failure is allowed to
+    /// arm the destructive restart (#3002). Re-reads the current registry entry
+    /// and runs the independent agent-card liveness probe with the short
+    /// pre-flight timeout.
+    /// </summary>
+    /// <remarks>
+    /// Returns <c>true</c> (treat as dead → mark unhealthy → restart) only when
+    /// the entry is still the one we dispatched to AND the probe shows it is
+    /// down. Returns <c>false</c> — leave the agent running — when the probe
+    /// shows it is still responsive (a transient or slow-turn error), or when a
+    /// concurrent restart has already replaced/removed the entry (that restart
+    /// owns the health state now; poisoning it with our stale failure is the
+    /// #2159 bug). If the confirming probe cannot be run at all (an unexpected
+    /// throw reading the registry), falls back to the conservative pre-#3002
+    /// behaviour — treat the failure as a crash — so a genuinely-dead agent
+    /// still restarts (#2092); the restart is non-destructive to the volume
+    /// post-#2999, so erring toward "dead" is safe.
+    /// </remarks>
+    private async Task<bool> ConfirmContainerDeadAsync(string agentId, string? containerId)
+    {
+        try
+        {
+            var current = await persistentAgentRegistry.TryGetAsync(agentId, CancellationToken.None);
+            if (current is null)
+            {
+                // Row already gone (concurrent teardown) — nothing to mark.
+                return false;
+            }
+
+            if (!string.Equals(current.ContainerId, containerId, StringComparison.Ordinal))
+            {
+                // A concurrent restart already replaced the container we
+                // dispatched to; our failure is stale and must not poison the
+                // new container's health (#2159).
+                return false;
+            }
+
+            var live = await persistentAgentRegistry.ProbeLivenessAsync(
+                current,
+                PersistentAgentRegistry.DispatchPreflightProbeTimeout,
+                CancellationToken.None);
+
+            return !live;
+        }
+        catch (Exception probeEx)
+        {
+            _logger.LogDebug(probeEx,
+                "Confirming liveness probe for agent {AgentId} could not run; treating the dispatch failure " +
+                "as a crash (conservative #2092-preserving fallback)",
+                agentId);
+            return true;
+        }
     }
 
     /// <summary>

@@ -19,13 +19,14 @@ namespace Cvoya.Spring.Core.Skills;
 /// reflects the new image's surface rather than the previous deployment's.
 /// </para>
 /// <para>
-/// Failure semantics: a non-200 response (or a timeout) is treated as
-/// "this image has no image-tier tools" — the introspector logs a warning
-/// and persists an empty array. The deploy still succeeds. The grant
-/// resolver (Sub B #2335) then surfaces an empty image tier for that
-/// agent until the next successful introspection. This keeps boot from
-/// being load-bearing on the agent's authoring-time readiness of a new
-/// endpoint.
+/// Failure semantics (#3003): the fetch is retried with backoff, then a
+/// persistent non-200, timeout, transport error, or parse failure
+/// <b>preserves</b> the previously-cached <c>image_tools</c> instead of
+/// overwriting it with an empty array — a relaunched agent whose sidecar
+/// is briefly not listening must not lose its real tool list. A
+/// <i>successful</i> fetch that returns an empty array (a genuinely
+/// tool-less image) is authoritative and overwrites the cache. The deploy
+/// always succeeds — introspection is never load-bearing on boot.
 /// </para>
 /// <para>
 /// The interface is the seam tests use to bypass the container-runtime
@@ -56,8 +57,9 @@ public interface IAgentToolsIntrospector
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>
-    /// The array that was persisted. Empty when the call failed or the
-    /// agent has no image-tier tools.
+    /// The fetched-and-persisted array (possibly empty for a tool-less image).
+    /// Returns an empty array <b>without persisting</b> when the fetch failed
+    /// after retries — in that case the previously-cached value is preserved.
     /// </returns>
     Task<IReadOnlyList<ToolDefinition>> IntrospectAndPersistAsync(
         Guid agentId,
