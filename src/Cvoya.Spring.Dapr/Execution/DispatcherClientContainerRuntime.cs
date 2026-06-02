@@ -434,6 +434,38 @@ public class DispatcherClientContainerRuntime(
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> ListVolumesAsync(string prefix, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
+
+        var httpClient = CreateClient();
+        var uri = $"v1/volumes?prefix={Uri.EscapeDataString(prefix)}";
+
+        try
+        {
+            using var response = await httpClient.GetAsync(uri, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                // Best-effort: the GC reconciler must not crash on a transient
+                // dispatcher hiccup — return empty so this sweep is a no-op.
+                _logger.LogWarning(
+                    "Dispatcher returned {StatusCode} listing volumes with prefix {Prefix}; returning empty",
+                    (int)response.StatusCode, prefix);
+                return Array.Empty<string>();
+            }
+
+            var parsed = await response.Content.ReadFromJsonAsync<DispatcherListVolumesResponse>(JsonOptions, ct);
+            return parsed?.Names ?? Array.Empty<string>();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                ex, "Failed to list volumes with prefix {Prefix} via the dispatcher; returning empty", prefix);
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <inheritdoc />
     public async Task CreateNetworkAsync(string name, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -782,5 +814,14 @@ public class DispatcherClientContainerRuntime(
     {
         public long? SizeBytes { get; init; }
         public DateTimeOffset? LastWrite { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape returned by <c>GET /v1/volumes?prefix=</c> — the names of all
+    /// volumes whose name begins with the requested prefix (#3005).
+    /// </summary>
+    internal record DispatcherListVolumesResponse
+    {
+        public IReadOnlyList<string> Names { get; init; } = Array.Empty<string>();
     }
 }
