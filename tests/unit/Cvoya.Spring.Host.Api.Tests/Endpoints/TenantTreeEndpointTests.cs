@@ -191,12 +191,13 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
-    public async Task GetTenantTree_UnreachableUnitActor_FallsBackToDraft()
+    public async Task GetTenantTree_UnreachableUnitActor_FallsBackToUnknown()
     {
         // A unit's actor can be transiently unreachable (fresh
         // registration, Dapr sidecar restart). The endpoint must still
-        // render the tree — Draft is the safest fallback (matches the
-        // policy shared with DashboardEndpoints).
+        // render the tree — a failed read surfaces as Unknown, a degraded
+        // indicator, rather than masquerading as Draft (#3006 finding I;
+        // matches the policy shared with DashboardEndpoints).
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
         ArrangeDirectoryEntries(units: [("flaky", "Flaky Unit")]);
@@ -204,7 +205,7 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         var body = await FetchTreeAsync(ct);
         var flakyId = _entryUuids["unit:flaky"].ToString("N");
-        body!.Tree.Children!.Single(u => u.Id == flakyId).Status.ShouldBe("draft");
+        body!.Tree.Children!.Single(u => u.Id == flakyId).Status.ShouldBe("unknown");
     }
 
     [Fact]

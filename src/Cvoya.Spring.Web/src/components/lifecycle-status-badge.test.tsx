@@ -1,7 +1,7 @@
 /**
  * Tests for the shared `<LifecycleStatusBadge>` component (#2372).
  *
- * Covers the 7-state vocabulary, case-insensitive normalisation (the tree
+ * Covers the lifecycle vocabulary, case-insensitive normalisation (the tree
  * carries lowercase values, API responses carry PascalCase), and the
  * coloured-dot variant exposed for use in tree rows / detail-pane headers.
  */
@@ -27,10 +27,15 @@ describe("normaliseLifecycleStatus", () => {
     expect(normaliseLifecycleStatus("draft")).toBe("Draft");
   });
 
-  it("collapses null / unknown to Draft", () => {
-    expect(normaliseLifecycleStatus(null)).toBe("Draft");
-    expect(normaliseLifecycleStatus(undefined)).toBe("Draft");
-    expect(normaliseLifecycleStatus("nonsense")).toBe("Draft");
+  it("collapses null / unrecognised values to Unknown", () => {
+    expect(normaliseLifecycleStatus(null)).toBe("Unknown");
+    expect(normaliseLifecycleStatus(undefined)).toBe("Unknown");
+    expect(normaliseLifecycleStatus("nonsense")).toBe("Unknown");
+  });
+
+  it("lifts the Unknown degraded indicator through both cases", () => {
+    expect(normaliseLifecycleStatus("Unknown")).toBe("Unknown");
+    expect(normaliseLifecycleStatus("unknown")).toBe("Unknown");
   });
 });
 
@@ -44,6 +49,7 @@ describe("LifecycleStatusBadge", () => {
       "Running",
       "Stopping",
       "Error",
+      "Unknown",
     ] as const;
     for (const status of all) {
       const { container, unmount } = render(
@@ -73,9 +79,9 @@ describe("LifecycleStatusBadge", () => {
     expect(badge?.querySelector("span[aria-hidden]")).toBeNull();
   });
 
-  it("collapses an unknown status to Draft rather than rendering an empty pill", () => {
+  it("collapses an unrecognised status to Unknown rather than rendering an empty pill", () => {
     render(<LifecycleStatusBadge status="bogus" testId="badge" />);
-    expect(screen.getByTestId("badge")).toHaveTextContent("Draft");
+    expect(screen.getByTestId("badge")).toHaveTextContent("Unknown");
   });
 });
 

@@ -51,4 +51,14 @@ public enum LifecycleStatus
     /// successful probe or to <see cref="Error"/> on a failed probe.
     /// </summary>
     Validating,
+
+    /// <summary>
+    /// The artefact's real status could not be determined — the actor-state read failed or
+    /// was canceled (e.g. the actor is unreachable or a bounded read budget was exhausted).
+    /// This is a read-time degraded indicator, never a persisted state and never a transition
+    /// target: it tells observers "status unknown" instead of silently masquerading as
+    /// <see cref="Draft"/> (#3006 finding I). Appended last so the actor-remoting ordinal wire
+    /// format for the prior values is unchanged.
+    /// </summary>
+    Unknown,
 }

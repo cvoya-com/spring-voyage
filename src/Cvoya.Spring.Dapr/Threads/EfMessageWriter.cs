@@ -87,16 +87,6 @@ public class EfMessageWriter(
             return;
         }
 
-        var existing = await db.Messages
-            .AsNoTracking()
-            .AnyAsync(m => m.Id == message.Id, cancellationToken);
-
-        if (existing)
-        {
-            // Re-dispatch path — the write already landed for this id.
-            return;
-        }
-
         var entity = new MessageEntity
         {
             Id = message.Id,
@@ -113,42 +103,46 @@ public class EfMessageWriter(
             RetractedAt = null,
         };
 
-        db.Messages.Add(entity);
-
-        // Bump the parent thread's last_activity_at so inbox-style listings
-        // surface the most recently active threads first. The row already
-        // exists by the time we get here — the API path resolves it through
-        // IThreadRegistry.GetOrCreateAsync before the dispatch — so a
-        // straightforward UPDATE is enough; we do not re-insert.
-        var thread = await db.Threads
-            .FirstOrDefaultAsync(t => t.Id == threadGuid, cancellationToken);
-
-        if (thread is not null)
+        if (db.Database.IsNpgsql())
         {
-            // Only move forward — concurrent dispatches can land out of
-            // wall-clock order; the surface wants the most recent activity,
-            // not the most recently-saved row.
-            if (thread.LastActivityAt < message.Timestamp)
+            // Postgres path: insert idempotently with ON CONFLICT (id) DO NOTHING
+            // so the unique-PK race (two dispatches of the same message id under
+            // SPRING_CONCURRENT_THREADS / the resend storm, #2982) resolves in the
+            // database. The previous check-then-insert let the loser's
+            // SaveChanges throw a DbUpdateException, which EF logs at Error twice
+            // per collision (~760 lines under load) before our catch swallowed it
+            // (#3006 finding G).
+            var inserted = await InsertMessageOnConflictAsync(entity, cancellationToken);
+            if (!inserted)
             {
-                thread.LastActivityAt = message.Timestamp;
+                // Row already existed (re-dispatch or a concurrent writer won the
+                // race). Whoever inserted it owns the thread-activity bump; the
+                // post-condition "exactly one row exists with that id" already
+                // holds, so there is nothing left to do.
+                return;
             }
 
-            // #2533: capture the sender's and recipient's display names so
-            // the engagement list still surfaces the last-known name after
-            // the underlying definition is soft-deleted. The resolver
-            // signals fallback status so we never overwrite a real name
-            // with a per-scheme generic ("an agent", "a connector", …).
-            await UpsertSnapshotAsync(thread, message.From, cancellationToken);
-            await UpsertSnapshotAsync(thread, message.To, cancellationToken);
+            await ApplyThreadActivityAsync(threadGuid, message, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            return;
         }
-        else
+
+        // Non-Npgsql providers (the in-memory test database) have no ON CONFLICT
+        // support, so keep the existence-check + insert + PK-violation swallow.
+        // Test writes are sequential, so the concurrency race the Postgres path
+        // guards against does not arise here.
+        var existing = await db.Messages
+            .AsNoTracking()
+            .AnyAsync(m => m.Id == message.Id, cancellationToken);
+
+        if (existing)
         {
-            // The FK insert below will fail; log here so the failure mode is
-            // grep-able in the dispatcher logs.
-            _logger.LogWarning(
-                "Message {MessageId} references unknown thread {ThreadId}; FK insert will fail.",
-                message.Id, message.ThreadId);
+            // Re-dispatch path — the write already landed for this id.
+            return;
         }
+
+        db.Messages.Add(entity);
+        await ApplyThreadActivityAsync(threadGuid, message, cancellationToken);
 
         try
         {
@@ -165,6 +159,83 @@ public class EfMessageWriter(
                 "Message {MessageId} was inserted concurrently; treating WriteAsync as a no-op.",
                 message.Id);
         }
+    }
+
+    /// <summary>
+    /// Inserts the message row with <c>ON CONFLICT (id) DO NOTHING</c> so a
+    /// concurrent duplicate is swallowed by the database rather than surfaced as
+    /// a thrown <see cref="DbUpdateException"/> (which EF logs at Error). Returns
+    /// <c>true</c> when the row was inserted, <c>false</c> when an existing row
+    /// with the same id made the insert a no-op. Postgres-only — the column list
+    /// mirrors the <c>spring.messages</c> table; the interpolated values bind as
+    /// parameters.
+    /// </summary>
+    private async Task<bool> InsertMessageOnConflictAsync(
+        MessageEntity entity,
+        CancellationToken cancellationToken)
+    {
+        var rows = await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO spring.messages
+                (id, tenant_id, thread_id, sender_scheme, sender_id,
+                 recipient_scheme, recipient_id, message_type, body, payload,
+                 sent_at, retracted_at)
+            VALUES
+                ({entity.Id}, {entity.TenantId}, {entity.ThreadId}, {entity.SenderScheme}, {entity.SenderId},
+                 {entity.RecipientScheme}, {entity.RecipientId}, {entity.MessageType}, {entity.Body}, {entity.Payload}::jsonb,
+                 {entity.SentAt}, {entity.RetractedAt})
+            ON CONFLICT (id) DO NOTHING
+            """,
+            cancellationToken);
+        return rows > 0;
+    }
+
+    /// <summary>
+    /// Bumps the parent thread's <c>last_activity_at</c> (forward-only) and
+    /// upserts the sender's and recipient's display-name snapshots (#2533).
+    /// Mutates the tracked thread entity; the caller owns the enclosing
+    /// <see cref="DbContext.SaveChangesAsync(CancellationToken)"/>. On the
+    /// Postgres path this is a second statement after the ON CONFLICT insert —
+    /// <c>last_activity_at</c> is advisory and the snapshot is best-effort, so
+    /// the loss of strict insert+bump atomicity is acceptable.
+    /// </summary>
+    private async Task ApplyThreadActivityAsync(
+        Guid threadGuid,
+        Message message,
+        CancellationToken cancellationToken)
+    {
+        // The row already exists by the time we get here — the API path resolves
+        // it through IThreadRegistry.GetOrCreateAsync before the dispatch — so a
+        // straightforward UPDATE is enough; we do not re-insert.
+        var thread = await db.Threads
+            .FirstOrDefaultAsync(t => t.Id == threadGuid, cancellationToken);
+
+        if (thread is null)
+        {
+            // A well-formed dispatch always has its thread row; log so the
+            // failure mode is grep-able. The message insert against a missing
+            // FK has already surfaced as an exception on the Postgres path.
+            _logger.LogWarning(
+                "Message {MessageId} references unknown thread {ThreadId}.",
+                message.Id, message.ThreadId);
+            return;
+        }
+
+        // Only move forward — concurrent dispatches can land out of wall-clock
+        // order; the surface wants the most recent activity, not the most
+        // recently-saved row.
+        if (thread.LastActivityAt < message.Timestamp)
+        {
+            thread.LastActivityAt = message.Timestamp;
+        }
+
+        // #2533: capture the sender's and recipient's display names so the
+        // engagement list still surfaces the last-known name after the
+        // underlying definition is soft-deleted. The resolver signals fallback
+        // status so we never overwrite a real name with a per-scheme generic
+        // ("an agent", "a connector", …).
+        await UpsertSnapshotAsync(thread, message.From, cancellationToken);
+        await UpsertSnapshotAsync(thread, message.To, cancellationToken);
     }
 
     /// <summary>

@@ -39,7 +39,12 @@
     # Caddy doesn't send stream requests to spring-api (which only
     # exposes `/api/v1/activity/stream`, not `/api/stream/activity`).
     handle /api/stream/* {
-        reverse_proxy spring-web:3000
+        reverse_proxy spring-web:3000 {
+            # SSE: stream bytes straight through with no response buffering so
+            # events and periodic keepalives reach the browser immediately and
+            # the connection isn't torn down at an idle timeout (#3006 finding H).
+            flush_interval -1
+        }
     }
 
     # REST API, OpenAPI docs, and health probe.

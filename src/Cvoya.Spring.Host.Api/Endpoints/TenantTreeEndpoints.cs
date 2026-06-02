@@ -484,9 +484,10 @@ public static class TenantTreeEndpoints
     /// <see cref="StatusReadBudget"/>. On timeout we report
     /// <see cref="LifecycleStatus.Starting"/> — the closest semantic for a
     /// busy actor and exactly the rendering #2584 asks for ("starting…"
-    /// indicator per card). On exception we keep the pre-#2584 fallback
-    /// of <see cref="LifecycleStatus.Draft"/> so a flat actor outage still
-    /// renders predictably.
+    /// indicator per card). On exception we surface
+    /// <see cref="LifecycleStatus.Unknown"/> so a flat actor outage renders as
+    /// a degraded indicator rather than masquerading as
+    /// <see cref="LifecycleStatus.Draft"/> (#3006 finding I).
     /// </summary>
     private static async Task<LifecycleStatus> TryGetLifecycleStatusBoundedAsync(
         Func<Task<LifecycleStatus>> readStatus,
@@ -500,12 +501,16 @@ public static class TenantTreeEndpoints
         {
             statusTask = readStatus();
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw; // caller aborted — don't fabricate a status (#3006 finding I)
+        }
         catch (Exception ex)
         {
             logger.LogWarning(ex,
-                "Failed to invoke status read for {Kind} {SubjectPath}; reporting Draft.",
+                "Failed to invoke status read for {Kind} {SubjectPath}; reporting Unknown.",
                 kind, subjectPath);
-            return LifecycleStatus.Draft;
+            return LifecycleStatus.Unknown;
         }
 
         try
@@ -542,9 +547,9 @@ public static class TenantTreeEndpoints
         catch (Exception ex)
         {
             logger.LogWarning(ex,
-                "Failed to read persisted status for {Kind} {SubjectPath}; reporting Draft.",
+                "Failed to read persisted status for {Kind} {SubjectPath}; reporting Unknown.",
                 kind, subjectPath);
-            return LifecycleStatus.Draft;
+            return LifecycleStatus.Unknown;
         }
     }
 
@@ -564,6 +569,7 @@ public static class TenantTreeEndpoints
         LifecycleStatus.Stopping => "stopping",
         LifecycleStatus.Error => "error",
         LifecycleStatus.Validating => "validating",
+        LifecycleStatus.Unknown => "unknown",
         _ => "stopped",
     };
 

@@ -14716,7 +14716,8 @@
           "Running",
           "Stopping",
           "Error",
-          "Validating"
+          "Validating",
+          "Unknown"
         ]
       },
       "MemoriesResponse": {

@@ -4050,7 +4050,7 @@ export interface components {
         };
         JsonElement: unknown;
         /** @enum {unknown} */
-        LifecycleStatus: "Draft" | "Stopped" | "Starting" | "Running" | "Stopping" | "Error" | "Validating";
+        LifecycleStatus: "Draft" | "Stopped" | "Starting" | "Running" | "Stopping" | "Error" | "Validating" | "Unknown";
         MemoriesResponse: {
             agent: components["schemas"]["MemoryEntry"][];
             thread: components["schemas"]["MemoryEntry"][];

@@ -120,7 +120,18 @@ public static class IssuesEndpoints
         [FromQuery] bool? includeDescendants,
         CancellationToken cancellationToken)
     {
-        var entry = await directoryService.ResolveAsync(Address.For("unit", id), cancellationToken);
+        // Validate the id is Guid-shaped before resolving. Address.For throws
+        // InvalidAddressIdException (full stack logged) when the portal passes
+        // a display name instead of the UUID; a clean 404 is the right surface
+        // for an unresolvable id (#3006 finding F).
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(id, out var unitGuid))
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' not found.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var entry = await directoryService.ResolveAsync(new Address("unit", unitGuid), cancellationToken);
         if (entry is null)
         {
             return Results.Problem(
@@ -139,7 +150,17 @@ public static class IssuesEndpoints
         [FromServices] IIssueAggregator aggregator,
         CancellationToken cancellationToken)
     {
-        var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
+        // Mirror the unit path: validate the id is Guid-shaped so a display
+        // name yields a clean 404 instead of a logged InvalidAddressIdException
+        // (#3006 finding F).
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(id, out var agentGuid))
+        {
+            return Results.Problem(
+                detail: $"Agent '{id}' not found.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var entry = await directoryService.ResolveAsync(new Address("agent", agentGuid), cancellationToken);
         if (entry is null)
         {
             return Results.Problem(

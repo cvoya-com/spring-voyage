@@ -543,6 +543,10 @@ function statusDotClass(status: NodeStatus): string {
     case "starting":
     case "stopping":
     case "validating":
+    // #3006: `unknown` is a read-failure / degraded indicator — paint it amber
+    // so it reads as "attention, status not confirmed" rather than blending
+    // into the neutral draft / stopped dot.
+    case "unknown":
       return "bg-warning";
     case "error":
       return "bg-destructive";

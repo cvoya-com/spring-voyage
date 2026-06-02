@@ -34,7 +34,21 @@
 # --------------------------------------------------------------------------
 {$WEB_HOSTNAME:{$DEPLOY_HOSTNAME:localhost}} {
     encode zstd gzip
-    reverse_proxy spring-web:3000
+
+    # Next.js SSE route handlers (src/Cvoya.Spring.Web/src/app/api/stream/**).
+    # Stream bytes straight through with no response buffering so events and
+    # periodic keepalives reach the browser immediately and the connection
+    # isn't torn down at an idle timeout (#3006 finding H). Must precede the
+    # catch-all reverse_proxy below.
+    handle /api/stream/* {
+        reverse_proxy spring-web:3000 {
+            flush_interval -1
+        }
+    }
+
+    handle {
+        reverse_proxy spring-web:3000
+    }
 }
 
 # --------------------------------------------------------------------------

@@ -411,22 +411,29 @@ public static class InteractionsEndpoints
 
         try
         {
-            await foreach (var frame in channel.Reader.ReadAllAsync(cancellationToken))
+            // Drain the channel, emitting an SSE keepalive comment during idle
+            // gaps so the stream doesn't get torn down at a proxy/client idle
+            // timeout during quiet periods (#3006 finding H).
+            while (await SseKeepAlive.WaitForDataOrKeepAliveAsync(
+                channel.Reader, httpContext.Response, cancellationToken))
             {
-                if (frame.Id <= ParseLastEventId(httpContext.Request.Headers["Last-Event-ID"]))
+                while (channel.Reader.TryRead(out var frame))
                 {
-                    // Resume: skip frames the client already saw. The
-                    // header value is captured per-frame so a mid-stream
-                    // reconnect (rare; the typical flow is a fresh
-                    // request) honours the most recent value.
-                    continue;
-                }
+                    if (frame.Id <= ParseLastEventId(httpContext.Request.Headers["Last-Event-ID"]))
+                    {
+                        // Resume: skip frames the client already saw. The
+                        // header value is captured per-frame so a mid-stream
+                        // reconnect (rare; the typical flow is a fresh
+                        // request) honours the most recent value.
+                        continue;
+                    }
 
-                var payload = JsonSerializer.Serialize(frame.Data, SerializerOptions);
-                await httpContext.Response.WriteAsync($"id: {frame.Id.ToString(CultureInfo.InvariantCulture)}\n", cancellationToken);
-                await httpContext.Response.WriteAsync($"event: {frame.EventName}\n", cancellationToken);
-                await httpContext.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
-                await httpContext.Response.Body.FlushAsync(cancellationToken);
+                    var payload = JsonSerializer.Serialize(frame.Data, SerializerOptions);
+                    await httpContext.Response.WriteAsync($"id: {frame.Id.ToString(CultureInfo.InvariantCulture)}\n", cancellationToken);
+                    await httpContext.Response.WriteAsync($"event: {frame.EventName}\n", cancellationToken);
+                    await httpContext.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
+                    await httpContext.Response.Body.FlushAsync(cancellationToken);
+                }
             }
         }
         catch (OperationCanceledException)
