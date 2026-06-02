@@ -296,16 +296,36 @@ public interface IUnitActor : IAgent
     Task SetPermissionInheritanceAsync(UnitPermissionInheritance inheritance, CancellationToken ct = default);
 
     /// <summary>
+    /// Off-turn helper that the unit's own dispatch task self-invokes
+    /// (via Dapr remoting) when a per-thread dispatch terminates
+    /// (success, cancel, exception, or non-zero container exit). Mutates
+    /// persistent actor state on the per-thread channel — drains any
+    /// messages appended for the thread while the dispatch was running
+    /// (per-thread FIFO is preserved), or removes the channel when the
+    /// queue is empty — so it must run on an actor turn. Per ADR-0030 §44:
+    /// only this thread's channel is affected; other threads on the same
+    /// unit run independently. Mirrors
+    /// <see cref="IAgentActor.OnDispatchExitAsync"/> — units gained the
+    /// per-thread mailbox in #3031 so a busy unit no longer blocks the
+    /// actor turn (and inbound delivery) on its runtime.
+    /// </summary>
+    /// <param name="threadId">The thread whose dispatcher just exited.</param>
+    /// <param name="reason">Human-readable reason for the exit.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    Task OnDispatchExitAsync(
+        string threadId,
+        string? reason,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Returns a coarse runtime-status snapshot of this unit — the same
     /// shape <see cref="IAgentActor.GetRuntimeStatusAsync"/> returns for
-    /// agents (#2100). The in-flight + channel counts come from the
-    /// unit's per-thread dispatcher tracker populated by
-    /// <c>HandleDomainMessageAsync</c> (#2491); queued is zero because
-    /// the unit's dispatch path is fire-and-forget through
-    /// <see cref="IRuntimeInvocationPath"/> with no FIFO queue ahead of
-    /// the dispatcher. The API layer combines this with the
-    /// <c>PersistentAgentRegistry</c> health probe to project <c>busy</c>
-    /// / <c>idle</c> / <c>unavailable</c>.
+    /// agents (#2100). In-flight + queued + channel counts come from the
+    /// unit's per-thread <c>ThreadChannel</c> state, populated by the
+    /// mailbox coordinator and drained by <see cref="OnDispatchExitAsync"/>
+    /// (#3031) — matching <see cref="IAgentActor.GetRuntimeStatusAsync"/>.
+    /// The API layer combines this with the <c>PersistentAgentRegistry</c>
+    /// health probe to project <c>busy</c> / <c>idle</c> / <c>unavailable</c>.
     /// </summary>
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>A snapshot of the unit's runtime state.</returns>

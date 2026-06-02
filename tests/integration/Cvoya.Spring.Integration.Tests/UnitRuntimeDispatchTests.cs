@@ -29,12 +29,14 @@ public class UnitRuntimeDispatchTests
         var message = MessageFactory.CreateDomainMessage(toId: "orch-unit", toType: "unit");
 
         await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await actor.PendingDispatchTask!;
 
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("orch-unit")),
             message,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -49,12 +51,14 @@ public class UnitRuntimeDispatchTests
         var message = MessageFactory.CreateDomainMessage(toId: "orch-unit", toType: "unit");
 
         await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await actor.PendingDispatchTask!;
 
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("orch-unit")),
             message,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -93,12 +97,14 @@ public class UnitRuntimeDispatchTests
         var message = MessageFactory.CreateDomainMessage(toId: "addr-unit", toType: "unit");
 
         await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await actor.PendingDispatchTask!;
 
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("addr-unit")),
             message,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 
     // --- Nested Unit Membership (#98 + #2052) ---
@@ -116,12 +122,14 @@ public class UnitRuntimeDispatchTests
         var incoming = MessageFactory.CreateDomainMessage(toId: "parent-unit", toType: "unit");
 
         await parent.ReceiveAsync(incoming, TestContext.Current.CancellationToken);
+        await parent.PendingDispatchTask!;
 
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("parent-unit")),
             incoming,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

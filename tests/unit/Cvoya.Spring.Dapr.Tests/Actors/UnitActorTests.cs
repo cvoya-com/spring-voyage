@@ -23,6 +23,7 @@ using global::Dapr.Actors.Runtime;
 using Microsoft.Extensions.Logging;
 
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 using Shouldly;
 
@@ -81,12 +82,21 @@ public class UnitActorTests
         _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<LifecycleStatus>(false, default));
 
+        // Default: no per-thread channels, no channel index (#3031 — the unit
+        // now drives the same per-thread mailbox as AgentActor).
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(false, default!));
+
+        // #3031: domain dispatch now flows through the mailbox-aware lean
+        // overload (builds the unit's minimal context internally, threads the
+        // per-thread drain callback + dispatch token).
         _runtimeInvocationPath
             .InvokeAsync(
                 Arg.Any<Address>(),
                 Arg.Any<Message>(),
-                Arg.Any<CancellationToken>(),
-                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+                Arg.Any<Func<string, Task>>(),
+                Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         _stateManager.ClearReceivedCalls();
@@ -134,12 +144,18 @@ public class UnitActorTests
 
         var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
+        // #3031: domain dispatch is fire-and-forget through the per-thread
+        // mailbox — ReceiveAsync enqueues and returns null; the runtime is
+        // invoked on the background dispatch task. Await it so the assertion
+        // is deterministic.
         result.ShouldBeNull();
+        await _actor.PendingDispatchTask!;
         await _runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestUnitActorId),
             message,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -148,6 +164,7 @@ public class UnitActorTests
         var message = CreateMessage();
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
 
         // ADR-0040 / #2052: domain dispatch goes straight into the
         // runtime path; the actor must not preload the EF member graph
@@ -155,8 +172,9 @@ public class UnitActorTests
         await _runtimeInvocationPath.Received(1).InvokeAsync(
             Arg.Any<Address>(),
             message,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -165,32 +183,35 @@ public class UnitActorTests
         var message = CreateMessage();
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
 
         await _runtimeInvocationPath.Received(1).InvokeAsync(
             Arg.Any<Address>(),
             message,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ReceiveAsync_DomainMessage_ForwardsNonNullActivityDelegateToRuntimePath()
     {
         // #2211: the unit actor must pass its own activity-emission
-        // delegate to the lean runtime-invocation path so that
-        // ErrorOccurred events from the dispatch coordinator (e.g.
-        // credential-resolution failures) surface in the unit's
-        // Activity feed instead of being silently dropped by the
-        // lean overload's no-op default.
+        // delegate to the runtime-invocation path so that ErrorOccurred
+        // events from the dispatch coordinator (e.g. credential-resolution
+        // failures) surface in the unit's Activity feed instead of being
+        // silently dropped.
         var message = CreateMessage();
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
 
         await _runtimeInvocationPath.Received(1).InvokeAsync(
             Arg.Any<Address>(),
             message,
-            Arg.Any<CancellationToken>(),
-            Arg.Is<Func<ActivityEvent, CancellationToken, Task>?>(d => d != null));
+            Arg.Is<Func<ActivityEvent, CancellationToken, Task>>(d => d != null),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 
     // --- Runtime-status snapshot (#2491) ---
@@ -210,58 +231,208 @@ public class UnitActorTests
     }
 
     [Fact]
-    public async Task GetRuntimeStatusAsync_DuringDispatch_ReportsOneInFlight()
+    public async Task GetRuntimeStatusAsync_OneDispatchingChannel_ReportsOneInFlight()
     {
-        // Acceptance criterion: a unit with active work reports non-zero
-        // in_flight (currently returns zero — this is the bug fixed
-        // here). We stall the runtime path so it does not return before
-        // the snapshot is taken — the tracker enters on the call site
-        // and exits in the finally block, so observing it between
-        // InvokeAsync and its completion is the only valid window.
-        var release = new TaskCompletionSource();
-        AgentRuntimeStatusReport? snapshotDuringDispatch = null;
-
-        _runtimeInvocationPath
-            .InvokeAsync(
-                Arg.Any<Address>(),
-                Arg.Any<Message>(),
-                Arg.Any<CancellationToken>(),
-                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
-            .Returns(async _ =>
+        // #3031: status is derived from per-thread ThreadChannel state,
+        // matching AgentActor. A single Dispatching channel with one message
+        // is one in-flight thread and zero queued (the head is the in-flight
+        // dispatch).
+        var threadId = "conv-busy";
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, new List<string> { threadId }));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, new ThreadChannel
             {
-                // Snapshot inside the invocation — at this point the
-                // tracker has entered for the current thread.
-                snapshotDuringDispatch = await _actor.GetRuntimeStatusAsync(
-                    TestContext.Current.CancellationToken);
-                await release.Task;
-            });
-
-        var message = CreateMessage();
-        var receiveTask = _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-        release.SetResult();
-        await receiveTask;
-
-        snapshotDuringDispatch.ShouldNotBeNull();
-        snapshotDuringDispatch!.InFlightThreadCount.ShouldBe(1);
-        // Units' lean dispatch has no FIFO queue ahead of the dispatcher —
-        // queued stays zero by design (#2491 design note).
-        snapshotDuringDispatch.QueuedMessageCount.ShouldBe(0);
-        snapshotDuringDispatch.ChannelCount.ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task GetRuntimeStatusAsync_AfterDispatchReturns_ReportsZero()
-    {
-        // The finally-block in HandleDomainMessageAsync must clear the
-        // tracker on dispatch return so a one-off dispatch doesn't leave
-        // a permanent "in-flight" reading.
-        var message = CreateMessage();
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+                ThreadId = threadId,
+                Messages = [CreateMessage(threadId: threadId)],
+                Dispatching = true,
+            }));
 
         var report = await _actor.GetRuntimeStatusAsync(TestContext.Current.CancellationToken);
 
-        report.InFlightThreadCount.ShouldBe(0);
-        report.ChannelCount.ShouldBe(0);
+        report.InFlightThreadCount.ShouldBe(1);
+        report.QueuedMessageCount.ShouldBe(0);
+        report.ChannelCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetRuntimeStatusAsync_DispatchingChannelWithBacklog_CountsQueuedBeyondHead()
+    {
+        // A Dispatching channel with three messages contributes one in-flight
+        // (the head) and two queued — the unit now has a real FIFO queue ahead
+        // of the dispatcher (#3031), unlike the pre-mailbox path that could
+        // not queue and reported zero.
+        var threadId = "conv-backlog";
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, new List<string> { threadId }));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, new ThreadChannel
+            {
+                ThreadId = threadId,
+                Messages =
+                [
+                    CreateMessage(threadId: threadId),
+                    CreateMessage(threadId: threadId),
+                    CreateMessage(threadId: threadId),
+                ],
+                Dispatching = true,
+            }));
+
+        var report = await _actor.GetRuntimeStatusAsync(TestContext.Current.CancellationToken);
+
+        report.InFlightThreadCount.ShouldBe(1);
+        report.QueuedMessageCount.ShouldBe(2);
+        report.ChannelCount.ShouldBe(1);
+    }
+
+    // --- Per-thread mailbox + drain (#3031, mirrors AgentActor) ---
+
+    [Fact]
+    public async Task ReceiveAsync_FirstDomainMessage_CreatesPerThreadChannel()
+    {
+        // #3031: the first inbound on a thread creates a Dispatching channel
+        // and returns immediately — the runtime runs on the background
+        // dispatch task, so a busy unit never blocks inbound delivery.
+        var threadId = "conv-new";
+        var message = CreateMessage(threadId: threadId);
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _stateManager.Received(1).SetStateAsync(
+            StateKeys.ChannelPrefix + threadId,
+            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching && c.Messages.Count == 1),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_SameThreadWhileDispatching_AppendsWithoutSecondDispatcher()
+    {
+        // While a thread is dispatching, a second inbound on the same thread
+        // appends to the channel's FIFO queue — no second dispatcher is
+        // launched; the drain loop picks it up when the head completes.
+        var threadId = "conv-busy";
+        var existing = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages = [CreateMessage(threadId: threadId)],
+            Dispatching = true,
+        };
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, existing));
+
+        var second = CreateMessage(threadId: threadId);
+        await _actor.ReceiveAsync(second, TestContext.Current.CancellationToken);
+
+        await _stateManager.Received().SetStateAsync(
+            StateKeys.ChannelPrefix + threadId,
+            Arg.Is<ThreadChannel>(c => c.Messages.Count == 2 && c.Dispatching),
+            Arg.Any<CancellationToken>());
+        _actor.PendingDispatchTask.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task OnDispatchExitAsync_MoreQueued_DrainsNextAndKeepsDispatching()
+    {
+        var threadId = "conv-drain";
+        var remaining = CreateMessage(threadId: threadId);
+        var channel = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages = [CreateMessage(threadId: threadId), remaining], // head + 1 queued
+            Dispatching = true,
+        };
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channel));
+
+        await _actor.OnDispatchExitAsync(threadId, "dispatch completed", TestContext.Current.CancellationToken);
+
+        // Head removed; the queued message becomes the new head; the channel
+        // stays Dispatching and a fresh dispatcher is launched for it.
+        await _stateManager.Received().SetStateAsync(
+            StateKeys.ChannelPrefix + threadId,
+            Arg.Is<ThreadChannel>(c => c.Messages.Count == 1 && c.Dispatching),
+            Arg.Any<CancellationToken>());
+        var dispatch = _actor.PendingDispatchTask.ShouldNotBeNull();
+        await dispatch;
+        await _runtimeInvocationPath.Received(1).InvokeAsync(
+            Arg.Any<Address>(),
+            remaining,
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task OnDispatchExitAsync_QueueEmpty_RemovesChannel()
+    {
+        var threadId = "conv-done";
+        var channel = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages = [CreateMessage(threadId: threadId)], // only the head
+            Dispatching = true,
+        };
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channel));
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, new List<string> { threadId }));
+
+        await _actor.OnDispatchExitAsync(threadId, "dispatch completed", TestContext.Current.CancellationToken);
+
+        await _stateManager.Received().TryRemoveStateAsync(
+            StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>());
+        _actor.PendingDispatchTask.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task OnDispatchExitAsync_HaltedWhileDispatching_QuiescesAndDropsBacklog()
+    {
+        // #2981: an authoritative stop mid-dispatch drops the remaining queue
+        // and removes the channel instead of re-arming the drain loop.
+        var threadId = "conv-halted";
+        var channel = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages = [CreateMessage(threadId: threadId), CreateMessage(threadId: threadId)],
+            Dispatching = true,
+        };
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channel));
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, new List<string> { threadId }));
+        _stateManager.TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<LifecycleStatus>(true, LifecycleStatus.Stopped));
+
+        await _actor.OnDispatchExitAsync(threadId, "dispatch completed", TestContext.Current.CancellationToken);
+
+        await _stateManager.Received().TryRemoveStateAsync(
+            StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>());
+        _actor.PendingDispatchTask.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_Cancel_ClearsThreadChannel()
+    {
+        // #3031: per-thread cancel clears the channel (matches AgentActor) so a
+        // subsequent inbound on the same thread starts a fresh drain loop.
+        var threadId = "conv-cancel";
+        var channel = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages = [CreateMessage(threadId: threadId)],
+            Dispatching = true,
+        };
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channel));
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(true, new List<string> { threadId }));
+
+        var cancel = CreateMessage(type: MessageType.Cancel, threadId: threadId);
+        var result = await _actor.ReceiveAsync(cancel, TestContext.Current.CancellationToken);
+
+        result.ShouldNotBeNull(); // ack
+        await _stateManager.Received().TryRemoveStateAsync(
+            StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>());
     }
 
     // --- Control Message Tests ---
@@ -455,22 +626,33 @@ public class UnitActorTests
     // --- Error Handling Tests ---
 
     [Fact]
-    public async Task ReceiveAsync_RuntimePathThrowsException_ReturnsErrorResponse()
+    public async Task ReceiveAsync_RuntimePathThrows_IsIsolatedToBackgroundDispatch()
     {
+        // #3031: receive is decoupled from dispatch. A runtime path that
+        // faults must NOT bubble through ReceiveAsync (which only enqueues
+        // into the per-thread mailbox); the fault stays isolated to the
+        // background dispatch task. In production the dispatch coordinator
+        // handles runtime errors and emits an ErrorOccurred activity (see
+        // UnitRuntimeDispatchVisibilityTests) rather than throwing — this test
+        // pins that a throw cannot break the actor turn / inbound delivery.
         var message = CreateMessage();
         _runtimeInvocationPath
             .InvokeAsync(
                 Arg.Any<Address>(),
                 message,
-                Arg.Any<CancellationToken>(),
-                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+                Arg.Any<Func<string, Task>>(),
+                Arg.Any<CancellationToken>())
             .Returns(_ => throw new InvalidOperationException("Runtime path failed"));
 
         var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        result.ShouldNotBeNull();
-        var payload = result!.Payload.Deserialize<JsonElement>();
-        payload.GetProperty("Error").GetString()!.ShouldContain("Runtime path failed");
+        // Enqueued and returned without surfacing the dispatch fault.
+        result.ShouldBeNull();
+
+        // The fault is observable only on the background dispatch task.
+        var dispatch = _actor.PendingDispatchTask.ShouldNotBeNull();
+        await Should.ThrowAsync<InvalidOperationException>(async () => await dispatch);
     }
 
     // --- Human Permission Tests (#2044 / ADR-0040) ---
@@ -660,47 +842,27 @@ public class UnitActorTests
     }
 
     [Fact]
-    public async Task ReceiveAsync_RuntimePathThrows_EmitsErrorOccurredEvent()
+    public async Task ReceiveAsync_SynchronousFailureDuringEnqueue_EmitsErrorOccurredWithStructuredDetails()
     {
-        var message = CreateMessage();
-        _runtimeInvocationPath
-            .InvokeAsync(
-                Arg.Any<Address>(),
-                message,
-                Arg.Any<CancellationToken>(),
-                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
-            .Returns(_ => throw new InvalidOperationException("Runtime path failed"));
-
-        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
-
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ErrorOccurred),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task ReceiveAsync_UnhandledExceptionDuringMessageHandling_EmitsErrorOccurredWithStructuredDetails()
-    {
-        // Arrange: make the runtime-invocation path throw a non-SpringException.
-        // The UnitActor catch block (#2551) must populate { error, agentId,
-        // threadId } so the portal activity feed can surface the failure
-        // without raw log access.
+        // #3031: runtime-dispatch errors now surface via the dispatch
+        // coordinator on the background task (see
+        // ReceiveAsync_RuntimePathThrows_IsIsolatedToBackgroundDispatch and the
+        // integration UnitRuntimeDispatchVisibilityTests). The UnitActor catch
+        // block (#2551) still converts a *synchronous* failure during message
+        // handling — e.g. a state read that throws while enqueuing into the
+        // per-thread mailbox — into a structured ErrorOccurred
+        // { error, agentId, threadId } so the portal activity feed can surface
+        // it without raw log access.
         var threadId = Guid.NewGuid().ToString();
         var message = CreateMessage(threadId: threadId);
-        const string errorText = "unexpected runtime failure";
+        const string errorText = "unexpected enqueue failure";
 
-        _runtimeInvocationPath
-            .InvokeAsync(
-                Arg.Any<Address>(),
-                message,
-                Arg.Any<CancellationToken>(),
-                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
-            .Returns(_ => throw new InvalidOperationException(errorText));
+        _stateManager
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ChannelPrefix + threadId, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException(errorText));
 
-        // Act
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        // Assert
         await _activityEventBus.Received(1).PublishAsync(
             Arg.Is<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ErrorOccurred &&
@@ -1197,12 +1359,14 @@ public class UnitActorTests
         var message = CreateMessage();
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
 
         await _runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestUnitActorId),
             message,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 
     // #939 — Draft → Starting is rejected; units must pass through Validating first

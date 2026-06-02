@@ -45,12 +45,14 @@ public class CliEndToEndTests
         var message = MessageFactory.CreateDomainMessage(toId: "cli-unit", toType: "unit");
 
         await unitActor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await unitActor.PendingDispatchTask!;
 
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("cli-unit")),
             message,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
 
         // Step 4: Check unit status.
         var statusQuery = MessageFactory.CreateStatusQuery("cli-requester", "cli-unit", toType: "unit");

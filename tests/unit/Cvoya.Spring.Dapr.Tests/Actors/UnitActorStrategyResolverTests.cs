@@ -53,8 +53,9 @@ public class UnitActorStrategyResolverTests
             .InvokeAsync(
                 Arg.Any<Address>(),
                 Arg.Any<Message>(),
-                Arg.Any<CancellationToken>(),
-                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+                Arg.Any<Func<string, Task>>(),
+                Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         var actor = BuildActor(actorId, runtimeInvocationPath);
@@ -69,13 +70,15 @@ public class UnitActorStrategyResolverTests
             Timestamp: DateTimeOffset.UtcNow);
 
         var result = await actor.ReceiveAsync(incoming, TestContext.Current.CancellationToken);
+        await actor.PendingDispatchTask!;
 
         result.ShouldBeNull();
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", actorId),
             incoming,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 
     private static UnitActor BuildActor(string actorId, IRuntimeInvocationPath runtimeInvocationPath)

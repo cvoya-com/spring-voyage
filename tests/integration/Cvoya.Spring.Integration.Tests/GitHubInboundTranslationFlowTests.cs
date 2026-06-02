@@ -45,8 +45,9 @@ public class GitHubInboundTranslationFlowTests
             .InvokeAsync(
                 Arg.Any<Address>(),
                 Arg.Any<Message>(),
-                Arg.Any<CancellationToken>(),
-                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+                Arg.Any<Func<string, Task>>(),
+                Arg.Any<CancellationToken>())
             .Returns(callInfo =>
             {
                 captured = callInfo.ArgAt<Message>(1);
@@ -88,6 +89,7 @@ public class GitHubInboundTranslationFlowTests
             ThreadId = "gh-real-conv-1",
         };
         await unitActor.ReceiveAsync(routed, TestContext.Current.CancellationToken);
+        await unitActor.PendingDispatchTask!;
 
         // The agent's runtime path received the REAL translated payload shape.
         captured.ShouldNotBeNull();
