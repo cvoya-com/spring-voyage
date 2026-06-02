@@ -188,6 +188,10 @@ public class GitHubAppRotateCommandTests
             var contents = await File.ReadAllTextAsync(envPath, CancellationToken.None);
             contents.ShouldContain(CredentialWriter.EnvKeys.PrivateKeyPem);
             contents.ShouldContain("-----BEGIN RSA PRIVATE KEY-----");
+            // The rotated PEM line is single-quoted (whitespace in the header)
+            // so `source spring.env` does not word-split it and run "RSA" (#2960).
+            contents.ShouldContain(
+                "GitHub__PrivateKeyPem='-----BEGIN RSA PRIVATE KEY-----\\nAAAA\\n-----END RSA PRIVATE KEY-----'");
 
             var output = stdout.ToString();
             output.ShouldContain("Rotation complete.");

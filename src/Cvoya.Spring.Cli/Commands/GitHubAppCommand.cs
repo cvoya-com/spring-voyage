@@ -396,11 +396,12 @@ public static class GitHubAppCommand
                 }
             }
 
-            var pemEscaped = pem
-                .Replace("\r\n", "\n", StringComparison.Ordinal)
-                .Replace("\n", "\\n", StringComparison.Ordinal);
             lines.Add($"# GitHub App private key — rotated by `spring github-app rotate-key` at {stamp}");
-            lines.Add($"{key}={pemEscaped}");
+            // Newlines collapse to literal "\n" and the value is single-quoted
+            // (the PEM contains whitespace) so a shell that `source`s spring.env
+            // does not word-split it and run "RSA" (#2960). The runtime strips
+            // the quotes and decodes "\n" when it binds.
+            lines.Add(Utilities.EnvFileFormatting.FormatLine(key, pem));
 
             var dir = Path.GetDirectoryName(envPath);
             if (!string.IsNullOrEmpty(dir))
@@ -621,7 +622,11 @@ public static class GitHubAppCommand
             }
 
             lines.Add($"# GitHub App webhook secret — rotated by `spring github-app rotate-webhook-secret` at {stamp}");
-            lines.Add($"{key}={newSecret}");
+            // Route through the shared formatter so an operator-supplied
+            // --from-value carrying whitespace or a '#' is single-quoted and
+            // survives `source spring.env` (#2960). An auto-generated base64url
+            // secret needs no quoting and is written bare.
+            lines.Add(Utilities.EnvFileFormatting.FormatLine(key, newSecret));
 
             var dir = Path.GetDirectoryName(envPath);
             if (!string.IsNullOrEmpty(dir))
