@@ -13,11 +13,15 @@ using Microsoft.EntityFrameworkCore.Migrations;
 /// Adds the <c>memories</c> table that backs the <c>sv.memory_*</c>
 /// platform tools introduced in #2342. One row per entry (long-term or
 /// short-term); owner-scoped on
-/// <c>(tenant_id, owner_scheme, owner_id)</c> per ADR-0036. A Postgres
+/// <c>(tenant_id, owner_scheme, owner_id)</c> per ADR-0036. <c>content</c>
+/// is a <c>jsonb</c> column — entries are JSON values (a JSON string for
+/// a plain text note; an object/array for structured state). A Postgres
 /// <c>GIN(to_tsvector('english', content))</c> functional index is
 /// created on <c>memories.content</c> so <c>sv.memory_search</c>'s
-/// full-text path is index-backed in production. EF cannot model the
-/// functional index directly, so it is emitted via raw SQL here.
+/// full-text path is index-backed in production; over <c>jsonb</c> the
+/// <c>to_tsvector</c> overload extracts the document's string values. EF
+/// cannot model the functional index directly, so it is emitted via raw
+/// SQL here.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -44,7 +48,7 @@ public partial class Memory : Migration
                 owner_id = table.Column<Guid>(type: "uuid", nullable: false),
                 kind = table.Column<int>(type: "integer", nullable: false),
                 thread_id = table.Column<Guid>(type: "uuid", nullable: true),
-                content = table.Column<string>(type: "text", nullable: false),
+                content = table.Column<string>(type: "jsonb", nullable: false),
                 source = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
                 created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                 updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),

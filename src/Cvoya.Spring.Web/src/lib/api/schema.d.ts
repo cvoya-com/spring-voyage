@@ -4057,7 +4057,7 @@ export interface components {
         };
         MemoryEntry: {
             id: string;
-            content: string;
+            content: components["schemas"]["JsonElement"];
             /** Format: date-time */
             createdAt: string;
             source: null | string;

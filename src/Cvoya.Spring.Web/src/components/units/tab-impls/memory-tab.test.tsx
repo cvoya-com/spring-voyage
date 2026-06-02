@@ -118,6 +118,33 @@ describe("MemoryTab", () => {
     expect(within(root).getByText(/thread: abcdef01/)).toBeInTheDocument();
   });
 
+  it("renders structured JSON content as formatted JSON, not [object Object]", () => {
+    useMemoriesMock.mockReturnValue({
+      data: {
+        shortTerm: [],
+        longTerm: [
+          {
+            id: "j1",
+            content: { status: "published", piece: 3 },
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            kind: "long_term",
+            source: null,
+          },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    });
+    render(<MemoryTab kind="Agent" id="ada" />);
+
+    const root = screen.getByTestId("tab-agent-memory");
+    expect(within(root).queryByText("[object Object]")).not.toBeInTheDocument();
+    const item = within(root).getByTestId("tab-agent-memory-long-item-j1");
+    expect(item.textContent).toContain('"status": "published"');
+    expect(item.textContent).toContain('"piece": 3');
+  });
+
   it("submits the search form with the typed query", () => {
     useMemoriesMock.mockReturnValue({
       data: { shortTerm: [], longTerm: [] },

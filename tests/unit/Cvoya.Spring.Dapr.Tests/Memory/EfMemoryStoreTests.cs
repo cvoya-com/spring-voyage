@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Memory;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Memory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
@@ -21,9 +23,12 @@ using Xunit;
 /// <summary>
 /// EF-backed tests for <see cref="EfMemoryStore"/> (#2342). Exercise the
 /// CRUD + search + tenant- / owner-isolation contract against the EF
-/// in-memory provider. The full-text search path falls back to
-/// case-insensitive substring matching on the in-memory provider; the
-/// integration suite exercises the real Postgres FTS query.
+/// in-memory provider. content is a <c>jsonb</c> value (a JSON string for
+/// a plain text note; an object/array for structured state, #2991); the
+/// store serialises a <see cref="JsonElement"/> in and parses one back
+/// out, so the JSON kind round-trips. The full-text search path falls
+/// back to case-insensitive substring matching on the in-memory provider;
+/// the Postgres FTS query is the production path.
 /// </summary>
 public class EfMemoryStoreTests : IDisposable
 {
@@ -42,6 +47,16 @@ public class EfMemoryStoreTests : IDisposable
     {
         _providerA = BuildProvider(TenantA);
         _providerB = BuildProvider(TenantB);
+    }
+
+    /// <summary>A JSON string content value (a plain text note).</summary>
+    private static JsonElement Text(string value) => JsonSerializer.SerializeToElement(value);
+
+    /// <summary>A structured JSON content value parsed from raw JSON.</summary>
+    private static JsonElement Json(string rawJson)
+    {
+        using var doc = JsonDocument.Parse(rawJson);
+        return doc.RootElement.Clone();
     }
 
     private ServiceProvider BuildProvider(Guid tenantId)
@@ -73,19 +88,55 @@ public class EfMemoryStoreTests : IDisposable
         var store = CreateStore(_providerA);
 
         var entry = await store.AddAsync(
-            AgentA, MemoryKind.LongTerm, "remember this", source: "msg-123",
+            AgentA, MemoryKind.LongTerm, Text("remember this"), source: "msg-123",
             threadId: null, ct);
 
         entry.Id.ShouldNotBe(Guid.Empty);
         entry.Owner.ShouldBe(AgentA);
         entry.Kind.ShouldBe(MemoryKind.LongTerm);
-        entry.Content.ShouldBe("remember this");
+        entry.Content.ValueKind.ShouldBe(JsonValueKind.String);
+        entry.Content.GetString().ShouldBe("remember this");
         entry.Source.ShouldBe("msg-123");
         entry.ThreadId.ShouldBeNull();
 
         var fetched = await store.GetAsync(AgentA, entry.Id, ct);
         fetched.ShouldNotBeNull();
-        fetched!.Content.ShouldBe("remember this");
+        fetched!.Content.GetString().ShouldBe("remember this");
+    }
+
+    [Fact]
+    public async Task AddAsync_JsonObject_RoundTripsAsStructuredJson()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore(_providerA);
+
+        var entry = await store.AddAsync(
+            AgentA, MemoryKind.LongTerm,
+            Json("""{"status":"published","piece":1}"""), source: null,
+            threadId: null, ct);
+
+        // The JSON kind is preserved — content reads back as an object,
+        // not a stringified blob.
+        entry.Content.ValueKind.ShouldBe(JsonValueKind.Object);
+        entry.Content.GetProperty("status").GetString().ShouldBe("published");
+        entry.Content.GetProperty("piece").GetInt32().ShouldBe(1);
+
+        var fetched = await store.GetAsync(AgentA, entry.Id, ct);
+        fetched.ShouldNotBeNull();
+        fetched!.Content.ValueKind.ShouldBe(JsonValueKind.Object);
+        fetched.Content.GetProperty("status").GetString().ShouldBe("published");
+    }
+
+    [Fact]
+    public async Task AddAsync_JsonNull_Throws()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore(_providerA);
+
+        await Should.ThrowAsync<ArgumentException>(async () =>
+            await store.AddAsync(
+                AgentA, MemoryKind.LongTerm, Json("null"), source: null,
+                threadId: null, ct));
     }
 
     [Fact]
@@ -96,7 +147,7 @@ public class EfMemoryStoreTests : IDisposable
 
         await Should.ThrowAsync<ArgumentException>(async () =>
             await store.AddAsync(
-                AgentA, MemoryKind.ShortTerm, "x", source: null,
+                AgentA, MemoryKind.ShortTerm, Text("x"), source: null,
                 threadId: null, ct));
     }
 
@@ -108,7 +159,7 @@ public class EfMemoryStoreTests : IDisposable
         var thread = Guid.NewGuid();
 
         var entry = await store.AddAsync(
-            AgentA, MemoryKind.ShortTerm, "working note", source: null,
+            AgentA, MemoryKind.ShortTerm, Text("working note"), source: null,
             threadId: thread, ct);
 
         entry.ThreadId.ShouldBe(thread);
@@ -120,7 +171,7 @@ public class EfMemoryStoreTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
         var entry = await store.AddAsync(
-            AgentA, MemoryKind.LongTerm, "a's memory", source: null,
+            AgentA, MemoryKind.LongTerm, Text("a's memory"), source: null,
             threadId: null, ct);
 
         var crossOwner = await store.GetAsync(AgentB, entry.Id, ct);
@@ -133,9 +184,9 @@ public class EfMemoryStoreTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
 
-        await store.AddAsync(AgentA, MemoryKind.LongTerm, "L1", null, null, ct);
-        await store.AddAsync(AgentA, MemoryKind.LongTerm, "L2", null, null, ct);
-        await store.AddAsync(AgentA, MemoryKind.ShortTerm, "S1", null, Guid.NewGuid(), ct);
+        await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("L1"), null, null, ct);
+        await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("L2"), null, null, ct);
+        await store.AddAsync(AgentA, MemoryKind.ShortTerm, Text("S1"), null, Guid.NewGuid(), ct);
 
         var allLong = await store.ListAsync(AgentA, MemoryKind.LongTerm, 10, 0, ct);
         allLong.Count.ShouldBe(2);
@@ -154,13 +205,34 @@ public class EfMemoryStoreTests : IDisposable
         var store = CreateStore(_providerA);
 
         await store.AddAsync(AgentA, MemoryKind.LongTerm,
-            "the quick brown fox jumps over the lazy dog", null, null, ct);
+            Text("the quick brown fox jumps over the lazy dog"), null, null, ct);
         await store.AddAsync(AgentA, MemoryKind.LongTerm,
-            "completely unrelated content", null, null, ct);
+            Text("completely unrelated content"), null, null, ct);
 
         var hits = await store.SearchAsync(AgentA, "brown fox", null, 5, ct);
         hits.Count.ShouldBe(1);
-        hits[0].Content.ShouldContain("brown fox");
+        hits[0].Content.GetString().ShouldNotBeNull().ShouldContain("brown fox");
+    }
+
+    [Fact]
+    public async Task SearchAsync_StructuredContent_MatchesByContainedValue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore(_providerA);
+
+        await store.AddAsync(AgentA, MemoryKind.LongTerm,
+            Json("""{"piece":3,"status":"published","headline":"Spring arrives"}"""),
+            null, null, ct);
+        await store.AddAsync(AgentA, MemoryKind.LongTerm,
+            Json("""{"piece":1,"status":"reporting"}"""), null, null, ct);
+
+        // A structured memory is searchable by a string value it contains
+        // (the Postgres FTS uses the to_tsvector(jsonb) string-value
+        // overload; the in-memory fallback substring-matches the raw JSON).
+        var hits = await store.SearchAsync(AgentA, "published", null, 5, ct);
+        hits.Count.ShouldBe(1);
+        hits[0].Content.ValueKind.ShouldBe(JsonValueKind.Object);
+        hits[0].Content.GetProperty("headline").GetString().ShouldBe("Spring arrives");
     }
 
     [Fact]
@@ -168,7 +240,7 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        await store.AddAsync(AgentA, MemoryKind.LongTerm, "x", null, null, ct);
+        await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("x"), null, null, ct);
 
         var hits = await store.SearchAsync(AgentA, "  ", null, 5, ct);
         hits.ShouldBeEmpty();
@@ -179,12 +251,44 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, "old content",
+        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("old content"),
             null, null, ct);
 
-        var updated = await store.UpdateAsync(AgentA, entry.Id, "new content", ct);
+        var updated = await store.UpdateAsync(AgentA, entry.Id, Text("new content"), ct);
         updated.ShouldNotBeNull();
-        updated!.Content.ShouldBe("new content");
+        updated!.Content.GetString().ShouldBe("new content");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_TextToStructured_ReplacesValueAndKind()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore(_providerA);
+        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("a plain note"),
+            null, null, ct);
+
+        var updated = await store.UpdateAsync(
+            AgentA, entry.Id, Json("""{"phase":"done","count":2}"""), ct);
+
+        updated.ShouldNotBeNull();
+        updated!.Content.ValueKind.ShouldBe(JsonValueKind.Object);
+        updated.Content.GetProperty("phase").GetString().ShouldBe("done");
+        updated.UpdatedAt.ShouldBeGreaterThanOrEqualTo(entry.CreatedAt);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_StructuredToText_ReplacesValueAndKind()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore(_providerA);
+        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm,
+            Json("""{"phase":"draft"}"""), null, null, ct);
+
+        var updated = await store.UpdateAsync(AgentA, entry.Id, Text("now just text"), ct);
+
+        updated.ShouldNotBeNull();
+        updated!.Content.ValueKind.ShouldBe(JsonValueKind.String);
+        updated.Content.GetString().ShouldBe("now just text");
     }
 
     [Fact]
@@ -192,11 +296,11 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, "x", null, null, ct);
+        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("x"), null, null, ct);
 
-        var updated = await store.UpdateAsync(AgentA, entry.Id, null, ct);
+        var updated = await store.UpdateAsync(AgentA, entry.Id, (JsonElement?)null, ct);
         updated.ShouldNotBeNull();
-        updated!.Content.ShouldBe("x");
+        updated!.Content.GetString().ShouldBe("x");
     }
 
     [Fact]
@@ -204,7 +308,7 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, "x", null, null, ct);
+        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("x"), null, null, ct);
 
         var deleted = await store.DeleteAsync(AgentA, entry.Id, ct);
         deleted.ShouldBeTrue();
@@ -217,7 +321,7 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, "x", null, null, ct);
+        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("x"), null, null, ct);
 
         var deleted = await store.DeleteAsync(AgentB, entry.Id, ct);
         deleted.ShouldBeFalse();
@@ -232,7 +336,7 @@ public class EfMemoryStoreTests : IDisposable
         var storeA = CreateStore(_providerA);
         var storeB = CreateStore(_providerB);
 
-        var entry = await storeA.AddAsync(AgentA, MemoryKind.LongTerm, "secret", null, null, ct);
+        var entry = await storeA.AddAsync(AgentA, MemoryKind.LongTerm, Text("secret"), null, null, ct);
 
         // Tenant B sees nothing for the same agent address.
         (await storeB.GetAsync(AgentA, entry.Id, ct)).ShouldBeNull();
@@ -245,15 +349,15 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        await store.AddAsync(AgentA, MemoryKind.LongTerm, "agent secret", null, null, ct);
-        await store.AddAsync(UnitA, MemoryKind.LongTerm, "unit secret", null, null, ct);
+        await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("agent secret"), null, null, ct);
+        await store.AddAsync(UnitA, MemoryKind.LongTerm, Text("unit secret"), null, null, ct);
 
         var agentList = await store.ListAsync(AgentA, null, 10, 0, ct);
         agentList.Count.ShouldBe(1);
-        agentList[0].Content.ShouldBe("agent secret");
+        agentList[0].Content.GetString().ShouldBe("agent secret");
 
         var unitList = await store.ListAsync(UnitA, null, 10, 0, ct);
         unitList.Count.ShouldBe(1);
-        unitList[0].Content.ShouldBe("unit secret");
+        unitList[0].Content.GetString().ShouldBe("unit secret");
     }
 }

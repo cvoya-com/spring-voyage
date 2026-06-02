@@ -8,6 +8,8 @@ using System.CommandLine;
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
 
+using Microsoft.Kiota.Abstractions.Serialization;
+
 /// <summary>
 /// #2342: <c>spring agent memory &lt;verb&gt;</c> and
 /// <c>spring unit memory &lt;verb&gt;</c> verb trees. Read-only in v0.1
@@ -435,7 +437,7 @@ public static class MemoryCommand
         new(
             Id: entry.Id ?? string.Empty,
             Kind: entry.Kind ?? string.Empty,
-            Content: entry.Content ?? string.Empty,
+            Content: RenderContentCell(entry.Content),
             Source: entry.Source,
             ThreadId: entry.ThreadId,
             CreatedAt: entry.CreatedAt is { } c
@@ -444,4 +446,21 @@ public static class MemoryCommand
             UpdatedAt: entry.UpdatedAt is { } u
                 ? u.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
                 : string.Empty);
+
+    /// <summary>
+    /// Renders a memory entry's content for a table cell. content is a
+    /// JSON value (Kiota surfaces the empty-schema property as an
+    /// <see cref="UntypedNode"/>): a plain text note shows as its raw
+    /// string; structured state shows as compact JSON. The
+    /// <c>--output json</c> path serialises the whole entry through
+    /// Kiota's writer, so structured content stays native there.
+    /// </summary>
+    private static string RenderContentCell(UntypedNode? content) =>
+        content switch
+        {
+            null or UntypedNull => string.Empty,
+            UntypedString s => s.GetValue() ?? string.Empty,
+            _ => System.Text.Json.JsonSerializer.Serialize(
+                SpringApiClient.UntypedNodeToJsonElement(content)),
+        };
 }

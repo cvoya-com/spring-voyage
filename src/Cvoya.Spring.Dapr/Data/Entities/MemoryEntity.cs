@@ -14,9 +14,17 @@ using Cvoya.Spring.Core.Tenancy;
 /// </summary>
 /// <remarks>
 /// <para>
+/// The <c>content</c> column is <c>jsonb</c>: it holds the entry as a
+/// JSON value (a JSON string for a plain text note; an object/array for
+/// structured state). The CLR property is the raw JSON text;
+/// <c>EfMemoryStore</c> serialises a <c>JsonElement</c> in and parses
+/// one back out.
+/// </para>
+/// <para>
 /// Full-text search keys off the <c>content</c> column via a Postgres
-/// <c>GIN(to_tsvector('english', content))</c> index — see the
-/// <c>EfMemoryStore.SearchAsync</c> implementation.
+/// <c>GIN(to_tsvector('english', content))</c> index — the
+/// <c>to_tsvector(jsonb)</c> overload extracts the document's string
+/// values. See the <c>EfMemoryStore.SearchAsync</c> implementation.
 /// </para>
 /// </remarks>
 public class MemoryEntity : ITenantScopedEntity
@@ -50,8 +58,14 @@ public class MemoryEntity : ITenantScopedEntity
     /// </summary>
     public Guid? ThreadId { get; set; }
 
-    /// <summary>Raw entry content.</summary>
-    public string Content { get; set; } = string.Empty;
+    /// <summary>
+    /// Raw JSON text of the entry content, persisted to a <c>jsonb</c>
+    /// column. A plain text note is stored as a JSON string (e.g.
+    /// <c>"remember this"</c>); structured state as an object/array.
+    /// Defaults to the JSON literal <c>null</c> so the non-null column
+    /// always has a valid jsonb value.
+    /// </summary>
+    public string Content { get; set; } = "null";
 
     /// <summary>
     /// Optional origin reference (message id, conversation id, document

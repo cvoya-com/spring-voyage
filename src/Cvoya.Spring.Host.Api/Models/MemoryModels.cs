@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Host.Api.Models;
 
+using System.Text.Json;
+
 /// <summary>
 /// Response body for <c>GET /api/v1/tenant/units/{id}/memories</c> and
 /// <c>GET /api/v1/tenant/agents/{id}/memories</c>. Mirrors the two-axis
@@ -34,7 +36,11 @@ public record MemoriesResponse(
 /// emit ergonomic client types.
 /// </summary>
 /// <param name="Id">Stable identifier for the memory entry.</param>
-/// <param name="Content">Raw entry text surfaced in the inspector.</param>
+/// <param name="Content">
+/// Entry content as a JSON value — a JSON string for a plain text note,
+/// or an object/array for structured state. Surfaced in the inspector
+/// with its JSON type preserved (mirrors <c>Core.Memory.MemoryEntry.Content</c>).
+/// </param>
 /// <param name="CreatedAt">UTC timestamp the entry was first captured.</param>
 /// <param name="Source">
 /// Optional origin of the entry (e.g. conversation id, message id).
@@ -50,7 +56,7 @@ public record MemoriesResponse(
 /// </param>
 public record MemoryEntry(
     string Id,
-    string Content,
+    JsonElement Content,
     DateTimeOffset CreatedAt,
     string? Source,
     string Kind,

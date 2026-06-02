@@ -736,7 +736,7 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
 
                     b.Property<string>("Content")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasColumnType("jsonb")
                         .HasColumnName("content");
 
                     b.Property<DateTimeOffset>("CreatedAt")

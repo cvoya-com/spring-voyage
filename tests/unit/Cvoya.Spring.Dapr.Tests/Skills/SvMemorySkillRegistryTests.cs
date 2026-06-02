@@ -26,7 +26,9 @@ using Xunit;
 /// the unknown-tool rejection, and the caller-scoping behaviour: every
 /// store call receives the caller's address as the owner. Wire-shape
 /// regression coverage for tool argument parsing is included for the
-/// load-bearing tool (sv.memory.add).
+/// load-bearing tool (sv.memory.add), including JSON-content handling
+/// (#2991): content crosses as a <see cref="JsonElement"/> and round-trips
+/// natively (a string for text, an object/array for structured state).
 /// </summary>
 public class SvMemorySkillRegistryTests
 {
@@ -45,6 +47,22 @@ public class SvMemorySkillRegistryTests
             CallerId: GuidFormatter.Format(callerId),
             CallerKind: Address.AgentScheme,
             ThreadId: threadId is { } t ? GuidFormatter.Format(t) : Guid.NewGuid().ToString("N"));
+
+    // Echoes the supplied add arguments back into a MemoryEntry so the
+    // registry can serialise the response. content (arg index 2) is now a
+    // JsonElement.
+    private void StubAddEcho() =>
+        _memoryStore.AddAsync(Arg.Any<Address>(), Arg.Any<MemoryKind>(), Arg.Any<JsonElement>(),
+                Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(new MemoryEntry(
+                Guid.NewGuid(),
+                call.Arg<Address>(),
+                call.Arg<MemoryKind>(),
+                call.ArgAt<JsonElement>(2),
+                call.ArgAt<string?>(3),
+                call.ArgAt<Guid?>(4),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow)));
 
     [Fact]
     public void GetToolDefinitions_AdvertisesAllSixTools()
@@ -93,28 +111,61 @@ public class SvMemorySkillRegistryTests
         var callerId = Guid.NewGuid();
         var ctx = AgentContext(callerId);
         var args = JsonDocument.Parse("""{"content":"a note"}""").RootElement;
-
-        _memoryStore.AddAsync(Arg.Any<Address>(), Arg.Any<MemoryKind>(), Arg.Any<string>(),
-                Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
-            .Returns(call => Task.FromResult(new MemoryEntry(
-                Guid.NewGuid(),
-                call.Arg<Address>(),
-                call.Arg<MemoryKind>(),
-                call.ArgAt<string>(2),
-                call.ArgAt<string?>(3),
-                call.ArgAt<Guid?>(4),
-                DateTimeOffset.UtcNow,
-                DateTimeOffset.UtcNow)));
+        StubAddEcho();
 
         await registry.InvokeAsync(SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken);
 
         await _memoryStore.Received(1).AddAsync(
             Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == callerId),
             MemoryKind.LongTerm,
-            "a note",
+            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.String && c.GetString() == "a note"),
             null,
             null,
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryAdd_StructuredContent_PassesJsonObjectToStore_AndEmitsItNatively()
+    {
+        var registry = CreateRegistry();
+        var ctx = AgentContext(Guid.NewGuid());
+        var args = JsonDocument.Parse(
+            """{"content":{"status":"published","piece":3},"kind":"long_term"}""").RootElement;
+        StubAddEcho();
+
+        var result = await registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken);
+
+        // The store receives the content as a JSON object, not a string.
+        await _memoryStore.Received(1).AddAsync(
+            Arg.Any<Address>(),
+            MemoryKind.LongTerm,
+            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.Object
+                && c.GetProperty("status").GetString() == "published"),
+            null,
+            null,
+            Arg.Any<CancellationToken>());
+
+        // The response emits content natively (an object), not a stringified blob.
+        var content = result.GetProperty("content");
+        content.ValueKind.ShouldBe(JsonValueKind.Object);
+        content.GetProperty("piece").GetInt32().ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task MemoryAdd_TextContent_EmitsString()
+    {
+        var registry = CreateRegistry();
+        var ctx = AgentContext(Guid.NewGuid());
+        var args = JsonDocument.Parse("""{"content":"plain note"}""").RootElement;
+        StubAddEcho();
+
+        var result = await registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken);
+
+        var content = result.GetProperty("content");
+        content.ValueKind.ShouldBe(JsonValueKind.String);
+        content.GetString().ShouldBe("plain note");
     }
 
     [Fact]
@@ -125,20 +176,14 @@ public class SvMemorySkillRegistryTests
         var threadId = Guid.NewGuid();
         var ctx = AgentContext(callerId, threadId);
         var args = JsonDocument.Parse("""{"content":"working","kind":"short_term"}""").RootElement;
-
-        _memoryStore.AddAsync(Arg.Any<Address>(), Arg.Any<MemoryKind>(), Arg.Any<string>(),
-                Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
-            .Returns(call => Task.FromResult(new MemoryEntry(
-                Guid.NewGuid(), call.Arg<Address>(), call.Arg<MemoryKind>(),
-                call.ArgAt<string>(2), call.ArgAt<string?>(3), call.ArgAt<Guid?>(4),
-                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)));
+        StubAddEcho();
 
         await registry.InvokeAsync(SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken);
 
         await _memoryStore.Received(1).AddAsync(
             Arg.Any<Address>(),
             MemoryKind.ShortTerm,
-            "working",
+            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.String && c.GetString() == "working"),
             null,
             threadId,
             Arg.Any<CancellationToken>());
@@ -155,20 +200,14 @@ public class SvMemorySkillRegistryTests
         var args = JsonDocument.Parse(
             $$"""{"content":"x","kind":"short_term","thread_id":"{{override_.ToString("N")}}"}""")
             .RootElement;
-
-        _memoryStore.AddAsync(Arg.Any<Address>(), Arg.Any<MemoryKind>(), Arg.Any<string>(),
-                Arg.Any<string?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
-            .Returns(call => Task.FromResult(new MemoryEntry(
-                Guid.NewGuid(), call.Arg<Address>(), call.Arg<MemoryKind>(),
-                call.ArgAt<string>(2), call.ArgAt<string?>(3), call.ArgAt<Guid?>(4),
-                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)));
+        StubAddEcho();
 
         await registry.InvokeAsync(SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken);
 
         await _memoryStore.Received(1).AddAsync(
             Arg.Any<Address>(),
             MemoryKind.ShortTerm,
-            Arg.Any<string>(),
+            Arg.Any<JsonElement>(),
             Arg.Any<string?>(),
             override_,
             Arg.Any<CancellationToken>());
@@ -219,6 +258,33 @@ public class SvMemorySkillRegistryTests
     }
 
     [Fact]
+    public async Task MemoryUpdate_StructuredContent_PassesJsonObjectToStore()
+    {
+        var registry = CreateRegistry();
+        var callerId = Guid.NewGuid();
+        var id = Guid.NewGuid();
+        var ctx = AgentContext(callerId);
+        var args = JsonDocument.Parse(
+            $$$"""{"id":"{{{id.ToString("N")}}}","content":{"phase":"done"}}""").RootElement;
+        _memoryStore.UpdateAsync(Arg.Any<Address>(), Arg.Any<Guid>(),
+                Arg.Any<JsonElement?>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult<MemoryEntry?>(new MemoryEntry(
+                id, call.Arg<Address>(), MemoryKind.LongTerm,
+                call.ArgAt<JsonElement?>(2)!.Value, null, null,
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)));
+
+        var result = await registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryUpdateTool, args, ctx, TestContext.Current.CancellationToken);
+
+        await _memoryStore.Received(1).UpdateAsync(
+            Arg.Is<Address>(a => a.Id == callerId),
+            id,
+            Arg.Is<JsonElement?>(c => c.HasValue && c.Value.ValueKind == JsonValueKind.Object),
+            Arg.Any<CancellationToken>());
+        result.GetProperty("content").ValueKind.ShouldBe(JsonValueKind.Object);
+    }
+
+    [Fact]
     public async Task MemoryDelete_ReturnsDeletedFlag()
     {
         var registry = CreateRegistry();
@@ -244,7 +310,7 @@ public class SvMemorySkillRegistryTests
         var id = Guid.NewGuid();
         var args = JsonDocument.Parse($$"""{"id":"{{id.ToString("N")}}","content":"x"}""").RootElement;
         _memoryStore.UpdateAsync(Arg.Any<Address>(), Arg.Any<Guid>(),
-                Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                Arg.Any<JsonElement?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<MemoryEntry?>(null));
 
         await Should.ThrowAsync<SpringException>(async () =>
@@ -271,6 +337,28 @@ public class SvMemorySkillRegistryTests
         var registry = CreateRegistry();
         var ctx = AgentContext(Guid.NewGuid());
         var args = JsonDocument.Parse("""{}""").RootElement;
+
+        await Should.ThrowAsync<ArgumentException>(async () =>
+            await registry.InvokeAsync(SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task MemoryAdd_JsonNullContent_ThrowsArgumentException()
+    {
+        var registry = CreateRegistry();
+        var ctx = AgentContext(Guid.NewGuid());
+        var args = JsonDocument.Parse("""{"content":null}""").RootElement;
+
+        await Should.ThrowAsync<ArgumentException>(async () =>
+            await registry.InvokeAsync(SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task MemoryAdd_EmptyStringContent_ThrowsArgumentException()
+    {
+        var registry = CreateRegistry();
+        var ctx = AgentContext(Guid.NewGuid());
+        var args = JsonDocument.Parse("""{"content":"   "}""").RootElement;
 
         await Should.ThrowAsync<ArgumentException>(async () =>
             await registry.InvokeAsync(SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken));

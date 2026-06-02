@@ -79,7 +79,7 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
           "additionalProperties": false,
           "required": ["content"],
           "properties": {
-            "content": { "type": "string", "description": "Raw entry text." },
+            "content": { "type": ["string", "object", "array", "number", "boolean"], "description": "Entry content. A string is stored as text; a JSON object/array (or other JSON value) is stored as structured JSON and round-trips on read with its type preserved." },
             "kind": { "type": "string", "enum": ["long_term", "short_term"], "default": "long_term" },
             "source": { "type": "string", "description": "Optional origin reference (message id, conversation id, document reference)." },
             "thread_id": { "type": "string", "description": "Stable Guid identifier of the thread to associate the entry with. Required for short_term entries; defaults to the active thread when omitted." }
@@ -130,7 +130,7 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
           "required": ["id"],
           "properties": {
             "id": { "type": "string", "description": "Stable Guid identifier of the memory entry to mutate." },
-            "content": { "type": "string", "description": "Replacement content. Omit to leave content untouched." }
+            "content": { "type": ["string", "object", "array", "number", "boolean"], "description": "Replacement content (a string for text, or a JSON object/array for structured state). Its JSON type may differ from the original. Omit to leave content untouched." }
           }
         }
         """);
@@ -154,7 +154,9 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
                 "Capture a new memory entry owned by the calling agent or unit. " +
                 "Long-term entries survive across conversations; short-term entries " +
                 "are scoped to a thread and intended for working notes — pass " +
-                "kind='short_term' (defaults to long_term). Returns " +
+                "kind='short_term' (defaults to long_term). content may be a string " +
+                "(text) or a JSON object/array (structured state) and round-trips with " +
+                "its type preserved. Returns " +
                 "{ id, owner, kind, content, source, thread_id, created_at, updated_at }.",
                 MemoryAddSchema,
                 ToolCategories.Memory),
@@ -181,8 +183,9 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
                 ToolCategories.Memory),
             new ToolDefinition(
                 MemoryUpdateTool,
-                "Mutate an existing memory entry. Pass `content` to replace the " +
-                "entry's text; omit it to leave the entry untouched.",
+                "Mutate an existing memory entry. Pass `content` (a text string or " +
+                "a JSON object/array) to replace the entry's content; omit it to " +
+                "leave the entry untouched.",
                 MemoryUpdateSchema,
                 ToolCategories.Memory),
             new ToolDefinition(
@@ -231,7 +234,7 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
     private async Task<JsonElement> MemoryAddAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
     {
         var owner = ParseCaller(context);
-        var content = RequireStringArg(args, "content");
+        var content = RequireJsonContent(args, "content");
         var kind = ParseKindArg(args, MemoryKind.LongTerm);
         var source = TryReadStringArg(args, "source");
         var threadId = ParseThreadId(args, kind, context);
@@ -272,7 +275,7 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
     {
         var owner = ParseCaller(context);
         var id = RequireGuidArg(args, "id");
-        var content = TryReadStringArg(args, "content");
+        var content = TryReadJsonContent(args, "content");
         var entry = await _memoryStore.UpdateAsync(owner, id, content, ct);
         if (entry is null)
         {
@@ -410,6 +413,57 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
         return string.IsNullOrEmpty(raw) ? null : raw;
     }
 
+    /// <summary>
+    /// Reads the required <c>content</c> argument as a JSON value (a
+    /// string for text, an object/array for structured state). The value
+    /// is returned detached (<see cref="JsonElement.Clone"/>) so it
+    /// outlives the request's argument document. Throws when the argument
+    /// is missing, JSON <c>null</c>, or an empty/whitespace string.
+    /// </summary>
+    private static JsonElement RequireJsonContent(JsonElement args, string name)
+    {
+        if (args.ValueKind != JsonValueKind.Object ||
+            !args.TryGetProperty(name, out var prop) ||
+            prop.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+        {
+            throw new ArgumentException($"Missing required argument '{name}'.");
+        }
+        EnsureNonEmptyText(prop, name);
+        return prop.Clone();
+    }
+
+    /// <summary>
+    /// Reads the optional <c>content</c> argument as a JSON value, or
+    /// <c>null</c> when it is omitted or JSON <c>null</c> (partial-update
+    /// semantics — leave the stored content untouched). Throws when a
+    /// supplied string value is empty/whitespace.
+    /// </summary>
+    private static JsonElement? TryReadJsonContent(JsonElement args, string name)
+    {
+        if (args.ValueKind != JsonValueKind.Object ||
+            !args.TryGetProperty(name, out var prop) ||
+            prop.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+        {
+            return null;
+        }
+        EnsureNonEmptyText(prop, name);
+        return prop.Clone();
+    }
+
+    /// <summary>
+    /// Preserves the text-entry contract: a <c>content</c> supplied as a
+    /// JSON string must be non-empty / non-whitespace. Non-string JSON
+    /// values (objects, arrays, numbers, booleans) are accepted as-is.
+    /// </summary>
+    private static void EnsureNonEmptyText(JsonElement value, string name)
+    {
+        if (value.ValueKind == JsonValueKind.String &&
+            string.IsNullOrWhiteSpace(value.GetString()))
+        {
+            throw new ArgumentException($"Argument '{name}' must be a non-empty string.");
+        }
+    }
+
     private static Guid RequireGuidArg(JsonElement args, string name)
     {
         if (args.ValueKind != JsonValueKind.Object ||
@@ -520,7 +574,8 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
         writer.WriteString("id", entry.Owner.Path);
         writer.WriteEndObject();
         writer.WriteString("kind", entry.Kind == MemoryKind.ShortTerm ? KindShortTerm : KindLongTerm);
-        writer.WriteString("content", entry.Content);
+        writer.WritePropertyName("content");
+        entry.Content.WriteTo(writer);
         if (entry.Source is { } src)
         {
             writer.WriteString("source", src);
