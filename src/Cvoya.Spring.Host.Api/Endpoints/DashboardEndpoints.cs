@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Observability;
@@ -22,11 +23,11 @@ public static class DashboardEndpoints
 {
     /// <summary>
     /// Per-actor wall-clock budget for the parallel status fan-out (#2584).
-    /// Mirrors <see cref="TenantTreeEndpoints"/>: a busy actor (typically
-    /// one whose container is starting in response to an inbound message)
-    /// is reported as <see cref="LifecycleStatus.Starting"/> instead of
-    /// stalling the dashboard. The next fetch picks up the real status
-    /// once the actor frees up.
+    /// A busy actor (one mid-turn, holding its non-reentrant turn lock) cannot
+    /// answer <c>GetStatusAsync</c> within the budget; #2981 reports its
+    /// real last-known status from the queryable lifecycle mirror instead of
+    /// fabricating <see cref="LifecycleStatus.Starting"/> — the fabrication
+    /// that made a stopped-but-busy unit look like it was starting.
     /// </summary>
     private static readonly TimeSpan StatusReadBudget = TimeSpan.FromSeconds(1.5);
 
@@ -67,6 +68,7 @@ public static class DashboardEndpoints
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         IActivityQueryService activityQueryService,
+        ILifecycleStatusStore lifecycleStatusStore,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -89,7 +91,7 @@ public static class DashboardEndpoints
         // page renders.
         var unitStatusPairs = await Task.WhenAll(unitEntries.Select(async e =>
             (Entry: e,
-             Status: await TryReadUnitLifecycleStatusAsync(actorProxyFactory, e.ActorId, e.Address.Path, logger, cancellationToken))));
+             Status: await TryReadUnitLifecycleStatusAsync(actorProxyFactory, lifecycleStatusStore, e.ActorId, e.Address.Path, logger, cancellationToken))));
 
         var statusCounts = new Dictionary<LifecycleStatus, int>();
         var unitSummaries = new List<UnitDashboardSummary>(unitEntries.Count);
@@ -142,6 +144,7 @@ public static class DashboardEndpoints
     private static async Task<IResult> GetUnitsSummaryAsync(
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
+        ILifecycleStatusStore lifecycleStatusStore,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -156,7 +159,7 @@ public static class DashboardEndpoints
         // GetDashboardSummaryAsync above.
         var unitStatusPairs = await Task.WhenAll(unitEntries.Select(async e =>
             (Entry: e,
-             Status: await TryReadUnitLifecycleStatusAsync(actorProxyFactory, e.ActorId, e.Address.Path, logger, cancellationToken))));
+             Status: await TryReadUnitLifecycleStatusAsync(actorProxyFactory, lifecycleStatusStore, e.ActorId, e.Address.Path, logger, cancellationToken))));
 
         var units = unitStatusPairs
             .Select(p => new UnitDashboardSummary(p.Entry.Address.Path, p.Entry.DisplayName, p.Entry.RegisteredAt, p.Status))
@@ -167,11 +170,17 @@ public static class DashboardEndpoints
 
     /// <summary>
     /// Read a unit's status from its actor with a wall-clock budget so a
-    /// busy actor never stalls the dashboard (#2584). Mirrors
+    /// busy actor never stalls the dashboard (#2584). #2981: on a budget
+    /// timeout the unit's <em>real</em> last-known status is read from the
+    /// queryable lifecycle mirror (<c>unit_live_config.lifecycle_status</c>)
+    /// rather than fabricating <see cref="LifecycleStatus.Starting"/>; the
+    /// mirror is written by the actor on every transition, so it reflects the
+    /// truth without contending on the actor turn lock. Mirrors
     /// <see cref="TenantTreeEndpoints"/> — same fallback semantics.
     /// </summary>
     private static async Task<LifecycleStatus> TryReadUnitLifecycleStatusAsync(
         IActorProxyFactory actorProxyFactory,
+        ILifecycleStatusStore lifecycleStatusStore,
         Guid actorId,
         string unitPath,
         ILogger logger,
@@ -191,9 +200,10 @@ public static class DashboardEndpoints
         catch (Exception ex)
         {
             logger.LogWarning(ex,
-                "Failed to start status read for unit {UnitName}; reporting Unknown.",
+                "Failed to start status read for unit {UnitName}; falling back to lifecycle mirror.",
                 unitPath);
-            return LifecycleStatus.Unknown;
+            return await ReadMirroredStatusOrUnknownAsync(
+                lifecycleStatusStore, actorId, unitPath, logger, cancellationToken);
         }
 
         try
@@ -208,7 +218,7 @@ public static class DashboardEndpoints
             }
 
             logger.LogInformation(
-                "Status read for unit {UnitName} exceeded {BudgetMs} ms; reporting Starting.",
+                "Status read for unit {UnitName} exceeded {BudgetMs} ms; reading lifecycle mirror.",
                 unitPath, StatusReadBudget.TotalMilliseconds);
 
             // Observe the still-running task so its late completion doesn't
@@ -225,7 +235,8 @@ public static class DashboardEndpoints
                 },
                 TaskScheduler.Default);
 
-            return LifecycleStatus.Starting;
+            return await ReadMirroredStatusOrUnknownAsync(
+                lifecycleStatusStore, actorId, unitPath, logger, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -234,7 +245,39 @@ public static class DashboardEndpoints
         catch (Exception ex)
         {
             logger.LogWarning(ex,
-                "Failed to read status for unit {UnitName}; reporting Unknown.",
+                "Failed to read status for unit {UnitName}; falling back to lifecycle mirror.",
+                unitPath);
+            return await ReadMirroredStatusOrUnknownAsync(
+                lifecycleStatusStore, actorId, unitPath, logger, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// #2981: reads a unit's mirrored lifecycle status, returning
+    /// <see cref="LifecycleStatus.Unknown"/> when no mirror row exists or the
+    /// read fails — an honest degraded indicator, never a fabricated state.
+    /// </summary>
+    private static async Task<LifecycleStatus> ReadMirroredStatusOrUnknownAsync(
+        ILifecycleStatusStore lifecycleStatusStore,
+        Guid actorId,
+        string unitPath,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var mirrored = await lifecycleStatusStore.TryGetStatusAsync(
+                ArtefactKind.Unit, actorId, cancellationToken);
+            return mirrored ?? LifecycleStatus.Unknown;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Lifecycle mirror read failed for unit {UnitName}; reporting Unknown.",
                 unitPath);
             return LifecycleStatus.Unknown;
         }

@@ -64,10 +64,22 @@ public class AgentActor(
     IServiceScopeFactory? scopeFactory = null,
     Cvoya.Spring.Core.Issues.IIssueWriter? issueWriter = null,
     IArtefactValidationCoordinator? validationCoordinator = null,
-    MessageArrivedDetails? messageArrivedDetails = null) : Actor(host), IAgentActor, IRemindable
+    MessageArrivedDetails? messageArrivedDetails = null,
+    ILifecycleStatusStore? lifecycleStatusStore = null) : Actor(host), IAgentActor, IRemindable
 {
     private readonly MessageArrivedDetails _messageArrivedDetails =
         messageArrivedDetails ?? MessageArrivedDetails.Default;
+
+    /// <summary>
+    /// #2981: optional queryable mirror of this agent's lifecycle status.
+    /// Written on every transition (and on activation) so external gates —
+    /// the dispatcher cold-start gate, the message-router delivery gate — and
+    /// the portal status read-path can consult the status without racing the
+    /// actor turn lock. Optional so test harnesses that construct the actor
+    /// with a partial dependency set still wire up; production DI always
+    /// supplies it.
+    /// </summary>
+    private readonly ILifecycleStatusStore? _lifecycleStatusStore = lifecycleStatusStore;
 
     /// <summary>
     /// Name of the Dapr reminder that drives periodic initiative checks.
@@ -137,6 +149,18 @@ public class AgentActor(
                 : Task.FromResult<IReadOnlyList<ExpertiseDomain>?>(null),
             (domains, ct) => SetExpertiseAsync(domains, ct),
             CancellationToken.None);
+
+        // #2981: re-assert the authoritative status onto the queryable mirror
+        // on activation. An artefact that existed before the mirror column was
+        // added (or whose mirror drifted) converges as soon as its actor next
+        // activates. The store skips the write when the value is unchanged, so
+        // this is free in steady state. Guarded on the store so legacy test
+        // harnesses (no store, no StateManager) don't touch actor state here.
+        if (_lifecycleStatusStore is not null)
+        {
+            await WriteLifecycleMirrorAsync(
+                await GetStatusInternalAsync(CancellationToken.None), CancellationToken.None);
+        }
 
         await base.OnActivateAsync();
     }
@@ -590,10 +614,16 @@ public class AgentActor(
 
         var effective = await ResolveEffectiveMetadataAsync(message, cancellationToken);
 
+        // #2981: read the authoritative lifecycle status from actor state and
+        // hand it to the coordinator's lifecycle gate. A halted agent drops
+        // the message (the receive half of an authoritative stop).
+        var lifecycleStatus = await GetStatusInternalAsync(cancellationToken);
+
         await mailboxCoordinator.HandleDomainMessageAsync(
             agentId: Id.GetId(),
             message: message,
             effective: effective,
+            lifecycleStatus: lifecycleStatus,
             applyUnitPolicies: (eff, ct) => ApplyUnitPoliciesAsync(eff, ct),
             getChannel: (tid, ct) => GetChannelAsync(tid, ct),
             saveChannel: (ch, ct) => SaveChannelAsync(ch, ct),
@@ -923,6 +953,22 @@ public class AgentActor(
         // is no longer needed.
         _activeWorkByThread.Exit(threadId);
 
+        // #2981: if the agent was stopped while this dispatcher was running,
+        // quiesce instead of re-arming the drain loop. Drop the remaining
+        // queued messages for this thread (authoritative stop = drop, not
+        // hold) so a later restart does not replay a stale backlog. This is
+        // the drain half of an authoritative stop — the receive gate keeps
+        // new inbound out, this keeps the in-flight queue from running on.
+        var lifecycleStatus = await GetStatusInternalAsync(cancellationToken);
+        if (lifecycleStatus.IsHalted())
+        {
+            await RemoveChannelAsync(threadId, cancellationToken);
+            _logger.LogInformation(
+                "Actor {ActorId} thread {ThreadId} drain quiesced: lifecycle status is {Status} (reason: {Reason})",
+                Id.GetId(), threadId, lifecycleStatus, reason);
+            return;
+        }
+
         if (channel.Messages.Count == 0)
         {
             // Drain complete. Remove the channel so a subsequent inbound
@@ -1080,6 +1126,16 @@ public class AgentActor(
 
         var result = await PersistTransitionAsync(current, target, failure: null, cancellationToken);
 
+        // #2981: entering a halted state (Stopping on operator stop, or Error)
+        // cancels every in-flight dispatcher so an authoritative stop converges
+        // immediately rather than letting the conversation drain. The receive
+        // gate + OnDispatchExit quiesce keep new work from starting once the
+        // status is halted. Idempotent — a no-op when nothing is in flight.
+        if (result.Success && target.IsHalted())
+        {
+            await _activeWorkByThread.CancelAllAsync();
+        }
+
         // #2364: on entry into Validating, schedule the shared
         // ArtefactValidationWorkflow so the agent's image+credential+model
         // get probed. Mirrors UnitActor.TransitionAsync; the coordinator
@@ -1170,6 +1226,32 @@ public class AgentActor(
     }
 
     /// <summary>
+    /// #2981: writes <paramref name="status"/> to the queryable lifecycle
+    /// mirror (<c>agent_live_config.lifecycle_status</c>). Best-effort and
+    /// no-op when the store is unavailable (legacy test harnesses) or the id
+    /// is not Guid-shaped — actor state remains authoritative.
+    /// </summary>
+    private async Task WriteLifecycleMirrorAsync(LifecycleStatus status, CancellationToken ct)
+    {
+        if (_lifecycleStatusStore is null
+            || !Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(Id.GetId(), out var agentGuid))
+        {
+            return;
+        }
+
+        try
+        {
+            await _lifecycleStatusStore.SetStatusAsync(ArtefactKind.Agent, agentGuid, status, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to mirror lifecycle status {Status} for agent {AgentId}.",
+                status, Id.GetId());
+        }
+    }
+
+    /// <summary>
     /// Persists the status transition and emits a <c>StateChanged</c>
     /// activity event. Mirrors <c>UnitActor.PersistTransitionAsync</c> and
     /// also clears <see cref="StateKeys.AgentLifecycleError"/> on any
@@ -1197,6 +1279,14 @@ public class AgentActor(
         }
 
         await StateManager.SaveStateAsync(ct);
+
+        // #2981: mirror the just-persisted status onto the queryable
+        // agent_live_config row so external gates (dispatcher cold-start,
+        // message-router delivery) and the portal read-path see the new
+        // status without racing this actor's turn lock. Best-effort — a
+        // mirror-write failure must not fail the transition; the actor state
+        // above is authoritative and the next activation re-syncs the mirror.
+        await WriteLifecycleMirrorAsync(target, ct);
 
         _logger.LogInformation(
             "Agent {ActorId} transitioned from {Current} to {Target}",

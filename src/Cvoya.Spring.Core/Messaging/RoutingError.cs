@@ -75,6 +75,24 @@ public record RoutingError(
             reason);
 
     /// <summary>
+    /// Creates an error indicating the destination artefact is stopped,
+    /// stopping, or errored, so an authoritative stop refuses delivery to it
+    /// (#2981 / subsumed #2978). Maps to HTTP <c>409 Conflict</c> at the API
+    /// boundary — the target exists but is not in a state that accepts
+    /// messages; the caller must start it first. This is the chokepoint that
+    /// keeps a stopped unit's in-flight conversation from re-delivering into
+    /// stopped members (and cold-starting their containers) and that enforces
+    /// "a stopped agent/unit must not receive."
+    /// </summary>
+    /// <param name="address">The stopped target address.</param>
+    /// <returns>A routing error for a stopped recipient.</returns>
+    public static RoutingError RecipientStopped(Address address)
+    {
+        var detail = $"Recipient {address} is stopped; start it before sending messages.";
+        return new("RECIPIENT_STOPPED", detail, detail);
+    }
+
+    /// <summary>
     /// Creates an error indicating the inbound message failed a
     /// caller-side validation rule inside the destination actor
     /// (e.g. required field missing, unknown message type). Maps to

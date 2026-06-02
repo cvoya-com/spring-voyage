@@ -6,7 +6,9 @@ namespace Cvoya.Spring.Dapr.Routing;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -34,6 +36,12 @@ public class MessageRouter : IMessageRouter
     private readonly IPermissionService _permissionService;
     private readonly ILogger _logger;
     private readonly IServiceScopeFactory _scopeFactory;
+    // #2981: queryable lifecycle-status mirror used to refuse delivery to a
+    // stopped recipient (the receive half of an authoritative stop, the
+    // chokepoint that breaks a stopped unit's self-sustaining conversation).
+    // Optional so the many direct test constructions keep compiling; null
+    // fails open (the recipient actor's own receive gate is the authority).
+    private readonly ILifecycleStatusStore? _lifecycleStatusStore;
 
     /// <summary>
     /// Constructs a router. The <paramref name="scopeFactory"/> opens a
@@ -46,7 +54,8 @@ public class MessageRouter : IMessageRouter
         IAgentProxyResolver agentProxyResolver,
         IPermissionService permissionService,
         ILoggerFactory loggerFactory,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        ILifecycleStatusStore? lifecycleStatusStore = null)
     {
         ArgumentNullException.ThrowIfNull(scopeFactory);
 
@@ -55,6 +64,7 @@ public class MessageRouter : IMessageRouter
         _permissionService = permissionService;
         _logger = loggerFactory.CreateLogger<MessageRouter>();
         _scopeFactory = scopeFactory;
+        _lifecycleStatusStore = lifecycleStatusStore;
     }
 
     /// <summary>
@@ -126,6 +136,25 @@ public class MessageRouter : IMessageRouter
             {
                 return Result<Message?, RoutingError>.Failure(permissionCheck.Error!);
             }
+        }
+
+        // #2981 / subsumed #2978: refuse delivery to a stopped recipient. A
+        // halted unit/agent must not receive messages — the central chokepoint
+        // that keeps a stopped unit's in-flight conversation from re-delivering
+        // into stopped members and cold-starting their containers. Domain
+        // messages only: control messages (Cancel, HealthCheck, StatusQuery, …)
+        // must still reach a stopping artefact so the stop itself can drain.
+        // Placed before PersistMessageAsync so a refused send leaves the
+        // messages table clean, mirroring the permission gate (#2859). Fails
+        // open on a missing mirror row / read error — the recipient actor's own
+        // receive gate is the authority.
+        if (message.Type == MessageType.Domain
+            && await IsRecipientHaltedAsync(actorId, actorScheme, cancellationToken))
+        {
+            _logger.LogInformation(
+                "Refusing delivery of message {MessageId} to {Scheme}://{Path}: recipient is stopped (#2981).",
+                message.Id, message.To.Scheme, message.To.Path);
+            return Result<Message?, RoutingError>.Failure(RoutingError.RecipientStopped(message.To));
         }
 
         // #2053 / ADR-0030: persist the message envelope before delivery so
@@ -204,6 +233,57 @@ public class MessageRouter : IMessageRouter
         _logger.LogDebug("Resolved path address {Scheme}://{Path} to actor ID {ActorId}",
             address.Scheme, address.Path, actorIdString);
         return Result<(string, string), RoutingError>.Success((actorIdString, address.Scheme));
+    }
+
+    /// <summary>
+    /// #2981: returns <c>true</c> when the unit/agent recipient identified by
+    /// <paramref name="actorId"/> / <paramref name="scheme"/> has a mirrored
+    /// lifecycle status that is halted (Stopped / Stopping / Error). Returns
+    /// <c>false</c> — allow delivery — for non-actor schemes (human, role,
+    /// connector, tenant-user, which have no lifecycle mirror), an unparseable
+    /// id, a missing mirror row, or a read error. The recipient actor's own
+    /// receive gate is the authority; this is the early short-circuit that
+    /// stops a cold-start before the actor is even reached.
+    /// </summary>
+    private async Task<bool> IsRecipientHaltedAsync(
+        string actorId, string scheme, CancellationToken cancellationToken)
+    {
+        if (_lifecycleStatusStore is null)
+        {
+            return false;
+        }
+
+        ArtefactKind kind;
+        if (string.Equals(scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            kind = ArtefactKind.Unit;
+        }
+        else if (string.Equals(scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            kind = ArtefactKind.Agent;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(actorId, out var artefactGuid))
+        {
+            return false;
+        }
+
+        try
+        {
+            var status = await _lifecycleStatusStore.TryGetStatusAsync(kind, artefactGuid, cancellationToken);
+            return status is not null && status.Value.IsHalted();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Lifecycle mirror read failed for {Scheme} {ActorId}; allowing delivery (fail-open, #2981).",
+                scheme, actorId);
+            return false;
+        }
     }
 
     /// <summary>

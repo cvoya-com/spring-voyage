@@ -5,8 +5,10 @@ namespace Cvoya.Spring.Dapr.Tests.Routing;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Messaging.Rendering;
 using Cvoya.Spring.Core.Messaging.Rendering.Renderers;
@@ -85,6 +87,95 @@ public class MessageRouterTests
         _agentProxyResolver.Resolve("agent", Hex(AdaId)).Returns(actorProxy);
 
         var result = await _router.RouteAsync(message, ct);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(expectedResponse);
+    }
+
+    [Theory]
+    [InlineData(LifecycleStatus.Stopped)]
+    [InlineData(LifecycleStatus.Stopping)]
+    [InlineData(LifecycleStatus.Error)]
+    public async Task RouteAsync_domain_to_halted_recipient_is_refused_without_delivery(LifecycleStatus status)
+    {
+        // #2981: a domain message to a stopped/stopping/errored recipient must
+        // be refused (RECIPIENT_STOPPED) before delivery — the chokepoint that
+        // stops a stopped unit's conversation resurrecting its members.
+        var ct = TestContext.Current.CancellationToken;
+        var destination = new Address("agent", AdaId);
+        var entry = new DirectoryEntry(destination, AdaId, "Ada", "Engineer", null, DateTimeOffset.UtcNow);
+        var message = CreateMessage(destination);
+
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
+        var actorProxy = Substitute.For<IAgent>();
+        _agentProxyResolver.Resolve("agent", Hex(AdaId)).Returns(actorProxy);
+
+        var store = Substitute.For<ILifecycleStatusStore>();
+        store.TryGetStatusAsync(ArtefactKind.Agent, AdaId, Arg.Any<CancellationToken>())
+            .Returns(status);
+        var router = new MessageRouter(
+            _directoryService, _agentProxyResolver, _permissionService,
+            _loggerFactory, NullMessageWriterScopeFactory.Create(), store);
+
+        var result = await router.RouteAsync(message, ct);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error!.Code.ShouldBe("RECIPIENT_STOPPED");
+        await actorProxy.DidNotReceive().ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RouteAsync_domain_to_running_recipient_delivers()
+    {
+        // #2981: a non-halted recipient passes the gate and is delivered.
+        var ct = TestContext.Current.CancellationToken;
+        var destination = new Address("agent", AdaId);
+        var entry = new DirectoryEntry(destination, AdaId, "Ada", "Engineer", null, DateTimeOffset.UtcNow);
+        var message = CreateMessage(destination);
+        var expectedResponse = CreateResponse(message);
+
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
+        var actorProxy = Substitute.For<IAgent>();
+        actorProxy.ReceiveAsync(message, Arg.Any<CancellationToken>()).Returns(expectedResponse);
+        _agentProxyResolver.Resolve("agent", Hex(AdaId)).Returns(actorProxy);
+
+        var store = Substitute.For<ILifecycleStatusStore>();
+        store.TryGetStatusAsync(ArtefactKind.Agent, AdaId, Arg.Any<CancellationToken>())
+            .Returns(LifecycleStatus.Running);
+        var router = new MessageRouter(
+            _directoryService, _agentProxyResolver, _permissionService,
+            _loggerFactory, NullMessageWriterScopeFactory.Create(), store);
+
+        var result = await router.RouteAsync(message, ct);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(expectedResponse);
+    }
+
+    [Fact]
+    public async Task RouteAsync_domain_to_recipient_without_mirror_row_fails_open_and_delivers()
+    {
+        // #2981: a missing mirror row (null) must not block delivery — the
+        // recipient actor's own receive gate remains the authority.
+        var ct = TestContext.Current.CancellationToken;
+        var destination = new Address("agent", AdaId);
+        var entry = new DirectoryEntry(destination, AdaId, "Ada", "Engineer", null, DateTimeOffset.UtcNow);
+        var message = CreateMessage(destination);
+        var expectedResponse = CreateResponse(message);
+
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
+        var actorProxy = Substitute.For<IAgent>();
+        actorProxy.ReceiveAsync(message, Arg.Any<CancellationToken>()).Returns(expectedResponse);
+        _agentProxyResolver.Resolve("agent", Hex(AdaId)).Returns(actorProxy);
+
+        var store = Substitute.For<ILifecycleStatusStore>();
+        store.TryGetStatusAsync(ArtefactKind.Agent, AdaId, Arg.Any<CancellationToken>())
+            .Returns((LifecycleStatus?)null);
+        var router = new MessageRouter(
+            _directoryService, _agentProxyResolver, _permissionService,
+            _loggerFactory, NullMessageWriterScopeFactory.Create(), store);
+
+        var result = await router.RouteAsync(message, ct);
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.ShouldBe(expectedResponse);

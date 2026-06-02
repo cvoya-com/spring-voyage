@@ -132,7 +132,8 @@ public class AgentActorConcurrentThreadsTests
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
             loggerFactory,
-            NullMessageWriterScopeFactory.Create());
+            NullMessageWriterScopeFactory.Create(),
+            Substitute.For<Cvoya.Spring.Core.Lifecycle.ILifecycleStatusStore>());
 
         var definitionProvider = Substitute.For<IAgentDefinitionProvider>();
         var execConfig = new AgentExecutionConfig(

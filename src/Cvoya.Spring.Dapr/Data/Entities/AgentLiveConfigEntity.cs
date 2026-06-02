@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Data.Entities;
 
 using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
@@ -80,6 +81,20 @@ public class AgentLiveConfigEntity : ITenantScopedEntity
     /// EF replacement for "is the actor-state expertise key present?"
     /// </summary>
     public bool ExpertiseInitialised { get; set; }
+
+    /// <summary>
+    /// Queryable mirror of the agent's lifecycle status (#2981). The
+    /// canonical value lives in Dapr actor state under
+    /// <c>Agent:LifecycleStatus</c>; <c>AgentActor</c> writes this column in
+    /// the same transition turn (via <see cref="Core.Lifecycle.ILifecycleStatusStore"/>)
+    /// so the dispatcher cold-start gate, the message-router delivery gate,
+    /// and the portal status read-path can consult the status without racing
+    /// the non-reentrant actor turn lock. Persisted as the
+    /// <see cref="LifecycleStatus"/> ordinal; defaults to
+    /// <see cref="LifecycleStatus.Draft"/> (0) for a freshly materialised row
+    /// that predates the agent's first transition.
+    /// </summary>
+    public LifecycleStatus LifecycleStatus { get; set; } = LifecycleStatus.Draft;
 
     /// <summary>
     /// UTC timestamp of the last write to this row. Stamped by the

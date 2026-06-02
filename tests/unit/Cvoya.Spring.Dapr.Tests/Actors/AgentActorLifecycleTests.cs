@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Actors;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
@@ -69,6 +71,7 @@ public class AgentActorLifecycleTests
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
     private readonly IUnitPolicyEnforcer _unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>();
+    private readonly ILifecycleStatusStore _lifecycleStatusStore = Substitute.For<ILifecycleStatusStore>();
     private readonly AgentActor _actor;
 
     public AgentActorLifecycleTests()
@@ -80,7 +83,8 @@ public class AgentActorLifecycleTests
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
             _loggerFactory,
-            NullMessageWriterScopeFactory.Create());
+            NullMessageWriterScopeFactory.Create(),
+            Substitute.For<Cvoya.Spring.Core.Lifecycle.ILifecycleStatusStore>());
 
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
@@ -107,7 +111,8 @@ public class AgentActorLifecycleTests
             new AgentStateCoordinator(new InMemoryAgentLiveConfigStore(), Substitute.For<ILogger<AgentStateCoordinator>>()),
             new AgentAmendmentCoordinator(Substitute.For<ILogger<AgentAmendmentCoordinator>>()),
             new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()),
-            validationCoordinator: _coordinator);
+            validationCoordinator: _coordinator,
+            lifecycleStatusStore: _lifecycleStatusStore);
         SetStateManager(_actor, _stateManager);
     }
 
@@ -435,4 +440,52 @@ public class AgentActorLifecycleTests
         await _stateManager.Received(1).SetStateAsync(
             StateKeys.AgentPendingAutoStart, true, Arg.Any<CancellationToken>());
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // #2981 — lifecycle mirror write + message-path receive gate
+    // ──────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task TransitionAsync_RunningToStopping_WritesLifecycleMirror()
+    {
+        WithCurrentStatus(LifecycleStatus.Running);
+
+        var result = await _actor.TransitionAsync(
+            LifecycleStatus.Stopping, TestContext.Current.CancellationToken);
+
+        result.Success.ShouldBeTrue();
+        // The just-persisted status is mirrored onto the queryable
+        // agent_live_config row so external gates and the portal read it
+        // without racing the actor turn lock.
+        await _lifecycleStatusStore.Received(1).SetStatusAsync(
+            ArtefactKind.Agent, Arg.Any<Guid>(), LifecycleStatus.Stopping, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(LifecycleStatus.Stopped)]
+    [InlineData(LifecycleStatus.Stopping)]
+    [InlineData(LifecycleStatus.Error)]
+    public async Task ReceiveAsync_Domain_WhenHalted_DropsWithoutDispatching(LifecycleStatus status)
+    {
+        WithCurrentStatus(status);
+
+        var response = await _actor.ReceiveAsync(
+            CreateDomainMessage(), TestContext.Current.CancellationToken);
+
+        // The actor acks but never dispatches — a halted agent must not run a
+        // turn (the receive half of an authoritative stop).
+        response.ShouldNotBeNull();
+        await _dispatcher.DidNotReceive().DispatchAsync(
+            Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>());
+    }
+
+    private Message CreateDomainMessage() =>
+        new(
+            Guid.NewGuid(),
+            new Address("agent", new Guid("eeeeeeee-0000-0000-0000-000000000001")),
+            new Address("agent", new Guid(TestAgentActorId)),
+            MessageType.Domain,
+            Guid.NewGuid().ToString("N"),
+            JsonSerializer.SerializeToElement(new { }),
+            DateTimeOffset.UtcNow);
 }

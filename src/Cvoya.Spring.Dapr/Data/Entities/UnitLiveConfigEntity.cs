@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Data.Entities;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Auth;
 
@@ -133,6 +134,21 @@ public class UnitLiveConfigEntity : ITenantScopedEntity
     /// EF replacement for "is the actor-state expertise key present?"
     /// </summary>
     public bool ExpertiseInitialised { get; set; }
+
+    /// <summary>
+    /// Queryable mirror of the unit's lifecycle status (#2981). The canonical
+    /// value lives in Dapr actor state under <c>Unit:Status</c>;
+    /// <c>UnitActor</c> writes this column in the same transition turn (via
+    /// <see cref="Core.Lifecycle.ILifecycleStatusStore"/>) so the dispatcher
+    /// cold-start gate, the message-router delivery gate, and the portal
+    /// status read-path can consult the status without racing the
+    /// non-reentrant actor turn lock — the read that previously timed out and
+    /// made the portal fabricate <c>Starting</c>. Persisted as the
+    /// <see cref="LifecycleStatus"/> ordinal; defaults to
+    /// <see cref="LifecycleStatus.Draft"/> (0) for a freshly materialised row
+    /// that predates the unit's first transition.
+    /// </summary>
+    public LifecycleStatus LifecycleStatus { get; set; } = LifecycleStatus.Draft;
 
     /// <summary>
     /// UTC timestamp of the last write to this row. Stamped by the
