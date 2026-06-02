@@ -119,6 +119,108 @@ public class MessageDeliveryServiceTests
     }
 
     [Fact]
+    public async Task DeliverWithRetry_FirstAttemptTimesOut_RetriesAndDelivers()
+    {
+        // #3004 — a hung proxy.ReceiveAsync (a busy actor blocking the enqueue
+        // under load) must be bounded by PerAttemptTimeout and retried as a
+        // transient failure, not left to hang ~100s on the Dapr actor proxy's
+        // default HttpClient.Timeout. First attempt hangs past the per-attempt
+        // deadline; the second enqueues normally.
+        var caller = new Address(Address.UnitScheme, Guid.NewGuid());
+        var target = new Address(Address.AgentScheme, Guid.NewGuid());
+        var agent = Substitute.For<IAgent>();
+        var attempts = 0;
+
+        _agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns(agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                attempts++;
+                if (attempts < 2)
+                {
+                    // Hang until the attempt-scoped token cancels.
+                    await Task.Delay(Timeout.Infinite, call.Arg<CancellationToken>());
+                }
+
+                return (Message?)null;
+            });
+
+        var service = CreateService(new MessageDeliveryOptions
+        {
+            MaxAttempts = 3,
+            Budget = TimeSpan.FromSeconds(5),
+            InitialBackoff = TimeSpan.FromMilliseconds(1),
+            PerAttemptTimeout = TimeSpan.FromMilliseconds(50),
+        });
+
+        await service.DeliverWithRetryAsync(caller, target, CreateMessage(), CancellationToken.None);
+
+        attempts.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task DeliverWithRetry_EveryAttemptTimesOut_ThrowsDeliveryFailedFast()
+    {
+        // #3004 — a sustained hang surfaces a terminal delivery failure within
+        // the budget (a few hundred ms here), never blocking ~100s on the Dapr
+        // actor proxy's default HttpClient.Timeout.
+        var caller = new Address(Address.UnitScheme, Guid.NewGuid());
+        var target = new Address(Address.AgentScheme, Guid.NewGuid());
+        var agent = Substitute.For<IAgent>();
+        _agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns(agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                await Task.Delay(Timeout.Infinite, call.Arg<CancellationToken>());
+                return (Message?)null;
+            });
+
+        var service = CreateService(new MessageDeliveryOptions
+        {
+            MaxAttempts = 3,
+            Budget = TimeSpan.FromMilliseconds(300),
+            InitialBackoff = TimeSpan.FromMilliseconds(1),
+            PerAttemptTimeout = TimeSpan.FromMilliseconds(50),
+        });
+
+        var started = DateTimeOffset.UtcNow;
+        var ex = await Should.ThrowAsync<MessageDeliveryException>(() =>
+            service.DeliverWithRetryAsync(caller, target, CreateMessage(), CancellationToken.None));
+        var elapsed = DateTimeOffset.UtcNow - started;
+
+        ex.RejectCode.ShouldBe(MessageDeliveryException.RejectCodes.DeliveryFailed);
+        // Bounded by Budget — nowhere near the ~100s HttpClient.Timeout.
+        elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task DeliverWithRetry_CallerCancels_PropagatesOperationCanceled()
+    {
+        // #3004 — caller-initiated cancellation must propagate, never be
+        // swallowed as a transient per-attempt timeout. The caller cancels
+        // while an attempt is in flight; the linked attempt token trips, but
+        // because the caller's token is cancelled the exception is rethrown.
+        var caller = new Address(Address.UnitScheme, Guid.NewGuid());
+        var target = new Address(Address.AgentScheme, Guid.NewGuid());
+        var agent = Substitute.For<IAgent>();
+        using var cts = new CancellationTokenSource();
+
+        _agentProxyResolver.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns(agent);
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                cts.Cancel();
+                await Task.Delay(Timeout.Infinite, call.Arg<CancellationToken>());
+                return (Message?)null;
+            });
+
+        var service = CreateService();
+
+        await Should.ThrowAsync<OperationCanceledException>(() =>
+            service.DeliverWithRetryAsync(caller, target, CreateMessage(), cts.Token));
+    }
+
+    [Fact]
     public async Task DeliverWithRetry_ResolvesHopThreadFromCallerAndTarget()
     {
         // #2596 — the outbound message must carry the thread of the
@@ -362,13 +464,13 @@ public class MessageDeliveryServiceTests
         delivered[0].ThreadId.ShouldBe(delivered[1].ThreadId);
     }
 
-    private MessageDeliveryService CreateService() =>
+    private MessageDeliveryService CreateService(MessageDeliveryOptions? options = null) =>
         new(
             _agentProxyResolver,
             _tenantResolver,
             ScopeFactoryWith(_threadRegistry, _messageWriter),
             _logger,
-            Options.Create(new MessageDeliveryOptions
+            Options.Create(options ?? new MessageDeliveryOptions
             {
                 MaxAttempts = 3,
                 Budget = TimeSpan.FromSeconds(2),
