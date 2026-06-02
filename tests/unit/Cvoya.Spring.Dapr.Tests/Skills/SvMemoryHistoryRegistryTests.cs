@@ -65,7 +65,7 @@ public class SvMemoryHistoryRegistryTests
     public void Name_IsSv() => CreateRegistry().Name.ShouldBe("sv");
 
     [Fact]
-    public void GetToolDefinitions_AdvertisesAllThreeTools()
+    public void GetToolDefinitions_AdvertisesAllFourTools()
     {
         var registry = CreateRegistry();
         registry.GetToolDefinitions().Select(t => t.Name).ShouldBe(new[]
@@ -73,9 +73,11 @@ public class SvMemoryHistoryRegistryTests
             SvMemoryHistoryRegistry.EngagementsTool,
             SvMemoryHistoryRegistry.HistoryWithTool,
             SvMemoryHistoryRegistry.SearchMessagesTool,
+            SvMemoryHistoryRegistry.GetMessagesTool,
         });
-        // All three live under the unified memory category — the participant-
-        // set rename in #2747 collapses the old thread/memory split.
+        // All live under the unified memory category — the participant-set
+        // rename in #2747 collapses the old thread/memory split, and #2990
+        // adds the by-id get_messages tool to the same surface.
         registry.GetToolDefinitions().ShouldAllBe(t => t.Category == ToolCategories.Memory);
     }
 
@@ -302,6 +304,102 @@ public class SvMemoryHistoryRegistryTests
 
         await _queryService.Received(1).SearchAsync(
             caller.ToString(), "needle", resolvedThread, Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetMessages_PassesIdsAndCaller_SerializesMessagesAndSkipped()
+    {
+        var registry = CreateRegistry();
+        var callerId = Guid.NewGuid();
+        var caller = new Address(Address.AgentScheme, callerId);
+
+        var foundId = Guid.NewGuid();
+        var sentAt = DateTimeOffset.UtcNow.AddMinutes(-3);
+        var hit = new ThreadSearchHit(
+            ThreadId: GuidFormatter.Format(Guid.NewGuid()),
+            MessageId: foundId,
+            Timestamp: sentAt,
+            From: $"human:{Guid.NewGuid():N}",
+            To: caller.ToString(),
+            Body: "the original message");
+
+        _queryService.GetMessagesByIdsAsync(
+                caller.ToString(),
+                Arg.Any<IReadOnlyList<string>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new MessageLookup(
+                new[] { hit },
+                new[] { "deadbeef" })));
+
+        var json = await registry.InvokeAsync(
+            SvMemoryHistoryRegistry.GetMessagesTool,
+            Args($$$"""{"message_ids": ["{{{GuidFormatter.Format(foundId)}}}", "deadbeef"]}"""),
+            AgentContext(callerId), TestContext.Current.CancellationToken);
+
+        await _queryService.Received(1).GetMessagesByIdsAsync(
+            caller.ToString(),
+            Arg.Is<IReadOnlyList<string>>(ids =>
+                ids.Count == 2
+                && ids[0] == GuidFormatter.Format(foundId)
+                && ids[1] == "deadbeef"),
+            Arg.Any<CancellationToken>());
+
+        var messages = json.GetProperty("messages");
+        messages.GetArrayLength().ShouldBe(1);
+        var message = messages[0];
+        message.GetProperty("message_id").GetString().ShouldBe(GuidFormatter.Format(foundId));
+        message.GetProperty("from").GetString().ShouldBe(hit.From);
+        message.GetProperty("to").GetString().ShouldBe(caller.ToString());
+        message.GetProperty("body").GetString().ShouldBe("the original message");
+        message.TryGetProperty("timestamp", out _).ShouldBeTrue();
+        // The by-id surface never exposes a thread_id, matching the rest of
+        // the #2747 memory surface.
+        message.TryGetProperty("thread_id", out _).ShouldBeFalse();
+
+        // Collapsed skipped bucket: a flat list of the ids we could not return.
+        var skipped = json.GetProperty("skipped");
+        skipped.GetArrayLength().ShouldBe(1);
+        skipped[0].GetString().ShouldBe("deadbeef");
+    }
+
+    [Fact]
+    public async Task GetMessages_RequiresMessageIds()
+    {
+        var registry = CreateRegistry();
+        await Should.ThrowAsync<ArgumentException>(async () =>
+            await registry.InvokeAsync(
+                SvMemoryHistoryRegistry.GetMessagesTool,
+                Args("""{}"""),
+                AgentContext(Guid.NewGuid()),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GetMessages_RejectsEmptyArray()
+    {
+        var registry = CreateRegistry();
+        await Should.ThrowAsync<ArgumentException>(async () =>
+            await registry.InvokeAsync(
+                SvMemoryHistoryRegistry.GetMessagesTool,
+                Args("""{"message_ids": []}"""),
+                AgentContext(Guid.NewGuid()),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GetMessages_RejectsMoreThanTheCap()
+    {
+        var registry = CreateRegistry();
+        var tooMany = string.Join(",",
+            Enumerable.Range(0, SvMemoryHistoryRegistry.MaxMessageIds + 1)
+                .Select(_ => $"\"{Guid.NewGuid():N}\""));
+
+        await Should.ThrowAsync<ArgumentException>(async () =>
+            await registry.InvokeAsync(
+                SvMemoryHistoryRegistry.GetMessagesTool,
+                Args($$$"""{"message_ids": [{{{tooMany}}}]}"""),
+                AgentContext(Guid.NewGuid()),
+                TestContext.Current.CancellationToken));
     }
 
     private static ThreadSummary BuildSummary(string threadId, params Address[] participants) =>

@@ -68,11 +68,17 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
     /// <summary>Tool name for <c>sv.memory.search_messages</c>.</summary>
     public const string SearchMessagesTool = "sv.memory.search_messages";
 
+    /// <summary>Tool name for <c>sv.memory.get_messages</c>.</summary>
+    public const string GetMessagesTool = "sv.memory.get_messages";
+
     /// <summary>Default page size for list / search tools.</summary>
     public const int DefaultLimit = 50;
 
     /// <summary>Maximum allowed page size.</summary>
     public const int MaxLimit = 200;
+
+    /// <summary>Maximum number of ids <c>sv.memory.get_messages</c> accepts per call.</summary>
+    public const int MaxMessageIds = 100;
 
     private static readonly JsonElement EngagementsSchema = ParseSchema("""
         {
@@ -119,6 +125,23 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
         }
         """);
 
+    private static readonly JsonElement GetMessagesSchema = ParseSchema("""
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["message_ids"],
+          "properties": {
+            "message_ids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "description": "The message ids to fetch (1–100), each the no-dash 32-char hex message_id you already hold from an inbound envelope. Ids you cannot read — unknown, or on a thread you do not participate in — come back under `skipped`, never as an error.",
+              "items": { "type": "string", "description": "A message_id (no-dash 32-char hex)." }
+            }
+          }
+        }
+        """);
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger _logger;
     private readonly IReadOnlyList<ToolDefinition> _tools;
@@ -147,6 +170,11 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
                 SearchMessagesTool,
                 "Free-text search across persisted messages on the timelines the caller participates in. Optional participants list scopes the search to a single shared timeline (caller auto-included). Returns { hits: [{ participants, message_id, timestamp, from, to, body }, ...] } ordered by relevance (when the database supports full-text search) or by recency otherwise. limit defaults to 50 (max 200).",
                 SearchMessagesSchema,
+                ToolCategories.Memory),
+            new ToolDefinition(
+                GetMessagesTool,
+                "Fetch specific messages by message_id (1–100 per call) — the by-id complement to sv.memory.history_with (a whole timeline) and sv.memory.search_messages (free-text). Use it when you already hold the ids, e.g. to re-read a message you were notified about. Returns { messages: [{ message_id, timestamp, from, to, body }, ...], skipped: [\"<message_id>\", ...] }, with messages in the order you asked for them. You may only read a message on a thread you participate in; any id that is unknown or that you cannot access comes back under skipped (the two cases are indistinguishable on purpose), never as an error.",
+                GetMessagesSchema,
                 ToolCategories.Memory),
         };
     }
@@ -177,6 +205,7 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
             EngagementsTool => EngagementsAsync(arguments, context, cancellationToken),
             HistoryWithTool => HistoryWithAsync(arguments, context, cancellationToken),
             SearchMessagesTool => SearchMessagesAsync(arguments, context, cancellationToken),
+            GetMessagesTool => GetMessagesAsync(arguments, context, cancellationToken),
             _ => throw new SkillNotFoundException(toolName),
         };
     }
@@ -254,6 +283,24 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
         return SerializeHits(hits, limit);
     }
 
+    private async Task<JsonElement> GetMessagesAsync(
+        JsonElement args, ToolCallContext context, CancellationToken ct)
+    {
+        var caller = ParseCaller(context);
+        var ids = RequireMessageIdArray(args, "message_ids");
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var queryService = scope.ServiceProvider.GetRequiredService<IThreadQueryService>();
+
+        var lookup = await queryService.GetMessagesByIdsAsync(caller.ToString(), ids, ct);
+
+        _logger.LogDebug(
+            "sv.memory.get_messages caller={Caller} requested={Requested} returned={Returned} skipped={Skipped}",
+            caller, ids.Count, lookup.Messages.Count, lookup.Skipped.Count);
+
+        return SerializeMessages(lookup);
+    }
+
     private static Address ParseCaller(ToolCallContext context)
     {
         if (context is null)
@@ -316,6 +363,42 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
                 throw new ArgumentException($"'{raw}' is not a valid Spring Voyage address.");
             }
             list.Add(address);
+        }
+        return list;
+    }
+
+    private static IReadOnlyList<string> RequireMessageIdArray(JsonElement args, string name)
+    {
+        if (args.ValueKind != JsonValueKind.Object
+            || !args.TryGetProperty(name, out var prop)
+            || prop.ValueKind != JsonValueKind.Array)
+        {
+            throw new ArgumentException($"Missing required argument '{name}' (non-empty array of message ids).");
+        }
+
+        var list = new List<string>(prop.GetArrayLength());
+        foreach (var element in prop.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.String)
+            {
+                throw new ArgumentException($"Each entry in '{name}' must be a string message id.");
+            }
+            var raw = element.GetString();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                throw new ArgumentException($"Each entry in '{name}' must be a non-empty message id.");
+            }
+            list.Add(raw);
+        }
+
+        if (list.Count == 0)
+        {
+            throw new ArgumentException($"Argument '{name}' must contain at least one message id.");
+        }
+        if (list.Count > MaxMessageIds)
+        {
+            throw new ArgumentException(
+                $"Argument '{name}' accepts at most {MaxMessageIds} message ids per call (received {list.Count}).");
         }
         return list;
     }
@@ -462,6 +545,40 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
             writer.WriteEndArray();
             writer.WriteNumber("count", hits.Count);
             writer.WriteNumber("limit", limit);
+            writer.WriteEndObject();
+        }
+        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+    }
+
+    private static JsonElement SerializeMessages(MessageLookup lookup)
+    {
+        using var stream = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName("messages");
+            writer.WriteStartArray();
+            foreach (var hit in lookup.Messages)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("message_id", GuidFormatter.Format(hit.MessageId));
+                writer.WriteString("timestamp", hit.Timestamp);
+                writer.WriteString("from", hit.From);
+                writer.WriteString("to", hit.To);
+                writer.WriteString("body", hit.Body);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            // Collapsed skipped bucket (#2990): a flat list of the requested
+            // ids we did not return — unknown, forbidden, or malformed, with
+            // the reasons deliberately indistinguishable.
+            writer.WritePropertyName("skipped");
+            writer.WriteStartArray();
+            foreach (var id in lookup.Skipped)
+            {
+                writer.WriteStringValue(id);
+            }
+            writer.WriteEndArray();
             writer.WriteEndObject();
         }
         return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();

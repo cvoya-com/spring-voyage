@@ -927,6 +927,194 @@ public class ThreadQueryServiceTests : IDisposable
     }
 
     // -------------------------------------------------------------------
+    // GetMessagesByIdsAsync — #2990 by-id, permission-checked lookup
+    // -------------------------------------------------------------------
+
+    [Fact]
+    public async Task GetMessagesByIds_OwnThread_ReturnsMessage()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+
+        var (_, msgIds) = await SeedThreadAsync(
+            new[] { ada, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(savasp, ada, "Approve merge?", DateTimeOffset.UtcNow.AddMinutes(-4)) });
+
+        var svc = BuildService();
+        var result = await svc.GetMessagesByIdsAsync(
+            ada.ToString(),
+            new[] { GuidFormatter.Format(msgIds[0]) },
+            ct);
+
+        result.Skipped.ShouldBeEmpty();
+        result.Messages.Count.ShouldBe(1);
+        result.Messages[0].MessageId.ShouldBe(msgIds[0]);
+        result.Messages[0].From.ShouldBe($"human:{savasp.Id:N}");
+        result.Messages[0].To.ShouldBe($"agent:{ada.Id:N}");
+        result.Messages[0].Body.ShouldBe("Approve merge?");
+    }
+
+    [Fact]
+    public async Task GetMessagesByIds_ForeignThread_Skipped()
+    {
+        // The message exists, but the caller is not on its thread — it must
+        // be skipped, not returned, and indistinguishable from not-found.
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+        var outsider = NewActor("agent", "outsider");
+
+        var (_, msgIds) = await SeedThreadAsync(
+            new[] { ada, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(ada, savasp, "private", DateTimeOffset.UtcNow.AddMinutes(-4)) });
+
+        var svc = BuildService();
+        var result = await svc.GetMessagesByIdsAsync(
+            outsider.ToString(),
+            new[] { GuidFormatter.Format(msgIds[0]) },
+            ct);
+
+        result.Messages.ShouldBeEmpty();
+        result.Skipped.ShouldBe(new[] { GuidFormatter.Format(msgIds[0]) });
+    }
+
+    [Fact]
+    public async Task GetMessagesByIds_UnknownId_Skipped()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var unknown = GuidFormatter.Format(Guid.NewGuid());
+
+        var svc = BuildService();
+        var result = await svc.GetMessagesByIdsAsync(ada.ToString(), new[] { unknown }, ct);
+
+        result.Messages.ShouldBeEmpty();
+        result.Skipped.ShouldBe(new[] { unknown });
+    }
+
+    [Fact]
+    public async Task GetMessagesByIds_MalformedId_Skipped()
+    {
+        // A syntactically-invalid id can never resolve — it joins the
+        // collapsed skipped bucket rather than erroring the batch.
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+
+        var svc = BuildService();
+        var result = await svc.GetMessagesByIdsAsync(ada.ToString(), new[] { "not-a-guid" }, ct);
+
+        result.Messages.ShouldBeEmpty();
+        result.Skipped.ShouldBe(new[] { "not-a-guid" });
+    }
+
+    [Fact]
+    public async Task GetMessagesByIds_MixedBatch_PartitionsAndPreservesInputOrder()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+        var now = DateTimeOffset.UtcNow;
+
+        var (_, ownIds) = await SeedThreadAsync(
+            new[] { ada, savasp },
+            now.AddMinutes(-10),
+            new[]
+            {
+                NewMessage(ada, savasp, "first", now.AddMinutes(-9)),
+                NewMessage(savasp, ada, "second", now.AddMinutes(-8)),
+            },
+            participantKeyOverride: "own");
+
+        // A message on a thread `ada` is not on.
+        var grace = NewActor("agent", "grace");
+        var alice = NewActor("human", "alice");
+        var (_, foreignIds) = await SeedThreadAsync(
+            new[] { grace, alice },
+            now.AddMinutes(-7),
+            new[] { NewMessage(grace, alice, "not for ada", now.AddMinutes(-6)) },
+            participantKeyOverride: "foreign");
+
+        var unknown = GuidFormatter.Format(Guid.NewGuid());
+        var secondOwn = GuidFormatter.Format(ownIds[1]);
+        var firstOwn = GuidFormatter.Format(ownIds[0]);
+        var foreign = GuidFormatter.Format(foreignIds[0]);
+
+        var svc = BuildService();
+        // Request order intentionally differs from chronological order so the
+        // assertion proves input order is preserved, not sent-at order.
+        var result = await svc.GetMessagesByIdsAsync(
+            ada.ToString(),
+            new[] { secondOwn, unknown, firstOwn, foreign },
+            ct);
+
+        result.Messages.Select(m => GuidFormatter.Format(m.MessageId))
+            .ShouldBe(new[] { secondOwn, firstOwn });
+        result.Skipped.ShouldBe(new[] { unknown, foreign });
+    }
+
+    [Fact]
+    public async Task GetMessagesByIds_DuplicateIds_ReturnedOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+
+        var (_, msgIds) = await SeedThreadAsync(
+            new[] { ada, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(ada, savasp, "once", DateTimeOffset.UtcNow.AddMinutes(-4)) });
+
+        var id = GuidFormatter.Format(msgIds[0]);
+
+        var svc = BuildService();
+        var result = await svc.GetMessagesByIdsAsync(ada.ToString(), new[] { id, id }, ct);
+
+        result.Messages.Count.ShouldBe(1);
+        result.Skipped.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GetMessagesByIds_EmptyInput_ReturnsEmpty()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+
+        var svc = BuildService();
+        var result = await svc.GetMessagesByIdsAsync(ada.ToString(), Array.Empty<string>(), ct);
+
+        result.Messages.ShouldBeEmpty();
+        result.Skipped.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GetMessagesByIds_OtherTenant_DoesNotLeak()
+    {
+        // A message seeded in this tenant must be invisible (skipped, as
+        // not-found) to a caller bound to a different tenant.
+        var ct = TestContext.Current.CancellationToken;
+        var ada = NewActor("agent", "ada");
+        var savasp = NewActor("human", "savasp");
+
+        var (_, msgIds) = await SeedThreadAsync(
+            new[] { ada, savasp },
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            new[] { NewMessage(ada, savasp, "secret", DateTimeOffset.UtcNow.AddMinutes(-4)) });
+
+        using var otherDb = new SpringDbContext(_dbOptions, new StaticTenantContext(OtherTenantId));
+        var svc = new ThreadQueryService(otherDb, _participantResolver);
+        var result = await svc.GetMessagesByIdsAsync(
+            ada.ToString(),
+            new[] { GuidFormatter.Format(msgIds[0]) },
+            ct);
+
+        result.Messages.ShouldBeEmpty();
+        result.Skipped.ShouldBe(new[] { GuidFormatter.Format(msgIds[0]) });
+    }
+
+    // -------------------------------------------------------------------
     // Seed helpers
     // -------------------------------------------------------------------
 
