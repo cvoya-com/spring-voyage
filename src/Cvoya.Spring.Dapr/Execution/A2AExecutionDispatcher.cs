@@ -9,9 +9,11 @@ using A2A.V0_3;
 
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Identifiers;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Messaging.Rendering;
 using Cvoya.Spring.Core.Messaging.Rendering.Renderers;
@@ -80,8 +82,17 @@ public class A2AExecutionDispatcher(
     IConnectorPromptContextResolver connectorPromptContextResolver,
     Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver inboundEnvelopeResolver,
     IMessagePayloadRendererRegistry payloadRenderers,
-    ILoggerFactory loggerFactory) : IExecutionDispatcher
+    ILoggerFactory loggerFactory,
+    ILifecycleStatusStore? lifecycleStatusStore = null) : IExecutionDispatcher
 {
+    // #2981: queryable lifecycle-status mirror used to refuse a cold-start of
+    // a stopped artefact (the dispatch half of an authoritative stop). The
+    // actor receive gates are the primary mechanism — this is defense-in-depth
+    // at the resurrection site for the race where a stop lands after the actor
+    // passed its receive gate. Optional so the dispatcher's direct test
+    // constructions still compile; null fails open (the actor gate is the
+    // authority).
+    private readonly ILifecycleStatusStore? _lifecycleStatusStore = lifecycleStatusStore;
     private readonly Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver _inboundEnvelopeResolver =
         inboundEnvelopeResolver ?? throw new ArgumentNullException(nameof(inboundEnvelopeResolver));
 
@@ -633,6 +644,61 @@ public class A2AExecutionDispatcher(
         return profilePath;
     }
 
+    /// <summary>
+    /// #2981: returns a benign no-op <see cref="RuntimeOutcome"/> when the
+    /// target artefact's mirrored lifecycle status is halted (Stopped /
+    /// Stopping / Error), signalling the caller to skip the cold-start;
+    /// returns <c>null</c> to proceed. Fails open (returns <c>null</c>) when
+    /// the store is unavailable, the id is not Guid-shaped, the mirror has no
+    /// row, or the read throws — the actor receive gate remains the authority.
+    /// </summary>
+    private async Task<RuntimeOutcome?> TryRefuseStoppedColdStartAsync(
+        SvMessage message, string agentId, CancellationToken cancellationToken)
+    {
+        if (_lifecycleStatusStore is null
+            || !GuidFormatter.TryParse(agentId, out var artefactGuid))
+        {
+            return null;
+        }
+
+        var kind = string.Equals(message.To.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
+            ? ArtefactKind.Unit
+            : ArtefactKind.Agent;
+
+        LifecycleStatus? status;
+        try
+        {
+            status = await _lifecycleStatusStore.TryGetStatusAsync(kind, artefactGuid, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Lifecycle mirror read failed for {Kind} {AgentId}; allowing cold-start (fail-open, #2981).",
+                kind, agentId);
+            return null;
+        }
+
+        if (status is null || !status.Value.IsHalted())
+        {
+            return null;
+        }
+
+        _logger.LogInformation(
+            "Refusing cold-start of {Kind} {AgentId}: lifecycle status is {Status} (#2981).",
+            kind, agentId, status.Value);
+
+        return new RuntimeOutcome(
+            ExitCode: 0,
+            Duration: TimeSpan.Zero,
+            ReasoningTrace: null,
+            Diagnostics: new Dictionary<string, object?>
+            {
+                ["skipped"] = "artefactStopped",
+                ["lifecycleStatus"] = status.Value.ToString(),
+                [RuntimeOutcome.ToolCallCountKey] = 0,
+            });
+    }
+
     private async Task<RuntimeOutcome> DispatchPersistentAsync(
         SvMessage message,
         AgentDefinition definition,
@@ -691,6 +757,20 @@ public class A2AExecutionDispatcher(
         }
         else
         {
+            // #2981: refuse to cold-start (or restart) a stopped artefact. An
+            // inbound message addressed to a stopped unit/agent must not
+            // resurrect its container — the dispatch half of an authoritative
+            // stop. The actor receive gates already drop such messages; this is
+            // the defense-in-depth backstop at the launch site for the race
+            // where a stop lands after the actor passed its receive gate.
+            // Returns a benign no-op outcome (no error, zero tool calls) rather
+            // than throwing, and does not tear down or relaunch anything.
+            var refusal = await TryRefuseStoppedColdStartAsync(message, agentId, cancellationToken);
+            if (refusal is not null)
+            {
+                return refusal;
+            }
+
             // Not running (or unhealthy) — auto-start the agent container.
             // When an unhealthy entry exists, stop the old container first so
             // we don't leak it or collide on its name (the daprd sidecar

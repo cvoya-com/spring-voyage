@@ -365,6 +365,17 @@ public static class MessageEndpoints
                     "PERMISSION_DENIED" => Results.Problem(
                         detail: error.Detail ?? error.Message,
                         statusCode: StatusCodes.Status403Forbidden),
+                    // #2981: the destination unit/agent is stopped. 409 Conflict
+                    // — the target exists but is not in a state that accepts
+                    // messages; the caller must start it first.
+                    "RECIPIENT_STOPPED" => Results.Problem(
+                        title: "Recipient stopped",
+                        detail: error.Detail ?? error.Message,
+                        statusCode: StatusCodes.Status409Conflict,
+                        extensions: new Dictionary<string, object?>
+                        {
+                            ["code"] = "RecipientStopped",
+                        }),
                     // #993: caller-side validation thrown by the destination
                     // actor surfaces as 400 with a stable `code` extension so
                     // clients can switch on it without parsing the message.

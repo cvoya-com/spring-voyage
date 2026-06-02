@@ -68,6 +68,30 @@ internal sealed class ActorDispatchChannelTracker
     }
 
     /// <summary>
+    /// Cancels and removes every tracked entry. Used by the lifecycle
+    /// transition path (#2981) when an artefact is stopped: an authoritative
+    /// stop cancels all in-flight dispatchers across every thread so the
+    /// operator's stop and the platform's work converge immediately instead
+    /// of letting the conversation drain to completion. Fire-and-forget per
+    /// ADR-0030 §44 — each dispatcher observes its own token and unwinds.
+    /// </summary>
+    public async ValueTask CancelAllAsync()
+    {
+        if (_entries.Count == 0)
+        {
+            return;
+        }
+
+        var sources = new List<CancellationTokenSource>(_entries.Values);
+        _entries.Clear();
+        foreach (var cts in sources)
+        {
+            await cts.CancelAsync();
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Removes the entry for <paramref name="threadId"/> without
     /// cancelling. Used by the dispatch-exit path where the dispatcher
     /// returned of its own accord.

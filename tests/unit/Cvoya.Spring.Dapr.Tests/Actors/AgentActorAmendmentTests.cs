@@ -67,7 +67,8 @@ public class AgentActorAmendmentTests
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
             loggerFactory,
-            NullMessageWriterScopeFactory.Create());
+            NullMessageWriterScopeFactory.Create(),
+            Substitute.For<Cvoya.Spring.Core.Lifecycle.ILifecycleStatusStore>());
 
         // Wire directory service: unit address → its directory entry.
         _directoryService

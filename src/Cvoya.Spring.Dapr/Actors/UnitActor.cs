@@ -50,6 +50,12 @@ public class UnitActor : Actor, IUnitActor
     // simply don't publish issues, matching pre-#2160 behaviour.
     private readonly Cvoya.Spring.Core.Issues.IIssueWriter? _issueWriter;
     private readonly MessageArrivedDetails _messageArrivedDetails;
+    // #2981: optional queryable mirror of this unit's lifecycle status.
+    // Written on every transition (and on activation) so external gates and
+    // the portal read-path see the status without racing the actor turn lock.
+    // Optional so legacy in-memory unit tests that construct the actor with a
+    // partial dependency set still wire up; production DI always supplies it.
+    private readonly ILifecycleStatusStore? _lifecycleStatusStore;
 
     /// <summary>
     /// Per-thread dispatcher tracker — one entry per thread the unit is
@@ -150,7 +156,8 @@ public class UnitActor : Actor, IUnitActor
         IUnitHumanPermissionStore? humanPermissionStore = null,
         IUnitConnectorStartDispatcher? connectorStartDispatcher = null,
         Cvoya.Spring.Core.Issues.IIssueWriter? issueWriter = null,
-        MessageArrivedDetails? messageArrivedDetails = null)
+        MessageArrivedDetails? messageArrivedDetails = null,
+        ILifecycleStatusStore? lifecycleStatusStore = null)
         : base(host)
     {
         ArgumentNullException.ThrowIfNull(stateCoordinator);
@@ -176,6 +183,7 @@ public class UnitActor : Actor, IUnitActor
         _connectorStartDispatcher = connectorStartDispatcher;
         _issueWriter = issueWriter;
         _messageArrivedDetails = messageArrivedDetails ?? MessageArrivedDetails.Default;
+        _lifecycleStatusStore = lifecycleStatusStore;
     }
 
     private static IArtefactValidationCoordinator BuildDefaultValidationCoordinator(
@@ -212,6 +220,19 @@ public class UnitActor : Actor, IUnitActor
     protected override async Task OnActivateAsync()
     {
         await SeedOwnExpertiseFromDefinitionAsync(CancellationToken.None);
+
+        // #2981: re-assert the authoritative status onto the queryable mirror
+        // on activation so a unit that existed before the mirror column was
+        // added (or whose mirror drifted) converges as soon as its actor next
+        // activates. The store skips the write when unchanged, so this is free
+        // in steady state. Guarded on the store so legacy test harnesses (no
+        // store, no StateManager) don't touch actor state here.
+        if (_lifecycleStatusStore is not null)
+        {
+            await WriteLifecycleMirrorAsync(
+                await GetStatusInternalAsync(CancellationToken.None), CancellationToken.None);
+        }
+
         await base.OnActivateAsync();
     }
 
@@ -485,6 +506,16 @@ public class UnitActor : Actor, IUnitActor
         }
 
         var result = await PersistTransitionAsync(current, target, failure: null, ct);
+
+        // #2981: entering a halted state (Stopping on operator stop, or Error)
+        // cancels every in-flight dispatcher so an authoritative stop converges
+        // immediately rather than letting the conversation drain. The receive
+        // gate keeps new domain work from starting once the status is halted.
+        // Idempotent — a no-op when nothing is in flight.
+        if (result.Success && target.IsHalted())
+        {
+            await _activeWorkByThread.CancelAllAsync();
+        }
 
         // #947 / T-05: whenever the unit enters Validating we must schedule
         // the in-container probe workflow and persist its instance id so
@@ -860,6 +891,15 @@ public class UnitActor : Actor, IUnitActor
     {
         await StateManager.SetStateAsync(StateKeys.UnitLifecycleStatus, target, ct);
 
+        // #2981: mirror the just-persisted status onto the queryable
+        // unit_live_config row so external gates (dispatcher cold-start,
+        // message-router delivery) and the portal read-path see the new status
+        // without racing this actor's turn lock — the read that previously
+        // timed out and made the portal fabricate Starting. Best-effort: a
+        // mirror-write failure must not fail the transition; actor state is
+        // authoritative and the next activation re-syncs the mirror.
+        await WriteLifecycleMirrorAsync(target, ct);
+
         _logger.LogInformation(
             "Unit {ActorId} transitioned from {Current} to {Target}",
             Id.GetId(), current, target);
@@ -936,6 +976,32 @@ public class UnitActor : Actor, IUnitActor
             .TryGetStateAsync<LifecycleStatus>(StateKeys.UnitLifecycleStatus, ct);
 
         return result.HasValue ? result.Value : LifecycleStatus.Draft;
+    }
+
+    /// <summary>
+    /// #2981: writes <paramref name="status"/> to the queryable lifecycle
+    /// mirror (<c>unit_live_config.lifecycle_status</c>). Best-effort and
+    /// no-op when the store is unavailable (legacy test harnesses) or the id
+    /// is not Guid-shaped — actor state remains authoritative.
+    /// </summary>
+    private async Task WriteLifecycleMirrorAsync(LifecycleStatus status, CancellationToken ct)
+    {
+        if (_lifecycleStatusStore is null
+            || !GuidFormatter.TryParse(Id.GetId(), out var unitGuid))
+        {
+            return;
+        }
+
+        try
+        {
+            await _lifecycleStatusStore.SetStatusAsync(ArtefactKind.Unit, unitGuid, status, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to mirror lifecycle status {Status} for unit {UnitId}.",
+                status, Id.GetId());
+        }
     }
 
     /// <summary>
@@ -1069,6 +1135,34 @@ public class UnitActor : Actor, IUnitActor
     /// </summary>
     private async Task<Message?> HandleDomainMessageAsync(Message message, CancellationToken ct)
     {
+        // #2981 / subsumed #2978: a stopped, stopping, or errored unit must
+        // not invoke its runtime — the receive half of an authoritative stop.
+        // Without this, an inbound message to a stopped unit cold-starts its
+        // router container (resurrection) and keeps the in-flight conversation
+        // alive. Drop the message with an audit event instead of dispatching.
+        var lifecycleStatus = await GetStatusInternalAsync(ct);
+        if (lifecycleStatus.IsHalted())
+        {
+            _logger.LogInformation(
+                "Unit {ActorId} dropping domain message {MessageId} from {Sender}: lifecycle status is {Status}.",
+                Id.GetId(), message.Id, message.From, lifecycleStatus);
+
+            await EmitActivityEventAsync(
+                ActivityEventType.DecisionMade,
+                $"Dropped message {message.Id} from {message.From}: unit is {lifecycleStatus}.",
+                ct,
+                details: JsonSerializer.SerializeToElement(new
+                {
+                    decision = "ArtefactStopped",
+                    lifecycleStatus = lifecycleStatus.ToString(),
+                    sender = new { scheme = message.From.Scheme, path = message.From.Path },
+                    messageId = message.Id,
+                }),
+                correlationId: message.ThreadId);
+
+            return null;
+        }
+
         _logger.LogInformation(
             "Unit {ActorId} invoking runtime path for domain message {MessageId}",
             Id.GetId(), message.Id);

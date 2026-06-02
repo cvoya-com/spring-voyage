@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Dapr.Initiative;
@@ -55,6 +56,7 @@ public class AgentMailboxCoordinatorTests
             agentId: AgentId,
             message: message,
             effective: disabledMetadata,
+            lifecycleStatus: LifecycleStatus.Running,
             applyUnitPolicies: (eff, ct) =>
                 Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
             getChannel: (_, _) =>
@@ -103,6 +105,7 @@ public class AgentMailboxCoordinatorTests
             agentId: AgentId,
             message: message,
             effective: enabledMetadata,
+            lifecycleStatus: LifecycleStatus.Running,
             applyUnitPolicies: (eff, ct) =>
                 Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, verdict)),
             getChannel: (_, _) => Task.FromResult<ThreadChannel?>(null),
@@ -140,6 +143,7 @@ public class AgentMailboxCoordinatorTests
             agentId: AgentId,
             message: message,
             effective: metadata,
+            lifecycleStatus: LifecycleStatus.Running,
             applyUnitPolicies: (eff, _) => Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
             getChannel: (_, _) => Task.FromResult<ThreadChannel?>(null),
             saveChannel: (ch, _) =>
@@ -179,6 +183,7 @@ public class AgentMailboxCoordinatorTests
             agentId: AgentId,
             message: message,
             effective: metadata,
+            lifecycleStatus: LifecycleStatus.Running,
             applyUnitPolicies: (eff, _) => Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
             getChannel: (_, _) => Task.FromResult<ThreadChannel?>(existing),
             saveChannel: (ch, _) =>
@@ -222,6 +227,7 @@ public class AgentMailboxCoordinatorTests
             agentId: AgentId,
             message: message,
             effective: metadata,
+            lifecycleStatus: LifecycleStatus.Running,
             applyUnitPolicies: (eff, _) => Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
             getChannel: (_, _) => Task.FromResult<ThreadChannel?>(existing),
             saveChannel: (ch, _) =>
@@ -241,6 +247,85 @@ public class AgentMailboxCoordinatorTests
         saved.ShouldNotBeNull();
         saved!.Dispatching.ShouldBeTrue();
         saved.Messages.Count.ShouldBe(1);
+    }
+
+    // --- Lifecycle gate (#2981 / subsumed #2978) ---
+
+    [Theory]
+    [InlineData(LifecycleStatus.Stopped)]
+    [InlineData(LifecycleStatus.Stopping)]
+    [InlineData(LifecycleStatus.Error)]
+    public async Task HandleDomainMessageAsync_Halted_DropsWithDecisionMadeEvent(LifecycleStatus status)
+    {
+        var message = CreateMessage();
+        var metadata = new AgentMetadata(Enabled: true);
+        var getChannelCalled = false;
+        var dispatchCalled = false;
+        var policiesApplied = false;
+
+        await _coordinator.HandleDomainMessageAsync(
+            agentId: AgentId,
+            message: message,
+            effective: metadata,
+            lifecycleStatus: status,
+            applyUnitPolicies: (eff, _) =>
+            {
+                policiesApplied = true;
+                return Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null));
+            },
+            getChannel: (_, _) =>
+            {
+                getChannelCalled = true;
+                return Task.FromResult<ThreadChannel?>(null);
+            },
+            saveChannel: (_, _) => Task.CompletedTask,
+            dispatch: (_, _, _) =>
+            {
+                dispatchCalled = true;
+                return Task.CompletedTask;
+            },
+            emitActivity: (evt, _) =>
+            {
+                _emittedEvents.Add(evt);
+                return Task.CompletedTask;
+            },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        // The lifecycle gate runs first: no channel read, no policy
+        // evaluation, no dispatch — the message is dropped.
+        getChannelCalled.ShouldBeFalse("A halted agent must not read or create a channel.");
+        policiesApplied.ShouldBeFalse("A halted agent must short-circuit before policy evaluation.");
+        dispatchCalled.ShouldBeFalse("A halted agent must not dispatch.");
+        _emittedEvents.ShouldHaveSingleItem();
+        _emittedEvents[0].EventType.ShouldBe(ActivityEventType.DecisionMade);
+        _emittedEvents[0].Summary.ShouldContain(status.ToString());
+    }
+
+    [Fact]
+    public async Task HandleDomainMessageAsync_Running_PassesLifecycleGate()
+    {
+        // A non-halted status must not block: the message routes normally.
+        var message = CreateMessage();
+        var metadata = new AgentMetadata(Enabled: true);
+        var dispatched = false;
+
+        await _coordinator.HandleDomainMessageAsync(
+            agentId: AgentId,
+            message: message,
+            effective: metadata,
+            lifecycleStatus: LifecycleStatus.Running,
+            applyUnitPolicies: (eff, _) => Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
+            getChannel: (_, _) => Task.FromResult<ThreadChannel?>(null),
+            saveChannel: (_, _) => Task.CompletedTask,
+            dispatch: (_, _, _) =>
+            {
+                dispatched = true;
+                return Task.CompletedTask;
+            },
+            emitActivity: (_, _) => Task.CompletedTask,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        dispatched.ShouldBeTrue("A running agent must route the message through to dispatch.");
     }
 
     // --- Helpers ---

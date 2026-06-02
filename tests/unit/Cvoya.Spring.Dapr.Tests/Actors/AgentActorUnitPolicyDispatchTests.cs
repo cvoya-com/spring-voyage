@@ -76,7 +76,8 @@ public class AgentActorUnitPolicyDispatchTests
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
             loggerFactory,
-            NullMessageWriterScopeFactory.Create());
+            NullMessageWriterScopeFactory.Create(),
+            Substitute.For<Cvoya.Spring.Core.Lifecycle.ILifecycleStatusStore>());
 
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(RuntimeOutcomes.Silent());

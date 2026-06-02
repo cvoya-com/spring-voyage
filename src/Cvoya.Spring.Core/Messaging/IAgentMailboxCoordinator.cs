@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Policies;
 
 /// <summary>
@@ -43,8 +44,17 @@ public interface IAgentMailboxCoordinator
 {
     /// <summary>
     /// Routes a domain <paramref name="message"/> to its per-thread channel.
-    /// Two pre-routing guards run before the channel update:
+    /// Three pre-routing guards run before the channel update:
     /// <list type="bullet">
+    /// <item><description>
+    /// Lifecycle gate — if <paramref name="lifecycleStatus"/> is halted
+    /// (<see cref="LifecycleStatus.Stopped"/> / <see cref="LifecycleStatus.Stopping"/> /
+    /// <see cref="LifecycleStatus.Error"/>), emits a
+    /// <see cref="ActivityEventType.DecisionMade"/> "ArtefactStopped" event and
+    /// returns without routing (#2981 / subsumed #2978). A stopped agent must
+    /// not accept inbound domain work; this is the receive half of an
+    /// authoritative stop.
+    /// </description></item>
     /// <item><description>
     /// Guard 0 — membership disabled: if <paramref name="effective"/>.Enabled is
     /// <c>false</c>, emits a <see cref="ActivityEventType.DecisionMade"/>
@@ -115,10 +125,16 @@ public interface IAgentMailboxCoordinator
     /// channel is created.
     /// </param>
     /// <param name="cancellationToken">Cancels the routing operation.</param>
+    /// <param name="lifecycleStatus">
+    /// The actor's current lifecycle status, read from actor state by the
+    /// caller. When halted (<see cref="LifecycleStatus.IsHalted"/>), the
+    /// lifecycle gate rejects the message before any channel work (#2981).
+    /// </param>
     Task HandleDomainMessageAsync(
         string agentId,
         Message message,
         AgentMetadata effective,
+        LifecycleStatus lifecycleStatus,
         Func<AgentMetadata, CancellationToken, Task<(AgentMetadata Effective, PolicyVerdict? Verdict)>> applyUnitPolicies,
         Func<string, CancellationToken, Task<ThreadChannel?>> getChannel,
         Func<ThreadChannel, CancellationToken, Task> saveChannel,

@@ -162,7 +162,8 @@ public class AgentActorSeedExpertiseTests
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
             loggerFactory,
-            NullMessageWriterScopeFactory.Create());
+            NullMessageWriterScopeFactory.Create(),
+            Substitute.For<Cvoya.Spring.Core.Lifecycle.ILifecycleStatusStore>());
 
         var membership = Substitute.For<IUnitMembershipRepository>();
         membership

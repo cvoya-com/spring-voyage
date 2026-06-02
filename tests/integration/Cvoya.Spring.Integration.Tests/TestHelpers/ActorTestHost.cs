@@ -86,7 +86,8 @@ public static class ActorTestHost
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
             loggerFactory,
-            NullMessageWriterScopeFactory.Create());
+            NullMessageWriterScopeFactory.Create(),
+            Substitute.For<Cvoya.Spring.Core.Lifecycle.ILifecycleStatusStore>());
         var definitionProvider = Substitute.For<IAgentDefinitionProvider>();
         var membershipRepository = Substitute.For<IUnitMembershipRepository>();
         membershipRepository

@@ -77,7 +77,8 @@ public class AgentActorReflectionDispatchTests
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
             loggerFactory,
-            NullMessageWriterScopeFactory.Create());
+            NullMessageWriterScopeFactory.Create(),
+            Substitute.For<Cvoya.Spring.Core.Lifecycle.ILifecycleStatusStore>());
         _router.RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(Result<Message?, RoutingError>.Success(null));
 

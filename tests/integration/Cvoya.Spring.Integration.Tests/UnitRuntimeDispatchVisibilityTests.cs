@@ -94,7 +94,8 @@ public class UnitRuntimeDispatchVisibilityTests
             Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
             loggerFactory,
-            NullMessageWriterScopeFactory.Create());
+            NullMessageWriterScopeFactory.Create(),
+            Substitute.For<Cvoya.Spring.Core.Lifecycle.ILifecycleStatusStore>());
 
         var coordinator = new AgentDispatchCoordinator(
             dispatcher,

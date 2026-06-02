@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using System.Globalization;
 
+using Cvoya.Spring.Core.Artefacts;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Tenancy;
@@ -84,6 +85,7 @@ public static class TenantTreeEndpoints
         [FromServices] ITenantContext tenantContext,
         [FromServices] ITenantRegistry tenantRegistry,
         [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] ILifecycleStatusStore lifecycleStatusStore,
         [FromServices] SpringDbContext db,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -201,7 +203,8 @@ public static class TenantTreeEndpoints
             (Path: unit.Address.Path,
              Status: await TryGetUnitLifecycleStatusAsync(
                  actorProxyFactory,
-                 Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.ActorId),
+                 lifecycleStatusStore,
+                 unit.ActorId,
                  logger,
                  unit.Address.Path,
                  cancellationToken))));
@@ -217,7 +220,8 @@ public static class TenantTreeEndpoints
             (Path: kvp.Key,
              Status: await TryGetAgentLifecycleStatusAsync(
                  actorProxyFactory,
-                 Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(kvp.Value.ActorId),
+                 lifecycleStatusStore,
+                 kvp.Value.ActorId,
                  logger,
                  kvp.Key,
                  cancellationToken))));
@@ -427,18 +431,16 @@ public static class TenantTreeEndpoints
     }
 
     /// <summary>
-    /// Read a unit's persisted status from its actor. Mirrors the fallback
-    /// policy in <see cref="DashboardEndpoints.GetUnitsSummaryAsync"/>: a
-    /// missing or unreachable actor collapses to <see cref="LifecycleStatus.Draft"/>
-    /// so the tree still renders rather than failing the whole fetch.
-    /// #2584: also bounded by <see cref="StatusReadBudget"/> so a busy
-    /// actor (typically one whose container is starting in response to an
-    /// inbound message) is reported as <see cref="LifecycleStatus.Starting"/>
-    /// instead of stalling the whole endpoint.
+    /// Read a unit's status from its actor, bounded by
+    /// <see cref="StatusReadBudget"/>. #2981: on a budget timeout the unit's
+    /// real last-known status is read from the queryable lifecycle mirror
+    /// (<c>unit_live_config.lifecycle_status</c>) instead of fabricating
+    /// <see cref="LifecycleStatus.Starting"/>.
     /// </summary>
     private static Task<LifecycleStatus> TryGetUnitLifecycleStatusAsync(
         IActorProxyFactory actorProxyFactory,
-        string actorId,
+        ILifecycleStatusStore lifecycleStatusStore,
+        Guid actorId,
         ILogger logger,
         string unitPath,
         CancellationToken cancellationToken) =>
@@ -446,9 +448,11 @@ public static class TenantTreeEndpoints
             () =>
             {
                 var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                    new ActorId(actorId), nameof(UnitActor));
+                    new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorId)), nameof(UnitActor));
                 return proxy.GetStatusAsync(cancellationToken);
             },
+            () => ReadMirroredStatusOrUnknownAsync(
+                lifecycleStatusStore, ArtefactKind.Unit, actorId, "unit", unitPath, logger, cancellationToken),
             logger,
             kind: "unit",
             subjectPath: unitPath,
@@ -456,14 +460,14 @@ public static class TenantTreeEndpoints
 
     /// <summary>
     /// Agent twin of <see cref="TryGetUnitLifecycleStatusAsync"/> — reads the
-    /// agent's persisted lifecycle status via the agent actor (#2371 / #2372).
-    /// Falls back to <see cref="LifecycleStatus.Draft"/> on actor outage so
-    /// the tree still renders, or <see cref="LifecycleStatus.Starting"/> on
-    /// timeout (#2584).
+    /// agent's persisted lifecycle status via the agent actor (#2371 / #2372),
+    /// falling back to the queryable lifecycle mirror on a budget timeout
+    /// (#2981).
     /// </summary>
     private static Task<LifecycleStatus> TryGetAgentLifecycleStatusAsync(
         IActorProxyFactory actorProxyFactory,
-        string actorId,
+        ILifecycleStatusStore lifecycleStatusStore,
+        Guid actorId,
         ILogger logger,
         string agentPath,
         CancellationToken cancellationToken) =>
@@ -471,9 +475,11 @@ public static class TenantTreeEndpoints
             () =>
             {
                 var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-                    new ActorId(actorId), nameof(AgentActor));
+                    new ActorId(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorId)), nameof(AgentActor));
                 return proxy.GetStatusAsync(cancellationToken);
             },
+            () => ReadMirroredStatusOrUnknownAsync(
+                lifecycleStatusStore, ArtefactKind.Agent, actorId, "agent", agentPath, logger, cancellationToken),
             logger,
             kind: "agent",
             subjectPath: agentPath,
@@ -481,16 +487,17 @@ public static class TenantTreeEndpoints
 
     /// <summary>
     /// Race the per-actor <c>GetStatusAsync</c> call against
-    /// <see cref="StatusReadBudget"/>. On timeout we report
-    /// <see cref="LifecycleStatus.Starting"/> — the closest semantic for a
-    /// busy actor and exactly the rendering #2584 asks for ("starting…"
-    /// indicator per card). On exception we surface
-    /// <see cref="LifecycleStatus.Unknown"/> so a flat actor outage renders as
-    /// a degraded indicator rather than masquerading as
-    /// <see cref="LifecycleStatus.Draft"/> (#3006 finding I).
+    /// <see cref="StatusReadBudget"/>. #2981: on timeout — or on a failed
+    /// status read — we resolve the real last-known status via
+    /// <paramref name="readMirror"/> (the queryable lifecycle mirror) rather
+    /// than fabricating <see cref="LifecycleStatus.Starting"/>; the mirror
+    /// itself falls back to <see cref="LifecycleStatus.Unknown"/> so a flat
+    /// actor + mirror outage renders as an honest degraded indicator rather
+    /// than masquerading as <see cref="LifecycleStatus.Draft"/> (#3006).
     /// </summary>
     private static async Task<LifecycleStatus> TryGetLifecycleStatusBoundedAsync(
         Func<Task<LifecycleStatus>> readStatus,
+        Func<Task<LifecycleStatus>> readMirror,
         ILogger logger,
         string kind,
         string subjectPath,
@@ -508,9 +515,9 @@ public static class TenantTreeEndpoints
         catch (Exception ex)
         {
             logger.LogWarning(ex,
-                "Failed to invoke status read for {Kind} {SubjectPath}; reporting Unknown.",
+                "Failed to invoke status read for {Kind} {SubjectPath}; falling back to lifecycle mirror.",
                 kind, subjectPath);
-            return LifecycleStatus.Unknown;
+            return await readMirror().ConfigureAwait(false);
         }
 
         try
@@ -525,7 +532,7 @@ public static class TenantTreeEndpoints
             }
 
             logger.LogInformation(
-                "Status read for {Kind} {SubjectPath} exceeded {BudgetMs} ms; reporting Starting.",
+                "Status read for {Kind} {SubjectPath} exceeded {BudgetMs} ms; reading lifecycle mirror.",
                 kind, subjectPath, StatusReadBudget.TotalMilliseconds);
 
             // Observe the still-running status task so its eventual
@@ -542,13 +549,50 @@ public static class TenantTreeEndpoints
                 },
                 TaskScheduler.Default);
 
-            return LifecycleStatus.Starting;
+            return await readMirror().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex,
-                "Failed to read persisted status for {Kind} {SubjectPath}; reporting Unknown.",
+                "Failed to read persisted status for {Kind} {SubjectPath}; falling back to lifecycle mirror.",
                 kind, subjectPath);
+            return await readMirror().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// #2981: reads an artefact's mirrored lifecycle status from the
+    /// queryable mirror, returning <see cref="LifecycleStatus.Unknown"/> when
+    /// no mirror row exists or the read fails — an honest degraded indicator,
+    /// never a fabricated state.
+    /// </summary>
+    private static async Task<LifecycleStatus> ReadMirroredStatusOrUnknownAsync(
+        ILifecycleStatusStore lifecycleStatusStore,
+        ArtefactKind kind,
+        Guid actorId,
+        string kindLabel,
+        string subjectPath,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var mirrored = await lifecycleStatusStore.TryGetStatusAsync(kind, actorId, cancellationToken);
+            return mirrored ?? LifecycleStatus.Unknown;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Lifecycle mirror read failed for {Kind} {SubjectPath}; reporting Unknown.",
+                kindLabel, subjectPath);
             return LifecycleStatus.Unknown;
         }
     }

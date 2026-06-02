@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Initiative;
 
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Lifecycle;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 
@@ -30,6 +31,7 @@ public class AgentMailboxCoordinator(
         string agentId,
         Message message,
         AgentMetadata effective,
+        LifecycleStatus lifecycleStatus,
         Func<AgentMetadata, CancellationToken, Task<(AgentMetadata Effective, PolicyVerdict? Verdict)>> applyUnitPolicies,
         Func<string, CancellationToken, Task<ThreadChannel?>> getChannel,
         Func<ThreadChannel, CancellationToken, Task> saveChannel,
@@ -38,6 +40,38 @@ public class AgentMailboxCoordinator(
         CancellationToken cancellationToken = default)
     {
         var threadId = message.ThreadId!; // Validated by caller before entering the coordinator.
+
+        // Lifecycle gate (#2981 / subsumed #2978): a stopped, stopping, or
+        // errored agent must not accept inbound domain work — the receive
+        // half of an authoritative stop. Without this, a stopped member's
+        // in-flight conversation keeps draining and its replies keep
+        // resurrecting other stopped members (and cold-starting their
+        // containers). Checked first so "stopped" is the surfaced reason even
+        // when the membership is also disabled or a policy would block.
+        if (lifecycleStatus.IsHalted())
+        {
+            logger.LogInformation(
+                "Actor {ActorId} dropping message {MessageId} from {Sender}: lifecycle status is {Status}.",
+                agentId, message.Id, message.From, lifecycleStatus);
+
+            await emitActivity(
+                BuildEvent(
+                    agentId,
+                    ActivityEventType.DecisionMade,
+                    ActivitySeverity.Info,
+                    $"Dropped message {message.Id} from {message.From}: agent is {lifecycleStatus}.",
+                    details: System.Text.Json.JsonSerializer.SerializeToElement(new
+                    {
+                        decision = "ArtefactStopped",
+                        lifecycleStatus = lifecycleStatus.ToString(),
+                        sender = new { scheme = message.From.Scheme, path = message.From.Path },
+                        messageId = message.Id,
+                    }),
+                    correlationId: threadId),
+                cancellationToken);
+
+            return;
+        }
 
         // Guard 0: membership-disabled check (#1349). When the effective
         // metadata indicates the membership is disabled, emit a DecisionMade

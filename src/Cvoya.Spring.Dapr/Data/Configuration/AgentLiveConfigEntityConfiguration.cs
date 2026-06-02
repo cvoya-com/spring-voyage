@@ -37,6 +37,11 @@ internal class AgentLiveConfigEntityConfiguration : IEntityTypeConfiguration<Age
             .HasColumnName("expertise_initialised")
             .IsRequired()
             .HasDefaultValue(false);
+        builder.Property(e => e.LifecycleStatus)
+            .HasColumnName("lifecycle_status")
+            .IsRequired()
+            .HasConversion<int>()
+            .HasDefaultValue(Cvoya.Spring.Core.Lifecycle.LifecycleStatus.Draft);
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
 
         builder.HasIndex(e => e.TenantId);

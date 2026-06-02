@@ -209,21 +209,24 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
-    public async Task GetTenantTree_BusyUnitActor_FallsBackToStartingWithoutStallingTheTree()
+    public async Task GetTenantTree_BusyUnitActor_FallsBackToMirroredStatusWithoutStallingTheTree()
     {
-        // #2584: a unit actor that is busy starting its container instance
-        // does not respond to GetStatusAsync until the dispatch returns,
-        // which can take many seconds. The endpoint races each status read
-        // against StatusReadBudget (1.5 s) and reports "starting" for the
-        // busy unit so the Dashboard / Explorer renders without stalling.
-        // Other units in the same fetch still report their real status —
-        // the budget is per-actor, not whole-endpoint.
+        // #2981: a unit actor that is busy mid-turn cannot answer
+        // GetStatusAsync within the budget (its non-reentrant turn lock is
+        // held). The endpoint races each status read against StatusReadBudget
+        // (1.5 s) and, on timeout, reports the unit's REAL last-known status
+        // from the queryable lifecycle mirror — NOT a fabricated "starting"
+        // (the #2981 bug that made a stopped-but-busy unit look like it was
+        // starting). Here the busy unit is really Stopped, so it renders as
+        // "stopped". Other units in the same fetch still report their live
+        // status; the budget is per-actor, not whole-endpoint.
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
         ArrangeDirectoryEntries(
             units: [("busy", "Busy Unit"), ("calm", "Calm Unit")]);
 
         ArrangeLifecycleStatusHangs(_entryUuids["unit:busy"].ToString("N"));
+        await ArrangeMirroredUnitStatusAsync(_entryUuids["unit:busy"], LifecycleStatus.Stopped);
         ArrangeLifecycleStatus(_entryUuids["unit:calm"].ToString("N"), LifecycleStatus.Running);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -238,7 +241,7 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         var busyId = _entryUuids["unit:busy"].ToString("N");
         var calmId = _entryUuids["unit:calm"].ToString("N");
-        body!.Tree.Children!.Single(u => u.Id == busyId).Status.ShouldBe("starting");
+        body!.Tree.Children!.Single(u => u.Id == busyId).Status.ShouldBe("stopped");
         body.Tree.Children!.Single(u => u.Id == calmId).Status.ShouldBe("running");
     }
 
@@ -434,6 +437,25 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         await repo.UpsertAsync(
             new UnitMembership(unitUuid, agentUuid, Enabled: enabled),
             CancellationToken.None);
+    }
+
+    /// <summary>
+    /// #2981: seeds a unit's queryable lifecycle mirror
+    /// (<c>unit_live_config.lifecycle_status</c>) so the portal status
+    /// read-path can fall back to it when the live actor read times out.
+    /// </summary>
+    private async Task ArrangeMirroredUnitStatusAsync(Guid unitId, LifecycleStatus status)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<Cvoya.Spring.Dapr.Data.SpringDbContext>();
+        var row = new Cvoya.Spring.Dapr.Data.Entities.UnitLiveConfigEntity
+        {
+            UnitId = unitId,
+            TenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+            LifecycleStatus = status,
+        };
+        ctx.UnitLiveConfigs.Add(row);
+        await ctx.SaveChangesAsync(CancellationToken.None);
     }
 
     /// <summary>

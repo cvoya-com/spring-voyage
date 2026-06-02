@@ -237,6 +237,19 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // ahead of the OSS default.
         services.TryAddSingleton<IUnitMemberGraphStore, UnitMemberGraphStore>();
 
+        // #2981: queryable mirror of artefact lifecycle status on the
+        // agent_live_config / unit_live_config rows. Singleton store that
+        // creates a scope per call (same shape as IUnitMemberGraphStore
+        // above) so the non-request-scoped actors can write through it on
+        // every transition, and the message-router delivery gate +
+        // dispatcher cold-start gate + portal status read-path can read it
+        // without racing the non-reentrant actor turn lock. TryAddSingleton
+        // so the cloud overlay can layer a tenant-aware decorator ahead of
+        // the OSS default.
+        services.TryAddSingleton<
+            Cvoya.Spring.Core.Lifecycle.ILifecycleStatusStore,
+            Cvoya.Spring.Dapr.Lifecycle.LifecycleStatusStore>();
+
         // Tenant-scoping guard for composition + membership writes (#745).
         // Scoped so the guard sees the current request's tenant context —
         // the SpringDbContext it consults captures CurrentTenantId at query
