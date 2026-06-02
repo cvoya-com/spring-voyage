@@ -116,8 +116,7 @@ public class PlatformToolCatalogConsistencyTests
     /// <summary>
     /// Groups every statically-registered <see cref="ToolDefinition"/> name
     /// by its <see cref="ToolDefinition.Category"/>, excluding tools with no
-    /// category and the dynamic-by-design <see cref="ExpertiseSkillRegistry"/>
-    /// surface (per-tenant <c>sv.expertise.&lt;slug&gt;</c> tools).
+    /// category.
     /// </summary>
     private static IReadOnlyDictionary<string, IReadOnlyList<string>>
         ResolveStaticallyRegisteredToolsByCategory()
@@ -128,11 +127,6 @@ public class PlatformToolCatalogConsistencyTests
         var byCategory = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var registry in registries)
         {
-            if (registry is ExpertiseSkillRegistry)
-            {
-                continue;
-            }
-
             foreach (var tool in registry.GetToolDefinitions())
             {
                 if (string.IsNullOrEmpty(tool.Category))
