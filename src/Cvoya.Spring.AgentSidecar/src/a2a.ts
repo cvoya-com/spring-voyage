@@ -35,7 +35,12 @@ import { randomUUID } from "node:crypto";
 import type { BootstrapFetcher } from "./bootstrap.js";
 import { runAgentBridge } from "./bridge.js";
 import type { ThreadBindingConfig } from "./config.js";
-import { resolveMcpTokenPath, writeMcpToken } from "./mcp-token-store.js";
+import {
+  MCP_TOKEN_PATH_ENV_VAR,
+  resolveMcpTokenPath,
+  resolvePerThreadMcpTokenPath,
+  writeMcpToken,
+} from "./mcp-token-store.js";
 import { ThreadIdRegistry } from "./threads.js";
 import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "./version.js";
 
@@ -347,35 +352,68 @@ export class A2AHandler {
   }
 
   /**
-   * ADR-0057 §3: writes the current turn's MCP session token to the
-   * workspace-resident token file. The next CLI spawn launches a
-   * sidecar-MCP-server-mode child (via `.mcp.json`'s stdio command);
-   * that child reads this file at startup and holds the token in
-   * memory for its lifetime (= this turn).
+   * ADR-0057 §3 / #3000: delivers this turn's MCP session token to the
+   * CLI's MCP-server-mode child, isolated per concurrent turn, and returns
+   * the environment the CLI should be spawned with.
    *
-   * No-ops silently when:
-   *   - `SPRING_WORKSPACE_PATH` is unset (the bridge has no place to
-   *     write the file — the agent was launched without the per-agent
-   *     workspace mount);
-   *   - the message carried no `mcpToken` (the previous turn's token,
-   *     if any, is left in place; the MCP-server-mode child will use
-   *     it and the worker will reject it as expired).
+   * Under `SPRING_CONCURRENT_THREADS=true` the long-running sidecar runs
+   * multiple turns at once. A single shared token file races: a child can
+   * read a sibling turn's token, which is revoked when that sibling turn
+   * ends → 401 (and, before that, wrong-thread attribution, because the
+   * token carries the turn's thread/message id). So we write the token to
+   * a per-thread path and point the child at that exact file via
+   * `MCP_TOKEN_PATH_ENV_VAR`, returned on a per-turn CLONE of the spawn
+   * env — never mutating the shared `this.deps.spawnEnv`, which would
+   * itself race across concurrent turns. The actor serialises turns within
+   * a thread, so the per-thread file never races.
    *
-   * A write failure is logged as a warning but never fails the turn:
-   * the MCP-server-mode child will surface a 401 from the worker as a
-   * tool error, which the model can retry or work around.
+   * The shared (legacy) path is always (re)written too, as a no-regression
+   * fallback for runtimes that do not propagate the CLI env to the child,
+   * and for turns with no thread id (`MCP_TOKEN_PATH_ENV_VAR` is then left
+   * unset and the child resolves the shared path).
+   *
+   * No-ops on the token write when the message carried no `mcpToken` (the
+   * previous turn's token, if any, is left in place — the worker rejects a
+   * stale token as 401, which the model can retry) or when there is no
+   * workspace mount to write to. A write failure is logged but never fails
+   * the turn.
    */
-  private writeMcpToken(mcpToken: string | undefined): void {
+  private prepareTurnEnv(
+    mcpToken: string | undefined,
+    threadId: string | undefined,
+  ): NodeJS.ProcessEnv {
+    const spawnEnv = this.deps.spawnEnv;
     if (!mcpToken) {
-      return;
+      return spawnEnv;
     }
-    const tokenPath = resolveMcpTokenPath(
-      this.deps.spawnEnv[WORKSPACE_PATH_ENV_VAR],
-    );
+    const workspacePath = spawnEnv[WORKSPACE_PATH_ENV_VAR];
+
+    // No-regression fallback: always (re)write the shared per-agent path
+    // so runtimes that don't propagate the CLI env to the child still find
+    // a token at the path they resolve from SPRING_WORKSPACE_PATH.
+    this.writeTokenFile(resolveMcpTokenPath(workspacePath), mcpToken);
+
+    // Primary: per-thread-isolated path + an explicit pointer for the
+    // child so concurrent turns never read each other's token.
+    const perThreadPath = resolvePerThreadMcpTokenPath(workspacePath, threadId);
+    if (perThreadPath === null || !this.writeTokenFile(perThreadPath, mcpToken)) {
+      // No thread id, or the per-thread write failed: leave the child to
+      // resolve the shared path (just written) rather than point it at a
+      // path with no token.
+      return spawnEnv;
+    }
+    return { ...spawnEnv, [MCP_TOKEN_PATH_ENV_VAR]: perThreadPath };
+  }
+
+  /**
+   * Writes a token to a file via the atomic store helper, logging (never
+   * throwing on) a write failure. Returns whether the token was written.
+   */
+  private writeTokenFile(tokenPath: string | null, token: string): boolean {
     if (tokenPath === null) {
-      return;
+      return false;
     }
-    const result = writeMcpToken(tokenPath, mcpToken);
+    const result = writeMcpToken(tokenPath, token);
     if (result.warning) {
       process.stderr.write(
         `${JSON.stringify({
@@ -388,6 +426,7 @@ export class A2AHandler {
         })}\n`,
       );
     }
+    return result.written;
   }
 
   /**
@@ -501,21 +540,21 @@ export class A2AHandler {
     // below then stamps the per-turn token on top.
     await this.runBootstrapIntegrityCheck();
 
-    // ADR-0057 §3: write the per-turn MCP session token (delivered in
-    // this turn's A2A message/send metadata) to the workspace-resident
-    // token file. The CLI's `.mcp.json` points at the sidecar binary
-    // in MCP-server mode; that per-turn child process reads the token
-    // at startup and holds it for its lifetime. Writing here before
-    // the spawn below guarantees the child sees the current turn's
-    // token, not the previous turn's.
-    this.writeMcpToken(this.extractMcpToken(req.params));
-
     // ADR-0041 / #2094: `params.message.contextId` is the platform
     // thread.id. When the launcher declared a thread-binding (e.g.
     // Claude Code with --session-id / --resume), append the create or
     // resume flag + the id to argv on every spawn. Otherwise spawn the
-    // launcher-supplied argv unchanged.
+    // launcher-supplied argv unchanged. Extracted before the token write
+    // because the per-turn token file is keyed by thread id (#3000).
     const threadId = this.extractContextId(req.params);
+
+    // ADR-0057 §3 / #3000: deliver this turn's MCP session token to the
+    // CLI's MCP-server-mode child via a per-thread-isolated file, and get
+    // back the per-turn spawn env (a clone pointing the child at that
+    // file). Writing here, before the spawn below, guarantees the child
+    // sees the current turn's token, not a sibling concurrent turn's.
+    const turnEnv = this.prepareTurnEnv(this.extractMcpToken(req.params), threadId);
+
     const argv = this.composeArgv(threadId, this.deps.threadBinding);
     const spawnCwd = spawnEnv[WORKSPACE_PATH_ENV_VAR];
 
@@ -524,7 +563,7 @@ export class A2AHandler {
       result = await runAgentBridge({
         argv,
         stdin: userText,
-        env: spawnEnv,
+        env: turnEnv,
         cwd: spawnCwd,
         signal: abort.signal,
         cancelGraceMs: this.deps.cancelGraceMs,
@@ -573,7 +612,7 @@ export class A2AHandler {
         result = await runAgentBridge({
           argv: retryArgv,
           stdin: userText,
-          env: spawnEnv,
+          env: turnEnv,
           cwd: spawnCwd,
           signal: abort.signal,
           cancelGraceMs: this.deps.cancelGraceMs,

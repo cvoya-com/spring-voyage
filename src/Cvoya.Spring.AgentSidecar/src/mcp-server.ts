@@ -35,7 +35,7 @@
 
 import * as readline from "node:readline";
 
-import { readMcpToken, resolveMcpTokenPath } from "./mcp-token-store.js";
+import { MCP_TOKEN_PATH_ENV_VAR, readMcpToken, resolveMcpTokenPath } from "./mcp-token-store.js";
 import { BRIDGE_VERSION } from "./version.js";
 
 // Env var the long-running sidecar (and the launcher) sets to the
@@ -83,6 +83,25 @@ interface JsonRpcMessage {
 }
 
 /**
+ * Resolves the token file this MCP-server-mode child should read, from
+ * its environment.
+ *
+ * #3000: prefer the per-turn path the long-running sidecar pinned on this
+ * CLI spawn's env (`SPRING_MCP_TOKEN_PATH`) — it is isolated per
+ * concurrent thread, so the child never reads a sibling turn's token.
+ * Fall back to the legacy shared per-agent path (derived from
+ * `SPRING_WORKSPACE_PATH`) for runtimes that do not propagate the CLI env
+ * to this child, and for turns with no thread id.
+ */
+function resolveTokenPathFromEnv(env: NodeJS.ProcessEnv): string | null {
+  const perTurnPath = env[MCP_TOKEN_PATH_ENV_VAR];
+  if (perTurnPath && perTurnPath.length > 0) {
+    return perTurnPath;
+  }
+  return resolveMcpTokenPath(env[WORKSPACE_PATH_ENV_VAR]);
+}
+
+/**
  * Runs the MCP-server-mode loop. Resolves when the input stream ends
  * (the CLI closed its stdin to us → turn is winding down). Errors are
  * surfaced as JSON-RPC errors on the wire so the CLI's MCP client can
@@ -95,7 +114,7 @@ export async function runMcpServerMode(deps: McpServerModeDeps = {}): Promise<vo
   const stdout = deps.stdout ?? process.stdout;
   const fetchImpl = deps.fetchImpl ?? fetch;
   const tokenPath =
-    deps.tokenPath === undefined ? resolveMcpTokenPath(env[WORKSPACE_PATH_ENV_VAR]) : deps.tokenPath;
+    deps.tokenPath === undefined ? resolveTokenPathFromEnv(env) : deps.tokenPath;
   const workerEndpoint =
     deps.workerEndpoint ?? env[MCP_ENDPOINT_ENV_VAR] ?? DEFAULT_WORKER_ENDPOINT;
 
@@ -103,7 +122,8 @@ export async function runMcpServerMode(deps: McpServerModeDeps = {}): Promise<vo
   // wrote it for this turn before spawning the CLI; we hold it in
   // memory for the lifetime of this MCP-server-mode process. The next
   // turn = a new CLI spawn = a new MCP-server-mode process that reads
-  // the new token. See mcp-token-store.ts for the contract.
+  // the new token. The path is resolved per turn (see
+  // resolveTokenPathFromEnv / mcp-token-store.ts for the contract).
   const sessionToken = readMcpToken(tokenPath);
 
   // Cache `tools/list` for the process lifetime so the CLI's repeated

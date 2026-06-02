@@ -43,6 +43,8 @@ The worker still issues one per-turn MCP session token at dispatch start and rev
 
 The token's lifecycle, contents, and security properties are unchanged; it simply no longer crosses the CLI process boundary.
 
+**Concurrency note (#3000).** Under `SPRING_CONCURRENT_THREADS=true` an agent processes several turns at once, so the per-turn token must be isolated *per turn* — never shared through a single mutable slot. The sidecar therefore keys each turn's token by its thread id, so a concurrent turn can never read (and then be 401'd on, once the sibling turn ends and the worker revokes its token) another turn's token. This also preserves correct attribution: the token carries the turn's `threadId`/`messageId`, which the worker's `McpServer` threads into every `tools/call`, so collapsing concurrent turns onto a single token would mis-thread `sv.messaging` replies and mis-scope `sv.memory`. The per-turn lifecycle, contents, and security properties above are unchanged; only the delivery is made concurrency-safe (a shared fallback is retained for runtimes that do not propagate the CLI env to the per-turn MCP-server child).
+
 ### 4. The worker's MCP-HTTP transport becomes a platform-internal API
 
 The worker keeps `McpServer` and its `POST /mcp/` route, but it is now reached only by the sidecar, not by CLIs. The OAuth-discovery requirements of public MCP HTTP transports do not apply to a server with exactly one known client living in the same trust boundary; the `.well-known/oauth-*` endpoints #2666 proposes are not built.
