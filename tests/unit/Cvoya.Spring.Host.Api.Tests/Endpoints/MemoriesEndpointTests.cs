@@ -26,7 +26,8 @@ using Xunit;
 /// <summary>
 /// Endpoint coverage for the memory read API (#2342). Exercises the
 /// real <c>IMemoryStore</c> path with rows seeded directly into the
-/// in-memory EF context.
+/// in-memory EF context. Scope (agent / thread) is derived from each
+/// row's <c>thread_id</c> binding (#2997).
 /// </summary>
 public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
 {
@@ -48,7 +49,7 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GetUnitMemories_KnownUnitNoData_ReturnsEmptyShortAndLongTermLists()
+    public async Task GetUnitMemories_KnownUnitNoData_ReturnsEmptyAgentAndThreadLists()
     {
         var ct = TestContext.Current.CancellationToken;
         ArrangeDirectoryHit("unit", "engineering", ActorEng_Id);
@@ -58,8 +59,8 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
 
         var body = await response.Content.ReadFromJsonAsync<MemoriesResponse>(JsonOptions, ct);
         body.ShouldNotBeNull();
-        body!.ShortTerm.ShouldBeEmpty();
-        body.LongTerm.ShouldBeEmpty();
+        body!.Agent.ShouldBeEmpty();
+        body.Thread.ShouldBeEmpty();
     }
 
     [Fact]
@@ -73,7 +74,7 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GetAgentMemories_KnownAgentNoData_ReturnsEmptyShortAndLongTermLists()
+    public async Task GetAgentMemories_KnownAgentNoData_ReturnsEmptyAgentAndThreadLists()
     {
         var ct = TestContext.Current.CancellationToken;
         ArrangeDirectoryHit("agent", "ada", ActorAda_Id);
@@ -83,8 +84,8 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
 
         var body = await response.Content.ReadFromJsonAsync<MemoriesResponse>(JsonOptions, ct);
         body.ShouldNotBeNull();
-        body!.ShortTerm.ShouldBeEmpty();
-        body.LongTerm.ShouldBeEmpty();
+        body!.Agent.ShouldBeEmpty();
+        body.Thread.ShouldBeEmpty();
     }
 
     [Fact]
@@ -98,56 +99,56 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GetAgentMemories_RowsSeeded_ReturnsPartitionedShortAndLongTermLists()
+    public async Task GetAgentMemories_RowsSeeded_ReturnsPartitionedAgentAndThreadLists()
     {
         var ct = TestContext.Current.CancellationToken;
         var agentId = Guid.NewGuid();
         ArrangeDirectoryHit("agent", "rosa", agentId);
 
-        var longId = SeedMemoryRow(agentId, kind: 0, content: "Remember the design decisions", threadId: null);
-        var shortId = SeedMemoryRow(agentId, kind: 1, content: "Working note in this conversation", threadId: Guid.NewGuid());
+        var agentScopedId = SeedMemoryRow(agentId, content: "Remember the design decisions", threadId: null);
+        var threadScopedId = SeedMemoryRow(agentId, content: "Working note in this conversation", threadId: Guid.NewGuid());
 
         var response = await _client.GetAsync($"/api/v1/tenant/agents/{agentId:N}/memories", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<MemoriesResponse>(JsonOptions, ct);
         body.ShouldNotBeNull();
-        body!.ShortTerm.Count.ShouldBe(1);
-        body.LongTerm.Count.ShouldBe(1);
-        body.ShortTerm[0].Id.ShouldBe(GuidFormatter.Format(shortId));
-        body.ShortTerm[0].Kind.ShouldBe("short_term");
-        body.LongTerm[0].Id.ShouldBe(GuidFormatter.Format(longId));
-        body.LongTerm[0].Kind.ShouldBe("long_term");
+        body!.Agent.Count.ShouldBe(1);
+        body.Thread.Count.ShouldBe(1);
+        body.Agent[0].Id.ShouldBe(GuidFormatter.Format(agentScopedId));
+        body.Agent[0].Scope.ShouldBe("agent");
+        body.Thread[0].Id.ShouldBe(GuidFormatter.Format(threadScopedId));
+        body.Thread[0].Scope.ShouldBe("thread");
     }
 
     [Fact]
-    public async Task GetAgentMemories_KindFilter_RestrictsResponse()
+    public async Task GetAgentMemories_ScopeFilter_RestrictsResponse()
     {
         var ct = TestContext.Current.CancellationToken;
         var agentId = Guid.NewGuid();
         ArrangeDirectoryHit("agent", "rosa-filter", agentId);
 
-        SeedMemoryRow(agentId, kind: 0, content: "Long-term recall", threadId: null);
-        SeedMemoryRow(agentId, kind: 1, content: "Short-term note", threadId: Guid.NewGuid());
+        SeedMemoryRow(agentId, content: "Agent-scoped recall", threadId: null);
+        SeedMemoryRow(agentId, content: "Thread-scoped note", threadId: Guid.NewGuid());
 
         var response = await _client.GetAsync(
-            $"/api/v1/tenant/agents/{agentId:N}/memories?kind=long_term", ct);
+            $"/api/v1/tenant/agents/{agentId:N}/memories?scope=agent", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<MemoriesResponse>(JsonOptions, ct);
         body.ShouldNotBeNull();
-        body!.LongTerm.Count.ShouldBe(1);
-        body.ShortTerm.ShouldBeEmpty();
+        body!.Agent.Count.ShouldBe(1);
+        body.Thread.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task GetAgentMemories_BadKindFilter_Returns400()
+    public async Task GetAgentMemories_BadScopeFilter_Returns400()
     {
         var ct = TestContext.Current.CancellationToken;
         ArrangeDirectoryHit("agent", "ada", ActorAda_Id);
 
         var response = await _client.GetAsync(
-            $"/api/v1/tenant/agents/{ActorAda_Id:N}/memories?kind=nonsense", ct);
+            $"/api/v1/tenant/agents/{ActorAda_Id:N}/memories?scope=nonsense", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
@@ -158,8 +159,8 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var agentId = Guid.NewGuid();
         ArrangeDirectoryHit("agent", "rosa-query", agentId);
 
-        SeedMemoryRow(agentId, kind: 0, content: "the quick brown fox", threadId: null);
-        SeedMemoryRow(agentId, kind: 0, content: "completely unrelated material", threadId: null);
+        SeedMemoryRow(agentId, content: "the quick brown fox", threadId: null);
+        SeedMemoryRow(agentId, content: "completely unrelated material", threadId: null);
 
         var response = await _client.GetAsync(
             $"/api/v1/tenant/agents/{agentId:N}/memories?query=brown", ct);
@@ -167,8 +168,8 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
 
         var body = await response.Content.ReadFromJsonAsync<MemoriesResponse>(JsonOptions, ct);
         body.ShouldNotBeNull();
-        body!.LongTerm.Count.ShouldBe(1);
-        body.LongTerm[0].Content.GetString().ShouldNotBeNull().ShouldContain("brown");
+        body!.Agent.Count.ShouldBe(1);
+        body.Agent[0].Content.GetString().ShouldNotBeNull().ShouldContain("brown");
     }
 
     [Fact]
@@ -178,7 +179,7 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var agentId = Guid.NewGuid();
         ArrangeDirectoryHit("agent", "rosa-by-id", agentId);
 
-        var memoryId = SeedMemoryRow(agentId, kind: 0, content: "specific entry", threadId: null);
+        var memoryId = SeedMemoryRow(agentId, content: "specific entry", threadId: null);
 
         var response = await _client.GetAsync(
             $"/api/v1/tenant/agents/{agentId:N}/memories/{memoryId:N}", ct);
@@ -199,7 +200,7 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         ArrangeDirectoryHit("agent", "rosa-json", agentId);
 
         var memoryId = SeedMemoryRowRaw(
-            agentId, kind: 0,
+            agentId,
             rawJsonContent: """{"status":"published","piece":3}""", threadId: null);
 
         var response = await _client.GetAsync(
@@ -239,12 +240,13 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
 
     // Seeds a text memory: the jsonb content column holds the text as a
     // JSON string (mirrors how EfMemoryStore serialises a JsonElement).
-    private Guid SeedMemoryRow(Guid ownerId, int kind, string content, Guid? threadId)
-        => SeedMemoryRowRaw(ownerId, kind, JsonSerializer.Serialize(content), threadId);
+    // Scope is derived from thread_id (#2997) — no kind argument.
+    private Guid SeedMemoryRow(Guid ownerId, string content, Guid? threadId)
+        => SeedMemoryRowRaw(ownerId, JsonSerializer.Serialize(content), threadId);
 
     // Seeds a memory with raw JSON content (a structured object/array, or
     // a pre-serialised JSON string) directly into the jsonb column.
-    private Guid SeedMemoryRowRaw(Guid ownerId, int kind, string rawJsonContent, Guid? threadId)
+    private Guid SeedMemoryRowRaw(Guid ownerId, string rawJsonContent, Guid? threadId)
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
@@ -254,7 +256,8 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
             Id = id,
             OwnerScheme = "agent",
             OwnerId = ownerId,
-            Kind = kind,
+            // Scope is derived from thread_id (#2997): null => agent-scoped,
+            // a value => thread-scoped.
             ThreadId = threadId,
             Content = rawJsonContent,
             CreatedAt = DateTimeOffset.UtcNow,

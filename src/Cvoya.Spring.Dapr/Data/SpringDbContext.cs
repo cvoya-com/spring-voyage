@@ -269,7 +269,8 @@ public class SpringDbContext : DbContext
 
     /// <summary>
     /// Gets the set of memory entries (#2342). One row per memory
-    /// (long-term or short-term); owner-scoped on
+    /// (agent- or thread-scoped, derived from <c>thread_id</c> — #2997);
+    /// owner-scoped on
     /// <c>(tenant_id, owner_scheme, owner_id)</c> per ADR-0036, with a
     /// Postgres <c>GIN(to_tsvector('english', content))</c> index that
     /// backs the <c>sv.memory.search</c> tool.

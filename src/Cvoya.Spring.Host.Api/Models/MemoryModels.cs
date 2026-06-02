@@ -7,27 +7,29 @@ using System.Text.Json;
 
 /// <summary>
 /// Response body for <c>GET /api/v1/tenant/units/{id}/memories</c> and
-/// <c>GET /api/v1/tenant/agents/{id}/memories</c>. Mirrors the two-axis
-/// shape the design kit's Memory tab expects: short-term (in-flight
-/// conversational context) and long-term (persisted recall across
-/// sessions).
+/// <c>GET /api/v1/tenant/agents/{id}/memories</c>. Partitions entries by
+/// recall scope (#2997, ADR-0065): <c>agent</c> (durable knowledge
+/// recalled across all conversations) and <c>thread</c> (private notes
+/// bound to a single conversation / participant set).
 /// </summary>
 /// <remarks>
 /// <para>
 /// The endpoint is backed by the <c>IMemoryStore</c> (#2342) and
 /// returns entries owned by the addressed agent or unit. The route
-/// also accepts <c>kind</c> (<c>long_term</c> / <c>short_term</c>),
+/// also accepts <c>scope</c> (<c>agent</c> / <c>thread</c>),
 /// <c>limit</c>, <c>offset</c>, and <c>query</c> query-string
-/// parameters; when <c>kind</c> is supplied the other side of the
+/// parameters; when <c>scope</c> is supplied the other side of the
 /// response surfaces as an empty array so the wire shape stays stable
-/// regardless of the filter.
+/// regardless of the filter. This operator inspector path lists every
+/// thread's entries — the per-thread recall filter applies only to the
+/// agent-runtime <c>sv.memory.*</c> tools.
 /// </para>
 /// </remarks>
-/// <param name="ShortTerm">Short-term memory entries (thread-scoped working notes).</param>
-/// <param name="LongTerm">Long-term memory entries (cross-thread recall).</param>
+/// <param name="Agent">Agent-scoped memory entries (recalled across all conversations).</param>
+/// <param name="Thread">Thread-scoped memory entries (private notes bound to one conversation).</param>
 public record MemoriesResponse(
-    IReadOnlyList<MemoryEntry> ShortTerm,
-    IReadOnlyList<MemoryEntry> LongTerm);
+    IReadOnlyList<MemoryEntry> Agent,
+    IReadOnlyList<MemoryEntry> Thread);
 
 /// <summary>
 /// One memory entry. Wire form for both the read API and the operator
@@ -46,19 +48,20 @@ public record MemoriesResponse(
 /// Optional origin of the entry (e.g. conversation id, message id).
 /// Omitted when the entry has no referenceable upstream.
 /// </param>
-/// <param name="Kind">
-/// Memory kind. Values: <c>"long_term"</c> or <c>"short_term"</c>.
+/// <param name="Scope">
+/// Recall scope, derived from the thread binding. Values:
+/// <c>"agent"</c> or <c>"thread"</c>.
 /// </param>
 /// <param name="UpdatedAt">UTC timestamp of the last mutation.</param>
 /// <param name="ThreadId">
-/// Thread the entry was captured in. Populated for short-term entries;
-/// null for long-term entries.
+/// Thread the entry is bound to. Populated for thread-scoped entries;
+/// null for agent-scoped entries.
 /// </param>
 public record MemoryEntry(
     string Id,
     JsonElement Content,
     DateTimeOffset CreatedAt,
     string? Source,
-    string Kind,
+    string Scope,
     DateTimeOffset UpdatedAt,
     string? ThreadId = null);

@@ -66,7 +66,6 @@ public sealed class EfMemoryStore : IMemoryStore
     /// <inheritdoc />
     public async Task<MemoryEntry> AddAsync(
         Address owner,
-        MemoryKind kind,
         JsonElement content,
         string? source,
         Guid? threadId,
@@ -74,13 +73,9 @@ public sealed class EfMemoryStore : IMemoryStore
     {
         ArgumentNullException.ThrowIfNull(owner);
         EnsureStorableContent(content);
-        if (kind == MemoryKind.ShortTerm && !threadId.HasValue)
-        {
-            throw new ArgumentException("Short-term entries require a thread id.", nameof(threadId));
-        }
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        await using var dbScope = _scopeFactory.CreateAsyncScope();
+        var db = dbScope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
         var now = _timeProvider.GetUtcNow();
         var entry = new MemoryEntity
@@ -88,8 +83,9 @@ public sealed class EfMemoryStore : IMemoryStore
             Id = Guid.NewGuid(),
             OwnerScheme = owner.Scheme,
             OwnerId = owner.Id,
-            Kind = (int)kind,
-            ThreadId = kind == MemoryKind.LongTerm ? null : threadId,
+            // Scope is derived from the thread binding (#2997): a null
+            // thread id is agent-scoped, a value is thread-scoped.
+            ThreadId = threadId,
             Content = Serialize(content),
             Source = source,
             CreatedAt = now,
@@ -100,8 +96,8 @@ public sealed class EfMemoryStore : IMemoryStore
         await db.SaveChangesAsync(cancellationToken);
 
         _logger.LogDebug(
-            "Memory.Add owner={Owner} kind={Kind} id={Id}",
-            owner, kind, entry.Id);
+            "Memory.Add owner={Owner} scope={Scope} id={Id}",
+            owner, threadId is null ? "agent" : "thread", entry.Id);
 
         return ToEntry(entry);
     }
@@ -129,25 +125,22 @@ public sealed class EfMemoryStore : IMemoryStore
     /// <inheritdoc />
     public async Task<IReadOnlyList<MemoryEntry>> ListAsync(
         Address owner,
-        MemoryKind? kind,
+        MemoryScope? scope,
+        Guid? recallThreadId,
         int limit,
         int offset,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(owner);
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        await using var dbScope = _scopeFactory.CreateAsyncScope();
+        var db = dbScope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
         var query = db.Memories
             .AsNoTracking()
             .Where(m => m.OwnerScheme == owner.Scheme && m.OwnerId == owner.Id);
 
-        if (kind is { } k)
-        {
-            var kindInt = (int)k;
-            query = query.Where(m => m.Kind == kindInt);
-        }
+        query = ApplyScopeFilters(query, scope, recallThreadId);
 
         var rows = await query
             .OrderByDescending(m => m.CreatedAt)
@@ -162,7 +155,8 @@ public sealed class EfMemoryStore : IMemoryStore
     public async Task<IReadOnlyList<MemoryEntry>> SearchAsync(
         Address owner,
         string query,
-        MemoryKind? kind,
+        MemoryScope? scope,
+        Guid? recallThreadId,
         int limit,
         CancellationToken cancellationToken = default)
     {
@@ -172,18 +166,14 @@ public sealed class EfMemoryStore : IMemoryStore
             return Array.Empty<MemoryEntry>();
         }
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        await using var dbScope = _scopeFactory.CreateAsyncScope();
+        var db = dbScope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
         var baseQuery = db.Memories
             .AsNoTracking()
             .Where(m => m.OwnerScheme == owner.Scheme && m.OwnerId == owner.Id);
 
-        if (kind is { } k)
-        {
-            var kindInt = (int)k;
-            baseQuery = baseQuery.Where(m => m.Kind == kindInt);
-        }
+        baseQuery = ApplyScopeFilters(baseQuery, scope, recallThreadId);
 
         List<MemoryEntity> rows;
         var providerName = db.Database.ProviderName ?? string.Empty;
@@ -298,7 +288,6 @@ public sealed class EfMemoryStore : IMemoryStore
         new(
             Id: row.Id,
             Owner: new Address(row.OwnerScheme, row.OwnerId),
-            Kind: (MemoryKind)row.Kind,
             Content: Parse(row.Content),
             Source: row.Source,
             ThreadId: row.ThreadId,
@@ -336,5 +325,38 @@ public sealed class EfMemoryStore : IMemoryStore
             throw new ArgumentException(
                 "Memory content must be a non-null JSON value.", nameof(content));
         }
+    }
+
+    /// <summary>
+    /// Applies the derived scope filter and the thread recall filter
+    /// (#2997). Scope is derived from <c>thread_id</c>:
+    /// <see cref="MemoryScope.Agent"/> ⇒ <c>thread_id IS NULL</c>,
+    /// <see cref="MemoryScope.Thread"/> ⇒ <c>thread_id IS NOT NULL</c>.
+    /// The recall filter, when a thread is supplied, restricts
+    /// thread-scoped rows to that thread (agent-scoped rows always pass)
+    /// so an agent recalls only the current thread's private notes; a
+    /// null recall thread applies no restriction (the operator inspector
+    /// path, which sees every thread's entries).
+    /// </summary>
+    private static IQueryable<MemoryEntity> ApplyScopeFilters(
+        IQueryable<MemoryEntity> query,
+        MemoryScope? scope,
+        Guid? recallThreadId)
+    {
+        if (scope == MemoryScope.Agent)
+        {
+            query = query.Where(m => m.ThreadId == null);
+        }
+        else if (scope == MemoryScope.Thread)
+        {
+            query = query.Where(m => m.ThreadId != null);
+        }
+
+        if (recallThreadId is { } tid)
+        {
+            query = query.Where(m => m.ThreadId == null || m.ThreadId == tid);
+        }
+
+        return query;
     }
 }

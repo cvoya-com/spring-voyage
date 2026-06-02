@@ -35,8 +35,8 @@ public static class MemoriesEndpoints
     /// <summary>Maximum allowed page size.</summary>
     public const int MaxLimit = 500;
 
-    private const string KindLongTerm = "long_term";
-    private const string KindShortTerm = "short_term";
+    private const string ScopeAgent = "agent";
+    private const string ScopeThread = "thread";
 
     /// <summary>
     /// Registers the memory endpoints. Call from <c>Program.cs</c>
@@ -51,14 +51,14 @@ public static class MemoriesEndpoints
         group.MapGet("/api/v1/tenant/units/{id}/memories", GetUnitMemoriesAsync)
             .WithTags("Units")
             .WithName("GetUnitMemories")
-            .WithSummary("Read the unit's short-term and long-term memory entries (#2342)")
+            .WithSummary("Read the unit's agent- and thread-scoped memory entries (#2342)")
             .Produces<MemoriesResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/api/v1/tenant/agents/{id}/memories", GetAgentMemoriesAsync)
             .WithTags("Agents")
             .WithName("GetAgentMemories")
-            .WithSummary("Read the agent's short-term and long-term memory entries (#2342)")
+            .WithSummary("Read the agent's agent- and thread-scoped memory entries (#2342)")
             .Produces<MemoriesResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -81,26 +81,26 @@ public static class MemoriesEndpoints
 
     private static Task<IResult> GetUnitMemoriesAsync(
         string id,
-        [FromQuery] string? kind,
+        [FromQuery] string? scope,
         [FromQuery] string? query,
         [FromQuery] int? limit,
         [FromQuery] int? offset,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IMemoryStore memoryStore,
         CancellationToken cancellationToken)
-        => GetMemoriesAsync(Address.UnitScheme, id, kind, query, limit, offset,
+        => GetMemoriesAsync(Address.UnitScheme, id, scope, query, limit, offset,
             directoryService, memoryStore, cancellationToken);
 
     private static Task<IResult> GetAgentMemoriesAsync(
         string id,
-        [FromQuery] string? kind,
+        [FromQuery] string? scope,
         [FromQuery] string? query,
         [FromQuery] int? limit,
         [FromQuery] int? offset,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IMemoryStore memoryStore,
         CancellationToken cancellationToken)
-        => GetMemoriesAsync(Address.AgentScheme, id, kind, query, limit, offset,
+        => GetMemoriesAsync(Address.AgentScheme, id, scope, query, limit, offset,
             directoryService, memoryStore, cancellationToken);
 
     private static Task<IResult> GetUnitMemoryAsync(
@@ -124,7 +124,7 @@ public static class MemoriesEndpoints
     private static async Task<IResult> GetMemoriesAsync(
         string scheme,
         string id,
-        string? kindArg,
+        string? scopeArg,
         string? queryArg,
         int? limitArg,
         int? offsetArg,
@@ -139,11 +139,11 @@ public static class MemoriesEndpoints
             return NotFoundFor(scheme, id);
         }
 
-        var kindFilter = ParseKindArg(kindArg);
-        if (kindArg is not null && kindFilter is null)
+        var scopeFilter = ParseScopeArg(scopeArg);
+        if (scopeArg is not null && scopeFilter is null)
         {
             return Results.Problem(
-                detail: $"Query 'kind' must be '{KindLongTerm}' or '{KindShortTerm}'.",
+                detail: $"Query 'scope' must be '{ScopeAgent}' or '{ScopeThread}'.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
@@ -152,39 +152,40 @@ public static class MemoriesEndpoints
         // When `query` is supplied, route through the FTS path. The
         // store ignores `offset` on search (relevance ordering makes
         // paging meaningless without a stable cursor); we surface
-        // `limit` only. The list path keeps offset-based paging.
+        // `limit` only. The list path keeps offset-based paging. The
+        // operator inspector sees every thread's entries, so the
+        // per-thread recall filter is disabled (recallThreadId: null).
         IReadOnlyList<CoreMemoryEntry> entries;
         if (!string.IsNullOrWhiteSpace(queryArg))
         {
             entries = await memoryStore.SearchAsync(
-                address, queryArg, kindFilter, limit, cancellationToken);
+                address, queryArg, scopeFilter, recallThreadId: null, limit, cancellationToken);
         }
         else
         {
             entries = await memoryStore.ListAsync(
-                address, kindFilter, limit, offset, cancellationToken);
+                address, scopeFilter, recallThreadId: null, limit, offset, cancellationToken);
         }
 
-        // Partition into short/long-term arrays in-memory. The list
-        // already filtered down to the requested kind if one was
-        // supplied, so the other axis surfaces as empty — the wire
-        // shape stays stable.
-        var shortTerm = new List<WireMemoryEntry>();
-        var longTerm = new List<WireMemoryEntry>();
+        // Partition into agent/thread arrays in-memory. The list already
+        // filtered down to the requested scope if one was supplied, so
+        // the other side surfaces as empty — the wire shape stays stable.
+        var agent = new List<WireMemoryEntry>();
+        var thread = new List<WireMemoryEntry>();
         foreach (var row in entries)
         {
             var wire = ToWire(row);
-            if (row.Kind == MemoryKind.ShortTerm)
+            if (row.Scope == MemoryScope.Thread)
             {
-                shortTerm.Add(wire);
+                thread.Add(wire);
             }
             else
             {
-                longTerm.Add(wire);
+                agent.Add(wire);
             }
         }
 
-        return Results.Ok(new MemoriesResponse(shortTerm, longTerm));
+        return Results.Ok(new MemoriesResponse(agent, thread));
     }
 
     private static async Task<IResult> GetSingleMemoryAsync(
@@ -218,19 +219,19 @@ public static class MemoriesEndpoints
             detail: $"{char.ToUpperInvariant(scheme[0])}{scheme[1..]} '{id}' not found",
             statusCode: StatusCodes.Status404NotFound);
 
-    private static MemoryKind? ParseKindArg(string? kindArg)
+    private static MemoryScope? ParseScopeArg(string? scopeArg)
     {
-        if (string.IsNullOrEmpty(kindArg))
+        if (string.IsNullOrEmpty(scopeArg))
         {
             return null;
         }
-        if (string.Equals(kindArg, KindLongTerm, StringComparison.Ordinal))
+        if (string.Equals(scopeArg, ScopeAgent, StringComparison.Ordinal))
         {
-            return MemoryKind.LongTerm;
+            return MemoryScope.Agent;
         }
-        if (string.Equals(kindArg, KindShortTerm, StringComparison.Ordinal))
+        if (string.Equals(scopeArg, ScopeThread, StringComparison.Ordinal))
         {
-            return MemoryKind.ShortTerm;
+            return MemoryScope.Thread;
         }
         return null;
     }
@@ -251,7 +252,7 @@ public static class MemoriesEndpoints
             Content: entry.Content,
             CreatedAt: entry.CreatedAt,
             Source: entry.Source,
-            Kind: entry.Kind == MemoryKind.ShortTerm ? KindShortTerm : KindLongTerm,
+            Scope: entry.Scope == MemoryScope.Thread ? ScopeThread : ScopeAgent,
             UpdatedAt: entry.UpdatedAt,
             ThreadId: entry.ThreadId is { } tid ? GuidFormatter.Format(tid) : null);
 }

@@ -2093,7 +2093,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read the unit's short-term and long-term memory entries (#2342) */
+        /** Read the unit's agent- and thread-scoped memory entries (#2342) */
         get: operations["GetUnitMemories"];
         put?: never;
         post?: never;
@@ -2110,7 +2110,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read the agent's short-term and long-term memory entries (#2342) */
+        /** Read the agent's agent- and thread-scoped memory entries (#2342) */
         get: operations["GetAgentMemories"];
         put?: never;
         post?: never;
@@ -4052,8 +4052,8 @@ export interface components {
         /** @enum {unknown} */
         LifecycleStatus: "Draft" | "Stopped" | "Starting" | "Running" | "Stopping" | "Error" | "Validating";
         MemoriesResponse: {
-            shortTerm: components["schemas"]["MemoryEntry"][];
-            longTerm: components["schemas"]["MemoryEntry"][];
+            agent: components["schemas"]["MemoryEntry"][];
+            thread: components["schemas"]["MemoryEntry"][];
         };
         MemoryEntry: {
             id: string;
@@ -4061,7 +4061,7 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             source: null | string;
-            kind: string;
+            scope: string;
             /** Format: date-time */
             updatedAt: string;
             threadId?: null | string;
@@ -10354,7 +10354,7 @@ export interface operations {
     GetUnitMemories: {
         parameters: {
             query?: {
-                kind?: string;
+                scope?: string;
                 query?: string;
                 limit?: null | number;
                 offset?: null | number;
@@ -10390,7 +10390,7 @@ export interface operations {
     GetAgentMemories: {
         parameters: {
             query?: {
-                kind?: string;
+                scope?: string;
                 query?: string;
                 limit?: null | number;
                 offset?: null | number;

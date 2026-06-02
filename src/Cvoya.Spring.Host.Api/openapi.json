@@ -7538,7 +7538,7 @@
         "tags": [
           "Units"
         ],
-        "summary": "Read the unit's short-term and long-term memory entries (#2342)",
+        "summary": "Read the unit's agent- and thread-scoped memory entries (#2342)",
         "operationId": "GetUnitMemories",
         "parameters": [
           {
@@ -7550,7 +7550,7 @@
             }
           },
           {
-            "name": "kind",
+            "name": "scope",
             "in": "query",
             "schema": {
               "type": "string"
@@ -7615,7 +7615,7 @@
         "tags": [
           "Agents"
         ],
-        "summary": "Read the agent's short-term and long-term memory entries (#2342)",
+        "summary": "Read the agent's agent- and thread-scoped memory entries (#2342)",
         "operationId": "GetAgentMemories",
         "parameters": [
           {
@@ -7627,7 +7627,7 @@
             }
           },
           {
-            "name": "kind",
+            "name": "scope",
             "in": "query",
             "schema": {
               "type": "string"
@@ -14721,18 +14721,18 @@
       },
       "MemoriesResponse": {
         "required": [
-          "shortTerm",
-          "longTerm"
+          "agent",
+          "thread"
         ],
         "type": "object",
         "properties": {
-          "shortTerm": {
+          "agent": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/MemoryEntry"
             }
           },
-          "longTerm": {
+          "thread": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/MemoryEntry"
@@ -14746,7 +14746,7 @@
           "content",
           "createdAt",
           "source",
-          "kind",
+          "scope",
           "updatedAt"
         ],
         "type": "object",
@@ -14767,7 +14767,7 @@
               "string"
             ]
           },
-          "kind": {
+          "scope": {
             "type": "string"
           },
           "updatedAt": {

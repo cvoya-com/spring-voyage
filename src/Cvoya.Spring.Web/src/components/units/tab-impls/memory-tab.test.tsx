@@ -4,10 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const useMemoriesMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
   useMemories: (
-    scope: string,
+    subject: string,
     id: string,
     options?: Record<string, unknown>,
-  ) => useMemoriesMock(scope, id, options),
+  ) => useMemoriesMock(subject, id, options),
 }));
 
 import { MemoryTab } from "./memory-tab";
@@ -17,9 +17,9 @@ describe("MemoryTab", () => {
     useMemoriesMock.mockReset();
   });
 
-  it("calls useMemories with scope=unit when kind=Unit", () => {
+  it("calls useMemories with subject=unit when kind=Unit", () => {
     useMemoriesMock.mockReturnValue({
-      data: { shortTerm: [], longTerm: [] },
+      data: { agent: [], thread: [] },
       isLoading: false,
       error: null,
     });
@@ -34,9 +34,9 @@ describe("MemoryTab", () => {
     );
   });
 
-  it("calls useMemories with scope=agent when kind=Agent", () => {
+  it("calls useMemories with subject=agent when kind=Agent", () => {
     useMemoriesMock.mockReturnValue({
-      data: { shortTerm: [], longTerm: [] },
+      data: { agent: [], thread: [] },
       isLoading: false,
       error: null,
     });
@@ -73,28 +73,28 @@ describe("MemoryTab", () => {
     expect(screen.getByTestId("tab-agent-memory-error")).toBeInTheDocument();
   });
 
-  it("renders short-term and long-term sections with counts and entries", () => {
+  it("renders agent-scoped and thread-scoped sections with counts and entries", () => {
     useMemoriesMock.mockReturnValue({
       data: {
-        shortTerm: [
-          {
-            id: "s1",
-            content: "remember the milk",
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            kind: "short_term",
-            source: "ada",
-            threadId: "abcdef0123456789",
-          },
-        ],
-        longTerm: [
+        agent: [
           {
             id: "l1",
             content: "Pi is roughly 3.14",
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            kind: "long_term",
+            scope: "agent",
             source: null,
+          },
+        ],
+        thread: [
+          {
+            id: "s1",
+            content: "remember the milk",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            scope: "thread",
+            source: "ada",
+            threadId: "abcdef0123456789",
           },
         ],
       },
@@ -106,14 +106,14 @@ describe("MemoryTab", () => {
     const root = screen.getByTestId("tab-unit-memory");
     expect(within(root).getByText("remember the milk")).toBeInTheDocument();
     expect(within(root).getByText("Pi is roughly 3.14")).toBeInTheDocument();
-    expect(within(root).getByText("Short-term")).toBeInTheDocument();
-    expect(within(root).getByText("Long-term")).toBeInTheDocument();
-    expect(screen.getByTestId("tab-unit-memory-short-count")).toHaveTextContent(
+    expect(within(root).getByText("Agent-scoped")).toBeInTheDocument();
+    expect(within(root).getByText("Thread-scoped")).toBeInTheDocument();
+    expect(screen.getByTestId("tab-unit-memory-agent-count")).toHaveTextContent(
       "1 entry",
     );
-    expect(screen.getByTestId("tab-unit-memory-long-count")).toHaveTextContent(
-      "1 entry",
-    );
+    expect(
+      screen.getByTestId("tab-unit-memory-thread-count"),
+    ).toHaveTextContent("1 entry");
     expect(within(root).getByText(/source: ada/)).toBeInTheDocument();
     expect(within(root).getByText(/thread: abcdef01/)).toBeInTheDocument();
   });
@@ -121,17 +121,17 @@ describe("MemoryTab", () => {
   it("renders structured JSON content as formatted JSON, not [object Object]", () => {
     useMemoriesMock.mockReturnValue({
       data: {
-        shortTerm: [],
-        longTerm: [
+        agent: [
           {
             id: "j1",
             content: { status: "published", piece: 3 },
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            kind: "long_term",
+            scope: "agent",
             source: null,
           },
         ],
+        thread: [],
       },
       isLoading: false,
       error: null,
@@ -140,14 +140,14 @@ describe("MemoryTab", () => {
 
     const root = screen.getByTestId("tab-agent-memory");
     expect(within(root).queryByText("[object Object]")).not.toBeInTheDocument();
-    const item = within(root).getByTestId("tab-agent-memory-long-item-j1");
+    const item = within(root).getByTestId("tab-agent-memory-agent-item-j1");
     expect(item.textContent).toContain('"status": "published"');
     expect(item.textContent).toContain('"piece": 3');
   });
 
   it("submits the search form with the typed query", () => {
     useMemoriesMock.mockReturnValue({
-      data: { shortTerm: [], longTerm: [] },
+      data: { agent: [], thread: [] },
       isLoading: false,
       error: null,
     });
@@ -167,7 +167,7 @@ describe("MemoryTab", () => {
 
   it("clears the search query via the clear button", () => {
     useMemoriesMock.mockReturnValue({
-      data: { shortTerm: [], longTerm: [] },
+      data: { agent: [], thread: [] },
       isLoading: false,
       error: null,
     });
@@ -193,17 +193,17 @@ describe("MemoryTab", () => {
   it("advances the offset when Next is clicked and there is overflow", () => {
     // List-mode requests limit = PAGE_SIZE + 1 = 51 entries; the
     // component trims the overflow but enables `Next`. We seed exactly
-    // one overflow entry on the long-term axis to flip hasNext = true.
-    const longTerm = Array.from({ length: 51 }, (_, i) => ({
+    // one overflow entry on the agent-scoped side to flip hasNext = true.
+    const agent = Array.from({ length: 51 }, (_, i) => ({
       id: `l${i}`,
       content: `entry ${i}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      kind: "long_term",
+      scope: "agent",
       source: null,
     }));
     useMemoriesMock.mockReturnValue({
-      data: { shortTerm: [], longTerm },
+      data: { agent, thread: [] },
       isLoading: false,
       error: null,
     });
@@ -221,7 +221,7 @@ describe("MemoryTab", () => {
 
   it("disables Previous when offset is zero", () => {
     useMemoriesMock.mockReturnValue({
-      data: { shortTerm: [], longTerm: [] },
+      data: { agent: [], thread: [] },
       isLoading: false,
       error: null,
     });

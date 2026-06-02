@@ -24,11 +24,11 @@ using Xunit;
 /// EF-backed tests for <see cref="EfMemoryStore"/> (#2342). Exercise the
 /// CRUD + search + tenant- / owner-isolation contract against the EF
 /// in-memory provider. content is a <c>jsonb</c> value (a JSON string for
-/// a plain text note; an object/array for structured state, #2991); the
-/// store serialises a <see cref="JsonElement"/> in and parses one back
-/// out, so the JSON kind round-trips. The full-text search path falls
-/// back to case-insensitive substring matching on the in-memory provider;
-/// the Postgres FTS query is the production path.
+/// a plain text note; an object/array for structured state, #2991) that
+/// round-trips its JSON kind, plus the derived scope axis and thread
+/// recall filter (#2997). The full-text search path falls back to
+/// case-insensitive substring matching on the in-memory provider; the
+/// integration suite exercises the real Postgres FTS query.
 /// </summary>
 public class EfMemoryStoreTests : IDisposable
 {
@@ -82,18 +82,17 @@ public class EfMemoryStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task AddAsync_LongTerm_RoundTrips()
+    public async Task AddAsync_AgentScoped_RoundTrips()
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
 
         var entry = await store.AddAsync(
-            AgentA, MemoryKind.LongTerm, Text("remember this"), source: "msg-123",
-            threadId: null, ct);
+            AgentA, Text("remember this"), source: "msg-123", threadId: null, ct);
 
         entry.Id.ShouldNotBe(Guid.Empty);
         entry.Owner.ShouldBe(AgentA);
-        entry.Kind.ShouldBe(MemoryKind.LongTerm);
+        entry.Scope.ShouldBe(MemoryScope.Agent);
         entry.Content.ValueKind.ShouldBe(JsonValueKind.String);
         entry.Content.GetString().ShouldBe("remember this");
         entry.Source.ShouldBe("msg-123");
@@ -111,8 +110,7 @@ public class EfMemoryStoreTests : IDisposable
         var store = CreateStore(_providerA);
 
         var entry = await store.AddAsync(
-            AgentA, MemoryKind.LongTerm,
-            Json("""{"status":"published","piece":1}"""), source: null,
+            AgentA, Json("""{"status":"published","piece":1}"""), source: null,
             threadId: null, ct);
 
         // The JSON kind is preserved — content reads back as an object,
@@ -135,34 +133,21 @@ public class EfMemoryStoreTests : IDisposable
 
         await Should.ThrowAsync<ArgumentException>(async () =>
             await store.AddAsync(
-                AgentA, MemoryKind.LongTerm, Json("null"), source: null,
-                threadId: null, ct));
+                AgentA, Json("null"), source: null, threadId: null, ct));
     }
 
     [Fact]
-    public async Task AddAsync_ShortTerm_RequiresThreadId()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var store = CreateStore(_providerA);
-
-        await Should.ThrowAsync<ArgumentException>(async () =>
-            await store.AddAsync(
-                AgentA, MemoryKind.ShortTerm, Text("x"), source: null,
-                threadId: null, ct));
-    }
-
-    [Fact]
-    public async Task AddAsync_ShortTerm_PersistsThreadId()
+    public async Task AddAsync_ThreadBinding_DerivesThreadScope()
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
         var thread = Guid.NewGuid();
 
         var entry = await store.AddAsync(
-            AgentA, MemoryKind.ShortTerm, Text("working note"), source: null,
-            threadId: thread, ct);
+            AgentA, Text("working note"), source: null, threadId: thread, ct);
 
         entry.ThreadId.ShouldBe(thread);
+        entry.Scope.ShouldBe(MemoryScope.Thread);
     }
 
     [Fact]
@@ -171,31 +156,77 @@ public class EfMemoryStoreTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
         var entry = await store.AddAsync(
-            AgentA, MemoryKind.LongTerm, Text("a's memory"), source: null,
-            threadId: null, ct);
+            AgentA, Text("a's memory"), source: null, threadId: null, ct);
 
         var crossOwner = await store.GetAsync(AgentB, entry.Id, ct);
         crossOwner.ShouldBeNull();
     }
 
     [Fact]
-    public async Task ListAsync_FiltersByKind()
+    public async Task ListAsync_FiltersByScope()
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
 
-        await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("L1"), null, null, ct);
-        await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("L2"), null, null, ct);
-        await store.AddAsync(AgentA, MemoryKind.ShortTerm, Text("S1"), null, Guid.NewGuid(), ct);
+        await store.AddAsync(AgentA, Text("L1"), null, null, ct);
+        await store.AddAsync(AgentA, Text("L2"), null, null, ct);
+        await store.AddAsync(AgentA, Text("S1"), null, Guid.NewGuid(), ct);
 
-        var allLong = await store.ListAsync(AgentA, MemoryKind.LongTerm, 10, 0, ct);
-        allLong.Count.ShouldBe(2);
+        var agentScoped = await store.ListAsync(AgentA, MemoryScope.Agent, recallThreadId: null, 10, 0, ct);
+        agentScoped.Count.ShouldBe(2);
 
-        var allShort = await store.ListAsync(AgentA, MemoryKind.ShortTerm, 10, 0, ct);
-        allShort.Count.ShouldBe(1);
+        var threadScoped = await store.ListAsync(AgentA, MemoryScope.Thread, recallThreadId: null, 10, 0, ct);
+        threadScoped.Count.ShouldBe(1);
 
-        var all = await store.ListAsync(AgentA, null, 10, 0, ct);
+        var all = await store.ListAsync(AgentA, null, recallThreadId: null, 10, 0, ct);
         all.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task ListAsync_RecallThread_ScopesThreadEntriesToThatThread()
+    {
+        // #2997 recall filter: when recalling within a thread, agent-scoped
+        // entries always surface, but thread-scoped entries surface only
+        // for that thread — never another thread's private notes.
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore(_providerA);
+        var threadX = Guid.NewGuid();
+        var threadY = Guid.NewGuid();
+
+        await store.AddAsync(AgentA, Text("agent-wide"), null, null, ct);
+        await store.AddAsync(AgentA, Text("note in X"), null, threadX, ct);
+        await store.AddAsync(AgentA, Text("note in Y"), null, threadY, ct);
+
+        // Recalling inside thread X: agent-wide + X's note, never Y's.
+        var inX = await store.ListAsync(AgentA, null, recallThreadId: threadX, 10, 0, ct);
+        inX.Select(e => e.Content.GetString()).ShouldBe(
+            new[] { "agent-wide", "note in X" }, ignoreOrder: true);
+
+        // scope=Thread within X yields only X's note.
+        var threadInX = await store.ListAsync(AgentA, MemoryScope.Thread, recallThreadId: threadX, 10, 0, ct);
+        threadInX.Count.ShouldBe(1);
+        threadInX[0].Content.GetString().ShouldBe("note in X");
+
+        // No recall thread (operator inspector) sees every thread's entries.
+        var all = await store.ListAsync(AgentA, null, recallThreadId: null, 10, 0, ct);
+        all.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task SearchAsync_RecallThread_ExcludesOtherThreads()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore(_providerA);
+        var threadX = Guid.NewGuid();
+        var threadY = Guid.NewGuid();
+
+        await store.AddAsync(AgentA, Text("shared keyword agentwide"), null, null, ct);
+        await store.AddAsync(AgentA, Text("shared keyword in X"), null, threadX, ct);
+        await store.AddAsync(AgentA, Text("shared keyword in Y"), null, threadY, ct);
+
+        var inX = await store.SearchAsync(AgentA, "keyword", null, recallThreadId: threadX, 10, ct);
+        inX.Select(e => e.Content.GetString()).ShouldBe(
+            new[] { "shared keyword agentwide", "shared keyword in X" }, ignoreOrder: true);
     }
 
     [Fact]
@@ -204,12 +235,12 @@ public class EfMemoryStoreTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
 
-        await store.AddAsync(AgentA, MemoryKind.LongTerm,
+        await store.AddAsync(AgentA,
             Text("the quick brown fox jumps over the lazy dog"), null, null, ct);
-        await store.AddAsync(AgentA, MemoryKind.LongTerm,
+        await store.AddAsync(AgentA,
             Text("completely unrelated content"), null, null, ct);
 
-        var hits = await store.SearchAsync(AgentA, "brown fox", null, 5, ct);
+        var hits = await store.SearchAsync(AgentA, "brown fox", null, recallThreadId: null, 5, ct);
         hits.Count.ShouldBe(1);
         hits[0].Content.GetString().ShouldNotBeNull().ShouldContain("brown fox");
     }
@@ -220,16 +251,16 @@ public class EfMemoryStoreTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
 
-        await store.AddAsync(AgentA, MemoryKind.LongTerm,
+        await store.AddAsync(AgentA,
             Json("""{"piece":3,"status":"published","headline":"Spring arrives"}"""),
             null, null, ct);
-        await store.AddAsync(AgentA, MemoryKind.LongTerm,
+        await store.AddAsync(AgentA,
             Json("""{"piece":1,"status":"reporting"}"""), null, null, ct);
 
         // A structured memory is searchable by a string value it contains
         // (the Postgres FTS uses the to_tsvector(jsonb) string-value
         // overload; the in-memory fallback substring-matches the raw JSON).
-        var hits = await store.SearchAsync(AgentA, "published", null, 5, ct);
+        var hits = await store.SearchAsync(AgentA, "published", null, recallThreadId: null, 5, ct);
         hits.Count.ShouldBe(1);
         hits[0].Content.ValueKind.ShouldBe(JsonValueKind.Object);
         hits[0].Content.GetProperty("headline").GetString().ShouldBe("Spring arrives");
@@ -240,9 +271,9 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("x"), null, null, ct);
+        await store.AddAsync(AgentA, Text("x"), null, null, ct);
 
-        var hits = await store.SearchAsync(AgentA, "  ", null, 5, ct);
+        var hits = await store.SearchAsync(AgentA, "  ", null, recallThreadId: null, 5, ct);
         hits.ShouldBeEmpty();
     }
 
@@ -251,8 +282,7 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("old content"),
-            null, null, ct);
+        var entry = await store.AddAsync(AgentA, Text("old content"), null, null, ct);
 
         var updated = await store.UpdateAsync(AgentA, entry.Id, Text("new content"), ct);
         updated.ShouldNotBeNull();
@@ -264,8 +294,7 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("a plain note"),
-            null, null, ct);
+        var entry = await store.AddAsync(AgentA, Text("a plain note"), null, null, ct);
 
         var updated = await store.UpdateAsync(
             AgentA, entry.Id, Json("""{"phase":"done","count":2}"""), ct);
@@ -281,7 +310,7 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm,
+        var entry = await store.AddAsync(AgentA,
             Json("""{"phase":"draft"}"""), null, null, ct);
 
         var updated = await store.UpdateAsync(AgentA, entry.Id, Text("now just text"), ct);
@@ -296,7 +325,7 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("x"), null, null, ct);
+        var entry = await store.AddAsync(AgentA, Text("x"), null, null, ct);
 
         var updated = await store.UpdateAsync(AgentA, entry.Id, (JsonElement?)null, ct);
         updated.ShouldNotBeNull();
@@ -308,7 +337,7 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("x"), null, null, ct);
+        var entry = await store.AddAsync(AgentA, Text("x"), null, null, ct);
 
         var deleted = await store.DeleteAsync(AgentA, entry.Id, ct);
         deleted.ShouldBeTrue();
@@ -321,7 +350,7 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        var entry = await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("x"), null, null, ct);
+        var entry = await store.AddAsync(AgentA, Text("x"), null, null, ct);
 
         var deleted = await store.DeleteAsync(AgentB, entry.Id, ct);
         deleted.ShouldBeFalse();
@@ -336,11 +365,11 @@ public class EfMemoryStoreTests : IDisposable
         var storeA = CreateStore(_providerA);
         var storeB = CreateStore(_providerB);
 
-        var entry = await storeA.AddAsync(AgentA, MemoryKind.LongTerm, Text("secret"), null, null, ct);
+        var entry = await storeA.AddAsync(AgentA, Text("secret"), null, null, ct);
 
         // Tenant B sees nothing for the same agent address.
         (await storeB.GetAsync(AgentA, entry.Id, ct)).ShouldBeNull();
-        var listed = await storeB.ListAsync(AgentA, null, 10, 0, ct);
+        var listed = await storeB.ListAsync(AgentA, null, recallThreadId: null, 10, 0, ct);
         listed.ShouldBeEmpty();
     }
 
@@ -349,14 +378,14 @@ public class EfMemoryStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore(_providerA);
-        await store.AddAsync(AgentA, MemoryKind.LongTerm, Text("agent secret"), null, null, ct);
-        await store.AddAsync(UnitA, MemoryKind.LongTerm, Text("unit secret"), null, null, ct);
+        await store.AddAsync(AgentA, Text("agent secret"), null, null, ct);
+        await store.AddAsync(UnitA, Text("unit secret"), null, null, ct);
 
-        var agentList = await store.ListAsync(AgentA, null, 10, 0, ct);
+        var agentList = await store.ListAsync(AgentA, null, recallThreadId: null, 10, 0, ct);
         agentList.Count.ShouldBe(1);
         agentList[0].Content.GetString().ShouldBe("agent secret");
 
-        var unitList = await store.ListAsync(UnitA, null, 10, 0, ct);
+        var unitList = await store.ListAsync(UnitA, null, recallThreadId: null, 10, 0, ct);
         unitList.Count.ShouldBe(1);
         unitList[0].Content.GetString().ShouldBe("unit secret");
     }

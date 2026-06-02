@@ -3,9 +3,9 @@
 // Unified Memory tab (canonical-tabs.md § 5.4, #2257 / #2342).
 //
 // Renders the same body for Unit and Agent subjects — the two surfaces
-// were byte-for-byte duplicates aside from the `useMemories(scope, id)`
+// were byte-for-byte duplicates aside from the `useMemories(subject, id)`
 // argument. The canonical control accepts `{ kind, id }` and routes the
-// scope discriminator through to the hook.
+// subject discriminator through to the hook.
 //
 // Tenant is intentionally not in the prop union: Tenant does not have
 // memory (§ 1 principle / § 4.1 of canonical-tabs.md). The pre-existing
@@ -96,26 +96,26 @@ export function MemoryTab({ kind, id }: MemoryTabProps) {
     );
   }
 
-  const shortTermRaw: MemoryEntry[] = data?.shortTerm ?? [];
-  const longTermRaw: MemoryEntry[] = data?.longTerm ?? [];
+  const agentRaw: MemoryEntry[] = data?.agent ?? [];
+  const threadRaw: MemoryEntry[] = data?.thread ?? [];
 
   // When listing (no query), we requested PAGE_SIZE + 1 entries; if
   // the combined return count exceeds PAGE_SIZE then a next page
-  // exists. Trim the overflow entry from whichever axis it landed in
+  // exists. Trim the overflow entry from whichever scope it landed in
   // before rendering.
-  const total = shortTermRaw.length + longTermRaw.length;
+  const total = agentRaw.length + threadRaw.length;
   const hasNext = !query && total > PAGE_SIZE;
-  const overflowFrom: "short" | "long" | null = !hasNext
+  const overflowFrom: "agent" | "thread" | null = !hasNext
     ? null
-    : shortTermRaw.length > longTermRaw.length
-      ? "short"
-      : "long";
-  const shortTerm =
-    overflowFrom === "short" ? shortTermRaw.slice(0, -1) : shortTermRaw;
-  const longTerm =
-    overflowFrom === "long" ? longTermRaw.slice(0, -1) : longTermRaw;
+    : agentRaw.length > threadRaw.length
+      ? "agent"
+      : "thread";
+  const agent =
+    overflowFrom === "agent" ? agentRaw.slice(0, -1) : agentRaw;
+  const thread =
+    overflowFrom === "thread" ? threadRaw.slice(0, -1) : threadRaw;
 
-  const visibleTotal = shortTerm.length + longTerm.length;
+  const visibleTotal = agent.length + thread.length;
 
   return (
     <div className="space-y-4" data-testid={testIdRoot}>
@@ -188,16 +188,16 @@ export function MemoryTab({ kind, id }: MemoryTabProps) {
       ) : (
         <>
           <MemorySection
-            title="Short-term"
-            entries={shortTerm}
+            title="Agent-scoped"
+            entries={agent}
             testIdRoot={testIdRoot}
-            section="short"
+            section="agent"
           />
           <MemorySection
-            title="Long-term"
-            entries={longTerm}
+            title="Thread-scoped"
+            entries={thread}
             testIdRoot={testIdRoot}
-            section="long"
+            section="thread"
           />
         </>
       )}
@@ -244,7 +244,7 @@ interface MemorySectionProps {
   title: string;
   entries: MemoryEntry[];
   testIdRoot: string;
-  section: "short" | "long";
+  section: "agent" | "thread";
 }
 
 function MemorySection({
@@ -301,7 +301,7 @@ function MemorySection({
                   </span>
                 ) : null}
                 {entry.source ? <span>source: {entry.source}</span> : null}
-                {section === "short" && entry.threadId ? (
+                {section === "thread" && entry.threadId ? (
                   <span>thread: {String(entry.threadId).slice(0, 8)}</span>
                 ) : null}
               </div>

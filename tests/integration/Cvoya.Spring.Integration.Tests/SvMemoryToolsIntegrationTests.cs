@@ -76,23 +76,23 @@ public sealed class SvMemoryToolsIntegrationTests : IDisposable
         var threadId = Guid.NewGuid();
         var caller = AgentCaller(agentId, threadId);
 
-        // 1. Capture a long-term memory.
+        // 1. Capture an agent-scoped memory.
         var addJson = await _registry.InvokeAsync(
             SvMemorySkillRegistry.MemoryAddTool,
-            ParseArgs("""{"content":"opted for actor-state over EF for hot mailbox path","kind":"long_term"}"""),
+            ParseArgs("""{"content":"opted for actor-state over EF for hot mailbox path","scope":"agent"}"""),
             caller, ct);
         var memoryId = ReadGuid(addJson, "id");
 
-        // 2. Capture a short-term thread note.
+        // 2. Capture a thread-scoped note bound to the caller's thread.
         await _registry.InvokeAsync(
             SvMemorySkillRegistry.MemoryAddTool,
-            ParseArgs("""{"content":"the user asked me to check the design rationale","kind":"short_term"}"""),
+            ParseArgs("""{"content":"the user asked me to check the design rationale","scope":"thread"}"""),
             caller, ct);
 
-        // 3. List long-term only — should return our long-term entry.
+        // 3. List agent-scoped only — should return our agent-scoped entry.
         var listJson = await _registry.InvokeAsync(
             SvMemorySkillRegistry.MemoryListTool,
-            ParseArgs("""{"kind":"long_term"}"""),
+            ParseArgs("""{"scope":"agent"}"""),
             caller, ct);
         listJson.GetProperty("memories").GetArrayLength().ShouldBe(1);
         ReadGuid(listJson.GetProperty("memories")[0], "id").ShouldBe(memoryId);
@@ -137,7 +137,7 @@ public sealed class SvMemoryToolsIntegrationTests : IDisposable
 
         var addJson = await _registry.InvokeAsync(
             SvMemorySkillRegistry.MemoryAddTool,
-            ParseArgs("""{"content":"private to agent A","kind":"long_term"}"""),
+            ParseArgs("""{"content":"private to agent A","scope":"agent"}"""),
             callerA, ct);
         var id = ReadGuid(addJson, "id");
 
@@ -164,7 +164,7 @@ public sealed class SvMemoryToolsIntegrationTests : IDisposable
         // 1. Capture a structured JSON memory (an "edition status board").
         var addJson = await _registry.InvokeAsync(
             SvMemorySkillRegistry.MemoryAddTool,
-            ParseArgs("""{"content":{"piece":3,"status":"published","headline":"Spring arrives"},"kind":"long_term"}"""),
+            ParseArgs("""{"content":{"piece":3,"status":"published","headline":"Spring arrives"}}"""),
             caller, ct);
         var memoryId = ReadGuid(addJson, "id");
 
@@ -196,6 +196,51 @@ public sealed class SvMemoryToolsIntegrationTests : IDisposable
             caller, ct);
         updateJson.GetProperty("content").ValueKind.ShouldBe(JsonValueKind.String);
         updateJson.GetProperty("content").GetString().ShouldBe("archived");
+    }
+
+    [Fact]
+    public async Task ThreadScopedRecall_OnlySurfacesWithinItsOwnThread()
+    {
+        // #2997 recall filter end-to-end: an agent-scoped fact is recalled
+        // in every conversation, but a thread-scoped note is recalled only
+        // inside the thread it was captured in.
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        var threadX = Guid.NewGuid();
+        var threadY = Guid.NewGuid();
+        var callerInX = AgentCaller(agentId, threadX);
+        var callerInY = AgentCaller(agentId, threadY);
+
+        await _registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryAddTool,
+            ParseArgs("""{"content":"durable cross-thread fact","scope":"agent"}"""),
+            callerInX, ct);
+        await _registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryAddTool,
+            ParseArgs("""{"content":"in this thread call me Bob","scope":"thread"}"""),
+            callerInX, ct);
+
+        // Within thread X: the agent-scoped fact and X's private note.
+        var inX = await _registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryListTool, ParseArgs("{}"), callerInX, ct);
+        inX.GetProperty("memories").GetArrayLength().ShouldBe(2);
+
+        // Within thread Y: only the agent-scoped fact — X's note is hidden.
+        var inY = await _registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryListTool, ParseArgs("{}"), callerInY, ct);
+        inY.GetProperty("memories").GetArrayLength().ShouldBe(1);
+        inY.GetProperty("memories")[0].GetProperty("content").GetString()
+            .ShouldBe("durable cross-thread fact");
+
+        // Search obeys the same recall filter: the "Bob" note surfaces only
+        // inside thread X.
+        var searchInY = await _registry.InvokeAsync(
+            SvMemorySkillRegistry.MemorySearchTool, ParseArgs("""{"query":"Bob"}"""), callerInY, ct);
+        searchInY.GetArrayLength().ShouldBe(0);
+
+        var searchInX = await _registry.InvokeAsync(
+            SvMemorySkillRegistry.MemorySearchTool, ParseArgs("""{"query":"Bob"}"""), callerInX, ct);
+        searchInX.GetArrayLength().ShouldBe(1);
     }
 
     private static ToolCallContext AgentCaller(Guid agentId, Guid threadId) =>

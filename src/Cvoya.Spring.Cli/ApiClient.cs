@@ -707,14 +707,14 @@ public class SpringApiClient
     // CLI-never-raw-HTTP guard.
 
     /// <summary>
-    /// Lists the unit's short-term + long-term memory entries (#2342).
-    /// Optional <paramref name="kind"/> filter narrows to a single axis;
+    /// Lists the unit's agent- and thread-scoped memory entries (#2342).
+    /// Optional <paramref name="scope"/> filter narrows to a single axis;
     /// <paramref name="limit"/> / <paramref name="offset"/> drive offset
     /// paging.
     /// </summary>
     public async Task<MemoriesResponse> GetUnitMemoriesAsync(
         string unitId,
-        string? kind = null,
+        string? scope = null,
         int? limit = null,
         int? offset = null,
         CancellationToken ct = default)
@@ -722,7 +722,7 @@ public class SpringApiClient
         var result = await _client.Api.V1.Tenant.Units[unitId].Memories.GetAsync(
             requestConfiguration: c =>
             {
-                if (!string.IsNullOrWhiteSpace(kind)) c.QueryParameters.Kind = kind;
+                if (!string.IsNullOrWhiteSpace(scope)) c.QueryParameters.Scope = scope;
                 if (limit is { } l) c.QueryParameters.Limit = l;
                 if (offset is { } o) c.QueryParameters.Offset = o;
             },
@@ -732,14 +732,14 @@ public class SpringApiClient
     }
 
     /// <summary>
-    /// Lists the agent's short-term + long-term memory entries (#2342).
-    /// Optional <paramref name="kind"/> filter narrows to a single axis;
+    /// Lists the agent's agent- and thread-scoped memory entries (#2342).
+    /// Optional <paramref name="scope"/> filter narrows to a single axis;
     /// <paramref name="limit"/> / <paramref name="offset"/> drive offset
     /// paging.
     /// </summary>
     public async Task<MemoriesResponse> GetAgentMemoriesAsync(
         string agentId,
-        string? kind = null,
+        string? scope = null,
         int? limit = null,
         int? offset = null,
         CancellationToken ct = default)
@@ -747,7 +747,7 @@ public class SpringApiClient
         var result = await _client.Api.V1.Tenant.Agents[agentId].Memories.GetAsync(
             requestConfiguration: c =>
             {
-                if (!string.IsNullOrWhiteSpace(kind)) c.QueryParameters.Kind = kind;
+                if (!string.IsNullOrWhiteSpace(scope)) c.QueryParameters.Scope = scope;
                 if (limit is { } l) c.QueryParameters.Limit = l;
                 if (offset is { } o) c.QueryParameters.Offset = o;
             },
@@ -760,14 +760,14 @@ public class SpringApiClient
     /// Free-text searches the unit's memory entries via the
     /// <c>?query=</c> query parameter (#2342). Server-side FTS — results
     /// are ordered by relevance (highest first). The
-    /// <paramref name="kind"/> filter scopes to a single axis; the
+    /// <paramref name="scope"/> filter scopes to a single axis; the
     /// <paramref name="limit"/> caps hit count (offset is meaningless on
     /// a relevance-ordered result set).
     /// </summary>
     public async Task<MemoriesResponse> SearchUnitMemoriesAsync(
         string unitId,
         string query,
-        string? kind = null,
+        string? scope = null,
         int? limit = null,
         CancellationToken ct = default)
     {
@@ -775,7 +775,7 @@ public class SpringApiClient
             requestConfiguration: c =>
             {
                 c.QueryParameters.Query = query;
-                if (!string.IsNullOrWhiteSpace(kind)) c.QueryParameters.Kind = kind;
+                if (!string.IsNullOrWhiteSpace(scope)) c.QueryParameters.Scope = scope;
                 if (limit is { } l) c.QueryParameters.Limit = l;
             },
             cancellationToken: ct);
@@ -787,13 +787,13 @@ public class SpringApiClient
     /// Free-text searches the agent's memory entries via the
     /// <c>?query=</c> query parameter (#2342). Server-side FTS — results
     /// are ordered by relevance (highest first). The
-    /// <paramref name="kind"/> filter scopes to a single axis; the
+    /// <paramref name="scope"/> filter scopes to a single axis; the
     /// <paramref name="limit"/> caps hit count.
     /// </summary>
     public async Task<MemoriesResponse> SearchAgentMemoriesAsync(
         string agentId,
         string query,
-        string? kind = null,
+        string? scope = null,
         int? limit = null,
         CancellationToken ct = default)
     {
@@ -801,7 +801,7 @@ public class SpringApiClient
             requestConfiguration: c =>
             {
                 c.QueryParameters.Query = query;
-                if (!string.IsNullOrWhiteSpace(kind)) c.QueryParameters.Kind = kind;
+                if (!string.IsNullOrWhiteSpace(scope)) c.QueryParameters.Scope = scope;
                 if (limit is { } l) c.QueryParameters.Limit = l;
             },
             cancellationToken: ct);
