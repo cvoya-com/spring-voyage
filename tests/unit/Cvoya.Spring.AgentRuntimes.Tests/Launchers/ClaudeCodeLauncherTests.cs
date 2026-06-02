@@ -334,6 +334,22 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
+    public async Task PrepareAsync_DisablesClaudeCodeAutoMemory()
+    {
+        // #2985 / ADR-0065: native auto-memory is turned off so durable
+        // cross-thread state lives only in sv.memory.* (the canonical
+        // store the #2984 Platform-Contract clause routes agents to) and
+        // concurrent threads cannot collide on the single per-repo memory
+        // dir auto-memory would otherwise share across an agent's threads
+        // (#2982 finding D). The launcher stamps the documented disable env
+        // var on every spawn; the per-thread transcript is governed by a
+        // separate knob, so --resume continuity is unaffected.
+        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["CLAUDE_CODE_DISABLE_AUTO_MEMORY"].ShouldBe("1");
+    }
+
+    [Fact]
     public async Task PrepareAsync_UnitIdOnContext_ForwardsParsedGuidToResolver()
     {
         // #2251: when the dispatcher stamps the agent's owning unit id on
