@@ -35,8 +35,26 @@ public interface IExecutionHostGateway
     Task<PersistentAgentDeploymentState> DeployAsync(
         string agentActorId, string? imageOverride, CancellationToken cancellationToken);
 
-    /// <summary>Tears down a persistent agent's backing container. Idempotent.</summary>
+    /// <summary>
+    /// Tears down a persistent agent's backing container <b>and reclaims its
+    /// per-agent workspace volume</b>. Reserved for genuine agent
+    /// decommission (agent delete / unit force-delete); the reclaim wipes the
+    /// agent's durable workspace per ADR-0029 ("reclaimed when the agent is
+    /// deleted"). For a resumable stop that must keep the volume, use
+    /// <see cref="StopAgentContainerAsync"/> instead (#2999). Idempotent.
+    /// </summary>
     Task<PersistentAgentDeploymentState> UndeployAsync(
+        string agentActorId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Stops a persistent agent's backing container <b>without</b> reclaiming
+    /// its per-agent workspace volume — the volume-preserving teardown for
+    /// resumable stops (unit stop, agent undeploy, scale-to-zero), per
+    /// ADR-0029 (#2999). The agent's durable memory + <c>claude --resume</c>
+    /// transcripts survive so a later redeploy resumes. Idempotent — a no-op
+    /// when nothing is deployed.
+    /// </summary>
+    Task<PersistentAgentDeploymentState> StopAgentContainerAsync(
         string agentActorId, CancellationToken cancellationToken);
 
     /// <summary>

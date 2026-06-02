@@ -112,9 +112,16 @@ public class PersistentAgentLifecycle(
             return existing;
         }
 
-        // If an unhealthy entry exists, stop it first so we don't leak the
-        // old container. UndeployAsync is safe when nothing is tracked.
-        await persistentAgentRegistry.UndeployAsync(agentId, cancellationToken);
+        // If an unhealthy entry exists, stop its container first so we don't
+        // leak it or collide on its name when the fresh one launches. This is
+        // a restart, NOT a decommission — StopContainerAsync (not
+        // UndeployAsync) preserves the per-agent workspace volume across the
+        // relaunch per ADR-0029 ("volume survives container restarts;
+        // reclaimed when the agent is deleted"). Calling UndeployAsync here
+        // wiped the agent's durable memory + `claude --resume` transcripts on
+        // every health-restart / redeploy (#2999). Idempotent when nothing is
+        // tracked.
+        await persistentAgentRegistry.StopContainerAsync(agentId, cancellationToken);
 
         var image = string.IsNullOrWhiteSpace(imageOverride)
             ? definition.Execution.Image
@@ -196,8 +203,9 @@ public class PersistentAgentLifecycle(
             agentId, image);
 
         // D3c: provision the per-agent workspace volume before starting the
-        // container. Volume survives restarts; reclamation happens on
-        // UndeployAsync (which delegates to PersistentAgentRegistry.UndeployAsync).
+        // container. The volume survives restarts, redeploys, and resumable
+        // stops; reclamation happens only on genuine agent delete via
+        // UndeployAsync (PersistentAgentRegistry.UndeployAsync) — see #2999.
         var volumeName = await volumeManager.EnsureAsync(agentId, cancellationToken);
         var volumeMount = AgentVolumeManager.BuildVolumeMount(volumeName, agentId);
         var prepWithVolume = prepWithBootstrap with
@@ -359,6 +367,19 @@ public class PersistentAgentLifecycle(
         => persistentAgentRegistry.UndeployAsync(agentId, cancellationToken);
 
     /// <summary>
+    /// Stops a persistent agent's backing container <b>without</b> reclaiming
+    /// its per-agent workspace volume — the volume-preserving teardown for
+    /// resumable stops (unit stop, agent undeploy, scale-to-zero) and the
+    /// health-restart / redeploy path, per ADR-0029 (#2999). Idempotent —
+    /// returns <c>false</c> when nothing was tracked. Contrast with
+    /// <see cref="UndeployAsync"/>, which additionally reclaims the volume and
+    /// is reserved for genuine agent delete. Delegates to
+    /// <see cref="PersistentAgentRegistry.StopContainerAsync"/>.
+    /// </summary>
+    public Task<bool> StopContainerAsync(string agentId, CancellationToken cancellationToken = default)
+        => persistentAgentRegistry.StopContainerAsync(agentId, cancellationToken);
+
+    /// <summary>
     /// Reads the tail of a persistent agent's container logs.
     /// </summary>
     /// <exception cref="SpringException">
@@ -397,9 +418,12 @@ public class PersistentAgentLifecycle(
 
         if (replicas == 0)
         {
-            // Scale to zero is equivalent to undeploy; clients may choose
-            // either verb.
-            await persistentAgentRegistry.UndeployAsync(agentId, cancellationToken);
+            // Scale to zero stops the container but is a resumable stop — the
+            // agent definition survives and can be scaled back up — so it
+            // preserves the per-agent workspace volume (durable memory) per
+            // ADR-0029. Only a genuine agent delete reclaims the volume
+            // (#2999); StopContainerAsync is the volume-preserving teardown.
+            await persistentAgentRegistry.StopContainerAsync(agentId, cancellationToken);
             return new PersistentAgentEntry(
                 agentId,
                 Endpoint: new Uri("http://localhost/"),

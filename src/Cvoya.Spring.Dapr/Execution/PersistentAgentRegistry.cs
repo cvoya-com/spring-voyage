@@ -413,19 +413,26 @@ public class PersistentAgentRegistry(
     }
 
     /// <summary>
-    /// Stops (and removes) the backing container for an agent and drops its
-    /// registry entry. Used by <c>spring agent undeploy</c> (#396). Returns
-    /// <c>true</c> when the agent was tracked and cleaned up, <c>false</c>
-    /// when there was nothing to undeploy. Failures to stop the container are
-    /// logged but do not prevent the entry from being removed — the operator
-    /// intent is "this agent should not be running" and a dangling container
-    /// is recoverable via the runtime's own cleanup tools.
+    /// Decommissions an agent: stops (and removes) the backing container, drops
+    /// the registry entry, and <b>reclaims the per-agent workspace volume</b>.
+    /// Reserved for genuine agent delete (agent delete / unit force-delete) —
+    /// resumable stops (unit stop, <c>spring agent undeploy</c>, scale-to-zero)
+    /// use <see cref="StopContainerAsync"/>, which preserves the volume (#2999).
+    /// Returns <c>true</c> when a runtime row was tracked and cleaned up,
+    /// <c>false</c> otherwise. Failures to stop the container are logged but do
+    /// not prevent the entry from being removed — the operator intent is "this
+    /// agent should not exist" and a dangling container is recoverable via the
+    /// runtime's own cleanup tools.
     /// </summary>
     /// <remarks>
     /// Per ADR-0029 § "Durable state: a per-agent persistent volume", the
-    /// workspace volume is reclaimed when the persistent agent is deleted
-    /// (this method). Container crashes do NOT trigger reclamation — the
-    /// health-check loop restarts the container and the volume survives.
+    /// workspace volume is reclaimed when the persistent agent is deleted (this
+    /// method). The reclaim runs <b>unconditionally</b> — even when no row is
+    /// tracked — because a prior resumable stop removes the row while
+    /// deliberately preserving the volume, so the subsequent delete is the
+    /// path that must finally reclaim it. Container crashes / health-restarts
+    /// do NOT reach this method — they route through
+    /// <see cref="StopContainerAsync"/> and the volume survives.
     /// </remarks>
     /// <param name="agentId">The agent identifier.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
@@ -441,33 +448,39 @@ public class PersistentAgentRegistry(
         var row = await db.PersistentAgentRuntime
             .FirstOrDefaultAsync(r => r.AgentId == agentGuid, cancellationToken);
 
-        if (row is null)
+        var tracked = row is not null;
+        if (tracked)
         {
-            return false;
+            db.PersistentAgentRuntime.Remove(row!);
+            await db.SaveChangesAsync(cancellationToken);
+
+            var entry = ToEntry(agentId, row!);
+            _localContainers.TryRemove(agentId, out _);
+            _localDefinitions.TryRemove(agentId, out _);
+            _firstFailureAt.TryRemove(agentId, out _);
+
+            if (entry.ContainerId is not null)
+            {
+                await TeardownOrStopEntryAsync(entry, cancellationToken);
+            }
+
+            _logger.LogInformation(
+                EventIds.AgentUnregistered,
+                "Persistent agent {AgentId} undeployed (container {ContainerId})",
+                agentId, entry.ContainerId);
         }
 
-        db.PersistentAgentRuntime.Remove(row);
-        await db.SaveChangesAsync(cancellationToken);
-
-        var entry = ToEntry(agentId, row);
-        _localContainers.TryRemove(agentId, out _);
-        _localDefinitions.TryRemove(agentId, out _);
-        _firstFailureAt.TryRemove(agentId, out _);
-
-        if (entry.ContainerId is not null)
-        {
-            await TeardownOrStopEntryAsync(entry, cancellationToken);
-        }
-
-        _logger.LogInformation(
-            EventIds.AgentUnregistered,
-            "Persistent agent {AgentId} undeployed (container {ContainerId})",
-            agentId, entry.ContainerId);
-
-        // Reclaim the workspace volume on agent delete.
+        // Reclaim the workspace volume on genuine agent delete — unconditionally,
+        // even when no runtime row is tracked. A resumable stop (unit stop,
+        // agent undeploy, scale-to-zero) stops the container and removes the row
+        // while deliberately preserving the volume (#2999), so by the time a
+        // delete reaches here the row may already be gone; this decommission
+        // path must still reclaim the volume and revoke the bootstrap token.
+        // ReclaimAsync is best-effort and tolerant of an already-removed or
+        // never-provisioned volume (it logs a warning at worst).
         await volumeManager.ReclaimAsync(agentId, CancellationToken.None);
 
-        return true;
+        return tracked;
     }
 
     /// <summary>

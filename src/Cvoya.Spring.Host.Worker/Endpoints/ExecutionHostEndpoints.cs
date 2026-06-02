@@ -40,6 +40,7 @@ public static class ExecutionHostEndpoints
 
         group.MapPost("/deploy", DeployAsync);
         group.MapPost("/undeploy", UndeployAsync);
+        group.MapPost("/stop-container", StopContainerAsync);
         group.MapPost("/scale", ScaleAsync);
         group.MapGet("/deployment", GetDeploymentAsync);
         group.MapGet("/logs", GetLogsAsync);
@@ -75,6 +76,22 @@ public static class ExecutionHostEndpoints
         CancellationToken cancellationToken)
     {
         await lifecycle.UndeployAsync(id, cancellationToken);
+        return Results.Ok(PersistentAgentDeploymentState.NotRunning(id));
+    }
+
+    /// <summary>
+    /// Stops a persistent agent's container while preserving its per-agent
+    /// workspace volume — the volume-preserving teardown for resumable stops
+    /// (unit stop, agent undeploy, scale-to-zero), per ADR-0029 (#2999).
+    /// Wraps <see cref="PersistentAgentLifecycle.StopContainerAsync"/>, which
+    /// is idempotent — a no-op when no deployment is tracked.
+    /// </summary>
+    private static async Task<IResult> StopContainerAsync(
+        string id,
+        [FromServices] PersistentAgentLifecycle lifecycle,
+        CancellationToken cancellationToken)
+    {
+        await lifecycle.StopContainerAsync(id, cancellationToken);
         return Results.Ok(PersistentAgentDeploymentState.NotRunning(id));
     }
 

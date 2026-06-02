@@ -548,6 +548,38 @@ public class PersistentAgentRegistryTests : IDisposable
     }
 
     [Fact]
+    public async Task UndeployAsync_WhenTracked_ReclaimsVolume()
+    {
+        // #2999: genuine decommission (UndeployAsync) stops the container AND
+        // reclaims the per-agent workspace volume — contrast StopContainerAsync.
+        await _registry.RegisterAsync(Agent1Id, new Uri("http://localhost:8999/"), "container-1", cancellationToken: Ct);
+
+        var undeployed = await _registry.UndeployAsync(Agent1Id, CancellationToken.None);
+
+        undeployed.ShouldBeTrue();
+        await _containerRuntime.Received().StopAsync("container-1", Arg.Any<CancellationToken>());
+        await _containerRuntime.Received()
+            .RemoveVolumeAsync(AgentVolumeNaming.ForAgent(Agent1Id), Arg.Any<CancellationToken>());
+        (await _registry.TryGetAsync(Agent1Id, cancellationToken: Ct)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task UndeployAsync_WhenNotTracked_StillReclaimsVolume()
+    {
+        // #2999: a resumable stop (unit stop, agent undeploy, scale-to-zero)
+        // removes the runtime row while deliberately PRESERVING the volume; the
+        // later genuine delete must still reclaim the volume even though no row
+        // is tracked — otherwise the volume + on-disk credentials leak forever.
+        var undeployed = await _registry.UndeployAsync(Agent1Id, CancellationToken.None);
+
+        // Nothing was tracked (resumable stop already dropped the row)...
+        undeployed.ShouldBeFalse();
+        // ...but the volume reclaim still ran on this decommission path.
+        await _containerRuntime.Received()
+            .RemoveVolumeAsync(AgentVolumeNaming.ForAgent(Agent1Id), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task GetAllEntries_ReturnsSnapshot()
     {
         await _registry.RegisterAsync(Agent1Id, new Uri("http://localhost:8999/"), "c1", cancellationToken: Ct);

@@ -180,6 +180,14 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             .Returns(callInfo =>
                 Cvoya.Spring.Dapr.Execution.PersistentAgentDeploymentState.NotRunning(
                     callInfo.ArgAt<string>(0)));
+        // #2999: default StopAgentContainerAsync (the volume-preserving teardown
+        // for resumable stops — unit stop, agent undeploy, scale-to-zero) to a
+        // successful no-op too, mirroring UndeployAsync above.
+        gateway
+            .StopAgentContainerAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+                Cvoya.Spring.Dapr.Execution.PersistentAgentDeploymentState.NotRunning(
+                    callInfo.ArgAt<string>(0)));
         return gateway;
     }
 

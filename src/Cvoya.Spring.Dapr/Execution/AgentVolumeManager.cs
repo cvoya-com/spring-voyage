@@ -96,10 +96,16 @@ public class AgentVolumeManager(
     }
 
     /// <summary>
-    /// Reclaims the workspace volume for an agent. Called on agent delete
-    /// (persistent agents) or ephemeral completion. MUST NOT be called for
-    /// mid-flight container crashes — the volume must survive those so the
-    /// restarted container can resume.
+    /// Reclaims the workspace volume for an agent. Called only on genuine
+    /// decommission — persistent-agent delete (agent delete / unit
+    /// force-delete / clean delete) or ephemeral-turn completion. MUST NOT be
+    /// called for container crashes, health-restarts, redeploys, scale-to-zero,
+    /// or resumable stops (unit stop, agent undeploy): the volume must survive
+    /// those so the next instance resumes with its durable memory + session
+    /// transcripts intact (ADR-0029; #2999). Restart and resumable-stop
+    /// teardown go through
+    /// <see cref="PersistentAgentRegistry.StopContainerAsync"/>, which stops the
+    /// container but preserves the volume.
     /// </summary>
     /// <param name="agentId">The agent whose volume is to be reclaimed.</param>
     /// <param name="ct">Cancellation token.</param>

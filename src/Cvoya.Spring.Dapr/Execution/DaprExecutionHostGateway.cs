@@ -82,6 +82,15 @@ public class DaprExecutionHostGateway : IExecutionHostGateway
             cancellationToken);
 
     /// <inheritdoc />
+    public Task<PersistentAgentDeploymentState> StopAgentContainerAsync(
+        string agentActorId, CancellationToken cancellationToken)
+        => InvokeForStateAsync(
+            HttpMethod.Post,
+            $"internal/agents/{agentActorId}/stop-container",
+            body: null,
+            cancellationToken);
+
+    /// <inheritdoc />
     public Task<PersistentAgentDeploymentState> ScaleAsync(
         string agentActorId, int replicas, CancellationToken cancellationToken)
         => InvokeForStateAsync(
