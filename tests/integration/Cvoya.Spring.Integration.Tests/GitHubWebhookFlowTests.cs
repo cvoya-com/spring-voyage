@@ -38,8 +38,9 @@ public class GitHubWebhookFlowTests
             .InvokeAsync(
                 Arg.Any<Address>(),
                 Arg.Any<Message>(),
-                Arg.Any<CancellationToken>(),
-                Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
+                Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+                Arg.Any<Func<string, Task>>(),
+                Arg.Any<CancellationToken>())
             .Returns(callInfo =>
             {
                 capturedMessage = callInfo.ArgAt<Message>(1);
@@ -49,6 +50,7 @@ public class GitHubWebhookFlowTests
         var webhookMessage = MessageFactory.CreateWebhookMessage(toId: "webhook-unit");
 
         await unitActor.ReceiveAsync(webhookMessage, TestContext.Current.CancellationToken);
+        await unitActor.PendingDispatchTask!;
 
         // Verify the runtime path received the webhook message with its payload intact.
         capturedMessage.ShouldNotBeNull();
@@ -76,12 +78,14 @@ public class GitHubWebhookFlowTests
         // Unit processes the webhook.
         var unitResult = await unitActor.ReceiveAsync(webhookMessage, TestContext.Current.CancellationToken);
         unitResult.ShouldBeNull();
+        await unitActor.PendingDispatchTask!;
 
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("flow-unit")),
             webhookMessage,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

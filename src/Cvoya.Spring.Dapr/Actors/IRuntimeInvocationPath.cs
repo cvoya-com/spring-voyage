@@ -124,4 +124,42 @@ public interface IRuntimeInvocationPath
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         Func<string, Task> onDispatchExit,
         CancellationToken ct);
+
+    /// <summary>
+    /// Mailbox-aware lean overload: builds the minimal
+    /// <see cref="PromptAssemblyContext"/> internally (exactly as the
+    /// fire-and-forget <see cref="InvokeAsync(Address, Message, CancellationToken, Func{ActivityEvent, CancellationToken, Task})"/>
+    /// overload does) but threads the caller's per-thread
+    /// <paramref name="onDispatchExit"/> delegate and cancellation token so a
+    /// caller that owns a per-thread mailbox (now <c>UnitActor</c> as well as
+    /// <c>AgentActor</c>) can drain its queue when the dispatcher returns.
+    /// </summary>
+    /// <remarks>
+    /// This is the seam <c>UnitActor</c> uses once it gains the per-thread
+    /// mailbox (#3031). Units carry no prior-message buffer / pending-amendment
+    /// state, so the lean context is sufficient — but unlike the fire-and-forget
+    /// overload, the dispatch must signal back so the unit's drain loop advances
+    /// the queue. Unlike the fire-and-forget overload (which passes
+    /// <see cref="CancellationToken.None"/> so a client disconnect can't cancel
+    /// the long-running dispatch), this overload threads
+    /// <paramref name="ct"/> — the caller supplies its own per-thread
+    /// dispatch CTS, which is decoupled from the HTTP request and is only
+    /// cancelled by an explicit cancel (ADR-0030 §44).
+    /// </remarks>
+    /// <param name="subject">The agent or unit whose runtime is being invoked.</param>
+    /// <param name="inbound">The message that triggered the dispatch.</param>
+    /// <param name="emitActivity">Per-caller activity-emission delegate.</param>
+    /// <param name="onDispatchExit">
+    /// Per-caller per-thread dispatch-exit delegate, forwarded to
+    /// <see cref="IAgentDispatchCoordinator.RunDispatchAsync"/> so the caller's
+    /// mailbox drains the thread's queue (or marks it idle) when the dispatcher
+    /// returns (#2076 / ADR-0030 §3 §44).
+    /// </param>
+    /// <param name="ct">The caller's per-thread dispatch cancellation token.</param>
+    Task InvokeAsync(
+        Address subject,
+        Message inbound,
+        Func<ActivityEvent, CancellationToken, Task> emitActivity,
+        Func<string, Task> onDispatchExit,
+        CancellationToken ct);
 }

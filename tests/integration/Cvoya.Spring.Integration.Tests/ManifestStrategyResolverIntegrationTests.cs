@@ -26,11 +26,13 @@ public class ManifestStrategyResolverIntegrationTests
         var message = MessageFactory.CreateDomainMessage(toId: "triage-team", toType: "unit");
 
         await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        await actor.PendingDispatchTask!;
 
         await runtimeInvocationPath.Received(1).InvokeAsync(
             Address.For("unit", TestSlugIds.HexFor("triage-team")),
             message,
-            Arg.Any<CancellationToken>(),
-            Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>());
+            Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+            Arg.Any<Func<string, Task>>(),
+            Arg.Any<CancellationToken>());
     }
 }

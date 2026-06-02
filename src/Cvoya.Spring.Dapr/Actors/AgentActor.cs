@@ -65,7 +65,7 @@ public class AgentActor(
     Cvoya.Spring.Core.Issues.IIssueWriter? issueWriter = null,
     IArtefactValidationCoordinator? validationCoordinator = null,
     MessageArrivedDetails? messageArrivedDetails = null,
-    ILifecycleStatusStore? lifecycleStatusStore = null) : Actor(host), IAgentActor, IRemindable
+    ILifecycleStatusStore? lifecycleStatusStore = null) : Actor(host), IAgentActor, IRemindable, IMailboxHost
 {
     private readonly MessageArrivedDetails _messageArrivedDetails =
         messageArrivedDetails ?? MessageArrivedDetails.Default;
@@ -89,45 +89,22 @@ public class AgentActor(
     private readonly ILogger _logger = loggerFactory.CreateLogger<AgentActor>();
 
     /// <summary>
-    /// Per-thread dispatcher tracker — one entry per thread the agent is
-    /// currently dispatching, carrying that thread's
-    /// <see cref="CancellationTokenSource"/>. Cancel-message handling
-    /// cancels only the requested thread's source; other threads continue
-    /// independently (ADR-0030 §44). Shared with <see cref="UnitActor"/>
-    /// (#2491) so both subjects on the
-    /// <see cref="IRuntimeInvocationPath"/> seam expose the same in-flight
-    /// bookkeeping.
+    /// #3031: the per-thread mailbox + dispatch + drain engine shared with
+    /// <see cref="UnitActor"/> — the two actors differ only in the narrow
+    /// <see cref="IMailboxHost"/> facade this actor implements. Owns the
+    /// per-thread tracker, the <c>concurrent_threads</c> cache + agent-wide
+    /// lock, and the per-thread channel state. Lazily created on first use
+    /// (the primary constructor's <c>this</c> is unavailable in a field
+    /// initialiser, and every engine method runs post-activation on a turn).
     /// </summary>
-    private readonly ActorDispatchChannelTracker _activeWorkByThread = new();
+    private MailboxDispatchEngine? _mailbox;
+    private MailboxDispatchEngine Mailbox =>
+        _mailbox ??= new MailboxDispatchEngine(this, mailboxCoordinator, agentDefinitionProvider, _logger);
 
     /// <summary>
-    /// Agent-wide serialisation lock used when the agent's
-    /// <c>concurrent_threads</c> policy is <c>false</c>. Lazily created on
-    /// the first dispatch when <see cref="GetConcurrentThreadsAsync"/>
-    /// reports <c>false</c>; remains <c>null</c> when the default
-    /// (<c>true</c>) is in effect. Mirrors the SDK runtime's
-    /// <c>asyncio.Lock</c> pattern (agents/spring-voyage-agent-sdk/spring_voyage_agent_sdk/runtime.py).
+    /// Exposed for tests: the engine's currently running dispatch task (if any).
     /// </summary>
-    private SemaphoreSlim? _agentWideLock;
-
-    /// <summary>
-    /// Cached <c>concurrent_threads</c> value resolved from
-    /// <see cref="IAgentDefinitionProvider"/> on the first dispatch. Per
-    /// ADR-0030 §3 the flag is part of the agent / unit definition; it
-    /// does not change during a live actor's lifetime, so a single read
-    /// is sufficient. <c>null</c> means "not yet resolved" — the next
-    /// dispatch path resolves it.
-    /// </summary>
-    private bool? _concurrentThreads;
-
-    /// <summary>
-    /// Exposed for tests: the currently running dispatch task (if any).
-    /// Production callers should not depend on this field. Under
-    /// concurrent threads the agent may have multiple dispatchers in
-    /// flight simultaneously; this field tracks only the most-recently
-    /// launched one.
-    /// </summary>
-    internal Task? PendingDispatchTask { get; private set; }
+    internal Task? PendingDispatchTask => Mailbox.PendingDispatchTask;
 
     /// <summary>
     /// Gets the address of this agent actor.
@@ -426,18 +403,9 @@ public class AgentActor(
             return CreateAckResponse(message);
         }
 
-        // Cancel any dispatcher running for this thread. Other threads'
-        // dispatchers are untouched.
-        await _activeWorkByThread.CancelAsync(threadId);
-
-        var channel = await GetChannelAsync(threadId, cancellationToken);
-        if (channel is not null)
-        {
-            await RemoveChannelAsync(threadId, cancellationToken);
-            _logger.LogInformation(
-                "Actor {ActorId} cleared channel for cancelled thread {ThreadId}",
-                Id.GetId(), threadId);
-        }
+        // #3031: per-thread cancel — cancel the dispatcher and clear the
+        // channel (other threads untouched, ADR-0030 §44).
+        await Mailbox.CancelThreadAsync(threadId, cancellationToken);
 
         return CreateAckResponse(message);
     }
@@ -454,16 +422,7 @@ public class AgentActor(
     /// </summary>
     private async Task<Message?> HandleStatusQueryAsync(Message message, CancellationToken cancellationToken)
     {
-        var threadIds = await GetChannelIndexAsync(cancellationToken);
-        var depths = new Dictionary<string, int>(threadIds.Count);
-        foreach (var tid in threadIds)
-        {
-            var channel = await GetChannelAsync(tid, cancellationToken);
-            if (channel is not null)
-            {
-                depths[tid] = channel.Messages.Count;
-            }
-        }
+        var depths = await Mailbox.GetThreadDepthsAsync(cancellationToken);
 
         var status = depths.Count == 0 ? AgentStatus.Idle : AgentStatus.Active;
 
@@ -565,7 +524,10 @@ public class AgentActor(
                 {
                     return;
                 }
-                await _activeWorkByThread.CancelAsync(ct);
+                // #3031: cancel the dispatcher CTS only (the drain loop resumes
+                // on the same thread) — distinct from the per-thread cancel
+                // that also clears the channel.
+                await Mailbox.CancelDispatcherAsync(ct);
             },
             setPaused: (ct) => StateManager.SetStateAsync(StateKeys.AgentPaused, true, ct),
             emitActivity: EmitActivityEventAsync,
@@ -607,43 +569,27 @@ public class AgentActor(
     /// </summary>
     private async Task<Message?> HandleDomainMessageAsync(Message message, CancellationToken cancellationToken)
     {
-        var threadId = message.ThreadId
+        _ = message.ThreadId
             ?? throw new CallerValidationException(
                 CallerValidationCodes.MissingThreadId,
                 "Domain messages must have a ThreadId");
 
-        var effective = await ResolveEffectiveMetadataAsync(message, cancellationToken);
-
-        // #2981: read the authoritative lifecycle status from actor state and
-        // hand it to the coordinator's lifecycle gate. A halted agent drops
-        // the message (the receive half of an authoritative stop).
-        var lifecycleStatus = await GetStatusInternalAsync(cancellationToken);
-
-        await mailboxCoordinator.HandleDomainMessageAsync(
-            agentId: Id.GetId(),
-            message: message,
-            effective: effective,
-            lifecycleStatus: lifecycleStatus,
-            applyUnitPolicies: (eff, ct) => ApplyUnitPoliciesAsync(eff, ct),
-            getChannel: (tid, ct) => GetChannelAsync(tid, ct),
-            saveChannel: (ch, ct) => SaveChannelAsync(ch, ct),
-            dispatch: async (ch, eff, ct) =>
-            {
-                var cts = _activeWorkByThread.Enter(ch.ThreadId);
-                var context = await BuildPromptAssemblyContextAsync(ch, eff, ct);
-                PendingDispatchTask = DispatchAsync(ch.Messages[0], context, cts.Token);
-            },
-            emitActivity: EmitActivityEventAsync,
-            cancellationToken: cancellationToken);
-
+        // #3031: enqueue into the per-thread mailbox and dispatch in the
+        // background via the shared engine. ReceiveAsync returns the ack
+        // immediately; the engine resolves effective metadata + lifecycle
+        // status, applies unit policies (the coordinator's halt gate is the
+        // receive half of an authoritative stop, #2981), and drains the
+        // per-thread FIFO queue as each dispatch returns (OnDispatchExitAsync).
+        await Mailbox.HandleInboundAsync(message, cancellationToken);
         return CreateAckResponse(message);
     }
 
     /// <summary>
-    /// Builds the prompt-assembly context for a per-thread channel.
+    /// Builds the prompt-assembly context for a dispatch (#3031: invoked by the
+    /// agent's <see cref="IMailboxHost.InvokeRuntimeAsync"/> with the resolved
+    /// effective metadata; the per-thread channel is no longer needed here).
     /// </summary>
     private async Task<PromptAssemblyContext> BuildPromptAssemblyContextAsync(
-        ThreadChannel channel,
         AgentMetadata effective,
         CancellationToken cancellationToken)
     {
@@ -679,7 +625,7 @@ public class AgentActor(
         // GetConcurrentThreadsAsync (single read of the agent
         // definition); without it the assembler would never know the
         // ephemeral SVA dispatch should see the guard.
-        var concurrentThreads = await GetConcurrentThreadsAsync(cancellationToken);
+        var concurrentThreads = await Mailbox.GetConcurrentThreadsAsync(cancellationToken);
 
         return new PromptAssemblyContext(
             Policies: null,
@@ -783,105 +729,61 @@ public class AgentActor(
             cancellationToken: cancellationToken);
     }
 
-    /// <summary>
-    /// Dispatches a single message for a per-thread channel. When the
-    /// agent's <c>concurrent_threads</c> policy is <c>false</c>, the
-    /// dispatch acquires the agent-wide lock first so concurrent threads
-    /// run serialised at the agent level (mirroring the SDK runtime's
-    /// asyncio.Lock pattern). The lock release happens in
-    /// <c>finally</c> so a cancelled or failing dispatch does not pin
-    /// the agent.
-    /// </summary>
-    private async Task DispatchAsync(Message message, PromptAssemblyContext context, CancellationToken ct)
-    {
-        var threadId = message.ThreadId ?? string.Empty;
-        var concurrent = await GetConcurrentThreadsAsync(ct);
-        SemaphoreSlim? gate = concurrent ? null : GetOrCreateAgentWideLock();
+    // ──────────────────────────────────────────────────────────────────────
+    // IMailboxHost (#3031) — the narrow per-subject facade the shared
+    // MailboxDispatchEngine calls back into. An agent resolves
+    // membership-scoped effective metadata, applies unit policies, and
+    // dispatches with a rich prompt context (skill bundles, amendments).
+    // ──────────────────────────────────────────────────────────────────────
 
-        try
-        {
-            if (gate is not null)
-            {
-                await gate.WaitAsync(ct);
-            }
-            try
-            {
-                if (runtimeInvocationPath is not null)
-                {
-                    await runtimeInvocationPath.InvokeAsync(
-                        Address,
-                        message,
-                        context,
-                        EmitActivityEventAsync,
-                        reason => SignalDispatchExitViaSelfAsync(threadId, reason),
-                        ct);
-                    return;
-                }
+    string IMailboxHost.ActorId => Id.GetId();
 
-                await dispatchCoordinator.RunDispatchAsync(
-                    Id.GetId(),
-                    message,
-                    context,
-                    EmitActivityEventAsync,
-                    reason => SignalDispatchExitViaSelfAsync(threadId, reason),
-                    ct);
-            }
-            finally
-            {
-                gate?.Release();
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // The gate.WaitAsync may throw on cancel before the
-            // dispatcher gets a chance to run. Make sure the per-thread
-            // exit still runs so the channel doesn't sit in a stuck
-            // Dispatching state. Other catch-paths are owned by the
-            // dispatch coordinator and already invoke onDispatchExit.
-            await SignalDispatchExitViaSelfAsync(threadId, "dispatch cancelled before run");
-        }
-    }
+    IActorStateManager IMailboxHost.StateManager => StateManager;
 
-    private SemaphoreSlim GetOrCreateAgentWideLock()
-    {
-        // First-write-wins; the actor turn model means there is at most
-        // one concurrent caller into HandleDomainMessageAsync, so this
-        // does not race in practice.
-        return _agentWideLock ??= new SemaphoreSlim(1, 1);
-    }
+    Task<LifecycleStatus> IMailboxHost.GetLifecycleStatusAsync(CancellationToken ct) =>
+        GetStatusInternalAsync(ct);
+
+    Task<AgentMetadata> IMailboxHost.ResolveEffectiveMetadataAsync(Message message, CancellationToken ct) =>
+        ResolveEffectiveMetadataAsync(message, ct);
+
+    Task<(AgentMetadata Effective, PolicyVerdict? Verdict)> IMailboxHost.ApplyUnitPoliciesAsync(
+        AgentMetadata effective, CancellationToken ct) =>
+        ApplyUnitPoliciesAsync(effective, ct);
+
+    Task IMailboxHost.SignalDispatchExitAsync(string threadId, string reason) =>
+        SignalDispatchExitViaSelfAsync(threadId, reason);
+
+    Task IMailboxHost.EmitActivityAsync(ActivityEvent activityEvent, CancellationToken ct) =>
+        EmitActivityEventAsync(activityEvent, ct);
 
     /// <summary>
-    /// Resolves the agent's <c>concurrent_threads</c> policy from the
-    /// definition provider, caching the result for the actor's lifetime
-    /// (the flag is not editable at runtime). Defaults to <c>true</c>
-    /// when no definition is available — concurrent threads is the
-    /// platform default per ADR-0030 §3.
+    /// The agent's runtime-invocation shape (#3031): builds a fresh rich prompt
+    /// context (skill bundles, amendments, effective metadata) and dispatches.
+    /// Preserves the pre-#3031 fallback to
+    /// <see cref="IAgentDispatchCoordinator.RunDispatchAsync"/> when no
+    /// <see cref="IRuntimeInvocationPath"/> is wired. The agent-wide
+    /// serialisation lock (for <c>concurrent_threads == false</c>) is applied
+    /// by the engine around this call, mirroring the SDK runtime's
+    /// <c>asyncio.Lock</c> pattern.
     /// </summary>
-    private async Task<bool> GetConcurrentThreadsAsync(CancellationToken cancellationToken)
+    Task IMailboxHost.InvokeRuntimeAsync(
+        Message head, AgentMetadata effective, Func<string, Task> onDispatchExit, CancellationToken ct) =>
+        InvokeAgentRuntimeAsync(head, effective, onDispatchExit, ct);
+
+    private async Task InvokeAgentRuntimeAsync(
+        Message head, AgentMetadata effective, Func<string, Task> onDispatchExit, CancellationToken ct)
     {
-        if (_concurrentThreads.HasValue)
+        var context = await BuildPromptAssemblyContextAsync(effective, ct);
+
+        if (runtimeInvocationPath is not null)
         {
-            return _concurrentThreads.Value;
+            await runtimeInvocationPath.InvokeAsync(
+                Address, head, context, EmitActivityEventAsync, onDispatchExit, ct);
+            return;
         }
 
-        try
-        {
-            var definition = await agentDefinitionProvider.GetByIdAsync(Id.GetId(), cancellationToken);
-            // Default to true (ADR-0030 §3) when no execution config is
-            // present. The flag is on AgentExecutionConfig (the YAML
-            // execution: block); leaf agents may have no execution
-            // config at all in older fixtures.
-            _concurrentThreads = definition?.Execution?.ConcurrentThreads ?? true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to resolve concurrent_threads for actor {ActorId}; defaulting to true.",
-                Id.GetId());
-            _concurrentThreads = true;
-        }
-
-        return _concurrentThreads.Value;
+        await dispatchCoordinator.RunDispatchAsync(
+            Id.GetId(), head, context, EmitActivityEventAsync, onDispatchExit, ct);
     }
 
     private async Task SignalDispatchExitViaSelfAsync(string threadId, string reason)
@@ -915,182 +817,17 @@ public class AgentActor(
     }
 
     /// <inheritdoc />
-    public async Task OnDispatchExitAsync(
+    public Task OnDispatchExitAsync(
         string threadId,
         string? reason,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrEmpty(threadId))
-        {
-            _logger.LogWarning(
-                "Actor {ActorId} OnDispatchExitAsync called without a thread id (reason: {Reason}).",
-                Id.GetId(), reason);
-            return;
-        }
-
-        var channel = await GetChannelAsync(threadId, cancellationToken);
-        if (channel is null)
-        {
-            // Channel was already cleared (e.g. by a per-thread cancel).
-            // Drop the per-thread CTS bookkeeping if it's still around.
-            _activeWorkByThread.Exit(threadId);
-            _logger.LogDebug(
-                "Actor {ActorId} OnDispatchExitAsync no-op for thread {ThreadId} (reason: {Reason}).",
-                Id.GetId(), threadId, reason);
-            return;
-        }
-
-        // Remove the head message that was just dispatched. The dispatcher
-        // ran for channel.Messages[0]; subsequent appends have queued
-        // behind it. Removing the head preserves per-thread FIFO for the
-        // remaining queue.
-        if (channel.Messages.Count > 0)
-        {
-            channel.Messages.RemoveAt(0);
-        }
-
-        // Dispose the per-thread CTS — the dispatcher returned, the token
-        // is no longer needed.
-        _activeWorkByThread.Exit(threadId);
-
-        // #2981: if the agent was stopped while this dispatcher was running,
-        // quiesce instead of re-arming the drain loop. Drop the remaining
-        // queued messages for this thread (authoritative stop = drop, not
-        // hold) so a later restart does not replay a stale backlog. This is
-        // the drain half of an authoritative stop — the receive gate keeps
-        // new inbound out, this keeps the in-flight queue from running on.
-        var lifecycleStatus = await GetStatusInternalAsync(cancellationToken);
-        if (lifecycleStatus.IsHalted())
-        {
-            await RemoveChannelAsync(threadId, cancellationToken);
-            _logger.LogInformation(
-                "Actor {ActorId} thread {ThreadId} drain quiesced: lifecycle status is {Status} (reason: {Reason})",
-                Id.GetId(), threadId, lifecycleStatus, reason);
-            return;
-        }
-
-        if (channel.Messages.Count == 0)
-        {
-            // Drain complete. Remove the channel so a subsequent inbound
-            // on the same thread starts fresh. Per-ADR-0030 §44 there is
-            // no agent-level "Idle" StateChanged event — the agent may
-            // still be Active on N other threads.
-            await RemoveChannelAsync(threadId, cancellationToken);
-            _logger.LogInformation(
-                "Actor {ActorId} thread {ThreadId} drain complete (reason: {Reason})",
-                Id.GetId(), threadId, reason);
-            return;
-        }
-
-        // Drain the next queued message: re-mark dispatching, save the
-        // channel with the head removed, and fire a fresh dispatcher
-        // for the new head. The mailbox coordinator's Case 2 (in-flight)
-        // assumes Dispatching == true while the loop is running.
-        channel.Dispatching = true;
-        await SaveChannelAsync(channel, cancellationToken);
-
-        var head = channel.Messages[0];
-        var effective = await ResolveEffectiveMetadataAsync(head, cancellationToken);
-        var context = await BuildPromptAssemblyContextAsync(channel, effective, cancellationToken);
-        var newCts = _activeWorkByThread.Enter(threadId);
-        PendingDispatchTask = DispatchAsync(head, context, newCts.Token);
-    }
-
-    private async Task<ThreadChannel?> GetChannelAsync(string threadId, CancellationToken cancellationToken)
-    {
-        var key = StateKeys.ChannelPrefix + threadId;
-        var result = await StateManager.TryGetStateAsync<ThreadChannel>(key, cancellationToken);
-        return result.HasValue ? result.Value : null;
-    }
-
-    private async Task SaveChannelAsync(ThreadChannel channel, CancellationToken cancellationToken)
-    {
-        var key = StateKeys.ChannelPrefix + channel.ThreadId;
-        await StateManager.SetStateAsync(key, channel, cancellationToken);
-
-        var index = await GetChannelIndexAsync(cancellationToken);
-        if (!index.Contains(channel.ThreadId))
-        {
-            index.Add(channel.ThreadId);
-            await StateManager.SetStateAsync(StateKeys.ChannelIndex, index, cancellationToken);
-        }
-    }
-
-    private async Task RemoveChannelAsync(string threadId, CancellationToken cancellationToken)
-    {
-        var key = StateKeys.ChannelPrefix + threadId;
-        await StateManager.TryRemoveStateAsync(key, cancellationToken);
-
-        var index = await GetChannelIndexAsync(cancellationToken);
-        if (index.Remove(threadId))
-        {
-            if (index.Count == 0)
-            {
-                await StateManager.TryRemoveStateAsync(StateKeys.ChannelIndex, cancellationToken);
-            }
-            else
-            {
-                await StateManager.SetStateAsync(StateKeys.ChannelIndex, index, cancellationToken);
-            }
-        }
-    }
-
-    private async Task<List<string>> GetChannelIndexAsync(CancellationToken cancellationToken)
-    {
-        var result = await StateManager
-            .TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, cancellationToken);
-        return result.HasValue ? result.Value : new List<string>();
-    }
+        CancellationToken cancellationToken = default) =>
+        Mailbox.DrainAsync(threadId, reason, cancellationToken);
 
     /// <inheritdoc />
-    public async Task<AgentRuntimeStatusReport> GetRuntimeStatusAsync(
-        CancellationToken cancellationToken = default)
-    {
-        // Sum per-thread channel state. Each ThreadChannel.Dispatching
-        // mirrors the dispatcher state the mailbox coordinator manages
-        // (#2076); each channel's Messages.Count is the FIFO queue depth
-        // including the in-flight head.
-        //
-        // In-flight count := number of channels with Dispatching == true.
-        // Queue count := total messages across channels, minus the
-        // in-flight heads (so a channel with Dispatching == true and
-        // 1 message contributes 0 queued; with 3 messages it contributes
-        // 2 queued). A channel with Dispatching == false but messages
-        // present is a transient state between drains; we count those
-        // messages as queued so the API surfaces the correct
-        // "queued ahead" signal.
-        var threadIds = await GetChannelIndexAsync(cancellationToken);
-        var inFlight = 0;
-        var queued = 0;
-        var channelCount = 0;
-
-        foreach (var tid in threadIds)
-        {
-            var channel = await GetChannelAsync(tid, cancellationToken);
-            if (channel is null)
-            {
-                continue;
-            }
-
-            channelCount++;
-            var depth = channel.Messages.Count;
-            if (channel.Dispatching)
-            {
-                inFlight++;
-                queued += Math.Max(0, depth - 1);
-            }
-            else
-            {
-                queued += depth;
-            }
-        }
-
-        return new AgentRuntimeStatusReport(
-            InFlightThreadCount: inFlight,
-            QueuedMessageCount: queued,
-            ChannelCount: channelCount,
-            ObservedAt: DateTimeOffset.UtcNow);
-    }
+    public Task<AgentRuntimeStatusReport> GetRuntimeStatusAsync(
+        CancellationToken cancellationToken = default) =>
+        // #3031: the per-thread channel snapshot is owned by the shared engine.
+        Mailbox.GetRuntimeStatusAsync(cancellationToken);
 
     // ──────────────────────────────────────────────────────────────────────
     // Lifecycle state machine (#2364) — mirrors UnitActor.
@@ -1133,7 +870,7 @@ public class AgentActor(
         // status is halted. Idempotent — a no-op when nothing is in flight.
         if (result.Success && target.IsHalted())
         {
-            await _activeWorkByThread.CancelAllAsync();
+            await Mailbox.CancelAllAsync();
         }
 
         // #2364: on entry into Validating, schedule the shared

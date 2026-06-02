@@ -239,12 +239,16 @@ public static class ActorTestHost
         if (createdRuntimeInvocationPath)
         {
             runtimeInvocationPath = Substitute.For<IRuntimeInvocationPath>();
+            // #3031: the unit drives the mailbox-aware lean overload
+            // (emitActivity + onDispatchExit + ct) rather than the
+            // fire-and-forget lean overload.
             runtimeInvocationPath
                 .InvokeAsync(
                     Arg.Any<CoreMessaging.Address>(),
                     Arg.Any<Message>(),
-                    Arg.Any<CancellationToken>(),
-                    Arg.Any<Func<ActivityEvent, CancellationToken, Task>?>())
+                    Arg.Any<Func<ActivityEvent, CancellationToken, Task>>(),
+                    Arg.Any<Func<string, Task>>(),
+                    Arg.Any<CancellationToken>())
                 .Returns(Task.CompletedTask);
         }
         directoryService ??= Substitute.For<IDirectoryService>();

@@ -152,9 +152,37 @@ public class RuntimeInvocationPath(
             cancellationToken: ct);
     }
 
+    /// <inheritdoc />
+    public async Task InvokeAsync(
+        Address subject,
+        Message inbound,
+        Func<ActivityEvent, CancellationToken, Task> emitActivity,
+        Func<string, Task> onDispatchExit,
+        CancellationToken ct)
+    {
+        // Mailbox-aware lean path (#3031): same minimal context the
+        // fire-and-forget overload builds, but the caller's per-thread
+        // onDispatchExit + ct flow through so a mailbox-owning caller
+        // (UnitActor) drains its queue when the dispatcher returns. Unlike
+        // the fire-and-forget overload, ct is honoured — the caller's
+        // per-thread dispatch CTS is decoupled from the HTTP request, so a
+        // client disconnect can't cancel the long-running dispatch; only an
+        // explicit cancel (ADR-0030 §44) does.
+        var context = await BuildContextAsync(subject, inbound, ct);
+        var leanEmitActivity = CreateLeanActivityEmitter(subject, emitActivity);
+
+        await dispatchCoordinator.RunDispatchAsync(
+            agentId: subject.Path,
+            message: inbound,
+            context: context,
+            emitActivity: leanEmitActivity,
+            onDispatchExit: onDispatchExit,
+            cancellationToken: ct);
+    }
+
     /// <summary>
     /// Builds a minimal <see cref="PromptAssemblyContext"/> for the lean
-    /// <see cref="InvokeAsync(Address, Message, CancellationToken)"/>
+    /// <see cref="InvokeAsync(Address, Message, CancellationToken, Func{ActivityEvent, CancellationToken, Task})"/>
     /// path: agent instructions from <see cref="IAgentDefinitionProvider"/>.
     /// Per-mailbox prior messages, pending amendments, and effective
     /// per-membership metadata are intentionally absent — those are

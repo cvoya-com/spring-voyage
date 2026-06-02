@@ -62,6 +62,10 @@ public class UnitRuntimeDispatchVisibilityTests
             DateTimeOffset.UtcNow);
 
         var result = await harness.Actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+        // #3031: dispatch is fire-and-forget through the per-thread mailbox, so
+        // the error surfaces on the background dispatch task — await it before
+        // inspecting the published activity events.
+        await harness.Actor.PendingDispatchTask!;
 
         result.ShouldBeNull();
         var error = published.Single(e => e.EventType == ActivityEventType.ErrorOccurred);
