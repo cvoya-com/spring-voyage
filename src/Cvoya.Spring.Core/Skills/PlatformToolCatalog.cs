@@ -148,8 +148,11 @@ public static class PlatformToolCatalog
             "auto-included — do not list yourself); " +
             "sv.memory.search_messages free-text-searches across the " +
             "timelines you participate in, optionally scoped to a single " +
-            "participant set. The agent never names a thread_id — the " +
-            "participant set identifies the timeline.",
+            "participant set; sv.memory.get_messages fetches specific " +
+            "messages by message_id when you already hold the ids (1–100 per " +
+            "call), returning only those on timelines you participate in. The " +
+            "agent never names a thread_id — the participant set identifies " +
+            "the timeline.",
             OwnedNamespaces: ["sv.memory"]),
     ];
 

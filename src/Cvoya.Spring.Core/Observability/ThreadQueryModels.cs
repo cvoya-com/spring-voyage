@@ -169,13 +169,15 @@ public record ThreadQueryFilters(
     DateTimeOffset? Since = null);
 
 /// <summary>
-/// One hit returned by <see cref="IThreadQueryService.SearchAsync"/>. Mirrors
-/// the per-message projection on <see cref="ThreadEvent"/> with the
-/// containing thread id added so callers can stitch the hit back to a
-/// thread without a second query.
+/// A per-message projection scoped to what a caller may read. Returned by
+/// <see cref="IThreadQueryService.SearchAsync"/> (one row per free-text hit)
+/// and by <see cref="IThreadQueryService.GetMessagesByIdsAsync"/> (one row
+/// per resolved-and-authorised id). Mirrors the per-message columns on
+/// <see cref="ThreadEvent"/> with the containing thread id added so callers
+/// can stitch the row back to a thread without a second query.
 /// </summary>
-/// <param name="ThreadId">The thread the matching message belongs to (no-dash 32-char hex Guid).</param>
-/// <param name="MessageId">The matching message id.</param>
+/// <param name="ThreadId">The thread the message belongs to (no-dash 32-char hex Guid).</param>
+/// <param name="MessageId">The message id.</param>
 /// <param name="Timestamp">When the message was sent.</param>
 /// <param name="From">Sender address in canonical <c>scheme:&lt;32-hex&gt;</c> form.</param>
 /// <param name="To">Recipient address in canonical <c>scheme:&lt;32-hex&gt;</c> form.</param>
@@ -187,3 +189,25 @@ public record ThreadSearchHit(
     string From,
     string To,
     string Body);
+
+/// <summary>
+/// Result of <see cref="IThreadQueryService.GetMessagesByIdsAsync"/> — the
+/// by-id complement to <see cref="IThreadQueryService.SearchAsync"/>
+/// (#2990). <see cref="Messages"/> carries the requested messages the caller
+/// is allowed to read (it participates in the message's thread), in the
+/// order the ids were requested. <see cref="Skipped"/> carries every
+/// requested id that did not come back — unknown, on a thread the caller
+/// does not participate in, foreign-tenant, or syntactically malformed.
+/// </summary>
+/// <remarks>
+/// The two skip reasons (does-not-exist vs not-a-participant) are
+/// deliberately <b>collapsed</b> into one <see cref="Skipped"/> bucket so the
+/// surface never leaks the difference between a message that is absent and
+/// one the caller simply may not see (@savasp on #2990). Each skipped entry
+/// echoes the id string exactly as the caller supplied it.
+/// </remarks>
+/// <param name="Messages">The authorised messages, in requested order.</param>
+/// <param name="Skipped">The requested ids that were not returned, in requested order.</param>
+public record MessageLookup(
+    IReadOnlyList<ThreadSearchHit> Messages,
+    IReadOnlyList<string> Skipped);

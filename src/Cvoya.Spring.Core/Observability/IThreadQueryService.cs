@@ -64,6 +64,32 @@ public interface IThreadQueryService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Fetches specific messages by id, scoped to what the caller may read
+    /// (#2990). For each requested id the message is resolved (tenant-scoped,
+    /// so a foreign-tenant id never resolves) and returned only when the
+    /// caller participates in the message's thread — the same membership test
+    /// <see cref="SearchAsync"/> applies. Every id that does not come back —
+    /// unknown, on a thread the caller is not on, or syntactically malformed —
+    /// lands in <see cref="MessageLookup.Skipped"/>; the does-not-exist and
+    /// not-a-participant cases are collapsed so the surface leaks neither
+    /// existence nor permission. Requested ids are de-duplicated and the
+    /// returned order matches the input order.
+    /// </summary>
+    /// <param name="participant">
+    /// Canonical address of the caller. Only messages on threads where this
+    /// address appears in the persisted participant set are returned.
+    /// </param>
+    /// <param name="messageIds">
+    /// The message ids to fetch, each a no-dash 32-char hex Guid. An empty
+    /// collection yields an empty result.
+    /// </param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task<MessageLookup> GetMessagesByIdsAsync(
+        string participant,
+        IReadOnlyList<string> messageIds,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Lists inbox rows for the supplied set of human ids — threads where
     /// <em>any</em> of the named humans has received at least one message
     /// and has not replied since. Per #2766 the inbox is keyed at the

@@ -404,6 +404,112 @@ public class ThreadQueryService(
     }
 
     /// <inheritdoc />
+    public async Task<MessageLookup> GetMessagesByIdsAsync(
+        string participant,
+        IReadOnlyList<string> messageIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(messageIds);
+
+        // De-dup the requested ids, preserving first-seen order — a repeated
+        // id comes back once, and the response order tracks the request.
+        var ordered = new List<string>(messageIds.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in messageIds)
+        {
+            if (raw is not null && seen.Add(raw))
+            {
+                ordered.Add(raw);
+            }
+        }
+
+        // A caller we cannot resolve to an actor id participates in nothing,
+        // so every requested id is skipped (no existence leak).
+        if (ordered.Count == 0 || !AddressIdentity.TryGetActorId(participant, out var participantId))
+        {
+            return new MessageLookup(Array.Empty<ThreadSearchHit>(), ordered);
+        }
+
+        // Parse each requested id. A malformed id can never resolve to a
+        // message, so it joins the collapsed skipped bucket rather than
+        // erroring the whole batch.
+        var parsed = new Dictionary<string, Guid>(StringComparer.Ordinal);
+        var validIds = new List<Guid>(ordered.Count);
+        foreach (var raw in ordered)
+        {
+            if (GuidFormatter.TryParse(raw, out var guid))
+            {
+                parsed[raw] = guid;
+                validIds.Add(guid);
+            }
+        }
+
+        // One indexed read on the messages table; tenant scoping flows from
+        // the DbContext query filter, so a foreign-tenant id simply yields no
+        // row and is reported as skipped.
+        var messageRows = validIds.Count == 0
+            ? new List<MessageEntity>()
+            : await dbContext.Messages
+                .AsNoTracking()
+                .Where(m => validIds.Contains(m.Id))
+                .ToListAsync(cancellationToken);
+
+        var byId = messageRows.ToDictionary(m => m.Id);
+
+        // Resolve the participant sets of the threads those messages live on,
+        // then keep only the threads the caller participates in (the same
+        // membership test the search path uses). The thread row stores the
+        // participant set as a canonical JSON array, so the test runs in C#
+        // after a single bounded read.
+        var threadIds = messageRows.Select(m => m.ThreadId).Distinct().ToList();
+        var allowedThreads = new HashSet<Guid>();
+        if (threadIds.Count > 0)
+        {
+            var threads = await dbContext.Threads
+                .AsNoTracking()
+                .Where(t => threadIds.Contains(t.Id))
+                .ToListAsync(cancellationToken);
+            foreach (var thread in threads)
+            {
+                foreach (var address in ParseParticipants(thread.Participants))
+                {
+                    if (address.Id == participantId)
+                    {
+                        allowedThreads.Add(thread.Id);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Walk the requested ids in order, bucketing each into the authorised
+        // message list or the collapsed skipped list.
+        var messages = new List<ThreadSearchHit>(ordered.Count);
+        var skipped = new List<string>();
+        foreach (var raw in ordered)
+        {
+            if (parsed.TryGetValue(raw, out var guid)
+                && byId.TryGetValue(guid, out var m)
+                && allowedThreads.Contains(m.ThreadId))
+            {
+                messages.Add(new ThreadSearchHit(
+                    ThreadId: GuidFormatter.Format(m.ThreadId),
+                    MessageId: m.Id,
+                    Timestamp: m.SentAt,
+                    From: RenderAddress(m.SenderScheme, m.SenderId),
+                    To: RenderAddress(m.RecipientScheme, m.RecipientId),
+                    Body: m.Body ?? string.Empty));
+            }
+            else
+            {
+                skipped.Add(raw);
+            }
+        }
+
+        return new MessageLookup(messages, skipped);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<InboxItem>> ListInboxAsync(
         IReadOnlyCollection<Guid> humanIds,
         IReadOnlyDictionary<string, DateTimeOffset>? lastReadAt,
