@@ -9,7 +9,11 @@ import { describe, it } from "node:test";
 
 import { A2AHandler } from "../src/a2a.ts";
 import type { ThreadBindingConfig } from "../src/config.ts";
-import { MCP_TOKEN_FILE } from "../src/mcp-token-store.ts";
+import {
+  MCP_TOKEN_FILE,
+  MCP_TOKEN_PATH_ENV_VAR,
+  resolvePerThreadMcpTokenPath,
+} from "../src/mcp-token-store.ts";
 import { BRIDGE_STATE_DIR, SEEN_THREADS_FILE, ThreadIdRegistry } from "../src/threads.ts";
 import { A2A_PROTOCOL_VERSION, BRIDGE_VERSION } from "../src/version.ts";
 
@@ -717,6 +721,102 @@ describe("A2AHandler.handle — thread-id binding (ADR-0041 / #2094)", () => {
       const task = res.result as Record<string, unknown>;
       assert.equal((task["status"] as Record<string, unknown>)["state"], "failed");
       assert.equal(registry.has(threadId), false, "failed spawn must not mark thread seen");
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("A2AHandler.handle — per-turn MCP token isolation (#3000)", () => {
+  // The stub CLI echoes the SPRING_MCP_TOKEN_PATH it was spawned with, so
+  // the test can confirm each turn's MCP-server-mode child is pointed at
+  // its own per-thread token file rather than a shared, racing one.
+  const TOKEN_PATH_DUMP = "process.stdout.write(process.env.SPRING_MCP_TOKEN_PATH || 'UNSET')";
+
+  it("writes the token to a per-thread path and points the child at it via SPRING_MCP_TOKEN_PATH", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "sv-a2a-token-iso-"));
+    try {
+      const spawnEnv: NodeJS.ProcessEnv = { PATH: process.env.PATH, SPRING_WORKSPACE_PATH: ws };
+      const handler = makeHandler([PROCESS_NODE, "-e", TOKEN_PATH_DUMP], spawnEnv);
+      const threadId = "11111111-2222-3333-4444-555555555555";
+
+      const res = await handler.handle({
+        jsonrpc: "2.0",
+        method: "message/send",
+        params: {
+          message: {
+            contextId: threadId,
+            metadata: { mcpToken: "tok-A" },
+            parts: [{ text: "ping" }],
+          },
+        },
+        id: "iso-1",
+      });
+
+      const perThreadPath = resolvePerThreadMcpTokenPath(ws, threadId);
+      assert.ok(perThreadPath);
+      // The per-thread token file holds this turn's token.
+      assert.equal(fs.readFileSync(perThreadPath, "utf8"), "tok-A");
+      // The child was spawned pointing at exactly that file.
+      const task = res.result as Record<string, unknown>;
+      const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+      assert.equal(artifacts[0]?.parts[0]?.text, perThreadPath);
+      // The shared path is still written, as a no-regression fallback.
+      assert.equal(
+        fs.readFileSync(path.join(ws, BRIDGE_STATE_DIR, MCP_TOKEN_FILE), "utf8"),
+        "tok-A",
+      );
+      // The shared spawn env must NOT be mutated (concurrent turns share it).
+      assert.equal(MCP_TOKEN_PATH_ENV_VAR in spawnEnv, false);
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates concurrent turns on different threads — no shared-file clobber", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "sv-a2a-token-conc-"));
+    try {
+      const spawnEnv: NodeJS.ProcessEnv = { PATH: process.env.PATH, SPRING_WORKSPACE_PATH: ws };
+      // Block briefly so the two turns genuinely overlap on the one shared
+      // handler / spawnEnv — the exact condition the old single-file design
+      // mishandled (last-writer-wins clobber + cross-thread 401).
+      const blockingDump =
+        "setTimeout(() => process.stdout.write(process.env.SPRING_MCP_TOKEN_PATH || 'UNSET'), 60)";
+      const handler = makeHandler([PROCESS_NODE, "-e", blockingDump], spawnEnv);
+
+      const threadA = "aaaaaaaa-0000-0000-0000-000000000000";
+      const threadB = "bbbbbbbb-0000-0000-0000-000000000000";
+      const send = (threadId: string, token: string, id: string) =>
+        handler.handle({
+          jsonrpc: "2.0",
+          method: "message/send",
+          params: {
+            message: { contextId: threadId, metadata: { mcpToken: token }, parts: [{ text: "" }] },
+          },
+          id,
+        });
+
+      const [resA, resB] = await Promise.all([
+        send(threadA, "token-A", "conc-A"),
+        send(threadB, "token-B", "conc-B"),
+      ]);
+
+      const pathA = resolvePerThreadMcpTokenPath(ws, threadA);
+      const pathB = resolvePerThreadMcpTokenPath(ws, threadB);
+      assert.ok(pathA && pathB);
+      // Each thread's file holds its own token — no last-writer-wins clobber.
+      assert.equal(fs.readFileSync(pathA, "utf8"), "token-A");
+      assert.equal(fs.readFileSync(pathB, "utf8"), "token-B");
+      // Each child was pointed at its own per-thread file.
+      const textOf = (res: { result?: unknown }) => {
+        const task = res.result as Record<string, unknown>;
+        const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+        return artifacts[0]?.parts[0]?.text;
+      };
+      assert.equal(textOf(resA), pathA);
+      assert.equal(textOf(resB), pathB);
+      // Neither turn mutated the shared spawn env.
+      assert.equal(MCP_TOKEN_PATH_ENV_VAR in spawnEnv, false);
     } finally {
       fs.rmSync(ws, { recursive: true, force: true });
     }

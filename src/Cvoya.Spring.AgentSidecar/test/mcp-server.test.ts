@@ -9,7 +9,13 @@ import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { runMcpServerMode } from "../src/mcp-server.ts";
-import { MCP_TOKEN_FILE } from "../src/mcp-token-store.ts";
+import {
+  MCP_TOKEN_FILE,
+  MCP_TOKEN_PATH_ENV_VAR,
+  resolveMcpTokenPath,
+  resolvePerThreadMcpTokenPath,
+  writeMcpToken,
+} from "../src/mcp-token-store.ts";
 import { BRIDGE_STATE_DIR } from "../src/threads.ts";
 
 let workspace: string;
@@ -274,3 +280,55 @@ describe("runMcpServerMode", () => {
 function resolveTokenPathOnEmptyWorkspace(ws: string): string {
   return path.join(ws, BRIDGE_STATE_DIR, MCP_TOKEN_FILE);
 }
+
+describe("runMcpServerMode — per-turn token path resolution (#3000)", () => {
+  // Drive the loop resolving the token path from `env` (deps.tokenPath
+  // omitted), capturing the bearer the proxy sent so we can assert which
+  // file the child read.
+  async function driveEnv(
+    inputLines: string[],
+    env: NodeJS.ProcessEnv,
+  ): Promise<string> {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    for (const line of inputLines) {
+      stdin.write(`${line}\n`);
+    }
+    stdin.end();
+    stdout.on("data", () => {});
+    let auth = "";
+    const stub = async (_url: string, init: RequestInit) => {
+      auth = (init.headers as Record<string, string>).Authorization;
+      return jsonResponse({ jsonrpc: "2.0", id: 1, result: { tools: [] } });
+    };
+    await runMcpServerMode({ env, stdin, stdout, fetchImpl: stub as typeof fetch });
+    return auth;
+  }
+
+  const listReq = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+
+  it("prefers SPRING_MCP_TOKEN_PATH (the per-turn path) over the shared workspace path", async () => {
+    const perThreadPath = resolvePerThreadMcpTokenPath(workspace, "thread-1");
+    const sharedPath = resolveMcpTokenPath(workspace);
+    assert.ok(perThreadPath && sharedPath);
+    // The shared file holds a stale/sibling token; the per-turn file holds
+    // this turn's. The child must read the per-turn one.
+    writeMcpToken(sharedPath, "shared-stale-token");
+    writeMcpToken(perThreadPath, "per-turn-token");
+
+    const auth = await driveEnv([listReq], {
+      [MCP_TOKEN_PATH_ENV_VAR]: perThreadPath,
+      SPRING_WORKSPACE_PATH: workspace,
+    });
+    assert.equal(auth, "Bearer per-turn-token");
+  });
+
+  it("falls back to the shared workspace path when SPRING_MCP_TOKEN_PATH is unset", async () => {
+    const sharedPath = resolveMcpTokenPath(workspace);
+    assert.ok(sharedPath);
+    writeMcpToken(sharedPath, "shared-token");
+
+    const auth = await driveEnv([listReq], { SPRING_WORKSPACE_PATH: workspace });
+    assert.equal(auth, "Bearer shared-token");
+  });
+});
