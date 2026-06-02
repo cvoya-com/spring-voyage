@@ -30,9 +30,9 @@ function Wrapper({ children }: { children: ReactNode }) {
 }
 
 const PLATFORM_TOOL: EffectiveToolResponse = {
-  name: "sv.expertise.lookup",
+  name: "sv.directory.lookup",
   namespace: "sv",
-  description: "Look up a unit's expertise.",
+  description: "Resolve a canonical address to a directory entry.",
   provenance: "platform",
   inheritedFromUnitName: null,
 };
@@ -155,7 +155,7 @@ describe("ToolsPanel (#2337 Sub D)", () => {
     const list = screen.getByTestId("tab-unit-tools-platform-list");
     expect(list).toBeInTheDocument();
     expect(
-      screen.getByTestId("tab-unit-tools-platform-tool-sv.expertise.lookup"),
+      screen.getByTestId("tab-unit-tools-platform-tool-sv.directory.lookup"),
     ).toBeInTheDocument();
   });
 
