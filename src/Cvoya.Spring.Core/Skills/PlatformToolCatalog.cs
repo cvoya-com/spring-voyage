@@ -134,15 +134,19 @@ public static class PlatformToolCatalog
             ToolCategories.Memory,
             "Private memory and shared participant-set history.",
             "Two surfaces on the same category. Private memory: use " +
-            "sv.memory.add to record agent-scoped entries recalled across all " +
-            "your conversations (the default) or thread-scoped notes recalled " +
-            "only within the current conversation (scope='thread'); " +
-            "sv.memory.get to read one entry by id; sv.memory.list / " +
-            "sv.memory.search to retrieve; sv.memory.update / " +
-            "sv.memory.delete to mutate. Caller-scoped — another agent's " +
-            "entries are not visible. Shared history: sv.memory.engagements " +
-            "lists the participant sets you share a timeline with " +
-            "(most-recent activity first); " +
+            "sv.memory.add to record an entry with structured JSON content " +
+            "(the object-primary default), or sv.memory.text.add for a " +
+            "plain-text note; both are agent-wide by default — pass a " +
+            "conversation's participants to scope the entry to that " +
+            "conversation instead (you are auto-included, so do not list " +
+            "yourself). sv.memory.get reads one entry by id; sv.memory.list / " +
+            "sv.memory.search retrieve (agent-wide by default, or pass " +
+            "participants to recall a single conversation's entries); " +
+            "sv.memory.update / sv.memory.text.update replace an entry's " +
+            "content (structured or text); sv.memory.delete removes one. " +
+            "Caller-scoped — another agent's entries are not visible. Shared " +
+            "history: sv.memory.engagements lists the participant sets you " +
+            "share a timeline with (most-recent activity first); " +
             "sv.memory.history_with(participants=[…]) fetches the full " +
             "timeline shared with a participant set (your own address is " +
             "auto-included — do not list yourself); " +
@@ -150,10 +154,10 @@ public static class PlatformToolCatalog
             "timelines you participate in, optionally scoped to a single " +
             "participant set; sv.memory.get_messages fetches specific " +
             "messages by message_id when you already hold the ids (1–100 per " +
-            "call), returning only those on timelines you participate in. The " +
-            "agent never names a thread_id — the participant set identifies " +
-            "the timeline.",
-            OwnedNamespaces: ["sv.memory"]),
+            "call), returning only those on timelines you participate in. A " +
+            "conversation is named by its participant set, never by an " +
+            "internal id.",
+            OwnedNamespaces: ["sv.memory", "sv.memory.text"]),
     ];
 
     /// <summary>

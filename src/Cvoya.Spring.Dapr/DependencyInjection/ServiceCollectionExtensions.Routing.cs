@@ -58,8 +58,12 @@ internal static class ServiceCollectionExtensionsRouting
         // runtime. The store is owner- and tenant-scoped singleton
         // that creates a fresh DI scope per call (matches
         // UnitConnectorBindingStore's pattern). The skill registry is
-        // also a singleton and depends only on the store — no
-        // IEnumerable<ISkillRegistry> closure, so the DI cycle warning
+        // also a singleton; it depends on the store plus an
+        // IServiceScopeFactory so it can resolve the scoped
+        // IThreadRegistry per call (#3041 Part A — to map an agent's
+        // `participants` to the internal conversation key, matching
+        // SvMemoryHistoryRegistry). Neither dependency closes over
+        // IEnumerable<ISkillRegistry>, so the DI cycle warning
         // documented on the connector binding store does not apply.
         services.TryAddSingleton<IMemoryStore, EfMemoryStore>();
         services.TryAddSingleton<SvMemorySkillRegistry>();
