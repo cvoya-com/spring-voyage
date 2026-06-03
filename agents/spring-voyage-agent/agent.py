@@ -226,20 +226,20 @@ async def on_message(message: Message):
     The tool-calling loop runs against DaprChatClient (Dapr Conversation
     building block) and the MCP tool proxies wired up in initialize().
 
-    Per ADR-0041, on-disk per-thread state (here, a turn counter) lives
-    under ``$SPRING_WORKSPACE_PATH/threads/<thread.id>/`` via
+    Per-conversation on-disk scratch (here, a turn counter) lives under
+    ``$SPRING_WORKSPACE_PATH/work/<id>/`` via
     ``IAgentContext.thread_workspace``.  This is the canonical location
-    for thread-local files and is safe under both ``concurrent_threads``
-    modes.
+    for conversation-local files and is safe under both
+    ``concurrent_threads`` modes.
     """
     assert _agent_build is not None, "initialize() must complete before on_message"
 
     user_text = message.text or ""
 
-    # Maintain a tiny per-thread turn counter on disk to demonstrate the
-    # ADR-0041 per-thread workspace convention.  Real agents will store
+    # Maintain a tiny per-conversation turn counter on disk to demonstrate
+    # the per-conversation workspace convention.  Real agents will store
     # transcripts, vector caches, scratchpads, etc. here — anything that
-    # needs to survive a container restart but be scoped to one thread.
+    # needs to survive a container restart but be scoped to one conversation.
     # _agent_context may be None in unit tests that exercise on_message
     # without going through initialize(); the demonstration is best-effort.
     if _agent_context is not None and message.thread_id:

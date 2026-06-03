@@ -104,10 +104,10 @@ public class AgentValidateCommandTests
         // intentional and the docs / CLI stay in sync.
         var msg = AgentValidateCommand.ConcurrentThreadsWarningMessage;
 
-        msg.ShouldContain("concurrent_threads: true");
+        msg.ShouldContain("concurrent_conversations: true");
         msg.ShouldContain("opt-in");
         msg.ShouldContain("fixed ports");
-        msg.ShouldContain("$SPRING_WORKSPACE_PATH/threads/");
+        msg.ShouldContain("$SPRING_WORKSPACE_PATH/work/");
         msg.ShouldContain("pkill -f pytest");
         msg.ShouldContain("global state");
         msg.ShouldContain("pytest --watch");

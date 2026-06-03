@@ -177,14 +177,15 @@ class TestThreadWorkspace:
     """Per-thread on-disk workspace helper (ADR-0041, issue #2095)."""
 
     def test_returns_canonical_path_under_workspace(self, tmp_path):
-        """Per ADR-0041 §"thread.id IS the session identifier", per-thread
-        on-disk state lives under ``$SPRING_WORKSPACE_PATH/threads/<thread.id>/``.
+        """Per-conversation on-disk scratch lives under
+        ``$SPRING_WORKSPACE_PATH/work/<id>/`` (#3041 — the segment is opaque
+        and platform-managed).
         """
         with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
             ctx = IAgentContext.load()
 
         path = ctx.thread_workspace("thr_abc123")
-        assert path == tmp_path / "threads" / "thr_abc123"
+        assert path == tmp_path / "work" / "thr_abc123"
 
     def test_creates_directory_on_first_access(self, tmp_path):
         """The helper MUST create the directory eagerly so authors can
@@ -192,7 +193,7 @@ class TestThreadWorkspace:
         with _patch_env(SPRING_WORKSPACE_PATH=str(tmp_path)):
             ctx = IAgentContext.load()
 
-        target = tmp_path / "threads" / "thr_xyz"
+        target = tmp_path / "work" / "thr_xyz"
         assert not target.exists()
         path = ctx.thread_workspace("thr_xyz")
         assert path.exists()
@@ -230,7 +231,7 @@ class TestThreadWorkspace:
 
         path = ctx.thread_workspace("thr_env")
         assert path.is_relative_to(custom)
-        assert path == custom / "threads" / "thr_env"
+        assert path == custom / "work" / "thr_env"
 
     @pytest.mark.parametrize("bad", ["", "   ", "\t"])
     def test_empty_thread_id_raises(self, tmp_path, bad):

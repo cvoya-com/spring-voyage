@@ -164,7 +164,7 @@ public class SpringVoyageAgentLauncher(
         // pulls the bundle on container start and the SDK reads the file
         // into IAgentContext.system_prompt (spec §2.2.2). Uniform with the
         // file-based delivery path used by the Claude / Codex / Gemini
-        // launchers. The ConcurrentThreadsGuard fragment is already folded
+        // launchers. The ConcurrentConversationsGuard fragment is already folded
         // into the assembled prompt in-band (ADR-0041 / #2738) by the
         // bundle provider, so the per-launcher Compose wrap is no longer
         // needed.
@@ -272,7 +272,7 @@ public class SpringVoyageAgentLauncher(
 
         // The bundle provider has composed the per-agent system prompt
         // (platform contract + unit context + agent instructions +
-        // equipped skill bundles + ConcurrentThreadsGuard when on) via
+        // equipped skill bundles + ConcurrentConversationsGuard when on) via
         // IPromptAssembler and handed it in on
         // AgentBootstrapContributionContext.AssembledSystemPrompt.
         // The Python SDK's bootstrap client pulls the bundle on

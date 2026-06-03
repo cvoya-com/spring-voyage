@@ -11,8 +11,8 @@ using Xunit;
 
 /// <summary>
 /// Pin-tests for the <see cref="LauncherPromptFragments"/> guard fragment
-/// content (ADR-0041 § "The <c>concurrent_threads: true</c> author
-/// contract"). The fragment text invariants are pinned here; the
+/// content (ADR-0041 / the <c>concurrent_conversations: true</c> author
+/// contract). The fragment text invariants are pinned here; the
 /// delivery channel — the assembler's in-band render inside
 /// <c>## Platform Instructions</c> — is covered by the prompt assembler's
 /// own targeted tests.
@@ -29,34 +29,48 @@ using Xunit;
 /// <c>## End Spring Voyage runtime guard</c> closing heading was
 /// dropped at the same time — markdown section boundaries are implicit.
 ///
-/// #2734: the legacy <c>Compose</c> helper that wrapped the Spring
-/// Voyage Agent launcher's <c>SPRING_SYSTEM_PROMPT</c> body is gone —
-/// every launcher now consumes the assembled prompt as a bundle file
-/// so the in-band render is the single delivery channel.
+/// #3041: the guard is framed in participant-set / conversation terms —
+/// no agent-facing "thread" vocabulary, an opaque platform-managed work
+/// subdirectory at <c>$SPRING_WORKSPACE_PATH/work/&lt;id&gt;/</c>, and the
+/// symbols renamed from <c>ConcurrentThreadsGuard</c>.
 /// </remarks>
 public class LauncherPromptFragmentsTests
 {
     [Fact]
-    public void ConcurrentThreadsGuard_CarriesTheLoadBearingConstraints()
+    public void ConcurrentConversationsGuard_CarriesTheLoadBearingConstraints()
     {
         // #2745: the guard is the universal core — name the two things
-        // the platform isolates per thread (workspace subtree + session
-        // storage) and the constraints that follow from what is shared.
-        // SE-specific tool guidance (watcher commands, broad process
-        // kills, "run as one-shot commands") moves into the
+        // the platform isolates per conversation (private work directory +
+        // session continuity) and the constraints that follow from what is
+        // shared. SE-specific tool guidance (watcher commands, broad
+        // process kills, "run as one-shot commands") moves into the
         // sv.engineer.defaults bundle and must NOT appear here.
-        var guard = LauncherPromptFragments.ConcurrentThreadsGuard;
+        var guard = LauncherPromptFragments.ConcurrentConversationsGuard;
 
-        guard.ShouldContain("Concurrent threads — per-thread isolation");
-        guard.ShouldContain("$SPRING_WORKSPACE_PATH/threads/$SPRING_THREAD_ID/");
-        guard.ShouldContain("Workspace subtree");
-        guard.ShouldContain("Session storage");
+        guard.ShouldContain("Concurrent conversations — per-conversation isolation");
+        guard.ShouldContain("$SPRING_WORKSPACE_PATH/work/<id>/");
+        guard.ShouldContain("Work directory");
+        guard.ShouldContain("Session continuity");
         // Shared-state framing — ephemeral-port advice and the no-
         // process-global-mutation rule are the two constraints
         // load-bearing for any agent class.
         guard.ShouldContain("ephemeral");
         guard.ShouldContain("port 0");
         guard.ShouldContain("process-global");
+    }
+
+    /// <summary>
+    /// #3041: no agent-facing "thread" vocabulary survives in the guard —
+    /// the conversation is the participant set, and the per-conversation
+    /// id is opaque platform plumbing the agent never names.
+    /// </summary>
+    [Fact]
+    public void ConcurrentConversationsGuard_HasNoAgentFacingThreadVocabulary()
+    {
+        var guard = LauncherPromptFragments.ConcurrentConversationsGuard;
+
+        guard.ToLowerInvariant().ShouldNotContain("thread");
+        guard.ShouldNotContain("SPRING_THREAD_ID");
     }
 
     /// <summary>
@@ -67,9 +81,9 @@ public class LauncherPromptFragmentsTests
     /// them.
     /// </summary>
     [Fact]
-    public void ConcurrentThreadsGuard_DoesNotEnumerateEngineerSpecificTools()
+    public void ConcurrentConversationsGuard_DoesNotEnumerateEngineerSpecificTools()
     {
-        var guard = LauncherPromptFragments.ConcurrentThreadsGuard;
+        var guard = LauncherPromptFragments.ConcurrentConversationsGuard;
 
         foreach (var seToolName in new[]
         {
@@ -100,11 +114,11 @@ public class LauncherPromptFragmentsTests
     /// sibling-of-its-own-parent problem the restructure removes.
     /// </summary>
     [Fact]
-    public void ConcurrentThreadsGuard_OpensWithLevelThreeHeading()
+    public void ConcurrentConversationsGuard_OpensWithLevelThreeHeading()
     {
-        var guard = LauncherPromptFragments.ConcurrentThreadsGuard;
+        var guard = LauncherPromptFragments.ConcurrentConversationsGuard;
 
-        guard.ShouldStartWith("### " + LauncherPromptFragments.ConcurrentThreadsGuardAnchor);
+        guard.ShouldStartWith("### " + LauncherPromptFragments.ConcurrentConversationsGuardAnchor);
         // No other line in the guard should reintroduce a `##`-or-
         // shallower heading.
         guard.ShouldNotContain("\n## ");
@@ -117,9 +131,9 @@ public class LauncherPromptFragmentsTests
     /// implicit — the next heading starts the next section.
     /// </summary>
     [Fact]
-    public void ConcurrentThreadsGuard_DoesNotEmitClosingHeading()
+    public void ConcurrentConversationsGuard_DoesNotEmitClosingHeading()
     {
-        var guard = LauncherPromptFragments.ConcurrentThreadsGuard;
+        var guard = LauncherPromptFragments.ConcurrentConversationsGuard;
 
         guard.ShouldNotContain("End Spring Voyage runtime guard");
         guard.ShouldNotContain("## End ");

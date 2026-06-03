@@ -266,7 +266,7 @@ public class GeminiLauncher(
         //   it; the CLI's baseline is dropped entirely.
         //
         // The assembled-prompt path inside AgentBootstrapBundleProvider
-        // already folds in the ConcurrentThreadsGuard fragment
+        // already folds in the ConcurrentConversationsGuard fragment
         // (ADR-0041 / #2096) so the model still sees the concurrency
         // contract either way.
 

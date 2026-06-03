@@ -115,8 +115,8 @@ describe("resolvePerThreadMcpTokenPath (#3000)", () => {
     assert.equal(resolvePerThreadMcpTokenPath(workspace, ".."), null);
   });
 
-  it("anchors the token under <workspace>/<BRIDGE_STATE_DIR>/threads/<threadId>/<MCP_TOKEN_FILE>", () => {
-    const expected = path.join(workspace, BRIDGE_STATE_DIR, "threads", THREAD, MCP_TOKEN_FILE);
+  it("anchors the token under <workspace>/<BRIDGE_STATE_DIR>/work/<id>/<MCP_TOKEN_FILE>", () => {
+    const expected = path.join(workspace, BRIDGE_STATE_DIR, "work", THREAD, MCP_TOKEN_FILE);
     assert.equal(resolvePerThreadMcpTokenPath(workspace, THREAD), expected);
   });
 

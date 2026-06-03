@@ -122,7 +122,7 @@ public class CodexLauncher(
         // when openai/codex#11588 ships per-runtime override flags.
         //
         // The assembled-prompt path inside AgentBootstrapBundleProvider
-        // already folds in the ConcurrentThreadsGuard fragment
+        // already folds in the ConcurrentConversationsGuard fragment
         // (ADR-0041 / #2096) so the model still sees the concurrency
         // contract.
         if (context.SystemPromptMode == Cvoya.Spring.Core.Catalog.SystemPromptMode.Replace)

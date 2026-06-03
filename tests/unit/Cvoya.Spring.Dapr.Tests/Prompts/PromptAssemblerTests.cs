@@ -393,18 +393,18 @@ public class PromptAssemblerTests
     /// #2738: the runtime guard renders <em>inside</em>
     /// <c>## Platform Instructions</c> as a <c>### …</c> sub-section
     /// when the per-invocation context sets
-    /// <c>ConcurrentThreadsGuard: true</c>. Pre-#2738 the guard was
+    /// <c>ConcurrentConversationsGuard: true</c>. Pre-#2738 the guard was
     /// prepended above the assembled prompt; that broke the heading
     /// tree and put platform-emitted guidance above the section it
     /// belongs to.
     /// </summary>
     [Fact]
-    public async Task AssembleAsync_ConcurrentThreadsGuard_RendersInsidePlatformInstructions()
+    public async Task AssembleAsync_ConcurrentConversationsGuard_RendersInsidePlatformInstructions()
     {
         var context = new PromptAssemblyContext(
             Policies: null,
             AgentInstructions: "agent body",
-            ConcurrentThreadsGuard: true);
+            ConcurrentConversationsGuard: true);
 
         var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
@@ -413,11 +413,11 @@ public class PromptAssemblerTests
         // and strictly before the next top-level (`## Role-specific
         // instructions`) heading.
         result.ShouldStartWith(PromptAssembler.PlatformInstructionsHeading);
-        result.ShouldContain("### " + Cvoya.Spring.Core.Execution.LauncherPromptFragments.ConcurrentThreadsGuardAnchor);
+        result.ShouldContain("### " + Cvoya.Spring.Core.Execution.LauncherPromptFragments.ConcurrentConversationsGuardAnchor);
 
         var platformIdx = result.IndexOf(PromptAssembler.PlatformInstructionsHeading, StringComparison.Ordinal);
         var guardIdx = result.IndexOf(
-            "### " + Cvoya.Spring.Core.Execution.LauncherPromptFragments.ConcurrentThreadsGuardAnchor,
+            "### " + Cvoya.Spring.Core.Execution.LauncherPromptFragments.ConcurrentConversationsGuardAnchor,
             StringComparison.Ordinal);
         var roleIdx = result.IndexOf(PromptAssembler.RoleSpecificInstructionsHeading, StringComparison.Ordinal);
 
@@ -433,16 +433,16 @@ public class PromptAssemblerTests
     /// have not yet been wired through the cascade.
     /// </summary>
     [Fact]
-    public async Task AssembleAsync_ConcurrentThreadsGuardFalse_OmitsGuardEntirely()
+    public async Task AssembleAsync_ConcurrentConversationsGuardFalse_OmitsGuardEntirely()
     {
         var context = new PromptAssemblyContext(
             Policies: null,
             AgentInstructions: "agent body",
-            ConcurrentThreadsGuard: false);
+            ConcurrentConversationsGuard: false);
 
         var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
-        result.ShouldNotContain(Cvoya.Spring.Core.Execution.LauncherPromptFragments.ConcurrentThreadsGuardAnchor);
+        result.ShouldNotContain(Cvoya.Spring.Core.Execution.LauncherPromptFragments.ConcurrentConversationsGuardAnchor);
     }
 
     /// <summary>
@@ -456,7 +456,7 @@ public class PromptAssemblerTests
         var context = new PromptAssemblyContext(
             Policies: null,
             AgentInstructions: "agent body",
-            ConcurrentThreadsGuard: true);
+            ConcurrentConversationsGuard: true);
 
         var result = await _assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
@@ -492,7 +492,7 @@ public class PromptAssemblerTests
             ConnectorPromptFragments: new[] { "#### GitHub binding — owner/repo\nhint" },
             IdentityPromptFragment: "### Who you are\n- **Kind:** agent",
             WorkspacePromptFragment: "You are running inside a container.",
-            ConcurrentThreadsGuard: true);
+            ConcurrentConversationsGuard: true);
 
         var result = await assembler.AssembleAsync(context, TestContext.Current.CancellationToken);
 
@@ -527,7 +527,7 @@ public class PromptAssemblerTests
         subHeadings.ShouldContain("### About Spring Voyage");
         subHeadings.ShouldContain("### Platform Contract — Non-Negotiable");
         subHeadings.ShouldContain("### Inbound messages");
-        subHeadings.ShouldContain("### " + Cvoya.Spring.Core.Execution.LauncherPromptFragments.ConcurrentThreadsGuardAnchor);
+        subHeadings.ShouldContain("### " + Cvoya.Spring.Core.Execution.LauncherPromptFragments.ConcurrentConversationsGuardAnchor);
         subHeadings.ShouldContain("### Who you are");
         subHeadings.ShouldContain(PromptAssembler.ContainerAndWorkspaceHeading);
         subHeadings.ShouldContain(PromptAssembler.ConnectorContextHeading);

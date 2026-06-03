@@ -211,7 +211,7 @@ public class RuntimeInvocationPath(
             AgentInstructions: definition?.Instructions,
             EffectiveMetadata: null,
             PendingAmendments: null,
-            ConcurrentThreadsGuard: concurrentThreads);
+            ConcurrentConversationsGuard: concurrentThreads);
     }
 
     private static Func<ActivityEvent, CancellationToken, Task> CreateLeanActivityEmitter(

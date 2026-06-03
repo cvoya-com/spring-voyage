@@ -210,11 +210,11 @@ public class CodexLauncherTests
         ex.Data[SpringException.IssueSourceDataKey].ShouldBe("credential");
     }
 
-    // #2668 / #2738: the launcher-level ConcurrentThreadsGuard tests
+    // #2668 / #2738: the launcher-level ConcurrentConversationsGuard tests
     // moved with the guard fold. The Codex CLI never reads
     // SPRING_SYSTEM_PROMPT — the guard now travels via AGENTS.md, which
     // AgentBootstrapBundleProvider composes by threading
-    // `ConcurrentThreadsGuard: true` through PromptAssemblyContext
+    // `ConcurrentConversationsGuard: true` through PromptAssemblyContext
     // (#2738 — was a post-assemble LauncherPromptFragments.Compose call
     // pre-cutover) before handing the assembled body to
     // ContributeBundleAsync. The guard's delivery is therefore covered

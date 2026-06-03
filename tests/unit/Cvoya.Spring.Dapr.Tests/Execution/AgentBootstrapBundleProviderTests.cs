@@ -268,7 +268,7 @@ public class AgentBootstrapBundleProviderTests
         // #2738: the bundle provider no longer post-processes the
         // assembled prompt with a Compose() call. Instead it threads
         // the resolved concurrent_threads flag through
-        // PromptAssemblyContext.ConcurrentThreadsGuard so the assembler
+        // PromptAssemblyContext.ConcurrentConversationsGuard so the assembler
         // renders the guard in-band as a `### …` sub-section of
         // `## Platform Instructions`. The bundle's prompt file is the
         // assembler's output verbatim — we pin the flag on the call
@@ -283,7 +283,7 @@ public class AgentBootstrapBundleProviderTests
         promptFile.Content.ShouldBe("USER ASSEMBLED PROMPT");
 
         await _promptAssembler.Received(1).AssembleAsync(
-            Arg.Is<PromptAssemblyContext?>(ctx => ctx != null && ctx.ConcurrentThreadsGuard),
+            Arg.Is<PromptAssemblyContext?>(ctx => ctx != null && ctx.ConcurrentConversationsGuard),
             Arg.Any<CancellationToken>());
     }
 
@@ -303,7 +303,7 @@ public class AgentBootstrapBundleProviderTests
         promptFile.Content.ShouldBe("USER ASSEMBLED PROMPT");
 
         await _promptAssembler.Received(1).AssembleAsync(
-            Arg.Is<PromptAssemblyContext?>(ctx => ctx != null && !ctx.ConcurrentThreadsGuard),
+            Arg.Is<PromptAssemblyContext?>(ctx => ctx != null && !ctx.ConcurrentConversationsGuard),
             Arg.Any<CancellationToken>());
     }
 

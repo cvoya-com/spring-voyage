@@ -116,9 +116,10 @@ are present, and starts the A2A server.
 ## Per-thread state
 
 Every inbound message exposes `message.thread_id` (the A2A `Message.context_id`).
-On-disk per-thread state lives under `$SPRING_WORKSPACE_PATH/threads/<thread.id>/`
-by convention — use `IAgentContext.thread_workspace(thread_id)` to resolve the
-directory (it is created on first access):
+On-disk per-conversation scratch lives under `$SPRING_WORKSPACE_PATH/work/<id>/`
+(the `<id>` segment is opaque and platform-managed) — use
+`IAgentContext.thread_workspace(thread_id)` to resolve the directory (it is
+created on first access):
 
 ```python
 async def on_message(message: Message):

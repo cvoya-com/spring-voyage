@@ -129,8 +129,8 @@ public sealed class AgentBootstrapBundleProvider(
         var launcher = ResolveLauncher(definition, agentId);
         var workspacePromptFragment = launcher?.GetWorkspacePromptFragment();
 
-        // ADR-0041 / #2096 (#2668 / #2738): when concurrent_threads is on,
-        // the assembler renders the shared ConcurrentThreadsGuard fragment
+        // ADR-0041 / #2096 (#2668 / #2738 / #3041): when concurrent_conversations
+        // is on, the assembler renders the shared ConcurrentConversationsGuard fragment
         // in-band as a `### …` sub-section of `## Platform Instructions`
         // (per #2738 — the pre-cutover prepend-above-everything path put
         // the guard outside the heading tree). The bundle path threads
@@ -154,7 +154,7 @@ public sealed class AgentBootstrapBundleProvider(
             ConnectorPromptFragments: connectorPromptFragments,
             IdentityPromptFragment: identityPromptFragment,
             WorkspacePromptFragment: workspacePromptFragment,
-            ConcurrentThreadsGuard: concurrentThreads);
+            ConcurrentConversationsGuard: concurrentThreads);
         var assembledSystemPrompt = await _promptAssembler.AssembleAsync(
             assemblyContext, cancellationToken);
 

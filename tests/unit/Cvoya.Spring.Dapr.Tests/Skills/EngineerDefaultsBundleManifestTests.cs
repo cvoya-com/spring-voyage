@@ -109,7 +109,7 @@ public class EngineerDefaultsBundleManifestTests
         // but must not carry a parallel rule list. We pin the absence
         // of the platform-layer section heading the platform-prompt
         // provider owns.
-        bundle.Prompt.ShouldNotContain(LauncherPromptFragments.ConcurrentThreadsGuardAnchor,
+        bundle.Prompt.ShouldNotContain(LauncherPromptFragments.ConcurrentConversationsGuardAnchor,
             customMessage: "engineer-defaults must not duplicate the platform-layer guard's section heading.");
     }
 

@@ -477,9 +477,9 @@ class TestOnMessageHook:
 
     @pytest.mark.asyncio
     async def test_writes_per_thread_turn_counter(self, tmp_path):
-        """Demonstrates the ADR-0041 per-thread workspace convention: on_message
-        writes a turn counter under ``$SPRING_WORKSPACE_PATH/threads/<thread.id>/``
-        via ``IAgentContext.thread_workspace`` (issue #2095)."""
+        """Demonstrates the per-conversation workspace convention: on_message
+        writes a turn counter under ``$SPRING_WORKSPACE_PATH/work/<id>/``
+        via ``IAgentContext.thread_workspace`` (issue #2095 / #3041)."""
         from spring_voyage_agent_sdk.context import IAgentContext
 
         llm = MagicMock()
@@ -514,7 +514,7 @@ class TestOnMessageHook:
         finally:
             agent_module._agent_context = None
 
-        counter = tmp_path / "threads" / "thr-1" / "turn-count.txt"
+        counter = tmp_path / "work" / "thr-1" / "turn-count.txt"
         assert counter.exists()
         assert counter.read_text() == "2"
 
