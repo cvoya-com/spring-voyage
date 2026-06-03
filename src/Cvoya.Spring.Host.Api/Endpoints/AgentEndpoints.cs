@@ -228,6 +228,7 @@ public static class AgentEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IAgentExecutionStore store,
         [FromServices] SpringDbContext db,
+        [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         var entry = await directoryService.ResolveAsync(Address.For("agent", id), cancellationToken);
@@ -239,30 +240,35 @@ public static class AgentEndpoints
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
         var shape = await store.GetAsync(actorId, cancellationToken);
 
-        // #2096 / ADR-0041: surface execution.concurrent_threads on the
-        // wire so `spring agent validate` can warn on opt-in. The
+        // #2096 / ADR-0041 / #3041: surface execution.concurrent_conversations
+        // (or the deprecated concurrent_threads alias) on the wire so
+        // `spring agent validate` can warn on opt-in. The
         // IAgentExecutionStore shape doesn't carry the bool — it is
         // read directly from the persisted definition JSON. Failure to
         // peek (no row, malformed JSON, missing slot) leaves the field
         // null, which the CLI treats as "use the runtime default" and
         // does not warn on.
         bool? concurrentThreads = await ReadConcurrentThreadsFromDefinitionAsync(
-            db, entry.ActorId, cancellationToken);
+            db, entry.ActorId, loggerFactory, cancellationToken);
 
         return Results.Ok(ToAgentExecutionResponse(shape, concurrentThreads));
     }
 
     /// <summary>
     /// Peeks at the persisted <c>AgentDefinitions.Definition</c> document
-    /// and reads the <c>execution.concurrent_threads</c> boolean (#2096 /
-    /// ADR-0041). Returns <c>null</c> when the agent has no definition row,
-    /// the document doesn't carry an <c>execution</c> object, or the
-    /// <c>concurrent_threads</c> slot is absent — all three cases mean
-    /// "use the runtime's default", which the CLI does not warn on.
+    /// and reads the <c>execution.concurrent_conversations</c> boolean
+    /// (#2096 / ADR-0041 / #3041). The deprecated alias
+    /// <c>execution.concurrent_threads</c> is still accepted for packages
+    /// authored before the rename; reading it logs a one-line deprecation
+    /// warning. Returns <c>null</c> when the agent has no definition row,
+    /// the document doesn't carry an <c>execution</c> object, or neither
+    /// key is present — all of which mean "use the runtime's default",
+    /// which the CLI does not warn on.
     /// </summary>
     private static async Task<bool?> ReadConcurrentThreadsFromDefinitionAsync(
         SpringDbContext db,
         Guid agentActorId,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         var entity = await db.AgentDefinitions
@@ -287,9 +293,23 @@ public static class AgentEndpoints
             return null;
         }
 
-        if (!exec.TryGetProperty("concurrent_threads", out var prop))
+        // #3041: the canonical key is `concurrent_conversations`. Fall back
+        // to the deprecated `concurrent_threads` alias so packages authored
+        // before the rename keep working; log once when the old key is read
+        // so authors are nudged to migrate.
+        if (!exec.TryGetProperty("concurrent_conversations", out var prop))
         {
-            return null;
+            if (!exec.TryGetProperty("concurrent_threads", out prop))
+            {
+                return null;
+            }
+
+            loggerFactory
+                .CreateLogger("Cvoya.Spring.Host.Api.Endpoints.AgentEndpoints")
+                .LogWarning(
+                    "Agent {AgentActorId} declares the deprecated `execution.concurrent_threads` key; " +
+                    "rename it to `concurrent_conversations` (the old name is accepted for now but will be removed).",
+                    agentActorId);
         }
 
         return prop.ValueKind switch

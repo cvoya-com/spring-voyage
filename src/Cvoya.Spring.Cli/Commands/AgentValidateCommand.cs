@@ -182,14 +182,14 @@ public static class AgentValidateCommand
     /// there as the durable record).
     /// </remarks>
     internal const string ConcurrentThreadsWarningMessage =
-        "concurrent_threads: true is opt-in. The author contract requires that the agent " +
+        "concurrent_conversations: true is opt-in. The author contract requires that the agent " +
         "must NOT bind fixed ports, must NOT write outside " +
-        "$SPRING_WORKSPACE_PATH/threads/<thread.id>/, must NOT assume any tool's child " +
+        "$SPRING_WORKSPACE_PATH/work/<id>/, must NOT assume any tool's child " +
         "processes are uniquely theirs (no `pkill -f pytest` patterns), and must NOT " +
         "mutate shared global state (env vars, working directory, signal handlers). " +
         "For CLI runtimes the system prompt MUST forbid long-running watchers " +
         "(`pytest --watch`, `npm run dev`, etc.). " +
-        "See docs/architecture/agent-runtime.md (\"concurrent_threads: true author contract\") " +
+        "See docs/architecture/agent-runtime.md (\"concurrent_conversations: true author contract\") " +
         "and docs/decisions/0041-actor-runtime-contract.md.";
 
     /// <summary>One author-contract finding surfaced by the validator.</summary>

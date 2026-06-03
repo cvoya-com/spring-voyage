@@ -87,14 +87,16 @@ export const MCP_TOKEN_PATH_ENV_VAR = "SPRING_MCP_TOKEN_PATH";
 
 /**
  * Subdirectory (under {@link BRIDGE_STATE_DIR}) holding one token file per
- * thread. Mirrors ADR-0041's per-thread `threads/<thread.id>/` state
- * convention, kept inside the bridge-owned namespace.
+ * conversation, keyed by the opaque platform-managed id. Kept inside the
+ * bridge-owned namespace. The segment is neutral (`work/`, not `threads/`)
+ * so no platform-managed path carries agent-facing "thread" vocabulary
+ * (#3041); the id remains internal plumbing.
  */
-const THREADS_SUBDIR = "threads";
+const WORK_SUBDIR = "work";
 
 /**
- * Resolves the per-thread MCP token path,
- * `<workspace>/<BRIDGE_STATE_DIR>/threads/<threadId>/<MCP_TOKEN_FILE>`.
+ * Resolves the per-conversation MCP token path,
+ * `<workspace>/<BRIDGE_STATE_DIR>/work/<id>/<MCP_TOKEN_FILE>`.
  *
  * Returns `null` — so the caller falls back to the shared
  * {@link resolveMcpTokenPath} — when the workspace path or thread id is
@@ -120,7 +122,7 @@ export function resolvePerThreadMcpTokenPath(
   if (!threadId || !/^[A-Za-z0-9_-]+$/.test(threadId)) {
     return null;
   }
-  return path.join(workspacePath, BRIDGE_STATE_DIR, THREADS_SUBDIR, threadId, MCP_TOKEN_FILE);
+  return path.join(workspacePath, BRIDGE_STATE_DIR, WORK_SUBDIR, threadId, MCP_TOKEN_FILE);
 }
 
 export interface WriteResult {

@@ -100,8 +100,8 @@ public class PromptAssembler(
 
         if (context is not null)
         {
-            // #2738 / ADR-0041 / #2096: when concurrent_threads is on
-            // (resolved upstream by the caller and threaded through the
+            // #2738 / ADR-0041 / #2096 / #3041: when concurrent_conversations
+            // is on (resolved upstream by the caller and threaded through the
             // assembly context) render the runtime guard in-band as a
             // `### …` sub-section of the platform-instructions parent.
             // The pre-#2738 delivery prepended the guard above
@@ -114,9 +114,9 @@ public class PromptAssembler(
             // LauncherPromptFragments.Compose helper that backed it) is
             // gone now that the SVA consumes the assembled prompt as a
             // bundle file like every other launcher.
-            if (context.ConcurrentThreadsGuard)
+            if (context.ConcurrentConversationsGuard)
             {
-                builder.AppendLine(LauncherPromptFragments.ConcurrentThreadsGuard);
+                builder.AppendLine(LauncherPromptFragments.ConcurrentConversationsGuard);
                 builder.AppendLine();
             }
 

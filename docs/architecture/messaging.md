@@ -74,7 +74,8 @@ flowchart TD
 - **Per-thread FIFO channels** — each `ThreadId` has its own queue. By default
   an agent processes its threads **concurrently** (one in-flight turn per
   thread); per-thread FIFO is preserved, concurrency is across threads. The
-  agent/unit definition carries `concurrent_threads` (default `true`); set
+  agent/unit definition carries `concurrent_conversations` (default `true`; the
+  legacy `concurrent_threads` name is still accepted); set
   `false` for agents that cannot multiplex cleanly
   ([ADR-0041](../decisions/0041-actor-runtime-contract.md)).
 - **Observation** messages (pub/sub, reminders, timers) accumulate and are

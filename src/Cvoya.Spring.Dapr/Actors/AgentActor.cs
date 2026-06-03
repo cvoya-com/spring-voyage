@@ -634,7 +634,7 @@ public class AgentActor(
             SkillBundles: unitBundles,
             AgentSkillBundles: agentBundles,
             PendingAmendments: amendments,
-            ConcurrentThreadsGuard: concurrentThreads);
+            ConcurrentConversationsGuard: concurrentThreads);
     }
 
     /// <summary>

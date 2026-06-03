@@ -138,17 +138,19 @@ class IAgentContext:
         return _read_system_prompt(self.workspace_path)
 
     def thread_workspace(self, thread_id: str) -> Path:
-        """Return the on-disk workspace directory for ``thread_id``.
+        """Return the on-disk scratch directory for this conversation.
 
-        Per ADR-0041 (`docs/decisions/0041-actor-runtime-contract.md`),
-        on-disk per-thread state lives under
-        ``$SPRING_WORKSPACE_PATH/threads/<thread.id>/``.  This helper
-        returns that path and creates the directory on first access
-        (``mkdir(parents=True, exist_ok=True)``).
+        Per-conversation scratch lives under
+        ``$SPRING_WORKSPACE_PATH/work/<id>/``, where ``<id>`` is an opaque,
+        platform-managed segment that means nothing to the agent (#3041).
+        This helper returns that path and creates the directory on first
+        access (``mkdir(parents=True, exist_ok=True)``). The subtree is
+        ephemeral scratch; durable state belongs in ``sv.memory.*``.
 
-        ``thread_id`` is the platform-assigned thread id exposed on every
+        ``thread_id`` is the platform-assigned id exposed on every
         ``on_message`` invocation as :attr:`Message.thread_id` (the A2A
-        SDK's ``Message.context_id``).
+        SDK's ``Message.context_id``); it is used only to keep concurrent
+        conversations' scratch directories distinct.
 
         Parameters
         ----------
@@ -168,7 +170,7 @@ class IAgentContext:
         if not thread_id or not thread_id.strip():
             raise ValueError("thread_id must be a non-empty string")
 
-        path = Path(self.workspace_path) / "threads" / thread_id
+        path = Path(self.workspace_path) / "work" / thread_id
         path.mkdir(parents=True, exist_ok=True)
         return path
 

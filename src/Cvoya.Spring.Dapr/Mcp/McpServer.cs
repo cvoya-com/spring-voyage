@@ -233,7 +233,7 @@ public class McpServer : IMcpServer
             switch (rpcRequest.Method)
             {
                 case "initialize":
-                    await WriteResultAsync(response, rpcRequest.Id, BuildInitializeResult(session));
+                    await WriteResultAsync(response, rpcRequest.Id, BuildInitializeResult());
                     return;
 
                 case "tools/list":
@@ -580,8 +580,15 @@ public class McpServer : IMcpServer
         }
     }
 
-    private object BuildInitializeResult(McpSession session)
+    private static object BuildInitializeResult()
     {
+        // #3041 Part C: no session-binding `meta` (agentId / threadId) is
+        // emitted on the initialize envelope. It was never consumed by any
+        // client — the sidecar proxies the initialize result verbatim and
+        // the wrapped CLI reads only the standard MCP fields — and it
+        // surfaced an internal thread/agent id to the agent runtime. Internal
+        // attribution rides on the ToolResult activity-event CorrelationId
+        // (server-side audit), not this response.
         return new
         {
             protocolVersion = "2024-11-05",
@@ -589,12 +596,6 @@ public class McpServer : IMcpServer
             capabilities = new
             {
                 tools = new { }
-            },
-            // Expose the session binding so the client can confirm attribution.
-            meta = new
-            {
-                agentId = session.AgentId,
-                threadId = session.ThreadId
             }
         };
     }

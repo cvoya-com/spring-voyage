@@ -37,8 +37,12 @@ public static class SpringAgent
     public static SpringAgentBundle FromEnvironmentWithTelemetry(string? inboundMessageBody = null)
     {
         var messaging = FromEnvironment(inboundMessageBody);
-        var threadId = Environment.GetEnvironmentVariable("SPRING_THREAD_ID");
-        var telemetry = TelemetryClient.FromEnvironment(threadId);
+        // #3041 Part B: the agent runtime does not read SPRING_THREAD_ID to
+        // learn a "thread". A conversation is the participant set on the
+        // inbound message, not a platform thread id, so telemetry is built
+        // without one; internal turn correlation is server-side audit
+        // (ToolResult activity-event CorrelationId), not an agent concern.
+        var telemetry = TelemetryClient.FromEnvironment();
         return new SpringAgentBundle(messaging, telemetry);
     }
 
@@ -56,9 +60,10 @@ public static class SpringAgent
     /// the platform user always sees <i>something</i>.
     /// </summary>
     /// <param name="threadId">
-    /// Dispatcher thread id. Required: the result post is bound to this
-    /// thread. Normally read from <c>SPRING_THREAD_ID</c> at the agent's
-    /// entry point.
+    /// Internal dispatch-binding id the safety-net result post is bound to.
+    /// Required. This is platform-managed plumbing, not an agent-facing
+    /// "thread" handle (#3041): a delegate identifies its conversation by
+    /// the participant set on the inbound message, never by this id.
     /// </param>
     /// <param name="handler">
     /// User delegate. Receives the bundle (messaging + telemetry).

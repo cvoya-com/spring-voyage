@@ -55,12 +55,16 @@ public class McpServerTests
     }
 
     [Fact]
-    public async Task Initialize_ReturnsServerInfoAndBoundSession()
+    public async Task Initialize_ReturnsServerInfo_WithoutSessionMeta()
     {
-        // IssueSession requires a Guid-shaped agentId + a subject-scheme
-        // callerKind (#2379 hardening) so the session's Subject is always
-        // present and the effective-grant gate applies uniformly. We hand
-        // in canonical no-dash Guids here and assert against them.
+        // #3041 Part C: the initialize envelope no longer carries a
+        // session-binding `meta` block (agentId / threadId). It was never
+        // consumed by any client and exposed an internal thread/agent id to
+        // the agent runtime; internal attribution rides on the ToolResult
+        // activity-event CorrelationId instead. We still mint a session here
+        // (IssueSession requires a Guid-shaped agentId + a subject-scheme
+        // callerKind per #2379, and the token authorises the call) and
+        // assert the standard MCP fields are present while `meta` is gone.
         var agentId = Guid.NewGuid().ToString("N");
         var threadId = Guid.NewGuid().ToString("N");
         var session = _server.IssueSession(agentId, threadId, Address.AgentScheme);
@@ -71,8 +75,7 @@ public class McpServerTests
 
         var result = json.GetProperty("result");
         result.GetProperty("serverInfo").GetProperty("name").GetString().ShouldBe("spring-voyage-mcp");
-        result.GetProperty("meta").GetProperty("agentId").GetString().ShouldBe(agentId);
-        result.GetProperty("meta").GetProperty("threadId").GetString().ShouldBe(threadId);
+        result.TryGetProperty("meta", out _).ShouldBeFalse();
     }
 
     [Fact]

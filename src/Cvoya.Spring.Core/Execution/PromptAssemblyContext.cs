@@ -72,17 +72,17 @@ using Cvoya.Spring.Core.Skills;
 /// heading. <c>null</c> omits the section (the case for A2A-native
 /// runtimes that have no container/workspace concept).
 /// </param>
-/// <param name="ConcurrentThreadsGuard">
+/// <param name="ConcurrentConversationsGuard">
 /// When <c>true</c>, the assembler renders the platform-emitted
-/// <c>### Concurrent threads — per-thread isolation</c> sub-section
-/// inside the <c>## Platform Instructions</c> section
-/// (ADR-0041 / #2096 / #2738 / #2745). The guard names the two
-/// things the platform isolates per thread (workspace subtree +
-/// session storage) and the constraints that follow from what is
-/// shared (ephemeral ports, no process-global mutation). Engineer-
-/// specific guidance (watcher commands, broad process kills) lives
-/// in the <c>sv.engineer.defaults</c> bundle, not here. Defaults to
-/// <c>false</c> so synthetic launch paths and tests that build a
+/// <c>### Concurrent conversations — per-conversation isolation</c>
+/// sub-section inside the <c>## Platform Instructions</c> section
+/// (ADR-0041 / #2096 / #2738 / #2745 / #3041). The guard names the two
+/// things the platform isolates per conversation (private work
+/// subdirectory + session continuity) and the constraints that follow
+/// from what is shared (ephemeral ports, no process-global mutation).
+/// Engineer-specific guidance (watcher commands, broad process kills)
+/// lives in the <c>sv.engineer.defaults</c> bundle, not here. Defaults
+/// to <c>false</c> so synthetic launch paths and tests that build a
 /// sparse context do not accidentally surface the guard; the two
 /// production callers
 /// (<see cref="IAgentBootstrapBundleProvider"/> for the bundle path
@@ -124,4 +124,4 @@ public record PromptAssemblyContext(
     IReadOnlyList<string>? ConnectorPromptFragments = null,
     string? IdentityPromptFragment = null,
     string? WorkspacePromptFragment = null,
-    bool ConcurrentThreadsGuard = false);
+    bool ConcurrentConversationsGuard = false);

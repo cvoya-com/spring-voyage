@@ -339,7 +339,7 @@ public class ClaudeCodeLauncher(
         // `--append-system-prompt-file` / `--system-prompt-file` flag on
         // every spawn (mode chosen by context.SystemPromptMode). The
         // assembled-prompt path inside AgentBootstrapBundleProvider
-        // already folds in the ConcurrentThreadsGuard fragment
+        // already folds in the ConcurrentConversationsGuard fragment
         // (ADR-0041 / #2096) so the model still sees the concurrency
         // contract. The platform no longer writes to the CLI's
         // auto-discovered `CLAUDE.md` filename — that's reserved for any
