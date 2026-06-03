@@ -367,6 +367,74 @@ public class DirectoryService(
             db.UnitSubunitMemberships.Remove(edge);
         }
 
+        // #2972: tear down this unit's human team-membership rows, then
+        // garbage-collect the Hats (Human rows) that no longer belong to any
+        // unit. Before this, unit delete removed agent + sub-unit edges but
+        // left `unit_memberships_humans` behind, so deleting a unit left its
+        // Hats orphaned — they cluttered the operator's identity surface and
+        // (until the reachability gate) the message-from picker. A Hat that
+        // is still a member of another unit (a shared Hat) survives.
+        var humanMemberships = await db.UnitMembershipsHumans
+            .Where(m => m.UnitId == unitId)
+            .ToListAsync(cancellationToken);
+
+        var affectedHatIds = humanMemberships.Select(m => m.HumanId).Distinct().ToList();
+
+        foreach (var membership in humanMemberships)
+        {
+            db.UnitMembershipsHumans.Remove(membership);
+        }
+
+        var orphanedHatCount = 0;
+        if (affectedHatIds.Count > 0)
+        {
+            // A Hat survives iff it is still a member of some OTHER unit.
+            var survivingHatIds = (await db.UnitMembershipsHumans
+                .Where(m => affectedHatIds.Contains(m.HumanId) && m.UnitId != unitId)
+                .Select(m => m.HumanId)
+                .Distinct()
+                .ToListAsync(cancellationToken))
+                .ToHashSet();
+
+            var orphanedHatIds = affectedHatIds
+                .Where(hatId => !survivingHatIds.Contains(hatId))
+                .ToList();
+
+            if (orphanedHatIds.Count > 0)
+            {
+                // Null any tenant user's pinned primary Hat that points at an
+                // orphaned Hat — `primary_human_id` has no DB FK, so a delete
+                // would otherwise leave it dangling at a non-existent Hat.
+                var pinnedTenantUsers = await db.TenantUsers
+                    .Where(u => u.PrimaryHumanId != null && orphanedHatIds.Contains(u.PrimaryHumanId.Value))
+                    .ToListAsync(cancellationToken);
+                foreach (var tenantUser in pinnedTenantUsers)
+                {
+                    tenantUser.PrimaryHumanId = null;
+                    tenantUser.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+
+                // Drop any platform-ACL grants naming the orphaned Hats
+                // (parallel to DeleteHumanAsync's #2649 cascade).
+                var grants = await db.UnitHumanPermissions
+                    .Where(p => orphanedHatIds.Contains(p.HumanId))
+                    .ToListAsync(cancellationToken);
+                if (grants.Count > 0)
+                {
+                    db.UnitHumanPermissions.RemoveRange(grants);
+                }
+
+                var orphanRows = await db.Humans
+                    .Where(h => orphanedHatIds.Contains(h.Id))
+                    .ToListAsync(cancellationToken);
+                if (orphanRows.Count > 0)
+                {
+                    db.Humans.RemoveRange(orphanRows);
+                }
+                orphanedHatCount = orphanRows.Count;
+            }
+        }
+
         // #1488: delete the unit's policy row.
         var policyRow = await db.UnitPolicies
             .FirstOrDefaultAsync(p => p.UnitId == unitId, cancellationToken);
@@ -457,8 +525,8 @@ public class DirectoryService(
         cache.Invalidate(unitAddress);
 
         _logger.LogInformation(
-            "Cascade-deleted unit {UnitId}: memberships removed={MembershipCount}, sub-units visited={SubUnitCount}, sub-unit edges removed={SubunitEdgeCount}.",
-            unitId, memberships.Count, subUnits.Count, subunitEdges.Count);
+            "Cascade-deleted unit {UnitId}: memberships removed={MembershipCount}, sub-units visited={SubUnitCount}, sub-unit edges removed={SubunitEdgeCount}, human memberships removed={HumanMembershipCount}, orphaned Hats GC'd={OrphanedHatCount}.",
+            unitId, memberships.Count, subUnits.Count, subunitEdges.Count, humanMemberships.Count, orphanedHatCount);
     }
 
     /// <summary>

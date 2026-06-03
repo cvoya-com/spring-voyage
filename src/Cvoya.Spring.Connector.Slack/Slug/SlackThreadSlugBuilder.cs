@@ -93,7 +93,7 @@ public sealed class SlackThreadSlugBuilder : ISlackThreadSlugBuilder
                 callerTenantUserId: boundTenantUserId,
                 explicitFromHumanId: null,
                 threadId: threadId == Guid.Empty ? null : threadId,
-                cancellationToken)
+                cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         var hatToDropId = hatAddress.Id;

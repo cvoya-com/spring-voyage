@@ -65,6 +65,41 @@ public static class RefResolver
             client,
             input,
             flagDescription,
+            targetRecipient: null,
+            stdin: null,
+            stdout: null,
+            isInputRedirected: Console.IsInputRedirected,
+            ct);
+
+    /// <summary>
+    /// Recipient-scoped overload (#2972): resolves a
+    /// <c>&lt;human-ref&gt;</c> against only the Hats that can reach
+    /// <paramref name="targetRecipient"/> under the Hat ↔ unit
+    /// reachability rule. The message-send verb passes the destination
+    /// address so the name match and the ambiguity prompt never offer a
+    /// Hat the operator cannot actually address the target with. Uses
+    /// <see cref="Console.IsInputRedirected"/> for TTY detection (the
+    /// production path).
+    /// </summary>
+    /// <param name="client">SpringApiClient instance for the round-trip.</param>
+    /// <param name="input">The raw <c>--as</c> value typed by the operator.</param>
+    /// <param name="flagDescription">Operator-visible flag name for error text.</param>
+    /// <param name="targetRecipient">
+    /// The destination address (<c>scheme:id</c>) the resolved Hat must be
+    /// able to reach. <c>null</c> applies no scoping (full bound set).
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    public static Task<Guid> ResolveHumanRefAsync(
+        SpringApiClient client,
+        string input,
+        string flagDescription,
+        string? targetRecipient,
+        CancellationToken ct = default) =>
+        ResolveHumanRefAsync(
+            client,
+            input,
+            flagDescription,
+            targetRecipient,
             stdin: null,
             stdout: null,
             isInputRedirected: Console.IsInputRedirected,
@@ -109,6 +144,7 @@ public static class RefResolver
         SpringApiClient client,
         string input,
         string flagDescription,
+        string? targetRecipient,
         TextReader? stdin,
         TextWriter? stdout,
         bool isInputRedirected,
@@ -129,11 +165,17 @@ public static class RefResolver
 
         // Display-name / disambiguated-label lookup. The bound-set is
         // small (one operator = a handful of Hats) so a server-side
-        // scan is cheap; no client cache needed for v0.1.
+        // scan is cheap; no client cache needed for v0.1. #2972: when a
+        // target recipient is supplied, scope the list to the Hats that
+        // can reach it so the match + ambiguity prompt never offer a Hat
+        // the operator cannot address the target with.
+        var scope = string.IsNullOrWhiteSpace(targetRecipient)
+            ? null
+            : new[] { targetRecipient! };
         IReadOnlyList<global::Cvoya.Spring.Cli.Generated.Models.CallerHumanResponse> hats;
         try
         {
-            hats = await client.ListCallerHumansAsync(ct);
+            hats = await client.ListCallerHumansAsync(scope, ct);
         }
         catch (Microsoft.Kiota.Abstractions.ApiException ex)
         {
@@ -152,6 +194,18 @@ public static class RefResolver
 
         if (matches.Count == 0)
         {
+            // #2972: when scoped to a recipient, an empty / non-matching set
+            // usually means the named Hat exists but cannot reach the target
+            // (it is not a human member of the unit the target belongs to),
+            // so steer the operator toward that rather than "no such Hat".
+            if (scope is not null)
+            {
+                throw new CliRefResolutionException(
+                    $"No Hat you can use to message '{targetRecipient}' matches {flagDescription} '{input}'. " +
+                    $"A unit or agent is reachable only through a human member of the unit it belongs to. " +
+                    $"Run `spring user identity list` to see all your Hats.");
+            }
+
             throw new CliRefResolutionException(
                 $"No bound Hat matches {flagDescription} '{input}'. " +
                 $"Run `spring user identity list` to see your bound Hats, " +

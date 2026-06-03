@@ -2399,9 +2399,18 @@ export const api = {
    * `TenantUser.PrimaryHumanId`) plus a `memberships` sub-list so the
    * "designer in Magazine" context label renders in one round-trip.
    */
-  listCallerHumans: async (): Promise<CallerHumanResponse[]> =>
+  listCallerHumans: async (
+    recipients?: string[],
+  ): Promise<CallerHumanResponse[]> =>
     unwrap(
-      await fetchClient.GET("/api/v1/tenant/users/me/humans"),
+      await fetchClient.GET(
+        "/api/v1/tenant/users/me/humans",
+        // #2972: scope to the Hats that can reach the recipient(s) under
+        // the Hat ↔ unit reachability rule. Omitted ⇒ full bound set.
+        recipients && recipients.length > 0
+          ? { params: { query: { recipient: recipients } } }
+          : undefined,
+      ),
     ) as CallerHumanResponse[],
   upsertTenantUserIdentity: async (
     tenantUserId: string,

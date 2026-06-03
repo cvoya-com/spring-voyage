@@ -12,6 +12,7 @@ using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Skills;
@@ -266,6 +267,17 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// arrange effective-permission responses on this mock.
     /// </summary>
     public IPermissionService PermissionService { get; } = Substitute.For<IPermissionService>();
+
+    /// <summary>
+    /// Gets the substitute <see cref="IHatReachabilityService"/> wired into
+    /// the test DI container (#2972). It defaults to "every bound Hat
+    /// reaches every target" (configured in <see cref="TestDataSeeder"/>),
+    /// so endpoint tests that are not about reachability pass unchanged —
+    /// the rule itself is covered by the dedicated
+    /// <c>HatReachabilityServiceTests</c> unit tests. Tests that exercise
+    /// the gate arrange empty / narrowed responses on this mock.
+    /// </summary>
+    public IHatReachabilityService HatReachability { get; } = Substitute.For<IHatReachabilityService>();
 
     /// <summary>
     /// Gets the substitute <see cref="IAgentExecutionStore"/> wired into
@@ -660,6 +672,18 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
             services.AddSingleton(PermissionService);
 
+            // #2972: replace the real Hat-reachability service with the
+            // substitute. Its default (all bound Hats reachable) is wired in
+            // TestDataSeeder once the operator's Humans exist.
+            var reachDescriptors = services
+                .Where(d => d.ServiceType == typeof(IHatReachabilityService))
+                .ToList();
+            foreach (var descriptor in reachDescriptors)
+            {
+                services.Remove(descriptor);
+            }
+            services.AddSingleton(HatReachability);
+
             // Dapr runtime dependencies.
             services.AddSingleton(Substitute.For<DaprClient>());
             services.AddDaprWorkflow(options => { });
@@ -776,6 +800,30 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 });
                 await db.SaveChangesAsync(cancellationToken);
             }
+
+            // #2972: default the Hat-reachability substitute to "every bound
+            // Hat reaches every target". The bound set is resolved from the
+            // DB at call-time so it reflects whatever Humans a test seeded.
+            // Endpoint tests that are not about the reachability gate pass
+            // unchanged; gate-specific tests override this per-target on the
+            // same substitute (the rule itself is covered by the dedicated
+            // HatReachabilityServiceTests unit tests).
+            var reachability = scope.ServiceProvider.GetRequiredService<IHatReachabilityService>();
+            reachability.GetWearableHatsAsync(
+                    Arg.Any<Guid>(),
+                    Arg.Any<IReadOnlyCollection<Address>>(),
+                    Arg.Any<CancellationToken>())
+                .Returns(callInfo =>
+                {
+                    var tenantUserId = callInfo.ArgAt<Guid>(0);
+                    using var inner = scopeFactory.CreateScope();
+                    var innerDb = inner.ServiceProvider.GetRequiredService<SpringDbContext>();
+                    IReadOnlyList<Guid> ids = innerDb.Humans
+                        .Where(h => h.TenantUserId == tenantUserId)
+                        .Select(h => h.Id)
+                        .ToList();
+                    return Task.FromResult(ids);
+                });
         }
 
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

@@ -391,7 +391,7 @@ public sealed class SlackCommandDispatcher : ISlackCommandDispatcher
                     callerTenantUserId: matchedBound.TenantUserId,
                     explicitFromHumanId: null,
                     threadId: null,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
             }
 
             // Resolve / create the SV thread.
@@ -584,7 +584,7 @@ public sealed class SlackCommandDispatcher : ISlackCommandDispatcher
                 callerTenantUserId: boundTenantUserId,
                 explicitFromHumanId: null,
                 threadId: null,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (NoBoundHumanException)
         {

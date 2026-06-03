@@ -282,6 +282,82 @@ public class TenantUserHumanResolverTests : IDisposable
                 ct));
     }
 
+    // ── #2972 reachability-constrained overload ──────────────────────────────
+
+    [Fact]
+    public async Task PickFromAsync_AllowedSet_ExplicitInSet_ReturnsThatHuman()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var hat = await SeedBoundHumanAsync();
+        var resolver = await CreateResolverAsync();
+
+        var address = await resolver.PickFromAsync(
+            CallerTenantUserId,
+            explicitFromHumanId: hat,
+            threadId: null,
+            allowedHumanIds: new[] { hat },
+            ct);
+
+        address.Id.ShouldBe(hat);
+    }
+
+    [Fact]
+    public async Task PickFromAsync_AllowedSet_ExplicitBoundButNotReachable_ThrowsHatNotReachable()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var wearable = await SeedBoundHumanAsync();
+        var boundButUnreachable = await SeedBoundHumanAsync();
+        var resolver = await CreateResolverAsync();
+
+        await Should.ThrowAsync<HatNotReachableException>(() =>
+            resolver.PickFromAsync(
+                CallerTenantUserId,
+                explicitFromHumanId: boundButUnreachable,
+                threadId: null,
+                allowedHumanIds: new[] { wearable },
+                ct));
+    }
+
+    [Fact]
+    public async Task PickFromAsync_AllowedSet_PrimaryInSet_ReturnsPrimary()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var hatA = await SeedBoundHumanAsync();
+        var hatB = await SeedBoundHumanAsync();
+        await SetPrimaryAsync(hatB);
+        var resolver = await CreateResolverAsync();
+
+        var address = await resolver.PickFromAsync(
+            CallerTenantUserId,
+            explicitFromHumanId: null,
+            threadId: null,
+            allowedHumanIds: new[] { hatA, hatB },
+            ct);
+
+        address.Id.ShouldBe(hatB);
+    }
+
+    [Fact]
+    public async Task PickFromAsync_AllowedSet_PrimaryNotReachable_FallsBackToWearable()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var wearable = await SeedBoundHumanAsync();
+        var primaryButUnreachable = await SeedBoundHumanAsync();
+        await SetPrimaryAsync(primaryButUnreachable);
+        var resolver = await CreateResolverAsync();
+
+        // The pinned primary is excluded from the wearable set, so the
+        // resolver must fall back to the only Hat that can reach the target.
+        var address = await resolver.PickFromAsync(
+            CallerTenantUserId,
+            explicitFromHumanId: null,
+            threadId: null,
+            allowedHumanIds: new[] { wearable },
+            ct);
+
+        address.Id.ShouldBe(wearable);
+    }
+
     private async Task<TenantUserHumanResolver> CreateResolverAsync()
     {
         var scope = _provider.CreateAsyncScope();

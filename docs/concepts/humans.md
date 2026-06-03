@@ -33,10 +33,27 @@ Every surface that renders a Hat label — the inbox chip, engagement-list chip,
 
 **Surfaces.** Both the portal and the CLI surface the Hat selector with the same defaults:
 
-- **Portal** — a from-selector appears on the inbox reply composer, the engagement composer, and the unit / agent messaging-tab composer. The selector lists every Hat the calling operator is bound to.
-- **CLI** — `spring message send --as <human-ref>` pins the Hat for an outbound message; omit the flag and the same primary-Hat default applies. `<human-ref>` accepts the Hat id (dashed or no-dash) or the display name when unambiguous within the operator's bound set.
+- **Portal** — a from-selector appears on the inbox reply composer, the engagement composer, and the unit / agent messaging-tab composer. The selector lists only the Hats that can **reach** the conversation's recipient (see [Reaching units and agents](#reaching-units-and-agents-the-hat--unit-gate) below) — never a Hat that cannot address the target.
+- **CLI** — `spring message send --as <human-ref>` pins the Hat for an outbound message; omit the flag and the same primary-Hat default applies. `<human-ref>` accepts the Hat id (dashed or no-dash) or the display name when unambiguous within the Hats that can reach the destination.
 
 **OSS specifics.** OSS deployments ship with exactly one operator. Every `Human` declared by every installed package resolves to that single operator. The Hat model still applies — the operator legitimately wears different Hats in different units, and the inbox renders each Hat distinctly — but every Hat maps to the same identity behind the scenes. The portal's per-Hat chip remains the way to keep "designer in Magazine" and "developer in Newsletter" visually distinct even though both resolve to the same operator.
+
+## Reaching units and agents: the Hat ↔ unit gate
+
+You message a unit or agent **as a Hat**, and a Hat can only reach the team it belongs to. A Hat is a *direct human member* of one unit `U`. From that anchor it reaches:
+
+- `U` itself, and
+- every **direct** member of `U` — the agents, sub-units, and co-member humans on `U`'s `members:` list.
+
+It reaches no further: not `U`'s parent, and not *inside* a sibling sub-unit. So with `UnitA → SubUnitB → HumanC`, the HumanC Hat cannot reach UnitA; and with `UnitA → HumanD`, the HumanD Hat reaches UnitA and everything directly on UnitA (including SubUnitB the unit) but not SubUnitB's own members.
+
+**The gate.** You may message a unit or agent only when you wear a Hat that reaches it. Otherwise the platform rejects the send — the portal composer disables itself with an explanation, and the CLI / API return `403`. This is what stops the "which Hat is this person?" confusion: an agent's teammates are addressed through the one Hat that belongs to their team, not through whichever of the operator's Hats happened to be picked.
+
+**You only ever see the Hats you can wear here.** Every messaging surface — the portal from-selector and the CLI's `--as` resolution — lists only the Hats that reach the conversation's recipient. A Hat from an unrelated unit is never offered, so the picker stays short and unambiguous.
+
+**Lifecycle.** A clean deployment has **no** Hats — Hats are created only as unit members, and each is automatically associated with the deployment's user when its unit is installed or created. Deleting a unit removes its human memberships and garbage-collects any Hat that no longer belongs to any unit, so stale Hats never accumulate in the picker.
+
+> **Planned (v0.2):** whether this reachability rule should become a configurable per-unit / per-tenant policy is deferred to v0.2 ([ADR-0062 § 11](../decisions/0062-tenant-user-human-explicit-binding.md) revisit criteria).
 
 ## What a human can do
 

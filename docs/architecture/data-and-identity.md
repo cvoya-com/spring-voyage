@@ -110,6 +110,14 @@ as `OssTenantUserIds.Operator`.
 `Guid.Empty` is reserved for "uninitialised / programmer error" — never a real
 tenant id.
 
+A clean OSS install seeds the operator `TenantUser` but **no** `Human` rows.
+Humans ("Hats") are created only as unit members; each is auto-associated with
+the operator (`humans.tenant_user_id`) at mint time, and deleting a unit
+removes its human memberships and garbage-collects any Hat left with no
+membership (#2972, [ADR-0062 § 11](../decisions/0062-tenant-user-human-explicit-binding.md)).
+Which Hats a tenant user may wear to message a given unit/agent is decided by
+`IHatReachabilityService` — see [Security § Hat ↔ unit reachability gate](security.md#hat--unit-reachability-gate).
+
 ## Connector-native identity
 
 Internally the platform is single-identity (`Guid`); the outside world addresses

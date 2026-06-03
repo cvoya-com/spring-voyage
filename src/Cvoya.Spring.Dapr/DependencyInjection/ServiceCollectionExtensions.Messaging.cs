@@ -106,6 +106,15 @@ internal static class ServiceCollectionExtensionsMessaging
         // decorators (e.g. permission-checked variants).
         services.TryAddScoped<ITenantUserHumanResolver, TenantUserHumanResolver>();
 
+        // #2972: Hat ↔ unit reachability. Decides which of a tenant user's
+        // Hats may address a given unit/agent target so the message-send
+        // gate, the from-resolution constraint, and the context-scoped Hat
+        // pickers all share one rule. Scoped because it holds a
+        // SpringDbContext; the tenant query filter scopes every read. The
+        // cloud overlay can register a configurable-policy variant via the
+        // TryAdd seam (follow-up tracked on #2972).
+        services.TryAddScoped<IHatReachabilityService, HatReachabilityService>();
+
         // ADR-0039 §3 gate 6 — cross-tenant containment. The OSS overlay
         // ships single-tenant; every address resolves to OssTenantIds.Default,
         // so the gate is a structural impossibility to violate. The cloud

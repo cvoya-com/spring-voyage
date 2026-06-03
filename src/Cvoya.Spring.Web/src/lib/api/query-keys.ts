@@ -131,8 +131,17 @@ export const queryKeys = {
      * `<HumanFromSelector>`, per-Hat inbox chip, and "Claim this
      * Human" affordance. Invalidate after a successful binding patch
      * so every dependent surface re-reads in one pass.
+     *
+     * #2972: pass a `recipient` (`scheme:id`) to key the recipient-scoped
+     * variant — the result then lists only the Hats that can reach that
+     * recipient. The unscoped call (no argument) returns the base key, so
+     * `invalidateQueries({ queryKey: callerHumans() })` prefix-matches and
+     * clears every scoped variant in one pass.
      */
-    callerHumans: () => ["tenantUsers", "callerHumans"] as const,
+    callerHumans: (recipient?: string | null) =>
+      recipient
+        ? (["tenantUsers", "callerHumans", recipient] as const)
+        : (["tenantUsers", "callerHumans"] as const),
   },
 
   /**

@@ -567,3 +567,51 @@ describe("MessageComposer — from-selector (ADR-0062)", () => {
     });
   });
 });
+
+describe("MessageComposer — Hat ↔ unit reachability gate (#2972)", () => {
+  it("blocks the composer with an explanation when no Hat can reach the recipient", async () => {
+    // The recipient-scoped Hat query resolves empty → the operator wears no
+    // Hat that can message this unit, so the composer disables itself.
+    listCallerHumansMock.mockResolvedValue([]);
+    render(
+      wrap(
+        <MessageComposer
+          threadId={null}
+          recipient={{ scheme: "unit", path: "11111111222233334444555566667777" }}
+        />,
+      ),
+    );
+
+    expect(
+      await screen.findByTestId("message-composer-no-hat"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("message-composer-input")).toBeDisabled();
+    expect(screen.getByTestId("message-composer-send")).toBeDisabled();
+  });
+
+  it("does not block when at least one wearable Hat is returned", async () => {
+    listCallerHumansMock.mockResolvedValue([
+      {
+        humanId: "11111111-1111-1111-1111-111111111111",
+        displayName: "Bob",
+        disambiguatedLabel: "Bob",
+        isPrimary: true,
+        memberships: [],
+      },
+    ]);
+    render(
+      wrap(
+        <MessageComposer
+          threadId={null}
+          recipient={{ scheme: "unit", path: "11111111222233334444555566667777" }}
+        />,
+      ),
+    );
+
+    // The from-selector collapses to a static badge (one Hat); the
+    // empty-state never appears and the textarea stays enabled.
+    expect(await screen.findByTestId("message-composer-from")).toBeInTheDocument();
+    expect(screen.queryByTestId("message-composer-no-hat")).not.toBeInTheDocument();
+    expect(screen.getByTestId("message-composer-input")).not.toBeDisabled();
+  });
+});

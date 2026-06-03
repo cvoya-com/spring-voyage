@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Tests.Endpoints;
 using System.Net;
 using System.Net.Http.Json;
 
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -13,6 +14,8 @@ using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+
+using NSubstitute;
 
 using Shouldly;
 
@@ -510,6 +513,38 @@ public class TenantUserIdentityEndpointsTests : IClassFixture<CustomWebApplicati
         row.ShouldNotBeNull();
         row!.DisplayName.ShouldBe(uniqueName);
         row.DisambiguatedLabel.ShouldBe(uniqueName);
+    }
+
+    [Fact]
+    public async Task ListCallerHumans_ScopedToRecipient_ReturnsOnlyWearableHats()
+    {
+        // #2972: GET /me/humans?recipient=<scheme:id> narrows the result to
+        // the Hats that can reach the recipient so the messaging from-selector
+        // never offers an unwearable Hat. The reachability decision is the
+        // gate's; the endpoint just filters by it.
+        var ct = TestContext.Current.CancellationToken;
+        var unitA = await SeedUnitAsync("ReachUnitA");
+        var unitB = await SeedUnitAsync("ReachUnitB");
+        var hatA = await SeedHumanWithMembershipAsync(
+            OssTenantUserIds.Operator, $"HatA-{Guid.NewGuid():N}", unitA, new[] { "designer" });
+        var hatB = await SeedHumanWithMembershipAsync(
+            OssTenantUserIds.Operator, $"HatB-{Guid.NewGuid():N}", unitB, new[] { "designer" });
+
+        // Only hatA can reach unitA.
+        _factory.HatReachability.GetWearableHatsAsync(
+                Arg.Any<Guid>(),
+                Arg.Is<IReadOnlyCollection<Address>>(t => t.Any(a => a.Id == unitA)),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Guid>>(new[] { hatA }));
+
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/users/me/humans?recipient=unit:{unitA:N}", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<List<CallerHumanResponse>>(ct);
+        body.ShouldNotBeNull();
+        body!.ShouldContain(r => r.HumanId == hatA);
+        body.ShouldNotContain(r => r.HumanId == hatB);
     }
 
     [Fact]

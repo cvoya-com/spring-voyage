@@ -1539,10 +1539,25 @@ public class SpringApiClient
     /// matches case-insensitively against this list to resolve the
     /// underlying Hat UUID (ADR-0062 § 6 / #2827).
     /// </summary>
+    /// <param name="recipients">
+    /// Optional <c>scheme:id</c> recipient(s) to scope the result to only
+    /// the Hats that can reach them under the Hat ↔ unit reachability rule
+    /// (#2972). Null / empty lists the caller's full bound set.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
     public async Task<IReadOnlyList<CallerHumanResponse>> ListCallerHumansAsync(
+        string[]? recipients = null,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Tenant.Users.Me.Humans.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Users.Me.Humans.GetAsync(
+            config =>
+            {
+                if (recipients is { Length: > 0 })
+                {
+                    config.QueryParameters.Recipient = recipients;
+                }
+            },
+            cancellationToken: ct);
         return result ?? new List<CallerHumanResponse>();
     }
 
