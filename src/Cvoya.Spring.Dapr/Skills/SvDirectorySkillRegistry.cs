@@ -336,9 +336,9 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "Returns the advisory runtime-status snapshot for a single agent or unit " +
                 "identified by uuid. Output shape: { uuid, kind, display_name, live_status? }. " +
                 "live_status is { in_flight, queued, channels, observed_at } where in_flight is " +
-                "the count of threads currently being dispatched, queued is messages waiting " +
+                "the count of conversations currently being dispatched, queued is messages waiting " +
                 "behind in-flight heads (agents only; units' lean dispatch has no queue), and " +
-                "channels is the total per-thread channels tracked. The field is omitted for " +
+                "channels is the total per-conversation channels tracked. The field is omitted for " +
                 "kind='human' (humans have no runtime). Snapshots are advisory — they reflect " +
                 "the state at the moment of the call and may be stale by the time you act on " +
                 "them; the actor mailbox is the ordering authority. " + TenantSentinelWarning,

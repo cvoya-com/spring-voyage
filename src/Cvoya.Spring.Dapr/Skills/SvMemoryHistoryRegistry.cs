@@ -134,7 +134,7 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
               "type": "array",
               "minItems": 1,
               "maxItems": 100,
-              "description": "The message ids to fetch (1–100), each the no-dash 32-char hex message_id you already hold from an inbound envelope. Ids you cannot read — unknown, or on a thread you do not participate in — come back under `skipped`, never as an error.",
+              "description": "The message ids to fetch (1–100), each the no-dash 32-char hex message_id you already hold from an inbound envelope. Ids you cannot read — unknown, or in a conversation you do not participate in — come back under `skipped`, never as an error.",
               "items": { "type": "string", "description": "A message_id (no-dash 32-char hex)." }
             }
           }
@@ -172,7 +172,7 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
                 ToolCategories.Memory),
             new ToolDefinition(
                 GetMessagesTool,
-                "Fetch specific messages by message_id (1–100 per call) — the by-id complement to sv.memory.history_with (a whole timeline) and sv.memory.search_messages (free-text). Use it when you already hold the ids, e.g. to re-read a message you were notified about. Returns { messages: [{ message_id, timestamp, from, to, body }, ...], skipped: [\"<message_id>\", ...] }, with messages in the order you asked for them. You may only read a message on a thread you participate in; any id that is unknown or that you cannot access comes back under skipped (the two cases are indistinguishable on purpose), never as an error.",
+                "Fetch specific messages by message_id (1–100 per call) — the by-id complement to sv.memory.history_with (a whole timeline) and sv.memory.search_messages (free-text). Use it when you already hold the ids, e.g. to re-read a message you were notified about. Returns { messages: [{ message_id, timestamp, from, to, body }, ...], skipped: [\"<message_id>\", ...] }, with messages in the order you asked for them. You may only read a message in a conversation you participate in; any id that is unknown or that you cannot access comes back under skipped (the two cases are indistinguishable on purpose), never as an error.",
                 GetMessagesSchema,
                 ToolCategories.Memory),
         };

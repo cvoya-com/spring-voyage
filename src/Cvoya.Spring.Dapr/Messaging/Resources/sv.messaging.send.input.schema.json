@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "sv.messaging.send.input",
-  "description": "Input for sv.messaging.send — a one-way message-delivery tool that places one message on the SINGLE SHARED THREAD identified by {caller} ∪ recipients. Every recipient sees the message on the same thread and sees the other recipients in the inbound envelope's `to` field. Supply exactly one of `recipients` or `scope`. The calling participant is auto-included in the thread's participant set — do not list yourself in `recipients`. Valid recipient kinds are humans, agents, and units; connector addresses (`connector:<uuid>`) appear on inbound messages as a sender but are non-routable as recipients and are rejected synchronously with an UnroutableTarget error. Use sv.messaging.multicast when you want each recipient to receive the message on its own independent 1-1 thread. Delivery is one-way: the call returns a delivery acknowledgement; any response from a recipient arrives later as a separate inbound message.",
+  "description": "Input for sv.messaging.send — a one-way message-delivery tool that places one message in the SINGLE SHARED CONVERSATION identified by {caller} ∪ recipients. Every recipient sees the message in the same conversation and sees the other recipients in the inbound envelope's `to` field. Supply exactly one of `recipients` or `scope`. The calling participant is auto-included in the conversation's participant set — do not list yourself in `recipients`. Valid recipient kinds are humans, agents, and units; connector addresses (`connector:<uuid>`) appear on inbound messages as a sender but are non-routable as recipients and are rejected synchronously with an UnroutableTarget error. Use sv.messaging.multicast when you want each recipient to receive the message in its own independent 1-1 conversation. Delivery is one-way: the call returns a delivery acknowledgement; any response from a recipient arrives later as a separate inbound message.",
   "type": "object",
   "properties": {
     "recipients": {
@@ -16,7 +16,7 @@
     "scope": {
       "type": "string",
       "enum": ["unit-members", "siblings"],
-      "description": "Resolve the recipient set from the caller's position in the member graph: 'unit-members' (valid for a unit caller) targets the members of the calling unit; 'siblings' targets the caller's siblings under their parent unit(s). The resolved set forms the shared thread's participants together with the caller. Mutually exclusive with `recipients`."
+      "description": "Resolve the recipient set from the caller's position in the member graph: 'unit-members' (valid for a unit caller) targets the members of the calling unit; 'siblings' targets the caller's siblings under their parent unit(s). The resolved set forms the shared conversation's participants together with the caller. Mutually exclusive with `recipients`."
     },
     "message": {
       "description": "The message payload to deliver. Opaque to the platform; a JSON string or object. Must carry content: a non-empty string, or an object with a non-empty `content` (or `text` / `body`) field, or other structured fields. An empty or whitespace-only message is rejected — it would deliver an empty envelope the recipient reads as 'nothing was sent'. There is no empty acknowledgement; if you have nothing to add, do not send."

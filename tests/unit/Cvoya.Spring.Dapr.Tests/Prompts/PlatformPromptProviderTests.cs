@@ -393,12 +393,13 @@ public class PlatformPromptProviderTests
     }
 
     /// <summary>
-    /// #2683: the envelope section frames a thread as the participant
-    /// set plus the durable message timeline so a runtime understands
-    /// what a thread *is* before being told how to inspect one.
+    /// #2683: the envelope section frames a conversation as the participant
+    /// set plus the durable message timeline so a runtime understands what a
+    /// conversation *is* before being told how to inspect one. "thread" is an
+    /// internal concept and is never exposed as agent-facing vocabulary.
     /// </summary>
     [Fact]
-    public async Task GetPlatformPromptAsync_EnvelopeDefinesThreadConcept()
+    public async Task GetPlatformPromptAsync_EnvelopeDefinesConversationConcept()
     {
         var provider = new PlatformPromptProvider();
 
@@ -426,10 +427,12 @@ public class PlatformPromptProviderTests
     }
 
     /// <summary>
-    /// #2747: the envelope section points at the new shared-history surface
+    /// #2747: the envelope section points at the shared-history surface
     /// (sv.memory.history_with, sv.memory.engagements, sv.memory.search_messages)
-    /// and explicitly states that the agent never sees a thread_id — those
-    /// were the two affordances the retired sv.thread.* surface provided.
+    /// and frames conversations by their participant set, not by an internal
+    /// id — those were the two affordances the retired sv.thread.* surface
+    /// provided. "thread"/"thread_id" is internal and must not surface as
+    /// agent-facing vocabulary.
     /// </summary>
     [Fact]
     public async Task GetPlatformPromptAsync_EnvelopePointsAtParticipantSetMemoryTools()
@@ -440,7 +443,8 @@ public class PlatformPromptProviderTests
 
         result.ShouldContain("sv.memory.history_with");
         result.ShouldContain("sv.memory.engagements");
-        result.ShouldContain("never see a `thread_id`");
+        result.ShouldContain("Conversations are identified by who is in them");
+        result.ShouldNotContain("thread_id");
         result.ShouldNotContain("sv.thread.");
     }
 
@@ -485,18 +489,18 @@ public class PlatformPromptProviderTests
 
     /// <summary>
     /// #2747: send vs multicast are the same input shape but different
-    /// thread semantics (shared vs per-pair). The contract must explain
+    /// conversation semantics (shared vs per-pair). The contract must explain
     /// the distinction so the model picks the right tool.
     /// </summary>
     [Fact]
-    public async Task GetPlatformPromptAsync_ContrastsSendVsMulticastThreadSemantics()
+    public async Task GetPlatformPromptAsync_ContrastsSendVsMulticastConversationSemantics()
     {
         var provider = new PlatformPromptProvider();
 
         var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
 
-        result.ShouldContain("SHARED thread");
-        result.ShouldContain("INDEPENDENT 1-1 threads");
+        result.ShouldContain("SHARED conversation");
+        result.ShouldContain("INDEPENDENT 1-1 conversations");
     }
 
     /// <summary>
