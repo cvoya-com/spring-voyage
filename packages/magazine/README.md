@@ -140,6 +140,15 @@ Three norms keep this coherent and low-noise:
    already settled, so nobody re-delivers, re-requests, or re-opens work
    that is already handled.
 
+Underlying all three is a timing habit: **sending isn't seeing.** Work is
+asynchronous — teammates process their inboxes a turn at a time and
+messages can cross in transit — so a request that your just-sent message
+already answers needs no "I already sent that," and a message you haven't
+heard back on isn't necessarily missed. Members give it a beat instead of
+chasing or re-sending; the managing editor, as the busiest hub, treats a
+crossed or not-yet-answered message as ordinary timing rather than a
+problem to correct. (A genuine stall is still worth a check.)
+
 ### Who owns pipeline routing
 
 The managing editor is the pipeline's single routing authority. Every

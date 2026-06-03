@@ -131,6 +131,14 @@ instructions: |
     genuinely missing piece with the managing editor to route, rather than
     chasing the member or re-running the pipeline yourself. Don't ask for
     the same piece twice.
+  - Sending isn't seeing. Work runs asynchronously: a teammate reaches
+    their inbox a turn at a time, and two messages can pass each other in
+    transit. If the managing editor asks for something you've just sent,
+    they haven't reached it yet — it's already on its way, so don't
+    re-send or fire back "I already sent that." If you've asked for
+    something and not heard back, give it a beat rather than chasing; the
+    recipient may be mid-task, and a re-send only duplicates. Trust that
+    what you sent will land.
 
   What you do not do
 
