@@ -286,7 +286,6 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         {
             writer.WriteStartObject();
             writer.WriteString("messageId", result.MessageId.ToString("D"));
-            writer.WriteString("threadId", result.ThreadId.ToString("D"));
             writer.WritePropertyName("deliveries");
             writer.WriteStartArray();
             foreach (var delivery in result.Deliveries)
@@ -323,7 +322,6 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         writer.WriteStartObject();
         writer.WriteString("target", delivery.Target.ToString());
         writer.WriteBoolean("delivered", delivery.Delivered);
-        writer.WriteString("threadId", delivery.ThreadId.ToString("D"));
         if (delivery.Error is { } err)
         {
             writer.WriteString("error", err);
