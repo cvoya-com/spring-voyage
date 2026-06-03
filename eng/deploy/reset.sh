@@ -14,10 +14,11 @@
 #              all images, all networks, dispatcher publish output.
 #              Use: "Wipe app data; keep everything else."
 #
-#   platform   `state` + remove built spring-voyage* images, dispatcher
-#              publish output, runtime ephemeral/persistent containers,
-#              and all platform networks. KEEPS spring-ollama-data and
-#              base images (postgres, redis, dapr, caddy, ollama/ollama).
+#   platform   `state` + remove agent workspace volumes (spring-ws-*),
+#              built spring-voyage* images, dispatcher publish output,
+#              runtime ephemeral/persistent containers, and all platform
+#              networks. KEEPS spring-ollama-data and base images
+#              (postgres, redis, dapr, caddy, ollama/ollama).
 #              Use: "Rebuild Spring Voyage; keep cached base images and
 #                    LLM models."
 #
@@ -54,6 +55,7 @@ TENANT_NETWORK_NAME="spring-tenant-default"
 USER_NETWORK_PREFIX="spring-user-"
 RUNTIME_NETWORK_PATTERN='^spring-net-[[:xdigit:]]+'
 RUNTIME_CONTAINER_NAME_PATTERN='^spring-(persistent|ephemeral|exec|dapr)-'
+RUNTIME_VOLUME_PATTERN='^spring-ws-'
 
 PLATFORM_CONTAINERS=(
     spring-postgres
@@ -129,9 +131,10 @@ Levels (lightest -> heaviest):
               KEEPS spring-ollama-data, all images, all networks.
               Use: "Wipe app data; keep everything else."
 
-  platform    state + remove built spring-voyage* images, dispatcher
-              publish output, runtime ephemeral/persistent containers,
-              and all platform networks.
+  platform    state + remove agent workspace volumes (spring-ws-*),
+              built spring-voyage* images, dispatcher publish output,
+              runtime ephemeral/persistent containers, and all platform
+              networks.
               KEEPS spring-ollama-data and base images
               (postgres, redis, dapr, caddy, ollama/ollama).
               Use: "Rebuild Spring Voyage; keep cached base images
@@ -193,6 +196,10 @@ owned_runtime_networks() {
 
 owned_user_networks() {
     podman network ls --format '{{.Name}}' 2>/dev/null | grep -E "^${USER_NETWORK_PREFIX}" || true
+}
+
+owned_runtime_volumes() {
+    podman volume ls --format '{{.Name}}' 2>/dev/null | grep -E "${RUNTIME_VOLUME_PATTERN}" || true
 }
 
 container_exists() { podman container exists "$1" 2>/dev/null; }
@@ -321,6 +328,18 @@ step_remove_runtime_containers() {
     return 0
 }
 
+step_remove_runtime_volumes() {
+    header "Removing agent workspace volumes (spring-ws-*)"
+    local any=0
+    while IFS= read -r v; do
+        [[ -n "${v}" ]] || continue
+        any=1
+        do_remove_volume "${v}"
+    done < <(owned_runtime_volumes)
+    [[ "${any}" -eq 0 ]] && info "(none found)"
+    return 0
+}
+
 step_remove_built_images() {
     header "Removing Spring Voyage built images + dispatcher publish output"
     clean_built_artifacts
@@ -395,6 +414,7 @@ show_plan() {
             info "  - platform containers (${#PLATFORM_CONTAINERS[@]})"
             info "  - runtime ephemeral/persistent agent containers"
             info "  - platform volumes (${#PLATFORM_VOLUMES[@]})"
+            info "  - agent workspace volumes (spring-ws-*)"
             info "  - Spring Voyage built images (spring-voyage, spring-voyage-agent-*)"
             info "  - dispatcher publish output"
             info "  - platform networks (${NETWORK_NAME}, ${TENANT_NETWORK_NAME}, spring-net-*, ${USER_NETWORK_PREFIX}*)"
@@ -433,6 +453,7 @@ do_platform() {
     step_remove_platform_containers
     step_remove_runtime_containers
     step_remove_platform_volumes
+    step_remove_runtime_volumes
     step_remove_built_images
     step_remove_networks
 }
