@@ -16,7 +16,7 @@ namespace Cvoya.Spring.Core.Catalog;
 /// References a <see cref="ModelProvider.Id"/> in the runtime catalogue.
 /// </param>
 /// <param name="Id">
-/// Stable, provider-scoped model id (e.g. <c>claude-opus-4-7</c>,
+/// Stable, provider-scoped model id (e.g. <c>claude-opus-4-8</c>,
 /// <c>gpt-4o-mini</c>, <c>llama3.2:3b</c>). Persisted on units / agents —
 /// a unit's pinned model id survives provider catalogue changes.
 /// </param>

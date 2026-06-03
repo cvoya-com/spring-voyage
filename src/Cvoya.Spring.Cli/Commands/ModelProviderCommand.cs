@@ -132,7 +132,7 @@ public static class ModelProviderCommand
 
     private static Command CreateInstallCommand(Option<string> outputOption)
     {
-        // Example: `spring model-provider install anthropic --model claude-opus-4-7`
+        // Example: `spring model-provider install anthropic --model claude-opus-4-8`
         var idArg = new Argument<string>("id") { Description = "Provider id to install." };
         var modelOption = new Option<string[]>("--model")
         {
@@ -283,7 +283,7 @@ public static class ModelProviderCommand
 
     private static Command CreateConfigSetCommand(Option<string> outputOption)
     {
-        // Example: `spring model-provider config set anthropic defaultModel=claude-opus-4-7`
+        // Example: `spring model-provider config set anthropic defaultModel=claude-opus-4-8`
         var idArg = new Argument<string>("id") { Description = "Provider id." };
         var kvArg = new Argument<string>("key=value")
         {

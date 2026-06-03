@@ -37,7 +37,7 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// {
 ///   "image": "ghcr.io/example/claude:latest",
 ///   "runtime": "claude-code",
-///   "model": { "provider": "anthropic", "id": "claude-opus-4-7" }
+///   "model": { "provider": "anthropic", "id": "claude-opus-4-8" }
 /// }
 /// </code>
 /// </para>
@@ -131,7 +131,7 @@ public record AgentExecutionResponse(
 /// Provider id from <c>eng/runtime-catalog/runtime-catalog.yaml</c>:
 /// <c>anthropic</c>, <c>openai</c>, <c>google</c>, <c>ollama</c>, …
 /// </param>
-/// <param name="Id">Provider-scoped model id (e.g. <c>claude-opus-4-7</c>).</param>
+/// <param name="Id">Provider-scoped model id (e.g. <c>claude-opus-4-8</c>).</param>
 public record AiModelDto(
     string Provider,
     string Id);

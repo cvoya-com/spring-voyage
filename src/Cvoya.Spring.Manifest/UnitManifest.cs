@@ -209,7 +209,7 @@ public class AiModelManifest
     public string? Provider { get; set; }
 
     /// <summary>
-    /// Provider-scoped model id (e.g. <c>claude-opus-4-7</c>,
+    /// Provider-scoped model id (e.g. <c>claude-opus-4-8</c>,
     /// <c>gpt-4o</c>, <c>llama3.2:3b</c>).
     /// </summary>
     [YamlMember(Alias = "id")]
