@@ -14,14 +14,16 @@ The catalog's other teams each illustrate one coordination shape:
 | --- | --- |
 | `software-engineering`, `product-management` | Delegation-shaped — a unit receives inbound work and routes it down to the member best suited to handle it. |
 | `research` | Team-leader-shaped — a coordinator picks the right specialist and holds the thread back to the requester. |
-| `magazine` | **Workflow-shaped** — a central decider (the editor) sets direction, members consult before going deep, and drafts flow through a sequence of specialist stages until a human approves the assembled output. |
+| `magazine` | **Workflow-shaped** — a central decider (the editor) sets direction, a managing editor coordinates the assembly line, and drafts flow through a sequence of specialist stages until a human approves the assembled output. |
 
 The interesting question this package asks is: **how does a team take in
 a large goal — produce today's edition — and coordinate to accomplish
 it?** The answer is a mix of central direction (the editor decides
-every editorial question), specialist handoffs (writer → fact-checker →
-copy-editor → audience-editor → production-editor), and a hard human
-approval gate at the end.
+every editorial question), a single coordinator who owns the assembly
+line (the managing editor routes each stage's finished work to the
+next), specialist stages (writer → fact-checker → copy-editor →
+audience-editor → production-editor), and a hard human approval gate at
+the end.
 
 ## What this package ships
 
@@ -31,8 +33,9 @@ approval gate at the end.
   editorial question, signs off on the assembled edition before it
   goes to the human publisher.
 - **Agents** (`agents/`):
-  - `managing-editor` — runs the floor: turns the editor's plan into
-    assignments, tracks every story, moves drafts between stages.
+  - `managing-editor` — runs the floor and owns the pipeline: turns the
+    editor's plan into 1:1 assignments and tracks every story, with each
+    stage's finished work returning to them to route onward.
   - `staff-writer` — reports each assigned story using web search and
     files the first draft.
   - `fact-checker` — verifies every checkable claim and audits sourcing.
@@ -54,25 +57,30 @@ approval gate at the end.
 2. The editor proposes the day's theme and the story slots to fill,
    confirms with the owner if anything is ambiguous, and briefs the
    managing editor.
-3. The managing editor assigns each slot to the staff writer with a
-   clear brief that includes the angle, the deadline, and **where
-   the finished work should be sent next** (the default is the next
-   stage in the pipeline; the brief can route differently).
-4. The staff writer reports the story using web search and consults
-   the editor before going deep on any angle that materially differs
-   from the brief. They send the draft to wherever their assignment
-   routes it — by default the fact-checker.
-5. The fact-checker verifies every claim and either returns the draft
-   with notes or sends the verified draft on (default: copy editor).
-6. The copy editor polishes language and sends the result on
-   (default: audience editor).
+3. The managing editor opens the edition with one short kickoff to the
+   whole team — "assignments come from me in 1:1; send finished work
+   back to me and I'll route it" — then assigns each slot to the staff
+   writer in 1:1 with the angle, the deadline, and any non-negotiables.
+4. The staff writer reports the story using web search, consults the
+   editor before going deep on any angle that materially differs from
+   the brief, and **returns the finished draft to the managing editor**,
+   who routes it to the next stage (by default the fact-checker).
+5. The fact-checker verifies every claim and returns the result to the
+   managing editor — the verified draft, or the draft with notes — who
+   routes it onward (default: copy editor) or back to the writer for
+   fixes.
+6. The copy editor polishes the language and returns the draft to the
+   managing editor, who routes it on (default: audience editor).
 7. The audience editor writes the final headline and promo line and
-   sends the packaged piece on (default: production editor).
+   returns the packaged piece to the managing editor, who routes it on
+   (default: production editor).
 8. When all stories are in, the managing editor signals the production
-   editor that the edition is ready. The production editor assembles
-   the running order and presents the edition to the editor.
-9. The editor either signs off or sends notes. Once approved, the
-   production editor sends the edition to the human publisher.
+   editor to assemble. The production editor builds the running order
+   and **returns the assembled edition to the managing editor**, who
+   brings it to the editor for sign-off.
+9. The editor either signs off or returns notes (routed by the managing
+   editor). Once approved, the managing editor releases the edition to
+   the production editor, who delivers it to the human publisher.
 10. The publisher approves or returns notes. On approval, the
     production editor publishes the edition as the day's output.
 
@@ -105,37 +113,47 @@ The managing editor is the channel for routine cross-member notes —
 the editor sees connections across the room and routes the right
 information to the right member.
 
-Three norms keep this from turning into duplicated traffic now that
-more than one member can reach most destinations:
+Three norms keep this coherent and low-noise:
 
-1. **Single sender.** Exactly one role owns each outbound artifact or
-   answer; nobody sends what another role owns. The human publisher has
-   a single point of contact — the production editor delivers the
-   edition and the editor handles sign-off and escalation; no other
-   member messages the publisher.
-2. **Share key actions to the team thread.** Any member may post a key
-   action or status that peers need — a stage finished, a piece
-   re-routed, a late change — to the whole-agent-team thread via
-   `send()` (one shared, recallable thread), not `multicast()` (which
-   makes N private one-to-one copies and fragments the picture). This
-   informational sharing is open to everyone; binding *decisions* stay
-   the editor's and managing editor's to advertise. Members calibrate
-   hard — what peers must act on, not a play-by-play.
-3. **Check before you send or ask.** Before delivering an artifact or
-   asking a peer for one, a member checks the team thread to see if it
-   is already handled, so nobody re-delivers or re-requests work that is
-   already there.
+1. **Pipeline transitions go through the managing editor.** Each stage's
+   finished work returns to the managing editor, who routes it to the
+   next stage; members don't advance pieces themselves. That single hub
+   is also the guard against duplicate sends — one role owns each
+   outbound artifact. The human publisher has a single point of contact:
+   the production editor delivers the edition (after sign-off) and the
+   editor handles sign-off and escalation; no other member messages the
+   publisher.
+2. **Peer consultation is free; the team thread stays low-noise.**
+   Members may consult each other directly whenever it sharpens the work
+   (copy editor ↔ audience editor on a headline, writer ↔ fact-checker
+   on a source) — only pipeline-state transitions are coordinated through
+   the managing editor. Routine status is reported 1:1 to the managing
+   editor, who holds the running budget; the whole-agent-team thread is
+   reserved for the managing editor's kickoff and the binding decisions
+   the editor and managing editor advertise (tie-breaks, reversals, a
+   direction the whole desk must follow) via `send()` (one shared,
+   recallable thread), not `multicast()` (which makes N private
+   one-to-one copies and fragments the picture).
+3. **Check before you send or ask.** Before re-requesting an artifact or
+   chasing a peer, a member checks with the managing editor (who holds
+   the running picture) and the team thread for any binding decision
+   already settled, so nobody re-delivers, re-requests, or re-opens work
+   that is already handled.
 
-### How assignments carry routing
+### Who owns pipeline routing
 
-Every assignment a member receives carries four things: the brief
-(what to do), the deadline, anything non-negotiable from the editor,
-and **where to send the finished work**. The default routing is the
-linear pipeline described above, but each assignment states it
-explicitly so the member never has to guess. The editor can override
-the default — for example, "draft this and bring it straight back to
-me" — and the managing editor honours that override in the assignment
-they pass along.
+The managing editor is the pipeline's single routing authority. Every
+assignment a member receives carries three things: the brief (what to
+do), the deadline, and anything non-negotiable from the editor. Where
+the finished work goes next is not part of the brief — it always returns
+to the managing editor, who decides what advances, to whom, and when.
+
+Funnelling every pipeline-state transition through one coordinator —
+rather than letting each member hand its artifact straight to the next
+stage — is deliberate. It keeps a single, coherent picture of what is
+advancing and stops members from racing pieces forward (or issuing their
+own holds) while a routing question is still open. Peer discussion stays
+free; only the transitions are coordinated.
 
 ## Using the package
 
