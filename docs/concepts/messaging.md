@@ -80,6 +80,8 @@ All actors have flat, globally unique Dapr actor ids derived from their `Guid`. 
 
 **Permission enforcement** happens at resolution time. The directory walks the membership graph from the addressed actor toward the tenant root and at each boundary edge evaluates the permission rule against the sender; the walk returns either an actor id (permitted) or a structured deny (rejected). This is one synchronous check whose cost is O(membership depth), not per-hop forwarding.
 
+**The Hat ↔ unit gate** applies on top of that when the sender is a *person* (a tenant user messaging through the Web API or CLI, never an agent-to-agent send). A person addresses a unit or agent **as a Hat** — a human member of a unit — and a Hat can reach only the unit it belongs to plus that unit's direct members. If the person wears no Hat that reaches the target, the send is rejected (`403`); otherwise the platform stamps the reaching Hat as `Message.From`. The messaging surfaces only ever offer the Hats that can reach the chosen recipient. See [Humans → Reaching units and agents](humans.md#reaching-units-and-agents-the-hat--unit-gate) and [ADR-0062 § 11](../decisions/0062-tenant-user-human-explicit-binding.md).
+
 When the addressed actor is a unit (rather than a specific member), the unit applies its boundary filtering and invokes its own runtime; the runtime decides whether to answer directly or delegate to a child by delivering a message via the `sv.messaging.*` tools the launcher attaches.
 
 ## Pub/Sub Topics

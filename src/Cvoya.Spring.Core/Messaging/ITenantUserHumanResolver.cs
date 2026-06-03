@@ -68,6 +68,25 @@ public interface ITenantUserHumanResolver
     public const string NoBoundHumanCode = "NoBoundHuman";
 
     /// <summary>
+    /// Stable error code returned (with HTTP 403) when the caller wears no
+    /// Hat that can reach the message's target(s) — the Hat ↔ unit
+    /// reachability gate (#2972). The send is rejected because there is no
+    /// human member, under any unit the caller is a member of, that lets
+    /// them address the target.
+    /// </summary>
+    public const string NoReachableHatCode = "NoReachableHat";
+
+    /// <summary>
+    /// Stable error code returned (with HTTP 403) when the caller supplied
+    /// an explicit "speaking-as" Hat that <em>is</em> bound to them but
+    /// cannot reach the message's target(s) under the reachability rule
+    /// (#2972). Distinct from <see cref="NoReachableHatCode"/>: the caller
+    /// may have another wearable Hat, but the one they chose is wrong for
+    /// this target.
+    /// </summary>
+    public const string HatCannotReachTargetCode = "HatCannotReachTarget";
+
+    /// <summary>
     /// Resolves the routable <c>human://</c> sender Address for an
     /// outbound message. Throws <see cref="NoBoundHumanException"/> when
     /// no Hat is available (the explicit override is invalid or the
@@ -103,6 +122,34 @@ public interface ITenantUserHumanResolver
         Guid? explicitFromHumanId,
         Guid? threadId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reachability-constrained overload (#2972). Identical to
+    /// <see cref="PickFromAsync(Guid, Guid?, Guid?, CancellationToken)"/>
+    /// except every resolution branch (explicit override, thread
+    /// participant, primary, fallback) is restricted to
+    /// <paramref name="allowedHumanIds"/> — the Hats that can reach the
+    /// message's target(s), computed by the message-send endpoint via
+    /// <see cref="Cvoya.Spring.Core.Units.IHatReachabilityService"/>. The
+    /// stamped sender is therefore always a Hat the caller may address the
+    /// target with. An explicit override that is bound but excluded throws
+    /// <see cref="HatNotReachableException"/>. Passing <c>null</c> is
+    /// equivalent to the unconstrained overload.
+    /// </summary>
+    /// <param name="callerTenantUserId">The authenticated caller's <c>TenantUser</c> id.</param>
+    /// <param name="explicitFromHumanId">Optional explicit "speaking-as" Hat override.</param>
+    /// <param name="threadId">Optional thread for reply-default resolution.</param>
+    /// <param name="allowedHumanIds">
+    /// The reachability-constrained candidate set. When non-null the resolved
+    /// Hat MUST be one of these ids.
+    /// </param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task<Address> PickFromAsync(
+        Guid callerTenantUserId,
+        Guid? explicitFromHumanId,
+        Guid? threadId,
+        IReadOnlyCollection<Guid>? allowedHumanIds,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -116,6 +163,24 @@ public sealed class NoBoundHumanException : Exception
 {
     /// <inheritdoc />
     public NoBoundHumanException(string message)
+        : base(message)
+    {
+    }
+}
+
+/// <summary>
+/// Thrown by <see cref="ITenantUserHumanResolver.PickFromAsync"/> when the
+/// caller supplied an explicit "speaking-as" Hat that is bound to them but
+/// is not in the reachability-constrained <c>allowedHumanIds</c> set — i.e.
+/// the chosen Hat cannot address the message's target(s) (#2972). The API
+/// layer translates this into a 403 ProblemDetails with the
+/// <see cref="ITenantUserHumanResolver.HatCannotReachTargetCode"/> extension
+/// code.
+/// </summary>
+public sealed class HatNotReachableException : Exception
+{
+    /// <inheritdoc />
+    public HatNotReachableException(string message)
         : base(message)
     {
     }

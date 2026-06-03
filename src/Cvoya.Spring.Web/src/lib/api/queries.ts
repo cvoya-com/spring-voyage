@@ -824,13 +824,20 @@ export function useTenantUserIdentities(
  * "Claim this Human" affordance. The result is stable for the
  * session; invalidate `queryKeys.tenantUsers.callerHumans()` after a
  * binding patch.
+ *
+ * #2972: pass `recipient` (`scheme:id`) to scope the result to only the
+ * Hats that can reach that recipient under the Hat ↔ unit reachability
+ * rule — the message composers pass their destination so the from-selector
+ * never offers a Hat that cannot address the target. Omitted ⇒ full set.
  */
 export function useCallerHumans(
-  opts?: SliceOptions<CallerHumanResponse[]>,
+  opts?: SliceOptions<CallerHumanResponse[]> & { recipient?: string | null },
 ): UseQueryResult<CallerHumanResponse[], Error> {
+  const recipient = opts?.recipient ?? null;
   return useQuery({
-    queryKey: queryKeys.tenantUsers.callerHumans(),
-    queryFn: async () => api.listCallerHumans(),
+    queryKey: queryKeys.tenantUsers.callerHumans(recipient),
+    queryFn: async () =>
+      api.listCallerHumans(recipient ? [recipient] : undefined),
     enabled: opts?.enabled,
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,

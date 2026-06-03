@@ -948,8 +948,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the calling caller's bound Humans (Hats) with per-unit context (ADR-0062 §§ 3, 5).
-         * @description Returns every Human row whose tenant_user_id FK points at the authenticated caller, with the IsPrimary flag set on the row that matches TenantUser.PrimaryHumanId. Each row carries a Memberships sub-list — one entry per UnitMembershipHuman row the Human appears on — so the portal's from-selector can render the per-Hat context label (e.g. designer in Magazine) in one round-trip.
+         * List the calling caller's bound Humans (Hats), optionally scoped to a recipient (ADR-0062 §§ 3, 5; #2972).
+         * @description Returns every Human row whose tenant_user_id FK points at the authenticated caller, with the IsPrimary flag set on the row that matches TenantUser.PrimaryHumanId. Each row carries a Memberships sub-list — one entry per UnitMembershipHuman row the Human appears on — so the portal's from-selector can render the per-Hat context label (e.g. designer in Magazine) in one round-trip. Supply one or more `recipient=<scheme:id>` (unit/agent) query parameters to scope the result to only the Hats that can reach those recipients under the Hat ↔ unit reachability rule (#2972) — the messaging from-selector / CLI `--as` resolution use this so the operator is never offered a Hat that cannot address the target. The disambiguated label is computed over the returned (scoped) set. Omitting the parameter returns the full bound set (the 'Your Hats' settings surface).
          */
         get: operations["ListCallerHumans"];
         put?: never;
@@ -7786,7 +7786,9 @@ export interface operations {
     };
     ListCallerHumans: {
         parameters: {
-            query?: never;
+            query?: {
+                recipient?: string[];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7800,6 +7802,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallerHumanResponse"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
             /** @description Unauthorized */

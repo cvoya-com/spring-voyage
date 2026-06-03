@@ -30,7 +30,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, MessageCircleQuestion, Send } from "lucide-react";
+import { Loader2, MessageCircleQuestion, Send, UserRoundX } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -123,11 +123,28 @@ export function MessageComposer({
   // cheap (one round-trip per session) and the selector hides itself
   // for callers with one or zero Hats so the composer's chrome stays
   // minimal in the OSS single-operator case.
-  const callerHumansQuery = useCallerHumans();
+  // #2972: scope the Hat set to the recipient so the from-selector lists
+  // only the Hats that can reach this unit/agent under the Hat ↔ unit
+  // reachability rule. Only unit/agent targets are gated; other schemes
+  // (or no recipient) fall back to the full bound set.
+  const scopeRecipient =
+    recipient && (recipient.scheme === "unit" || recipient.scheme === "agent")
+      ? `${recipient.scheme}:${recipient.path}`
+      : null;
+  const callerHumansQuery = useCallerHumans({ recipient: scopeRecipient });
   const callerHumans = useMemo(
     () => callerHumansQuery.data ?? [],
     [callerHumansQuery.data],
   );
+
+  // #2972: when scoped to a unit/agent and the wearable set resolves
+  // empty, the operator wears no Hat that can message this recipient —
+  // the server would reject the send with 403 NoReachableHat — so block
+  // the composer with an explanation instead of letting the send fail.
+  const noWearableHat =
+    scopeRecipient !== null &&
+    callerHumansQuery.isSuccess &&
+    callerHumans.length === 0;
 
   // The selected Hat id. The default-resolution rule is "thread Hat
   // wins (reply default) → primary Hat (new-outbound default) →
@@ -319,7 +336,7 @@ export function MessageComposer({
         ? `Message ${recipient.scheme}://${recipient.path}…`
         : "Type a message…");
 
-  const disabled = isQueuing || !text.trim() || !recipient;
+  const disabled = isQueuing || !text.trim() || !recipient || noWearableHat;
 
   return (
     // shrink-0 keeps the composer at its intrinsic height inside a flex
@@ -357,6 +374,30 @@ export function MessageComposer({
         </div>
       )}
 
+      {/* #2972: reachability gate — the operator wears no Hat that can
+          message this recipient. Block the composer with an explanation
+          rather than letting the send fail server-side. */}
+      {noWearableHat && (
+        <div
+          className="flex items-start gap-1.5 text-xs text-muted-foreground"
+          data-testid={`${testId}-no-hat`}
+        >
+          <UserRoundX className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+          <span>
+            You have no Hat that can message{" "}
+            {recipient ? (
+              <span className="font-medium text-foreground">
+                {recipient.scheme}://{recipient.path}
+              </span>
+            ) : (
+              "this recipient"
+            )}
+            . A unit or agent is reachable only through a human member of the
+            unit it belongs to.
+          </span>
+        </div>
+      )}
+
       {/* ADR-0062 § 5: from-selector strip. Renders nothing when the
           caller has no bound Hats; collapses to a static badge when
           the caller has one Hat; renders the dropdown when 2+. The
@@ -386,7 +427,7 @@ export function MessageComposer({
           className="min-w-0 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           aria-label={isAnswerMode ? "Your answer" : "Message text"}
           data-testid={`${testId}-input`}
-          disabled={isQueuing || !recipient}
+          disabled={isQueuing || !recipient || noWearableHat}
         />
         <Button
           type="submit"

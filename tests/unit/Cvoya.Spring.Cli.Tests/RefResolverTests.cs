@@ -137,6 +137,7 @@ public class RefResolverTests
                 client,
                 input: "Bob",
                 flagDescription: "--as",
+                targetRecipient: null,
                 stdin: new StringReader(string.Empty),
                 stdout: new StringWriter(),
                 isInputRedirected: true,
@@ -177,6 +178,7 @@ public class RefResolverTests
             client,
             input: "Bob",
             flagDescription: "--as",
+            targetRecipient: null,
             stdin: stdin,
             stdout: stdout,
             isInputRedirected: false,
@@ -222,6 +224,7 @@ public class RefResolverTests
             client,
             input: "Bob",
             flagDescription: "--as",
+            targetRecipient: null,
             stdin: stdin,
             stdout: stdout,
             isInputRedirected: false,
@@ -264,6 +267,7 @@ public class RefResolverTests
                 client,
                 input: "Bob",
                 flagDescription: "--as",
+                targetRecipient: null,
                 stdin: stdin,
                 stdout: stdout,
                 isInputRedirected: false,
@@ -299,6 +303,62 @@ public class RefResolverTests
             client, "Bob (Newsletter)", "--as", ct);
 
         resolved.ShouldBe(secondId);
+    }
+
+    [Fact]
+    public async Task ResolveHumanRefAsync_ScopedToRecipient_SendsRecipientQueryAndResolves()
+    {
+        // #2972: passing a target recipient scopes the /me/humans lookup to
+        // the Hats that can reach it; the CLI forwards the recipient as a
+        // `recipient=` query parameter so the server filters server-side.
+        var ct = TestContext.Current.CancellationToken;
+        var targetId = Guid.Parse("aaaaaaaa-1111-1111-1111-0000000000a1");
+        var responseBody =
+            $$"""
+            [
+              {"humanId":"{{targetId:D}}","displayName":"Bob","isPrimary":true,"memberships":[]}
+            ]
+            """;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/users/me/humans",
+            expectedMethod: HttpMethod.Get,
+            responseBody: responseBody,
+            validateQuery: q => q.ShouldContain("recipient="));
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+
+        var resolved = await RefResolver.ResolveHumanRefAsync(
+            client,
+            "Bob",
+            "--as",
+            "unit:111111112222333344445555555555aa",
+            ct);
+
+        resolved.ShouldBe(targetId);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ResolveHumanRefAsync_ScopedZeroMatches_ThrowsReachabilityHint()
+    {
+        // #2972: when scoped and nothing matches, the error steers the
+        // operator toward the reachability rule rather than "no such Hat".
+        var ct = TestContext.Current.CancellationToken;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/users/me/humans",
+            expectedMethod: HttpMethod.Get,
+            responseBody: "[]");
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+
+        var ex = await Should.ThrowAsync<CliRefResolutionException>(
+            () => RefResolver.ResolveHumanRefAsync(
+                client,
+                "Bob",
+                "--as",
+                "agent:111111112222333344445555555555aa",
+                ct));
+
+        ex.Message.ShouldContain("Hat you can use to message");
+        ex.Message.ShouldContain("human member of the unit");
     }
 
     // ── ResolveTenantUserRefAsync ────────────────────────────────────────────

@@ -8,6 +8,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Host.Api.Auth;
@@ -76,6 +77,7 @@ public static class MessageEndpoints
         IAuthenticatedCallerAccessor callerAccessor,
         IThreadRegistry threadRegistry,
         ITenantUserHumanResolver tenantUserHumanResolver,
+        IHatReachabilityService hatReachability,
         IActivityEventBus activityEventBus,
         IDirectoryService directoryService,
         IPermissionService permissionService,
@@ -155,12 +157,48 @@ public static class MessageEndpoints
                 resolvedThreadGuid = parsedThreadId;
             }
 
+            // #2972: Hat ↔ unit reachability gate. A tenant user may only
+            // address a unit/agent for which they wear a Hat that reaches it
+            // (the Hat is a direct human member of a unit the target sits in
+            // or under). Compute the wearable set across the unit/agent
+            // recipients; an empty set is the platform rejection (403
+            // NoReachableHat). The set then constrains from-resolution so the
+            // stamped sender is always a Hat the caller may use for this
+            // target. Non-unit/agent recipients (human/connector/system) are
+            // outside the stated gate scope and do not constrain resolution.
+            var gatedTargets = recipients
+                .Where(r => string.Equals(r.Scheme, Address.UnitScheme, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(r.Scheme, Address.AgentScheme, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            IReadOnlyCollection<Guid>? allowedHumanIds = null;
+            if (gatedTargets.Count > 0)
+            {
+                allowedHumanIds = await hatReachability.GetWearableHatsAsync(
+                    callerAddress.Id, gatedTargets, cancellationToken);
+                if (allowedHumanIds.Count == 0)
+                {
+                    return Results.Problem(
+                        title: "Forbidden",
+                        detail:
+                            "You have no Hat that can message the requested recipient(s). " +
+                            "A unit or agent is reachable only through a human member of the " +
+                            "unit it belongs to.",
+                        statusCode: StatusCodes.Status403Forbidden,
+                        extensions: new Dictionary<string, object?>
+                        {
+                            ["code"] = ITenantUserHumanResolver.NoReachableHatCode,
+                        });
+                }
+            }
+
             try
             {
                 from = await tenantUserHumanResolver.PickFromAsync(
                     callerAddress.Id,
                     request.From,
                     resolvedThreadGuid,
+                    allowedHumanIds,
                     cancellationToken);
             }
             catch (NoBoundHumanException ex)
@@ -172,6 +210,17 @@ public static class MessageEndpoints
                     extensions: new Dictionary<string, object?>
                     {
                         ["code"] = ITenantUserHumanResolver.NoBoundHumanCode,
+                    });
+            }
+            catch (HatNotReachableException ex)
+            {
+                return Results.Problem(
+                    title: "Forbidden",
+                    detail: ex.Message,
+                    statusCode: StatusCodes.Status403Forbidden,
+                    extensions: new Dictionary<string, object?>
+                    {
+                        ["code"] = ITenantUserHumanResolver.HatCannotReachTargetCode,
                     });
             }
         }

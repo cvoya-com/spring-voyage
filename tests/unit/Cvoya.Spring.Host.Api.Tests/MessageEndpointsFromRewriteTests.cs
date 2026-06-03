@@ -38,6 +38,8 @@ public class MessageEndpointsFromRewriteTests : IClassFixture<CustomWebApplicati
     private static readonly Guid AgentExplicitFromId = new("11111111-aaaa-0000-0000-000000000002");
     private static readonly Guid AgentUnboundFromId = new("11111111-aaaa-0000-0000-000000000003");
     private static readonly Guid AgentAuditFromId = new("11111111-aaaa-0000-0000-000000000004");
+    private static readonly Guid AgentNoReachId = new("11111111-aaaa-0000-0000-000000000005");
+    private static readonly Guid AgentExplicitUnreachId = new("11111111-aaaa-0000-0000-000000000006");
 
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
@@ -174,6 +176,65 @@ public class MessageEndpointsFromRewriteTests : IClassFixture<CustomWebApplicati
         actingTenantUserId.ShouldNotBeNull();
         actingTenantUserId.ShouldBe(
             $"{Address.TenantUserScheme}://{Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(OssTenantUserIds.Operator)}");
+    }
+
+    [Fact]
+    public async Task SendMessage_NoWearableHat_Returns403NoReachableHat()
+    {
+        // #2972: the Hat ↔ unit reachability gate — the operator wears no
+        // Hat that can reach this agent, so the platform rejects the send.
+        var ct = TestContext.Current.CancellationToken;
+        StubAgent(AgentNoReachId, out _);
+        _factory.HatReachability.GetWearableHatsAsync(
+                Arg.Any<Guid>(),
+                Arg.Is<IReadOnlyCollection<Address>>(t => t.Any(a => a.Id == AgentNoReachId)),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Guid>>(Array.Empty<Guid>()));
+
+        var request = new SendMessageRequest(
+            new AddressDto("agent", AgentNoReachId.ToString("N")),
+            "Domain",
+            Guid.NewGuid().ToString(),
+            JsonSerializer.SerializeToElement(new { Text = "hi" }));
+
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+        problem.GetProperty("code").GetString().ShouldBe(
+            Cvoya.Spring.Core.Messaging.ITenantUserHumanResolver.NoReachableHatCode);
+    }
+
+    [Fact]
+    public async Task SendMessage_ExplicitHatNotReachable_Returns403HatCannotReachTarget()
+    {
+        // #2972: the explicit --as Hat is bound to the operator but cannot
+        // reach this target — a distinct rejection from "no wearable Hat".
+        var ct = TestContext.Current.CancellationToken;
+        StubAgent(AgentExplicitUnreachId, out _);
+        var explicitHumanId = await GetPrimaryHumanIdAsync();
+        var reachableButOtherHat = await SeedHumanBoundToOperatorAsync();
+
+        // The wearable set for this target excludes the explicitly-chosen Hat.
+        _factory.HatReachability.GetWearableHatsAsync(
+                Arg.Any<Guid>(),
+                Arg.Is<IReadOnlyCollection<Address>>(t => t.Any(a => a.Id == AgentExplicitUnreachId)),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Guid>>(new[] { reachableButOtherHat }));
+
+        var request = new SendMessageRequest(
+            new AddressDto("agent", AgentExplicitUnreachId.ToString("N")),
+            "Domain",
+            Guid.NewGuid().ToString(),
+            JsonSerializer.SerializeToElement(new { Text = "hi" }),
+            From: explicitHumanId);
+
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+        problem.GetProperty("code").GetString().ShouldBe(
+            Cvoya.Spring.Core.Messaging.ITenantUserHumanResolver.HatCannotReachTargetCode);
     }
 
     private void StubAgent(Guid agentId, out Func<Message?> observed)

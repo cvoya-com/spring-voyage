@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Core.Security;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Host.Api.Auth;
@@ -125,9 +126,10 @@ public static class TenantUserIdentityEndpoints
         // "designer in Magazine" context label inline.
         group.MapGet("/me/humans", ListCallerHumansAsync)
             .WithName("ListCallerHumans")
-            .WithSummary("List the calling caller's bound Humans (Hats) with per-unit context (ADR-0062 §§ 3, 5).")
-            .WithDescription("Returns every Human row whose tenant_user_id FK points at the authenticated caller, with the IsPrimary flag set on the row that matches TenantUser.PrimaryHumanId. Each row carries a Memberships sub-list — one entry per UnitMembershipHuman row the Human appears on — so the portal's from-selector can render the per-Hat context label (e.g. designer in Magazine) in one round-trip.")
+            .WithSummary("List the calling caller's bound Humans (Hats), optionally scoped to a recipient (ADR-0062 §§ 3, 5; #2972).")
+            .WithDescription("Returns every Human row whose tenant_user_id FK points at the authenticated caller, with the IsPrimary flag set on the row that matches TenantUser.PrimaryHumanId. Each row carries a Memberships sub-list — one entry per UnitMembershipHuman row the Human appears on — so the portal's from-selector can render the per-Hat context label (e.g. designer in Magazine) in one round-trip. Supply one or more `recipient=<scheme:id>` (unit/agent) query parameters to scope the result to only the Hats that can reach those recipients under the Hat ↔ unit reachability rule (#2972) — the messaging from-selector / CLI `--as` resolution use this so the operator is never offered a Hat that cannot address the target. The disambiguated label is computed over the returned (scoped) set. Omitting the parameter returns the full bound set (the 'Your Hats' settings surface).")
             .Produces<IReadOnlyList<CallerHumanResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         return group;
@@ -457,7 +459,9 @@ public static class TenantUserIdentityEndpoints
 
     private static async Task<IResult> ListCallerHumansAsync(
         IAuthenticatedCallerAccessor callerAccessor,
+        IHatReachabilityService hatReachability,
         SpringDbContext db,
+        [FromQuery(Name = "recipient")] string[]? recipient,
         CancellationToken cancellationToken)
     {
         // The route is gated to `TenantUser`, so a missing caller here
@@ -475,6 +479,28 @@ public static class TenantUserIdentityEndpoints
 
         var callerTenantUserId = callerAddress.Id;
 
+        // #2972: optional recipient scoping. Parse the `recipient=<scheme:id>`
+        // query parameters; a malformed value is a 400 so the caller learns
+        // the contract rather than silently getting the full set.
+        var scopeTargets = new List<Cvoya.Spring.Core.Messaging.Address>();
+        if (recipient is { Length: > 0 })
+        {
+            foreach (var raw in recipient)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    continue;
+                }
+                if (!Cvoya.Spring.Core.Messaging.Address.TryParse(raw, out var parsed) || parsed is null)
+                {
+                    return Results.Problem(
+                        detail: $"Query parameter 'recipient' value '{raw}' is not a valid address (expected scheme:id).",
+                        statusCode: StatusCodes.Status400BadRequest);
+                }
+                scopeTargets.Add(parsed);
+            }
+        }
+
         // The TenantUser row drives the IsPrimary flag; load it once so
         // the result-shaping step can stamp the flag in the same pass.
         var primaryHumanId = await db.TenantUsers
@@ -488,6 +514,18 @@ public static class TenantUserIdentityEndpoints
             .Where(h => h.TenantUserId == callerTenantUserId)
             .Select(h => new { h.Id, h.Username, h.DisplayName })
             .ToListAsync(cancellationToken);
+
+        // #2972: when scoped to recipient(s), keep only the Hats that can
+        // reach them — the messaging from-selector / CLI `--as` resolution
+        // must never offer a Hat that cannot address the target. The
+        // disambiguated label below is then computed over this scoped set
+        // (ADR-0062 § 5a "per result-set scope").
+        if (scopeTargets.Count > 0)
+        {
+            var wearable = (await hatReachability.GetWearableHatsAsync(
+                callerTenantUserId, scopeTargets, cancellationToken)).ToHashSet();
+            humans = humans.Where(h => wearable.Contains(h.Id)).ToList();
+        }
 
         if (humans.Count == 0)
         {

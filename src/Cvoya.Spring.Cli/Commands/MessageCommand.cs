@@ -90,17 +90,25 @@ public static class MessageCommand
                 ? Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parsedThreadId)
                 : threadInput;
 
+            // #2972: scope the --as resolution to the Hats that can reach
+            // the destination. Only unit/agent targets are gated; other
+            // schemes resolve against the full bound set.
+            var targetRecipient = scheme is "agent" or "unit"
+                ? $"{scheme}:{path}"
+                : null;
+
             Guid? fromHumanId = null;
             if (!string.IsNullOrWhiteSpace(asInput))
             {
                 // ADR-0062 § 6 / #2827: accept the Hat UUID or the
                 // display name. RefResolver short-circuits on bare
                 // Guids (no round-trip) and falls back to /me/humans
-                // for the name path.
+                // for the name path. #2972: pass the destination so the
+                // name match + ambiguity prompt only offer wearable Hats.
                 try
                 {
                     fromHumanId = await RefResolver.ResolveHumanRefAsync(
-                        client, asInput, "--as", ct);
+                        client, asInput, "--as", targetRecipient, ct);
                 }
                 catch (CliRefResolutionException ex)
                 {
@@ -116,12 +124,28 @@ public static class MessageCommand
                 result = await client.SendMessageAsync(scheme, path, text, threadId, fromHumanId, ct);
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
-                when (ex.ResponseStatusCode == 400 && IsNoBoundHumanError(ex))
+                when (ex.ResponseStatusCode == 400 && HasProblemCode(ex, "NoBoundHuman"))
             {
                 var refDisplay = asInput ?? "(default)";
                 await Console.Error.WriteLineAsync(
                     $"Hat '{refDisplay}' is not bound to your user. " +
                     "Run `spring user identity list` to see your bound Hats.");
+                Environment.Exit(1);
+                return;
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+                when (ex.ResponseStatusCode == 403
+                    && (HasProblemCode(ex, "NoReachableHat") || HasProblemCode(ex, "HatCannotReachTarget")))
+            {
+                // #2972: the Hat ↔ unit reachability gate rejected the send —
+                // either no Hat the operator wears can reach the target, or
+                // the explicit --as Hat cannot. Surface the server's detail
+                // (it already explains the rule) with a fallback.
+                var detail = ProblemDetailsTranslator.Format(ex);
+                await Console.Error.WriteLineAsync(string.IsNullOrWhiteSpace(detail)
+                    ? $"You have no Hat that can message {address}. A unit or agent is " +
+                      "reachable only through a human member of the unit it belongs to."
+                    : detail);
                 Environment.Exit(1);
                 return;
             }
@@ -224,15 +248,16 @@ public static class MessageCommand
     }
 
     /// <summary>
-    /// Recognises the ADR-0062 § 3 <c>NoBoundHuman</c> error code that the
-    /// <c>MessageEndpoints.SendMessageAsync</c> handler emits when the
-    /// caller's <c>--as</c> override is unbound (or the caller has no
-    /// resolvable Hat). Kiota surfaces ProblemDetails via the typed
-    /// <see cref="Microsoft.Kiota.Abstractions.ApiException"/>; the
-    /// extension is carried on <c>AdditionalData["code"]</c> as the
-    /// schema-less ProblemDetails passthrough.
+    /// Recognises a structured ProblemDetails <c>code</c> extension on a
+    /// Kiota <see cref="Microsoft.Kiota.Abstractions.ApiException"/>. The
+    /// message-send handler emits the ADR-0062 § 3 <c>NoBoundHuman</c> (400)
+    /// and the #2972 reachability codes <c>NoReachableHat</c> /
+    /// <c>HatCannotReachTarget</c> (403) this way. Kiota surfaces the
+    /// extension on <c>AdditionalData["code"]</c> as a schema-less
+    /// passthrough — a <see cref="System.Text.Json.JsonElement"/> on the
+    /// typed path, or a raw string on older paths; cover both.
     /// </summary>
-    private static bool IsNoBoundHumanError(Microsoft.Kiota.Abstractions.ApiException ex)
+    private static bool HasProblemCode(Microsoft.Kiota.Abstractions.ApiException ex, string code)
     {
         if (ex is not ProblemDetails problem || problem.AdditionalData is null)
         {
@@ -242,15 +267,12 @@ public static class MessageCommand
         {
             return false;
         }
-        // Kiota deserialises the extension as a JsonElement on the
-        // problem's AdditionalData bag; older paths surface it as a raw
-        // string. Cover both.
         return raw switch
         {
-            string s => string.Equals(s, "NoBoundHuman", StringComparison.Ordinal),
+            string s => string.Equals(s, code, StringComparison.Ordinal),
             System.Text.Json.JsonElement el =>
                 el.ValueKind == System.Text.Json.JsonValueKind.String
-                && string.Equals(el.GetString(), "NoBoundHuman", StringComparison.Ordinal),
+                && string.Equals(el.GetString(), code, StringComparison.Ordinal),
             _ => false,
         };
     }

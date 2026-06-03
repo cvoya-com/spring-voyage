@@ -59,6 +59,22 @@ ancestor unit cascades to descendants ([ADR-0013](../decisions/0013-hierarchy-aw
 requests; `ResolvePermissionAsync` (direct-grant only) backs editor and audit
 surfaces.
 
+### Hat ↔ unit reachability gate
+
+A second, **orthogonal** gate applies when a *person* (a tenant user, via the
+Web API or CLI — never an agent-to-agent send) messages a unit or agent. A
+person sends **as a Hat** (a human member of a unit), and a Hat reaches only the
+unit it is a direct member of plus that unit's direct members (agents,
+sub-units, co-member humans) — not the unit's parent, not into a sibling
+sub-unit. The message-send endpoints compute the wearable-Hat set
+(`IHatReachabilityService`) for the recipient and reject the send when it is
+empty (`403 NoReachableHat`) or when an explicit `--as` Hat cannot reach the
+target (`403 HatCannotReachTarget`); otherwise the reaching Hat is stamped as
+`Message.From`. This is independent of the role-grant resolution above — in OSS
+the operator is implicit-Owner everywhere, so reachability is the meaningful
+membership gate. See [ADR-0062 § 11](../decisions/0062-tenant-user-human-explicit-binding.md)
+and [Humans](../concepts/humans.md#reaching-units-and-agents-the-hat--unit-gate).
+
 ### Tool authorisation
 
 Every `sv.*` MCP tool call passes two gates inside the `McpServer` before the

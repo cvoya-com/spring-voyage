@@ -419,6 +419,18 @@ public static class HumanEnvelopeEndpoints
             db.UnitHumanPermissions.RemoveRange(permissions);
         }
 
+        // #2972: null any tenant user's pinned primary Hat that points at the
+        // Hat being deleted — `primary_human_id` carries no DB FK, so a delete
+        // would otherwise leave it dangling at a non-existent Hat.
+        var pinnedTenantUsers = await db.TenantUsers
+            .Where(u => u.PrimaryHumanId == humanId)
+            .ToListAsync(cancellationToken);
+        foreach (var tenantUser in pinnedTenantUsers)
+        {
+            tenantUser.PrimaryHumanId = null;
+            tenantUser.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+
         db.Humans.Remove(row);
         await db.SaveChangesAsync(cancellationToken);
 

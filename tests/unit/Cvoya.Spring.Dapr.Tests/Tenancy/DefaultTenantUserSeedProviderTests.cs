@@ -42,6 +42,11 @@ public class DefaultTenantUserSeedProviderTests
 
         row.PrimaryHumanId.ShouldBeNull();
         row.DisplayName.ShouldBe(DefaultTenantUserSeedProvider.DefaultDisplayName);
+
+        // #2972 / ADR-0062 § 11: a clean deployment has NO Human definition.
+        // The operator TenantUser is seeded, but Hats are created only as
+        // unit members — the platform never auto-generates one.
+        (await db.Humans.AnyAsync(TestContext.Current.CancellationToken)).ShouldBeFalse();
     }
 
     [Fact]

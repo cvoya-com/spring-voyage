@@ -1,6 +1,6 @@
 # 0062 — Explicit `Human → TenantUser` FK; `Message.From` is always routable
 
-- **Status:** Accepted (2026-05-26). v0.1 work — implementation tracked in a follow-up issue.
+- **Status:** Accepted (2026-05-26). v0.1 work — implementation tracked in a follow-up issue. **Amended 2026-06-02** with § 11 (Hat ↔ unit reachability gate, #2972).
 - **Date:** 2026-05-26
 - **Amends:** [ADR-0047 § 7](0047-platform-user-human-split.md) — brings the explicit `Human → TenantUser` mapping forward from the umbrella's v0.2 deferral (OUT2) to v0.1, and pins the data shape (FK on `humans`, NOT NULL with a default-resolver service). The mapping is no longer a derived projection.
 - **Adjacent ADRs:** [0036 — Single-identity model](0036-single-identity-model.md) (actor-kind enumeration; `tenant-user` remains an actor kind but is removed from the routable-recipient set for domain messages), [0046 — Unified members grammar](0046-unified-members-grammar.md) (the `Human` member kind whose per-unit display name moves to the membership row).
@@ -177,6 +177,31 @@ What changes is the **expected position** of `tenant-user://` in a domain messag
 
 The `IConnectorType.UserConfigSchema` surface (ADR-0047 § 4) and the `/api/v1/tenant/users/{tenantUserId}/identities` routes (ADR-0047 § 14) are unchanged — those are display-identity surfaces and continue to key on `TenantUser`.
 
+### 11. Hat ↔ unit reachability gate (amendment 2026-06-02, #2972)
+
+The Hat model above lets one operator wear many Hats. Two problems surfaced in a dogfood run ([#2972](https://github.com/cvoya-com/spring-voyage/issues/2972)): the operator was offered **every** Hat regardless of which one was relevant to the target, and a member agent mis-routed to the wrong Hat (the team burned ~12 turns reconciling that two Hats were the same human). This section pins the v0.1 rule that gates which Hat may address which target.
+
+**Reachability.** A Hat `H` is a *direct human member* of a unit `U` (a `unit_memberships_humans` row). `H` reaches exactly:
+
+- `U` itself, and
+- every **direct** member of `U` — agent members (`unit_memberships`), sub-unit members (`unit_subunit_memberships`), and co-member Hats (`unit_memberships_humans`).
+
+`H` does **not** reach `U`'s parent, nor *into* a sibling sub-unit. So with `UnitA → SubUnitB → HumanC`, HumanC cannot reach UnitA; and with `UnitA → HumanD`, HumanD reaches UnitA and all of UnitA's direct members (including SubUnitB the unit) but not SubUnitB's own members. "A direct human member under the unit is required" is the **sender-side** requirement — you only obtain a Hat by being a direct member of some unit; reachability answers the **target-side** question.
+
+**The gate.** A tenant user may message a target (unit or agent) only when they wear at least one Hat that reaches it. The message-send endpoints (`POST /api/v1/tenant/messages`, `POST /api/v1/tenant/threads/{id}/messages`) compute the wearable set and:
+
+- reject with **403** + code `NoReachableHat` when it is empty (the platform rejection);
+- reject with **403** + code `HatCannotReachTarget` when an explicit `from` Hat is bound but not wearable for the target;
+- otherwise constrain from-resolution (§ 3) to the wearable set, so the stamped `Message.From` is always a Hat the caller may use for that target.
+
+This is **orthogonal to the ACL gate** (`PermissionService`): the OSS operator is implicit-Owner everywhere, so ACL always passes — reachability is the meaningful membership gate. The new logic lives in `IHatReachabilityService` (Core interface, `Cvoya.Spring.Dapr.Units.HatReachabilityService` default). Agent-to-agent sends (`sv.messaging.send`) are **not** gated — they route over the team graph, not via a Hat.
+
+**Context-scoped Hat listing.** `GET /api/v1/tenant/users/me/humans` accepts optional repeatable `recipient=<scheme:id>` parameters; when present it returns only the wearable Hats for those recipients (and computes `disambiguatedLabel` over that scoped set, § 5a). The portal from-selector and the CLI `spring message send --as` resolution pass the destination so the operator is never offered a Hat that cannot address it. The unscoped call still returns the full bound set for the "Your Hats" settings surface and the inbox per-Hat filter.
+
+**No auto-generated Hat; lifecycle GC.** A clean deployment has **no** Human rows — the operator's `TenantUser` is seeded, but Hats are created only as unit members (auto-associated to the default tenant user via the `humans.tenant_user_id` FK at mint time, § 1). When a unit is deleted, its `unit_memberships_humans` rows are removed and any Hat left without a membership on **any** unit is garbage-collected (with a dangling `tenant_users.primary_human_id` nulled), so deleting a unit no longer leaves stale Hats behind — the original #2972 symptom.
+
+**Configurability is deferred.** v0.1 hard-codes the "direct member" reachability rule. Whether reachability should be a configurable per-unit/per-tenant policy is tracked as a v0.2 follow-up (see Revisit criteria). The `IHatReachabilityService` DI seam lets a cloud overlay swap the rule without core changes.
+
 ## Consequences
 
 ### Gains
@@ -213,3 +238,4 @@ Reopen this decision when any of the following holds:
 - **A `TenantUser` with zero bound Humans becomes a routine state in cloud.** Today the OSS default resolver guarantees at least one bound Human; cloud may legitimately have signed-in TenantUsers who have not yet been bound to any Human (mid-invitation, mid-onboarding). The `NoBoundHuman` 400 in § 3 is the correct interim shape; if the state becomes common, the message-construction path may grow a "default invisible Hat" auto-bind rather than failing the send.
 - **`PrimaryHumanId` becomes inadequate for the new-outbound default.** If the "one default Hat per TenantUser" rule produces noticeably wrong defaults (e.g., users routinely send the wrong Hat from the engagement-list composer), the default-resolution rule in § 3 widens to consider context (the engagement's unit → pick the Hat that is a member of that unit, fall back to primary).
 - **A non-human, non-agent principal needs to send messages.** A service-account or external-system principal that is neither a `Human` nor an `Agent` would either need an actor-kind addition (per ADR-0036 § 1) or one of the existing routable kinds extended to cover it. Today the answer is "model it as an agent;" if that strains, the routable-recipient set is revisited.
+- **The Hat ↔ unit reachability rule (§ 11) needs to be configurable.** v0.1 hard-codes the "direct member" rule. If deployments need per-unit or per-tenant variation (e.g. allow a parent-unit Hat to reach deeper than one level, or restrict sibling reach), promote the rule behind a policy surface. Tracked as a v0.2 follow-up; the `IHatReachabilityService` DI seam already isolates the rule.

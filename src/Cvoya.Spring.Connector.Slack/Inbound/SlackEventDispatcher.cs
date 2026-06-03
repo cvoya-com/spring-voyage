@@ -323,7 +323,7 @@ public sealed class SlackEventDispatcher : ISlackEventDispatcher
                 callerTenantUserId: matchedBound.TenantUserId,
                 explicitFromHumanId: null,
                 threadId: mapping.SvThreadId,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
         // Resolve the SV thread's canonical participant set. Per

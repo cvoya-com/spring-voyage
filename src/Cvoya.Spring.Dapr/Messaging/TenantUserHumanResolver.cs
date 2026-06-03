@@ -33,10 +33,24 @@ using Microsoft.EntityFrameworkCore;
 public sealed class TenantUserHumanResolver(SpringDbContext db, IThreadRegistry threadRegistry) : ITenantUserHumanResolver
 {
     /// <inheritdoc />
+    public Task<Address> PickFromAsync(
+        Guid callerTenantUserId,
+        Guid? explicitFromHumanId,
+        Guid? threadId,
+        CancellationToken cancellationToken = default)
+        => PickFromAsync(
+            callerTenantUserId,
+            explicitFromHumanId,
+            threadId,
+            allowedHumanIds: null,
+            cancellationToken);
+
+    /// <inheritdoc />
     public async Task<Address> PickFromAsync(
         Guid callerTenantUserId,
         Guid? explicitFromHumanId,
         Guid? threadId,
+        IReadOnlyCollection<Guid>? allowedHumanIds,
         CancellationToken cancellationToken = default)
     {
         if (callerTenantUserId == Guid.Empty)
@@ -44,6 +58,12 @@ public sealed class TenantUserHumanResolver(SpringDbContext db, IThreadRegistry 
             throw new ArgumentException(
                 "Caller TenantUser id must not be Guid.Empty.", nameof(callerTenantUserId));
         }
+
+        // #2972: when the endpoint computed a reachability-constrained set,
+        // every resolution branch below is restricted to it so the stamped
+        // sender is always a Hat the caller may address the target with.
+        // Null means "no constraint" (the gate does not apply here).
+        var allowed = allowedHumanIds is null ? null : new HashSet<Guid>(allowedHumanIds);
 
         // 1. Explicit override wins, after membership validation. The
         //    bound-set check is the load-bearing invariant — it stops a
@@ -62,6 +82,16 @@ public sealed class TenantUserHumanResolver(SpringDbContext db, IThreadRegistry 
             {
                 throw new NoBoundHumanException(
                     $"Human '{explicitId:D}' is not bound to the calling TenantUser.");
+            }
+
+            // #2972: the chosen Hat is bound but cannot reach the target —
+            // a distinct failure from "no wearable Hat at all" so the caller
+            // learns to pick a different Hat rather than that they are
+            // wholly unable to message the target.
+            if (allowed is not null && !allowed.Contains(explicitId))
+            {
+                throw new HatNotReachableException(
+                    $"Human '{explicitId:D}' is bound to the calling TenantUser but cannot reach the message target(s).");
             }
 
             return new Address(Address.HumanScheme, explicitId);
@@ -89,6 +119,7 @@ public sealed class TenantUserHumanResolver(SpringDbContext db, IThreadRegistry 
             var threadHat = await ResolveThreadParticipantHatAsync(
                 callerTenantUserId,
                 resolvedThreadId,
+                allowed,
                 cancellationToken)
                 .ConfigureAwait(false);
 
@@ -99,7 +130,9 @@ public sealed class TenantUserHumanResolver(SpringDbContext db, IThreadRegistry 
         }
 
         // 3. TenantUser.PrimaryHumanId — the operator-pinned default Hat
-        //    for new outbound from a composer with no thread context.
+        //    for new outbound from a composer with no thread context. Under
+        //    a reachability constraint (#2972) the primary only wins when it
+        //    can reach the target; otherwise fall through to a wearable Hat.
         var primary = await db.TenantUsers
             .AsNoTracking()
             .Where(u => u.Id == callerTenantUserId)
@@ -107,17 +140,32 @@ public sealed class TenantUserHumanResolver(SpringDbContext db, IThreadRegistry 
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        if (primary is { } primaryId && primaryId != Guid.Empty)
+        if (primary is { } primaryId && primaryId != Guid.Empty
+            && (allowed is null || allowed.Contains(primaryId)))
         {
             return new Address(Address.HumanScheme, primaryId);
         }
 
         // 4. Last-chance fallback for the caller-has-bindings-but-no-primary
         //    case (e.g. the OSS seeded operator + a freshly-installed
-        //    package's Human before the primary is repinned). Pick any
-        //    one bound Human so the send still flows — the operator can
-        //    explicitly switch hats afterwards. ADR-0062 § 3 keeps the
-        //    "or 400 NoBoundHuman" branch for the truly unbound case.
+        //    package's Human before the primary is repinned). Under a
+        //    reachability constraint pick the lowest-Guid wearable Hat — the
+        //    set is non-empty by construction (the endpoint rejects an empty
+        //    wearable set with NoReachableHat before calling). Without a
+        //    constraint, pick any one bound Human so the send still flows.
+        //    ADR-0062 § 3 keeps the "or 400 NoBoundHuman" branch for the
+        //    truly unbound case.
+        if (allowed is not null)
+        {
+            if (allowed.Count > 0)
+            {
+                return new Address(Address.HumanScheme, allowed.OrderBy(id => id).First());
+            }
+
+            throw new NoBoundHumanException(
+                $"TenantUser '{callerTenantUserId:D}' has no Hat that can reach the message target(s).");
+        }
+
         var anyBound = await db.Humans
             .AsNoTracking()
             .Where(h => h.TenantUserId == callerTenantUserId)
@@ -148,6 +196,7 @@ public sealed class TenantUserHumanResolver(SpringDbContext db, IThreadRegistry 
     private async Task<Guid?> ResolveThreadParticipantHatAsync(
         Guid callerTenantUserId,
         Guid threadId,
+        HashSet<Guid>? allowed,
         CancellationToken cancellationToken)
     {
         var boundHumanIds = await db.Humans
@@ -156,6 +205,16 @@ public sealed class TenantUserHumanResolver(SpringDbContext db, IThreadRegistry 
             .Select(h => h.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        // #2972: under a reachability constraint only Hats that can reach
+        // the target are eligible to be the thread reply Hat. Intersecting
+        // here (rather than rejecting after the pick) keeps a wearable
+        // thread participant from being skipped in favour of a non-wearable
+        // most-recent one on a multi-Hat thread.
+        if (allowed is not null)
+        {
+            boundHumanIds = boundHumanIds.Where(allowed.Contains).ToList();
+        }
 
         if (boundHumanIds.Count == 0)
         {
