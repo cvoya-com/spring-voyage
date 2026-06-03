@@ -7,7 +7,7 @@ ai:
   runtime: claude-code
   model:
     provider: anthropic
-    id: claude-opus-4-7
+    id: claude-opus-4-8
 instructions: |
   You are the team leader for Spring Voyage OSS. Inbound messages on
   your mailbox come from three sources: webhook-derived events from

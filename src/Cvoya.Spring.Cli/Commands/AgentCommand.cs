@@ -325,7 +325,7 @@ public static class AgentCommand
         };
         var modelOption = new Option<string?>("--model")
         {
-            Description = "Model id (shorthand for execution.model.id; e.g. claude-opus-4-7).",
+            Description = "Model id (shorthand for execution.model.id; e.g. claude-opus-4-8).",
         };
         var hostingOption = new Option<string?>("--hosting")
         {
