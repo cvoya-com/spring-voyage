@@ -198,7 +198,10 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
                 MemoryUpdateTool,
                 "Mutate an existing memory entry. Pass `content` (a text string or " +
                 "a JSON object/array) to replace the entry's content; omit it to " +
-                "leave the entry untouched.",
+                "leave the entry untouched. Returns the updated entry on success, or " +
+                "{ updated: false, reason: \"not_found\" } when no entry with that id " +
+                "is owned by you — the id may be stale, so re-read with sv.memory.list " +
+                "or sv.memory.search to get a current id.",
                 MemoryUpdateSchema,
                 ToolCategories.Memory),
             new ToolDefinition(
@@ -290,11 +293,12 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
         var id = RequireGuidArg(args, "id");
         var content = TryReadJsonContent(args, "content");
         var entry = await _memoryStore.UpdateAsync(owner, id, content, ct);
-        if (entry is null)
-        {
-            throw new SpringException($"Memory entry '{id:N}' not found for caller {owner}.");
-        }
-        return SerializeEntry(entry);
+        // A stale / unknown id is a routine, self-correctable condition — not
+        // a platform fault (#3036). Return a clean not-found result the model
+        // can act on; a thrown SpringException would surface as an
+        // Error-severity "tool failed" the model reads as a crash instead of
+        // "re-read your memory for a fresh id".
+        return entry is null ? SerializeUpdateNotFound(id) : SerializeEntry(entry);
     }
 
     private async Task<JsonElement> MemoryDeleteAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
@@ -506,11 +510,15 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
             !args.TryGetProperty(name, out var prop) ||
             prop.ValueKind != JsonValueKind.String)
         {
-            throw new ArgumentException($"Missing required argument '{name}'.");
+            throw new ArgumentException(
+                $"sv.memory.* requires a '{name}': the no-dash 32-char hex id of a memory entry " +
+                "(the `id` returned by sv.memory.add, or one from sv.memory.list / sv.memory.search).");
         }
         if (!GuidFormatter.TryParse(prop.GetString(), out var guid))
         {
-            throw new ArgumentException($"Argument '{name}' must be a Guid.");
+            throw new ArgumentException(
+                $"Argument '{name}' = '{prop.GetString()}' is not a valid memory id. Pass the no-dash " +
+                "32-char hex `id` of a memory entry (from sv.memory.add / sv.memory.list / sv.memory.search).");
         }
         return guid;
     }
@@ -584,6 +592,26 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
                 WriteEntry(writer, entry);
             }
             writer.WriteEndArray();
+        }
+        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Clean not-found result for <c>sv.memory.update</c> (#3036). Distinct
+    /// from the success shape (a full entry) so the model can branch on it,
+    /// and returned with <c>isError=false</c> so a stale id reads as a
+    /// recoverable condition rather than a platform crash.
+    /// </summary>
+    private static JsonElement SerializeUpdateNotFound(Guid id)
+    {
+        using var stream = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteBoolean("updated", false);
+            writer.WriteString("reason", "not_found");
+            writer.WriteString("id", GuidFormatter.Format(id));
+            writer.WriteEndObject();
         }
         return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
     }

@@ -279,6 +279,110 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
 
     // ── fixture ──────────────────────────────────────────────────────────
 
+    // ---- #3036: uuid defaults to the caller on get_siblings / list_members --
+
+    [Fact]
+    public async Task GetSiblings_NoUuid_DefaultsToCaller()
+    {
+        // "my siblings" is the obvious intent of a no-arg call. With uuid
+        // omitted, the tool resolves siblings from the caller's own position
+        // in the unit graph — same as passing the caller's uuid explicitly.
+        var fixture = new Fixture()
+            .WithParentMembership(CallerAgentId, ParentUnitId)
+            .WithAgentMember(ParentUnitId, SiblingAgentA)
+            .Build();
+
+        var json = await fixture.InvokeAsync(
+            SvDirectorySkillRegistry.GetSiblingsTool,
+            JsonDocument.Parse("{}").RootElement);
+
+        var uuids = json.GetProperty("siblings").EnumerateArray()
+            .Select(e => e.GetProperty("uuid").GetString()!)
+            .ToList();
+        uuids.ShouldContain(GuidFormatter.Format(SiblingAgentA));
+        uuids.ShouldNotContain(GuidFormatter.Format(CallerAgentId),
+            "get_siblings excludes self, and the default target is the caller.");
+    }
+
+    [Fact]
+    public async Task GetSiblings_ExplicitUuid_ResolvesThatEntitysSiblings()
+    {
+        // Regression guard: passing an explicit uuid still works unchanged.
+        var fixture = new Fixture()
+            .WithParentMembership(CallerAgentId, ParentUnitId)
+            .WithAgentMember(ParentUnitId, SiblingAgentA)
+            .Build();
+
+        var json = await fixture.InvokeAsync(
+            SvDirectorySkillRegistry.GetSiblingsTool,
+            JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(CallerAgentId)}}" }""").RootElement);
+
+        var uuids = json.GetProperty("siblings").EnumerateArray()
+            .Select(e => e.GetProperty("uuid").GetString()!)
+            .ToList();
+        uuids.ShouldContain(GuidFormatter.Format(SiblingAgentA));
+        uuids.ShouldNotContain(GuidFormatter.Format(CallerAgentId));
+    }
+
+    [Fact]
+    public async Task GetSiblings_MalformedUuid_ThrowsRetryGuidingError()
+    {
+        // A present-but-malformed uuid is a mistake to surface, not to paper
+        // over by silently defaulting to the caller.
+        var fixture = new Fixture()
+            .WithParentMembership(CallerAgentId, ParentUnitId)
+            .Build();
+
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
+            await fixture.InvokeAsync(
+                SvDirectorySkillRegistry.GetSiblingsTool,
+                JsonDocument.Parse("""{ "uuid": "not-a-guid" }""").RootElement));
+
+        ex.Message.ShouldContain("uuid");
+        ex.Message.ShouldContain("omit it to default to yourself");
+    }
+
+    [Fact]
+    public async Task ListMembers_NoUuid_UnitCaller_DefaultsToOwnMembers()
+    {
+        // A unit calling list_members with no uuid means "my members".
+        var fixture = new Fixture()
+            .WithAgentMember(ParentUnitId, SiblingAgentA)
+            .WithAgentMember(ParentUnitId, SiblingAgentB)
+            .Build();
+
+        var json = await fixture.InvokeAsync(
+            SvDirectorySkillRegistry.ListMembersTool,
+            JsonDocument.Parse("{}").RootElement,
+            callerId: ParentUnitId,
+            callerKind: Address.UnitScheme);
+
+        var uuids = json.GetProperty("members").EnumerateArray()
+            .Select(e => e.GetProperty("uuid").GetString()!)
+            .ToList();
+        uuids.ShouldContain(GuidFormatter.Format(SiblingAgentA));
+        uuids.ShouldContain(GuidFormatter.Format(SiblingAgentB));
+    }
+
+    [Fact]
+    public async Task ListMembers_NoUuid_AgentCaller_ThrowsRetryGuidingError()
+    {
+        // An agent has no members, so a no-uuid call from an agent is not the
+        // obvious intent — it gets a retry-guiding error pointing at the right
+        // tool rather than a silently empty list.
+        var fixture = new Fixture()
+            .WithParentMembership(CallerAgentId, ParentUnitId)
+            .Build();
+
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
+            await fixture.InvokeAsync(
+                SvDirectorySkillRegistry.ListMembersTool,
+                JsonDocument.Parse("{}").RootElement));
+
+        ex.Message.ShouldContain("agents have no");
+        ex.Message.ShouldContain("uuid");
+    }
+
     private sealed class Fixture
     {
         private readonly InMemoryUnitHumanMembershipStore _humanStore = new();
@@ -492,11 +596,15 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
         private readonly SvDirectorySkillRegistry _registry;
         public BuiltFixture(SvDirectorySkillRegistry registry) => _registry = registry;
 
-        public Task<JsonElement> InvokeAsync(string toolName, JsonElement args)
+        public Task<JsonElement> InvokeAsync(string toolName, JsonElement args) =>
+            InvokeAsync(toolName, args, CallerAgentId, Address.AgentScheme);
+
+        public Task<JsonElement> InvokeAsync(
+            string toolName, JsonElement args, Guid callerId, string callerKind)
         {
             var ctx = new ToolCallContext(
-                CallerId: GuidFormatter.Format(CallerAgentId),
-                CallerKind: Address.AgentScheme,
+                CallerId: GuidFormatter.Format(callerId),
+                CallerKind: callerKind,
                 ThreadId: Guid.NewGuid().ToString("N"));
             return _registry.InvokeAsync(toolName, args, ctx, TestContext.Current.CancellationToken);
         }

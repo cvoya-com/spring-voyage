@@ -198,4 +198,158 @@ public class SvMessagingSkillRegistryTests
         multicastDef.Description.ShouldNotContain("recipients' replies");
         multicastDef.Description.ShouldNotContain("MessageSent activity");
     }
+
+    // ---- #3035: empty-content rejection -------------------------------------
+    // The #3034 cascade started with sv.messaging.respond_to fired as a
+    // content-less acknowledgement: the tool accepted it and delivered an empty
+    // {} a recipient read as "didn't send". The content guard now rejects an
+    // empty/whitespace message at the tool boundary, synchronously, before any
+    // delivery happens — so the calling model sees a retry-guiding tool error.
+
+    private static string ValidRecipient() =>
+        $"{Address.AgentScheme}:{GuidFormatter.Format(Guid.NewGuid())}";
+
+    private static JsonElement SendArgs(string messageJson) =>
+        JsonDocument.Parse(
+            $$"""{ "recipients": ["{{ValidRecipient()}}"], "message": {{messageJson}} }""").RootElement;
+
+    [Theory]
+    [InlineData(SvMessagingSkillRegistry.SendTool)]
+    [InlineData(SvMessagingSkillRegistry.MulticastTool)]
+    public async Task EmptyOrMissingMessage_IsRejectedWithRetryGuidingError(string toolName)
+    {
+        var registry = CreateRegistry();
+        var recipient = ValidRecipient();
+
+        // message omitted entirely → the extractor would yield {} and deliver
+        // an empty envelope. Reject it instead.
+        var args = JsonDocument.Parse($$"""{ "recipients": ["{{recipient}}"] }""").RootElement;
+
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
+            await registry.InvokeAsync(toolName, args, AgentContext(), TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain(toolName);
+        ex.Message.ShouldContain("non-empty message");
+    }
+
+    [Theory]
+    [InlineData("\"\"")]                       // empty string
+    [InlineData("\"   \"")]                     // whitespace-only string
+    [InlineData("{}")]                           // empty object
+    [InlineData("{ \"content\": \"\" }")]       // empty content field
+    [InlineData("{ \"content\": \"   \" }")]    // whitespace-only content field
+    [InlineData("{ \"text\": \"  \" }")]        // whitespace-only text field
+    [InlineData("null")]                          // JSON null
+    [InlineData("123")]                           // a non-string/non-object scalar (collapses to {})
+    public async Task Send_ContentLessMessage_IsRejected(string messageJson)
+    {
+        var registry = CreateRegistry();
+        var args = SendArgs(messageJson);
+
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
+            await registry.InvokeAsync(
+                SvMessagingSkillRegistry.SendTool, args, AgentContext(), TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("non-empty message");
+    }
+
+    [Theory]
+    [InlineData("\"\"")]
+    [InlineData("\"   \"")]
+    [InlineData("{}")]
+    [InlineData("{ \"content\": \"\" }")]
+    public async Task RespondTo_ContentLessMessage_IsRejected(string messageJson)
+    {
+        // respond_to was the #3034 culprit. A valid message_id is supplied so
+        // the call clears the message_id gate and reaches the content guard.
+        var registry = CreateRegistry();
+        var args = JsonDocument.Parse(
+            $$"""{ "message_id": "{{GuidFormatter.Format(Guid.NewGuid())}}", "message": {{messageJson}} }""")
+            .RootElement;
+
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
+            await registry.InvokeAsync(
+                SvMessagingSkillRegistry.RespondToTool, args, AgentContext(), TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain(SvMessagingSkillRegistry.RespondToTool);
+        ex.Message.ShouldContain("non-empty message");
+    }
+
+    [Fact]
+    public async Task Send_StructuredObjectPayload_PassesContentGuard()
+    {
+        // A structured object the recipient sees as JSON in the inbound
+        // envelope is real content — the empty-content guard must NOT reject it
+        // (no behavior change for well-formed sends). The call proceeds past
+        // the guard into the delivery layer (exercised by MessagingToolHandlers
+        // tests); here we only assert it is not the content-guard rejection.
+        var registry = CreateRegistry();
+        var args = JsonDocument.Parse(
+            $$"""{ "recipients": ["{{ValidRecipient()}}"], "message": { "vote": "A", "weight": 3 } }""")
+            .RootElement;
+
+        Exception? thrown = null;
+        try
+        {
+            await registry.InvokeAsync(
+                SvMessagingSkillRegistry.SendTool, args, AgentContext(), TestContext.Current.CancellationToken);
+        }
+        catch (Exception ex)
+        {
+            thrown = ex;
+        }
+
+        // The only ArgumentException reachable on a valid-recipient path is the
+        // content guard; anything else means the structured payload was accepted.
+        thrown.ShouldNotBeOfType<ArgumentException>();
+    }
+
+    // ---- #3036: retry-guiding exactly-one-of error --------------------------
+
+    [Theory]
+    [InlineData(SvMessagingSkillRegistry.SendTool)]
+    [InlineData(SvMessagingSkillRegistry.MulticastTool)]
+    public async Task NeitherRecipientsNorScope_IsRejectedWithRetryGuidingError(string toolName)
+    {
+        var registry = CreateRegistry();
+        var args = JsonDocument.Parse("""{ "message": "hi" }""").RootElement;
+
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
+            await registry.InvokeAsync(toolName, args, AgentContext(), TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("EXACTLY ONE");
+        ex.Message.ShouldContain("neither");
+    }
+
+    [Theory]
+    [InlineData(SvMessagingSkillRegistry.SendTool)]
+    [InlineData(SvMessagingSkillRegistry.MulticastTool)]
+    public async Task BothRecipientsAndScope_IsRejectedWithRetryGuidingError(string toolName)
+    {
+        var registry = CreateRegistry();
+        var args = JsonDocument.Parse(
+            $$"""{ "recipients": ["{{ValidRecipient()}}"], "scope": "siblings", "message": "hi" }""")
+            .RootElement;
+
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
+            await registry.InvokeAsync(toolName, args, AgentContext(), TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("EXACTLY ONE");
+        ex.Message.ShouldContain("both");
+    }
+
+    [Fact]
+    public async Task EmptyRecipientsArray_CountsAsNotProvided_AndIsRejected()
+    {
+        // An empty recipients array names no targets; it must not slip past the
+        // exactly-one gate and reach the delivery path with zero recipients.
+        var registry = CreateRegistry();
+        var args = JsonDocument.Parse("""{ "recipients": [], "message": "hi" }""").RootElement;
+
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
+            await registry.InvokeAsync(
+                SvMessagingSkillRegistry.SendTool, args, AgentContext(), TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("EXACTLY ONE");
+    }
 }

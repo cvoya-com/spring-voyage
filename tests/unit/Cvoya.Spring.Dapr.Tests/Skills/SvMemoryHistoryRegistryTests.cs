@@ -241,15 +241,58 @@ public class SvMemoryHistoryRegistryTests
     }
 
     [Fact]
-    public async Task HistoryWith_RequiresParticipants()
+    public async Task HistoryWith_NoParticipants_DefaultsToActiveThread()
     {
+        // #3036: calling history_with with no participants defaults to the
+        // conversation the caller is currently in (context.ThreadId) — the
+        // most common intent, and the fumble that left agents blind in #3034.
+        // The default path reads the active thread directly; it does not
+        // resolve a participant set through the thread registry.
         var registry = CreateRegistry();
-        await Should.ThrowAsync<ArgumentException>(async () =>
+        var callerId = Guid.NewGuid();
+        var caller = new Address(Address.AgentScheme, callerId);
+        var other = new Address(Address.HumanScheme, Guid.NewGuid());
+        var activeThread = GuidFormatter.Format(Guid.NewGuid());
+
+        var ctx = new ToolCallContext(
+            CallerId: GuidFormatter.Format(callerId),
+            CallerKind: Address.AgentScheme,
+            ThreadId: activeThread);
+
+        var summary = BuildSummary(activeThread, caller, other);
+        _queryService.GetAsync(activeThread, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<ThreadDetail?>(new ThreadDetail(summary, Array.Empty<ThreadEvent>())));
+
+        var json = await registry.InvokeAsync(
+            SvMemoryHistoryRegistry.HistoryWithTool, Args("""{}"""), ctx,
+            TestContext.Current.CancellationToken);
+
+        json.GetProperty("participants").GetArrayLength().ShouldBe(2);
+        json.TryGetProperty("thread_id", out _).ShouldBeFalse();
+        // The default path uses the active thread directly — no participant-set
+        // resolution through the thread registry.
+        await _threadRegistry.DidNotReceive().GetOrCreateAsync(
+            Arg.Any<IEnumerable<Address>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task HistoryWith_NoParticipants_NoActiveThread_ThrowsRetryGuidingError()
+    {
+        // With neither a participant set nor a resolvable active thread there
+        // is nothing to resolve a timeline from — surface a retry-guiding
+        // error rather than guessing.
+        var registry = CreateRegistry();
+        var ctx = new ToolCallContext(
+            CallerId: GuidFormatter.Format(Guid.NewGuid()),
+            CallerKind: Address.AgentScheme,
+            ThreadId: "not-a-thread-id");
+
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
             await registry.InvokeAsync(
-                SvMemoryHistoryRegistry.HistoryWithTool,
-                Args("""{}"""),
-                AgentContext(Guid.NewGuid()),
+                SvMemoryHistoryRegistry.HistoryWithTool, Args("""{}"""), ctx,
                 TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("participants");
     }
 
     [Fact]
@@ -363,15 +406,19 @@ public class SvMemoryHistoryRegistryTests
     }
 
     [Fact]
-    public async Task GetMessages_RequiresMessageIds()
+    public async Task GetMessages_RequiresMessageIds_WithRetryGuidingError()
     {
         var registry = CreateRegistry();
-        await Should.ThrowAsync<ArgumentException>(async () =>
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
             await registry.InvokeAsync(
                 SvMemoryHistoryRegistry.GetMessagesTool,
                 Args("""{}"""),
                 AgentContext(Guid.NewGuid()),
                 TestContext.Current.CancellationToken));
+
+        // The error names the argument and where the ids come from.
+        ex.Message.ShouldContain("message_ids");
+        ex.Message.ShouldContain("inbound envelope");
     }
 
     [Fact]

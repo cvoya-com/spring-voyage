@@ -135,7 +135,7 @@ public class PlatformPromptProvider : IPlatformPromptProvider
         - `sv.memory.update` — replace the content of one of your durable memory entries.
         - `sv.memory.delete` — delete one of your durable memory entries by id.
         - `sv.memory.engagements` — list the participant sets (engagements) you share a message timeline with.
-        - `sv.memory.history_with` — fetch the full message timeline you share with a named participant set.
+        - `sv.memory.history_with` — fetch the full message timeline you share with a named participant set; call it with no arguments to re-read the conversation you are currently in.
         - `sv.memory.search_messages` — free-text search across the message timelines you participate in.
         - `sv.memory.get_messages` — fetch specific messages by `message_id` when you already hold the ids (1–100 per call).
         - `sv.directory.list` — enumerate members of a unit, your siblings, or peers matching a role / expertise filter.
@@ -178,7 +178,7 @@ public class PlatformPromptProvider : IPlatformPromptProvider
         - `timestamp` — when the message was dispatched (ISO-8601 UTC).
         - `payload` — the message body. Free-form text from a human, agent, or unit reads as natural language; a structured object emitted by a connector or workflow follows the shape documented for that connector. The JSON appendix carries the payload verbatim either way.
 
-        **You never see a `thread_id`.** Threads are identified by their participant set: the platform derives the id from `{you} ∪ {others on the thread}`. To inspect the shared history you have with a participant set, call `sv.memory.history_with(participants=[<the others>])` — your own address is auto-included.
+        **You never see a `thread_id`.** Threads are identified by their participant set: the platform derives the id from `{you} ∪ {others on the thread}`. To inspect the shared history you have with a participant set, call `sv.memory.history_with(participants=[<the others>])` — your own address is auto-included. To re-read the conversation you are currently in, call `sv.memory.history_with` with no arguments — it defaults to this conversation, so reach for it whenever your memory of what was said is uncertain.
 
         A **thread** (in the platform's view) is the set of participants on a conversation plus the durable timeline of every message between them. The participant set is fixed for the life of the thread; sending to a different combination of recipients opens a different thread.
 

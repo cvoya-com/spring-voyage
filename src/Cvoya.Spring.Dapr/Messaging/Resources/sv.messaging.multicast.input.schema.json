@@ -19,7 +19,7 @@
       "description": "Resolve the recipient set from the caller's position in the member graph: 'unit-members' (valid for a unit caller) targets the members of the calling unit; 'siblings' targets the caller's siblings under their parent unit(s). Each resolved recipient receives the message on its own independent 1-1 thread with the caller. Mutually exclusive with `recipients`."
     },
     "message": {
-      "description": "The message payload to deliver to each recipient. Opaque to the platform; a JSON string or object."
+      "description": "The message payload to deliver to each recipient. Opaque to the platform; a JSON string or object. Must carry content: a non-empty string, or an object with a non-empty `content` (or `text` / `body`) field, or other structured fields. An empty or whitespace-only message is rejected — it would deliver an empty envelope the recipient reads as 'nothing was sent'. There is no empty acknowledgement; if you have nothing to add, do not send."
     },
     "reason": {
       "type": ["string", "null"],

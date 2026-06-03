@@ -9,7 +9,7 @@
       "description": "The id of a message you received, taken verbatim from an inbound envelope's `message_id`. The platform resolves it to its conversation and delivers to that conversation's current routable participants, minus you. Never a thread id — internal thread ids never cross the tool boundary."
     },
     "message": {
-      "description": "The message payload to deliver. Opaque to the platform; a JSON string or object."
+      "description": "The message payload to deliver. Opaque to the platform; a JSON string or object. Must carry content: a non-empty string, or an object with a non-empty `content` (or `text` / `body`) field, or other structured fields. An empty or whitespace-only message is rejected — it would deliver an empty envelope the recipient reads as 'nothing was sent'. There is no empty acknowledgement; if you have nothing to add, do not respond."
     },
     "reason": {
       "type": ["string", "null"],
