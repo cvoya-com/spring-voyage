@@ -246,6 +246,7 @@ public class UnitActorTests
                 ThreadId = threadId,
                 Messages = [CreateMessage(threadId: threadId)],
                 Dispatching = true,
+                InFlightCount = 1, // the one message is the in-flight batch (#3056)
             }));
 
         var report = await _actor.GetRuntimeStatusAsync(TestContext.Current.CancellationToken);
@@ -276,6 +277,7 @@ public class UnitActorTests
                     CreateMessage(threadId: threadId),
                 ],
                 Dispatching = true,
+                InFlightCount = 1, // a one-message batch in flight; 2 arrived during the turn (#3056)
             }));
 
         var report = await _actor.GetRuntimeStatusAsync(TestContext.Current.CancellationToken);
@@ -298,9 +300,12 @@ public class UnitActorTests
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
+        // #3056: activation persists the channel marked dispatching with the
+        // in-flight batch recorded (one message here) so a later drain removes
+        // exactly the dispatched batch.
+        await _stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching && c.Messages.Count == 1),
+            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching && c.Messages.Count == 1 && c.InFlightCount == 1),
             Arg.Any<CancellationToken>());
     }
 

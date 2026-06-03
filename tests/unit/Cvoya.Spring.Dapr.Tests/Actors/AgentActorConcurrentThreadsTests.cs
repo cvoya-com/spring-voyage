@@ -80,7 +80,8 @@ public class AgentActorConcurrentThreadsTests
         public async Task<RuntimeOutcome> DispatchAsync(
             Message inboundMessage,
             PromptAssemblyContext? context,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            IReadOnlyList<Message>? batch = null)
         {
             var threadId = inboundMessage.ThreadId ?? string.Empty;
             var startedAt = DateTimeOffset.UtcNow;

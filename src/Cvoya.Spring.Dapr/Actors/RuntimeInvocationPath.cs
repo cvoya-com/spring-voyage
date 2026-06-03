@@ -135,13 +135,19 @@ public class RuntimeInvocationPath(
     /// (#2076 / ADR-0030 §3 §44).
     /// </param>
     /// <param name="ct">A token to cancel the pipeline.</param>
+    /// <param name="batch">
+    /// The full ordered set of pending messages delivered in this turn
+    /// (#3056); forwarded to the dispatch coordinator so the inbound envelope
+    /// names every message. <c>null</c> is a one-message turn.
+    /// </param>
     public Task InvokeAsync(
         Address subject,
         Message inbound,
         PromptAssemblyContext context,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         Func<string, Task> onDispatchExit,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<Message>? batch = null)
     {
         return dispatchCoordinator.RunDispatchAsync(
             agentId: subject.Path,
@@ -149,7 +155,8 @@ public class RuntimeInvocationPath(
             context: context,
             emitActivity: emitActivity,
             onDispatchExit: onDispatchExit,
-            cancellationToken: ct);
+            cancellationToken: ct,
+            batch: batch);
     }
 
     /// <inheritdoc />
@@ -158,7 +165,8 @@ public class RuntimeInvocationPath(
         Message inbound,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         Func<string, Task> onDispatchExit,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<Message>? batch = null)
     {
         // Mailbox-aware lean path (#3031): same minimal context the
         // fire-and-forget overload builds, but the caller's per-thread
@@ -167,7 +175,8 @@ public class RuntimeInvocationPath(
         // the fire-and-forget overload, ct is honoured — the caller's
         // per-thread dispatch CTS is decoupled from the HTTP request, so a
         // client disconnect can't cancel the long-running dispatch; only an
-        // explicit cancel (ADR-0030 §44) does.
+        // explicit cancel (ADR-0030 §44) does. #3056: the pending batch flows
+        // through so a unit's turn sees every queued message at once.
         var context = await BuildContextAsync(subject, inbound, ct);
         var leanEmitActivity = CreateLeanActivityEmitter(subject, emitActivity);
 
@@ -177,7 +186,8 @@ public class RuntimeInvocationPath(
             context: context,
             emitActivity: leanEmitActivity,
             onDispatchExit: onDispatchExit,
-            cancellationToken: ct);
+            cancellationToken: ct,
+            batch: batch);
     }
 
     /// <summary>

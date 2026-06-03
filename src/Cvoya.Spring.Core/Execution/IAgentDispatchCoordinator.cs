@@ -116,11 +116,22 @@ public interface IAgentDispatchCoordinator
     /// cancellation and calls <paramref name="onDispatchExit"/> before
     /// returning.
     /// </param>
+    /// <param name="batch">
+    /// The full ordered set of pending messages delivered to the runtime in
+    /// this single turn (#3056), oldest-first. <paramref name="message"/> is
+    /// the representative (<c>batch[0]</c>) used for routing / correlation /
+    /// lifecycle activities; the whole <paramref name="batch"/> is forwarded
+    /// to <see cref="IExecutionDispatcher.DispatchAsync"/> so the inbound
+    /// envelope can name every message in the set. <c>null</c> (or a
+    /// single-element list) means a one-message turn — identical to the
+    /// pre-#3056 behaviour.
+    /// </param>
     Task RunDispatchAsync(
         string agentId,
         Message message,
         PromptAssemblyContext context,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         Func<string, Task> onDispatchExit,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<Message>? batch = null);
 }

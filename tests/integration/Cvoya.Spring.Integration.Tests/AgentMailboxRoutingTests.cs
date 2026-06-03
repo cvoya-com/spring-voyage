@@ -36,9 +36,12 @@ public class AgentMailboxRoutingTests
         var result = await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
-        await stateManager.Received(1).SetStateAsync(
+        // #3056: activation persists the channel dispatching with the in-flight
+        // batch recorded (one message here) so a later drain removes exactly
+        // the dispatched set.
+        await stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching),
+            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching && c.InFlightCount == 1),
             Arg.Any<CancellationToken>());
     }
 

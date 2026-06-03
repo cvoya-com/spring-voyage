@@ -22,7 +22,13 @@ using Cvoya.Spring.Core.Execution;
 /// <c>timestamp</c>, <c>payload</c>. Per #2747 the agent never names
 /// <c>thread_id</c>: the platform derives it from the participant set,
 /// and shared history is reached via
-/// <c>sv.memory.history_with(participants=[…])</c>. Per #2739 / #2740
+/// <c>sv.memory.history_with(participants=[…])</c>. Per #3056 the same
+/// sub-section explains <i>batched delivery</i>: when several messages
+/// for one conversation accumulate (e.g. while a turn was running), the
+/// platform delivers the pending set together as one ordered turn and
+/// tells the runtime to reason over the whole set — taking them one by
+/// one, grouped, or as a whole — before acting, so it responds to the net
+/// current state rather than a stale prefix. Per #2739 / #2740
 /// the contract is rewritten to drop platform-internal jargon
 /// (<c>RuntimeCompletedSilent</c>, <c>MessageSent</c> activity,
 /// "container", "skill bundle", "equipped") and to replace
@@ -170,6 +176,8 @@ public class PlatformPromptProvider : IPlatformPromptProvider
 
         Decide what to do. To continue this conversation with everyone here, call `sv.messaging.respond_to` with this `message_id`. To start a new conversation or address a different set, call `sv.messaging.send` with the recipient address(es) and body — choose the recipient(s) consciously, do not assume the inbound `from` is the right `to`.
         ```
+
+        Usually one message arrives per turn. When several have accumulated for the same conversation — for example, more were sent while you were already working — the platform delivers them **together as one ordered set in a single turn**, oldest first, each under its own `--- message N of M ---` header carrying the same fields shown above. Because they are all in the same conversation (the same participants), there is nothing to switch between: read the whole set before you act, since a later message may update, answer, or supersede an earlier one. Reason over the resulting net state — you may take the messages one by one, group related ones, or treat the set as a whole — then perform every action that state warrants in this one turn, rather than acting on each message in isolation as if the others were not there. Each message keeps its own `message_id`, so when you continue the conversation you pass the `message_id` of the specific message you are addressing.
 
         Field meanings:
 

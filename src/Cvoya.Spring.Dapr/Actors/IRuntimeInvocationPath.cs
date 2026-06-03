@@ -117,13 +117,21 @@ public interface IRuntimeInvocationPath
     /// (#2076 / ADR-0030 §3 §44).
     /// </param>
     /// <param name="ct">A token to cancel the pipeline.</param>
+    /// <param name="batch">
+    /// The full ordered set of pending messages delivered to the runtime in
+    /// this single turn (#3056), oldest-first. <paramref name="inbound"/> is
+    /// the representative (<c>batch[0]</c>); the whole set is forwarded so the
+    /// inbound envelope names every message. <c>null</c> means a one-message
+    /// turn — identical to the pre-#3056 behaviour.
+    /// </param>
     Task InvokeAsync(
         Address subject,
         Message inbound,
         PromptAssemblyContext context,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         Func<string, Task> onDispatchExit,
-        CancellationToken ct);
+        CancellationToken ct,
+        IReadOnlyList<Message>? batch = null);
 
     /// <summary>
     /// Mailbox-aware lean overload: builds the minimal
@@ -156,10 +164,18 @@ public interface IRuntimeInvocationPath
     /// returns (#2076 / ADR-0030 §3 §44).
     /// </param>
     /// <param name="ct">The caller's per-thread dispatch cancellation token.</param>
+    /// <param name="batch">
+    /// The full ordered set of pending messages delivered to the runtime in
+    /// this single turn (#3056), oldest-first. <paramref name="inbound"/> is
+    /// the representative (<c>batch[0]</c>); the whole set is forwarded so the
+    /// inbound envelope names every message. <c>null</c> means a one-message
+    /// turn — identical to the pre-#3056 behaviour.
+    /// </param>
     Task InvokeAsync(
         Address subject,
         Message inbound,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         Func<string, Task> onDispatchExit,
-        CancellationToken ct);
+        CancellationToken ct,
+        IReadOnlyList<Message>? batch = null);
 }

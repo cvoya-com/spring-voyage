@@ -42,4 +42,20 @@ public class ThreadChannel
     /// dispatcher (per-thread FIFO would break otherwise).
     /// </summary>
     public bool Dispatching { get; set; }
+
+    /// <summary>
+    /// The number of leading <see cref="Messages"/> currently delivered to
+    /// the runtime as a single in-flight batch (#3056). On activation the
+    /// mailbox dispatches a bounded FIFO prefix of <see cref="Messages"/> as
+    /// one runtime turn and records the prefix length here; when the
+    /// dispatcher returns, the drain loop removes exactly that many leading
+    /// messages in one atomic state write (so messages that arrived during
+    /// the turn — appended at the tail — are preserved and form the next
+    /// batch). <c>0</c> when the channel is idle between turns. Tracking the
+    /// count rather than re-deriving it at drain time is what makes the batch
+    /// removal atomic and correct under concurrent appends: removals only ever
+    /// happen here, and appends only ever go to the tail, so the leading
+    /// <see cref="InFlightCount"/> messages are exactly the dispatched batch.
+    /// </summary>
+    public int InFlightCount { get; set; }
 }

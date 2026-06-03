@@ -1267,13 +1267,18 @@ public class UnitActor : Actor, IUnitActor, IMailboxHost
         Task.FromResult((effective, (PolicyVerdict?)null));
 
     Task IMailboxHost.InvokeRuntimeAsync(
-        Message head, AgentMetadata effective, Func<string, Task> onDispatchExit, CancellationToken ct) =>
+        IReadOnlyList<Message> batch, AgentMetadata effective, Func<string, Task> onDispatchExit, CancellationToken ct) =>
         // Units use the mailbox-aware lean overload: it builds the unit's
         // minimal prompt context internally (runtime behaviour unchanged) and
         // threads the per-thread drain callback + dispatch token. The
         // membership-scoped `effective` an agent builds a rich context from
         // does not apply to a unit, so it is intentionally unused here.
-        _runtimeInvocationPath.InvokeAsync(Address, head, EmitActivityEventAsync, onDispatchExit, ct);
+        // #3056: batch[0] (oldest) is the routing representative; the full
+        // batch flows through so the unit's turn sees every pending message.
+        // A single-message turn forwards null (the documented "single message"
+        // contract) so the common path is byte-for-byte unchanged.
+        _runtimeInvocationPath.InvokeAsync(
+            Address, batch[0], EmitActivityEventAsync, onDispatchExit, ct, batch.Count > 1 ? batch : null);
 
     Task IMailboxHost.SignalDispatchExitAsync(string threadId, string reason) =>
         SignalDispatchExitViaSelfAsync(threadId, reason);

@@ -207,6 +207,51 @@ public class AgentMailboxCoordinatorTests
     }
 
     [Fact]
+    public async Task HandleDomainMessageAsync_DuplicateMessageId_DroppedNotReEnqueued()
+    {
+        // #3056 / #3004: a delivery retried after its enqueue already succeeded
+        // re-enters the coordinator with the same Message.Id. The mailbox must
+        // be idempotent on message id — the duplicate is dropped, not appended
+        // (and never dispatched), so the runtime does not see it twice (nor
+        // twice in one batch envelope).
+        var original = CreateMessage();
+        var existing = new ThreadChannel
+        {
+            ThreadId = ThreadId,
+            Messages = [original],
+            Dispatching = true,
+            InFlightCount = 1,
+        };
+        var metadata = new AgentMetadata(Enabled: true);
+        ThreadChannel? saved = null;
+        var dispatchCalled = false;
+
+        await _coordinator.HandleDomainMessageAsync(
+            agentId: AgentId,
+            message: original, // same id re-delivered
+            effective: metadata,
+            lifecycleStatus: LifecycleStatus.Running,
+            applyUnitPolicies: (eff, _) => Task.FromResult<(AgentMetadata, PolicyVerdict?)>((eff, null)),
+            getChannel: (_, _) => Task.FromResult<ThreadChannel?>(existing),
+            saveChannel: (ch, _) =>
+            {
+                saved = ch;
+                return Task.CompletedTask;
+            },
+            dispatch: (_, _, _) =>
+            {
+                dispatchCalled = true;
+                return Task.CompletedTask;
+            },
+            emitActivity: (_, _) => Task.CompletedTask,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        existing.Messages.Count.ShouldBe(1, "a duplicate message id must not be re-enqueued.");
+        saved.ShouldBeNull("a dropped duplicate triggers no channel write.");
+        dispatchCalled.ShouldBeFalse("a dropped duplicate must not launch a dispatcher.");
+    }
+
+    [Fact]
     public async Task HandleDomainMessageAsync_ChannelIdle_AppendsAndRestartsDispatch()
     {
         // A channel that was kept around between dispatches (Dispatching=false)
