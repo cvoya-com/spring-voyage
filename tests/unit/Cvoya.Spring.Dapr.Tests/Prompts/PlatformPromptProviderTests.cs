@@ -337,6 +337,36 @@ public class PlatformPromptProviderTests
     }
 
     /// <summary>
+    /// #3037 / #3041 Part A: the durable-memory clause presents agent-wide
+    /// and per-conversation memory as <b>equally valid</b> (neither promoted),
+    /// describes the conversation mode in participant-set terms (no
+    /// "thread"/"scope"/<c>*_id</c> jargon), gives a concrete example of when
+    /// to use each, and names the text content variant. The old
+    /// <c>scope='thread'</c> framing must be gone.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_PresentsAgentWideAndConversationMemoryAsEquallyValid()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        // Both modes are named, in participant-set terms.
+        result.ShouldContain("Agent-wide memory");
+        result.ShouldContain("Conversation memory");
+        result.ShouldContain("pass that conversation's participants");
+
+        // Neither mode is promoted over the other.
+        result.ShouldContain("Neither outranks the other");
+
+        // The typed text variant is advertised alongside the object default.
+        result.ShouldContain("sv.memory.text.add");
+
+        // The retired scope axis must not reappear in the agent-facing prompt.
+        result.ShouldNotContain("scope='thread'");
+    }
+
+    /// <summary>
     /// Pins the discovery pointer so a runtime that needs a tool
     /// outside the catalog knows how to find one without hallucinating.
     /// </summary>
