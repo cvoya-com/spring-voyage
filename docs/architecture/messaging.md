@@ -77,7 +77,14 @@ flowchart TD
   agent/unit definition carries `concurrent_conversations` (default `true`; the
   legacy `concurrent_threads` name is still accepted); set
   `false` for agents that cannot multiplex cleanly
-  ([ADR-0041](../decisions/0041-actor-runtime-contract.md)).
+  ([ADR-0041](../decisions/0041-actor-runtime-contract.md)). When a turn is
+  launched for a thread, the mailbox **drains that thread's pending queue and
+  delivers the messages as one ordered batch in a single turn** (#3056, bounded;
+  oldest-first), so the runtime reasons over the net current state instead of a
+  stale prefix while newer messages wait — see
+  [agent-runtime-boundary § 1.2.5](../specs/agent-runtime-boundary.md). The
+  whole batch is removed atomically when the turn returns, and enqueue is
+  idempotent on message id; messages that arrive mid-turn form the next batch.
 - **Observation** messages (pub/sub, reminders, timers) accumulate and are
   processed as a batch by the initiative cognition loop.
 

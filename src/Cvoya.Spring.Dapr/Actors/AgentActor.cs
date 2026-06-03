@@ -767,23 +767,30 @@ public class AgentActor(
     /// <c>asyncio.Lock</c> pattern.
     /// </summary>
     Task IMailboxHost.InvokeRuntimeAsync(
-        Message head, AgentMetadata effective, Func<string, Task> onDispatchExit, CancellationToken ct) =>
-        InvokeAgentRuntimeAsync(head, effective, onDispatchExit, ct);
+        IReadOnlyList<Message> batch, AgentMetadata effective, Func<string, Task> onDispatchExit, CancellationToken ct) =>
+        InvokeAgentRuntimeAsync(batch, effective, onDispatchExit, ct);
 
     private async Task InvokeAgentRuntimeAsync(
-        Message head, AgentMetadata effective, Func<string, Task> onDispatchExit, CancellationToken ct)
+        IReadOnlyList<Message> batch, AgentMetadata effective, Func<string, Task> onDispatchExit, CancellationToken ct)
     {
         var context = await BuildPromptAssemblyContextAsync(effective, ct);
+        // #3056: batch[0] (oldest) is the representative used for routing /
+        // correlation. Forward the batch only when it carries more than one
+        // message; a single-message turn passes null — the documented
+        // "single message" contract — so the envelope renders exactly as
+        // pre-#3056 and the common path is unchanged.
+        var head = batch[0];
+        var deliveredBatch = batch.Count > 1 ? batch : null;
 
         if (runtimeInvocationPath is not null)
         {
             await runtimeInvocationPath.InvokeAsync(
-                Address, head, context, EmitActivityEventAsync, onDispatchExit, ct);
+                Address, head, context, EmitActivityEventAsync, onDispatchExit, ct, deliveredBatch);
             return;
         }
 
         await dispatchCoordinator.RunDispatchAsync(
-            Id.GetId(), head, context, EmitActivityEventAsync, onDispatchExit, ct);
+            Id.GetId(), head, context, EmitActivityEventAsync, onDispatchExit, ct, deliveredBatch);
     }
 
     private async Task SignalDispatchExitViaSelfAsync(string threadId, string reason)

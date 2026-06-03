@@ -78,14 +78,95 @@ internal static class InboundEnvelopeBuilder
         ArgumentNullException.ThrowIfNull(recipientParticipants);
         ArgumentNullException.ThrowIfNull(participants);
 
+        var sb = new StringBuilder();
+        sb.AppendLine("You received a message.");
+        sb.AppendLine();
+        AppendMessageBlock(sb, inbound, senderDisplayName, recipientParticipants, participants);
+        sb.AppendLine();
+        sb.AppendLine(
+            "Decide what to do. To continue this conversation with everyone here, call " +
+            "`sv.messaging.respond_to` with this `message_id` and your body. To start a new " +
+            "conversation or address a different set, call `sv.messaging.send` with the recipient " +
+            "address(es) and body. stdout text is a diagnostic reasoning trace only — no participant sees it.");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Renders a batch of inbound messages the platform delivered to the
+    /// runtime in a single turn (#3056). Every message is from the same
+    /// conversation (the same participant set), listed oldest-first and each
+    /// self-described — <c>from</c>, <c>to</c>, <c>participants</c>,
+    /// <c>message_id</c>, <c>timestamp</c>, <c>payload</c> — so the runtime can
+    /// order and attribute them, reason over the net current state, and act
+    /// once. A single-element batch renders byte-for-byte identically to
+    /// <see cref="Render"/> (the common, one-message-per-turn case).
+    /// </summary>
+    public static string RenderBatch(IReadOnlyList<EnvelopeMessage> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        if (messages.Count == 0)
+        {
+            throw new ArgumentException(
+                "An inbound envelope batch must contain at least one message.", nameof(messages));
+        }
+
+        if (messages.Count == 1)
+        {
+            var only = messages[0];
+            return Render(only.Inbound, only.SenderDisplayName, only.RecipientParticipants, only.Participants);
+        }
+
+        var n = messages.Count;
+        var sb = new StringBuilder();
+        sb.Append("You received ").Append(n).AppendLine(" messages in this conversation, delivered together as one set.");
+        sb.AppendLine();
+        sb.AppendLine(
+            "They are listed below in the order received (oldest first), and they are all part of " +
+            "the same conversation — the same participants throughout, so there is nothing to switch " +
+            "between. Read the whole set before acting: a later message may update, answer, or " +
+            "supersede an earlier one, so what you do should reflect the net current state rather than " +
+            "each message taken in isolation. You may handle them one by one, group related ones, or " +
+            "treat the set as a whole — then take the actions the resulting state calls for, in this " +
+            "one turn.");
+        sb.AppendLine();
+        for (var i = 0; i < n; i++)
+        {
+            var item = messages[i];
+            sb.Append("--- message ").Append(i + 1).Append(" of ").Append(n).AppendLine(" ---");
+            AppendMessageBlock(sb, item.Inbound, item.SenderDisplayName, item.RecipientParticipants, item.Participants);
+            sb.AppendLine();
+        }
+
+        sb.AppendLine(
+            "Decide what to do across the whole set. To continue this conversation with everyone here, " +
+            "call `sv.messaging.respond_to` with the `message_id` of the message you are addressing and " +
+            "your body. To start a new conversation or address a different set, call `sv.messaging.send` " +
+            "with the recipient address(es) and body. stdout text is a diagnostic reasoning trace only — " +
+            "no participant sees it.");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Appends one self-described message block — the bullet header plus the
+    /// fenced JSON appendix — to <paramref name="sb"/>. Shared by the single
+    /// (<see cref="Render"/>) and batched (<see cref="RenderBatch"/>) renders so
+    /// each message carries the identical, complete set of fields whether it is
+    /// delivered alone or as part of a set.
+    /// </summary>
+    private static void AppendMessageBlock(
+        StringBuilder sb,
+        Message inbound,
+        string? senderDisplayName,
+        IReadOnlyList<Address> recipientParticipants,
+        IReadOnlyList<Address> participants)
+    {
         var payloadText = MessagePayloadText.Extract(inbound.Payload);
         var fromRendered = string.IsNullOrWhiteSpace(senderDisplayName)
             ? inbound.From.ToString()
             : $"{inbound.From} ({senderDisplayName})";
 
-        var sb = new StringBuilder();
-        sb.AppendLine("You received a message.");
-        sb.AppendLine();
         sb.Append("- from: ").AppendLine(fromRendered);
         sb.Append("- to: [")
             .Append(string.Join(", ", recipientParticipants.Select(a => a.ToString())))
@@ -103,15 +184,25 @@ internal static class InboundEnvelopeBuilder
         sb.AppendLine("```json");
         sb.AppendLine(RenderEnvelopeJson(inbound, senderDisplayName, recipientParticipants, participants));
         sb.AppendLine("```");
-        sb.AppendLine();
-        sb.AppendLine(
-            "Decide what to do. To continue this conversation with everyone here, call " +
-            "`sv.messaging.respond_to` with this `message_id` and your body. To start a new " +
-            "conversation or address a different set, call `sv.messaging.send` with the recipient " +
-            "address(es) and body. stdout text is a diagnostic reasoning trace only — no participant sees it.");
-
-        return sb.ToString();
     }
+
+    /// <summary>
+    /// One message's fully-resolved envelope inputs — the inbound message plus
+    /// the directory / participant-set projections the builder needs. Bundled
+    /// so <see cref="RenderBatch"/> can take a list without parallel arrays.
+    /// </summary>
+    /// <param name="Inbound">The message being delivered.</param>
+    /// <param name="SenderDisplayName">
+    /// Resolved display name for the sender, or <c>null</c> when the directory
+    /// had no entry (typical for connectors).
+    /// </param>
+    /// <param name="RecipientParticipants">The envelope's <c>to</c> field (receiver included, sender excluded).</param>
+    /// <param name="Participants">The full routable roster (ADR-0064) — the <c>respond_to</c> delivery set.</param>
+    public readonly record struct EnvelopeMessage(
+        Message Inbound,
+        string? SenderDisplayName,
+        IReadOnlyList<Address> RecipientParticipants,
+        IReadOnlyList<Address> Participants);
 
     /// <summary>
     /// Renders the payload for the bullet header. Free-text payloads appear
@@ -185,7 +276,21 @@ internal static class InboundEnvelopeBuilder
 /// </summary>
 public interface IInboundEnvelopeResolver
 {
+    /// <summary>
+    /// Renders the user-message envelope for a single inbound delivery.
+    /// Convenience over <see cref="RenderEnvelopeAsync(IReadOnlyList{Message}, CancellationToken)"/>
+    /// for the one-message-per-turn case.
+    /// </summary>
     Task<string> RenderEnvelopeAsync(Message inbound, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Renders the user-message envelope for a batch of inbound messages
+    /// delivered to the runtime in a single turn (#3056). The batch is
+    /// oldest-first and shares one conversation; each message is rendered
+    /// self-described so the runtime can order and attribute them. A
+    /// single-element batch renders identically to the single overload.
+    /// </summary>
+    Task<string> RenderEnvelopeAsync(IReadOnlyList<Message> batch, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -202,26 +307,53 @@ public interface IInboundEnvelopeResolver
 public sealed class InboundEnvelopeResolver(
     IServiceScopeFactory scopeFactory) : IInboundEnvelopeResolver
 {
-    public async Task<string> RenderEnvelopeAsync(
+    public Task<string> RenderEnvelopeAsync(
         Message inbound, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(inbound);
+        return RenderEnvelopeAsync([inbound], cancellationToken);
+    }
+
+    public async Task<string> RenderEnvelopeAsync(
+        IReadOnlyList<Message> batch, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        if (batch.Count == 0)
+        {
+            throw new ArgumentException(
+                "An inbound envelope batch must contain at least one message.", nameof(batch));
+        }
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var directoryService = scope.ServiceProvider.GetRequiredService<IDirectoryService>();
         var threadRegistry = scope.ServiceProvider.GetRequiredService<IThreadRegistry>();
 
-        var senderEntry = await directoryService
-            .ResolveAsync(inbound.From, cancellationToken);
+        // Resolve each message's envelope inputs. Sender display names are
+        // cached within the batch — a thread typically batches several
+        // messages from the same sender, so this collapses N directory hits to
+        // one per distinct sender. The participant projection is resolved per
+        // message because `to` excludes that message's own sender (which can
+        // differ across a multi-sender conversation).
+        var displayNameCache = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var items = new List<InboundEnvelopeBuilder.EnvelopeMessage>(batch.Count);
+        foreach (var inbound in batch)
+        {
+            var fromKey = inbound.From.ToString();
+            if (!displayNameCache.TryGetValue(fromKey, out var displayName))
+            {
+                var senderEntry = await directoryService.ResolveAsync(inbound.From, cancellationToken);
+                displayName = senderEntry?.DisplayName;
+                displayNameCache[fromKey] = displayName;
+            }
 
-        var (recipientParticipants, participants) = await ResolveParticipantsAsync(
-            threadRegistry, inbound, cancellationToken);
+            var (recipientParticipants, participants) = await ResolveParticipantsAsync(
+                threadRegistry, inbound, cancellationToken);
 
-        return InboundEnvelopeBuilder.Render(
-            inbound,
-            senderEntry?.DisplayName,
-            recipientParticipants,
-            participants);
+            items.Add(new InboundEnvelopeBuilder.EnvelopeMessage(
+                inbound, displayName, recipientParticipants, participants));
+        }
+
+        return InboundEnvelopeBuilder.RenderBatch(items);
     }
 
     /// <summary>

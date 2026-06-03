@@ -165,6 +165,26 @@ public class AgentMailboxCoordinator(
             return;
         }
 
+        // #3056 / #3004 — idempotency on message id. Delivery is retried on a
+        // per-attempt timeout (#3004); a retry can re-enter the mailbox after
+        // the enqueue already succeeded, double-enqueuing the same message.
+        // The leading InFlightCount messages may be a live in-flight batch and
+        // the rest queued — either way a message id already present in the
+        // channel has been accepted, so re-accepting it would surface a
+        // duplicate to the runtime (and, with batch delivery, the same message
+        // twice in one turn's envelope). The persistence layer
+        // (EfMessageWriter) is already idempotent on Message.Id; this is the
+        // mailbox-channel half. A brand-new channel (Case 1 above) cannot hold
+        // a duplicate, so the guard only runs for an existing channel.
+        if (channel.Messages.Any(m => m.Id == message.Id))
+        {
+            logger.LogInformation(
+                "Actor {ActorId} dropping duplicate message {MessageId} on thread {ThreadId} " +
+                "(already queued or in-flight).",
+                agentId, message.Id, threadId);
+            return;
+        }
+
         // Case 2: channel exists and a drain loop is already running. Append
         // the message and rely on the drain loop to pick it up at its next
         // iteration — per-thread FIFO is preserved.

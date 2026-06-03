@@ -479,6 +479,36 @@ public class PlatformPromptProviderTests
     }
 
     /// <summary>
+    /// #3056: the inbound-messages section explains batched delivery — when
+    /// several messages for one conversation accumulate, the platform delivers
+    /// them together as one ordered set in a single turn, and the runtime is
+    /// told to reason over the whole set (one by one, grouped, or as a whole)
+    /// before acting, so it responds to the net current state rather than a
+    /// stale prefix. The guidance must use no "reply" verb (pinned elsewhere)
+    /// and must keep `message_id` per message.
+    /// </summary>
+    [Fact]
+    public async Task GetPlatformPromptAsync_ExplainsBatchedDeliveryReasoning()
+    {
+        var provider = new PlatformPromptProvider();
+
+        var result = await provider.GetPlatformPromptAsync(TestContext.Current.CancellationToken);
+
+        // Several messages may arrive together as one ordered set in one turn.
+        result.ShouldContain("together as one ordered set in a single turn");
+        result.ShouldContain("--- message N of M ---");
+
+        // Reason over the whole set before acting; a later message can
+        // supersede an earlier one; act on the net current state once.
+        result.ShouldContain("read the whole set before you act");
+        result.ShouldContain("supersede");
+        result.ShouldContain("in this one turn");
+
+        // Each batched message keeps its own id for continuation.
+        result.ShouldContain("Each message keeps its own `message_id`");
+    }
+
+    /// <summary>
     /// #2746: the envelope is described as a structured shape (bullet
     /// header + JSON appendix) rather than a chat-style turn. This nudges
     /// the runtime away from "answer this turn as text" toward "call the

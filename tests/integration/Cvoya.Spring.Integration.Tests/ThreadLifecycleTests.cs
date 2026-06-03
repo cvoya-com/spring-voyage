@@ -33,9 +33,11 @@ public class ThreadLifecycleTests
         var result1 = await actor.ReceiveAsync(firstMessage, TestContext.Current.CancellationToken);
         result1.ShouldNotBeNull();
 
-        await stateManager.Received(1).SetStateAsync(
+        // #3056: activation persists the dispatching channel with the in-flight
+        // batch size recorded (one message here).
+        await stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Messages.Count == 1 && c.Dispatching),
+            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Messages.Count == 1 && c.Dispatching && c.InFlightCount == 1),
             Arg.Any<CancellationToken>());
 
         // Simulate state with the channel mid-drain.

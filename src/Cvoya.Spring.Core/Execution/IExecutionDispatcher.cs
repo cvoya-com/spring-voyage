@@ -26,17 +26,31 @@ public interface IExecutionDispatcher
     /// Dispatches a message for execution by an external agent runtime and
     /// returns a lifecycle outcome describing how the runtime terminated.
     /// </summary>
-    /// <param name="inboundMessage">The message containing the work to dispatch.</param>
+    /// <param name="inboundMessage">
+    /// The representative message for the dispatch — the batch head
+    /// (<c>batch[0]</c>) when <paramref name="batch"/> is supplied. Drives
+    /// routing (<c>To</c>/<c>ThreadId</c>), the A2A correlation id, and the
+    /// per-turn MCP session.
+    /// </param>
     /// <param name="context">
     /// The prompt-assembly context (unit members, policies, skills, prior messages,
     /// agent instructions) the caller has already assembled. May be <c>null</c>
     /// when the dispatcher should render only the platform prompt layer.
     /// </param>
     /// <param name="ct">A token to cancel the operation.</param>
+    /// <param name="batch">
+    /// The full ordered set of pending messages to deliver to the runtime in
+    /// this single turn (#3056), oldest-first and sharing one thread. The
+    /// inbound envelope names every message in the set so the runtime reasons
+    /// over the net current state rather than a stale prefix. <c>null</c> (or a
+    /// single-element list) is a one-message turn — the envelope renders
+    /// exactly as it did pre-#3056.
+    /// </param>
     Task<RuntimeOutcome> DispatchAsync(
         Message inboundMessage,
         PromptAssemblyContext? context,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        IReadOnlyList<Message>? batch = null);
 }
 
 /// <summary>

@@ -3,8 +3,8 @@
 > **Active contract specification.** The agent-runtime boundary specified here is implemented today; see the [change log](#8-change-log) for revision history and [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md) for the platform-side implementation. The full catalogue of MCP tools an agent may call is the CI-pinned reference [`docs/reference/platform-tools.md`](../reference/platform-tools.md); this spec governs the *boundary* (lifecycle hooks, bootstrap context, workspace, and the send transport), not the per-tool schemas.
 
 - **Status:** Accepted
-- **Version:** v0.2
-- **Date:** 2026-05-29
+- **Version:** v0.2.1
+- **Date:** 2026-06-03
 - **Implements:** [ADR-0029 — Tenant execution boundary](../decisions/0029-tenant-execution-boundary.md), Stage 1
 - **Anchors on:** [ADR-0030 — Thread model](../decisions/0030-thread-model.md), [ADR-0060 — Participant-set agent API and structured envelope](../decisions/0060-participant-set-agent-api-and-structured-envelope.md), [ADR-0064 — Conversation participants and continuation](../decisions/0064-conversation-participants-and-continuation.md)
 - **Aligned with:** [ADR-0026 — Per-agent container scope](../decisions/0026-per-agent-container-scope.md), [ADR-0027 — Agent-image conformance contract](../decisions/0027-agent-image-conformance-contract.md), [ADR-0055 — Pull-based agent bootstrap](../decisions/0055-pull-based-agent-bootstrap.md), [ADR-0057 — Sidecar-local MCP server](../decisions/0057-sidecar-local-mcp-server.md)
@@ -103,6 +103,8 @@ Example envelope JSON (illustrative):
 }
 ```
 
+When more than one message is pending for a thread as the runtime activates, the platform delivers them **together as one ordered batch** in a single turn — each message carries the full set of fields above, oldest-first — rather than one per turn. See § 1.2.5.
+
 #### 1.2.2 Response semantics — chunks are a diagnostic trace, not delivery
 
 `on_message` MAY yield zero or more **chunks** (the SDK exposes a streaming abstraction appropriate to the host language — async iterator, generator, etc.). **These chunks do not reach any participant.** The platform captures the agent's returned/streamed output as a **diagnostic reasoning trace** (telemetry); it is never synthesised into a message routed back to a sender.
@@ -123,7 +125,19 @@ The agent / unit definition carries a **`concurrent_threads`** boolean (delivere
 - **`concurrent_threads: true`**: the platform MAY invoke `on_message` concurrently across distinct threads (at most one in flight per thread). The SDK **MUST** be re-entrant in this case.
 - **`concurrent_threads: false`**: the platform **MUST** serialise `on_message` across all threads; at most one invocation in flight for the agent.
 
-The flag is resolved at the agent level and delivered via `IAgentContext`. Inbound messages are **pushed** to `on_message` one per invocation; there is no agent-facing "drain the queue" / poll tool — the platform's dispatch contract is one message per invocation.
+The flag is resolved at the agent level and delivered via `IAgentContext`. Inbound messages are **pushed** to the runtime; there is no agent-facing "drain the queue" / poll tool. A turn delivers either a single message or — when several are pending for the thread — the pending set as one ordered batch (§ 1.2.5); concurrency (this flag) governs only whether *distinct* threads run in parallel.
+
+#### 1.2.5 Batched delivery (drain on activation)
+
+When the platform activates the runtime for a thread and more than one message is pending in that thread's inbox, it **drains the pending messages and delivers them together as one ordered batch in a single turn** (oldest-first), rather than one message per turn. This lets the runtime reason over the *net current* state of the conversation and act once, instead of responding to an early message with already-stale context while later messages — which may update or supersede it — wait behind it.
+
+- **Self-described.** Every message in the batch carries the full envelope of § 1.2.1 — `from`, `from_display_name`, `to`, `participants`, `message_id`, `timestamp`, `payload` — so the runtime can order and attribute each one. Because a thread *is* its participant set, a batch groups only messages from the **same conversation**: there is no participant-set context to switch between within a turn.
+- **FIFO preserved.** Messages are ordered oldest-first; per-thread FIFO (§ 1.2.3) holds across batches and within a batch. A message that arrives while a turn is running is delivered in the *next* batch, never injected into the running one.
+- **Atomic + idempotent.** The platform marks the whole delivered batch processed atomically and is idempotent on `message_id` — a re-delivered id (e.g. a delivery retried after its enqueue already succeeded) is not surfaced twice.
+- **Bounded.** Very large backlogs (rare) are split: a turn delivers at most a platform-defined number of messages and the remainder form the next batch, so a turn's context stays manageable.
+- **Still one turn.** A batch is delivered as a single runtime turn carrying the ordered set — for a CLI-based runtime, the rendered set in the user-message slot (§ 1.2.1). The runtime reasons over the whole set (handling the messages individually, grouped, or as a whole) and emits its actions once, via the § 4 send tools, issuing as many tool calls in the turn as the resulting state warrants.
+
+This composes with the per-thread session isolation tracked for the multi-agent coordination work: batching coalesces a single thread's pending input into one coherent turn; per-thread isolation provides that turn one coherent context.
 
 ### 1.3 `on_shutdown(reason)`
 
@@ -138,7 +152,7 @@ The SDK **MUST** invoke `on_shutdown(reason)` exactly once on platform-initiated
 
 ### 1.4 Conformance — Bucket 1
 
-An SDK conforms iff: it exposes the three hooks with the lifecycle of §§ 1.1–1.3; `initialize` runs before any `on_message` and is bounded by the window; `on_shutdown` runs after the last `on_message`, on SIGTERM, within the grace window; per-thread FIFO is preserved (§ 1.2.3); concurrency honours `concurrent_threads` (§ 1.2.4); and the agent emits messages only via § 4 tools, never via `on_message` return values (§ 1.2.2).
+An SDK conforms iff: it exposes the three hooks with the lifecycle of §§ 1.1–1.3; `initialize` runs before any `on_message` and is bounded by the window; `on_shutdown` runs after the last `on_message`, on SIGTERM, within the grace window; per-thread FIFO is preserved (§ 1.2.3), including across batched deliveries (§ 1.2.5); concurrency honours `concurrent_threads` (§ 1.2.4); and the agent emits messages only via § 4 tools, never via `on_message` return values (§ 1.2.2). A platform conforms to § 1.2.5 iff it delivers a thread's pending messages as one ordered, self-described, FIFO-preserving batch, marks the batch processed atomically, is idempotent on `message_id`, and bounds batch size.
 
 ---
 
@@ -368,6 +382,7 @@ A future conformance suite (out of scope) exercises:
 - [ ] Inbound envelope conforms to § 1.2.1 (participant-set shape; no `thread_id`).
 - [ ] The agent emits messages only via § 4 tools; `on_message` return values are treated as diagnostic traces (§ 1.2.2).
 - [ ] Per-thread FIFO preserved (§ 1.2.3); concurrency honours `concurrent_threads` (§ 1.2.4).
+- [ ] A thread's pending messages are delivered as one ordered, self-described batch in a single turn; the batch is marked processed atomically, idempotent on `message_id`, and bounded (§ 1.2.5).
 - [ ] `on_shutdown` runs on SIGTERM within the grace window (§ 1.3).
 
 **`IAgentContext`**
@@ -402,4 +417,5 @@ A future conformance suite (out of scope) exercises:
 |---|---|---|
 | v0.1 | 2026-04-28 | Initial specification. Implements ADR-0029 Stage 1; consumed F1 / ADR-0030. |
 | v0.1.1–v0.1.5 | 2026-04-28 → 2026-05-24 | Credential-rotation contract (restart-as-primitive); `thread_id` / `SPRING_THREAD_ID` added; Dapr-agent LLM-selection fields; ADR-0038 alignment; dropped the retired `/spring/context/` mount in favour of `$SPRING_WORKSPACE_PATH/.spring/system-prompt.md`. |
+| v0.2.1 | 2026-06-03 | **Batched delivery (#3056).** Added § 1.2.5: on activation the platform drains a thread's pending inbox and delivers the messages as one ordered, self-described batch in a single turn (oldest-first), so the runtime reasons over the net current state instead of a stale prefix — per-thread FIFO preserved across and within batches, the batch marked processed atomically and idempotent on `message_id`, and bounded for very large backlogs. Revised § 1.2.4's "one message per invocation" line and forward-referenced the batch from § 1.2.1; extended the § 1.4 / § 6 conformance criteria. Companion v0.1 mitigation to the multi-agent coordination breakdown (#3053); composes with the per-thread session isolation tracked there. |
 | **v0.2** | **2026-05-29** | **Implementation-alignment pass.** Rewrote the send path (§ 4) around the **MCP messaging tools** (`sv.messaging.send`/`multicast`/`respond_to`) — removed the non-existent gRPC binding, the streaming `ack`/`progress`/`complete`/`error` frame protocol, and the claim that A2A 0.3.x is the agent→platform protocol (it is platform→agent dispatch; A2A replies are diagnostic traces). Rewrote the inbound shape (§ 1.2.1) to the **participant-set structured envelope** (ADR-0060): `message_id`/`timestamp`/`from`/`to`/`participants`/`payload`, **no `thread_id`** (#2747), no `sender` object, no `pending_count`. Clarified that `on_message` return values are diagnostic traces, not delivery (§ 1.2.2). Removed the `context` UX hint from the wire contract (→ out-of-scope). Completed the env-var table (`SPRING_BOOTSTRAP_*`, `SPRING_CALLBACK_*`, `OTEL_*`; `SPRING_MCP_TOKEN` empty-on-deploy) and corrected the workspace default to `/spring/members/{agent_id}/`. Documented the `.spring/` namespace and per-launcher system-prompt delivery. Demoted `SPRING_BUCKET2_URL` to a reserved surface. Replaced the stale `store`/`recall`/`peek_pending`/`message.retract`/`sv.thread.*` names with a pointer to the CI-pinned tool catalogue (§ 5). |

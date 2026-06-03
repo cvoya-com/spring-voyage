@@ -128,9 +128,13 @@ public class AgentActorTests
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        await _stateManager.Received(1).SetStateAsync(
+        // #3056: activation persists the channel marked dispatching with the
+        // in-flight batch recorded (one message here). The engine writes the
+        // InFlightCount alongside Dispatching so a later drain removes exactly
+        // the dispatched batch.
+        await _stateManager.Received().SetStateAsync(
             StateKeys.ChannelPrefix + threadId,
-            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching),
+            Arg.Is<ThreadChannel>(c => c.ThreadId == threadId && c.Dispatching && c.InFlightCount == 1),
             Arg.Any<CancellationToken>());
     }
 
@@ -279,6 +283,7 @@ public class AgentActorTests
             ThreadId = threadId,
             Messages = [CreateMessage(threadId: threadId)],
             Dispatching = true,
+            InFlightCount = 1, // the one message is the in-flight batch (#3056)
         };
 
         _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
@@ -307,6 +312,7 @@ public class AgentActorTests
                 CreateMessage(threadId: threadId),
             ],
             Dispatching = true,
+            InFlightCount = 1, // a one-message batch is in flight; 2 arrived during the turn
         };
 
         _stateManager.TryGetStateAsync<List<string>>(StateKeys.ChannelIndex, Arg.Any<CancellationToken>())
@@ -316,7 +322,7 @@ public class AgentActorTests
 
         var report = await _actor.GetRuntimeStatusAsync(TestContext.Current.CancellationToken);
 
-        // 3 messages, 1 in-flight head ⇒ 2 queued behind it.
+        // 3 messages, a 1-message batch in flight ⇒ 2 queued behind it (#3056).
         report.InFlightThreadCount.ShouldBe(1);
         report.QueuedMessageCount.ShouldBe(2);
     }

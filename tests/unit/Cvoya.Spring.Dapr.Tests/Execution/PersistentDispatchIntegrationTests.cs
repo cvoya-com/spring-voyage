@@ -200,16 +200,18 @@ public class PersistentDispatchIntegrationTests
     private sealed class PassthroughEnvelopeResolver : Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver
     {
         public Task<string> RenderEnvelopeAsync(SvMessage inbound, CancellationToken cancellationToken)
+            => Task.FromResult(Extract(inbound));
+
+        public Task<string> RenderEnvelopeAsync(IReadOnlyList<SvMessage> batch, CancellationToken cancellationToken)
+            => Task.FromResult(string.Join("\n", batch.Select(Extract)));
+
+        private static string Extract(SvMessage inbound) => inbound.Payload.ValueKind switch
         {
-            var text = inbound.Payload.ValueKind switch
-            {
-                JsonValueKind.String => inbound.Payload.GetString() ?? string.Empty,
-                JsonValueKind.Object when inbound.Payload.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String => t.GetString() ?? string.Empty,
-                JsonValueKind.Object when inbound.Payload.TryGetProperty("Task", out var t) && t.ValueKind == JsonValueKind.String => t.GetString() ?? string.Empty,
-                _ => inbound.Payload.ToString(),
-            };
-            return Task.FromResult(text);
-        }
+            JsonValueKind.String => inbound.Payload.GetString() ?? string.Empty,
+            JsonValueKind.Object when inbound.Payload.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String => t.GetString() ?? string.Empty,
+            JsonValueKind.Object when inbound.Payload.TryGetProperty("Task", out var t) && t.ValueKind == JsonValueKind.String => t.GetString() ?? string.Empty,
+            _ => inbound.Payload.ToString(),
+        };
     }
 
     private static SvMessage CreateMessage(string? threadId = null)

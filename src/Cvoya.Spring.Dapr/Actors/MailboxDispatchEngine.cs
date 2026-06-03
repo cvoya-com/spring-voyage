@@ -62,15 +62,21 @@ internal interface IMailboxHost
         AgentMetadata effective, CancellationToken ct);
 
     /// <summary>
-    /// Invokes the subject's runtime for the head message. The engine supplies
-    /// the per-thread <paramref name="onDispatchExit"/> callback the runtime
-    /// pipeline must invoke when the dispatcher returns, so the engine can
-    /// drain the thread's queue. Agents build a rich
+    /// Invokes the subject's runtime for the in-flight <paramref name="batch"/>
+    /// of pending messages — one runtime turn for the whole set (#3056). The
+    /// batch is the channel's bounded FIFO prefix, ordered oldest-first;
+    /// <c>batch[0]</c> is the representative used for routing / correlation.
+    /// Delivering the pending set together (rather than one message per turn)
+    /// lets the runtime reason over the net current state and act once instead
+    /// of responding to a stale prefix while newer messages wait. The engine
+    /// supplies the per-thread <paramref name="onDispatchExit"/> callback the
+    /// runtime pipeline must invoke when the dispatcher returns, so the engine
+    /// can drain the batch and advance the queue. Agents build a rich
     /// <c>PromptAssemblyContext</c> from <paramref name="effective"/>; units
     /// use the lean overload and ignore it.
     /// </summary>
     Task InvokeRuntimeAsync(
-        Message head,
+        IReadOnlyList<Message> batch,
         AgentMetadata effective,
         Func<string, Task> onDispatchExit,
         CancellationToken ct);
@@ -108,6 +114,17 @@ internal sealed class MailboxDispatchEngine(
     private bool? _concurrentThreads;
 
     /// <summary>
+    /// Upper bound on the number of pending messages delivered to the runtime
+    /// in a single batched turn (#3056). On activation the engine drains a
+    /// FIFO prefix of at most this many messages; any beyond it stay queued
+    /// and form the next batch when the turn returns. The bound keeps a turn's
+    /// context manageable when a thread has accumulated an unusually large
+    /// backlog (rare) — the common case is a handful of messages that piled up
+    /// while the previous turn ran.
+    /// </summary>
+    internal const int MaxBatchSize = 50;
+
+    /// <summary>
     /// Exposed for tests: the currently running dispatch task (if any). Under
     /// concurrent threads multiple dispatchers may be in flight; this tracks
     /// the most-recently launched one.
@@ -120,6 +137,15 @@ internal sealed class MailboxDispatchEngine(
     /// has none. Returns as soon as the message is enqueued — the actor turn
     /// (and inbound delivery) never blocks on the runtime.
     /// </summary>
+    /// <remarks>
+    /// When the coordinator launches a dispatcher (a brand-new channel, or an
+    /// idle channel restarting), the engine drains a bounded FIFO prefix of the
+    /// channel's queued messages and delivers them as a single batched turn
+    /// (#3056) rather than one message at a time. It records the prefix length
+    /// in <see cref="ThreadChannel.InFlightCount"/> and persists it before
+    /// dispatch so <see cref="DrainAsync"/> — which runs on a later actor turn —
+    /// removes exactly the dispatched batch.
+    /// </remarks>
     public async Task HandleInboundAsync(Message message, CancellationToken ct)
     {
         var effective = await host.ResolveEffectiveMetadataAsync(message, ct);
@@ -133,22 +159,47 @@ internal sealed class MailboxDispatchEngine(
             applyUnitPolicies: host.ApplyUnitPoliciesAsync,
             getChannel: GetChannelAsync,
             saveChannel: SaveChannelAsync,
-            dispatch: (channel, eff, _) =>
+            dispatch: async (channel, eff, _) =>
             {
+                // #3056: deliver the channel's pending FIFO prefix as one batch.
+                // Record the in-flight count and persist it before launching so
+                // the drain (a separate actor turn) removes exactly this batch.
+                var batch = TakeBatch(channel.Messages);
+                channel.InFlightCount = batch.Count;
+                await SaveChannelAsync(channel, ct);
+
                 var cts = _activeWorkByThread.Enter(channel.ThreadId);
-                PendingDispatchTask = DispatchAsync(channel.Messages[0], eff, cts.Token);
-                return Task.CompletedTask;
+                PendingDispatchTask = DispatchAsync(batch, eff, cts.Token);
             },
             emitActivity: host.EmitActivityAsync,
             cancellationToken: ct);
     }
 
     /// <summary>
+    /// Snapshots the FIFO prefix of <paramref name="messages"/> that forms the
+    /// next batched turn — at most <see cref="MaxBatchSize"/> messages, in
+    /// arrival order (oldest first). Returns a copy so the dispatched batch is
+    /// stable even as new messages append to the live channel during the turn.
+    /// </summary>
+    private static IReadOnlyList<Message> TakeBatch(IReadOnlyList<Message> messages)
+    {
+        var count = Math.Min(messages.Count, MaxBatchSize);
+        var batch = new List<Message>(count);
+        for (var i = 0; i < count; i++)
+        {
+            batch.Add(messages[i]);
+        }
+        return batch;
+    }
+
+    /// <summary>
     /// Advances the per-thread queue when a dispatcher returns (the actor's
-    /// <c>OnDispatchExitAsync</c> calls this on a turn). Removes the dispatched
-    /// head; on an authoritative stop, drops the remaining backlog and removes
-    /// the channel; when the queue is empty, removes the channel; otherwise
-    /// re-arms the dispatcher for the new head.
+    /// <c>OnDispatchExitAsync</c> calls this on a turn). Removes the whole
+    /// in-flight batch (#3056) — the leading <see cref="ThreadChannel.InFlightCount"/>
+    /// messages — in one atomic state write; on an authoritative stop, drops
+    /// the remaining backlog and removes the channel; when the queue is empty,
+    /// removes the channel; otherwise re-arms the dispatcher with the next
+    /// bounded batch.
     /// </summary>
     public async Task DrainAsync(string threadId, string? reason, CancellationToken ct)
     {
@@ -171,12 +222,20 @@ internal sealed class MailboxDispatchEngine(
             return;
         }
 
-        // Remove the dispatched head; appends queued behind it, so removing the
-        // head preserves per-thread FIFO for the remaining queue.
-        if (channel.Messages.Count > 0)
+        // #3056: remove the whole dispatched batch — the leading InFlightCount
+        // messages — in one step. Messages that arrived during the turn were
+        // appended at the tail (behind the batch), so removing the leading
+        // slice preserves per-thread FIFO for the remaining queue. A
+        // pre-#3056 channel (or a defensive InFlightCount of 0) removes the
+        // single head, matching the one-at-a-time behaviour this replaced.
+        var processed = channel.InFlightCount > 0
+            ? Math.Min(channel.InFlightCount, channel.Messages.Count)
+            : Math.Min(1, channel.Messages.Count);
+        if (processed > 0)
         {
-            channel.Messages.RemoveAt(0);
+            channel.Messages.RemoveRange(0, processed);
         }
+        channel.InFlightCount = 0;
 
         _activeWorkByThread.Exit(threadId);
 
@@ -204,30 +263,33 @@ internal sealed class MailboxDispatchEngine(
             return;
         }
 
-        // Drain the next queued message: re-mark dispatching, save, and fire a
-        // fresh dispatcher for the new head. Re-dispatch resolves the raw
-        // effective metadata (no unit-policy re-application — matching the
-        // pre-#3031 AgentActor behaviour).
+        // Drain the next batch: re-mark dispatching, record the next in-flight
+        // count, save, and fire a fresh dispatcher for the new prefix.
+        // Re-dispatch resolves the raw effective metadata (no unit-policy
+        // re-application — matching the pre-#3031 AgentActor behaviour).
+        var nextBatch = TakeBatch(channel.Messages);
         channel.Dispatching = true;
+        channel.InFlightCount = nextBatch.Count;
         await SaveChannelAsync(channel, ct);
 
-        var head = channel.Messages[0];
-        var effective = await host.ResolveEffectiveMetadataAsync(head, ct);
+        var effective = await host.ResolveEffectiveMetadataAsync(nextBatch[0], ct);
         var cts = _activeWorkByThread.Enter(threadId);
-        PendingDispatchTask = DispatchAsync(head, effective, cts.Token);
+        PendingDispatchTask = DispatchAsync(nextBatch, effective, cts.Token);
     }
 
     /// <summary>
-    /// Dispatches a single message for a per-thread channel. When
-    /// <c>concurrent_threads</c> is <c>false</c> the dispatch acquires the
-    /// subject-wide lock first so concurrent threads run serialised; the lock
-    /// release is in <c>finally</c> so a cancelled / failing dispatch does not
-    /// pin the subject. The runtime-invocation shape itself is the host's
-    /// concern (rich context for agents, lean for units).
+    /// Dispatches a batch of pending messages for a per-thread channel as one
+    /// runtime turn (#3056). When <c>concurrent_threads</c> is <c>false</c> the
+    /// dispatch acquires the subject-wide lock first so concurrent threads run
+    /// serialised; the lock release is in <c>finally</c> so a cancelled /
+    /// failing dispatch does not pin the subject. The runtime-invocation shape
+    /// itself is the host's concern (rich context for agents, lean for units).
+    /// <paramref name="batch"/> is non-empty and ordered oldest-first;
+    /// <c>batch[0]</c> is the representative used for thread routing.
     /// </summary>
-    private async Task DispatchAsync(Message head, AgentMetadata effective, CancellationToken ct)
+    private async Task DispatchAsync(IReadOnlyList<Message> batch, AgentMetadata effective, CancellationToken ct)
     {
-        var threadId = head.ThreadId ?? string.Empty;
+        var threadId = batch[0].ThreadId ?? string.Empty;
         var concurrent = await GetConcurrentThreadsAsync(ct);
         SemaphoreSlim? gate = concurrent ? null : (_wideLock ??= new SemaphoreSlim(1, 1));
 
@@ -240,7 +302,7 @@ internal sealed class MailboxDispatchEngine(
             try
             {
                 await host.InvokeRuntimeAsync(
-                    head,
+                    batch,
                     effective,
                     reason => host.SignalDispatchExitAsync(threadId, reason),
                     ct);
@@ -285,8 +347,11 @@ internal sealed class MailboxDispatchEngine(
             var depth = channel.Messages.Count;
             if (channel.Dispatching)
             {
+                // One in-flight batch per dispatching channel; the leading
+                // InFlightCount messages are in that batch, the rest queued
+                // behind it (#3056).
                 inFlight++;
-                queued += Math.Max(0, depth - 1);
+                queued += Math.Max(0, depth - channel.InFlightCount);
             }
             else
             {

@@ -64,8 +64,15 @@ public class AgentDispatchCoordinator(
         PromptAssemblyContext context,
         Func<ActivityEvent, CancellationToken, Task> emitActivity,
         Func<string, Task> onDispatchExit,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<Message>? batch = null)
     {
+        // #3056: deliver the whole pending set in one turn. message is the
+        // representative (batch head) used for routing / correlation /
+        // lifecycle activities; the full batch flows to the dispatcher so the
+        // inbound envelope names every message. A null batch is a one-message
+        // turn (the dispatcher falls back to [message]).
+        var batchSize = batch?.Count ?? 1;
         try
         {
             // Phase: mailbox hands the message to the dispatcher (ADR-0056 §7).
@@ -75,12 +82,15 @@ public class AgentDispatchCoordinator(
                     message.ThreadId,
                     ActivityEventType.MessageDispatchedToRuntime,
                     ActivitySeverity.Info,
-                    "Message dispatched to runtime.",
+                    batchSize > 1
+                        ? $"Dispatched {batchSize} pending messages to runtime as one turn."
+                        : "Message dispatched to runtime.",
                     details: JsonSerializer.SerializeToElement(new
                     {
                         agentId,
                         threadId = message.ThreadId,
                         messageId = message.Id,
+                        batchSize,
                     })),
                 CancellationToken.None);
 
@@ -106,7 +116,7 @@ public class AgentDispatchCoordinator(
                     })),
                 CancellationToken.None);
 
-            var outcome = await executionDispatcher.DispatchAsync(message, context, cancellationToken);
+            var outcome = await executionDispatcher.DispatchAsync(message, context, cancellationToken, batch);
 
             // Reasoning trace (when present, regardless of exit code) lands
             // BEFORE the terminal so consumers reading top-to-bottom see

@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Tests.Prompts;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Prompts;
 
@@ -162,5 +163,75 @@ public class InboundEnvelopeResolverTests
         var rendered = await harness.Resolver.RenderEnvelopeAsync(Inbound(UnitC, ThreadId), ct);
 
         rendered.ShouldContain($"- to: [{UnitC}]");
+    }
+
+    // ── #3056 batched delivery ───────────────────────────────────────────
+
+    [Fact]
+    public async Task RenderEnvelope_SingleMessageBatch_RendersIdenticallyToSingleOverload()
+    {
+        // A one-element batch must be byte-for-byte identical to the single
+        // overload — the common one-message-per-turn case is unchanged.
+        var ct = TestContext.Current.CancellationToken;
+        var harness = Harness.Create();
+        harness.Registry.ResolveAsync(ThreadId, Arg.Any<CancellationToken>())
+            .Returns(new ThreadRegistryEntry(ThreadId, new[] { Sender, AgentA }, DateTimeOffset.UtcNow));
+        var message = Inbound(AgentA, ThreadId);
+
+        var single = await harness.Resolver.RenderEnvelopeAsync(message, ct);
+        var batchOfOne = await harness.Resolver.RenderEnvelopeAsync(new[] { message }, ct);
+
+        batchOfOne.ShouldBe(single);
+        batchOfOne.ShouldStartWith("You received a message.");
+    }
+
+    [Fact]
+    public async Task RenderEnvelope_MultipleMessages_RendersOrderedSelfDescribedBatch()
+    {
+        // A multi-message batch names every message self-described, in order,
+        // under its own header, and frames the set so the runtime reasons over
+        // the whole thing before acting.
+        var ct = TestContext.Current.CancellationToken;
+        var harness = Harness.Create();
+        harness.Registry.ResolveAsync(ThreadId, Arg.Any<CancellationToken>())
+            .Returns(new ThreadRegistryEntry(ThreadId, new[] { Sender, AgentA }, DateTimeOffset.UtcNow));
+
+        var first = Inbound(AgentA, ThreadId);
+        var second = Inbound(AgentA, ThreadId);
+        var third = Inbound(AgentA, ThreadId);
+
+        var rendered = await harness.Resolver.RenderEnvelopeAsync(new[] { first, second, third }, ct);
+
+        // Batch framing: the count and the reason-over-the-set guidance.
+        rendered.ShouldContain("You received 3 messages in this conversation");
+        rendered.ShouldContain("read the whole set", Case.Insensitive);
+        rendered.ShouldContain("supersede");
+
+        // Each message is self-described under its own ordered header.
+        rendered.ShouldContain("--- message 1 of 3 ---");
+        rendered.ShouldContain("--- message 2 of 3 ---");
+        rendered.ShouldContain("--- message 3 of 3 ---");
+        foreach (var m in new[] { first, second, third })
+        {
+            rendered.ShouldContain(GuidFormatter.Format(m.Id),
+                customMessage: "every batched message must carry its own message_id.");
+        }
+
+        // Ordering: message 1's id precedes message 2's, which precedes 3's.
+        var i1 = rendered.IndexOf(GuidFormatter.Format(first.Id), StringComparison.Ordinal);
+        var i2 = rendered.IndexOf(GuidFormatter.Format(second.Id), StringComparison.Ordinal);
+        var i3 = rendered.IndexOf(GuidFormatter.Format(third.Id), StringComparison.Ordinal);
+        i1.ShouldBeLessThan(i2);
+        i2.ShouldBeLessThan(i3);
+    }
+
+    [Fact]
+    public async Task RenderEnvelope_EmptyBatch_Throws()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var harness = Harness.Create();
+
+        await Should.ThrowAsync<ArgumentException>(
+            async () => await harness.Resolver.RenderEnvelopeAsync(Array.Empty<Message>(), ct));
     }
 }

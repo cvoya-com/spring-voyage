@@ -166,11 +166,18 @@ public class A2AExecutionDispatcher(
     public async Task<RuntimeOutcome> DispatchAsync(
         SvMessage inboundMessage,
         PromptAssemblyContext? context,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyList<SvMessage>? batch = null)
     {
+        // #3056: the runtime turn delivers the whole pending set. Normalise a
+        // null / empty batch to the single representative so every downstream
+        // path renders an envelope; the representative (inboundMessage) still
+        // drives routing, the A2A correlation id, and the per-turn MCP session.
+        var effectiveBatch = batch is { Count: > 0 } ? batch : [inboundMessage];
+
         _logger.LogInformation(
-            "Dispatching A2A execution for message {MessageId} to {Destination}",
-            inboundMessage.Id, inboundMessage.To);
+            "Dispatching A2A execution for message {MessageId} ({BatchSize} pending) to {Destination}",
+            inboundMessage.Id, effectiveBatch.Count, inboundMessage.To);
 
         var agentId = inboundMessage.To.Path;
         var definition = await agentDefinitionProvider.GetByIdAsync(agentId, ct)
@@ -185,8 +192,8 @@ public class A2AExecutionDispatcher(
 
         return definition.Execution.Hosting switch
         {
-            AgentHostingMode.Persistent => await DispatchPersistentAsync(inboundMessage, definition, context, ct),
-            AgentHostingMode.Ephemeral => await DispatchEphemeralAsync(inboundMessage, definition, context, ct),
+            AgentHostingMode.Persistent => await DispatchPersistentAsync(inboundMessage, definition, context, ct, effectiveBatch),
+            AgentHostingMode.Ephemeral => await DispatchEphemeralAsync(inboundMessage, definition, context, ct, effectiveBatch),
             // Pooled is reserved on the enum (PR 1 of #1087) so agent YAML
             // written against #362 doesn't break the parser before #362
             // lands. Reject explicitly here so the value can't silently fall
@@ -203,7 +210,8 @@ public class A2AExecutionDispatcher(
         SvMessage message,
         AgentDefinition definition,
         PromptAssemblyContext? context,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<SvMessage> batch)
     {
         var agentId = definition.AgentId;
 
@@ -407,7 +415,8 @@ public class A2AExecutionDispatcher(
                 containerId,
                 message,
                 session.Token,
-                cancellationToken);
+                cancellationToken,
+                batch);
         }
         finally
         {
@@ -703,7 +712,8 @@ public class A2AExecutionDispatcher(
         SvMessage message,
         AgentDefinition definition,
         PromptAssemblyContext? context,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<SvMessage> batch)
     {
         var agentId = definition.AgentId;
         Uri endpoint;
@@ -850,7 +860,8 @@ public class A2AExecutionDispatcher(
                 containerId,
                 message,
                 session.Token,
-                cancellationToken);
+                cancellationToken,
+                batch);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1169,7 +1180,8 @@ public class A2AExecutionDispatcher(
         string? containerId,
         SvMessage originalMessage,
         string mcpToken,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<SvMessage>? batch = null)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         using var transport = _transportFactory.CreateTransport(containerId);
@@ -1187,8 +1199,15 @@ public class A2AExecutionDispatcher(
         // pattern #2703 documented). The empty-payload fallback used to
         // collapse to an empty user message; the envelope still names
         // sender/message_id so the runtime always has handles to act on.
+        //
+        // #3056 — when more than one message is pending for the thread, the
+        // batch carries the whole set and the envelope names every message
+        // (each self-described) so the runtime reasons over the net current
+        // state in one turn instead of acting on a stale prefix. A single-
+        // message batch renders exactly as it did pre-#3056.
+        var envelopeBatch = batch is { Count: > 0 } ? batch : [originalMessage];
         var userMessage = await _inboundEnvelopeResolver
-            .RenderEnvelopeAsync(originalMessage, cancellationToken);
+            .RenderEnvelopeAsync(envelopeBatch, cancellationToken);
 
         // A2A v0.3 wire shape: MessageSendParams { message, configuration } —
         // the JSON-RPC method name is `message/send` (set by the SDK), which
