@@ -142,8 +142,8 @@ jobs:
           # :latest (container tags + the GitHub Release "Latest" badge)
           # always follows the newest STABLE release. A pre-release is latest
           # only when the operator opted in, surfaced two ways:
-          #   • a `Mark-Latest: true` trailer on the annotated release tag,
-          #     written by `release.sh --latest` (the push-triggered path); or
+          #   • the release tag is annotated (release.sh --latest always
+          #     creates an annotated tag; lightweight = not latest); or
           #   • the workflow_dispatch `mark_latest` input (manual promotion of
           #     an existing tag).
           # :<major_minor> is deliberately NOT affected — that channel pointer
@@ -154,17 +154,20 @@ jobs:
           elif [[ "$MARK_LATEST_INPUT" == "true" ]]; then
             mark_latest="true"
           else
-            # Inspect the tag object for the annotated-tag marker. Lightweight
-            # tags (object.type != "tag") and transient API errors leave
-            # mark_latest=false — the safe default is "not latest".
-            tag_ref_json="$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${release_tag}" 2>/dev/null || true)"
-            obj_type="$(jq -r '.object.type // ""' <<<"$tag_ref_json" 2>/dev/null || true)"
-            obj_sha="$(jq -r '.object.sha // ""' <<<"$tag_ref_json" 2>/dev/null || true)"
-            if [[ "$obj_type" == "tag" && -n "$obj_sha" ]]; then
-              tag_message="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${obj_sha}" --jq '.message' 2>/dev/null || true)"
-              if grep -qiE '^[[:space:]]*Mark-Latest:[[:space:]]*true[[:space:]]*$' <<<"$tag_message"; then
-                mark_latest="true"
-              fi
+            # Detect annotated tag (release.sh --latest) vs lightweight tag.
+            # Retry up to 3 times: the workflow can start within milliseconds
+            # of the push, before GitHub's API indexes the tag object. A
+            # lightweight tag or any API failure leave mark_latest=false.
+            obj_type=""
+            for _attempt in 1 2 3; do
+              tag_ref_json="$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${release_tag}" 2>/dev/null || true)"
+              obj_type="$(jq -r '.object.type // ""' <<<"$tag_ref_json" 2>/dev/null || true)"
+              [[ -n "$obj_type" ]] && break
+              echo "Tag ref not yet available (attempt ${_attempt}/3); retrying in 5s …"
+              sleep 5
+            done
+            if [[ "$obj_type" == "tag" ]]; then
+              mark_latest="true"
             fi
           fi
 
