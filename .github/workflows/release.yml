@@ -753,25 +753,47 @@ jobs:
 
   # ── 7. Publish remaining agent images ──────────────────────────────────────
   #
-  # Builds and pushes the claude-code-base, gemini-base, codex-base, and
-  # spring-voyage-agent images via build-agent-images.sh. agent-base is
-  # built and pushed multi-arch by the `publish-agent-base-image` job above;
-  # this job skips it (--skip-agent-base) and pins the FROM to the
-  # just-published multi-arch ref via --agent-base-image.
+  # Multi-arch (linux/amd64 + linux/arm64) build matrix for the claude-code-base,
+  # gemini-base, codex-base, and spring-voyage-agent images. claude-code-base,
+  # gemini-base, and codex-base FROM spring-voyage-agent-base:<version> (just
+  # published multi-arch by publish-agent-base-image); spring-voyage-agent is a
+  # standalone native-A2A image. Mirrors the shape of publish-oss-agent-images
+  # and publish-platform-image (Buildx + QEMU + docker/metadata-action), so
+  # arm64 hosts get native images instead of an amd64 image under QEMU
+  # emulation. Under emulation Claude Code's vendored x86_64 ripgrep crash-loops
+  # and floods the host disk with core dumps (see #3052), which is why this was
+  # promoted from the deferred follow-up noted in #2229/#2233.
   #
-  # OSS role images are built by the `publish-oss-agent-images` job (multi-
-  # arch); this job skips them too (--skip-oss).
-  #
-  # NOTE: build-agent-images.sh uses plain `docker build` and is single-arch
-  # only. Multi-arch builds for these images are a follow-up; only agent-base
-  # and OSS images were multi-arch in #2229. The platform image is also
-  # multi-arch as of #2233 — see publish-platform-image below.
+  # build-agent-images.sh remains the single-arch path for local dev (it builds
+  # natively for the host arch); the CI/release push path uses Buildx here to
+  # publish multi-arch manifest lists.
   publish-agent-images:
-    name: Build and push agent images (claude-code, gemini, codex, native)
+    name: Build and push ${{ matrix.name }}
     runs-on: ubuntu-latest
     needs: [resolve, ci-gate, publish-agent-base-image]
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: spring-voyage-claude-code-base
+            dockerfile: eng/build/Dockerfile.agent.claude-code
+            from_agent_base: true
+            description: Spring Voyage Claude Code agent runtime base image.
+          - name: spring-voyage-gemini-base
+            dockerfile: eng/build/Dockerfile.agent.gemini
+            from_agent_base: true
+            description: Spring Voyage Gemini CLI agent runtime base image.
+          - name: spring-voyage-codex-base
+            dockerfile: eng/build/Dockerfile.agent.codex
+            from_agent_base: true
+            description: Spring Voyage Codex CLI agent runtime base image.
+          - name: spring-voyage-agent
+            dockerfile: eng/build/Dockerfile.agent.dapr
+            from_agent_base: false
+            description: Spring Voyage native A2A agent runtime image.
     env:
+      IMAGE_NAME: cvoya-com/${{ matrix.name }}
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
       MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
       IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
@@ -780,9 +802,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Verify docker is on PATH
-        shell: bash
-        run: docker version
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -791,163 +817,49 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build remaining agent images
-        shell: bash
-        run: |
-          set -euo pipefail
-          # --skip-agent-base: built multi-arch by publish-agent-base-image.
-          # --skip-oss: built multi-arch by publish-oss-agent-images.
-          # --agent-base-image: pin the FROM line to the multi-arch image
-          # that publish-agent-base-image just pushed.
-          bash eng/build/build-agent-images.sh \
-            --tag "${RELEASE_VERSION}" \
-            --ghcr-only \
-            --skip-agent-base \
-            --skip-oss \
-            --agent-base-image "ghcr.io/cvoya-com/spring-voyage-agent-base:${RELEASE_VERSION}"
+      - name: Compute image tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # :<version> always; :<major_minor> on stable only; :latest on stable
+          # OR a pre-release explicitly marked latest (resolve's mark_latest,
+          # #2970) — same channel logic the other image jobs use.
+          tags: |
+            type=raw,value=${{ env.RELEASE_VERSION }}
+            type=raw,value=${{ env.MAJOR_MINOR }},enable=${{ env.IS_PRERELEASE == 'false' }}
+            type=raw,value=latest,enable=${{ env.MARK_LATEST == 'true' }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.name }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.RELEASE_VERSION }}
 
-      - name: Tag and push claude-code-base
-        shell: bash
-        env:
-          TARGET_BASE: ${{ env.CLAUDE_CODE_IMAGE }}
-        run: |
-          set -euo pipefail
-          # Immutable version tag — always pushed, stable and pre-release alike.
-          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
-          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
-
-          # :<major_minor> moves only on stable releases (semver channel).
-          if [[ "$IS_PRERELEASE" == "false" ]]; then
-            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:${MAJOR_MINOR}"
-            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
-            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
-          else
-            echo "Pre-release: skipping :${MAJOR_MINOR} tag for claude-code-base"
-          fi
-
-          # :latest moves on stable OR on a pre-release marked latest (#2970).
-          if [[ "$MARK_LATEST" == "true" ]]; then
-            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:latest"
-            docker push "${TARGET_BASE}:latest"
-            echo "Pushed ${TARGET_BASE}:latest"
-          else
-            echo "Not latest: skipping :latest tag for claude-code-base"
-          fi
-
-      - name: Tag and push gemini-base
-        shell: bash
-        env:
-          TARGET_BASE: ${{ env.GEMINI_BASE_IMAGE }}
-        run: |
-          set -euo pipefail
-          # Immutable version tag — always pushed, stable and pre-release alike.
-          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
-          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
-
-          # :<major_minor> moves only on stable releases (semver channel).
-          if [[ "$IS_PRERELEASE" == "false" ]]; then
-            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:${MAJOR_MINOR}"
-            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
-            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
-          else
-            echo "Pre-release: skipping :${MAJOR_MINOR} tag for gemini-base"
-          fi
-
-          # :latest moves on stable OR on a pre-release marked latest (#2970).
-          if [[ "$MARK_LATEST" == "true" ]]; then
-            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:latest"
-            docker push "${TARGET_BASE}:latest"
-            echo "Pushed ${TARGET_BASE}:latest"
-          else
-            echo "Not latest: skipping :latest tag for gemini-base"
-          fi
-
-      - name: Tag and push codex-base
-        shell: bash
-        env:
-          TARGET_BASE: ${{ env.CODEX_BASE_IMAGE }}
-        run: |
-          set -euo pipefail
-          # Immutable version tag — always pushed, stable and pre-release alike.
-          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
-          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
-
-          # :<major_minor> moves only on stable releases (semver channel).
-          if [[ "$IS_PRERELEASE" == "false" ]]; then
-            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:${MAJOR_MINOR}"
-            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
-            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
-          else
-            echo "Pre-release: skipping :${MAJOR_MINOR} tag for codex-base"
-          fi
-
-          # :latest moves on stable OR on a pre-release marked latest (#2970).
-          if [[ "$MARK_LATEST" == "true" ]]; then
-            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:latest"
-            docker push "${TARGET_BASE}:latest"
-            echo "Pushed ${TARGET_BASE}:latest"
-          else
-            echo "Not latest: skipping :latest tag for codex-base"
-          fi
-
-      - name: Tag and push spring-voyage-agent (native A2A runtime)
-        shell: bash
-        env:
-          TARGET_BASE: ${{ env.SPRING_VOYAGE_AGENT_IMAGE }}
-        run: |
-          set -euo pipefail
-
-          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
-          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
-
-          # :<major_minor> moves only on stable releases (semver channel).
-          if [[ "$IS_PRERELEASE" == "false" ]]; then
-            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:${MAJOR_MINOR}"
-            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
-            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
-          else
-            echo "Pre-release: skipping :${MAJOR_MINOR} tag for spring-voyage-agent"
-          fi
-
-          # :latest moves on stable OR on a pre-release marked latest (#2970).
-          if [[ "$MARK_LATEST" == "true" ]]; then
-            docker tag "${TARGET_BASE}:${RELEASE_VERSION}" \
-              "${TARGET_BASE}:latest"
-            docker push "${TARGET_BASE}:latest"
-            echo "Pushed ${TARGET_BASE}:latest"
-          else
-            echo "Not latest: skipping :latest tag for spring-voyage-agent"
-          fi
+      - name: Build and push (multi-arch)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # claude-code/gemini/codex FROM the just-published multi-arch
+          # agent-base; the native spring-voyage-agent image takes no base arg.
+          build-args: ${{ matrix.from_agent_base && format('AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:{0}', needs.resolve.outputs.version) || '' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       # Visibility: see the note on publish-agent-base-image — these
       # packages inherit visibility from the source repository.
 
-      - name: Image publish summary
+      - name: Summary
         shell: bash
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_VERSION }}
         run: |
-          {
-            echo "### Agent images published"
-            echo
-            echo "| Image | Tags |"
-            echo "| --- | --- |"
-            # Tag column each image carries (#2970): :<version> always;
-            # :<major_minor> on stable only; :latest on stable or marked pre.
-            mm_tag=""; latest_tag=""
-            [[ "$IS_PRERELEASE" == "false" ]] && mm_tag=", \`${MAJOR_MINOR}\`"
-            [[ "$MARK_LATEST" == "true" ]] && latest_tag=", \`latest\`"
-            tagcol="\`${RELEASE_VERSION}\`${mm_tag}${latest_tag}"
-            echo "| \`ghcr.io/cvoya-com/spring-voyage-claude-code-base\` | ${tagcol} |"
-            echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\` | ${tagcol} |"
-            echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\` | ${tagcol} |"
-            echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | ${tagcol} |"
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::published (multi-arch linux/amd64,linux/arm64) ${IMAGE_REF}"
 
   # ── 8. Publish OSS role agent images ───────────────────────────────────────
   #
