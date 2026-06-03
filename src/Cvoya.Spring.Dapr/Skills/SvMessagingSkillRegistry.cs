@@ -134,7 +134,7 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         var upstreamThread = ResolveThreadId(context);
         var (recipients, scope) = ParseRecipientsAndScope(arguments, SendTool);
         var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
-        var message = BuildMessage(caller, ExtractMessagePayload(arguments));
+        var message = BuildMessage(caller, ExtractMessagePayload(arguments, SendTool));
 
         var result = await _handlers.HandleSendAsync(
             caller,
@@ -158,7 +158,7 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         var upstreamThread = ResolveThreadId(context);
         var (recipients, scope) = ParseRecipientsAndScope(arguments, MulticastTool);
         var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
-        var message = BuildMessage(caller, ExtractMessagePayload(arguments));
+        var message = BuildMessage(caller, ExtractMessagePayload(arguments, MulticastTool));
 
         var result = await _handlers.HandleMulticastAsync(
             caller,
@@ -188,7 +188,7 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         }
 
         var reason = TryGetStringArgument(arguments, "reason", out var reasonValue) ? reasonValue : null;
-        var message = BuildMessage(caller, ExtractMessagePayload(arguments));
+        var message = BuildMessage(caller, ExtractMessagePayload(arguments, RespondToTool));
 
         var result = await _handlers.HandleRespondToAsync(
             caller,
@@ -204,15 +204,23 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
     private static (IReadOnlyList<Address>? Recipients, MulticastScope? Scope) ParseRecipientsAndScope(
         JsonElement arguments, string toolName)
     {
+        // An empty 'recipients' array names no targets, so it counts as
+        // "not provided" — otherwise it would slip past the exactly-one gate
+        // and reach the delivery path with zero recipients.
         var hasRecipients = arguments.ValueKind == JsonValueKind.Object &&
             arguments.TryGetProperty("recipients", out var recipientsProp) &&
-            recipientsProp.ValueKind == JsonValueKind.Array;
+            recipientsProp.ValueKind == JsonValueKind.Array &&
+            recipientsProp.GetArrayLength() > 0;
         var hasScope = TryGetStringArgument(arguments, "scope", out var scopeValue);
 
         if (hasRecipients == hasScope)
         {
+            var supplied = hasRecipients ? "both" : "neither";
             throw new ArgumentException(
-                $"{toolName} requires exactly one of a non-empty 'recipients' array or a 'scope' string.");
+                $"{toolName} requires EXACTLY ONE of `recipients` or `scope` (you supplied {supplied}). " +
+                "Pass `recipients` as a non-empty array of addresses (agent:/unit:/human: — do not list yourself), " +
+                "OR `scope` as 'unit-members' or 'siblings'. Use `recipients` to name explicit targets; " +
+                "use `scope` to resolve them from your position in the unit graph.");
         }
 
         if (hasRecipients)
@@ -224,7 +232,9 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
                 var raw = element.ValueKind == JsonValueKind.String ? element.GetString() : null;
                 if (!Address.TryParse(raw, out var address) || address is null)
                 {
-                    throw new ArgumentException($"'{raw}' is not a valid Spring Voyage address.");
+                    throw new ArgumentException(
+                        $"'{raw}' in `recipients` is not a valid address. Each recipient is a canonical " +
+                        "address: agent:<32-hex>, unit:<32-hex>, or human:<32-hex>.");
                 }
                 EnsureRoutableRecipientScheme(address, toolName);
                 list.Add(address);
@@ -276,7 +286,6 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         {
             writer.WriteStartObject();
             writer.WriteString("messageId", result.MessageId.ToString("D"));
-            writer.WriteString("threadId", result.ThreadId.ToString("D"));
             writer.WritePropertyName("deliveries");
             writer.WriteStartArray();
             foreach (var delivery in result.Deliveries)
@@ -313,7 +322,6 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         writer.WriteStartObject();
         writer.WriteString("target", delivery.Target.ToString());
         writer.WriteBoolean("delivered", delivery.Delivered);
-        writer.WriteString("threadId", delivery.ThreadId.ToString("D"));
         if (delivery.Error is { } err)
         {
             writer.WriteString("error", err);
@@ -372,7 +380,24 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
             payload,
             DateTimeOffset.UtcNow);
 
-    private static JsonElement ExtractMessagePayload(JsonElement arguments)
+    /// <summary>
+    /// Builds the delivery payload from the <c>message</c> argument and
+    /// rejects content-less messages (#3035). A string becomes
+    /// <c>{ content }</c>; an object is taken verbatim; anything else
+    /// (absent, JSON <c>null</c>, number, boolean, array) yields no
+    /// deliverable body. <see cref="EnsureDeliverableContent"/> then fails
+    /// the call synchronously with a retry-guiding tool error rather than
+    /// delivering an empty envelope a recipient reads as "nothing sent" —
+    /// the root cause of the #3034 false-alarm cascade.
+    /// </summary>
+    private static JsonElement ExtractMessagePayload(JsonElement arguments, string toolName)
+    {
+        var payload = ResolveMessagePayload(arguments);
+        EnsureDeliverableContent(payload, toolName);
+        return payload;
+    }
+
+    private static JsonElement ResolveMessagePayload(JsonElement arguments)
     {
         if (arguments.ValueKind == JsonValueKind.Object &&
             arguments.TryGetProperty("message", out var message))
@@ -387,6 +412,65 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         }
 
         return JsonSerializer.SerializeToElement(new { });
+    }
+
+    /// <summary>
+    /// Well-known top-level string properties that carry a human-readable
+    /// body, mirroring the payload renderers in
+    /// <c>Cvoya.Spring.Core.Messaging.Rendering</c> (<c>content</c> for the
+    /// <c>sv.messaging.*</c> string wrap, plus the <c>text</c> / <c>body</c>
+    /// / <c>Output</c> shapes other producers use). A payload whose only
+    /// properties are these — and all empty/whitespace — renders to an empty
+    /// bubble, so it is treated as content-less.
+    /// </summary>
+    private static readonly HashSet<string> BodyProperties =
+        new(StringComparer.Ordinal) { "content", "text", "body", "Output" };
+
+    /// <summary>
+    /// Rejects a delivery payload that carries no readable content (#3035).
+    /// The #3034 cascade started with <c>sv.messaging.respond_to</c> fired as
+    /// a content-less acknowledgement: the tool accepted it and delivered an
+    /// empty <c>{}</c> recipients read as "didn't send / missing". A payload
+    /// is content-less when it has no properties, or when its only properties
+    /// are well-known body fields that are all empty/whitespace. Any other
+    /// property is opaque structured content the recipient sees as JSON in
+    /// the inbound envelope, so well-formed structured sends are unaffected.
+    /// </summary>
+    private static void EnsureDeliverableContent(JsonElement payload, string toolName)
+    {
+        if (payload.ValueKind == JsonValueKind.Object && PayloadHasContent(payload))
+        {
+            return;
+        }
+
+        throw new ArgumentException(
+            $"{toolName} requires a non-empty message. Put your text in the `message` argument — " +
+            "a non-empty string, or an object with a non-empty `content` (or `text` / `body`) field. " +
+            "An empty or whitespace-only message delivers an empty envelope the recipient reads as " +
+            "\"nothing was sent\". If you have nothing to add, do not call a messaging tool — there is no empty acknowledgement.");
+    }
+
+    private static bool PayloadHasContent(JsonElement payload)
+    {
+        foreach (var property in payload.EnumerateObject())
+        {
+            if (BodyProperties.Contains(property.Name))
+            {
+                if (property.Value.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(property.Value.GetString()))
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                // A non-body property is opaque structured content the
+                // recipient sees as JSON in the inbound envelope — meaningful.
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool TryGetStringArgument(JsonElement arguments, string name, out string? value)

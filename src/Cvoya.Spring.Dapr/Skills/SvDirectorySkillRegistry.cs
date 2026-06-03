@@ -170,9 +170,8 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["uuid"],
           "properties": {
-            "uuid": { "type": "string", "description": "Stable Guid identifier." },
+            "uuid": { "type": "string", "description": "Stable Guid identifier (no-dash 32-char hex, also accepts dashed UUID). Optional — when omitted, defaults to you, the calling agent or unit: sv.directory.get_siblings returns your own siblings; sv.directory.list_members returns your own members (valid only when you are a unit, since agents have no members)." },
             "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
             "offset": { "type": "integer", "minimum": 0, "default": 0 }
           }
@@ -309,19 +308,21 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "list when present. One row per (unit, human) pair — a human filling multiple " +
                 "team roles surfaces as a single entry whose roles array carries every role. " +
                 "Sub-unit members are NOT recursively expanded — call sv.directory.list_members again on " +
-                "a sub-unit's uuid to walk further. Pagination via limit (default 50, max 200) " +
-                "and offset; total_count carries the unfiltered total. Agent and unit entries " +
-                "additionally carry an advisory live_status object — see sv.directory.get_status; the " +
+                "a sub-unit's uuid to walk further. Omit uuid to list your own members — valid only when you " +
+                "are a unit (agents have no members and get a retry-guiding error). Pagination via limit " +
+                "(default 50, max 200) and offset; total_count carries the unfiltered total. Agent and unit " +
+                "entries additionally carry an advisory live_status object — see sv.directory.get_status; the " +
                 "field is omitted entirely on human entries.",
                 UuidPagedArgSchema,
                 ToolCategories.Directory),
             new ToolDefinition(
                 GetSiblingsTool,
                 "Returns entities that share at least one parent with the entity identified by " +
-                "uuid. Self is excluded. Each returned entry carries its own parent_uuids so " +
-                "the caller can filter by overlap with the target's parents to scope to a " +
-                "specific context (e.g. 'siblings under the unit that just messaged me'). " +
-                "Pagination via limit (default 50, max 200) and offset.",
+                "uuid. Self is excluded. Omit uuid to default to yourself — your own siblings. " +
+                "Each returned entry carries its own parent_uuids so the caller can filter by " +
+                "overlap with the target's parents to scope to a specific context (e.g. 'siblings " +
+                "under the unit that just messaged me'). Pagination via limit (default 50, max 200) " +
+                "and offset.",
                 UuidPagedArgSchema,
                 ToolCategories.Directory),
             new ToolDefinition(
@@ -335,9 +336,9 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "Returns the advisory runtime-status snapshot for a single agent or unit " +
                 "identified by uuid. Output shape: { uuid, kind, display_name, live_status? }. " +
                 "live_status is { in_flight, queued, channels, observed_at } where in_flight is " +
-                "the count of threads currently being dispatched, queued is messages waiting " +
+                "the count of conversations currently being dispatched, queued is messages waiting " +
                 "behind in-flight heads (agents only; units' lean dispatch has no queue), and " +
-                "channels is the total per-thread channels tracked. The field is omitted for " +
+                "channels is the total per-conversation channels tracked. The field is omitted for " +
                 "kind='human' (humans have no runtime). Snapshots are advisory — they reflect " +
                 "the state at the moment of the call and may be stale by the time you act on " +
                 "them; the actor mailbox is the ordering authority. " + TenantSentinelWarning,
@@ -878,9 +879,34 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         return SerializeStatusEntry(targetUuid, kind, displayName, liveStatus);
     }
 
+    /// <summary>
+    /// Resolves the unit whose members <c>sv.directory.list_members</c>
+    /// lists. The uuid defaults to the caller only when the caller is a unit
+    /// ("my members"); an agent has no members, so an agent omitting the uuid
+    /// gets a retry-guiding error pointing at the right tool instead of a
+    /// silently empty list (#3036).
+    /// </summary>
+    private static string ResolveListMembersUnitUuid(JsonElement args, ToolCallContext context)
+    {
+        var explicitUuid = TryReadUuidArg(args, "uuid");
+        if (explicitUuid is not null)
+        {
+            return explicitUuid;
+        }
+        var (callerUuid, callerKind) = ParseCaller(context);
+        if (!string.Equals(callerKind, KindUnit, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "sv.directory.list_members lists the members of a UNIT, but you are an agent and agents have no " +
+                "members. Pass the unit's `uuid` — e.g. one of your parent_uuids from sv.directory.get_self — or " +
+                "call sv.directory.list with scope='unit_members' to list your unit's members directly.");
+        }
+        return callerUuid;
+    }
+
     private async Task<JsonElement> ListMembersAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
     {
-        var unitUuid = RequireUuidArg(args, "uuid");
+        var unitUuid = ResolveListMembersUnitUuid(args, context);
         var (limit, offset) = ParsePaging(args);
         await EnsureDirectoryReadAllowedAsync(context, unitUuid, ct);
 
@@ -1033,7 +1059,10 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
     private async Task<JsonElement> GetSiblingsAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
     {
-        var targetUuid = RequireUuidArg(args, "uuid");
+        // uuid defaults to the caller (#3036): "my siblings" is the obvious
+        // intent of a no-arg call, and a caller — agent or unit — always has
+        // a position in the unit graph to resolve siblings from.
+        var targetUuid = TryReadUuidArg(args, "uuid") ?? ParseCaller(context).Uuid;
         var (limit, offset) = ParsePaging(args);
         var (targetKind, _) = await ResolveKindAsync(targetUuid, ct);
 
@@ -1437,12 +1466,41 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             !args.TryGetProperty(name, out var prop) ||
             prop.ValueKind != JsonValueKind.String)
         {
-            throw new ArgumentException($"Missing required argument '{name}'.");
+            throw new ArgumentException(
+                $"sv.directory.* requires a '{name}': the no-dash 32-char hex (or dashed) UUID of the agent or " +
+                "unit to inspect. Get one from sv.directory.get_self, sv.directory.list, sv.directory.get_parents, " +
+                "or the sender address on an inbound message.");
         }
         var raw = prop.GetString();
         if (string.IsNullOrWhiteSpace(raw) || !GuidFormatter.TryParse(raw, out var guid))
         {
-            throw new ArgumentException($"Argument '{name}' must be a Guid.");
+            throw new ArgumentException(
+                $"Argument '{name}' = '{raw}' is not a valid UUID. Pass the no-dash 32-char hex (or dashed) UUID " +
+                "of an agent or unit (e.g. a uuid from sv.directory.get_self or sv.directory.list).");
+        }
+        return GuidFormatter.Format(guid);
+    }
+
+    /// <summary>
+    /// Reads an optional <c>uuid</c> argument for the list_members /
+    /// get_siblings default-to-caller path (#3036). Returns <c>null</c> when
+    /// the argument is absent (the caller substitutes a default), but a
+    /// present-but-malformed value still throws a retry-guiding error rather
+    /// than silently falling back to the caller — a botched id is a mistake
+    /// to surface, not to paper over.
+    /// </summary>
+    private static string? TryReadUuidArg(JsonElement args, string name)
+    {
+        if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty(name, out var prop))
+        {
+            return null;
+        }
+        var raw = prop.ValueKind == JsonValueKind.String ? prop.GetString() : null;
+        if (string.IsNullOrWhiteSpace(raw) || !GuidFormatter.TryParse(raw, out var guid))
+        {
+            throw new ArgumentException(
+                $"Argument '{name}' = '{raw}' is not a valid UUID. Pass the no-dash 32-char hex (or dashed) UUID " +
+                "of an agent or unit, or omit it to default to yourself.");
         }
         return GuidFormatter.Format(guid);
     }

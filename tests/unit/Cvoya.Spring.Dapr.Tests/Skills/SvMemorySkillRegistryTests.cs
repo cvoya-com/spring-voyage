@@ -328,8 +328,12 @@ public class SvMemorySkillRegistryTests
     }
 
     [Fact]
-    public async Task MemoryUpdate_MissingEntry_Throws()
+    public async Task MemoryUpdate_MissingEntry_ReturnsCleanNotFound()
     {
+        // #3036: a stale / unknown id is a self-correctable condition, not a
+        // platform fault. The tool returns a clean { updated: false, reason:
+        // "not_found", id } with isError=false instead of throwing a
+        // SpringException the model would read as a crash.
         var registry = CreateRegistry();
         var ctx = AgentContext(Guid.NewGuid());
         var id = Guid.NewGuid();
@@ -338,8 +342,27 @@ public class SvMemorySkillRegistryTests
                 Arg.Any<JsonElement?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<MemoryEntry?>(null));
 
-        await Should.ThrowAsync<SpringException>(async () =>
+        var result = await registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryUpdateTool, args, ctx, TestContext.Current.CancellationToken);
+
+        result.GetProperty("updated").GetBoolean().ShouldBeFalse();
+        result.GetProperty("reason").GetString().ShouldBe("not_found");
+        result.GetProperty("id").GetString().ShouldBe(GuidFormatter.Format(id));
+    }
+
+    [Fact]
+    public async Task MemoryUpdate_MissingId_ThrowsRetryGuidingArgumentException()
+    {
+        var registry = CreateRegistry();
+        var ctx = AgentContext(Guid.NewGuid());
+        var args = JsonDocument.Parse("""{"content":"x"}""").RootElement;
+
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
             await registry.InvokeAsync(SvMemorySkillRegistry.MemoryUpdateTool, args, ctx, TestContext.Current.CancellationToken));
+
+        // The error names what to pass and where a fresh id comes from.
+        ex.Message.ShouldContain("id");
+        ex.Message.ShouldContain("sv.memory.list");
     }
 
     [Fact]

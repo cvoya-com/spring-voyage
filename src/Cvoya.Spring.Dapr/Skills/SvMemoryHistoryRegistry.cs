@@ -94,12 +94,11 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["participants"],
           "properties": {
             "participants": {
               "type": "array",
               "minItems": 1,
-              "description": "The other participants on the shared timeline. The calling participant is auto-included; do not list yourself. Connectors (connector:<32-hex>) may appear here as the sender of an inbound webhook event.",
+              "description": "Optional. The other participants on the shared timeline whose history you want; the calling participant is auto-included, so do not list yourself. Connectors (connector:<32-hex>) may appear here as the sender of an inbound webhook event. When omitted, defaults to the conversation you are currently in — calling this tool with no arguments re-reads the history of the conversation that prompted your turn.",
               "items": { "type": "string", "description": "Canonical scheme:no-dash-hex address." }
             },
             "tail": { "type": "integer", "minimum": 1, "maximum": 500, "description": "When supplied, return only the most-recent N messages on the shared timeline (default: every persisted message)." }
@@ -135,7 +134,7 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
               "type": "array",
               "minItems": 1,
               "maxItems": 100,
-              "description": "The message ids to fetch (1–100), each the no-dash 32-char hex message_id you already hold from an inbound envelope. Ids you cannot read — unknown, or on a thread you do not participate in — come back under `skipped`, never as an error.",
+              "description": "The message ids to fetch (1–100), each the no-dash 32-char hex message_id you already hold from an inbound envelope. Ids you cannot read — unknown, or in a conversation you do not participate in — come back under `skipped`, never as an error.",
               "items": { "type": "string", "description": "A message_id (no-dash 32-char hex)." }
             }
           }
@@ -163,7 +162,7 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
                 ToolCategories.Memory),
             new ToolDefinition(
                 HistoryWithTool,
-                "Fetch the full message timeline shared with the supplied participants. The calling participant is auto-included; do not list yourself. Returns { participants, messages: [{ message_id, timestamp, from, to, body }, ...] } ordered oldest first. Pass tail=N to return only the most-recent N messages. Returns null when no shared timeline exists yet for that participant set.",
+                "Fetch the full message timeline shared with the supplied participants. The calling participant is auto-included; do not list yourself. Omit participants to default to the conversation you are currently in — calling it with no arguments re-reads this conversation's history, which is how you recover what was actually said instead of relying on memory. Returns { participants, messages: [{ message_id, timestamp, from, to, body }, ...] } ordered oldest first. Pass tail=N to return only the most-recent N messages. Returns null when no shared timeline exists yet for that participant set.",
                 HistoryWithSchema,
                 ToolCategories.Memory),
             new ToolDefinition(
@@ -173,7 +172,7 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
                 ToolCategories.Memory),
             new ToolDefinition(
                 GetMessagesTool,
-                "Fetch specific messages by message_id (1–100 per call) — the by-id complement to sv.memory.history_with (a whole timeline) and sv.memory.search_messages (free-text). Use it when you already hold the ids, e.g. to re-read a message you were notified about. Returns { messages: [{ message_id, timestamp, from, to, body }, ...], skipped: [\"<message_id>\", ...] }, with messages in the order you asked for them. You may only read a message on a thread you participate in; any id that is unknown or that you cannot access comes back under skipped (the two cases are indistinguishable on purpose), never as an error.",
+                "Fetch specific messages by message_id (1–100 per call) — the by-id complement to sv.memory.history_with (a whole timeline) and sv.memory.search_messages (free-text). Use it when you already hold the ids, e.g. to re-read a message you were notified about. Returns { messages: [{ message_id, timestamp, from, to, body }, ...], skipped: [\"<message_id>\", ...] }, with messages in the order you asked for them. You may only read a message in a conversation you participate in; any id that is unknown or that you cannot access comes back under skipped (the two cases are indistinguishable on purpose), never as an error.",
                 GetMessagesSchema,
                 ToolCategories.Memory),
         };
@@ -235,15 +234,34 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
         JsonElement args, ToolCallContext context, CancellationToken ct)
     {
         var caller = ParseCaller(context);
-        var others = RequireParticipantArray(args, "participants");
+        var others = TryReadParticipantArray(args, "participants");
         var tail = TryReadIntArg(args, "tail");
 
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var registry = scope.ServiceProvider.GetRequiredService<IThreadRegistry>();
         var queryService = scope.ServiceProvider.GetRequiredService<IThreadQueryService>();
 
-        var participants = BuildParticipantSet(caller, others);
-        var threadId = await registry.GetOrCreateAsync(participants, ct);
+        string threadId;
+        if (others is { Count: > 0 })
+        {
+            var registry = scope.ServiceProvider.GetRequiredService<IThreadRegistry>();
+            var participants = BuildParticipantSet(caller, others);
+            threadId = await registry.GetOrCreateAsync(participants, ct);
+        }
+        else if (GuidFormatter.TryParse(context.ThreadId, out var activeThread))
+        {
+            // Default (#3036): no participant set named → the conversation the
+            // caller is currently in. context.ThreadId is the caller's active
+            // thread, so this re-reads "this conversation" — the most common
+            // intent, and the fumble that left agents blind in #3034.
+            threadId = GuidFormatter.Format(activeThread);
+        }
+        else
+        {
+            throw new ArgumentException(
+                "sv.memory.history_with needs a participant set to resolve a timeline. " +
+                "Pass `participants` — the other addresses on the conversation (you are auto-included) — " +
+                "or call this tool from within a conversation to default to the one you are in.");
+        }
 
         var detail = await queryService.GetAsync(threadId, ct);
         if (detail is null || !ParticipatesIn(detail.Summary, caller))
@@ -335,16 +353,6 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
         return set;
     }
 
-    private static IReadOnlyList<Address> RequireParticipantArray(JsonElement args, string name)
-    {
-        var addresses = TryReadParticipantArray(args, name);
-        if (addresses is null || addresses.Count == 0)
-        {
-            throw new ArgumentException($"Missing required argument '{name}' (non-empty array of addresses).");
-        }
-        return addresses;
-    }
-
     private static IReadOnlyList<Address>? TryReadParticipantArray(JsonElement args, string name)
     {
         if (args.ValueKind != JsonValueKind.Object
@@ -373,7 +381,10 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
             || !args.TryGetProperty(name, out var prop)
             || prop.ValueKind != JsonValueKind.Array)
         {
-            throw new ArgumentException($"Missing required argument '{name}' (non-empty array of message ids).");
+            throw new ArgumentException(
+                $"sv.memory.get_messages requires `{name}`: a non-empty array (1–{MaxMessageIds}) of message_id " +
+                "strings you already hold — each the no-dash 32-char hex `message_id` from an inbound envelope, " +
+                "or from sv.memory.history_with / sv.memory.search_messages.");
         }
 
         var list = new List<string>(prop.GetArrayLength());
@@ -393,7 +404,9 @@ public sealed class SvMemoryHistoryRegistry : ISkillRegistry
 
         if (list.Count == 0)
         {
-            throw new ArgumentException($"Argument '{name}' must contain at least one message id.");
+            throw new ArgumentException(
+                $"`{name}` must contain at least one message_id — the no-dash 32-char hex id from an inbound " +
+                "envelope, or from sv.memory.history_with / sv.memory.search_messages.");
         }
         if (list.Count > MaxMessageIds)
         {
