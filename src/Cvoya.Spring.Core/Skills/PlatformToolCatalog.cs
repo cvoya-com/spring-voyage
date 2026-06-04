@@ -102,9 +102,13 @@ public static class PlatformToolCatalog
             "sv.directory.get_siblings for entities sharing a parent, " +
             "sv.directory.get_parents for an entity's parents, and " +
             "sv.directory.get_status for an entity's advisory runtime-status " +
-            "snapshot. Every entry carries enough to act on (address, " +
-            "display name, role, expertise, advisory live status) — feed an " +
-            "address back into sv.messaging.send to reach the entry.",
+            "snapshot. Use sv.directory.members for a quick roster of your own " +
+            "unit's teammates — agents, sub-units, and human members — each " +
+            "with a sendable address, so you can reach a teammate (including a " +
+            "human) without asking the hub for an address. Every entry carries " +
+            "enough to act on (address, display name, role, expertise, " +
+            "advisory live status) — feed an address back into " +
+            "sv.messaging.send to reach the entry.",
             // sv.expertise.* is grouped into this category for discovery but is
             // deliberately NOT an owned namespace: it is dynamic per tenant and
             // being folded into directory discovery (#2989), so the guidance is
@@ -134,16 +138,15 @@ public static class PlatformToolCatalog
             ToolCategories.Memory,
             "Private memory and shared participant-set history.",
             "Two surfaces on the same category. Private memory: use " +
-            "sv.memory.add to record an entry with structured JSON content " +
-            "(the object-primary default), or sv.memory.text.add for a " +
-            "plain-text note; both are agent-wide by default — pass a " +
-            "conversation's participants to scope the entry to that " +
-            "conversation instead (you are auto-included, so do not list " +
+            "sv.memory.add to record an entry — content may be structured JSON " +
+            "or plain text, stored type-preserved; it is agent-wide by " +
+            "default — pass a conversation's participants to scope the entry to " +
+            "that conversation instead (you are auto-included, so do not list " +
             "yourself). sv.memory.get reads one entry by id; sv.memory.list / " +
             "sv.memory.search retrieve (agent-wide by default, or pass " +
             "participants to recall a single conversation's entries); " +
-            "sv.memory.update / sv.memory.text.update replace an entry's " +
-            "content (structured or text); sv.memory.delete removes one. " +
+            "sv.memory.update replaces an entry's content (structured JSON or " +
+            "plain text); sv.memory.delete removes one. " +
             "Caller-scoped — another agent's entries are not visible. Shared " +
             "history: sv.memory.engagements lists the participant sets you " +
             "share a timeline with (most-recent activity first); " +
@@ -157,7 +160,7 @@ public static class PlatformToolCatalog
             "call), returning only those on timelines you participate in. A " +
             "conversation is named by its participant set, never by an " +
             "internal id.",
-            OwnedNamespaces: ["sv.memory", "sv.memory.text"]),
+            OwnedNamespaces: ["sv.memory"]),
     ];
 
     /// <summary>

@@ -131,6 +131,15 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     /// </summary>
     public const string LookupTool = "sv.directory.lookup";
 
+    /// <summary>
+    /// Tool name for <c>sv.directory.members</c> (#3065). Read-only roster of
+    /// the CALLER's own unit membership — agents, sub-units, and human members
+    /// — each projected to a sendable address so a member can resolve a
+    /// teammate (including a human, e.g. the publisher / approver) to an
+    /// address without routing the request through the hub.
+    /// </summary>
+    public const string MembersTool = "sv.directory.members";
+
     /// <summary>Default page size for list tools, mirroring DirectorySearchResponse.</summary>
     public const int DefaultLimit = 50;
 
@@ -228,6 +237,22 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
               "type": "string",
               "description": "Canonical Spring Voyage address (scheme:32-hex-no-dash) — agent:..., unit:..., or human:... — to resolve."
             }
+          }
+        }
+        """);
+
+    /// <summary>
+    /// Input schema for <c>sv.directory.members</c> (#3065). No target
+    /// argument — the roster is always the caller's own unit membership —
+    /// only the shared pagination knobs.
+    /// </summary>
+    private static readonly JsonElement MembersArgSchema = ParseSchema("""
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
+            "offset": { "type": "integer", "minimum": 0, "default": 0 }
           }
         }
         """);
@@ -368,6 +393,21 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 TenantSentinelWarning,
                 LookupArgSchema,
                 ToolCategories.Directory),
+            new ToolDefinition(
+                MembersTool,
+                "List YOUR OWN unit's members — your teammates — each with a sendable " +
+                "address, so you can reach a teammate directly instead of asking the hub " +
+                "for an address. No argument needed: when you are a unit it returns your " +
+                "members; when you are an agent it returns the members of your parent " +
+                "unit(s). Includes agent members, sub-unit members, AND human members " +
+                "(so you can address a human such as the publisher or approver by their " +
+                "role). Each entry is { address, display_name, role_or_kind, kind, roles } " +
+                "— role_or_kind is the member's primary team role when it has one, else its " +
+                "kind ('agent' / 'unit' / 'human'); feed address straight into " +
+                "sv.messaging.send. Pagination via limit (default 50, max 200) and offset; " +
+                "total_count carries the unfiltered total.",
+                MembersArgSchema,
+                ToolCategories.Directory),
         };
     }
 
@@ -410,6 +450,8 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 return await ListAsync(arguments, context, cancellationToken);
             case LookupTool:
                 return await LookupAsync(arguments, context, cancellationToken);
+            case MembersTool:
+                return await MembersAsync(arguments, context, cancellationToken);
             default:
                 throw new SkillNotFoundException(toolName);
         }
@@ -648,6 +690,84 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         }
 
         return await ResolveKindAsync(uuid, ct);
+    }
+
+    /// <summary>
+    /// Implements <c>sv.directory.members</c> (#3065). Returns the caller's
+    /// own unit membership as a flat roster of sendable addresses —
+    /// agents, sub-units, and human members alike — so a member can resolve a
+    /// teammate (including a human) to an address without routing through the
+    /// hub. "The caller's unit" resolves through the same
+    /// <see cref="ResolveScopeUnitIdsAsync"/> path
+    /// <c>sv.directory.list</c>'s <c>unit_members</c> scope uses: a unit
+    /// caller's own members, or an agent caller's parent unit(s)' members. The
+    /// per-source-unit directory-read enforcer gates the read, and humans are
+    /// drawn from <see cref="IUnitHumanMembershipStore"/> so the roster is the
+    /// complete membership, not just the agent / sub-unit graph.
+    /// </summary>
+    private async Task<JsonElement> MembersAsync(
+        JsonElement args, ToolCallContext context, CancellationToken ct)
+    {
+        var (limit, offset) = ParsePaging(args);
+        var (callerUuid, callerKind) = ParseCaller(context);
+
+        // Reuse the unit_members scope resolution: unit caller → its own
+        // unit; agent caller → its parent unit(s). Authz per source unit is
+        // applied inside ResolveScopeUnitIdsAsync (parents the caller cannot
+        // read are dropped).
+        var sourceUnitIds = await ResolveScopeUnitIdsAsync(
+            callerUuid, callerKind, ListScope.UnitMembers, context, ct);
+
+        // Dedup across overlapping parents, keyed by canonical address so a
+        // teammate that sits in two of the caller's parent units surfaces once.
+        var rosterByAddress = new Dictionary<string, MemberRosterEntry>(StringComparer.Ordinal);
+
+        foreach (var unitId in sourceUnitIds)
+        {
+            // Agent + sub-unit members from the member graph.
+            var members = await _memberGraphStore.GetMembersAsync(unitId, ct);
+            foreach (var member in members)
+            {
+                var key = member.ToString();
+                if (rosterByAddress.ContainsKey(key))
+                {
+                    continue;
+                }
+                var displayName = await ResolveDisplayNameAsync(member, ct);
+                rosterByAddress[key] = new MemberRosterEntry(
+                    Address: key,
+                    DisplayName: displayName,
+                    Kind: member.Scheme,
+                    Roles: Array.Empty<string>());
+            }
+
+            // Human members (ADR-0044 § 5) — included so a member can address
+            // a human teammate (e.g. the publisher / approver) directly.
+            var humanRows = await _humanMembershipStore.ListByUnitAsync(unitId, ct);
+            foreach (var row in humanRows)
+            {
+                var humanAddress = Address.For(KindHuman, GuidFormatter.Format(row.HumanId));
+                var key = humanAddress.ToString();
+                if (rosterByAddress.ContainsKey(key))
+                {
+                    continue;
+                }
+                var displayName = await ResolveHumanDisplayNameAsync(row.HumanId, ct);
+                var roles = row.Roles
+                    .Where(r => !string.IsNullOrWhiteSpace(r))
+                    .Select(r => r.Trim())
+                    .ToList();
+                rosterByAddress[key] = new MemberRosterEntry(
+                    Address: key,
+                    DisplayName: displayName,
+                    Kind: KindHuman,
+                    Roles: roles);
+            }
+        }
+
+        var ordered = rosterByAddress.Values.ToList();
+        var page = ordered.Skip(offset).Take(limit).ToList();
+        return SerializeMemberRoster(page, ordered.Count, limit, offset);
     }
 
     private static ListScope ParseListScope(JsonElement args)
@@ -1605,6 +1725,49 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
     }
 
+    /// <summary>
+    /// Serializes the <c>sv.directory.members</c> roster (#3065):
+    /// <c>{ members: [{ address, display_name, role_or_kind, kind, roles }],
+    /// total_count, limit, offset }</c>. <c>role_or_kind</c> is the member's
+    /// primary team role when it has one, else its <c>kind</c> — a single
+    /// scalar a caller can branch on; the full <c>roles</c> array and
+    /// <c>kind</c> are also emitted so the projection is not lossy for
+    /// multi-role humans.
+    /// </summary>
+    private static JsonElement SerializeMemberRoster(
+        IReadOnlyList<MemberRosterEntry> entries, int totalCount, int limit, int offset)
+    {
+        using var stream = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName("members");
+            writer.WriteStartArray();
+            foreach (var entry in entries)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("address", entry.Address);
+                writer.WriteString("display_name", entry.DisplayName);
+                writer.WriteString("role_or_kind", entry.RoleOrKind);
+                writer.WriteString("kind", entry.Kind);
+                writer.WritePropertyName("roles");
+                writer.WriteStartArray();
+                foreach (var role in entry.Roles)
+                {
+                    writer.WriteStringValue(role);
+                }
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteNumber("total_count", totalCount);
+            writer.WriteNumber("limit", limit);
+            writer.WriteNumber("offset", offset);
+            writer.WriteEndObject();
+        }
+        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+    }
+
     private static void WriteEntry(Utf8JsonWriter writer, DirectoryEntry entry)
     {
         writer.WriteStartObject();
@@ -1697,4 +1860,20 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         int? MemberCount,
         AgentRuntimeStatusReport? LiveStatus,
         IReadOnlyList<string>? Roles = null);
+
+    /// <summary>
+    /// Slim projection backing <c>sv.directory.members</c> (#3065): the
+    /// minimum a member needs to address a teammate. <see cref="RoleOrKind"/>
+    /// collapses <see cref="Roles"/> + <see cref="Kind"/> to a single scalar
+    /// (primary role when present, else the kind) for callers that want one
+    /// label; the full <see cref="Roles"/> list is emitted alongside.
+    /// </summary>
+    private sealed record MemberRosterEntry(
+        string Address,
+        string DisplayName,
+        string Kind,
+        IReadOnlyList<string> Roles)
+    {
+        public string RoleOrKind => Roles.Count > 0 ? Roles[0] : Kind;
+    }
 }

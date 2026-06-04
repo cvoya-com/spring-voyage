@@ -31,15 +31,20 @@ using Microsoft.Extensions.Logging;
 /// through this surface — owner-scoping is non-negotiable.
 /// </para>
 /// <para>
-/// <b>Typed content variants, object-primary</b> (#3038, ADR-0065). The
-/// content union is split into typed variants so encoding stays
-/// consistent: <c>sv.memory.add</c> / <c>sv.memory.update</c> take
-/// <i>structured</i> JSON (object / array / number / boolean) and are the
-/// unqualified default; <c>sv.memory.text.add</c> / <c>sv.memory.text.update</c>
-/// take a plain-text string. Both persist to the same <c>jsonb</c> column
-/// (the text variant stores a JSON string), so this is a tool-contract
-/// split only — no storage change, and content still round-trips with its
-/// JSON type preserved.
+/// <b>Forgiving add / update</b> (#3038, ADR-0065; relaxed by #3064;
+/// re-merged by #3064/#3065). <c>sv.memory.add</c> / <c>sv.memory.update</c>
+/// accept content of <i>any</i> JSON type — object, array, number, boolean,
+/// or a plain-text string — and store it type-preserved; an agent passes
+/// structured JSON or plain text to the same verb and never has to pick a
+/// variant. The earlier <c>sv.memory.text.add</c> / <c>sv.memory.text.update</c>
+/// aliases were removed: leaving both <c>add</c> and <c>text.add</c> on the
+/// generated prompt re-presented the very add-vs-text-add choice that
+/// confused the model in practice, so the union is fully re-merged into the
+/// single forgiving verb. Content persists to the <c>jsonb</c> column (a
+/// string stores as a JSON string), so this is a tool-contract surface only —
+/// no storage change, and content still round-trips with its JSON type
+/// preserved. Only a missing / JSON-<c>null</c> value or an empty /
+/// whitespace-only string is rejected (the #3036 contract).
 /// </para>
 /// <para>
 /// <b>Conversation = participant set</b> (#3041 Part A, ADR-0065). A
@@ -71,11 +76,8 @@ using Microsoft.Extensions.Logging;
 /// </remarks>
 public sealed class SvMemorySkillRegistry : ISkillRegistry
 {
-    /// <summary>Tool name for <c>sv.memory.add</c> (structured content).</summary>
+    /// <summary>Tool name for <c>sv.memory.add</c> (structured JSON or plain text).</summary>
     public const string MemoryAddTool = "sv.memory.add";
-
-    /// <summary>Tool name for <c>sv.memory.text.add</c> (plain-text content).</summary>
-    public const string MemoryTextAddTool = "sv.memory.text.add";
 
     /// <summary>Tool name for <c>sv.memory.get</c>.</summary>
     public const string MemoryGetTool = "sv.memory.get";
@@ -86,11 +88,8 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
     /// <summary>Tool name for <c>sv.memory.search</c>.</summary>
     public const string MemorySearchTool = "sv.memory.search";
 
-    /// <summary>Tool name for <c>sv.memory.update</c> (structured content).</summary>
+    /// <summary>Tool name for <c>sv.memory.update</c> (structured JSON or plain text).</summary>
     public const string MemoryUpdateTool = "sv.memory.update";
-
-    /// <summary>Tool name for <c>sv.memory.text.update</c> (plain-text content).</summary>
-    public const string MemoryTextUpdateTool = "sv.memory.text.update";
 
     /// <summary>Tool name for <c>sv.memory.delete</c>.</summary>
     public const string MemoryDeleteTool = "sv.memory.delete";
@@ -120,25 +119,7 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
           "additionalProperties": false,
           "required": ["content"],
           "properties": {
-            "content": { "type": ["object", "array", "number", "boolean"], "description": "Structured memory content — a JSON object, array, number, or boolean. Stored as structured JSON and round-tripped with its type preserved, so field-level recall stays possible. For a plain-text note, call sv.memory.text.add instead." },
-            "participants": {
-              "type": "array",
-              "minItems": 1,
-              "description": "{{AddParticipantsDescription}}",
-              "items": { "type": "string", "description": "Canonical scheme:no-dash-hex address." }
-            },
-            "source": { "type": "string", "description": "Optional origin reference (e.g. a message id or document reference)." }
-          }
-        }
-        """);
-
-    private static readonly JsonElement MemoryTextAddSchema = ParseSchema($$"""
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["content"],
-          "properties": {
-            "content": { "type": "string", "description": "Plain-text memory content, stored and round-tripped as a string. For structured state (a JSON object/array), call sv.memory.add instead." },
+            "content": { "type": ["object", "array", "number", "boolean", "string"], "description": "Memory content — a JSON object, array, number, boolean, or a plain-text string. Pass whichever fits: structured JSON OR plain text. Stored type-preserved and round-tripped with its type intact, so structured content keeps field-level recall. A string that is itself a JSON object or array is auto-parsed and stored as structured JSON, so accidental stringification still keeps field-level recall; pass real structured state as JSON (not a JSON-in-a-string) when you can." },
             "participants": {
               "type": "array",
               "minItems": 1,
@@ -203,19 +184,7 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
           "required": ["id"],
           "properties": {
             "id": { "type": "string", "description": "Stable Guid identifier of the memory entry to mutate." },
-            "content": { "type": ["object", "array", "number", "boolean"], "description": "Replacement structured content (a JSON object, array, number, or boolean). Its JSON type may differ from the original. Omit to leave content untouched. For a plain-text note, call sv.memory.text.update instead." }
-          }
-        }
-        """);
-
-    private static readonly JsonElement MemoryTextUpdateSchema = ParseSchema("""
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["id"],
-          "properties": {
-            "id": { "type": "string", "description": "Stable Guid identifier of the memory entry to mutate." },
-            "content": { "type": "string", "description": "Replacement plain-text content. Its JSON type may differ from the original. Omit to leave content untouched. For structured state (a JSON object/array), call sv.memory.update instead." }
+            "content": { "type": ["object", "array", "number", "boolean", "string"], "description": "Replacement content — a JSON object, array, number, boolean, or a plain-text string, stored type-preserved. Pass whichever fits: structured JSON OR plain text. A string that is itself a JSON object or array is auto-parsed and stored as structured JSON. Its JSON type may differ from the original. Omit to leave content untouched." }
           }
         }
         """);
@@ -239,23 +208,15 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
         {
             new ToolDefinition(
                 MemoryAddTool,
-                "Capture a new memory entry owned by the calling agent or unit, with " +
-                "structured JSON content (an object, array, number, or boolean) — the " +
-                "object-primary default; for a plain-text note use sv.memory.text.add. " +
-                "Omit participants for agent-wide memory recalled across all your " +
+                "Capture a new memory entry owned by the calling agent or unit. Content " +
+                "may be structured JSON (an object, array, number, or boolean) OR a " +
+                "plain-text string — pass whichever fits, you do not have to pick a " +
+                "variant. Omit participants for agent-wide memory recalled across all your " +
                 "conversations (the default); pass a conversation's participants to keep " +
-                "the entry to that conversation only. Content round-trips with its type " +
-                "preserved. Returns { id, owner, content, source, created_at, updated_at }.",
+                "the entry to that conversation only. Content is stored type-preserved and " +
+                "round-trips with its type intact. Returns { id, owner, content, source, " +
+                "created_at, updated_at }.",
                 MemoryAddSchema,
-                ToolCategories.Memory),
-            new ToolDefinition(
-                MemoryTextAddTool,
-                "Capture a new memory entry whose content is a plain-text string — the " +
-                "text counterpart to sv.memory.add (use sv.memory.add for structured " +
-                "JSON). Omit participants for agent-wide memory; pass a conversation's " +
-                "participants to keep the note to that conversation only. Returns " +
-                "{ id, owner, content, source, created_at, updated_at }.",
-                MemoryTextAddSchema,
                 ToolCategories.Memory),
             new ToolDefinition(
                 MemoryGetTool,
@@ -284,24 +245,14 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
                 ToolCategories.Memory),
             new ToolDefinition(
                 MemoryUpdateTool,
-                "Mutate an existing memory entry with structured JSON content (an object, " +
-                "array, number, or boolean) — the text counterpart is sv.memory.text.update. " +
-                "Pass `content` to replace the entry's content; omit it to leave the entry " +
-                "untouched. Returns the updated entry on success, or { updated: false, " +
-                "reason: \"not_found\" } when no entry with that id is owned by you — the id " +
-                "may be stale, so re-read with sv.memory.list or sv.memory.search to get a " +
-                "current id.",
+                "Mutate an existing memory entry. Replacement content may be structured " +
+                "JSON (an object, array, number, or boolean) OR a plain-text string — pass " +
+                "whichever fits, you do not have to pick a variant. Pass `content` to " +
+                "replace the entry's content; omit it to leave the entry untouched. " +
+                "Returns the updated entry on success, or { updated: false, reason: " +
+                "\"not_found\" } when no entry with that id is owned by you — the id may be " +
+                "stale, so re-read with sv.memory.list or sv.memory.search to get a current id.",
                 MemoryUpdateSchema,
-                ToolCategories.Memory),
-            new ToolDefinition(
-                MemoryTextUpdateTool,
-                "Mutate an existing memory entry with a plain-text string — the text " +
-                "counterpart to sv.memory.update (use sv.memory.update for structured " +
-                "JSON). Pass `content` to replace the entry's content; omit it to leave " +
-                "the entry untouched. Returns the updated entry on success, or " +
-                "{ updated: false, reason: \"not_found\" } when no entry with that id is " +
-                "owned by you.",
-                MemoryTextUpdateSchema,
                 ToolCategories.Memory),
             new ToolDefinition(
                 MemoryDeleteTool,
@@ -336,24 +287,20 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
     {
         return toolName switch
         {
-            MemoryAddTool => MemoryAddAsync(arguments, context, structured: true, cancellationToken),
-            MemoryTextAddTool => MemoryAddAsync(arguments, context, structured: false, cancellationToken),
+            MemoryAddTool => MemoryAddAsync(arguments, context, cancellationToken),
             MemoryGetTool => MemoryGetAsync(arguments, context, cancellationToken),
             MemoryListTool => MemoryListAsync(arguments, context, cancellationToken),
             MemorySearchTool => MemorySearchAsync(arguments, context, cancellationToken),
-            MemoryUpdateTool => MemoryUpdateAsync(arguments, context, structured: true, cancellationToken),
-            MemoryTextUpdateTool => MemoryUpdateAsync(arguments, context, structured: false, cancellationToken),
+            MemoryUpdateTool => MemoryUpdateAsync(arguments, context, cancellationToken),
             MemoryDeleteTool => MemoryDeleteAsync(arguments, context, cancellationToken),
             _ => throw new SkillNotFoundException(toolName),
         };
     }
 
-    private async Task<JsonElement> MemoryAddAsync(JsonElement args, ToolCallContext context, bool structured, CancellationToken ct)
+    private async Task<JsonElement> MemoryAddAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
     {
         var owner = ParseCaller(context);
-        var content = structured
-            ? RequireStructuredContent(args, "content")
-            : RequireTextContent(args, "content");
+        var content = RequireContent(args, "content");
         var source = TryReadStringArg(args, "source");
         var threadId = await ResolveConversationBindingAsync(args, context, ct);
 
@@ -391,13 +338,11 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
         return SerializeRawMemoryList(entries);
     }
 
-    private async Task<JsonElement> MemoryUpdateAsync(JsonElement args, ToolCallContext context, bool structured, CancellationToken ct)
+    private async Task<JsonElement> MemoryUpdateAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
     {
         var owner = ParseCaller(context);
         var id = RequireGuidArg(args, "id");
-        var content = structured
-            ? TryReadStructuredContent(args, "content")
-            : TryReadTextContent(args, "content");
+        var content = TryReadContent(args, "content");
         var entry = await _memoryStore.UpdateAsync(owner, id, content, ct);
         // A stale / unknown id is a routine, self-correctable condition — not
         // a platform fault (#3036). Return a clean not-found result the model
@@ -535,61 +480,38 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
     }
 
     /// <summary>
-    /// Reads the required structured <c>content</c> for the object-primary
-    /// <c>add</c> / <c>update</c> variants: a JSON object, array, number, or
-    /// boolean. A JSON string is rejected with a pointer to the
-    /// <c>sv.memory.text.*</c> variant so the typed split stays consistent
-    /// (#3038). The value is returned detached (<see cref="JsonElement.Clone"/>)
-    /// so it outlives the request's argument document.
+    /// Reads the required <c>content</c> for the forgiving <c>add</c> /
+    /// <c>update</c> verbs: a JSON object, array, number, boolean, <i>or</i> a
+    /// non-empty string (#3064; re-merged #3065). Whatever JSON type the caller
+    /// supplies is stored type-preserved, so an agent may pass structured JSON
+    /// or plain text to <c>sv.memory.add</c> without picking a variant. Only a
+    /// JSON <c>null</c> / missing value or an empty / whitespace-only string is
+    /// rejected (the #3036 contract). The value is returned detached
+    /// (<see cref="JsonElement.Clone"/>) so it outlives the request's argument
+    /// document.
     /// </summary>
-    private static JsonElement RequireStructuredContent(JsonElement args, string name)
+    private static JsonElement RequireContent(JsonElement args, string name)
     {
         var prop = RequirePresentContent(args, name);
-        RejectStringContent(prop, name);
-        return prop.Clone();
+        RejectEmptyStringContent(prop, name);
+        return NormalizeContent(prop);
     }
 
     /// <summary>
-    /// Optional-content counterpart of <see cref="RequireStructuredContent"/>
+    /// Optional-content counterpart of <see cref="RequireContent"/>
     /// (partial-update semantics): <c>null</c> when omitted or JSON
-    /// <c>null</c>; otherwise the structured value, rejecting a JSON string.
+    /// <c>null</c>; otherwise the supplied value (object / array / number /
+    /// boolean / non-empty string), rejecting only an empty / whitespace-only
+    /// string (#3064).
     /// </summary>
-    private static JsonElement? TryReadStructuredContent(JsonElement args, string name)
+    private static JsonElement? TryReadContent(JsonElement args, string name)
     {
         if (!TryGetPresentContent(args, name, out var prop))
         {
             return null;
         }
-        RejectStringContent(prop, name);
-        return prop.Clone();
-    }
-
-    /// <summary>
-    /// Reads the required plain-text <c>content</c> for the
-    /// <c>sv.memory.text.*</c> variants: a non-empty / non-whitespace JSON
-    /// string. A non-string value is rejected with a pointer to the
-    /// structured <c>add</c> / <c>update</c> variant (#3038).
-    /// </summary>
-    private static JsonElement RequireTextContent(JsonElement args, string name)
-    {
-        var prop = RequirePresentContent(args, name);
-        EnsureTextContent(prop, name);
-        return prop.Clone();
-    }
-
-    /// <summary>
-    /// Optional-content counterpart of <see cref="RequireTextContent"/>:
-    /// <c>null</c> when omitted or JSON <c>null</c>; otherwise the string
-    /// value, rejecting a non-string or empty value.
-    /// </summary>
-    private static JsonElement? TryReadTextContent(JsonElement args, string name)
-    {
-        if (!TryGetPresentContent(args, name, out var prop))
-        {
-            return null;
-        }
-        EnsureTextContent(prop, name);
-        return prop.Clone();
+        RejectEmptyStringContent(prop, name);
+        return NormalizeContent(prop);
     }
 
     /// <summary>
@@ -623,29 +545,57 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
         return false;
     }
 
-    private static void RejectStringContent(JsonElement value, string name)
+    /// <summary>
+    /// Rejects an empty / whitespace-only string on the forgiving content
+    /// path (#3064). A non-empty string is accepted and stored type-preserved;
+    /// object / array / number / boolean values pass through untouched.
+    /// </summary>
+    private static void RejectEmptyStringContent(JsonElement value, string name)
     {
-        if (value.ValueKind == JsonValueKind.String)
-        {
-            throw new ArgumentException(
-                $"Argument '{name}' on sv.memory.add / sv.memory.update must be structured JSON " +
-                "(an object, array, number, or boolean). For a plain-text note, call " +
-                "sv.memory.text.add / sv.memory.text.update instead.");
-        }
-    }
-
-    private static void EnsureTextContent(JsonElement value, string name)
-    {
-        if (value.ValueKind != JsonValueKind.String)
-        {
-            throw new ArgumentException(
-                $"Argument '{name}' on sv.memory.text.add / sv.memory.text.update must be a plain-text " +
-                "string. For structured JSON (an object or array), call sv.memory.add / sv.memory.update instead.");
-        }
-        if (string.IsNullOrWhiteSpace(value.GetString()))
+        if (value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(value.GetString()))
         {
             throw new ArgumentException($"Argument '{name}' must be a non-empty string.");
         }
+    }
+
+    /// <summary>
+    /// Auto-detects stringified JSON on the forgiving content path (#3064). If
+    /// the value is a string whose text parses cleanly as a JSON object or
+    /// array, the parsed structured value is stored instead of the raw string —
+    /// so an agent that stringifies an object still gets field-level-recallable
+    /// structured state (the exact failure the #3038 split was meant to avoid).
+    /// Genuine non-JSON text, and scalar strings such as <c>"42"</c> or
+    /// <c>"true"</c>, are stored as-is. The underlying store is always JSON;
+    /// this only normalises the wire shape. Returns a detached clone that
+    /// outlives the request's argument document.
+    /// </summary>
+    private static JsonElement NormalizeContent(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            var raw = value.GetString();
+            if (raw is not null)
+            {
+                var trimmed = raw.TrimStart();
+                if (trimmed.Length > 0 && (trimmed[0] == '{' || trimmed[0] == '['))
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(raw);
+                        if (doc.RootElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+                        {
+                            return doc.RootElement.Clone();
+                        }
+                    }
+                    catch (JsonException)
+                    {
+                        // A genuine string that merely starts with { or [ but is
+                        // not valid JSON — store it verbatim as text.
+                    }
+                }
+            }
+        }
+        return value.Clone();
     }
 
     private static Guid RequireGuidArg(JsonElement args, string name)

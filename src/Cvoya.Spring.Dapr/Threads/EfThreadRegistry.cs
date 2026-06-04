@@ -29,10 +29,14 @@ using Microsoft.EntityFrameworkCore;
 /// canonical address (which is <c>scheme:hex</c>) so the join is unambiguous.
 /// </para>
 /// <para>
-/// <b>Concurrency.</b> Two callers racing to create the same thread will both
-/// reach the insert path; the unique index promotes the loser's
-/// <see cref="DbUpdateException"/> into a re-read of the winner's row. Both
-/// callers see the same id.
+/// <b>Concurrency.</b> Two callers racing to create the same thread both reach
+/// the insert path. On Postgres the insert is
+/// <c>ON CONFLICT (tenant_id, participant_key) DO NOTHING</c>, so the loser's
+/// duplicate is swallowed in the database — no exception, and therefore no
+/// fail:-level log noise (#3066) — and both callers re-read and converge on
+/// the winning row's id. The in-memory test provider, which has no
+/// <c>ON CONFLICT</c> support, keeps the Add + <see cref="DbUpdateException"/>
+/// catch + re-read path to the same effect.
 /// </para>
 /// </remarks>
 public class EfThreadRegistry : IThreadRegistry
@@ -89,6 +93,40 @@ public class EfThreadRegistry : IThreadRegistry
             LastActivityAt = now,
         };
 
+        if (_db.Database.IsNpgsql())
+        {
+            // Postgres path: insert idempotently with
+            // ON CONFLICT (tenant_id, participant_key) DO NOTHING so the
+            // benign get-or-create race (overlapping participant sets racing
+            // to first-contact, #3066) resolves in the database. The previous
+            // Add + SaveChanges let the loser's SaveChanges throw a
+            // DbUpdateException, which EF logs at fail: level (the 23505
+            // duplicate-key noise on ux_threads_tenant_participant_key) before
+            // our catch swallowed it. Mirrors the messages-table treatment
+            // (#3056). Re-read by participant_key afterwards so we return the
+            // winner's id whether this call or a racer inserted the row.
+            await InsertThreadOnConflictAsync(entity, cancellationToken);
+
+            var winner = await _db.Threads
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.ParticipantKey == participantKey, cancellationToken);
+
+            if (winner is not null)
+            {
+                return GuidFormatter.Format(winner.Id);
+            }
+
+            // Should never happen — the insert either landed our row or a
+            // concurrent winner's row, so a row with this key must exist.
+            throw new InvalidOperationException(
+                $"Thread row for participant key '{participantKey}' vanished after an " +
+                "ON CONFLICT insert; expected the winning row to be readable.");
+        }
+
+        // Non-Npgsql providers (the in-memory test database) have no
+        // ON CONFLICT support, so keep the Add + SaveChanges + unique-violation
+        // swallow. Test writes are sequential, so the concurrency race the
+        // Postgres path guards against does not arise here.
         try
         {
             _db.Threads.Add(entity);
@@ -113,6 +151,34 @@ public class EfThreadRegistry : IThreadRegistry
             // Should never happen — the unique index guarantees a row exists.
             throw;
         }
+    }
+
+    /// <summary>
+    /// Inserts the thread row with
+    /// <c>ON CONFLICT (tenant_id, participant_key) DO NOTHING</c> so a
+    /// concurrent duplicate is swallowed by the database rather than surfaced
+    /// as a thrown <see cref="DbUpdateException"/> (which EF logs at fail:
+    /// level, #3066). Postgres-only — the column list mirrors the
+    /// <c>spring.threads</c> table; the interpolated values bind as
+    /// parameters, with the two jsonb columns cast explicitly.
+    /// <c>participant_name_snapshots</c> is seeded with the entity's <c>{}</c>
+    /// default so a fresh row matches the EF write path.
+    /// </summary>
+    private async Task InsertThreadOnConflictAsync(
+        ThreadEntity entity,
+        CancellationToken cancellationToken)
+    {
+        await _db.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO spring.threads
+                (id, tenant_id, participant_key, participants,
+                 participant_name_snapshots, created_at, last_activity_at)
+            VALUES
+                ({entity.Id}, {entity.TenantId}, {entity.ParticipantKey}, {entity.Participants}::jsonb,
+                 {entity.ParticipantNameSnapshots}::jsonb, {entity.CreatedAt}, {entity.LastActivityAt})
+            ON CONFLICT (tenant_id, participant_key) DO NOTHING
+            """,
+            cancellationToken);
     }
 
     /// <inheritdoc />
