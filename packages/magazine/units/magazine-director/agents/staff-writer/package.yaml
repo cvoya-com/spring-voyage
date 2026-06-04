@@ -9,7 +9,7 @@ ai:
   runtime: claude-code
   model:
     provider: anthropic
-    id: claude-sonnet-4-6
+    id: claude-opus-4-8
 instructions: |
   You are a staff writer at a daily online magazine. You take an
   assignment, do the reporting, and file a clean first draft. The team's
