@@ -300,19 +300,23 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 ToolCategories.Directory),
             new ToolDefinition(
                 ListMembersTool,
-                "Returns the direct members of the unit identified by uuid: a flat list mixing " +
-                "agent-kind, unit-kind, and human-kind entries (filter by entry.kind on the " +
-                "client side if you only want one). Every entry carries an optional multi-valued " +
-                "roles array (free-form labels like owner, reviewer, security_lead) and an " +
-                "expertise list. Human entries also surface their notifications subscription " +
-                "list when present. One row per (unit, human) pair — a human filling multiple " +
-                "team roles surfaces as a single entry whose roles array carries every role. " +
-                "Sub-unit members are NOT recursively expanded — call sv.directory.list_members again on " +
-                "a sub-unit's uuid to walk further. Omit uuid to list your own members — valid only when you " +
-                "are a unit (agents have no members and get a retry-guiding error). Pagination via limit " +
-                "(default 50, max 200) and offset; total_count carries the unfiltered total. Agent and unit " +
-                "entries additionally carry an advisory live_status object — see sv.directory.get_status; the " +
-                "field is omitted entirely on human entries.",
+                "Returns the direct members of the unit identified by uuid — agents, sub-units, " +
+                "AND human members — as a flat list mixing agent-kind, unit-kind, and human-kind " +
+                "entries (filter by entry.kind on the client side if you only want one). Every " +
+                "entry carries a SENDABLE address, so this is the tool to use to look up a " +
+                "teammate's address — including a human member — and feed it straight into " +
+                "sv.messaging.send, without asking the hub. " +
+                "Every entry also carries an optional multi-valued roles array (free-form labels " +
+                "like owner, reviewer, security_lead) and an expertise list. Human entries also " +
+                "surface their notifications subscription list when present. One row per (unit, " +
+                "human) pair — a human filling multiple team roles surfaces as a single entry " +
+                "whose roles array carries every role. Sub-unit members are NOT recursively " +
+                "expanded — call sv.directory.list_members again on a sub-unit's uuid to walk " +
+                "further. Omit uuid to list your own members — valid only when you are a unit " +
+                "(agents have no members and get a retry-guiding error). Pagination via limit " +
+                "(default 50, max 200) and offset; total_count carries the unfiltered total. " +
+                "Agent and unit entries additionally carry an advisory live_status object — see " +
+                "sv.directory.get_status; the field is omitted entirely on human entries.",
                 UuidPagedArgSchema,
                 ToolCategories.Directory),
             new ToolDefinition(

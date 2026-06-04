@@ -337,12 +337,14 @@ public class PlatformPromptProviderTests
     }
 
     /// <summary>
-    /// #3037 / #3041 Part A: the durable-memory clause presents agent-wide
-    /// and per-conversation memory as <b>equally valid</b> (neither promoted),
-    /// describes the conversation mode in participant-set terms (no
-    /// "thread"/"scope"/<c>*_id</c> jargon), gives a concrete example of when
-    /// to use each, and names the text content variant. The old
-    /// <c>scope='thread'</c> framing must be gone.
+    /// #3037 / #3041 Part A (content union re-merged #3064 / #3065): the
+    /// durable-memory clause presents agent-wide and per-conversation memory as
+    /// <b>equally valid</b> (neither promoted), describes the conversation mode
+    /// in participant-set terms (no "thread"/"scope"/<c>*_id</c> jargon), and
+    /// gives a concrete example of when to use each. The old
+    /// <c>scope='thread'</c> framing must be gone, and the removed
+    /// <c>sv.memory.text.*</c> variants must not be re-presented (the catalog
+    /// lists only the single forgiving <c>sv.memory.add</c> / <c>update</c>).
     /// </summary>
     [Fact]
     public async Task GetPlatformPromptAsync_PresentsAgentWideAndConversationMemoryAsEquallyValid()
@@ -359,11 +361,13 @@ public class PlatformPromptProviderTests
         // Neither mode is promoted over the other.
         result.ShouldContain("Neither outranks the other");
 
-        // The typed text variant is advertised alongside the object default.
-        result.ShouldContain("sv.memory.text.add");
-
         // The retired scope axis must not reappear in the agent-facing prompt.
         result.ShouldNotContain("scope='thread'");
+
+        // #3064/#3065: the .text variants were removed — the prompt must not
+        // re-present the add-vs-text-add choice that confused the model.
+        result.ShouldNotContain("sv.memory.text.add");
+        result.ShouldNotContain("sv.memory.text.update");
     }
 
     /// <summary>

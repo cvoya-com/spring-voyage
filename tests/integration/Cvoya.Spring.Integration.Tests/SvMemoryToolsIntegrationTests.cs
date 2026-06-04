@@ -26,15 +26,18 @@ using Xunit;
 
 /// <summary>
 /// End-to-end coverage for the durable-store <c>sv.memory.*</c> tools
-/// (#2342, reshaped by #3038 / #3041 Part A). Wires the EF store and a
-/// real <see cref="EfThreadRegistry"/> against an in-memory
-/// SpringDbContext, registers the <see cref="SvMemorySkillRegistry"/> with
-/// the same caller-scope contract the MCP server uses at runtime, then
-/// drives a realistic capture → recall flow through the registry's
-/// caller-aware <see cref="ISkillRegistry.InvokeAsync(string, JsonElement,
+/// (#2342, reshaped by #3038 / #3041 Part A; content union re-merged by
+/// #3064 / #3065). Wires the EF store and a real
+/// <see cref="EfThreadRegistry"/> against an in-memory SpringDbContext,
+/// registers the <see cref="SvMemorySkillRegistry"/> with the same
+/// caller-scope contract the MCP server uses at runtime, then drives a
+/// realistic capture → recall flow through the registry's caller-aware
+/// <see cref="ISkillRegistry.InvokeAsync(string, JsonElement,
 /// ToolCallContext, CancellationToken)"/> overload — exercising both the
-/// object-primary / text content split and the participant-set
-/// conversation model against the real participant-key resolution.
+/// forgiving <c>sv.memory.add</c> / <c>update</c> content path (structured
+/// JSON or plain text in one verb; the <c>.text</c> variants were removed)
+/// and the participant-set conversation model against the real
+/// participant-key resolution.
 /// </summary>
 public sealed class SvMemoryToolsIntegrationTests : IDisposable
 {
@@ -87,16 +90,16 @@ public sealed class SvMemoryToolsIntegrationTests : IDisposable
         var caller = AgentCaller(agentId);
         var peer = new Address(Address.AgentScheme, Guid.NewGuid()).ToString();
 
-        // 1. Capture an agent-wide text note.
+        // 1. Capture an agent-wide text note (plain text via the forgiving add).
         var addJson = await _registry.InvokeAsync(
-            SvMemorySkillRegistry.MemoryTextAddTool,
+            SvMemorySkillRegistry.MemoryAddTool,
             ParseArgs("""{"content":"opted for actor-state over EF for hot mailbox path"}"""),
             caller, ct);
         var memoryId = ReadGuid(addJson, "id");
 
         // 2. Capture a conversation-scoped note tied to a participant set.
         await _registry.InvokeAsync(
-            SvMemorySkillRegistry.MemoryTextAddTool,
+            SvMemorySkillRegistry.MemoryAddTool,
             ParseArgs($$"""{"content":"the user asked me to check the design rationale","participants":["{{peer}}"]}"""),
             caller, ct);
 
@@ -116,9 +119,9 @@ public sealed class SvMemoryToolsIntegrationTests : IDisposable
         searchJson.GetArrayLength().ShouldBe(1);
         ReadGuid(searchJson[0], "id").ShouldBe(memoryId);
 
-        // 5. Update the entry's content via the text variant.
+        // 5. Update the entry's content (plain text via the forgiving update).
         var updateJson = await _registry.InvokeAsync(
-            SvMemorySkillRegistry.MemoryTextUpdateTool,
+            SvMemorySkillRegistry.MemoryUpdateTool,
             ParseArgs($$"""{"id":"{{memoryId:N}}","content":"hot path stayed on actor state per ADR-0040"}"""),
             caller, ct);
         updateJson.GetProperty("content").GetString().ShouldBe("hot path stayed on actor state per ADR-0040");
@@ -147,7 +150,7 @@ public sealed class SvMemoryToolsIntegrationTests : IDisposable
         var callerB = AgentCaller(agentB);
 
         var addJson = await _registry.InvokeAsync(
-            SvMemorySkillRegistry.MemoryTextAddTool,
+            SvMemorySkillRegistry.MemoryAddTool,
             ParseArgs("""{"content":"private to agent A"}"""),
             callerA, ct);
         var id = ReadGuid(addJson, "id");
@@ -200,10 +203,10 @@ public sealed class SvMemoryToolsIntegrationTests : IDisposable
         searchJson.GetArrayLength().ShouldBe(1);
         searchJson[0].GetProperty("content").ValueKind.ShouldBe(JsonValueKind.Object);
 
-        // 4. the text update variant can replace structured content with a
+        // 4. the forgiving update can replace structured content with a
         //    plain-text note (the JSON type may change across an update).
         var updateJson = await _registry.InvokeAsync(
-            SvMemorySkillRegistry.MemoryTextUpdateTool,
+            SvMemorySkillRegistry.MemoryUpdateTool,
             ParseArgs($$"""{"id":"{{memoryId:N}}","content":"archived"}"""),
             caller, ct);
         updateJson.GetProperty("content").ValueKind.ShouldBe(JsonValueKind.String);
@@ -225,11 +228,11 @@ public sealed class SvMemoryToolsIntegrationTests : IDisposable
         var peerY = new Address(Address.HumanScheme, Guid.NewGuid()).ToString();
 
         await _registry.InvokeAsync(
-            SvMemorySkillRegistry.MemoryTextAddTool,
+            SvMemorySkillRegistry.MemoryAddTool,
             ParseArgs("""{"content":"durable cross-conversation fact"}"""),
             caller, ct);
         await _registry.InvokeAsync(
-            SvMemorySkillRegistry.MemoryTextAddTool,
+            SvMemorySkillRegistry.MemoryAddTool,
             ParseArgs($$"""{"content":"in this conversation call me Bob","participants":["{{peerX}}"]}"""),
             caller, ct);
 

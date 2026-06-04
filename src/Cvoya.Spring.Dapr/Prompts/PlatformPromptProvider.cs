@@ -134,13 +134,11 @@ public class PlatformPromptProvider : IPlatformPromptProvider
         - `sv.messaging.send` — send a one-way message to one or more humans, agents, or units; all recipients land in a single shared conversation with you.
         - `sv.messaging.multicast` — send the same message to several humans, agents, or units, each in its own independent 1-1 conversation with you.
         - `sv.messaging.respond_to` — continue an existing conversation: deliver a one-way message to everyone already on the conversation a `message_id` belongs to (minus you), keeping everyone on that one conversation rather than starting a new one.
-        - `sv.memory.add` — record a durable memory entry with structured JSON content; agent-wide by default (recalled across every conversation), or pass a conversation's `participants` to keep it to that conversation. Use it every turn to capture decisions, completions, and facts worth keeping (see contract item 6).
-        - `sv.memory.text.add` — like `sv.memory.add`, but for a plain-text note instead of structured JSON.
+        - `sv.memory.add` — record a durable memory entry; content may be structured JSON or plain text (pass whichever fits, stored type-preserved). Agent-wide by default (recalled across every conversation), or pass a conversation's `participants` to keep it to that conversation. Use it every turn to capture decisions, completions, and facts worth keeping (see contract item 6).
         - `sv.memory.search` — free-text search across your durable memory entries; reach for it at the start of a turn to recall what you already know. Agent-wide by default, or pass a conversation's `participants` to search only that conversation's entries.
         - `sv.memory.list` — list your durable memory entries, most-recent first. Agent-wide by default, or pass a conversation's `participants` to list only that conversation's entries.
         - `sv.memory.get` — read one of your durable memory entries by id.
-        - `sv.memory.update` — replace the content of one of your durable memory entries with structured JSON.
-        - `sv.memory.text.update` — like `sv.memory.update`, but replaces the content with a plain-text note.
+        - `sv.memory.update` — replace the content of one of your durable memory entries; content may be structured JSON or plain text.
         - `sv.memory.delete` — delete one of your durable memory entries by id.
         - `sv.memory.engagements` — list the participant sets (engagements) you share a message timeline with.
         - `sv.memory.history_with` — fetch the full message timeline you share with a named participant set; call it with no arguments to re-read the conversation you are currently in.

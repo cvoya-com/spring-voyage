@@ -26,7 +26,7 @@ Owning registry: [`SvDirectorySkillRegistry`](../../src/Cvoya.Spring.Dapr/Skills
 | --- | --- |
 | `sv.directory.get_self` | Returns metadata for the calling agent or unit. |
 | `sv.directory.get_member` | Returns metadata for a single agent or unit identified by uuid. |
-| `sv.directory.list_members` | Returns the direct members of a unit by uuid (mixed agent / unit / human entries). |
+| `sv.directory.list_members` | Returns the direct members of a unit by uuid — agents, sub-units, and human members — each with a sendable address; the tool to look up a teammate's (or human's) address. |
 | `sv.directory.get_siblings` | Returns entities that share at least one parent with the entity identified by uuid. |
 | `sv.directory.get_parents` | Returns the parents of the entity identified by uuid. |
 | `sv.directory.get_status` | Returns the advisory runtime-status snapshot for a single agent or unit. |
@@ -41,13 +41,11 @@ Owning registry: [`SvMemorySkillRegistry`](../../src/Cvoya.Spring.Dapr/Skills/Sv
 
 | Tool | Description |
 | --- | --- |
-| `sv.memory.add` | Store a memory entry with structured JSON content (object-primary). Agent-wide by default; pass a conversation's `participants` to scope it to that conversation. |
-| `sv.memory.text.add` | Store a memory entry with plain-text content — the text counterpart to `sv.memory.add`. |
+| `sv.memory.add` | Store a memory entry; content may be structured JSON or plain text, stored type-preserved. Agent-wide by default; pass a conversation's `participants` to scope it to that conversation. |
 | `sv.memory.get` | Read a single memory entry by id from the calling agent's store; content comes back with its stored JSON type. |
 | `sv.memory.list` | Enumerate the calling agent's memory entries with pagination — agent-wide by default, or pass `participants` to recall one conversation's entries. |
 | `sv.memory.search` | Free-text search across the calling agent's private memory — agent-wide by default, or pass `participants` to search one conversation's entries. |
-| `sv.memory.update` | Replace the content of an existing memory entry with structured JSON (object-primary). |
-| `sv.memory.text.update` | Replace the content of an existing memory entry with plain text — the text counterpart to `sv.memory.update`. |
+| `sv.memory.update` | Replace the content of an existing memory entry; content may be structured JSON or plain text. |
 | `sv.memory.delete` | Remove a memory entry from the calling agent's store. |
 
 ### `sv.memory.*` — shared participant-set timelines
@@ -61,7 +59,7 @@ Owning registry: [`SvMemoryHistoryRegistry`](../../src/Cvoya.Spring.Dapr/Skills/
 | `sv.memory.search_messages` | Free-text search across the timelines you participate in. |
 | `sv.memory.get_messages` | Fetch 1–100 specific messages by message_id, returning only those on timelines you participate in (others come back under `skipped`). |
 
-> ADR-0060 §"Two changes…" deferred the namespace split between agent-private memory and shared timelines. The two surfaces live in `sv.memory.*` together for v0.1; they are distinguished by verb (`add` / `get` / `list` / `search` / `update` / `delete` for the private store; `engagements` / `history_with` / `search_messages` / `get_messages` for the shared timelines). Private-memory content is split into typed variants (#3038): the unqualified `sv.memory.add` / `sv.memory.update` take structured JSON (object-primary), and `sv.memory.text.add` / `sv.memory.text.update` take a plain-text string; both persist to the same `jsonb` column. A private-memory entry is agent-wide unless a verb is given a conversation's `participants` (#3041 Part A) — the same participant-set identifier the shared-timeline tools use; there is no `scope` flag or `thread_id` on the wire.
+> ADR-0060 §"Two changes…" deferred the namespace split between agent-private memory and shared timelines. The two surfaces live in `sv.memory.*` together for v0.1; they are distinguished by verb (`add` / `get` / `list` / `search` / `update` / `delete` for the private store; `engagements` / `history_with` / `search_messages` / `get_messages` for the shared timelines). Private-memory content is forgiving (#3038, re-merged #3064/#3065): `sv.memory.add` / `sv.memory.update` accept structured JSON **or** a plain-text string in the same `content` argument and store it type-preserved in the `jsonb` column — the earlier typed `sv.memory.text.*` aliases (text.add / text.update) were removed because presenting both the universal verb and a text-only alias re-introduced the variant choice that confused agents in practice. A private-memory entry is agent-wide unless a verb is given a conversation's `participants` (#3041 Part A) — the same participant-set identifier the shared-timeline tools use; there is no `scope` flag or `thread_id` on the wire.
 
 ### `sv.messaging.*` — message delivery
 
@@ -117,7 +115,7 @@ The blocks below are delimited by `platform-tool-catalog:<token>` HTML comments 
 <!-- platform-tool-catalog:directory -->
 **`directory`** — Look up agents, units, and humans by address, role, or expertise.
 
-> Use sv.directory.lookup when you already know an address (for example the sender of the inbound message) and need the entry's role / expertise / status. Use sv.directory.list to enumerate members of a unit, the caller's siblings, or peers matching a role or expertise filter. To walk the unit hierarchy explicitly, use sv.directory.get_self for the calling entity, sv.directory.get_member for a single entity by uuid, sv.directory.list_members for a unit's direct members, sv.directory.get_siblings for entities sharing a parent, sv.directory.get_parents for an entity's parents, and sv.directory.get_status for an entity's advisory runtime-status snapshot. Every entry carries enough to act on (address, display name, role, expertise, advisory live status) — feed an address back into sv.messaging.send to reach the entry.
+> Use sv.directory.lookup when you already know an address (for example the sender of the inbound message) and need the entry's role / expertise / status. Use sv.directory.list to enumerate members of a unit, the caller's siblings, or peers matching a role or expertise filter. To walk the unit hierarchy explicitly, use sv.directory.get_self for the calling entity, sv.directory.get_member for a single entity by uuid, sv.directory.list_members for a unit's direct members — agents, sub-units, AND human members, each with a sendable address, so this is the tool to look up a teammate's address (including a human member) without asking the hub. Use sv.directory.get_siblings for entities sharing a parent, sv.directory.get_parents for an entity's parents, and sv.directory.get_status for an entity's advisory runtime-status snapshot. Every entry carries enough to act on (address, display name, role, expertise, advisory live status) — feed an address back into sv.messaging.send to reach the entry.
 <!-- /platform-tool-catalog:directory -->
 
 <!-- platform-tool-catalog:observability -->
@@ -135,7 +133,7 @@ The blocks below are delimited by `platform-tool-catalog:<token>` HTML comments 
 <!-- platform-tool-catalog:memory -->
 **`memory`** — Private memory and shared participant-set history.
 
-> Two surfaces on the same category. Private memory: use sv.memory.add to record an entry with structured JSON content (the object-primary default), or sv.memory.text.add for a plain-text note; both are agent-wide by default — pass a conversation's participants to scope the entry to that conversation instead (you are auto-included, so do not list yourself). sv.memory.get reads one entry by id; sv.memory.list / sv.memory.search retrieve (agent-wide by default, or pass participants to recall a single conversation's entries); sv.memory.update / sv.memory.text.update replace an entry's content (structured or text); sv.memory.delete removes one. Caller-scoped — another agent's entries are not visible. Shared history: sv.memory.engagements lists the participant sets you share a timeline with (most-recent activity first); sv.memory.history_with(participants=[…]) fetches the full timeline shared with a participant set (your own address is auto-included — do not list yourself); sv.memory.search_messages free-text-searches across the timelines you participate in, optionally scoped to a single participant set; sv.memory.get_messages fetches specific messages by message_id when you already hold the ids (1–100 per call), returning only those on timelines you participate in. A conversation is named by its participant set, never by an internal id.
+> Two surfaces on the same category. Private memory: use sv.memory.add to record an entry — content may be structured JSON or plain text, stored type-preserved; it is agent-wide by default — pass a conversation's participants to scope the entry to that conversation instead (you are auto-included, so do not list yourself). sv.memory.get reads one entry by id; sv.memory.list / sv.memory.search retrieve (agent-wide by default, or pass participants to recall a single conversation's entries); sv.memory.update replaces an entry's content (structured JSON or plain text); sv.memory.delete removes one. Caller-scoped — another agent's entries are not visible. Shared history: sv.memory.engagements lists the participant sets you share a timeline with (most-recent activity first); sv.memory.history_with(participants=[…]) fetches the full timeline shared with a participant set (your own address is auto-included — do not list yourself); sv.memory.search_messages free-text-searches across the timelines you participate in, optionally scoped to a single participant set; sv.memory.get_messages fetches specific messages by message_id when you already hold the ids (1–100 per call), returning only those on timelines you participate in. A conversation is named by its participant set, never by an internal id.
 <!-- /platform-tool-catalog:memory -->
 
 > The `expertise` category (dynamic per-tenant `sv.expertise.<slug>` tools) carries no static usage-guidance entry — its membership varies per tenant and the tools are being folded into directory discovery (#2989), so there is no fixed prose to pin.

@@ -23,14 +23,15 @@ using Xunit;
 
 /// <summary>
 /// Contract + dispatch tests for <see cref="SvMemorySkillRegistry"/>
-/// (#2342, reshaped by #3038 / #3041 Part A). Pin the tool surface, the
-/// no-context overload rejection, the unknown-tool rejection, and the
-/// caller-scoping behaviour. Wire-shape regression coverage for argument
-/// parsing covers the typed content split (object-primary
-/// <c>sv.memory.add</c> + text <c>sv.memory.text.add</c>) and the
-/// participant-set conversation model (no <c>scope</c> / <c>thread_id</c>
-/// on the wire — an optional <c>participants</c> resolves to the internal
-/// conversation binding through <see cref="IThreadRegistry"/>).
+/// (#2342, reshaped by #3038 / #3041 Part A; union re-merged by #3064 /
+/// #3065). Pin the tool surface, the no-context overload rejection, the
+/// unknown-tool rejection, and the caller-scoping behaviour. Wire-shape
+/// regression coverage for argument parsing covers the forgiving
+/// <c>sv.memory.add</c> / <c>sv.memory.update</c> content path (structured
+/// JSON or plain text in one verb; the <c>.text</c> variants were removed)
+/// and the participant-set conversation model (no <c>scope</c> /
+/// <c>thread_id</c> on the wire — an optional <c>participants</c> resolves
+/// to the internal conversation binding through <see cref="IThreadRegistry"/>).
 /// </summary>
 public class SvMemorySkillRegistryTests
 {
@@ -83,18 +84,18 @@ public class SvMemorySkillRegistryTests
             .Returns(Task.FromResult(GuidFormatter.Format(conversationId)));
 
     [Fact]
-    public void GetToolDefinitions_AdvertisesAllEightTools()
+    public void GetToolDefinitions_AdvertisesAllSixTools()
     {
+        // #3064/#3065: the .text variants were removed — add/update are the
+        // single forgiving verbs, so the surface is six tools.
         var registry = CreateRegistry();
         registry.GetToolDefinitions().Select(t => t.Name).ShouldBe(new[]
         {
             SvMemorySkillRegistry.MemoryAddTool,
-            SvMemorySkillRegistry.MemoryTextAddTool,
             SvMemorySkillRegistry.MemoryGetTool,
             SvMemorySkillRegistry.MemoryListTool,
             SvMemorySkillRegistry.MemorySearchTool,
             SvMemorySkillRegistry.MemoryUpdateTool,
-            SvMemorySkillRegistry.MemoryTextUpdateTool,
             SvMemorySkillRegistry.MemoryDeleteTool,
         });
     }
@@ -175,56 +176,96 @@ public class SvMemorySkillRegistryTests
     }
 
     [Fact]
-    public async Task MemoryAdd_StringContent_RejectsAndPointsToTextVariant()
+    public async Task MemoryAdd_StringContent_AcceptsAndStoresTypePreserved()
     {
-        // #3038: the object-primary add variant rejects a string so encoding
-        // cannot drift back to the old object-vs-stringified union.
+        // #3064/#3065: sv.memory.add is the single forgiving verb (the .text
+        // variant was removed) — a plain-text string is accepted in the same
+        // content argument and stored type-preserved, not coerced to an object.
         var registry = CreateRegistry();
         var ctx = AgentContext(Guid.NewGuid());
         var args = JsonDocument.Parse("""{"content":"plain text"}""").RootElement;
-
-        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
-            await registry.InvokeAsync(SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken));
-        ex.Message.ShouldContain("sv.memory.text.add");
-
-        await _memoryStore.DidNotReceive().AddAsync(
-            Arg.Any<Address>(), Arg.Any<JsonElement>(), Arg.Any<string?>(),
-            Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task MemoryTextAdd_StringContent_PassesToStore_AndEmitsString()
-    {
-        var registry = CreateRegistry();
-        var ctx = AgentContext(Guid.NewGuid());
-        var args = JsonDocument.Parse("""{"content":"plain note"}""").RootElement;
         StubAddEcho();
 
         var result = await registry.InvokeAsync(
-            SvMemorySkillRegistry.MemoryTextAddTool, args, ctx, TestContext.Current.CancellationToken);
+            SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken);
 
+        // The store receives the content as a JSON string, not coerced to an object.
         await _memoryStore.Received(1).AddAsync(
             Arg.Any<Address>(),
-            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.String && c.GetString() == "plain note"),
+            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.String && c.GetString() == "plain text"),
             null,
             null,
             Arg.Any<CancellationToken>());
 
+        // The response emits content as a string, round-tripped with its type.
         var content = result.GetProperty("content");
         content.ValueKind.ShouldBe(JsonValueKind.String);
-        content.GetString().ShouldBe("plain note");
+        content.GetString().ShouldBe("plain text");
     }
 
     [Fact]
-    public async Task MemoryTextAdd_ObjectContent_RejectsAndPointsToStructuredVariant()
+    public async Task MemoryAdd_StringifiedJsonObject_AutoParsedToStructured()
     {
+        // #3064: an agent that stringifies a JSON object (the exact failure
+        // mode the #3038 split was meant to avoid) gets it auto-parsed back
+        // into structured JSON, so the entry keeps field-level recall instead
+        // of being stored as an opaque string.
         var registry = CreateRegistry();
         var ctx = AgentContext(Guid.NewGuid());
-        var args = JsonDocument.Parse("""{"content":{"k":"v"}}""").RootElement;
+        var args = JsonDocument.Parse("""{"content":"{\"k\":1}"}""").RootElement;
+        StubAddEcho();
+
+        var result = await registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken);
+
+        // The store receives a structured object, not the raw JSON string.
+        await _memoryStore.Received(1).AddAsync(
+            Arg.Any<Address>(),
+            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.Object && c.GetProperty("k").GetInt32() == 1),
+            null,
+            null,
+            Arg.Any<CancellationToken>());
+
+        result.GetProperty("content").ValueKind.ShouldBe(JsonValueKind.Object);
+    }
+
+    [Fact]
+    public async Task MemoryAdd_ScalarLikeString_StaysString()
+    {
+        // Only object/array stringification is unwrapped — a scalar string the
+        // agent meant as text (e.g. "42") is stored verbatim, not coerced.
+        var registry = CreateRegistry();
+        var ctx = AgentContext(Guid.NewGuid());
+        var args = JsonDocument.Parse("""{"content":"42"}""").RootElement;
+        StubAddEcho();
+
+        await registry.InvokeAsync(
+            SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken);
+
+        await _memoryStore.Received(1).AddAsync(
+            Arg.Any<Address>(),
+            Arg.Is<JsonElement>(c => c.ValueKind == JsonValueKind.String && c.GetString() == "42"),
+            null,
+            null,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryAdd_EmptyStringContent_ThrowsArgumentException()
+    {
+        // #3064: the forgiving add accepts a non-empty string but still
+        // rejects an empty / whitespace-only one (the #3036 contract).
+        var registry = CreateRegistry();
+        var ctx = AgentContext(Guid.NewGuid());
+        var args = JsonDocument.Parse("""{"content":"   "}""").RootElement;
 
         var ex = await Should.ThrowAsync<ArgumentException>(async () =>
-            await registry.InvokeAsync(SvMemorySkillRegistry.MemoryTextAddTool, args, ctx, TestContext.Current.CancellationToken));
-        ex.Message.ShouldContain("sv.memory.add");
+            await registry.InvokeAsync(SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken));
+        ex.Message.ShouldContain("non-empty");
+
+        await _memoryStore.DidNotReceive().AddAsync(
+            Arg.Any<Address>(), Arg.Any<JsonElement>(), Arg.Any<string?>(),
+            Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -403,21 +444,11 @@ public class SvMemorySkillRegistryTests
     }
 
     [Fact]
-    public async Task MemoryUpdate_StringContent_RejectsAndPointsToTextVariant()
+    public async Task MemoryUpdate_StringContent_AcceptsAndStoresTypePreserved()
     {
-        var registry = CreateRegistry();
-        var ctx = AgentContext(Guid.NewGuid());
-        var id = Guid.NewGuid();
-        var args = JsonDocument.Parse($$"""{"id":"{{id.ToString("N")}}","content":"archived"}""").RootElement;
-
-        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
-            await registry.InvokeAsync(SvMemorySkillRegistry.MemoryUpdateTool, args, ctx, TestContext.Current.CancellationToken));
-        ex.Message.ShouldContain("sv.memory.text.update");
-    }
-
-    [Fact]
-    public async Task MemoryTextUpdate_StringContent_PassesStringToStore()
-    {
+        // #3064/#3065: sv.memory.update is the single forgiving verb (the .text
+        // variant was removed) — a plain-text string is accepted in the same
+        // content argument and stored type-preserved.
         var registry = CreateRegistry();
         var callerId = Guid.NewGuid();
         var id = Guid.NewGuid();
@@ -431,7 +462,7 @@ public class SvMemorySkillRegistryTests
                 DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)));
 
         var result = await registry.InvokeAsync(
-            SvMemorySkillRegistry.MemoryTextUpdateTool, args, ctx, TestContext.Current.CancellationToken);
+            SvMemorySkillRegistry.MemoryUpdateTool, args, ctx, TestContext.Current.CancellationToken);
 
         await _memoryStore.Received(1).UpdateAsync(
             Arg.Is<Address>(a => a.Id == callerId),
@@ -550,16 +581,5 @@ public class SvMemorySkillRegistryTests
 
         await Should.ThrowAsync<ArgumentException>(async () =>
             await registry.InvokeAsync(SvMemorySkillRegistry.MemoryAddTool, args, ctx, TestContext.Current.CancellationToken));
-    }
-
-    [Fact]
-    public async Task MemoryTextAdd_EmptyStringContent_ThrowsArgumentException()
-    {
-        var registry = CreateRegistry();
-        var ctx = AgentContext(Guid.NewGuid());
-        var args = JsonDocument.Parse("""{"content":"   "}""").RootElement;
-
-        await Should.ThrowAsync<ArgumentException>(async () =>
-            await registry.InvokeAsync(SvMemorySkillRegistry.MemoryTextAddTool, args, ctx, TestContext.Current.CancellationToken));
     }
 }

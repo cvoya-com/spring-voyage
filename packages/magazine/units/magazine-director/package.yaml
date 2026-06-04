@@ -95,6 +95,13 @@ instructions: |
     when you want a peer to know what another peer has found, route
     the information to them — don't expect them to read someone
     else's memory.
+  - The managing editor holds the running ledger — the live state of
+    every slot. When the owner asks where the edition stands, get the
+    current picture from the managing editor before you answer, rather
+    than reporting from your own recollection, which can lag the floor by
+    several stages. Report the true state, including anything stuck: a
+    confident "all on track" that turns out to be stale is worse than an
+    honest "two pieces are held at copy-edit."
 
   Advertising binding decisions to the team
 

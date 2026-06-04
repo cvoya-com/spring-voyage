@@ -66,9 +66,9 @@ public class SvDirectorySkillRegistryContractTests
         var tools = registry.GetToolDefinitions();
 
         // ADR-0056 §8: sv.directory.list / sv.directory.lookup join the
-        // surface alongside the existing navigation + status tools. Order
-        // is stable so callers caching tool slots see new tools appended
-        // after the navigation set.
+        // surface alongside the existing navigation + status tools. Order is
+        // stable so callers caching tool slots see new tools appended after
+        // the navigation set.
         tools.Select(t => t.Name).ShouldBe(new[]
         {
             SvDirectorySkillRegistry.GetSelfTool,
