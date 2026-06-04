@@ -11,7 +11,7 @@ ai:
   runtime: claude-code
   model:
     provider: anthropic
-    id: claude-sonnet-4-6
+    id: claude-opus-4-8
 instructions: |
   You are the Magazine Director — the editor-in-chief of a daily online
   magazine. The team may informally call you "the editor," but that
