@@ -101,7 +101,7 @@ public static class PlatformToolCatalog
             "sv.directory.list_members for a unit's direct members — agents, " +
             "sub-units, AND human members, each with a sendable address, so " +
             "this is the tool to look up a teammate's address (including a " +
-            "human such as the publisher or approver) without asking the hub. " +
+            "human member) without asking the hub. " +
             "Use sv.directory.get_siblings for entities sharing a parent, " +
             "sv.directory.get_parents for an entity's parents, and " +
             "sv.directory.get_status for an entity's advisory runtime-status " +

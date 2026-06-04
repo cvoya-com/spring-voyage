@@ -304,8 +304,8 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "AND human members — as a flat list mixing agent-kind, unit-kind, and human-kind " +
                 "entries (filter by entry.kind on the client side if you only want one). Every " +
                 "entry carries a SENDABLE address, so this is the tool to use to look up a " +
-                "teammate's address — including a human teammate such as the publisher or " +
-                "approver — and feed it straight into sv.messaging.send, without asking the hub. " +
+                "teammate's address — including a human member — and feed it straight into " +
+                "sv.messaging.send, without asking the hub. " +
                 "Every entry also carries an optional multi-valued roles array (free-form labels " +
                 "like owner, reviewer, security_lead) and an expertise list. Human entries also " +
                 "surface their notifications subscription list when present. One row per (unit, " +
