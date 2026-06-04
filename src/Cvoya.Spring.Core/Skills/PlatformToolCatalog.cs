@@ -98,14 +98,14 @@ public static class PlatformToolCatalog
             "role or expertise filter. To walk the unit hierarchy " +
             "explicitly, use sv.directory.get_self for the calling entity, " +
             "sv.directory.get_member for a single entity by uuid, " +
-            "sv.directory.list_members for a unit's direct members, " +
-            "sv.directory.get_siblings for entities sharing a parent, " +
+            "sv.directory.list_members for a unit's direct members — agents, " +
+            "sub-units, AND human members, each with a sendable address, so " +
+            "this is the tool to look up a teammate's address (including a " +
+            "human such as the publisher or approver) without asking the hub. " +
+            "Use sv.directory.get_siblings for entities sharing a parent, " +
             "sv.directory.get_parents for an entity's parents, and " +
             "sv.directory.get_status for an entity's advisory runtime-status " +
-            "snapshot. Use sv.directory.members for a quick roster of your own " +
-            "unit's teammates — agents, sub-units, and human members — each " +
-            "with a sendable address, so you can reach a teammate (including a " +
-            "human) without asking the hub for an address. Every entry carries " +
+            "snapshot. Every entry carries " +
             "enough to act on (address, display name, role, expertise, " +
             "advisory live status) — feed an address back into " +
             "sv.messaging.send to reach the entry.",
