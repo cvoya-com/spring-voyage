@@ -185,11 +185,15 @@ Other Spring Voyage packages (`Cvoya.Spring.Core`, `Cvoya.Spring.Dapr`, the conn
 
 Container images are published to the GitHub Container Registry (`ghcr.io/cvoya-com/`). All images are publicly pullable (no credentials required).
 
+This table is the canonical, ground-truth list of every published image. The authoritative source is the build matrix in [`release.yml`](../../.github/workflows/release.yml) (`publish-platform-image`, `publish-agent-base-image`, `publish-agent-images`, `publish-oss-agent-images`); keep this table in sync with it.
+
 | Image | Published by | Description |
 | --- | --- | --- |
 | `ghcr.io/cvoya-com/spring-voyage` | `release.yml` | Platform image (API + Worker + Web + Dapr CLI); consumed by `deploy.sh` via `SPRING_PLATFORM_IMAGE`. |
+| `ghcr.io/cvoya-com/spring-voyage-agent-base` | `release.yml` | BYOI conformance path-1 base image; bundles the A2A sidecar bridge. The three CLI runtime images below are built `FROM` it. |
 | `ghcr.io/cvoya-com/spring-voyage-claude-code-base` | `release.yml` | Claude Code runtime image; the default image for the `claude-code` runtime. |
-| `ghcr.io/cvoya-com/spring-voyage-agent-base` | `release.yml` | BYOI conformance path-1 base image; bundles the A2A sidecar bridge. |
+| `ghcr.io/cvoya-com/spring-voyage-gemini-base` | `release.yml` | Gemini CLI runtime image; the default image for the `gemini` runtime. |
+| `ghcr.io/cvoya-com/spring-voyage-codex-base` | `release.yml` | Codex CLI runtime image; the default image for the `codex` runtime. |
 | `ghcr.io/cvoya-com/spring-voyage-agent` | `release.yml` | Dapr-native A2A agent (path-3). |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering` | `release.yml` | OSS software-engineering role agent. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management` | `release.yml` | OSS program-management role agent. |
