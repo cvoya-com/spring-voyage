@@ -144,6 +144,43 @@ class Envelope:
         )
 
     @classmethod
+    def all_from_data(cls, data: dict[str, Any]) -> list["Envelope"]:
+        """Parse every envelope in the structured A2A ``DataPart`` payload.
+
+        ADR-0066 §3: the platform delivers the structured envelope as a
+        dedicated A2A ``DataPart`` whose data is ``{"envelopes": [ … ]}`` —
+        one self-described envelope per inbound message in the turn's batch
+        (#3056), in order, with the identical shape as the prose appendix.
+        This is the structured counterpart of :meth:`parse_all`; a
+        deterministic runtime reads it instead of re-parsing the rendered
+        prose. Best-effort: a malformed entry is skipped, not raised.
+        """
+        if not isinstance(data, dict):
+            return []
+        raw = data.get("envelopes")
+        if not isinstance(raw, list):
+            return []
+        out: list[Envelope] = []
+        for item in raw:
+            if isinstance(item, dict):
+                env = cls._from_dict(item)
+                if env is not None:
+                    out.append(env)
+        return out
+
+    @classmethod
+    def latest_from_data(cls, data: dict[str, Any]) -> "Envelope | None":
+        """Return the most recent (last) envelope in the ``DataPart`` payload.
+
+        Mirrors :meth:`parse_latest` for the structured path: the last
+        envelope is the message the runtime is being asked to act on (and, for
+        a reply, the one carrying ``in_reply_to``). ``None`` when the payload
+        carries no usable envelope.
+        """
+        blocks = cls.all_from_data(data)
+        return blocks[-1] if blocks else None
+
+    @classmethod
     def parse_all(cls, text: str) -> list["Envelope"]:
         """Parse every fenced ``json`` envelope block in *text*, in order."""
         out: list[Envelope] = []

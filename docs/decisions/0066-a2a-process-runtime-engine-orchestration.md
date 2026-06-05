@@ -39,9 +39,14 @@ Per-turn delivery authority (`respond_to(message_id)`) still works: the engine p
 
 *Known v0.1 limitation:* MCP sessions are in-memory and process-local (the same locality as the per-turn sessions today), so a worker restart invalidates a running engine's durable token until the next cold-start re-issues it. A terminal stop leaves the in-memory session until worker restart — harmless, since the container is gone. A cross-host durable session store is a v0.2 concern.
 
-### 3. Structured envelope on the inbound event (SDK)
+### 3. Structured envelope on the inbound event, delivered as an A2A `DataPart`
 
-A deterministic engine wants to switch on structured fields, not parse prose. The platform already renders a structured envelope ([ADR-0060](0060-participant-set-agent-api-and-structured-envelope.md)) into the inbound message as a fenced JSON block. The SDK now parses it and exposes `Message.envelope` (`from`, `to`, `participants`, `message_id`) so the engine reads the sender and conversation as data. (Delivering the envelope as a dedicated A2A data part, rather than embedded in the rendered text, is a clean future refinement; it is not required for a correct consumer today.)
+A deterministic engine wants to switch on structured fields, not parse prose. The platform renders a structured envelope ([ADR-0060](0060-participant-set-agent-api-and-structured-envelope.md)) and delivers it **two ways on the same inbound message**:
+
+- as a dedicated A2A **`DataPart`** — `{ "envelopes": [ … ] }`, one self-described envelope per message in the turn's batch (#3056), in the ADR-0064 shape (`from`, `to`, `participants`, `message_id`, `in_reply_to`, `timestamp`, `payload`); and
+- as the fenced JSON block embedded in the rendered prose **`TextPart`** (unchanged).
+
+The dispatcher attaches both parts ([A2AExecutionDispatcher.DispatchPersistentAsync]). Every runtime keeps reading the prose `TextPart` — the CLI bridge and LLM runtimes extract text per-part and simply ignore a non-text part — while a deterministic engine reads the `DataPart` as data with no prose round-trip. The SDK exposes `Message.envelope` (`from`, `to`, `participants`, `message_id`, `in_reply_to`) sourced from the `DataPart` when present and **falling back** to parsing the prose block otherwise, so a consumer on an older delivery path still works. The `DataPart` payload and the prose appendix are written by one builder method (`InboundEnvelopeBuilder.WriteEnvelopeObject`) from one resolved participant set, so the two can never drift. Delivering structured data this way is plain A2A — `Part` is a `text | data | file` union — so it needs no platform protocol extension, only that the dispatcher populate the data part and the SDK read it.
 
 ### 4. Durable engine state on the workspace volume
 
@@ -67,4 +72,5 @@ The specialists echo nothing and need no special instruction — they just reply
 - The engine surrenders scheduling to the platform: it runs only when a message is dispatched (or a `reminder`/timer fires). Fan-out is N sends now, N reply-events later; the join lives in the checkpoint, not in prose.
 - A deterministic engine makes no LLM calls, but `spring package validate --strict` (ADR-0038) requires every agent to declare a structured `{provider, id}` model. For now the orchestrator declares the team's model to satisfy the contract — the launcher resolves the credential the team already needs and the engine ignores it. Letting model-optional engine runtimes omit it is a candidate refinement.
 - Correlation is now **platform-native** (§5): `send` returns the message id and `respond_to` round-trips it as `in_reply_to` on the inbound envelope and the persisted message read model, so a deterministic engine matches replies with no per-package echo convention.
-- **Open / next increments** (specified, not built here): delivering the structured envelope as an A2A data part; a richer durable-state primitive if the volume's guarantees prove insufficient under concurrent editions; model-optional engine runtimes (see above). (The web portal rendering reply chains in the timeline from the now-available `in_reply_to` is a UI follow-up.)
+- The structured envelope rides a real A2A `DataPart` (§3), so a deterministic engine never parses prose to route — the prose `TextPart` remains only for LLM and CLI runtimes.
+- **Open / next increments** (specified, not built here): a richer durable-state primitive if the volume's guarantees prove insufficient under concurrent editions; model-optional engine runtimes (see above). (The web portal rendering reply chains in the timeline from the now-available `in_reply_to` is a UI follow-up.)

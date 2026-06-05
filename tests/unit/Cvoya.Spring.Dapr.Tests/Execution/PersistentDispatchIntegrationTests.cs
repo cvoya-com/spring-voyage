@@ -207,11 +207,11 @@ public class PersistentDispatchIntegrationTests
 
     private sealed class PassthroughEnvelopeResolver : Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver
     {
-        public Task<string> RenderEnvelopeAsync(SvMessage inbound, CancellationToken cancellationToken)
-            => Task.FromResult(Extract(inbound));
+        public Task<Cvoya.Spring.Dapr.Prompts.RenderedInboundEnvelope> RenderEnvelopeAsync(SvMessage inbound, CancellationToken cancellationToken)
+            => Task.FromResult(new Cvoya.Spring.Dapr.Prompts.RenderedInboundEnvelope(Extract(inbound), null));
 
-        public Task<string> RenderEnvelopeAsync(IReadOnlyList<SvMessage> batch, CancellationToken cancellationToken)
-            => Task.FromResult(string.Join("\n", batch.Select(Extract)));
+        public Task<Cvoya.Spring.Dapr.Prompts.RenderedInboundEnvelope> RenderEnvelopeAsync(IReadOnlyList<SvMessage> batch, CancellationToken cancellationToken)
+            => Task.FromResult(new Cvoya.Spring.Dapr.Prompts.RenderedInboundEnvelope(string.Join("\n", batch.Select(Extract)), null));
 
         private static string Extract(SvMessage inbound) => inbound.Payload.ValueKind switch
         {

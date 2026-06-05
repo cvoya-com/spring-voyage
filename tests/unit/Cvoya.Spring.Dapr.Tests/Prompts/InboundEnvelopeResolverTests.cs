@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Prompts;
 
+using System.Linq;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Directory;
@@ -106,7 +107,7 @@ public class InboundEnvelopeResolverTests
                 new[] { Sender, AgentA, AgentB, UnitC },
                 DateTimeOffset.UtcNow));
 
-        var rendered = await harness.Resolver.RenderEnvelopeAsync(Inbound(AgentA, ThreadId), ct);
+        var rendered = (await harness.Resolver.RenderEnvelopeAsync(Inbound(AgentA, ThreadId), ct)).Text;
 
         // Exact `to` line: all three non-sender participants, in the
         // registry's canonical order, and the sender absent. Inverting the
@@ -117,6 +118,34 @@ public class InboundEnvelopeResolverTests
     }
 
     [Fact]
+    public async Task RenderEnvelope_PopulatesStructuredData_ForTheDataPart()
+    {
+        // ADR-0066 §3: the resolver returns the structured envelope (Data) the
+        // dispatcher attaches as the A2A DataPart, alongside the prose Text —
+        // and its `to`/`from` match the same resolved recipient set the prose
+        // names. The stub resolvers return null Data, so this is the only test
+        // that drives the live BuildEnvelopeData integration end-to-end.
+        var ct = TestContext.Current.CancellationToken;
+        var harness = Harness.Create();
+        harness.Registry.ResolveAsync(ThreadId, Arg.Any<CancellationToken>())
+            .Returns(new ThreadRegistryEntry(
+                ThreadId,
+                new[] { Sender, AgentA, AgentB },
+                DateTimeOffset.UtcNow));
+
+        var rendered = await harness.Resolver.RenderEnvelopeAsync(Inbound(AgentA, ThreadId), ct);
+
+        rendered.Data.ShouldNotBeNull();
+        rendered.Data.ShouldContainKey("envelopes");
+        rendered.Data!["envelopes"].ValueKind.ShouldBe(JsonValueKind.Array);
+        var envelopes = rendered.Data["envelopes"].EnumerateArray().ToList();
+        envelopes.Count.ShouldBe(1);
+        envelopes[0].GetProperty("from").GetString().ShouldBe(Sender.ToString());
+        envelopes[0].GetProperty("to").EnumerateArray().Select(e => e.GetString())
+            .ShouldBe(new[] { AgentA.ToString(), AgentB.ToString() });
+    }
+
+    [Fact]
     public async Task RenderEnvelope_NoThreadId_FallsBackToTheSingleHopRecipient()
     {
         // No thread to resolve a roster from — the envelope falls back to the
@@ -124,7 +153,7 @@ public class InboundEnvelopeResolverTests
         var ct = TestContext.Current.CancellationToken;
         var harness = Harness.Create();
 
-        var rendered = await harness.Resolver.RenderEnvelopeAsync(Inbound(AgentA, threadId: null), ct);
+        var rendered = (await harness.Resolver.RenderEnvelopeAsync(Inbound(AgentA, threadId: null), ct)).Text;
 
         rendered.ShouldContain($"- to: [{AgentA}]");
         // The registry is never consulted when there is no thread id.
@@ -145,7 +174,7 @@ public class InboundEnvelopeResolverTests
                 new[] { Sender },
                 DateTimeOffset.UtcNow));
 
-        var rendered = await harness.Resolver.RenderEnvelopeAsync(Inbound(AgentB, ThreadId), ct);
+        var rendered = (await harness.Resolver.RenderEnvelopeAsync(Inbound(AgentB, ThreadId), ct)).Text;
 
         rendered.ShouldContain($"- to: [{AgentB}]");
     }
@@ -160,7 +189,7 @@ public class InboundEnvelopeResolverTests
         harness.Registry.ResolveAsync(ThreadId, Arg.Any<CancellationToken>())
             .Returns((ThreadRegistryEntry?)null);
 
-        var rendered = await harness.Resolver.RenderEnvelopeAsync(Inbound(UnitC, ThreadId), ct);
+        var rendered = (await harness.Resolver.RenderEnvelopeAsync(Inbound(UnitC, ThreadId), ct)).Text;
 
         rendered.ShouldContain($"- to: [{UnitC}]");
     }
@@ -178,8 +207,8 @@ public class InboundEnvelopeResolverTests
             .Returns(new ThreadRegistryEntry(ThreadId, new[] { Sender, AgentA }, DateTimeOffset.UtcNow));
         var message = Inbound(AgentA, ThreadId);
 
-        var single = await harness.Resolver.RenderEnvelopeAsync(message, ct);
-        var batchOfOne = await harness.Resolver.RenderEnvelopeAsync(new[] { message }, ct);
+        var single = (await harness.Resolver.RenderEnvelopeAsync(message, ct)).Text;
+        var batchOfOne = (await harness.Resolver.RenderEnvelopeAsync(new[] { message }, ct)).Text;
 
         batchOfOne.ShouldBe(single);
         batchOfOne.ShouldStartWith("You received a message.");
@@ -200,7 +229,7 @@ public class InboundEnvelopeResolverTests
         var second = Inbound(AgentA, ThreadId);
         var third = Inbound(AgentA, ThreadId);
 
-        var rendered = await harness.Resolver.RenderEnvelopeAsync(new[] { first, second, third }, ct);
+        var rendered = (await harness.Resolver.RenderEnvelopeAsync(new[] { first, second, third }, ct)).Text;
 
         // Batch framing: the count and the reason-over-the-set guidance.
         rendered.ShouldContain("You received 3 messages in this conversation");

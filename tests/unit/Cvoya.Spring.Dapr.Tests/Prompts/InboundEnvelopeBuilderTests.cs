@@ -204,4 +204,81 @@ public class InboundEnvelopeBuilderTests
         // Nudges the runtime that stdout is reasoning trace, not delivered.
         rendered.ShouldContain("stdout text is a diagnostic reasoning trace");
     }
+
+    // ── ADR-0066 §3: structured envelope for the A2A DataPart ─────────────
+
+    private static InboundEnvelopeBuilder.EnvelopeMessage Envelope(
+        Message inbound,
+        IReadOnlyList<Address>? recipients = null,
+        IReadOnlyList<Address>? participants = null,
+        string? senderDisplayName = null)
+    {
+        var to = recipients ?? new[] { Self };
+        var roster = participants ?? to.Concat(new[] { Sender }).ToList();
+        return new InboundEnvelopeBuilder.EnvelopeMessage(inbound, senderDisplayName, to, roster);
+    }
+
+    [Fact]
+    public void BuildEnvelopeData_CarriesSelfDescribedEnvelope_MatchingTheProseShape()
+    {
+        // The structured DataPart a deterministic runtime reads carries the
+        // same from/to/participants/message_id/in_reply_to the prose appendix
+        // does — as data, not text to re-parse.
+        var answered = Guid.NewGuid();
+        var inbound = new Message(
+            Guid.NewGuid(), Sender, Self, MessageType.Domain,
+            ThreadId: null, JsonSerializer.SerializeToElement("hello"),
+            KnownTimestamp, InReplyTo: answered);
+
+        var data = InboundEnvelopeBuilder.BuildEnvelopeData(
+            new[] { Envelope(inbound, new[] { Self, Other }, new[] { Self, Other, Sender }) });
+
+        data.ShouldContainKey("envelopes");
+        data["envelopes"].ValueKind.ShouldBe(JsonValueKind.Array);
+        var envelopes = data["envelopes"].EnumerateArray().ToList();
+        envelopes.Count.ShouldBe(1);
+
+        var env = envelopes[0];
+        env.GetProperty("from").GetString().ShouldBe(Sender.ToString());
+        env.GetProperty("message_id").GetString().ShouldBe(GuidFormatter.Format(inbound.Id));
+        env.GetProperty("in_reply_to").GetString().ShouldBe(GuidFormatter.Format(answered));
+        env.GetProperty("to").EnumerateArray().Select(e => e.GetString())
+            .ShouldBe(new[] { Self.ToString(), Other.ToString() });
+        env.GetProperty("participants").EnumerateArray().Select(e => e.GetString())
+            .ShouldBe(new[] { Self.ToString(), Other.ToString(), Sender.ToString() });
+    }
+
+    [Fact]
+    public void BuildEnvelopeData_OmitsInReplyTo_ForOriginalMessage()
+    {
+        var inbound = new Message(
+            Guid.NewGuid(), Sender, Self, MessageType.Domain,
+            ThreadId: null, JsonSerializer.SerializeToElement("hi"), KnownTimestamp);
+
+        var data = InboundEnvelopeBuilder.BuildEnvelopeData(new[] { Envelope(inbound) });
+
+        var env = data["envelopes"].EnumerateArray().Single();
+        env.TryGetProperty("in_reply_to", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void BuildEnvelopeData_BatchPreservesOrder()
+    {
+        // #3056: a batched turn carries one envelope per message, oldest-first;
+        // the runtime reasons over the whole set and acts on the latest.
+        var first = new Message(
+            Guid.NewGuid(), Sender, Self, MessageType.Domain,
+            ThreadId: null, JsonSerializer.SerializeToElement("1"), KnownTimestamp);
+        var second = new Message(
+            Guid.NewGuid(), Sender, Self, MessageType.Domain,
+            ThreadId: null, JsonSerializer.SerializeToElement("2"), KnownTimestamp);
+
+        var data = InboundEnvelopeBuilder.BuildEnvelopeData(
+            new[] { Envelope(first), Envelope(second) });
+
+        var envelopes = data["envelopes"].EnumerateArray().ToList();
+        envelopes.Count.ShouldBe(2);
+        envelopes[0].GetProperty("message_id").GetString().ShouldBe(GuidFormatter.Format(first.Id));
+        envelopes[1].GetProperty("message_id").GetString().ShouldBe(GuidFormatter.Format(second.Id));
+    }
 }

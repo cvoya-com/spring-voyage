@@ -1276,8 +1276,19 @@ public class A2AExecutionDispatcher(
         // state in one turn instead of acting on a stale prefix. A single-
         // message batch renders exactly as it did pre-#3056.
         var envelopeBatch = batch is { Count: > 0 } ? batch : [originalMessage];
-        var userMessage = await _inboundEnvelopeResolver
+        var rendered = await _inboundEnvelopeResolver
             .RenderEnvelopeAsync(envelopeBatch, cancellationToken);
+
+        // ADR-0066 §3: every runtime reads the prose TextPart; a deterministic
+        // runtime ALSO receives the structured envelope as an A2A DataPart, so
+        // it reads sender / participants / message_id / in_reply_to as data
+        // instead of re-parsing the prose. The CLI bridge and LLM runtimes
+        // ignore the non-text part (they extract text by `part.text`).
+        var parts = new List<Part> { new TextPart { Text = rendered.Text } };
+        if (rendered.Data is { } envelopeData)
+        {
+            parts.Add(new DataPart { Data = envelopeData });
+        }
 
         // A2A v0.3 wire shape: MessageSendParams { message, configuration } —
         // the JSON-RPC method name is `message/send` (set by the SDK), which
@@ -1301,7 +1312,7 @@ public class A2AExecutionDispatcher(
             Message = new AgentMessage
             {
                 Role = MessageRole.User,
-                Parts = [new TextPart { Text = userMessage }],
+                Parts = parts,
                 MessageId = originalMessage.Id.ToString(),
                 ContextId = contextIdWire,
                 // ADR-0052 §4: deliver the per-turn MCP session token in the

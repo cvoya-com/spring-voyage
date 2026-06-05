@@ -67,6 +67,7 @@ from a2a.types import (
     AgentSkill,
 )
 from a2a.types.a2a_pb2 import AgentInterface, Part
+from google.protobuf.json_format import MessageToDict
 from starlette.applications import Starlette
 
 from spring_voyage_agent_sdk.bootstrap import (
@@ -164,6 +165,32 @@ def _extract_metadata(message: Any) -> dict[str, Any]:
     return out
 
 
+def _extract_envelope_data_from_parts(parts: Any) -> dict[str, Any] | None:
+    """Decode the structured-envelope A2A ``DataPart``, if one is present.
+
+    ADR-0066 §3: the platform delivers the structured inbound envelope as a
+    dedicated A2A ``DataPart`` (``{"envelopes": [ … ]}``) alongside the prose
+    ``TextPart``, so a deterministic runtime reads the sender / participants /
+    ``message_id`` / ``in_reply_to`` as data rather than re-parsing prose. In
+    a2a-sdk 1.x a data ``Part`` is a protobuf message whose ``content`` oneof
+    is ``data`` (a ``google.protobuf.Value``); ``MessageToDict`` unwraps it to
+    the original Python mapping with its keys preserved. We return the first
+    part that carries an ``envelopes`` list. Best-effort: any shape we don't
+    recognise (a text-only inbound, a local harness with dict parts) yields
+    ``None`` so the caller falls back to parsing the rendered prose.
+    """
+    for part in parts:
+        try:
+            if part.WhichOneof("content") != "data":
+                continue
+            decoded = MessageToDict(part.data)
+        except Exception:  # noqa: BLE001 — never let a part's shape break a turn.
+            continue
+        if isinstance(decoded, dict) and isinstance(decoded.get("envelopes"), list):
+            return decoded
+    return None
+
+
 def _build_message_from_a2a(ctx: RequestContext) -> Message:
     """Convert an a2a-sdk 1.x RequestContext into a SDK Message.
 
@@ -211,10 +238,19 @@ def _build_message_from_a2a(ctx: RequestContext) -> Message:
         mcp_token=mcp_token,
     )
 
-    # ADR-0066 §3: parse the platform's structured envelope out of the rendered
-    # message text so a deterministic engine reads the sender / participants /
-    # message_id as data. Best-effort: absent or malformed → envelope stays None.
-    message.envelope = Envelope.parse_latest(message.text)
+    # ADR-0066 §3: expose the platform's structured envelope so a deterministic
+    # engine reads the sender / participants / message_id / in_reply_to as data.
+    # Prefer the dedicated A2A DataPart (no prose re-parse); fall back to the
+    # fenced JSON block in the rendered text for any inbound that carried only
+    # the TextPart. Best-effort: absent or malformed → envelope stays None.
+    envelope: Envelope | None = None
+    if ctx.message:
+        envelope_data = _extract_envelope_data_from_parts(ctx.message.parts)
+        if envelope_data is not None:
+            envelope = Envelope.latest_from_data(envelope_data)
+    if envelope is None:
+        envelope = Envelope.parse_latest(message.text)
+    message.envelope = envelope
     return message
 
 
