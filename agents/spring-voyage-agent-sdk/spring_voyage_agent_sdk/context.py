@@ -179,6 +179,29 @@ class IAgentContext:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    async def complete(self, prompt: str, *, system_prompt: str | None = None) -> str:
+        """Run one Claude turn over *prompt* and return the assistant's text.
+
+        ADR-0066: a deterministic ``a2a-process`` engine owns orchestration but
+        delegates natural-language steps — interpreting a free-form brief,
+        composing a human-facing reply — to Claude. This abstracts the
+        co-hosted ``claude`` CLI so the engine code never launches an LLM
+        itself; it authenticates with the OAuth token the ``a2a-process``
+        launcher injected (``CLAUDE_CODE_OAUTH_TOKEN``).
+
+        With *system_prompt* unset the platform-assembled persona
+        (``.spring/system-prompt.md``) is appended; pass *system_prompt* to
+        substitute a focused instruction instead (e.g. a structured-extraction
+        directive). See :func:`spring_voyage_agent_sdk.llm.complete`.
+        """
+        from spring_voyage_agent_sdk import llm
+
+        return await llm.complete(
+            prompt,
+            system_prompt=system_prompt,
+            system_prompt_file=str(Path(self.workspace_path) / _SYSTEM_PROMPT_REL_PATH),
+        )
+
     @classmethod
     def load(cls) -> "IAgentContext":
         """Read IAgentContext from environment variables.

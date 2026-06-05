@@ -163,9 +163,16 @@ public class A2AProcessLauncher(
     /// <summary>
     /// Resolves the agent's LLM credential (when a cloud provider is pinned)
     /// and injects it under the provider's conventional env var. No-op for an
-    /// unset provider or Ollama. The engine container consumes the API key
-    /// directly via its own LLM client (e.g. <c>langchain-anthropic</c>), not
-    /// via Dapr — this runtime has no sidecar.
+    /// unset provider or Ollama, and <b>best-effort</b> otherwise: an absent
+    /// secret is logged and skipped, not fatal, so a purely deterministic
+    /// engine — which declares a model only to satisfy <c>--strict</c>
+    /// (ADR-0038) yet makes no LLM calls — still boots. For Anthropic the
+    /// runtime co-hosts the Claude CLI and authenticates by OAuth, like
+    /// <see cref="ClaudeCodeLauncher"/>: it resolves <c>authMethod: oauth</c>
+    /// and injects <c>CLAUDE_CODE_OAUTH_TOKEN</c> (the catalogue edge
+    /// <c>a2a-process → anthropic</c> carries oauth to match), which the SDK's
+    /// <c>claude --print</c> invocation reads. Other providers map to their
+    /// conventional API-key env var. No Dapr — this runtime has no sidecar.
     /// </summary>
     private async Task ResolveProviderCredentialAsync(
         AgentLaunchContext context,
@@ -179,11 +186,15 @@ public class A2AProcessLauncher(
             return;
         }
 
-        var providerEnvVar = provider.ToLowerInvariant() switch
+        // Anthropic is OAuth — the co-hosted Claude CLI reads
+        // CLAUDE_CODE_OAUTH_TOKEN; the other providers map to their
+        // conventional API-key env var. Keep this in lockstep with the
+        // catalogue's a2a-process model-provider edges.
+        var (authMethod, providerEnvVar) = provider.ToLowerInvariant() switch
         {
-            "anthropic" => "ANTHROPIC_API_KEY",
-            "openai" => "OPENAI_API_KEY",
-            "google" => "GOOGLE_API_KEY",
+            "anthropic" => (AuthMethod.Oauth, "CLAUDE_CODE_OAUTH_TOKEN"),
+            "openai" => (AuthMethod.ApiKey, "OPENAI_API_KEY"),
+            "google" => (AuthMethod.ApiKey, "GOOGLE_API_KEY"),
             _ => throw new SpringException(
                     $"a2a-process launcher cannot map provider '{provider}' to a credential env var. " +
                     "Supported providers: anthropic, openai, google. Add the mapping to extend.")
@@ -194,23 +205,29 @@ public class A2AProcessLauncher(
         Guid? unitGuid = Guid.TryParse(context.UnitId, out var parsedUnitId) ? parsedUnitId : null;
 
         // ILlmCredentialResolver is scoped; this launcher is a singleton, so
-        // resolve through a per-call scope. The a2a-process runtime consumes
-        // providers via API key (its catalogue edges all carry api-key).
+        // resolve through a per-call scope.
         await using var scope = scopeFactory.CreateAsyncScope();
         var credentialResolver = scope.ServiceProvider.GetRequiredService<ILlmCredentialResolver>();
         var resolution = await credentialResolver.ResolveAsync(
-            provider.ToLowerInvariant(), AuthMethod.ApiKey, agentGuid, unitGuid, cancellationToken);
+            provider.ToLowerInvariant(), authMethod, agentGuid, unitGuid, cancellationToken);
 
         if (resolution.Source is LlmCredentialSource.NotFound or LlmCredentialSource.Unreadable
             || string.IsNullOrEmpty(resolution.Value))
         {
-            throw new SpringException(
-                    $"Provider '{provider}' requires secret '{resolution.SecretName}' but no value resolved at " +
-                    "agent, unit, parent-unit chain, or tenant scope. Configure via the Tenant defaults panel or " +
-                    $"`spring secret set --scope tenant {resolution.SecretName} <value>`.")
-                .WithIssue(code: "CredentialMissing", source: "credential");
+            // Best-effort, not fatal (ADR-0066): the engine declares a model to
+            // satisfy --strict but may make no LLM calls, so an absent
+            // credential must not block boot. An engine that *does* call its
+            // model fails later with its own, clearer error.
+            _logger.LogInformation(
+                "a2a-process agent {AgentId}: no secret '{Secret}' resolved for provider '{Provider}' "
+                + "at agent, unit, parent-unit, or tenant scope; launching without {EnvVar}.",
+                context.AgentId, resolution.SecretName, provider, providerEnvVar);
+            return;
         }
 
         envVars[providerEnvVar] = resolution.Value!;
+        _logger.LogInformation(
+            "a2a-process credential resolved from {Source} into {EnvVar} for agent {AgentId}",
+            resolution.Source, providerEnvVar, context.AgentId);
     }
 }

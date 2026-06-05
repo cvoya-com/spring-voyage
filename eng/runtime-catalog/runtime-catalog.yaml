@@ -138,9 +138,15 @@ agentRuntimes:
       kind: env-var
       envVarName: SPRING_THREAD_ID
     modelProviders:
+      # The a2a-process runtime co-hosts the Claude CLI (the SDK shells
+      # `claude --print` for NL interpretation), so — like the claude-code
+      # runtime — it authenticates Anthropic via OAuth (CLAUDE_CODE_OAUTH_TOKEN),
+      # not an API key. A purely deterministic engine that makes no LLM calls
+      # declares a model only to satisfy `--strict` and simply leaves the
+      # credential unresolved (the launcher treats it as best-effort).
       - id: anthropic
-        authMethod: api-key
-        credentialEnvVar: ANTHROPIC_API_KEY
+        authMethod: oauth
+        credentialEnvVar: CLAUDE_CODE_OAUTH_TOKEN
       - id: openai
         authMethod: api-key
         credentialEnvVar: OPENAI_API_KEY
