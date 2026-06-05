@@ -1,11 +1,9 @@
-"""End-to-end orchestration test: the real LangGraph engine + a fake MCP client.
+"""Option B (ADR-0066 §6): the engine receives; Claude manages via tools.
 
-Drives a full two-slot edition from the director's kickoff, through every
-specialist stage of every slot, through assembly, to the director's sign-off and
-the publish hand-off. Correlation is platform-native (ADR-0066 §5): a brief's id
-is what `send` returns, and a reply names it via `in_reply_to` — no echoed token.
-
-Skipped when LangGraph is not installed.
+Covers the orchestration tools (start / status / active / cancel / approve /
+revise) directly, the autonomous data plane (matched replies advance the graph
+without Claude), and the control-plane routing (unmatched → the injected Claude
+``invoke``). Skipped when LangGraph is not installed.
 """
 
 from __future__ import annotations
@@ -17,12 +15,15 @@ pytest.importorskip("langgraph")
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 
 from orchestrator import mcp as mcp_tools  # noqa: E402
-from orchestrator import pipeline  # noqa: E402
 from orchestrator.coordinator import Coordinator  # noqa: E402
 from orchestrator.graph import build_slot_graph  # noqa: E402
-from orchestrator.state import PHASE_PUBLISHED, OrchestratorStore  # noqa: E402
+from orchestrator.state import (  # noqa: E402
+    PHASE_CANCELLED,
+    PHASE_PUBLISHED,
+    PHASE_SIGNOFF,
+    OrchestratorStore,
+)
 
-# A directory of the magazine peers, keyed by role.
 _MEMBERS = [
     {"address": "agent:staffwriter", "roles": ["staff-writer"]},
     {"address": "agent:factchecker", "roles": ["fact-checker"]},
@@ -33,13 +34,12 @@ _MEMBERS = [
 
 
 class FakeMcp:
-    """Records sends/responds and serves a canned directory. send/respond_to
-    return an ack carrying the created message's id (msg-N / resp-N), which the
-    orchestrator correlates against a later reply's in_reply_to."""
+    """Records sends and serves a canned directory. ``send`` returns the created
+    message id (msg-N) the engine correlates against a later reply's
+    ``in_reply_to``."""
 
     def __init__(self):
         self.sends: list[tuple[list[str], str, str | None]] = []
-        self.responds: list[tuple[str, str]] = []
 
     async def call_tool_json(self, token, name, arguments):
         if name == mcp_tools.SEND_TOOL:
@@ -47,9 +47,6 @@ class FakeMcp:
                 (arguments["recipients"], arguments["message"], arguments.get("reason"))
             )
             return {"messageId": f"msg-{len(self.sends)}", "deliveries": []}
-        if name == mcp_tools.RESPOND_TO_TOOL:
-            self.responds.append((arguments["message_id"], arguments["message"]))
-            return {"messageId": f"resp-{len(self.responds)}", "deliveries": []}
         if name == mcp_tools.GET_SELF_TOOL:
             return {"parent_uuids": ["unit-1"]}
         if name == mcp_tools.LIST_MEMBERS_TOOL:
@@ -60,12 +57,13 @@ class FakeMcp:
         return self.sends[-1]
 
 
-def _coord(tmp_path):
+def _coord(tmp_path, invoke=None):
     return Coordinator(
         store=OrchestratorStore(str(tmp_path)),
         mcp=FakeMcp(),
         graph=build_slot_graph(MemorySaver()),
         token="durable-tok",
+        invoke=invoke,
     )
 
 
@@ -73,390 +71,213 @@ def _addr(send):
     return send[0][0]
 
 
-async def _reply(coord, in_reply_to, *, text="artifact", sender="agent:peer"):
-    """Simulate a specialist replying to the brief identified by *in_reply_to*."""
+async def _reply(coord, in_reply_to, *, text="artifact"):
+    """A specialist reply naming the brief id it answers."""
     return await coord.handle(
-        thread_id=f"c-{in_reply_to}",
-        message_id="m",
-        sender_address=sender,
-        text=text,
-        in_reply_to=in_reply_to,
+        message_id="m", sender_address="agent:peer", text=text, in_reply_to=in_reply_to
     )
+
+
+# ----- the orchestration tools --------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_full_edition_lifecycle(tmp_path):
+async def test_start_edition_mints_id_and_delegates(tmp_path):
     coord = _coord(tmp_path)
     mcp = coord._mcp
-    ED = "edition-thread-1"
-
-    # --- 1. Director kickoff: theme + 2 slots → 2 draft briefs to the writer.
-    await coord.handle(
-        thread_id=ED,
-        message_id="kickoff-msg",
-        sender_address="unit:director",
-        text="Theme: Local government\n- City budget vote\n- School board race",
+    edition_id = await coord.start_edition(
+        theme="Local government",
+        slots=["City budget", "School board"],
+        report_to="unit:director",
     )
+    # A fresh, opaque id — not a conversation/thread id.
+    assert edition_id and edition_id != "unit:director" and len(edition_id) >= 16
+    # Two slots → two draft briefs to the writer.
     assert len(mcp.sends) == 2
     assert all(_addr(s) == "agent:staffwriter" for s in mcp.sends)
-    # No echoed token in any brief — correlation is platform-native.
-    assert all("sv-ref" not in s[1] for s in mcp.sends)
-    slot1_draft, slot2_draft = "msg-1", "msg-2"
+    status = coord.get_status(edition_id)
+    assert status["found"] and status["running"]
+    assert [s["title"] for s in status["slots"]] == ["City budget", "School board"]
 
-    # --- 2. Drive slot-1 by replying to each brief's id; assert the next role.
-    await _reply(coord, slot1_draft)
+
+@pytest.mark.asyncio
+async def test_two_editions_coexist(tmp_path):
+    coord = _coord(tmp_path)
+    a = await coord.start_edition(theme="A", slots=["a1"], report_to="unit:director")
+    b = await coord.start_edition(theme="B", slots=["b1"], report_to="unit:director")
+    assert a != b
+    assert {e["edition_id"] for e in coord.active_editions()} == {a, b}
+
+
+def test_get_status_unknown(tmp_path):
+    coord = _coord(tmp_path)
+    assert coord.get_status("nope") == {"found": False, "edition_id": "nope"}
+
+
+def test_active_editions_empty_before_kickoff(tmp_path):
+    coord = _coord(tmp_path)
+    assert coord.active_editions() == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_marks_terminal_and_excludes_from_active(tmp_path):
+    coord = _coord(tmp_path)
+    eid = await coord.start_edition(theme="T", slots=["x"], report_to="unit:director")
+    out = await coord.cancel_edition(eid)
+    assert out["ok"] and out["phase"] == PHASE_CANCELLED
+    assert coord.active_editions() == []
+    assert not coord.get_status(eid)["running"]
+    # Cancel again → no-op (already terminal).
+    assert (await coord.cancel_edition(eid))["ok"] is False
+
+
+@pytest.mark.asyncio
+async def test_cancel_unknown(tmp_path):
+    coord = _coord(tmp_path)
+    assert (await coord.cancel_edition("nope"))["ok"] is False
+
+
+# ----- the autonomous data plane (matched replies, no Claude) -------------
+
+
+@pytest.mark.asyncio
+async def test_data_plane_drives_to_signoff_autonomously(tmp_path):
+    coord = _coord(tmp_path)  # no invoke — purely the data plane
+    mcp = coord._mcp
+    eid = await coord.start_edition(
+        theme="News", slots=["S1", "S2"], report_to="unit:director"
+    )
+    s1, s2 = "msg-1", "msg-2"
+
+    # Slot 1 through its stages; the package reply finishes it (slot 2 open).
+    await _reply(coord, s1)
     assert _addr(mcp.last_send()) == "agent:factchecker"
     await _reply(coord, f"msg-{len(mcp.sends)}")
     assert _addr(mcp.last_send()) == "agent:copyeditor"
     await _reply(coord, f"msg-{len(mcp.sends)}")
     assert _addr(mcp.last_send()) == "agent:audienceeditor"
-    # package reply finishes slot-1; slot-2 still open → no new delegation.
     before = len(mcp.sends)
     await _reply(coord, f"msg-{len(mcp.sends)}")
     assert len(mcp.sends) == before
 
-    # --- 3. Drive slot-2; its package reply triggers assembly.
-    await _reply(coord, slot2_draft)  # → fact-checker
-    await _reply(coord, f"msg-{len(mcp.sends)}")  # → copy-editor
-    await _reply(coord, f"msg-{len(mcp.sends)}")  # → audience-editor
+    # Slot 2; its package reply triggers assembly to production.
+    await _reply(coord, s2)
+    await _reply(coord, f"msg-{len(mcp.sends)}")
+    await _reply(coord, f"msg-{len(mcp.sends)}")
     before = len(mcp.sends)
-    await _reply(coord, f"msg-{len(mcp.sends)}")  # package → all done → assemble
+    await _reply(coord, f"msg-{len(mcp.sends)}")
     assert len(mcp.sends) == before + 1
     assert _addr(mcp.last_send()) == "agent:productioneditor"
-    assert "## City budget vote" in mcp.last_send()[1]
     assemble_id = f"msg-{len(mcp.sends)}"
 
-    # --- 4. Production returns the assembled edition → sign-off to the director.
-    assert len(mcp.responds) == 0
-    await _reply(
-        coord,
-        assemble_id,
-        text="THE ASSEMBLED EDITION",
-        sender="agent:productioneditor",
-    )
-    assert len(mcp.responds) == 1
-    # respond_to continues the ORIGINAL director conversation (kickoff message).
-    assert mcp.responds[0][0] == "kickoff-msg"
-    assert "sign-off" in mcp.responds[0][1].lower()
-
-    # --- 5. Director approves on the edition thread. Its in_reply_to (resp-1)
-    #        is not a tracked delegation, so it routes by edition phase.
-    before = len(mcp.sends)
-    await coord.handle(
-        thread_id=ED,
-        message_id="approve",
-        sender_address="unit:director",
-        text="Looks good — approved. Publish it.",
-        in_reply_to="resp-1",
-    )
-    assert len(mcp.sends) == before + 1
-    assert _addr(mcp.last_send()) == "agent:productioneditor"
-    assert "Publish" in mcp.last_send()[1]
-
-    edition = coord._store.get_edition(ED)
-    assert edition.phase == PHASE_PUBLISHED
-    assert all(s.done for s in edition.slots.values())
+    # Production returns the assembled edition → sign-off goes to the DIRECTOR
+    # via a NEW message to report_to (Option B: the engine has no director
+    # message to respond_to).
+    await _reply(coord, assemble_id, text="THE ASSEMBLED EDITION")
+    assert _addr(mcp.last_send()) == "unit:director"
+    assert "sign-off" in mcp.last_send()[1].lower()
+    assert coord.get_status(eid)["phase"] == PHASE_SIGNOFF
 
 
 @pytest.mark.asyncio
-async def test_unknown_in_reply_to_on_new_thread_is_ignored(tmp_path):
+async def test_matched_reply_for_cancelled_edition_is_ignored(tmp_path):
     coord = _coord(tmp_path)
-    out = await coord.handle(
-        thread_id="stray",
-        message_id="m",
-        sender_address="agent:x",
-        text="a stray reply",
-        in_reply_to="msg-does-not-exist",
-    )
+    await coord.start_edition(theme="T", slots=["x"], report_to="unit:director")
+    # Cancel by id (the only active edition).
+    eid = coord.active_editions()[0]["edition_id"]
+    await coord.cancel_edition(eid)
+    before = len(coord._mcp.sends)
+    out = await _reply(coord, "msg-1")  # the draft brief's id — now moot
     assert "ignored" in out
-    assert coord._mcp.sends == []  # a stray reply must not start an edition
+    assert len(coord._mcp.sends) == before  # no further delegation, no leak to Claude
 
 
-@pytest.mark.asyncio
-async def test_director_revision_routes_back_to_production(tmp_path):
-    coord = _coord(tmp_path)
-    mcp = coord._mcp
-    ED = "ed-rev"
-    # Single-slot edition (no bulleted list → one slot).
-    await coord.handle(
-        thread_id=ED, message_id="k", sender_address="unit:director", text="One story"
+# ----- approve / revise tools (after sign-off) ----------------------------
+
+
+async def _drive_to_signoff(coord):
+    eid = await coord.start_edition(
+        theme="T", slots=["only"], report_to="unit:director"
     )
     nxt = "msg-1"
-    for _ in range(3):  # draft → fact_check → copy_edit → package briefs
+    for _ in range(3):  # draft → fact_check → copy_edit → audience
         await _reply(coord, nxt)
-        nxt = f"msg-{len(mcp.sends)}"
-    before = len(mcp.sends)
-    await _reply(coord, nxt)  # package reply → all done → assemble
-    assert len(mcp.sends) == before + 1
-    assemble_id = f"msg-{len(mcp.sends)}"
-    await _reply(coord, assemble_id, text="ASSEMBLED", sender="agent:productioneditor")
-
-    # Director returns notes (not an approval) → revise pass back to production.
-    before = len(mcp.sends)
-    out = await coord.handle(
-        thread_id=ED,
-        message_id="notes",
-        sender_address="unit:director",
-        text="Please tighten the lede on the second piece.",
-        in_reply_to="resp-1",
-    )
-    assert "revision requested" in out
-    assert len(mcp.sends) == before + 1
-    assert _addr(mcp.last_send()) == "agent:productioneditor"
-
-
-# --- pure helper tests ----------------------------------------------------
-
-from orchestrator import coordinator as coord_mod  # noqa: E402
-
-
-def test_parse_slots_bulleted_list():
-    theme, slots = coord_mod.parse_slots(
-        "Theme: Local government\n- City budget\n2) School board\n* Transit"
-    )
-    assert theme == "Local government"
-    assert slots == ["City budget", "School board", "Transit"]
-
-
-def test_parse_slots_no_list_is_single_slot():
-    theme, slots = coord_mod.parse_slots("Just one story about the harbour")
-    assert slots == ["Just one story about the harbour"]
-
-
-def test_parse_slots_caps_at_max():
-    text = "\n".join(f"- slot {i}" for i in range(20))
-    _, slots = coord_mod.parse_slots(text)
-    assert len(slots) == coord_mod.MAX_SLOTS
-
-
-@pytest.mark.parametrize(
-    "text", ["Approved!", "looks good", "go ahead and publish", "Signed off."]
-)
-def test_is_approval_true(text):
-    assert coord_mod.is_approval(text)
-
-
-@pytest.mark.parametrize(
-    "text", ["Please revise the lede", "not yet", "tighten paragraph 2"]
-)
-def test_is_approval_false(text):
-    assert not coord_mod.is_approval(text)
-
-
-# --- ADR-0066: Claude intake (route-to-Claude on no pending match) ---------
-
-
-def _coord_with_complete(tmp_path, complete):
-    return Coordinator(
-        store=OrchestratorStore(str(tmp_path)),
-        mcp=FakeMcp(),
-        graph=build_slot_graph(MemorySaver()),
-        token="durable-tok",
-        complete=complete,
-    )
+        nxt = f"msg-{len(coord._mcp.sends)}"
+    await _reply(coord, nxt)  # package reply → assemble to production
+    assemble_id = f"msg-{len(coord._mcp.sends)}"
+    await _reply(coord, assemble_id, text="ASSEMBLED")  # production's assembled edition
+    return eid
 
 
 @pytest.mark.asyncio
-async def test_kickoff_uses_claude_intake_when_wired(tmp_path):
-    # A free-form brief with no bulleted list: the heuristic would make ONE
-    # slot, but the wired Claude intake extracts a structured plan with three.
-    calls = []
-
-    async def fake_complete(prompt, *, system_prompt=None):
-        calls.append((prompt, system_prompt))
-        return (
-            '{"theme": "City hall in focus", '
-            '"slots": ["Budget vote", "Zoning fight", "Mayor profile"]}'
-        )
-
-    coord = _coord_with_complete(tmp_path, fake_complete)
-    mcp = coord._mcp
-    await coord.handle(
-        thread_id="ed-claude",
-        message_id="k",
-        sender_address="unit:director",
-        text="Do a deep issue on what's happening at city hall this month.",
-    )
-    # Claude saw the brief under the focused intake instruction.
-    assert calls and calls[0][1] == coord_mod.INTAKE_SYSTEM_PROMPT
-    # Three slots → three draft briefs (vs one from the heuristic).
-    assert len(mcp.sends) == 3
-    edition = coord._store.get_edition("ed-claude")
-    assert edition.theme == "City hall in focus"
-    assert [s.title for s in edition.slots.values()] == [
-        "Budget vote",
-        "Zoning fight",
-        "Mayor profile",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_kickoff_falls_back_to_heuristic_when_claude_fails(tmp_path):
-    async def boom(prompt, *, system_prompt=None):
-        raise RuntimeError("claude exploded")
-
-    coord = _coord_with_complete(tmp_path, boom)
-    await coord.handle(
-        thread_id="ed-fallback",
-        message_id="k",
-        sender_address="unit:director",
-        text="Theme: Transit\n- Bus cuts\n- Bike lanes",
-    )
-    # The heuristic parse drove it: two bulleted slots, edition still created.
-    assert len(coord._mcp.sends) == 2
-    edition = coord._store.get_edition("ed-fallback")
-    assert edition.theme == "Transit"
-    assert len(edition.slots) == 2
-
-
-@pytest.mark.asyncio
-async def test_interpret_brief_tolerates_fenced_json(tmp_path):
-    async def fenced(prompt, *, system_prompt=None):
-        return 'Sure!\n```json\n{"theme": "T", "slots": ["a", "b"]}\n```\n'
-
-    coord = _coord_with_complete(tmp_path, fenced)
-    theme, slots = await coord._interpret_brief("anything")
-    assert theme == "T"
-    assert slots == ["a", "b"]
-
-
-@pytest.mark.asyncio
-async def test_interpret_brief_unusable_result_falls_back(tmp_path):
-    async def empty(prompt, *, system_prompt=None):
-        return '{"theme": "", "slots": []}'
-
-    coord = _coord_with_complete(tmp_path, empty)
-    _, slots = await coord._interpret_brief("One story about the docks")
-    # An empty Claude result is not usable → heuristic single slot.
-    assert slots == ["One story about the docks"]
-
-
-@pytest.mark.asyncio
-async def test_interpret_brief_none_complete_uses_heuristic(tmp_path):
-    coord = _coord(tmp_path)  # no complete wired → fully deterministic
-    theme, slots = await coord._interpret_brief("Theme: X\n- a\n- b")
-    assert theme == "X"
-    assert slots == ["a", "b"]
-
-
-def test_extract_json_object_variants():
-    assert coord_mod._extract_json_object('{"a": 1}') == '{"a": 1}'
-    assert coord_mod._extract_json_object('prefix {"a": 1} suffix') == '{"a": 1}'
-    assert coord_mod._extract_json_object('```json\n{"a": 1}\n```') == '{"a": 1}'
-    assert coord_mod._extract_json_object("no json here") == "no json here"
-
-
-# --- ADR-0066 §6 Option A: Claude-routed commands on an in-progress edition ---
-
-
-def _seed_edition(coord, thread_id, *, phase, origin="kickoff-msg"):
-    edition = coord._store.create_edition(
-        edition_id=thread_id,
-        theme="Local news",
-        slot_titles=["Budget", "Schools"],
-        report_to="unit:director",
-        origin_message_id=origin,
-        first_stage=pipeline.SLOT_STAGES[0],
-    )
-    edition.phase = phase
-    coord._store.save_edition(edition)
-    return edition
-
-
-@pytest.mark.asyncio
-async def test_status_query_routes_to_claude_reply(tmp_path):
-    async def fake_complete(prompt, *, system_prompt=None):
-        # The edition already exists → the command path (not intake) is hit, and
-        # the engine handed Claude the edition state to answer from.
-        assert system_prompt == coord_mod.COMMAND_SYSTEM_PROMPT
-        assert "phase: drafting" in prompt
-        return '{"action": "reply", "text": "2 slots, both drafting."}'
-
-    coord = _coord_with_complete(tmp_path, fake_complete)
-    _seed_edition(coord, "ed-status", phase=coord_mod.PHASE_DRAFTING)
-
-    out = await coord.handle(
-        thread_id="ed-status",
-        message_id="q1",
-        sender_address="unit:director",
-        text="How's the edition coming along?",
-    )
-    assert out == "replied to director"
-    # The engine answered by responding to the director's query message itself.
-    assert coord._mcp.responds == [("q1", "2 slots, both drafting.")]
-
-
-@pytest.mark.asyncio
-async def test_claude_approve_in_signoff_publishes(tmp_path):
-    async def fake_complete(prompt, *, system_prompt=None):
-        return '{"action": "approve"}'
-
-    coord = _coord_with_complete(tmp_path, fake_complete)
-    ed = _seed_edition(coord, "ed-approve", phase=coord_mod.PHASE_SIGNOFF)
-    ed.assembled = "THE EDITION"
-    coord._store.save_edition(ed)
-
-    out = await coord.handle(
-        thread_id="ed-approve",
-        message_id="a1",
-        sender_address="unit:director",
-        text="Yes, this reads great — let's go.",
-    )
-    assert "approved" in out
+async def test_approve_publishes(tmp_path):
+    coord = _coord(tmp_path)
+    eid = await _drive_to_signoff(coord)
+    before = len(coord._mcp.sends)
+    out = await coord.approve_edition(eid)
+    assert out["ok"] and out["phase"] == PHASE_PUBLISHED
+    assert len(coord._mcp.sends) == before + 1
     assert _addr(coord._mcp.last_send()) == "agent:productioneditor"
     assert "Publish" in coord._mcp.last_send()[1]
-    assert coord._store.get_edition("ed-approve").phase == PHASE_PUBLISHED
 
 
 @pytest.mark.asyncio
-async def test_claude_revise_in_signoff_sends_notes(tmp_path):
-    async def fake_complete(prompt, *, system_prompt=None):
-        return '{"action": "revise", "notes": "Tighten the budget lede."}'
-
-    coord = _coord_with_complete(tmp_path, fake_complete)
-    ed = _seed_edition(coord, "ed-revise", phase=coord_mod.PHASE_SIGNOFF)
-    ed.assembled = "THE EDITION"
-    coord._store.save_edition(ed)
-
-    out = await coord.handle(
-        thread_id="ed-revise",
-        message_id="r1",
-        sender_address="unit:director",
-        text="Almost — a couple of fixes first.",
-    )
-    assert "revision requested" in out
+async def test_revise_sends_notes_to_production(tmp_path):
+    coord = _coord(tmp_path)
+    eid = await _drive_to_signoff(coord)
+    out = await coord.revise_edition(eid, "Tighten the lede.")
+    assert out["ok"]
     assert _addr(coord._mcp.last_send()) == "agent:productioneditor"
-    assert "Tighten the budget lede." in coord._mcp.last_send()[1]
+    assert "Tighten the lede." in coord._mcp.last_send()[1]
 
 
 @pytest.mark.asyncio
-async def test_command_falls_back_to_heuristic_when_claude_fails(tmp_path):
-    async def boom(prompt, *, system_prompt=None):
-        raise RuntimeError("claude down")
+async def test_approve_rejected_before_signoff(tmp_path):
+    coord = _coord(tmp_path)
+    eid = await coord.start_edition(theme="T", slots=["x"], report_to="unit:director")
+    out = await coord.approve_edition(eid)  # still drafting
+    assert out["ok"] is False
 
-    coord = _coord_with_complete(tmp_path, boom)
-    ed = _seed_edition(coord, "ed-fb", phase=coord_mod.PHASE_SIGNOFF)
-    ed.assembled = "X"
-    coord._store.save_edition(ed)
 
-    # Claude failed → deterministic sign-off routing (is_approval) takes over.
-    out = await coord.handle(
-        thread_id="ed-fb",
-        message_id="a",
-        sender_address="unit:director",
-        text="approved — ship it",
-    )
-    assert "approved" in out
+# ----- control-plane routing (unmatched → Claude) -------------------------
 
 
 @pytest.mark.asyncio
-async def test_command_no_complete_in_progress_acknowledges(tmp_path):
-    coord = _coord(tmp_path)  # no complete wired
-    _seed_edition(coord, "ed-ack", phase=coord_mod.PHASE_DRAFTING)
+async def test_unmatched_message_routes_to_invoke(tmp_path):
+    seen = {}
+
+    async def fake_invoke(text, *, sender_address):
+        seen["text"] = text
+        seen["sender"] = sender_address
+        return "claude's reply"
+
+    coord = _coord(tmp_path, invoke=fake_invoke)
     out = await coord.handle(
-        thread_id="ed-ack",
-        message_id="m",
-        sender_address="unit:director",
-        text="just checking in",
+        message_id="q", sender_address="unit:director", text="what's your progress?"
     )
-    assert out == "note acknowledged (edition in progress)"
+    assert out == "claude's reply"
+    assert seen == {"text": "what's your progress?", "sender": "unit:director"}
+
+
+@pytest.mark.asyncio
+async def test_matched_reply_bypasses_invoke(tmp_path):
+    called = False
+
+    async def fake_invoke(text, *, sender_address):
+        nonlocal called
+        called = True
+        return "x"
+
+    coord = _coord(tmp_path, invoke=fake_invoke)
+    await coord.start_edition(theme="T", slots=["x"], report_to="unit:director")
+    await coord.handle(
+        message_id="m", sender_address="agent:peer", text="draft", in_reply_to="msg-1"
+    )
+    assert called is False  # the data plane never touches Claude
+
+
+@pytest.mark.asyncio
+async def test_unmatched_with_no_invoke_is_ignored(tmp_path):
+    coord = _coord(tmp_path)  # no control-plane handler
+    out = await coord.handle(message_id="m", sender_address="unit:director", text="hi")
+    assert "ignored" in out

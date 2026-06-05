@@ -1,24 +1,33 @@
 """
-SDK wiring for the magazine orchestrator (ADR-0066).
+SDK wiring for the magazine orchestrator (ADR-0066 §6, Option B).
 
-Thin platform-facing layer: build the engine in ``initialize()``, route each
-inbound message to the :class:`~orchestrator.coordinator.Coordinator` in
-``on_message()``. All orchestration logic lives in ``coordinator.py`` (which is
-SDK-free and unit-tested against the real LangGraph engine with a fake MCP
-client); this module only adapts the SDK ``Message``/``IAgentContext`` types to
-the coordinator's plain-field interface.
+``initialize()`` builds the engine, hosts the local orchestration MCP server on
+localhost, and writes the ``.mcp.json`` the co-hosted Claude uses to reach it.
+``on_message()`` routes each inbound message to the Coordinator: a matched
+specialist reply advances the graph autonomously; an unmatched (director)
+message is handed to Claude — invoked *with the orchestration tools* — whose
+reply is the agent's response.
+
+All orchestration logic lives in ``coordinator.py``; this module only adapts the
+SDK types, hosts the tool server, and wires the control-plane invoke.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
 import logging
 import os
+
+import uvicorn
 
 from spring_voyage_agent_sdk import (
     IAgentContext,
     Message,
     Response,
     ShutdownReason,
+    llm,
     run,
 )
 
@@ -26,6 +35,7 @@ from orchestrator import mcp as mcp_tools
 from orchestrator.coordinator import Coordinator
 from orchestrator.graph import build_slot_graph, make_sqlite_checkpointer
 from orchestrator.state import OrchestratorStore
+from orchestrator.tools import DEFAULT_TOOLS_PORT, TOOLS_MCP_PATH, build_tool_server
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,12 +45,58 @@ logger = logging.getLogger("magazine-orchestrator")
 
 _coordinator: Coordinator | None = None
 _context: IAgentContext | None = None
+_tool_server_task: asyncio.Task | None = None
+
+
+def _tools_port() -> int:
+    raw = os.environ.get("ORCHESTRATION_TOOLS_PORT")
+    return int(raw) if raw and raw.isdigit() else DEFAULT_TOOLS_PORT
+
+
+def _write_mcp_config(workspace_path: str, port: int) -> str:
+    """Write the ``.mcp.json`` that points Claude at the local orchestration
+    server. Only the localhost tool server — Claude discovers and tracks
+    editions through the tools (``active_editions`` / ``get_status``), so it
+    needs no platform MCP here."""
+    config = {
+        "mcpServers": {
+            "orchestration": {
+                "type": "http",
+                "url": f"http://127.0.0.1:{port}{TOOLS_MCP_PATH}",
+            }
+        }
+    }
+    path = os.path.join(workspace_path, ".spring", "orchestration-mcp.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(config, handle)
+    return path
+
+
+class _QuietServer(uvicorn.Server):
+    """A uvicorn server that does not grab the process signals — the SDK
+    runtime owns SIGTERM, and this second server (the tool MCP) must not
+    override its shutdown handling."""
+
+    @contextlib.contextmanager
+    def capture_signals(self):  # type: ignore[override]
+        yield
+
+
+async def _serve_tool_server(server) -> None:
+    config = uvicorn.Config(
+        server.streamable_http_app(),
+        host="127.0.0.1",
+        port=_tools_port(),
+        log_config=None,
+    )
+    await _QuietServer(config).serve()
 
 
 async def initialize(context: IAgentContext) -> None:
-    """Build the engine: MCP client, the durable store + SQLite checkpointer on
-    the workspace volume, and the compiled LangGraph slot pipeline."""
-    global _coordinator, _context
+    """Build the engine + checkpointer, host the orchestration tool server, and
+    wire the control-plane Claude invoke."""
+    global _coordinator, _context, _tool_server_task
     _context = context
 
     checkpoint_dir = os.path.join(context.workspace_path, "orchestrator")
@@ -49,32 +105,47 @@ async def initialize(context: IAgentContext) -> None:
         os.path.join(checkpoint_dir, "checkpoints.sqlite")
     )
 
+    port = _tools_port()
+    mcp_config_path = _write_mcp_config(context.workspace_path, port)
+    system_prompt_file = os.path.join(
+        context.workspace_path, ".spring", "system-prompt.md"
+    )
+
+    async def invoke(text: str, *, sender_address: str) -> str:
+        # The control plane: hand the director's message to Claude with the
+        # orchestration tools (ADR-0066 §6 Option B). Claude's reply is the
+        # agent's response to the director; the engine ships it.
+        prompt = f"Message from {sender_address}:\n\n{text}"
+        return await llm.complete(
+            prompt,
+            system_prompt_file=system_prompt_file,
+            mcp_config_path=mcp_config_path,
+        )
+
     _coordinator = Coordinator(
         store=OrchestratorStore(context.workspace_path),
         mcp=mcp_tools.McpClient(context.mcp_url),
         graph=build_slot_graph(checkpointer),
-        # ADR-0066 §2: seed the engine with its durable, agent-scoped MCP token
-        # (SPRING_MCP_TOKEN) so it can call sv.* tools at any time — including
-        # any action not driven by an inbound message.
+        # ADR-0066 §2: seed the durable, agent-scoped MCP token (used by the
+        # data-plane sv.messaging calls; refreshed per message).
         token=context.mcp_token or "",
-        # ADR-0066: the natural-language step. A message that matches no pending
-        # response (a fresh director brief) is interpreted by Claude via the
-        # SDK's co-hosted CLI; the engine code itself never launches an LLM.
-        complete=context.complete,
+        invoke=invoke,
     )
+
+    tool_server = build_tool_server(_coordinator, port=port)
+    _tool_server_task = asyncio.create_task(_serve_tool_server(tool_server))
     logger.info(
-        "Magazine orchestrator initialized (workspace=%s)", context.workspace_path
+        "Magazine orchestrator initialized (workspace=%s); tools on 127.0.0.1:%d",
+        context.workspace_path,
+        port,
     )
 
 
 async def on_message(message: Message):
-    """Route one inbound message through the coordinator. The SDK final Response
-    is a diagnostic trace only — all real output goes via sv.messaging."""
+    """Route one inbound message through the coordinator. For a matched reply the
+    summary is a diagnostic ack; for an unmatched message it is Claude's reply."""
     assert _coordinator is not None, "initialize() must run before on_message"
 
-    # ADR-0066 §2: the engine authenticates with its durable, agent-scoped token
-    # (seeded at init); refresh it from this message's metadata if the platform
-    # rotated it. The coordinator keeps the token for out-of-turn calls too.
     token = message.mcp_token or (_context.mcp_token if _context else "")
     if not token:
         yield Response(error="No MCP token available; cannot reach platform tools.")
@@ -85,13 +156,10 @@ async def on_message(message: Message):
     message_id = (
         envelope.message_id if envelope and envelope.message_id else message.message_id
     )
-    # ADR-0066 §5: in_reply_to is the platform-native correlation — the brief
-    # this reply answers, which routes it to the right slot+stage.
     in_reply_to = envelope.in_reply_to if envelope else None
 
     try:
         summary = await _coordinator.handle(
-            thread_id=message.thread_id,
             message_id=message_id,
             sender_address=sender_address,
             text=message.text,
@@ -99,12 +167,14 @@ async def on_message(message: Message):
             token=token,
         )
         yield Response(text=summary, final=True)
-    except Exception as exc:  # noqa: BLE001 — surface as a turn error, don't crash the process.
+    except Exception as exc:  # noqa: BLE001 — surface as a turn error, don't crash.
         logger.exception("Orchestration failed for message %s", message.message_id)
         yield Response(error=f"Orchestration failed: {exc}")
 
 
 async def on_shutdown(reason: ShutdownReason) -> None:
+    if _tool_server_task is not None:
+        _tool_server_task.cancel()
     logger.info("Magazine orchestrator shutting down (reason=%s)", reason.value)
 
 

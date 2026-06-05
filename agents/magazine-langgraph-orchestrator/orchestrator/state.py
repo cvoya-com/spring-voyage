@@ -28,6 +28,10 @@ PHASE_DRAFTING = "drafting"  # one or more slots still moving through the pipeli
 PHASE_ASSEMBLING = "assembling"  # all slots packaged; production is assembling
 PHASE_SIGNOFF = "signoff"  # assembled edition is with the director for sign-off
 PHASE_PUBLISHED = "published"  # released to production to deliver/publish
+PHASE_CANCELLED = "cancelled"  # cancelled by the director (ADR-0066 §6 Option B)
+
+# Phases in which an edition is finished and no longer running.
+TERMINAL_PHASES = frozenset({PHASE_PUBLISHED, PHASE_CANCELLED})
 
 
 @dataclass
@@ -48,7 +52,10 @@ class Edition:
     edition_id: str
     theme: str
     report_to: str  # address to bring the assembled edition to (the director)
-    origin_message_id: str  # the message that started the edition (for respond_to)
+    # The message that started the edition. Retained for provenance; the engine
+    # reaches the director via send_message([report_to]) (ADR-0066 §6 Option B),
+    # not respond_to, since Claude — not the engine — receives the kickoff.
+    origin_message_id: str = ""
     phase: str = PHASE_DRAFTING
     slots: dict[str, Slot] = field(default_factory=dict)
     assembled: str | None = None
@@ -79,8 +86,8 @@ class OrchestratorStore:
         theme: str,
         slot_titles: list[str],
         report_to: str,
-        origin_message_id: str,
         first_stage: str,
+        origin_message_id: str = "",
     ) -> Edition:
         slots = {
             f"slot-{i + 1}": Slot(
@@ -105,6 +112,17 @@ class OrchestratorStore:
         data = json.loads(path.read_text(encoding="utf-8"))
         slots = {sid: Slot(**sdata) for sid, sdata in data.pop("slots", {}).items()}
         return Edition(slots=slots, **data)
+
+    def list_editions(self) -> list[Edition]:
+        """Every edition on disk, newest-mtime first. Used by the engine's
+        ``active_editions`` tool so Claude can discover what is running."""
+        out: list[tuple[float, Edition]] = []
+        for path in self._editions_dir.glob("*.json"):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            slots = {sid: Slot(**sdata) for sid, sdata in data.pop("slots", {}).items()}
+            out.append((path.stat().st_mtime, Edition(slots=slots, **data)))
+        out.sort(key=lambda pair: pair[0], reverse=True)
+        return [edition for _, edition in out]
 
     def save_edition(self, edition: Edition) -> None:
         data = asdict(edition)

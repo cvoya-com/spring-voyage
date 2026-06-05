@@ -92,6 +92,18 @@ class TestComplete:
         assert "--append-system-prompt-file" not in fake.argv
 
     @pytest.mark.asyncio
+    async def test_mcp_config_adds_flag(self):
+        # ADR-0066 §6 Option B: with a config, Claude runs with the orchestration
+        # tools available via --mcp-config.
+        proc = _FakeProc(stdout=b'{"result": "ok"}')
+        fake = _exec_returning(proc)
+        with patch("asyncio.create_subprocess_exec", fake):
+            await llm.complete("hi", mcp_config_path="/ws/.spring/orchestration-mcp.json")
+        argv = list(fake.argv)
+        assert "--mcp-config" in argv
+        assert argv[argv.index("--mcp-config") + 1] == "/ws/.spring/orchestration-mcp.json"
+
+    @pytest.mark.asyncio
     async def test_nonzero_exit_raises(self):
         proc = _FakeProc(stderr=b"boom", returncode=2)
         with patch("asyncio.create_subprocess_exec", _exec_returning(proc)):

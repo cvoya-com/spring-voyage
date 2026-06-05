@@ -60,6 +60,7 @@ async def complete(
     *,
     system_prompt: str | None = None,
     system_prompt_file: str | None = None,
+    mcp_config_path: str | None = None,
     timeout: float = _DEFAULT_TIMEOUT_SECONDS,
 ) -> str:
     """Run one Claude turn over *prompt* and return the assistant's text.
@@ -77,6 +78,12 @@ async def complete(
         Path to a system-prompt file to append. Used only when *system_prompt*
         is ``None`` (e.g. the platform-assembled ``.spring/system-prompt.md``).
         Skipped if the path does not exist.
+    mcp_config_path:
+        Path to a Claude ``.mcp.json`` (``--mcp-config``). When given, Claude
+        runs *with tools* — it can call the MCP servers named in that config
+        (e.g. the orchestrator's local tool server, ADR-0066 §6 Option B).
+        ``--dangerously-skip-permissions`` (already in the base argv) lets it
+        call them without prompting.
     timeout:
         Seconds before the turn is abandoned (the process is killed).
 
@@ -86,6 +93,8 @@ async def complete(
         If the CLI is missing, exits non-zero, or exceeds *timeout*.
     """
     argv = list(_CLAUDE_BASE_ARGV)
+    if mcp_config_path:
+        argv += ["--mcp-config", str(mcp_config_path)]
     tmp_path: str | None = None
     try:
         effective_sp_file = system_prompt_file
