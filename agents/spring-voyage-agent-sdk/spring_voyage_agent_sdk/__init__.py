@@ -96,11 +96,12 @@ from spring_voyage_agent_sdk.runtime_context import (
     tool_call,
 )
 from spring_voyage_agent_sdk.telemetry import TelemetryEmitter
-from spring_voyage_agent_sdk.types import Message, Response, ShutdownReason
+from spring_voyage_agent_sdk.types import Envelope, Message, Response, ShutdownReason
 
 __all__ = [
     "IAgentContext",
     "AgentHooks",
+    "Envelope",
     "Message",
     "Response",
     "ShutdownReason",

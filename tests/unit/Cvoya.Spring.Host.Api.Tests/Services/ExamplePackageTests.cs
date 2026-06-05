@@ -74,6 +74,7 @@ public class ExamplePackageTests
     [InlineData("spring-voyage-oss")]
     [InlineData("templated-team")]
     [InlineData("magazine")]
+    [InlineData("magazine-langgraph")]
     [InlineData("conversational-defaults")]
     [InlineData("engineer-defaults")]
     public async Task EveryInRepoPackage_ParsesUnderRecursiveLayout(string packageName)

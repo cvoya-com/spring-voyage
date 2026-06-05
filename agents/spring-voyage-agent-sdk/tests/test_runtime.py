@@ -660,3 +660,87 @@ class TestAgentCardRoutes:
         assert legacy.status_code == 200, (
             f"Legacy agent.json alias 404'd — smoke contract broken. Body: {legacy.text!r}"
         )
+
+
+class TestStructuredEnvelopeDataPart:
+    """ADR-0066 §3: the platform delivers the structured inbound envelope as a
+    dedicated A2A DataPart. ``_build_message_from_a2a`` reads it as data and
+    only falls back to parsing the rendered prose when no DataPart is present.
+    """
+
+    @staticmethod
+    def _text_part(text: str):
+        from a2a.types.a2a_pb2 import Part
+
+        p = Part()
+        p.text = text
+        return p
+
+    @staticmethod
+    def _data_part(data: dict):
+        from a2a.types.a2a_pb2 import Part
+        from google.protobuf.json_format import ParseDict
+
+        p = Part()
+        # Mirrors a2a's v0.3->core ingestion (compat/v0_3/conversions.py): an
+        # incoming data Part's payload lands in part.data.struct_value.
+        ParseDict(data, p.data.struct_value)
+        return p
+
+    def _ctx(self, parts):
+        message = SimpleNamespace(role="user", parts=parts, metadata=None)
+        ctx = MagicMock()
+        ctx.task_id = "task-1"
+        ctx.context_id = "thread-1"
+        ctx.message = message
+        return ctx
+
+    def test_prefers_data_part_over_prose(self):
+        from spring_voyage_agent_sdk.runtime import _build_message_from_a2a
+
+        envelope_data = {
+            "envelopes": [
+                {
+                    "from": "agent:writer",
+                    "to": ["agent:editor"],
+                    "participants": ["agent:writer", "agent:editor"],
+                    "message_id": "msg-from-data",
+                    "in_reply_to": "brief-7",
+                }
+            ]
+        }
+        # The prose TextPart carries a DIFFERENT envelope; the structured
+        # DataPart must win so the engine never re-parses prose.
+        prose = '```json\n{"from": "agent:other", "message_id": "msg-from-prose", "to": [], "participants": []}\n```'
+        ctx = self._ctx([self._text_part(prose), self._data_part(envelope_data)])
+
+        message = _build_message_from_a2a(ctx)
+
+        assert message.envelope is not None
+        assert message.envelope.from_address == "agent:writer"
+        assert message.envelope.message_id == "msg-from-data"
+        assert message.envelope.in_reply_to == "brief-7"
+
+    def test_falls_back_to_prose_when_no_data_part(self):
+        from spring_voyage_agent_sdk.runtime import _build_message_from_a2a
+
+        prose = '```json\n{"from": "agent:writer", "message_id": "msg-from-prose", "to": [], "participants": []}\n```'
+        ctx = self._ctx([self._text_part(prose)])
+
+        message = _build_message_from_a2a(ctx)
+
+        assert message.envelope is not None
+        assert message.envelope.message_id == "msg-from-prose"
+
+    def test_extractor_ignores_text_only_parts(self):
+        from spring_voyage_agent_sdk.runtime import _extract_envelope_data_from_parts
+
+        assert _extract_envelope_data_from_parts([self._text_part("no data here")]) is None
+
+    def test_extractor_decodes_envelopes_payload(self):
+        from spring_voyage_agent_sdk.runtime import _extract_envelope_data_from_parts
+
+        data = {"envelopes": [{"from": "agent:x", "message_id": "m1"}]}
+        decoded = _extract_envelope_data_from_parts([self._data_part(data)])
+        assert decoded is not None
+        assert decoded["envelopes"][0]["message_id"] == "m1"

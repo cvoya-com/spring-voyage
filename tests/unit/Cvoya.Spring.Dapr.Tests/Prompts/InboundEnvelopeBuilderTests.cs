@@ -42,7 +42,8 @@ public class InboundEnvelopeBuilderTests
         JsonElement payload,
         string? senderDisplayName = "Alice",
         IReadOnlyList<Address>? recipients = null,
-        IReadOnlyList<Address>? participants = null)
+        IReadOnlyList<Address>? participants = null,
+        Guid? inReplyTo = null)
     {
         var inbound = new Message(
             Guid.NewGuid(),
@@ -51,7 +52,8 @@ public class InboundEnvelopeBuilderTests
             MessageType.Domain,
             ThreadId: null,
             payload,
-            KnownTimestamp);
+            KnownTimestamp,
+            InReplyTo: inReplyTo);
 
         var to = recipients ?? new[] { Self };
         // Default roster: the recipients plus the routable sender (ADR-0064).
@@ -177,6 +179,20 @@ public class InboundEnvelopeBuilderTests
     }
 
     [Fact]
+    public void Render_CarriesInReplyTo_WhenSet_OmitsWhenNull()
+    {
+        // ADR-0066 §5: a reply names the message it answers (in_reply_to) so a
+        // sender can correlate fan-out replies; an original message omits it.
+        var answered = Guid.NewGuid();
+        var reply = Render(JsonSerializer.SerializeToElement("hi"), inReplyTo: answered);
+        reply.ShouldContain($"\"in_reply_to\": \"{GuidFormatter.Format(answered)}\"");
+        reply.ShouldContain("- in_reply_to: ");
+
+        var original = Render(JsonSerializer.SerializeToElement("hi"));
+        original.ShouldNotContain("in_reply_to");
+    }
+
+    [Fact]
     public void Render_PointsRuntimeAtContinuationAndSend()
     {
         var rendered = Render(JsonSerializer.SerializeToElement("hi"));
@@ -187,5 +203,82 @@ public class InboundEnvelopeBuilderTests
         rendered.ShouldContain("`sv.messaging.send`");
         // Nudges the runtime that stdout is reasoning trace, not delivered.
         rendered.ShouldContain("stdout text is a diagnostic reasoning trace");
+    }
+
+    // ── ADR-0066 §3: structured envelope for the A2A DataPart ─────────────
+
+    private static InboundEnvelopeBuilder.EnvelopeMessage Envelope(
+        Message inbound,
+        IReadOnlyList<Address>? recipients = null,
+        IReadOnlyList<Address>? participants = null,
+        string? senderDisplayName = null)
+    {
+        var to = recipients ?? new[] { Self };
+        var roster = participants ?? to.Concat(new[] { Sender }).ToList();
+        return new InboundEnvelopeBuilder.EnvelopeMessage(inbound, senderDisplayName, to, roster);
+    }
+
+    [Fact]
+    public void BuildEnvelopeData_CarriesSelfDescribedEnvelope_MatchingTheProseShape()
+    {
+        // The structured DataPart a deterministic runtime reads carries the
+        // same from/to/participants/message_id/in_reply_to the prose appendix
+        // does — as data, not text to re-parse.
+        var answered = Guid.NewGuid();
+        var inbound = new Message(
+            Guid.NewGuid(), Sender, Self, MessageType.Domain,
+            ThreadId: null, JsonSerializer.SerializeToElement("hello"),
+            KnownTimestamp, InReplyTo: answered);
+
+        var data = InboundEnvelopeBuilder.BuildEnvelopeData(
+            new[] { Envelope(inbound, new[] { Self, Other }, new[] { Self, Other, Sender }) });
+
+        data.ShouldContainKey("envelopes");
+        data["envelopes"].ValueKind.ShouldBe(JsonValueKind.Array);
+        var envelopes = data["envelopes"].EnumerateArray().ToList();
+        envelopes.Count.ShouldBe(1);
+
+        var env = envelopes[0];
+        env.GetProperty("from").GetString().ShouldBe(Sender.ToString());
+        env.GetProperty("message_id").GetString().ShouldBe(GuidFormatter.Format(inbound.Id));
+        env.GetProperty("in_reply_to").GetString().ShouldBe(GuidFormatter.Format(answered));
+        env.GetProperty("to").EnumerateArray().Select(e => e.GetString())
+            .ShouldBe(new[] { Self.ToString(), Other.ToString() });
+        env.GetProperty("participants").EnumerateArray().Select(e => e.GetString())
+            .ShouldBe(new[] { Self.ToString(), Other.ToString(), Sender.ToString() });
+    }
+
+    [Fact]
+    public void BuildEnvelopeData_OmitsInReplyTo_ForOriginalMessage()
+    {
+        var inbound = new Message(
+            Guid.NewGuid(), Sender, Self, MessageType.Domain,
+            ThreadId: null, JsonSerializer.SerializeToElement("hi"), KnownTimestamp);
+
+        var data = InboundEnvelopeBuilder.BuildEnvelopeData(new[] { Envelope(inbound) });
+
+        var env = data["envelopes"].EnumerateArray().Single();
+        env.TryGetProperty("in_reply_to", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void BuildEnvelopeData_BatchPreservesOrder()
+    {
+        // #3056: a batched turn carries one envelope per message, oldest-first;
+        // the runtime reasons over the whole set and acts on the latest.
+        var first = new Message(
+            Guid.NewGuid(), Sender, Self, MessageType.Domain,
+            ThreadId: null, JsonSerializer.SerializeToElement("1"), KnownTimestamp);
+        var second = new Message(
+            Guid.NewGuid(), Sender, Self, MessageType.Domain,
+            ThreadId: null, JsonSerializer.SerializeToElement("2"), KnownTimestamp);
+
+        var data = InboundEnvelopeBuilder.BuildEnvelopeData(
+            new[] { Envelope(first), Envelope(second) });
+
+        var envelopes = data["envelopes"].EnumerateArray().ToList();
+        envelopes.Count.ShouldBe(2);
+        envelopes[0].GetProperty("message_id").GetString().ShouldBe(GuidFormatter.Format(first.Id));
+        envelopes[1].GetProperty("message_id").GetString().ShouldBe(GuidFormatter.Format(second.Id));
     }
 }

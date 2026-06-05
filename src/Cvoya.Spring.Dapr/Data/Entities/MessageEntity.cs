@@ -111,4 +111,13 @@ public class MessageEntity : ITenantScopedEntity
     /// follow-up migration).
     /// </summary>
     public DateTimeOffset? RetractedAt { get; set; }
+
+    /// <summary>
+    /// Optional id of the message this one replies to (ADR-0066 §5). Stamped by
+    /// <c>sv.messaging.respond_to</c> with its <c>message_id</c> argument and
+    /// surfaced on the recipient's inbound envelope as <c>in_reply_to</c> and on
+    /// the message read model, so a sender can match a reply to its request and
+    /// the Thread Timeline can render reply chains. Null for an original message.
+    /// </summary>
+    public Guid? InReplyTo { get; set; }
 }

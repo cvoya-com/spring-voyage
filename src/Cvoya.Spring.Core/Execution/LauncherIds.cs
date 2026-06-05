@@ -27,4 +27,14 @@ public static class LauncherIds
 
     /// <summary>Strategy id for the Spring Voyage Agent (Python A2A) launcher.</summary>
     public const string SpringVoyageAgent = "spring-voyage-agent";
+
+    /// <summary>
+    /// Strategy id for the generic A2A-process launcher (ADR-0066) — a
+    /// long-running, always-on container that hosts an external
+    /// orchestration engine (e.g. LangGraph) and speaks A2A natively. Unlike
+    /// <see cref="SpringVoyageAgent"/> it is image-agnostic: it stamps the
+    /// platform env contract and the system-prompt bundle, then defers to the
+    /// image's own ENTRYPOINT. No per-engine launcher is needed.
+    /// </summary>
+    public const string A2AProcess = "a2a-process";
 }

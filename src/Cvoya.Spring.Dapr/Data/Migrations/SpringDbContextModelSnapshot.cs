@@ -798,6 +798,10 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("body");
 
+                    b.Property<Guid?>("InReplyTo")
+                        .HasColumnType("uuid")
+                        .HasColumnName("in_reply_to");
+
                     b.Property<string>("MessageType")
                         .IsRequired()
                         .HasMaxLength(32)

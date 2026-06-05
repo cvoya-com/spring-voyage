@@ -405,6 +405,10 @@ public class MessagingToolHandlersTests
         result.ThreadId.ShouldBe(ParseGuid(threadId));
         d1!.ThreadId.ShouldBe(threadId);
         d2!.ThreadId.ShouldBe(threadId);
+        // ADR-0066 §5: every delivered reply names the message it answers, so a
+        // sender can correlate fan-out replies without an echoed token.
+        d1!.InReplyTo.ShouldBe(messageId);
+        d2!.InReplyTo.ShouldBe(messageId);
     }
 
     [Fact]

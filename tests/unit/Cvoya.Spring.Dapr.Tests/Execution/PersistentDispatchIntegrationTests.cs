@@ -156,6 +156,15 @@ public class PersistentDispatchIntegrationTests
             .BuildServiceProvider()
             .GetRequiredService<PersistentAgentRegistry>();
 
+        _dispatcher = BuildDispatcher([_launcher]);
+    }
+
+    // Builds a dispatcher over the supplied launcher set, reusing the shared
+    // mocks. Extracted so a test can wire an extra launcher (e.g. the
+    // a2a-process engine) without a parallel harness.
+    private A2AExecutionDispatcher BuildDispatcher(IReadOnlyList<IAgentRuntimeLauncher> launchers)
+    {
+        var daprOptions = new DaprSidecarOptions();
         var daprEph = Substitute.For<IDaprSidecarManager>();
         var clmEph = new ContainerLifecycleManager(
             _containerRuntime, daprEph, Options.Create(daprOptions), _loggerFactory);
@@ -164,15 +173,14 @@ public class PersistentDispatchIntegrationTests
             _containerRuntime, daprD, Options.Create(daprOptions), _loggerFactory);
         var bootstrapAuthStoreForDispatcher = Substitute.For<IAgentBootstrapAuthStore>();
         var volumeManager = new AgentVolumeManager(_containerRuntime, bootstrapAuthStoreForDispatcher, _loggerFactory);
-
         var transportFactory = new DispatcherProxyA2ATransportFactory(_containerRuntime);
 
-        _dispatcher = new A2AExecutionDispatcher(
+        return new A2AExecutionDispatcher(
             _containerRuntime,
             _promptAssembler,
             _agentProvider,
             _mcpServer,
-            [_launcher],
+            launchers,
             _runtimeCatalog,
             _agentContextBuilder,
             _tenantContext,
@@ -199,11 +207,11 @@ public class PersistentDispatchIntegrationTests
 
     private sealed class PassthroughEnvelopeResolver : Cvoya.Spring.Dapr.Prompts.IInboundEnvelopeResolver
     {
-        public Task<string> RenderEnvelopeAsync(SvMessage inbound, CancellationToken cancellationToken)
-            => Task.FromResult(Extract(inbound));
+        public Task<Cvoya.Spring.Dapr.Prompts.RenderedInboundEnvelope> RenderEnvelopeAsync(SvMessage inbound, CancellationToken cancellationToken)
+            => Task.FromResult(new Cvoya.Spring.Dapr.Prompts.RenderedInboundEnvelope(Extract(inbound), null));
 
-        public Task<string> RenderEnvelopeAsync(IReadOnlyList<SvMessage> batch, CancellationToken cancellationToken)
-            => Task.FromResult(string.Join("\n", batch.Select(Extract)));
+        public Task<Cvoya.Spring.Dapr.Prompts.RenderedInboundEnvelope> RenderEnvelopeAsync(IReadOnlyList<SvMessage> batch, CancellationToken cancellationToken)
+            => Task.FromResult(new Cvoya.Spring.Dapr.Prompts.RenderedInboundEnvelope(string.Join("\n", batch.Select(Extract)), null));
 
         private static string Extract(SvMessage inbound) => inbound.Payload.ValueKind switch
         {
@@ -224,6 +232,66 @@ public class PersistentDispatchIntegrationTests
             threadId ?? Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Task = "do-work" }),
             DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
+    public async Task A2AProcessEngine_WarmDispatch_IssuesDurableToken_NeverRevokesPerTurn()
+    {
+        // ADR-0066 §2: an always-on a2a-process engine authenticates with a
+        // DURABLE, agent-scoped token that must outlive the turn — so timer- or
+        // background-triggered sv.* calls between messages still work. The
+        // dispatcher must NOT revoke it per-turn (unlike the CLI per-turn
+        // sessions the other tests exercise, which the finally revokes).
+        var a2aLauncher = Substitute.For<IAgentRuntimeLauncher>();
+        a2aLauncher.Kind.Returns("a2a-process");
+        a2aLauncher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
+            .Returns(new AgentLaunchSpec(EnvironmentVariables: new Dictionary<string, string>()));
+        _runtimeCatalog.GetAgentRuntime("a2a-process").Returns(new Cvoya.Spring.Core.Catalog.AgentRuntime(
+            Id: "a2a-process",
+            DisplayName: "A2A Process",
+            DefaultImage: "ghcr.io/test/engine:latest",
+            Launcher: "a2a-process",
+            ThreadBinding: new ThreadBinding(ThreadBindingKind.EnvVar, EnvVarName: "SPRING_THREAD_ID"),
+            ModelProviders: new[]
+            {
+                new AgentRuntimeProviderEdge("anthropic", AuthMethod.ApiKey, "ANTHROPIC_API_KEY"),
+            }));
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId: AgentId,
+                Name: "Engine",
+                Instructions: "orchestrate",
+                Execution: new AgentExecutionConfig(
+                    Runtime: "a2a-process", Image: Image, Hosting: AgentHostingMode.Persistent)));
+
+        var dispatcher = BuildDispatcher([_launcher, a2aLauncher]);
+
+        // Warm path: the engine container is already running.
+        await _persistentRegistry.RegisterAsync(
+            AgentId, new Uri("http://engine:8999/"), "engine-container",
+            cancellationToken: TestContext.Current.CancellationToken);
+        // Liveness probes pass (container is up); the A2A send itself fails (no
+        // real container) but the token calls we assert on bracket it regardless.
+        _containerRuntime.ProbeContainerHttpAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+        _httpClientFactory.CreateClient(Arg.Any<string>()).Returns(new HttpClient());
+
+        try
+        {
+            await dispatcher.DispatchAsync(CreateMessage(), context: null, TestContext.Current.CancellationToken);
+        }
+        catch (Exception)
+        {
+            // The A2A send to a non-existent container fails; immaterial here.
+        }
+
+        // The engine's durable token is issued (re-issued on this warm path
+        // since no in-process cold-start seeded it) …
+        _mcpServer.Received().IssueSession(
+            AgentId, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>());
+        // … and is NEVER revoked per-turn.
+        _mcpServer.DidNotReceive().RevokeSession(Arg.Any<string>());
     }
 
     [Fact]

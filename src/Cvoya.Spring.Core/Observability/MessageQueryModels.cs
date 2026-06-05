@@ -21,6 +21,7 @@ using System.Text.Json;
 /// <param name="Body">The rendered text body when the payload is a JSON string; <c>null</c> for structured payloads.</param>
 /// <param name="Payload">The raw payload as observed by the receiving actor.</param>
 /// <param name="Timestamp">When the receiving actor logged the message.</param>
+/// <param name="InReplyTo">The id of the message this one replies to (ADR-0066 §5), or <c>null</c> for an original message.</param>
 public record MessageDetail(
     Guid MessageId,
     string? ThreadId,
@@ -29,4 +30,5 @@ public record MessageDetail(
     string MessageType,
     string? Body,
     JsonElement? Payload,
-    DateTimeOffset Timestamp);
+    DateTimeOffset Timestamp,
+    Guid? InReplyTo = null);

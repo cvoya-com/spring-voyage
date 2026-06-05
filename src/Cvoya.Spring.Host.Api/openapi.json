@@ -14849,6 +14849,13 @@
           "timestamp": {
             "type": "string",
             "format": "date-time"
+          },
+          "inReplyTo": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },

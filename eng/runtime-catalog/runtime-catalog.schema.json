@@ -82,7 +82,8 @@
             "claude-code-cli",
             "codex-cli",
             "gemini-cli",
-            "spring-voyage-agent"
+            "spring-voyage-agent",
+            "a2a-process"
           ]
         },
         "threadBinding": { "$ref": "#/$defs/threadBinding" },

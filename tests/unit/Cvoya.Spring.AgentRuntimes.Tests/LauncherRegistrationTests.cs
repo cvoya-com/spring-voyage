@@ -43,6 +43,9 @@ public class LauncherRegistrationTests
 
         launchersByKind.ShouldContainKey(LauncherIds.SpringVoyageAgent);
         launchersByKind[LauncherIds.SpringVoyageAgent].ShouldBeOfType<SpringVoyageAgentLauncher>();
+
+        launchersByKind.ShouldContainKey(LauncherIds.A2AProcess);
+        launchersByKind[LauncherIds.A2AProcess].ShouldBeOfType<A2AProcessLauncher>();
     }
 
     [Fact]
@@ -60,6 +63,7 @@ public class LauncherRegistrationTests
         registry.Get(LauncherIds.CodexCli).ShouldBeOfType<CodexLauncher>();
         registry.Get(LauncherIds.GeminiCli).ShouldBeOfType<GeminiLauncher>();
         registry.Get(LauncherIds.SpringVoyageAgent).ShouldBeOfType<SpringVoyageAgentLauncher>();
+        registry.Get(LauncherIds.A2AProcess).ShouldBeOfType<A2AProcessLauncher>();
         registry.Get("does-not-exist").ShouldBeNull();
     }
 }

@@ -94,6 +94,29 @@ public class MessageQueryServiceTests : IDisposable
         result.MessageType.ShouldBe("Domain");
         result.Body.ShouldBe("hello, ada");
         result.Timestamp.ShouldBe(sentAt);
+        result.InReplyTo.ShouldBeNull();  // an original message answers nothing
+    }
+
+    [Fact]
+    public async Task GetAsync_InReplyToSet_IsProjected()
+    {
+        // ADR-0066 §5: the persisted in_reply_to column flows to the read DTO.
+        var ct = TestContext.Current.CancellationToken;
+        var messageId = Guid.NewGuid();
+        var threadId = Guid.NewGuid();
+        var answered = Guid.NewGuid();
+
+        SeedThread(threadId);
+        var entity = SeedMessage(
+            messageId, threadId, "agent", Guid.NewGuid(), "agent", Guid.NewGuid(),
+            "a reply", "\"a reply\"", DateTimeOffset.UtcNow);
+        entity.InReplyTo = answered;
+        await _db.SaveChangesAsync(ct);
+
+        var result = await new MessageQueryService(_db).GetAsync(messageId, ct);
+
+        result.ShouldNotBeNull();
+        result!.InReplyTo.ShouldBe(answered);
     }
 
     [Fact]

@@ -1,0 +1,11 @@
+apiVersion: spring.voyage/v1
+kind: Package
+name: magazine-langgraph
+displayName: Magazine (LangGraph)
+description: >-
+  A goal-driven editorial team that produces a daily online edition. You open a
+  conversation with the Magazine Director — the editor-in-chief — who plans the
+  edition; the team coordinates through reporting, fact-checking, copy-editing,
+  packaging, and assembly, and a human approver signs off before publication.
+version: 0.1.0
+readme: README.md

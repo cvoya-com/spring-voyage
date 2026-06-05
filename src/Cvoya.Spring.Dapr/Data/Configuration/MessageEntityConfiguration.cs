@@ -37,6 +37,7 @@ internal class MessageEntityConfiguration : IEntityTypeConfiguration<MessageEnti
         builder.Property(e => e.Payload).HasColumnName("payload").IsRequired().HasColumnType("jsonb");
         builder.Property(e => e.SentAt).HasColumnName("sent_at").IsRequired();
         builder.Property(e => e.RetractedAt).HasColumnName("retracted_at");
+        builder.Property(e => e.InReplyTo).HasColumnName("in_reply_to").HasColumnType("uuid");
 
         // Foreign key to threads.id. Cascade on delete so retiring a thread
         // row does not orphan its messages — the registry owns the thread

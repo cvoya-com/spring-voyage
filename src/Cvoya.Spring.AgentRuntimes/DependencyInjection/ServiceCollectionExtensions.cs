@@ -16,13 +16,13 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the v0.1 closed set of <see cref="IAgentRuntimeLauncher"/>
+    /// Registers the closed set of <see cref="IAgentRuntimeLauncher"/>
     /// strategies (<see cref="ClaudeCodeLauncher"/>,
     /// <see cref="CodexLauncher"/>, <see cref="GeminiLauncher"/>,
-    /// <see cref="SpringVoyageAgentLauncher"/>) plus the default
-    /// <see cref="IAgentRuntimeLauncherRegistry"/>. The runtime catalogue's
-    /// per-runtime <c>launcher</c> field selects which strategy services
-    /// each invocation.
+    /// <see cref="SpringVoyageAgentLauncher"/>, <see cref="A2AProcessLauncher"/>)
+    /// plus the default <see cref="IAgentRuntimeLauncherRegistry"/>. The runtime
+    /// catalogue's per-runtime <c>launcher</c> field selects which strategy
+    /// services each invocation.
     /// </summary>
     public static IServiceCollection AddCvoyaSpringAgentRuntimes(this IServiceCollection services)
     {
@@ -32,6 +32,7 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntimeLauncher, CodexLauncher>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntimeLauncher, GeminiLauncher>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntimeLauncher, SpringVoyageAgentLauncher>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntimeLauncher, A2AProcessLauncher>());
 
         services.TryAddSingleton<IAgentRuntimeLauncherRegistry, AgentRuntimeLauncherRegistry>();
         return services;

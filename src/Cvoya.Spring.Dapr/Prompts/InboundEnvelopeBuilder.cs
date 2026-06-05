@@ -175,6 +175,10 @@ internal static class InboundEnvelopeBuilder
             .Append(string.Join(", ", participants.Select(a => a.ToString())))
             .AppendLine("]");
         sb.Append("- message_id: ").AppendLine(GuidFormatter.Format(inbound.Id));
+        if (inbound.InReplyTo is { } headerInReplyTo)
+        {
+            sb.Append("- in_reply_to: ").AppendLine(GuidFormatter.Format(headerInReplyTo));
+        }
         sb.Append("- timestamp: ").AppendLine(
             inbound.Timestamp.ToString("O", CultureInfo.InvariantCulture));
         sb.AppendLine("- payload:");
@@ -236,35 +240,102 @@ internal static class InboundEnvelopeBuilder
         using var stream = new System.IO.MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
         {
-            writer.WriteStartObject();
-            writer.WriteString("from", inbound.From.ToString());
-            if (!string.IsNullOrWhiteSpace(senderDisplayName))
-            {
-                writer.WriteString("from_display_name", senderDisplayName);
-            }
-            writer.WritePropertyName("to");
-            writer.WriteStartArray();
-            foreach (var recipient in recipientParticipants)
-            {
-                writer.WriteStringValue(recipient.ToString());
-            }
-            writer.WriteEndArray();
-            writer.WritePropertyName("participants");
-            writer.WriteStartArray();
-            foreach (var participant in participants)
-            {
-                writer.WriteStringValue(participant.ToString());
-            }
-            writer.WriteEndArray();
-            writer.WriteString("message_id", GuidFormatter.Format(inbound.Id));
-            writer.WriteString("timestamp", inbound.Timestamp.ToString("O", CultureInfo.InvariantCulture));
-            writer.WritePropertyName("payload");
-            inbound.Payload.WriteTo(writer);
-            writer.WriteEndObject();
+            WriteEnvelopeObject(writer, inbound, senderDisplayName, recipientParticipants, participants);
         }
         return Encoding.UTF8.GetString(stream.ToArray());
     }
+
+    /// <summary>
+    /// Writes one self-described envelope object (<c>from</c>, <c>to</c>,
+    /// <c>participants</c>, <c>message_id</c>, <c>in_reply_to</c>,
+    /// <c>timestamp</c>, <c>payload</c>) to <paramref name="writer"/>. Shared by
+    /// the rendered-prose JSON appendix (<see cref="RenderEnvelopeJson"/>) and
+    /// the structured A2A data part (<see cref="BuildEnvelopeData"/>, ADR-0066
+    /// §3) so both carry the identical, complete shape.
+    /// </summary>
+    private static void WriteEnvelopeObject(
+        Utf8JsonWriter writer,
+        Message inbound,
+        string? senderDisplayName,
+        IReadOnlyList<Address> recipientParticipants,
+        IReadOnlyList<Address> participants)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("from", inbound.From.ToString());
+        if (!string.IsNullOrWhiteSpace(senderDisplayName))
+        {
+            writer.WriteString("from_display_name", senderDisplayName);
+        }
+        writer.WritePropertyName("to");
+        writer.WriteStartArray();
+        foreach (var recipient in recipientParticipants)
+        {
+            writer.WriteStringValue(recipient.ToString());
+        }
+        writer.WriteEndArray();
+        writer.WritePropertyName("participants");
+        writer.WriteStartArray();
+        foreach (var participant in participants)
+        {
+            writer.WriteStringValue(participant.ToString());
+        }
+        writer.WriteEndArray();
+        writer.WriteString("message_id", GuidFormatter.Format(inbound.Id));
+        // ADR-0066 §5: when this message is a reply, name the message it
+        // answers so a sender can correlate fan-out replies without an
+        // echoed token.
+        if (inbound.InReplyTo is { } inReplyTo)
+        {
+            writer.WriteString("in_reply_to", GuidFormatter.Format(inReplyTo));
+        }
+        writer.WriteString("timestamp", inbound.Timestamp.ToString("O", CultureInfo.InvariantCulture));
+        writer.WritePropertyName("payload");
+        inbound.Payload.WriteTo(writer);
+        writer.WriteEndObject();
+    }
+
+    /// <summary>
+    /// Builds the structured envelope for the inbound A2A <c>DataPart</c>
+    /// (ADR-0066 §3): a <c>{ "envelopes": [ … ] }</c> map carrying one
+    /// self-described envelope per message, in the same order and shape as the
+    /// rendered-prose appendix. Deterministic runtimes read this directly
+    /// instead of re-parsing the prose; LLM runtimes keep reading the text part.
+    /// The return value is the <c>DataPart.Data</c> dictionary.
+    /// </summary>
+    public static Dictionary<string, JsonElement> BuildEnvelopeData(
+        IReadOnlyList<EnvelopeMessage> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        using var stream = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartArray();
+            foreach (var m in messages)
+            {
+                WriteEnvelopeObject(
+                    writer, m.Inbound, m.SenderDisplayName, m.RecipientParticipants, m.Participants);
+            }
+            writer.WriteEndArray();
+        }
+        var envelopes = JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+        return new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+        {
+            ["envelopes"] = envelopes,
+        };
+    }
 }
+
+/// <summary>
+/// The rendered inbound envelope the dispatcher delivers: the prose
+/// <see cref="Text"/> (the user-message slot every runtime reads) plus the
+/// structured <see cref="Data"/> for the A2A <c>DataPart</c> (ADR-0066 §3), so
+/// a deterministic runtime reads the envelope as data rather than re-parsing
+/// the prose. <see cref="Data"/> is <c>null</c> only when a resolver does not
+/// produce structured data (e.g. a test stub).
+/// </summary>
+public readonly record struct RenderedInboundEnvelope(
+    string Text,
+    Dictionary<string, JsonElement>? Data);
 
 /// <summary>
 /// Resolves the directory metadata and thread-participant set the
@@ -281,7 +352,7 @@ public interface IInboundEnvelopeResolver
     /// Convenience over <see cref="RenderEnvelopeAsync(IReadOnlyList{Message}, CancellationToken)"/>
     /// for the one-message-per-turn case.
     /// </summary>
-    Task<string> RenderEnvelopeAsync(Message inbound, CancellationToken cancellationToken);
+    Task<RenderedInboundEnvelope> RenderEnvelopeAsync(Message inbound, CancellationToken cancellationToken);
 
     /// <summary>
     /// Renders the user-message envelope for a batch of inbound messages
@@ -290,7 +361,7 @@ public interface IInboundEnvelopeResolver
     /// self-described so the runtime can order and attribute them. A
     /// single-element batch renders identically to the single overload.
     /// </summary>
-    Task<string> RenderEnvelopeAsync(IReadOnlyList<Message> batch, CancellationToken cancellationToken);
+    Task<RenderedInboundEnvelope> RenderEnvelopeAsync(IReadOnlyList<Message> batch, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -307,14 +378,14 @@ public interface IInboundEnvelopeResolver
 public sealed class InboundEnvelopeResolver(
     IServiceScopeFactory scopeFactory) : IInboundEnvelopeResolver
 {
-    public Task<string> RenderEnvelopeAsync(
+    public Task<RenderedInboundEnvelope> RenderEnvelopeAsync(
         Message inbound, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(inbound);
         return RenderEnvelopeAsync([inbound], cancellationToken);
     }
 
-    public async Task<string> RenderEnvelopeAsync(
+    public async Task<RenderedInboundEnvelope> RenderEnvelopeAsync(
         IReadOnlyList<Message> batch, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(batch);
@@ -353,7 +424,11 @@ public sealed class InboundEnvelopeResolver(
                 inbound, displayName, recipientParticipants, participants));
         }
 
-        return InboundEnvelopeBuilder.RenderBatch(items);
+        // Render once, surface both shapes: the prose Text every runtime reads,
+        // and the structured Data for the A2A DataPart (ADR-0066 §3).
+        var text = InboundEnvelopeBuilder.RenderBatch(items);
+        var data = InboundEnvelopeBuilder.BuildEnvelopeData(items);
+        return new RenderedInboundEnvelope(text, data);
     }
 
     /// <summary>

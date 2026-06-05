@@ -297,6 +297,12 @@ public class MessagingToolHandlers(
                 targetMessageId, caller, recipients.Count, threadId, reason);
         }
 
+        // ADR-0066 §5: stamp the referenced message id so the recipient's
+        // inbound envelope carries `in_reply_to`. This is the platform-native
+        // correlation a deterministic runtime uses to match a reply to the
+        // specific message it answers — no echoed token required.
+        message = message with { InReplyTo = targetMessageId };
+
         // Deliver on the conversation's existing thread: pass its full stored
         // roster as the thread participant set so GetOrCreateAsync resolves
         // the same id and the continuation lands on the same thread (no

@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Execution;
 
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 using A2A.V0_3;
@@ -106,6 +107,18 @@ public class A2AExecutionDispatcher(
         payloadRenderers ?? throw new ArgumentNullException(nameof(payloadRenderers));
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<A2AExecutionDispatcher>();
+
+    // ADR-0066 §2: durable, agent-scoped MCP session tokens for always-on
+    // a2a-process engines, keyed by agentId. Unlike the per-turn sessions the
+    // CLI runtimes use, an engine's token is a service identity valid for the
+    // container's lifetime — so the engine can call sv.* tools at any time
+    // (timer- or background-triggered), not only while processing a message.
+    // Issued at cold-start, reused every turn (never revoked per-turn), and
+    // revoked + re-issued when a fresh container is started for the same agent.
+    // In-memory and process-local (same locality as the per-turn sessions); a
+    // worker restart re-issues on the next cold-start.
+    private readonly ConcurrentDictionary<string, string> _engineMcpTokens =
+        new(StringComparer.Ordinal);
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
     private readonly IA2ATransportFactory _transportFactory = transportFactory
         ?? throw new ArgumentNullException(nameof(transportFactory));
@@ -837,21 +850,46 @@ public class A2AExecutionDispatcher(
         // id, so the in-flight suppression doesn't hide actual breakage.
         using var dispatchScope = persistentAgentRegistry.BeginDispatch(agentId);
 
-        // ADR-0052 §4: every persistent dispatch — warm container or
-        // cold start — issues exactly one per-turn MCP session and
-        // delivers the token in the A2A message/send (§4). The launch
-        // path no longer issues a launch-time session (StartPersistentAgentAsync),
-        // so this is the only session the container ever sees. The
-        // session is scoped to the real per-turn thread id + message id
-        // (the same arguments the ephemeral path passes), NOT the stable
-        // `persistent-{agentId}` container-identity thread. message.To.Scheme
-        // carries the receiver's kind so platform tools (#2231) can resolve
-        // the caller's kind without an extra lookup; message.Id rides on the
-        // session so sv.messaging.* tools carry per-turn delivery authority
-        // (ADR-0051). The session is revoked in the finally below at turn end,
-        // matching the ephemeral path.
-        var session = mcpServer.IssueSession(
-            agentId, message.ThreadId!, message.To.Scheme, message.Id);
+        // Token handling depends on the runtime (ADR-0052 §4 / ADR-0066 §2):
+        //  - CLI runtimes: issue exactly one PER-TURN MCP session, deliver its
+        //    token in the A2A message/send, and revoke it in the finally at turn
+        //    end. The session is scoped to the real per-turn thread id + message
+        //    id (message.To.Scheme carries the receiver's kind for #2231;
+        //    message.Id rides on the session for per-turn delivery authority,
+        //    ADR-0051) and is the only session the container ever sees.
+        //  - a2a-process engines: reuse the DURABLE, agent-scoped token issued
+        //    at cold-start (a service identity for the always-on container). It
+        //    is delivered on every turn so the engine can refresh a rotated
+        //    token, and is NOT revoked per-turn — the engine needs it for
+        //    timer/background-triggered calls between messages.
+        // definition.Execution is non-null here — DispatchAsync rejects a null
+        // Execution before routing to the persistent path.
+        var (turnKind, _) = ResolveLauncher(definition.Execution!.Runtime, agentId);
+        var isEngineRuntime = string.Equals(
+            turnKind, LauncherIds.A2AProcess, StringComparison.OrdinalIgnoreCase);
+
+        McpSession? perTurnSession = null;
+        string turnToken;
+        if (isEngineRuntime)
+        {
+            if (!_engineMcpTokens.TryGetValue(agentId, out var durableToken))
+            {
+                // Warm container but the durable token is unknown (e.g. this
+                // worker restarted after the cold-start that issued it). Re-issue
+                // and remember it; the engine refreshes from the message metadata.
+                durableToken = mcpServer
+                    .IssueSession(agentId, message.ThreadId!, message.To.Scheme, messageId: default)
+                    .Token;
+                _engineMcpTokens[agentId] = durableToken;
+            }
+            turnToken = durableToken;
+        }
+        else
+        {
+            perTurnSession = mcpServer.IssueSession(
+                agentId, message.ThreadId!, message.To.Scheme, message.Id);
+            turnToken = perTurnSession.Token;
+        }
 
         RuntimeOutcome outcome;
         try
@@ -861,7 +899,7 @@ public class A2AExecutionDispatcher(
                 agentId,
                 containerId,
                 message,
-                session.Token,
+                turnToken,
                 cancellationToken,
                 batch,
                 model: definition.Execution!.Model?.Id,
@@ -906,7 +944,13 @@ public class A2AExecutionDispatcher(
         }
         finally
         {
-            mcpServer.RevokeSession(session.Token);
+            // Only per-turn CLI sessions are revoked here; an a2a-process
+            // engine's durable token lives for the container's lifetime and is
+            // re-issued at the next cold-start (ADR-0066 §2).
+            if (perTurnSession is not null)
+            {
+                mcpServer.RevokeSession(perTurnSession.Token);
+            }
         }
 
         // #2519: a successful A2A POST is the strongest possible "this
@@ -1028,14 +1072,40 @@ public class A2AExecutionDispatcher(
 
         var tenantId = _tenantContext.CurrentTenantId;
 
+        // ADR-0066 §2: an always-on a2a-process engine acts on its own schedule
+        // (timers, background work), not only inside a dispatched message turn,
+        // so the per-turn token model (issue + revoke around each message/send)
+        // is not enough — a timer-triggered sv.* call between messages would
+        // have no valid token. Issue a DURABLE, agent-scoped MCP session here —
+        // a service identity valid for the container's lifetime — deliver it via
+        // SPRING_MCP_TOKEN, and reuse it every turn. Any prior token for this
+        // agent (a stale one from a crashed container being restarted) is
+        // revoked first. CLI runtimes keep the per-turn model (empty token here;
+        // the first turn's message/send delivers their per-turn token).
+        var isEngineRuntime = string.Equals(
+            kind, LauncherIds.A2AProcess, StringComparison.OrdinalIgnoreCase);
+        var launchMcpToken = string.Empty;
+        if (isEngineRuntime)
+        {
+            if (_engineMcpTokens.TryRemove(agentId, out var staleToken))
+            {
+                mcpServer.RevokeSession(staleToken);
+            }
+            launchMcpToken = mcpServer
+                .IssueSession(agentId, sessionId, dispatchTarget.Scheme, messageId: default)
+                .Token;
+            _engineMcpTokens[agentId] = launchMcpToken;
+        }
+
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
             ThreadId: sessionId,
             Prompt: prompt,
             McpEndpoint: mcpServer.Endpoint,
-            // ADR-0052 §3/§4: no launch-time session — the container has
-            // no usable token until its first turn's message/send.
-            McpToken: string.Empty,
+            // ADR-0052 §3/§4: CLI runtimes get no launch-time session (empty —
+            // their per-turn token arrives on the first message/send).
+            // ADR-0066 §2: an a2a-process engine gets its durable token here.
+            McpToken: launchMcpToken,
             TenantId: tenantId,
             // #2251: forward the agent's owning unit id so launchers can pass
             // it to ILlmCredentialResolver — without this the resolver skips
@@ -1215,8 +1285,19 @@ public class A2AExecutionDispatcher(
         // state in one turn instead of acting on a stale prefix. A single-
         // message batch renders exactly as it did pre-#3056.
         var envelopeBatch = batch is { Count: > 0 } ? batch : [originalMessage];
-        var userMessage = await _inboundEnvelopeResolver
+        var rendered = await _inboundEnvelopeResolver
             .RenderEnvelopeAsync(envelopeBatch, cancellationToken);
+
+        // ADR-0066 §3: every runtime reads the prose TextPart; a deterministic
+        // runtime ALSO receives the structured envelope as an A2A DataPart, so
+        // it reads sender / participants / message_id / in_reply_to as data
+        // instead of re-parsing the prose. The CLI bridge and LLM runtimes
+        // ignore the non-text part (they extract text by `part.text`).
+        var parts = new List<Part> { new TextPart { Text = rendered.Text } };
+        if (rendered.Data is { } envelopeData)
+        {
+            parts.Add(new DataPart { Data = envelopeData });
+        }
 
         // A2A v0.3 wire shape: MessageSendParams { message, configuration } —
         // the JSON-RPC method name is `message/send` (set by the SDK), which
@@ -1240,7 +1321,7 @@ public class A2AExecutionDispatcher(
             Message = new AgentMessage
             {
                 Role = MessageRole.User,
-                Parts = [new TextPart { Text = userMessage }],
+                Parts = parts,
                 MessageId = originalMessage.Id.ToString(),
                 ContextId = contextIdWire,
                 // ADR-0052 §4: deliver the per-turn MCP session token in the

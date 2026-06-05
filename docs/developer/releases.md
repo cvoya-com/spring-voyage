@@ -195,6 +195,7 @@ This table is the canonical, ground-truth list of every published image. The aut
 | `ghcr.io/cvoya-com/spring-voyage-gemini-base` | `release.yml` | Gemini CLI runtime image; the default image for the `gemini` runtime. |
 | `ghcr.io/cvoya-com/spring-voyage-codex-base` | `release.yml` | Codex CLI runtime image; the default image for the `codex` runtime. |
 | `ghcr.io/cvoya-com/spring-voyage-agent` | `release.yml` | Dapr-native A2A agent (path-3). |
+| `ghcr.io/cvoya-com/spring-voyage-langgraph-orchestrator` | `release.yml` | Magazine LangGraph orchestrator — the always-on `a2a-process` engine (path-3, ADR-0066); default image for the `a2a-process` runtime. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering` | `release.yml` | OSS software-engineering role agent. |
 | `ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management` | `release.yml` | OSS program-management role agent. |
 

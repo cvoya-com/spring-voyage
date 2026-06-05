@@ -1,0 +1,69 @@
+# syntax=docker/dockerfile:1.7
+#
+# Spring Voyage — magazine LangGraph orchestrator image (ADR-0066).
+#
+# BYOI conformance path 3 (docs/architecture/agent-runtime.md § 7): the
+# container speaks A2A 0.3.x natively via the Spring Voyage Agent SDK — no
+# agent-base bridge. The entrypoint runs the magazine orchestrator, an
+# always-on LangGraph engine that drives the editorial pipeline by delegating
+# to the team's specialist agents over sv.messaging and resuming on their
+# replies. It is the default image for the generic `a2a-process` runtime
+# (eng/runtime-catalog/runtime-catalog.yaml); other engines ship their own
+# image and reuse the same runtime.
+#
+# Build (preferred): eng/build/build-agent-images.sh
+# Build (standalone):
+#   docker build -f eng/build/Dockerfile.agent.langgraph \
+#     -t localhost/spring-voyage-langgraph-orchestrator:latest .
+
+# Pinned to the same interpreter line as eng/build/Dockerfile.agent-base and
+# Dockerfile.agent.dapr — every Python-bearing platform image tracks 3.13.
+FROM docker.io/library/python:3.13.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    AGENT_PORT=8999
+
+# tini for clean SIGTERM forwarding (uniform with the other agent images);
+# ca-certificates so httpx can verify TLS endpoints (the LLM provider the
+# specialist agents use, not the orchestrator) and reach the platform MCP.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        tini \
+ && rm -rf /var/lib/apt/lists/*
+
+# Non-root agent user (uid/gid 1000) — parity with the other agent images so a
+# bind-mounted workspace continues to work without a chown.
+ARG AGENT_UID=1000
+ARG AGENT_GID=1000
+RUN groupadd --gid "${AGENT_GID}" agent \
+ && useradd  --uid "${AGENT_UID}" --gid "${AGENT_GID}" --create-home --shell /bin/bash agent
+
+WORKDIR /app
+
+# Install the orchestrator's deps (langgraph + checkpointer + a2a-sdk + httpx)
+# first so iterative source edits don't bust the dependency layer cache.
+COPY agents/magazine-langgraph-orchestrator/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+ && rm /tmp/requirements.txt
+
+# Install the Spring Voyage Agent SDK from source (not on PyPI yet) — the
+# orchestrator imports it at module top-level for the A2A server + lifecycle
+# hooks, so a missing SDK exits the process before uvicorn binds.
+COPY agents/spring-voyage-agent-sdk /tmp/spring-voyage-agent-sdk
+RUN pip install --no-cache-dir /tmp/spring-voyage-agent-sdk \
+ && rm -rf /tmp/spring-voyage-agent-sdk
+
+# Copy the orchestrator package last (iterates most often).
+COPY agents/magazine-langgraph-orchestrator/orchestrator ./orchestrator
+COPY agents/magazine-langgraph-orchestrator/pyproject.toml ./pyproject.toml
+
+RUN chown -R agent:agent /app
+USER agent
+
+EXPOSE 8999
+
+# tini as PID 1 so SIGTERM from the dispatcher reaches the uvicorn server.
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python", "-m", "orchestrator"]

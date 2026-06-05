@@ -8,6 +8,8 @@ docs/specs/agent-runtime-boundary.md §1.2.
 from __future__ import annotations
 
 import enum
+import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -77,6 +79,129 @@ class ContextHint:
     """Unknown fields carried through verbatim."""
 
 
+_ENVELOPE_JSON_BLOCK = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
+
+
+@dataclass
+class Envelope:
+    """The platform's structured inbound envelope (ADR-0060 / ADR-0066 §3).
+
+    The platform renders this envelope into the inbound message text as a
+    fenced ``json`` block (``InboundEnvelopeBuilder``). For a deterministic
+    runtime — e.g. an orchestration engine that routes on *who* sent *what*
+    on *which* conversation rather than reading prose — the SDK parses that
+    block and exposes the fields as data on :attr:`Message.envelope`.
+
+    A turn that batched several inbound messages (#3056) renders several
+    blocks; :meth:`parse_latest` returns the most recent (last) one, which is
+    the message the runtime is being asked to act on.
+    """
+
+    from_address: str
+    """Sender address (``scheme:guid``). Maps the envelope's ``from`` field."""
+
+    to: list[str] = field(default_factory=list)
+    """Recipients the sender targeted (receiver included, sender excluded)."""
+
+    participants: list[str] = field(default_factory=list)
+    """Full routable roster (ADR-0064) — the ``respond_to`` delivery set."""
+
+    message_id: str = ""
+    """The inbound message's id — the value to pass to ``sv.messaging.respond_to``."""
+
+    in_reply_to: str | None = None
+    """The id of the message this one answers (ADR-0066 §5), when it is a reply.
+
+    The platform stamps it from ``sv.messaging.respond_to``'s ``message_id``
+    argument. A sender that recorded the id ``sv.messaging.send`` returned can
+    match a reply to the specific message it answers — the platform-native
+    correlation a deterministic runtime uses instead of an echoed token.
+    ``None`` for an original (non-reply) message."""
+
+    timestamp: str | None = None
+    """RFC 3339 timestamp the platform stamped on the message."""
+
+    from_display_name: str | None = None
+    """Resolved sender display name, when the directory had one."""
+
+    payload: Any = None
+    """The raw payload object the envelope carried."""
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> "Envelope | None":
+        if "from" not in data:
+            return None
+        in_reply_to = data.get("in_reply_to")
+        return cls(
+            from_address=str(data.get("from", "")),
+            to=[str(x) for x in data.get("to", []) or []],
+            participants=[str(x) for x in data.get("participants", []) or []],
+            message_id=str(data.get("message_id", "")),
+            in_reply_to=str(in_reply_to) if in_reply_to else None,
+            timestamp=data.get("timestamp"),
+            from_display_name=data.get("from_display_name"),
+            payload=data.get("payload"),
+        )
+
+    @classmethod
+    def all_from_data(cls, data: dict[str, Any]) -> list["Envelope"]:
+        """Parse every envelope in the structured A2A ``DataPart`` payload.
+
+        ADR-0066 §3: the platform delivers the structured envelope as a
+        dedicated A2A ``DataPart`` whose data is ``{"envelopes": [ … ]}`` —
+        one self-described envelope per inbound message in the turn's batch
+        (#3056), in order, with the identical shape as the prose appendix.
+        This is the structured counterpart of :meth:`parse_all`; a
+        deterministic runtime reads it instead of re-parsing the rendered
+        prose. Best-effort: a malformed entry is skipped, not raised.
+        """
+        if not isinstance(data, dict):
+            return []
+        raw = data.get("envelopes")
+        if not isinstance(raw, list):
+            return []
+        out: list[Envelope] = []
+        for item in raw:
+            if isinstance(item, dict):
+                env = cls._from_dict(item)
+                if env is not None:
+                    out.append(env)
+        return out
+
+    @classmethod
+    def latest_from_data(cls, data: dict[str, Any]) -> "Envelope | None":
+        """Return the most recent (last) envelope in the ``DataPart`` payload.
+
+        Mirrors :meth:`parse_latest` for the structured path: the last
+        envelope is the message the runtime is being asked to act on (and, for
+        a reply, the one carrying ``in_reply_to``). ``None`` when the payload
+        carries no usable envelope.
+        """
+        blocks = cls.all_from_data(data)
+        return blocks[-1] if blocks else None
+
+    @classmethod
+    def parse_all(cls, text: str) -> list["Envelope"]:
+        """Parse every fenced ``json`` envelope block in *text*, in order."""
+        out: list[Envelope] = []
+        for match in _ENVELOPE_JSON_BLOCK.finditer(text or ""):
+            try:
+                data = json.loads(match.group(1))
+            except (ValueError, TypeError):
+                continue
+            if isinstance(data, dict):
+                env = cls._from_dict(data)
+                if env is not None:
+                    out.append(env)
+        return out
+
+    @classmethod
+    def parse_latest(cls, text: str) -> "Envelope | None":
+        """Return the most recent (last) envelope block in *text*, or ``None``."""
+        blocks = cls.parse_all(text)
+        return blocks[-1] if blocks else None
+
+
 @dataclass
 class Message:
     """Inbound A2A message delivered to :func:`on_message`.
@@ -107,6 +232,27 @@ class Message:
 
     context: ContextHint | None = None
     """Optional UX-hint metadata; present verbatim when the sender supplied it."""
+
+    mcp_token: str | None = None
+    """The MCP token delivered with *this* message in the A2A ``message/send``
+    metadata under ``mcpToken`` (ADR-0066 §2).
+
+    For per-turn CLI runtimes this is a fresh per-turn token, revoked at turn
+    end. For an always-on ``a2a-process`` engine it is the **durable,
+    agent-scoped** token — a service identity valid for the container's
+    lifetime, the same value delivered via ``$SPRING_MCP_TOKEN`` /
+    ``IAgentContext.mcp_token`` at start and echoed here each turn so the engine
+    can refresh it if it rotates. An engine should authenticate every ``sv.*``
+    call with its durable token — including timer- or background-triggered calls
+    between messages, which a per-turn token could not cover. ``None`` when the
+    inbound carried no token metadata (e.g. a local harness).
+    """
+
+    envelope: Envelope | None = None
+    """The platform's structured inbound envelope (ADR-0066 §3), parsed from
+    the rendered message text. Gives a deterministic runtime the sender,
+    recipients, routable participants, and ``message_id`` as data instead of
+    prose. ``None`` when no envelope block was present."""
 
     @property
     def text(self) -> str:
