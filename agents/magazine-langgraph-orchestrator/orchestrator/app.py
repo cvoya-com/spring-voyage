@@ -57,6 +57,10 @@ async def initialize(context: IAgentContext) -> None:
         # (SPRING_MCP_TOKEN) so it can call sv.* tools at any time — including
         # any action not driven by an inbound message.
         token=context.mcp_token or "",
+        # ADR-0066: the natural-language step. A message that matches no pending
+        # response (a fresh director brief) is interpreted by Claude via the
+        # SDK's co-hosted CLI; the engine code itself never launches an LLM.
+        complete=context.complete,
     )
     logger.info(
         "Magazine orchestrator initialized (workspace=%s)", context.workspace_path

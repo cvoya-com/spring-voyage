@@ -8,9 +8,11 @@ fields, not the SDK ``Message`` type.
 
 Run loop, per inbound message:
 
-* **kickoff** — a director message on a fresh conversation. Parse the theme and
-  story slots, create the durable edition, start one LangGraph slot pipeline
-  per slot, and deliver each first delegation (the draft brief).
+* **kickoff** — a director message on a fresh conversation (matches no pending
+  response). Interpret the natural-language brief into a theme and story slots
+  — via Claude when a completion capability is wired, the heuristic parse
+  otherwise — create the durable edition, start one LangGraph slot pipeline per
+  slot, and deliver each first delegation (the draft brief).
 * **peer reply** — a specialist's reply, matched to its brief by the reply's
   ``in_reply_to`` (ADR-0066 §5 — no echoed token). Resume that slot's graph with
   the returned artifact; deliver the next stage's delegation, or — when the slot
@@ -24,8 +26,10 @@ Run loop, per inbound message:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+from typing import Awaitable, Callable
 
 from orchestrator import mcp as mcp_tools
 from orchestrator import pipeline
@@ -49,6 +53,23 @@ _APPROVE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# ADR-0066: the focused instruction handed to Claude when interpreting a
+# free-form director brief into a structured edition plan. The engine owns
+# orchestration; Claude owns the natural-language step. Kept narrow (extract,
+# don't converse) so the result is machine-parsable.
+INTAKE_SYSTEM_PROMPT = (
+    "You convert a magazine editor's natural-language brief into a structured "
+    "edition plan. Return ONLY a JSON object — no prose, no markdown fences — of "
+    'the form {"theme": "<one short line>", "slots": ["<story slot title>", ...]}.'
+    "\nRules:\n"
+    '- "theme" is the overarching subject of the edition.\n'
+    '- "slots" is the ordered list of distinct story pieces to commission '
+    "(1-6 items).\n"
+    "- If the brief names specific stories, use them as the slots.\n"
+    "- If it gives only a theme with no explicit stories, propose 2-4 concrete "
+    "story slots that fit it."
+)
+
 
 # --- pure helpers (unit-tested directly) ----------------------------------
 
@@ -57,8 +78,9 @@ def parse_slots(text: str) -> tuple[str, list[str]]:
     """Heuristically split a director brief into a theme + story slot titles.
 
     A bulleted/numbered list becomes the slots; the first line is the theme.
-    A brief with no list becomes a single slot. Deterministic — an LLM-assisted
-    parse is a clean future enhancement but not required for correct routing.
+    A brief with no list becomes a single slot. Deterministic — the fallback
+    when the Claude intake path (:meth:`Coordinator._interpret_brief`) is
+    unavailable or returns nothing usable, so routing is always correct.
     """
     lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
     theme = lines[0] if lines else "Today's edition"
@@ -70,6 +92,25 @@ def parse_slots(text: str) -> tuple[str, list[str]]:
     if not slots:
         slots = [theme]
     return theme, slots[:MAX_SLOTS]
+
+
+def _extract_json_object(text: str) -> str:
+    """Pull the first ``{...}`` JSON object out of an LLM response.
+
+    Tolerates a ```json fenced block or surrounding prose so a slightly chatty
+    completion still parses. Returns the input unchanged when no object is
+    found (the caller's ``json.loads`` then raises and the heuristic takes
+    over).
+    """
+    s = (text or "").strip()
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", s, re.DOTALL)
+    if fence:
+        return fence.group(1)
+    start = s.find("{")
+    end = s.rfind("}")
+    if start != -1 and end > start:
+        return s[start : end + 1]
+    return s
 
 
 def is_approval(text: str) -> bool:
@@ -135,10 +176,17 @@ class Coordinator:
         mcp: mcp_tools.McpClient,
         graph,
         token: str = "",
+        complete: Callable[..., Awaitable[str]] | None = None,
     ) -> None:
         self._store = store
         self._mcp = mcp
         self._graph = graph
+        # ADR-0066: the natural-language step. The engine routes a message that
+        # matches no pending response (a fresh director brief) through this
+        # injected Claude completion; ``None`` keeps the engine fully
+        # deterministic (the heuristic parse), which is how the coordinator is
+        # unit-tested without an LLM.
+        self._complete = complete
         # ADR-0066 §2: the durable, agent-scoped MCP token — a service identity
         # for the always-on container. Seeded from IAgentContext.mcp_token at
         # init and refreshed from each message's metadata; used for every sv.*
@@ -189,10 +237,41 @@ class Coordinator:
 
     # ----- kickoff -----
 
+    async def _interpret_brief(self, text: str) -> tuple[str, list[str]]:
+        """Turn a free-form director brief into ``(theme, slot_titles)``.
+
+        ADR-0066: a message that matched no pending response is a fresh brief in
+        natural language. Route it through Claude when a completion capability
+        is wired (the engine owns orchestration; Claude owns the NL step); fall
+        back to the deterministic :func:`parse_slots` heuristic when Claude is
+        unavailable or returns nothing usable, so kickoff is always correct.
+        """
+        if self._complete is None:
+            return parse_slots(text)
+        try:
+            raw = await self._complete(text, system_prompt=INTAKE_SYSTEM_PROMPT)
+            spec = json.loads(_extract_json_object(raw))
+            theme = str(spec.get("theme", "")).strip()
+            slots = [
+                str(s).strip() for s in (spec.get("slots") or []) if str(s).strip()
+            ]
+            slots = slots[:MAX_SLOTS]
+            if theme and slots:
+                logger.info("Claude intake parsed %d slot(s) for the brief", len(slots))
+                return theme, slots
+            logger.warning(
+                "Claude intake returned no usable theme/slots; using heuristic parse"
+            )
+        except Exception:  # noqa: BLE001 — never fail intake on the LLM path.
+            logger.warning(
+                "Claude intake failed; falling back to heuristic parse", exc_info=True
+            )
+        return parse_slots(text)
+
     async def _handle_kickoff(
         self, thread_id: str, message_id: str, sender_address: str, text: str
     ) -> str:
-        theme, slot_titles = parse_slots(text)
+        theme, slot_titles = await self._interpret_brief(text)
         edition = self._store.create_edition(
             edition_id=thread_id,
             theme=theme,

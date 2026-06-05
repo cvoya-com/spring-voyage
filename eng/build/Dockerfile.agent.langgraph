@@ -25,12 +25,35 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     AGENT_PORT=8999
 
 # tini for clean SIGTERM forwarding (uniform with the other agent images);
-# ca-certificates so httpx can verify TLS endpoints (the LLM provider the
-# specialist agents use, not the orchestrator) and reach the platform MCP.
+# ca-certificates so httpx can verify TLS endpoints (the platform MCP) and so
+# the co-hosted Claude CLI can reach Anthropic.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates \
         tini \
+ && rm -rf /var/lib/apt/lists/*
+
+# The orchestrator delegates natural-language steps — interpreting a free-form
+# director brief (ADR-0066) — to Claude via the SDK's `complete()`, which shells
+# the Claude Code CLI. Install Node + the CLI (pinned to the same version as the
+# claude-code agent image) so `claude` is on PATH; the a2a-process launcher
+# injects CLAUDE_CODE_OAUTH_TOKEN at dispatch time, and the engine itself never
+# launches an LLM. The `claude --version` probe fails the build loudly on a
+# regression. A purely deterministic engine that never calls `complete()`
+# simply leaves the CLI unused.
+ARG NODE_VERSION=22
+ARG CLAUDE_CODE_VERSION=2.1.98
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl gnupg \
+ && curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION}.x" | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+ && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+ && command -v claude >/dev/null \
+ && claude --version \
+ && npm cache clean --force \
+ && apt-get purge -y curl gnupg \
+ && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root agent user (uid/gid 1000) — parity with the other agent images so a

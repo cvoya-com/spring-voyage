@@ -240,3 +240,106 @@ def test_is_approval_true(text):
 )
 def test_is_approval_false(text):
     assert not coord_mod.is_approval(text)
+
+
+# --- ADR-0066: Claude intake (route-to-Claude on no pending match) ---------
+
+
+def _coord_with_complete(tmp_path, complete):
+    return Coordinator(
+        store=OrchestratorStore(str(tmp_path)),
+        mcp=FakeMcp(),
+        graph=build_slot_graph(MemorySaver()),
+        token="durable-tok",
+        complete=complete,
+    )
+
+
+@pytest.mark.asyncio
+async def test_kickoff_uses_claude_intake_when_wired(tmp_path):
+    # A free-form brief with no bulleted list: the heuristic would make ONE
+    # slot, but the wired Claude intake extracts a structured plan with three.
+    calls = []
+
+    async def fake_complete(prompt, *, system_prompt=None):
+        calls.append((prompt, system_prompt))
+        return (
+            '{"theme": "City hall in focus", '
+            '"slots": ["Budget vote", "Zoning fight", "Mayor profile"]}'
+        )
+
+    coord = _coord_with_complete(tmp_path, fake_complete)
+    mcp = coord._mcp
+    await coord.handle(
+        thread_id="ed-claude",
+        message_id="k",
+        sender_address="unit:director",
+        text="Do a deep issue on what's happening at city hall this month.",
+    )
+    # Claude saw the brief under the focused intake instruction.
+    assert calls and calls[0][1] == coord_mod.INTAKE_SYSTEM_PROMPT
+    # Three slots → three draft briefs (vs one from the heuristic).
+    assert len(mcp.sends) == 3
+    edition = coord._store.get_edition("ed-claude")
+    assert edition.theme == "City hall in focus"
+    assert [s.title for s in edition.slots.values()] == [
+        "Budget vote",
+        "Zoning fight",
+        "Mayor profile",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_kickoff_falls_back_to_heuristic_when_claude_fails(tmp_path):
+    async def boom(prompt, *, system_prompt=None):
+        raise RuntimeError("claude exploded")
+
+    coord = _coord_with_complete(tmp_path, boom)
+    await coord.handle(
+        thread_id="ed-fallback",
+        message_id="k",
+        sender_address="unit:director",
+        text="Theme: Transit\n- Bus cuts\n- Bike lanes",
+    )
+    # The heuristic parse drove it: two bulleted slots, edition still created.
+    assert len(coord._mcp.sends) == 2
+    edition = coord._store.get_edition("ed-fallback")
+    assert edition.theme == "Transit"
+    assert len(edition.slots) == 2
+
+
+@pytest.mark.asyncio
+async def test_interpret_brief_tolerates_fenced_json(tmp_path):
+    async def fenced(prompt, *, system_prompt=None):
+        return 'Sure!\n```json\n{"theme": "T", "slots": ["a", "b"]}\n```\n'
+
+    coord = _coord_with_complete(tmp_path, fenced)
+    theme, slots = await coord._interpret_brief("anything")
+    assert theme == "T"
+    assert slots == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_interpret_brief_unusable_result_falls_back(tmp_path):
+    async def empty(prompt, *, system_prompt=None):
+        return '{"theme": "", "slots": []}'
+
+    coord = _coord_with_complete(tmp_path, empty)
+    _, slots = await coord._interpret_brief("One story about the docks")
+    # An empty Claude result is not usable → heuristic single slot.
+    assert slots == ["One story about the docks"]
+
+
+@pytest.mark.asyncio
+async def test_interpret_brief_none_complete_uses_heuristic(tmp_path):
+    coord = _coord(tmp_path)  # no complete wired → fully deterministic
+    theme, slots = await coord._interpret_brief("Theme: X\n- a\n- b")
+    assert theme == "X"
+    assert slots == ["a", "b"]
+
+
+def test_extract_json_object_variants():
+    assert coord_mod._extract_json_object('{"a": 1}') == '{"a": 1}'
+    assert coord_mod._extract_json_object('prefix {"a": 1} suffix') == '{"a": 1}'
+    assert coord_mod._extract_json_object('```json\n{"a": 1}\n```') == '{"a": 1}'
+    assert coord_mod._extract_json_object("no json here") == "no json here"

@@ -39,8 +39,10 @@ public class A2AProcessLauncherTests
 
     private void SeedTenantSecret(string providerId, string secretName, string value)
     {
+        // Match any auth method: anthropic resolves OAuth, the API-key
+        // providers resolve api-key — the launcher picks per provider.
         _credentialResolver
-            .ResolveAsync(providerId, Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync(providerId, Arg.Any<Cvoya.Spring.Core.Catalog.AuthMethod>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: value,
                 Source: LlmCredentialSource.Tenant,
@@ -97,14 +99,36 @@ public class A2AProcessLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_AnthropicProvider_InjectsApiKey()
+    public async Task PrepareAsync_AnthropicProvider_InjectsOAuthToken()
     {
-        SeedTenantSecret("anthropic", "anthropic-api-key", "sk-ant-api-fake");
+        // The a2a-process runtime co-hosts the Claude CLI and authenticates by
+        // OAuth (like claude-code), so anthropic resolves CLAUDE_CODE_OAUTH_TOKEN,
+        // not an API key.
+        SeedTenantSecret("anthropic", "claude-code-oauth-token", "sk-ant-oat-fake");
         var context = MakeContext("anthropic", "claude-opus-4-8");
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables["ANTHROPIC_API_KEY"].ShouldBe("sk-ant-api-fake");
+        prep.EnvironmentVariables["CLAUDE_CODE_OAUTH_TOKEN"].ShouldBe("sk-ant-oat-fake");
+        prep.EnvironmentVariables.ShouldNotContainKey("ANTHROPIC_API_KEY");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_AnthropicProvider_ResolvesViaOAuthNotApiKey()
+    {
+        // Pins the auth method: anthropic on a2a-process is OAuth, matching the
+        // catalogue edge and the co-hosted Claude CLI's CLAUDE_CODE_OAUTH_TOKEN.
+        SeedTenantSecret("anthropic", "claude-code-oauth-token", "sk-ant-oat-fake");
+
+        await _launcher.PrepareAsync(
+            MakeContext("anthropic", "claude-opus-4-8"), TestContext.Current.CancellationToken);
+
+        await _credentialResolver.Received().ResolveAsync(
+            "anthropic",
+            Cvoya.Spring.Core.Catalog.AuthMethod.Oauth,
+            Arg.Any<Guid?>(),
+            Arg.Any<Guid?>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -121,21 +145,24 @@ public class A2AProcessLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_MissingCredential_FailsWithGuidance()
+    public async Task PrepareAsync_MissingCredential_LaunchesWithoutCredential()
     {
+        // Best-effort (ADR-0066): a deterministic engine declares a model only
+        // to satisfy --strict but may make no LLM calls, so an unresolved
+        // credential must not block boot. The launcher logs and continues —
+        // no throw, and no credential env var is injected.
         _credentialResolver
-            .ResolveAsync("anthropic", Cvoya.Spring.Core.Catalog.AuthMethod.ApiKey, Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .ResolveAsync("anthropic", Arg.Any<Cvoya.Spring.Core.Catalog.AuthMethod>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new LlmCredentialResolution(
                 Value: null,
                 Source: LlmCredentialSource.NotFound,
-                SecretName: "anthropic-api-key"));
+                SecretName: "claude-code-oauth-token"));
         var context = MakeContext("anthropic", "claude-opus-4-8");
 
-        var ex = await Should.ThrowAsync<SpringException>(
-            () => _launcher.PrepareAsync(context, TestContext.Current.CancellationToken));
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        ex.Message.ShouldContain("anthropic-api-key");
-        ex.Data[SpringException.IssueCodeDataKey].ShouldBe("CredentialMissing");
+        prep.EnvironmentVariables.ShouldNotContainKey("CLAUDE_CODE_OAUTH_TOKEN");
+        prep.EnvironmentVariables.ShouldNotContainKey("ANTHROPIC_API_KEY");
     }
 
     [Fact]

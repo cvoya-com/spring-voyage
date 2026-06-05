@@ -65,6 +65,7 @@ warning — the platform user always sees *something* even when an
 agent author forgets to reply.
 """
 
+from spring_voyage_agent_sdk import llm
 from spring_voyage_agent_sdk.bootstrap import (
     BootstrapBundle,
     BootstrapError,
@@ -77,6 +78,7 @@ from spring_voyage_agent_sdk.bootstrap import (
 )
 from spring_voyage_agent_sdk.context import IAgentContext
 from spring_voyage_agent_sdk.hooks import AgentHooks
+from spring_voyage_agent_sdk.llm import ClaudeCompletionError
 from spring_voyage_agent_sdk.rate_limit import (
     ProgressRateLimiter,
     default_limiter,
@@ -101,6 +103,8 @@ from spring_voyage_agent_sdk.types import Envelope, Message, Response, ShutdownR
 __all__ = [
     "IAgentContext",
     "AgentHooks",
+    "llm",
+    "ClaudeCompletionError",
     "Envelope",
     "Message",
     "Response",
