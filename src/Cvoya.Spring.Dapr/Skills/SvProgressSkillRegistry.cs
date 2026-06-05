@@ -79,7 +79,7 @@ public sealed class SvProgressSkillRegistry : ISkillRegistry
                 ReportTool,
                 "Emit a progress signal for the active turn — a human-facing message and " +
                 "an optional [0.0, 1.0] completion fraction. Records a RuntimeProgress " +
-                "activity correlated to the current thread so operators see signal before " +
+                "activity correlated to the current conversation so operators see signal before " +
                 "the turn completes (ADR-0056 §8 fundamental core). Use this when work is " +
                 "non-trivial and otherwise silent — a chatbot replying in one tool call " +
                 "doesn't need it.",
