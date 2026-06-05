@@ -95,4 +95,23 @@ public sealed record RuntimeOutcome(
     /// effect on the outside world.
     /// </summary>
     public const string ToolCallCountKey = "toolCallCount";
+
+    /// <summary>
+    /// Conventional key on <see cref="Diagnostics"/> carrying the turn's total
+    /// cost in USD (decimal), when the runtime reported one — e.g. the Claude
+    /// Code CLI's <c>total_cost_usd</c>, captured by the sidecar and read off
+    /// the A2A task metadata (#3073). Absent when the runtime produced no cost
+    /// signal; the dispatch coordinator emits a <c>CostIncurred</c> activity
+    /// only when this key is present and positive.
+    /// </summary>
+    public const string CostUsdKey = "costUsd";
+
+    /// <summary>Conventional <see cref="Diagnostics"/> key: input tokens consumed this turn (int).</summary>
+    public const string InputTokensKey = "inputTokens";
+
+    /// <summary>Conventional <see cref="Diagnostics"/> key: output tokens generated this turn (int).</summary>
+    public const string OutputTokensKey = "outputTokens";
+
+    /// <summary>Conventional <see cref="Diagnostics"/> key: the model id the turn billed against (string).</summary>
+    public const string ModelKey = "model";
 }

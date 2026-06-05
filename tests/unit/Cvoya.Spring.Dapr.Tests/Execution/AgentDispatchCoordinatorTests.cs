@@ -310,4 +310,62 @@ public class AgentDispatchCoordinatorTests
         emitted.ShouldNotBeEmpty();
         emitted.ShouldAllBe(e => e.CorrelationId == inbound.ThreadId);
     }
+
+    // ------------------------------------------------------------------
+    // #3073: cost emission — the live producer the cost ledger + enforcer read
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task RunDispatchAsync_OutcomeWithCost_EmitsCostIncurredBeforeTerminal()
+    {
+        var inbound = MakeAgentMessage();
+        var outcome = new RuntimeOutcome(
+            ExitCode: 0,
+            Duration: TimeSpan.FromMilliseconds(1234),
+            ReasoningTrace: "done",
+            Diagnostics: new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [RuntimeOutcome.ToolCallCountKey] = 1,
+                [RuntimeOutcome.CostUsdKey] = 0.05m,
+                [RuntimeOutcome.InputTokensKey] = 1000,
+                [RuntimeOutcome.OutputTokensKey] = 500,
+                [RuntimeOutcome.ModelKey] = "claude-opus-4-8",
+                ["unitId"] = "unit-hex",
+                ["tenantId"] = "tenant-hex",
+            });
+
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(outcome);
+
+        var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
+
+        var cost = emitted.Where(e => e.EventType == ActivityEventType.CostIncurred).ShouldHaveSingleItem();
+        cost.Cost.ShouldBe(0.05m);
+        cost.Details.ShouldNotBeNull();
+        cost.Details!.Value.GetProperty("model").GetString().ShouldBe("claude-opus-4-8");
+        cost.Details!.Value.GetProperty("inputTokens").GetInt32().ShouldBe(1000);
+        cost.Details!.Value.GetProperty("outputTokens").GetInt32().ShouldBe(500);
+        cost.Details!.Value.GetProperty("costSource").GetString().ShouldBe("Work");
+        cost.Details!.Value.GetProperty("unitId").GetString().ShouldBe("unit-hex");
+
+        // Cost lands before the terminal RuntimeCompleted so a top-to-bottom
+        // reader sees the turn's spend with its completion.
+        var costIndex = emitted.FindIndex(e => e.EventType == ActivityEventType.CostIncurred);
+        var terminalIndex = emitted.FindIndex(e => e.EventType == ActivityEventType.RuntimeCompleted);
+        costIndex.ShouldBeLessThan(terminalIndex);
+    }
+
+    [Fact]
+    public async Task RunDispatchAsync_OutcomeWithoutCost_EmitsNoCostIncurred()
+    {
+        var inbound = MakeAgentMessage();
+        var dispatcher = Substitute.For<IExecutionDispatcher>();
+        dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(RuntimeOutcomes.Success());
+
+        var emitted = await RunAsync(MakeCoordinator(dispatcher), inbound);
+
+        emitted.ShouldNotContain(e => e.EventType == ActivityEventType.CostIncurred);
+    }
 }

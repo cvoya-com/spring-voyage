@@ -202,6 +202,21 @@ public class ClaudeCodeLauncher(
     internal const string DisableAutoMemoryEnvVar = "CLAUDE_CODE_DISABLE_AUTO_MEMORY";
 
     /// <summary>
+    /// Env var the A2A sidecar reads to learn how to interpret the CLI's
+    /// stdout (#3073 / <c>src/Cvoya.Spring.AgentSidecar/src/config.ts</c>).
+    /// Set to <see cref="OutputFormatJson"/> here because
+    /// <see cref="BaseClaudeArgv"/> runs <c>claude --output-format json</c>;
+    /// the sidecar then surfaces the result's <c>.result</c> prose as the
+    /// reply and hands <c>total_cost_usd</c> + <c>usage</c> to the host as
+    /// A2A task metadata so the cost ledger / budget enforcer get real
+    /// numbers. The bridge stays agent-agnostic — it never parses CLI flags.
+    /// </summary>
+    internal const string OutputFormatEnvVar = "SPRING_AGENT_OUTPUT_FORMAT";
+
+    /// <summary>JSON output-format hint value for <see cref="OutputFormatEnvVar"/>.</summary>
+    internal const string OutputFormatJson = "json";
+
+    /// <summary>
     /// Argv vector the A2A bridge (agent-base ENTRYPOINT) spawns inside the
     /// container on every <c>message/send</c>. Encoded as a JSON array string
     /// in <c>SPRING_AGENT_ARGV</c> so the bridge can recover the exact
@@ -214,18 +229,21 @@ public class ClaudeCodeLauncher(
     ///   it consumes stdin and writes to stdout instead of opening a TUI.</item>
     ///   <item><c>--dangerously-skip-permissions</c> waives the per-tool
     ///   confirmation prompt — the container is the sandbox.</item>
+    ///   <item><c>--output-format json</c> makes <c>claude</c> emit a single
+    ///   JSON result object (reply text + <c>total_cost_usd</c> + <c>usage</c>)
+    ///   instead of bare prose. The sidecar (gated by
+    ///   <see cref="OutputFormatEnvVar"/>) parses it, surfaces the
+    ///   <c>.result</c> prose as the reply, and hands the cost/usage back to
+    ///   the host so budget tracking is wired end-to-end (#3073).</item>
     /// </list>
     /// <para>
-    /// <b>Why no <c>--output-format stream-json</c>:</b> the Claude CLI rejects
-    /// <c>--print --output-format stream-json</c> without a companion
-    /// <c>--verbose</c>, and even if both are passed the A2A sidecar
-    /// (<c>src/Cvoya.Spring.AgentSidecar/src/bridge.ts</c>) currently forwards
-    /// stdout verbatim into the A2A response body — the user would see raw
-    /// NDJSON instead of the assistant's reply. Plain text output is what the
-    /// bridge actually consumes today; re-enabling stream-json (with the
-    /// matching parser on the sidecar side, so events become
-    /// <see cref="Cvoya.Spring.Core.Messaging.StreamEvent"/>s) is tracked in
-    /// issue #2226.
+    /// <b>Why <c>--output-format json</c> and not <c>stream-json</c>:</b> the
+    /// single-object <c>json</c> form does not require the <c>--verbose</c>
+    /// companion that <c>--print --output-format stream-json</c> does, and the
+    /// sidecar parses one object rather than an NDJSON event stream. The
+    /// richer per-event streaming form (assistant deltas, tool-use surfacing)
+    /// is tracked separately in issue #2226; when it lands it can read the
+    /// same terminal <c>result</c> fields for cost.
     /// </para>
     /// <para>
     /// Source: BYOI path-1 baseline documented in #1097. Since PR 5 of #1087
@@ -249,7 +267,8 @@ public class ClaudeCodeLauncher(
     [
         "claude",
         "--print",
-        "--dangerously-skip-permissions"
+        "--dangerously-skip-permissions",
+        "--output-format", "json"
     ];
 
     /// <summary>
@@ -392,6 +411,11 @@ public class ClaudeCodeLauncher(
             // thread is preserved. See DisableAutoMemoryEnvVar for the full
             // rationale.
             [DisableAutoMemoryEnvVar] = "1",
+            // #3073: BaseClaudeArgv runs `claude --output-format json`, so tell
+            // the sidecar to parse the JSON result — surface `.result` as the
+            // reply and forward the turn's cost/usage to the host. Paired with
+            // the `--output-format json` argv tokens above.
+            [OutputFormatEnvVar] = OutputFormatJson,
             // ADR-0055 §5: per-member workspace mount path. ADR-0057 §3:
             // the long-running A2A sidecar writes the per-turn MCP token
             // to <SPRING_WORKSPACE_PATH>/.spring/bridge/mcp-token

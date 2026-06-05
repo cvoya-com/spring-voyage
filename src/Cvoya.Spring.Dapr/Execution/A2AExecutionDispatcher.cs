@@ -416,7 +416,9 @@ public class A2AExecutionDispatcher(
                 message,
                 session.Token,
                 cancellationToken,
-                batch);
+                batch,
+                model: definition.Execution!.Model?.Id,
+                unitId: definition.UnitId);
         }
         finally
         {
@@ -861,7 +863,9 @@ public class A2AExecutionDispatcher(
                 message,
                 session.Token,
                 cancellationToken,
-                batch);
+                batch,
+                model: definition.Execution!.Model?.Id,
+                unitId: definition.UnitId);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1181,7 +1185,12 @@ public class A2AExecutionDispatcher(
         SvMessage originalMessage,
         string mcpToken,
         CancellationToken cancellationToken,
-        IReadOnlyList<SvMessage>? batch = null)
+        IReadOnlyList<SvMessage>? batch = null,
+        // #3073: the agent's configured model + owning-unit id, used to
+        // attribute the turn's cost when the runtime reports one. Optional so
+        // the dispatcher's direct test constructions still compile.
+        string? model = null,
+        string? unitId = null)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         using var transport = _transportFactory.CreateTransport(containerId);
@@ -1296,7 +1305,9 @@ public class A2AExecutionDispatcher(
             // revokes the MCP session so the dispatch coordinator can decide
             // RuntimeCompletedSilent without racing the revoke.
             var toolCallCount = mcpServer.GetToolCallCount(mcpToken);
-            return MapA2AResponseToOutcome(response, sw.Elapsed, toolCallCount, agentId, containerId, _payloadRenderers);
+            return MapA2AResponseToOutcome(
+                response, sw.Elapsed, toolCallCount, agentId, containerId, _payloadRenderers,
+                model: model, unitId: unitId, tenantId: _tenantContext.CurrentTenantId);
         }
         finally
         {
@@ -1605,7 +1616,10 @@ public class A2AExecutionDispatcher(
         int toolCallCount,
         string agentId,
         string? containerId,
-        IMessagePayloadRendererRegistry payloadRenderers)
+        IMessagePayloadRendererRegistry payloadRenderers,
+        string? model = null,
+        string? unitId = null,
+        Guid tenantId = default)
     {
         ArgumentNullException.ThrowIfNull(payloadRenderers);
 
@@ -1613,6 +1627,7 @@ public class A2AExecutionDispatcher(
         int exitCode;
         string? a2aTaskId = null;
         string? a2aTaskState = null;
+        TurnCostMetadata? cost = null;
 
         // A2A v0.3 collapses the v1 PayloadCase oneof into a discriminator-based
         // class hierarchy: A2AResponse is the base, AgentTask / AgentMessage are
@@ -1624,6 +1639,10 @@ public class A2AExecutionDispatcher(
                 reasoningTrace = RenderA2AResponseAsText(BuildA2aTaskPayload(task), payloadRenderers);
                 a2aTaskId = task.Id;
                 a2aTaskState = task.Status.State.ToString();
+                // #3073: the sidecar attaches the turn's cost + usage to the
+                // task metadata when the launcher runs the CLI in JSON output
+                // mode. Absent for text-mode runtimes — `cost` stays null.
+                cost = TryReadCostMetadata(task);
                 break;
 
             case AgentMessage msg:
@@ -1658,7 +1677,76 @@ public class A2AExecutionDispatcher(
             diagnostics["a2aTaskState"] = a2aTaskState;
         }
 
+        // #3073: surface the turn's cost on the diagnostics bag so the dispatch
+        // coordinator can emit a CostIncurred activity (which the cost ledger
+        // and budget enforcer consume). The model the CLI billed (from the
+        // sidecar) wins; the agent definition's configured model is the
+        // fallback. Unit / tenant ids ride along for cost attribution.
+        if (cost is { } c)
+        {
+            diagnostics[RuntimeOutcome.CostUsdKey] = c.CostUsd;
+            diagnostics[RuntimeOutcome.InputTokensKey] = c.InputTokens;
+            diagnostics[RuntimeOutcome.OutputTokensKey] = c.OutputTokens;
+            diagnostics[RuntimeOutcome.ModelKey] =
+                !string.IsNullOrEmpty(c.Model) ? c.Model
+                : !string.IsNullOrEmpty(model) ? model
+                : "unknown";
+            if (!string.IsNullOrEmpty(unitId))
+            {
+                diagnostics["unitId"] = unitId;
+            }
+            if (tenantId != Guid.Empty)
+            {
+                diagnostics["tenantId"] = GuidFormatter.Format(tenantId);
+            }
+        }
+
         return new RuntimeOutcome(exitCode, duration, reasoningTrace, diagnostics);
+    }
+
+    /// <summary>
+    /// The turn cost + usage the sidecar attaches to the A2A task metadata
+    /// when the CLI runs in JSON output mode (#3073).
+    /// </summary>
+    private readonly record struct TurnCostMetadata(
+        decimal CostUsd, int InputTokens, int OutputTokens, string? Model);
+
+    /// <summary>
+    /// Reads the <c>sv.cost.*</c> / <c>sv.usage.*</c> / <c>sv.model</c> keys the
+    /// sidecar wrote onto the A2A task metadata (#3073). Returns <c>null</c>
+    /// when the task carries no metadata or no positive cost — a text-mode
+    /// runtime, or a zero-cost turn. Never throws on a malformed value.
+    /// </summary>
+    private static TurnCostMetadata? TryReadCostMetadata(AgentTask task)
+    {
+        var metadata = task.Metadata;
+        if (metadata is null
+            || !metadata.TryGetValue("sv.cost.usd", out var costElement)
+            || costElement.ValueKind != JsonValueKind.Number
+            || !costElement.TryGetDecimal(out var costUsd)
+            || costUsd <= 0m)
+        {
+            return null;
+        }
+
+        var model = metadata.TryGetValue("sv.model", out var modelElement)
+            && modelElement.ValueKind == JsonValueKind.String
+                ? modelElement.GetString()
+                : null;
+
+        static int ReadInt(JsonElement element)
+            => element.ValueKind == JsonValueKind.Number
+                && element.TryGetInt32(out var value)
+                && value >= 0
+                    ? value
+                    : 0;
+
+        var inputTokens = metadata.TryGetValue("sv.usage.input_tokens", out var inEl)
+            ? ReadInt(inEl) : 0;
+        var outputTokens = metadata.TryGetValue("sv.usage.output_tokens", out var outEl)
+            ? ReadInt(outEl) : 0;
+
+        return new TurnCostMetadata(costUsd, inputTokens, outputTokens, model);
     }
 
     /// <summary>

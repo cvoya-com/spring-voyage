@@ -1326,6 +1326,61 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
+    public void MapA2AResponseToOutcome_ReadsCostFromTaskMetadata()
+    {
+        // #3073: the sidecar attaches the turn's cost/usage to the A2A task
+        // metadata; the mapper surfaces it on the diagnostics bag so the
+        // dispatch coordinator can emit a CostIncurred activity.
+        var tenantId = new Guid("cccccccc-3333-3333-3333-000000000003");
+        var response = new AgentTask
+        {
+            Id = "task-1",
+            Status = new AgentTaskStatus { State = TaskState.Completed },
+            Artifacts = [new Artifact
+            {
+                ArtifactId = Guid.NewGuid().ToString(),
+                Parts = [new TextPart { Text = "the reply" }],
+            }],
+            Metadata = new Dictionary<string, System.Text.Json.JsonElement>
+            {
+                ["sv.cost.usd"] = System.Text.Json.JsonSerializer.SerializeToElement(0.05m),
+                ["sv.usage.input_tokens"] = System.Text.Json.JsonSerializer.SerializeToElement(1000),
+                ["sv.usage.output_tokens"] = System.Text.Json.JsonSerializer.SerializeToElement(500),
+                ["sv.model"] = System.Text.Json.JsonSerializer.SerializeToElement("claude-opus-4-8"),
+            },
+        };
+
+        var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
+            response, TimeSpan.FromMilliseconds(50), toolCallCount: 2, agentId: "agent-1", containerId: "c-1",
+            BuildPayloadRendererRegistry(),
+            model: "configured-fallback-model", unitId: "unit-hex", tenantId: tenantId);
+
+        outcome.Diagnostics[RuntimeOutcome.CostUsdKey].ShouldBe(0.05m);
+        outcome.Diagnostics[RuntimeOutcome.InputTokensKey].ShouldBe(1000);
+        outcome.Diagnostics[RuntimeOutcome.OutputTokensKey].ShouldBe(500);
+        // The model the CLI billed (from metadata) wins over the fallback.
+        outcome.Diagnostics[RuntimeOutcome.ModelKey].ShouldBe("claude-opus-4-8");
+        outcome.Diagnostics["unitId"].ShouldBe("unit-hex");
+        outcome.Diagnostics["tenantId"].ShouldBe(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(tenantId));
+    }
+
+    [Fact]
+    public void MapA2AResponseToOutcome_NoMetadata_OmitsCostDiagnostics()
+    {
+        var response = new AgentTask
+        {
+            Id = "task-1",
+            Status = new AgentTaskStatus { State = TaskState.Completed },
+        };
+
+        var outcome = A2AExecutionDispatcher.MapA2AResponseToOutcome(
+            response, TimeSpan.Zero, toolCallCount: 0, agentId: "agent-1", containerId: null,
+            BuildPayloadRendererRegistry());
+
+        outcome.Diagnostics.ShouldNotContainKey(RuntimeOutcome.CostUsdKey);
+    }
+
+    [Fact]
     public async Task DispatchAsync_DefaultHostingMode_IsPersistent()
     {
         // Ensure that AgentExecutionConfig with no explicit hosting defaults to Persistent (#2085)

@@ -89,11 +89,53 @@ public class BudgetEnforcerTests : IDisposable
         db.SaveChanges();
     }
 
-    private static ActivityEvent CreateCostEvent(Guid agentId, decimal cost)
+    private void SeedUnitBudget(Guid unitId, decimal dailyBudget)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        db.BudgetLimits.Add(new BudgetLimitEntity
+        {
+            Id = Guid.NewGuid(),
+            TenantId = OssTenantIds.Default,
+            ScopeType = BudgetLimitScope.Unit,
+            ScopeId = unitId,
+            DailyBudget = dailyBudget,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        db.SaveChanges();
+    }
+
+    /// <summary>
+    /// Seeds a persisted <see cref="CostRecord"/> so spend queries see prior
+    /// ledger history — the enforcer reads spend from <c>cost_records</c>, not
+    /// an in-memory accumulator (#3073).
+    /// </summary>
+    private void SeedCostRecord(Guid agentId, Guid? unitId, decimal cost, DateTimeOffset timestamp)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        db.CostRecords.Add(new CostRecord
+        {
+            Id = Guid.NewGuid(),
+            TenantId = OssTenantIds.Default,
+            AgentId = agentId,
+            UnitId = unitId,
+            Model = "claude-opus-4-8",
+            InputTokens = 100,
+            OutputTokens = 50,
+            Cost = cost,
+            Timestamp = timestamp,
+            Source = Cvoya.Spring.Core.Costs.CostSource.Work,
+        });
+        db.SaveChanges();
+    }
+
+    private static ActivityEvent CreateCostEvent(Guid agentId, decimal cost, Guid? unitId = null)
     {
         var details = JsonSerializer.SerializeToElement(new
         {
             tenantId = OssTenantIds.Default.ToString("N"),
+            unitId = unitId?.ToString("N"),
             model = "claude-3-opus",
             inputTokens = 100,
             outputTokens = 50,
@@ -190,28 +232,78 @@ public class BudgetEnforcerTests : IDisposable
     }
 
     [Fact(Timeout = 10_000)]
-    public async Task CheckBudget_AccumulatesMultipleEvents()
+    public async Task CheckBudget_AddsTodaysLedgerSpendToTheCurrentTurn()
     {
+        // #3073: spend is the sum of today's cost_records plus the in-flight
+        // turn. 5.0m already on the ledger + a 4.0m turn = 9.0m = 90% → warning.
         var ct = TestContext.Current.CancellationToken;
         SeedAgentBudget(AgentAId, 10.0m);
+        SeedCostRecord(AgentAId, unitId: null, cost: 5.0m, timestamp: DateTimeOffset.UtcNow);
 
         var enforcer = CreateEnforcer();
         await enforcer.StartAsync(ct);
 
-        // First event: 5.0m (50% - no alert)
-        _bus.Publish(CreateCostEvent(AgentAId, 5.0m));
+        _bus.Publish(CreateCostEvent(AgentAId, 4.0m));
+        await Task.Delay(500, ct);
+
+        await _eventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e => e.Severity == ActivitySeverity.Warning),
+            Arg.Any<CancellationToken>());
+
+        await enforcer.StopAsync(ct);
+        enforcer.Dispose();
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task CheckBudget_DailyReset_YesterdaySpendDoesNotCount()
+    {
+        // #3073: the budget is DAILY — spend before UTC midnight is outside the
+        // window. Yesterday's 9.0m must not bleed into today: a 2.0m turn today
+        // is 20% of the budget, so no alert fires. (The pre-#3073 lifetime
+        // accumulator would have tripped here.)
+        var ct = TestContext.Current.CancellationToken;
+        SeedAgentBudget(AgentAId, 10.0m);
+        SeedCostRecord(AgentAId, unitId: null, cost: 9.0m, timestamp: DateTimeOffset.UtcNow.AddDays(-1));
+
+        var enforcer = CreateEnforcer();
+        await enforcer.StartAsync(ct);
+
+        _bus.Publish(CreateCostEvent(AgentAId, 2.0m));
         await Task.Delay(500, ct);
 
         await _eventBus.DidNotReceive().PublishAsync(
             Arg.Any<ActivityEvent>(),
             Arg.Any<CancellationToken>());
 
-        // Second event: 4.0m (total 9.0m = 90% - warning)
-        _bus.Publish(CreateCostEvent(AgentAId, 4.0m));
+        await enforcer.StopAsync(ct);
+        enforcer.Dispose();
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task CheckBudget_UnitBudgetExceeded_EmitsErrorAndPausesUnit()
+    {
+        // #3073: unit-scope budgets are enforced symmetrically with agents. The
+        // cost event carries the owning unit id; a 10.5m turn against a 10.0m
+        // unit budget trips the error + pauses the unit's initiative.
+        var ct = TestContext.Current.CancellationToken;
+        var unitId = new Guid("bbbbbbbb-2222-2222-2222-000000000002");
+        SeedUnitBudget(unitId, 10.0m);
+
+        var enforcer = CreateEnforcer();
+        await enforcer.StartAsync(ct);
+
+        _bus.Publish(CreateCostEvent(AgentAId, 10.5m, unitId));
         await Task.Delay(500, ct);
 
-        await _eventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.Severity == ActivitySeverity.Warning),
+        await _eventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.Severity == ActivitySeverity.Error &&
+                e.Source.Scheme == "unit"),
+            Arg.Any<CancellationToken>());
+
+        await _stateStore.Received(1).SetAsync(
+            $"{unitId:N}:{StateKeys.InitiativeState}",
+            Arg.Is<Cvoya.Spring.Dapr.Costs.InitiativePausedState>(s => s.Reason == "BudgetExceeded"),
             Arg.Any<CancellationToken>());
 
         await enforcer.StopAsync(ct);

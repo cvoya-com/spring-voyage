@@ -58,6 +58,7 @@ export function createServer(
     port: config.port,
     cancelGraceMs: config.cancelGraceMs,
     spawnEnv: env,
+    outputFormat: config.outputFormat,
     threadBinding: config.threadBinding,
     threadIdRegistry,
     bootstrapFetcher,
