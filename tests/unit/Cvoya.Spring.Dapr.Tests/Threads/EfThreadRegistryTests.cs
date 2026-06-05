@@ -180,6 +180,93 @@ public class EfThreadRegistryTests : IDisposable
             await sut.GetOrCreateAsync(Array.Empty<Address>(), ct));
     }
 
+    // ── #3086: EnsureThreadAsync materialises the FK parent for a
+    //    caller-supplied explicit thread id (the `spring message send
+    //    --thread <new-id>` path that used to 500 on the FK insert).
+
+    [Fact]
+    public async Task EnsureThreadAsync_NewParticipantSet_HonoursSuppliedIdAndPersistsRow()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry(Tenant1);
+
+        var suppliedId = GuidFormatter.Format(Guid.NewGuid());
+        var returned = await sut.EnsureThreadAsync(suppliedId, new[] { Human1, Agent1 }, ct);
+
+        // The caller's id is honoured when the participant set has no thread.
+        returned.ShouldBe(suppliedId);
+
+        // The row now exists — this is the FK parent the message insert needs.
+        var resolved = await sut.ResolveAsync(suppliedId, ct);
+        resolved.ShouldNotBeNull();
+        resolved!.ThreadId.ShouldBe(suppliedId);
+        resolved.Participants.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task EnsureThreadAsync_Idempotent_SecondCallReturnsSameId()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry(Tenant1);
+
+        var suppliedId = GuidFormatter.Format(Guid.NewGuid());
+        var first = await sut.EnsureThreadAsync(suppliedId, new[] { Human1, Agent1 }, ct);
+        var second = await sut.EnsureThreadAsync(suppliedId, new[] { Human1, Agent1 }, ct);
+
+        second.ShouldBe(first);
+    }
+
+    [Fact]
+    public async Task EnsureThreadAsync_ParticipantSetAlreadyHasThread_ReturnsExistingIdNotSupplied()
+    {
+        // Participant-set identity is authoritative (ADR-0030): when a thread
+        // already exists for the set (e.g. created by a no-`--thread` send),
+        // a later explicit-id send for the SAME set must converge on the
+        // existing row rather than fork a second one — so the caller's id is
+        // ignored in that case.
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry(Tenant1);
+
+        var canonicalId = await sut.GetOrCreateAsync(new[] { Human1, Agent1 }, ct);
+
+        var differentSuppliedId = GuidFormatter.Format(Guid.NewGuid());
+        differentSuppliedId.ShouldNotBe(canonicalId);
+
+        var returned = await sut.EnsureThreadAsync(
+            differentSuppliedId, new[] { Agent1, Human1 }, ct);
+
+        returned.ShouldBe(canonicalId);
+        // The supplied id never became a row.
+        (await sut.ResolveAsync(differentSuppliedId, ct)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task EnsureThreadAsync_OrderInvariant_MatchesGetOrCreateParticipantSet()
+    {
+        // EnsureThreadAsync must key on the same canonical participant set as
+        // GetOrCreateAsync, so a thread first materialised by an explicit-id
+        // send resolves identically when later addressed without --thread.
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry(Tenant1);
+
+        var suppliedId = GuidFormatter.Format(Guid.NewGuid());
+        var ensured = await sut.EnsureThreadAsync(suppliedId, new[] { Human1, Agent1 }, ct);
+
+        var viaGetOrCreate = await sut.GetOrCreateAsync(new[] { Agent1, Human1 }, ct);
+        viaGetOrCreate.ShouldBe(ensured);
+    }
+
+    [Fact]
+    public async Task EnsureThreadAsync_EmptyParticipantSet_Throws()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry(Tenant1);
+
+        await Should.ThrowAsync<ArgumentException>(async () =>
+            await sut.EnsureThreadAsync(
+                GuidFormatter.Format(Guid.NewGuid()), Array.Empty<Address>(), ct));
+    }
+
     private EfThreadRegistry NewRegistry(Guid tenantId)
     {
         var tenantContext = new StaticTenantContext(tenantId);

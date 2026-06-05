@@ -113,9 +113,21 @@ async def initialize(context: IAgentContext) -> None:
 
     async def invoke(text: str, *, sender_address: str) -> str:
         # The control plane: hand the director's message to Claude with the
-        # orchestration tools (ADR-0066 §6 Option B). Claude's reply is the
-        # agent's response to the director; the engine ships it.
-        prompt = f"Message from {sender_address}:\n\n{text}"
+        # orchestration tools (ADR-0066 §6 Option B). Claude's reply IS the
+        # agent's response to the sender; the engine ships it. So Claude must
+        # always end with a short natural-language reply and must not call a
+        # messaging tool to reply nor send an empty message (#3086 finding 3),
+        # and on a tool error it must say what failed rather than claim the
+        # pipeline is running (#3086 finding 2).
+        prompt = (
+            f"Message from {sender_address}:\n\n{text}\n\n"
+            "Manage the edition with your orchestration tools as needed, then "
+            "ALWAYS end with a short natural-language reply for the sender — "
+            "that reply text is delivered to them automatically, so never reply "
+            "with empty text and do not call any messaging tool to reply. If a "
+            "tool reports an error, do not claim the pipeline is running; tell "
+            "the sender plainly what failed and what would unblock it."
+        )
         return await llm.complete(
             prompt,
             system_prompt_file=system_prompt_file,
@@ -166,6 +178,11 @@ async def on_message(message: Message):
             in_reply_to=in_reply_to,
             token=token,
         )
+        # Never ship an empty response: the platform delivers it via
+        # sv.messaging.respond_to, which rejects an empty message (#3086
+        # finding 3). Fall back to a terse ack when the handler yields nothing.
+        if not (summary or "").strip():
+            summary = "Acknowledged."
         yield Response(text=summary, final=True)
     except Exception as exc:  # noqa: BLE001 — surface as a turn error, don't crash.
         logger.exception("Orchestration failed for message %s", message.message_id)

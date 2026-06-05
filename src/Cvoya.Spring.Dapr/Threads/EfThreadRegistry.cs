@@ -153,6 +153,101 @@ public class EfThreadRegistry : IThreadRegistry
         }
     }
 
+    /// <inheritdoc />
+    public async Task<string> EnsureThreadAsync(
+        string threadId,
+        IEnumerable<Address> participants,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(participants);
+
+        var canonical = Canonicalise(participants);
+        if (canonical.Count == 0)
+        {
+            throw new ArgumentException(
+                "Thread participants must contain at least one address.",
+                nameof(participants));
+        }
+
+        var participantKey = string.Join('|', canonical);
+
+        // Participant-set identity is authoritative (ADR-0030): if a thread
+        // already exists for this set — even under an id other than the one
+        // the caller supplied — return it so the conversation does not fork.
+        var existing = await _db.Threads
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.ParticipantKey == participantKey, cancellationToken);
+
+        if (existing is not null)
+        {
+            return GuidFormatter.Format(existing.Id);
+        }
+
+        // No thread for this participant set yet — mint the row with the
+        // caller's supplied id so a client threading under its own stable id
+        // (#2112) keeps that id end-to-end. A malformed id should never reach
+        // here (the API validates the Guid shape first), but fall back to a
+        // fresh Guid rather than throwing so the send still proceeds.
+        var rowId = GuidFormatter.TryParse(threadId, out var parsed)
+            ? parsed
+            : Guid.NewGuid();
+
+        var now = DateTimeOffset.UtcNow;
+        var entity = new ThreadEntity
+        {
+            Id = rowId,
+            TenantId = _tenantContext.CurrentTenantId,
+            ParticipantKey = participantKey,
+            Participants = JsonSerializer.Serialize(canonical, ParticipantsJson),
+            CreatedAt = now,
+            LastActivityAt = now,
+        };
+
+        if (_db.Database.IsNpgsql())
+        {
+            // Same ON CONFLICT (tenant_id, participant_key) DO NOTHING + re-read
+            // pattern as GetOrCreateAsync: a racing creator (or a no-`--thread`
+            // send that resolved the same set first) converges on a single row,
+            // and we return whichever id won.
+            await InsertThreadOnConflictAsync(entity, cancellationToken);
+
+            var winner = await _db.Threads
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.ParticipantKey == participantKey, cancellationToken);
+
+            if (winner is not null)
+            {
+                return GuidFormatter.Format(winner.Id);
+            }
+
+            throw new InvalidOperationException(
+                $"Thread row for participant key '{participantKey}' vanished after an " +
+                "ON CONFLICT insert; expected the winning row to be readable.");
+        }
+
+        try
+        {
+            _db.Threads.Add(entity);
+            await _db.SaveChangesAsync(cancellationToken);
+            return GuidFormatter.Format(entity.Id);
+        }
+        catch (DbUpdateException)
+        {
+            _db.Entry(entity).State = EntityState.Detached;
+
+            var winner = await _db.Threads
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.ParticipantKey == participantKey, cancellationToken);
+
+            if (winner is not null)
+            {
+                return GuidFormatter.Format(winner.Id);
+            }
+
+            throw;
+        }
+    }
+
     /// <summary>
     /// Inserts the thread row with
     /// <c>ON CONFLICT (tenant_id, participant_key) DO NOTHING</c> so a

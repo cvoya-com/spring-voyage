@@ -348,21 +348,57 @@ public static class MessageEndpoints
                 // endpoint silently accepts the send, then the reply re-
                 // routes through `sv.messaging.send` onto the canonical
                 // {sender, recipient} thread and the conversation splits
-                // across two `spring.threads` rows. Unknown ids continue
-                // to pass through as caller-supplied stable correlation
-                // ids (#2112). The gate fires before audit emit + router
-                // so a 400 leaves the DB clean — same rule as #2859.
+                // across two `spring.threads` rows. The gate fires before
+                // audit emit + router so a 400 leaves the DB clean — same
+                // rule as #2859.
                 var existing = await threadRegistry.ResolveAsync(threadId, cancellationToken);
-                if (existing is not null && !ParticipantsContain(existing.Participants, from))
+                if (existing is not null)
                 {
-                    return Results.Problem(
-                        title: "Bad Request",
-                        detail: $"Sender '{from.Scheme}://{GuidFormatter.Format(from.Id)}' is not a participant of thread '{threadId}'.",
-                        statusCode: StatusCodes.Status400BadRequest,
-                        extensions: new Dictionary<string, object?>
-                        {
-                            ["code"] = SenderNotInThreadCode,
-                        });
+                    if (!ParticipantsContain(existing.Participants, from))
+                    {
+                        return Results.Problem(
+                            title: "Bad Request",
+                            detail: $"Sender '{from.Scheme}://{GuidFormatter.Format(from.Id)}' is not a participant of thread '{threadId}'.",
+                            statusCode: StatusCodes.Status400BadRequest,
+                            extensions: new Dictionary<string, object?>
+                            {
+                                ["code"] = SenderNotInThreadCode,
+                            });
+                    }
+                }
+                else
+                {
+                    // #3086: a Guid-shaped thread id the registry has never
+                    // seen is honoured as a caller-supplied stable id (#2112),
+                    // but the `messages.thread_id` foreign key requires the
+                    // parent `threads` row to exist. The old "pass it straight
+                    // to the router" path skipped thread creation, so the FK
+                    // insert in EfMessageWriter failed with a raw 500 ("no
+                    // error factory is registered for this code: 500") on
+                    // Postgres and crashed the CLI. Materialise the thread row
+                    // up-front, keyed on the full participant set
+                    // {sender} ∪ recipients and stamped with the caller's id,
+                    // so the send proceeds.
+                    var participantSet = new List<Address>(recipients.Count + 1) { from };
+                    participantSet.AddRange(recipients);
+                    var canonicalThreadId = await threadRegistry.EnsureThreadAsync(
+                        threadId, participantSet, cancellationToken);
+
+                    // EnsureThreadAsync converges on the participant set's
+                    // existing row when one is already present (ADR-0030 makes
+                    // the participant set authoritative). Only adopt the
+                    // returned id when it names a DIFFERENT thread — that is
+                    // the fork-avoidance redirect. When it is the same thread
+                    // (the row we just minted for the caller's id), keep the
+                    // caller's verbatim string so the echoed thread id matches
+                    // what they supplied (#2112 passthrough), independent of
+                    // dashed / no-dash wire form.
+                    if (!GuidFormatter.TryParse(threadId, out var suppliedGuid)
+                        || !GuidFormatter.TryParse(canonicalThreadId, out var canonicalGuid)
+                        || suppliedGuid != canonicalGuid)
+                    {
+                        threadId = canonicalThreadId;
+                    }
                 }
             }
         }

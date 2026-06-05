@@ -15,7 +15,7 @@ pytest.importorskip("langgraph")
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 
 from orchestrator import mcp as mcp_tools  # noqa: E402
-from orchestrator.coordinator import Coordinator  # noqa: E402
+from orchestrator.coordinator import Coordinator, DeliveryError  # noqa: E402
 from orchestrator.graph import build_slot_graph  # noqa: E402
 from orchestrator.state import (  # noqa: E402
     PHASE_CANCELLED,
@@ -38,8 +38,9 @@ class FakeMcp:
     message id (msg-N) the engine correlates against a later reply's
     ``in_reply_to``."""
 
-    def __init__(self):
+    def __init__(self, members=None):
         self.sends: list[tuple[list[str], str, str | None]] = []
+        self._members = _MEMBERS if members is None else members
 
     async def call_tool_json(self, token, name, arguments):
         if name == mcp_tools.SEND_TOOL:
@@ -50,17 +51,17 @@ class FakeMcp:
         if name == mcp_tools.GET_SELF_TOOL:
             return {"parent_uuids": ["unit-1"]}
         if name == mcp_tools.LIST_MEMBERS_TOOL:
-            return _MEMBERS
+            return self._members
         return {}
 
     def last_send(self):
         return self.sends[-1]
 
 
-def _coord(tmp_path, invoke=None):
+def _coord(tmp_path, invoke=None, members=None):
     return Coordinator(
         store=OrchestratorStore(str(tmp_path)),
-        mcp=FakeMcp(),
+        mcp=FakeMcp(members),
         graph=build_slot_graph(MemorySaver()),
         token="durable-tok",
         invoke=invoke,
@@ -281,3 +282,67 @@ async def test_unmatched_with_no_invoke_is_ignored(tmp_path):
     coord = _coord(tmp_path)  # no control-plane handler
     out = await coord.handle(message_id="m", sender_address="unit:director", text="hi")
     assert "ignored" in out
+
+
+# ----- error funnelling (#3086) -------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_start_edition_unfilled_role_raises_and_cancels(tmp_path):
+    # The directory holds no staff-writer, so the first delegation cannot be
+    # delivered. start_edition must STOP and surface the failure to its caller
+    # (Claude) rather than report a live pipeline.
+    coord = _coord(
+        tmp_path,
+        members=[{"address": "agent:factchecker", "roles": ["fact-checker"]}],
+    )
+    with pytest.raises(DeliveryError) as excinfo:
+        await coord.start_edition(theme="T", slots=["x"], report_to="unit:director")
+    assert "staff-writer" in str(excinfo.value)
+    # Nothing delivered; the half-started edition is cancelled, not "running".
+    assert coord._mcp.sends == []
+    assert coord.active_editions() == []
+
+
+@pytest.mark.asyncio
+async def test_autonomous_delivery_failure_funnels_to_control_plane(tmp_path):
+    invoked: list[tuple[str, str]] = []
+
+    async def fake_invoke(text, *, sender_address):
+        invoked.append((text, sender_address))
+        return "The edition is blocked — I've let the director know."
+
+    # Only a staff-writer exists: the draft is delivered, but the next stage
+    # (fact-check) has no member, so the autonomous plane funnels the error to
+    # the control-plane LLM instead of silently stalling.
+    coord = _coord(
+        tmp_path,
+        invoke=fake_invoke,
+        members=[{"address": "agent:staffwriter", "roles": ["staff-writer"]}],
+    )
+    await coord.start_edition(theme="T", slots=["x"], report_to="unit:director")
+    assert _addr(coord._mcp.last_send()) == "agent:staffwriter"  # draft delivered
+
+    # The writer replies → engine advances to fact-check, which cannot deliver.
+    out = await _reply(coord, "msg-1", text="draft")
+
+    # The error was funnelled to the control-plane LLM, naming the unfilled role,
+    assert invoked, "control plane was not invoked on a data-plane failure"
+    assert "fact-checker" in invoked[0][0]
+    # ...and the Managing Editor's reply was carried to the director.
+    assert coord._mcp.last_send()[0] == ["unit:director"]
+    assert "director" in (coord._mcp.last_send()[2] or "").lower()
+    assert out  # a non-empty summary is returned for the specialist's turn
+
+
+@pytest.mark.asyncio
+async def test_funnel_error_headless_is_terse_and_silent(tmp_path):
+    # Head-less data plane (no invoke): the funnel degrades to a terse summary
+    # and sends nothing — it must not raise.
+    coord = _coord(tmp_path)  # invoke=None
+    eid = await coord.start_edition(theme="T", slots=["x"], report_to="unit:director")
+    edition = coord._store.get_edition(eid)
+    before = len(coord._mcp.sends)
+    out = await coord._funnel_error(edition, "No team member holds the role 'q'.")
+    assert "q" in out
+    assert len(coord._mcp.sends) == before  # nothing sent without a control plane

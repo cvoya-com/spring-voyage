@@ -570,5 +570,25 @@ public class MessagingToolHandlersTests
                 ? new ThreadRegistryEntry(key, participants, DateTimeOffset.UnixEpoch)
                 : null);
         }
+
+        public Task<string> EnsureThreadAsync(
+            string threadId, IEnumerable<Address> participants, CancellationToken cancellationToken = default)
+        {
+            var list = participants.ToList();
+            var key = string.Join('|', list
+                .Select(a => $"{a.Scheme.ToLowerInvariant()}:{GuidFormatter.Format(a.Id)}")
+                .OrderBy(s => s, StringComparer.Ordinal)
+                .Distinct());
+            if (!_byKey.TryGetValue(key, out var id))
+            {
+                id = GuidFormatter.TryParse(threadId, out var supplied)
+                    ? GuidFormatter.Format(supplied)
+                    : GuidFormatter.Format(Guid.NewGuid());
+                _byKey[key] = id;
+                _byId[id] = list;
+            }
+
+            return Task.FromResult(id);
+        }
     }
 }

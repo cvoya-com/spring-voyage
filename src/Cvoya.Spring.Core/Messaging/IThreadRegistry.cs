@@ -50,6 +50,46 @@ public interface IThreadRegistry
     Task<ThreadRegistryEntry?> ResolveAsync(
         string threadId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Materialises the registry row for a caller-supplied thread id, keyed on
+    /// the given participant set, and returns the id that backs the
+    /// participant-set thread (#3086).
+    /// <para>
+    /// Honours <paramref name="threadId"/> as the row's stable id when the
+    /// participant set has no thread yet — so a client that threads under its
+    /// own stable id (#2112) keeps that id end-to-end. The
+    /// <c>messages.thread_id</c> foreign key requires the parent <c>threads</c>
+    /// row to exist before a message persists; this method is the seam that
+    /// guarantees it for the explicit-id send path.
+    /// </para>
+    /// <para>
+    /// Idempotent and participant-set-authoritative (ADR-0030): if a thread
+    /// already exists for <paramref name="participants"/> under a <em>different</em>
+    /// id, that id is returned and no second row is created — the caller's id
+    /// is ignored in that case so the conversation does not fork. If a row
+    /// already exists with id <paramref name="threadId"/>, it is returned
+    /// unchanged.
+    /// </para>
+    /// </summary>
+    /// <param name="threadId">
+    /// The caller-supplied thread id (any shape <see cref="Guid.TryParse"/>
+    /// accepts). Used as the new row's id only when the participant set has no
+    /// existing thread.
+    /// </param>
+    /// <param name="participants">
+    /// The participant set the thread is keyed on. Must contain at least one
+    /// element; order is irrelevant and duplicates are collapsed.
+    /// </param>
+    /// <param name="cancellationToken">Propagates request cancellation.</param>
+    /// <returns>
+    /// The canonical no-dash 32-char hex id that now backs the participant-set
+    /// thread — the caller's id when it won, or the pre-existing row's id.
+    /// </returns>
+    Task<string> EnsureThreadAsync(
+        string threadId,
+        IEnumerable<Address> participants,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>

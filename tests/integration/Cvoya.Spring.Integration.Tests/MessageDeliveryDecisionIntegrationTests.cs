@@ -345,5 +345,23 @@ public class MessageDeliveryDecisionIntegrationTests
         public Task<ThreadRegistryEntry?> ResolveAsync(
             string threadId, CancellationToken cancellationToken = default)
             => Task.FromResult<ThreadRegistryEntry?>(null);
+
+        public Task<string> EnsureThreadAsync(
+            string threadId, IEnumerable<Address> participants, CancellationToken cancellationToken = default)
+        {
+            var key = string.Join('|', participants
+                .Select(a => $"{a.Scheme.ToLowerInvariant()}:{GuidFormatter.Format(a.Id)}")
+                .OrderBy(s => s, StringComparer.Ordinal)
+                .Distinct());
+            if (!_byKey.TryGetValue(key, out var id))
+            {
+                id = GuidFormatter.TryParse(threadId, out var supplied)
+                    ? GuidFormatter.Format(supplied)
+                    : GuidFormatter.Format(Guid.NewGuid());
+                _byKey[key] = id;
+            }
+
+            return Task.FromResult(id);
+        }
     }
 }

@@ -131,6 +131,135 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
         uuids.ShouldBe(new[] { GuidFormatter.Format(SiblingAgentA) });
     }
 
+    // ── #3086: agent definition-level role surfaces on directory entries ──
+    // The magazine-langgraph orchestrator resolves a teammate role to an
+    // address via list_members → entry.roles, but every magazine member's
+    // unit_memberships.roles is empty — the role lives on
+    // agent_definitions.role. The directory must fold that definition-level
+    // role into the entry's roles so role-based delegation resolves.
+
+    [Fact]
+    public async Task ListMembers_AgentWithEmptyMembershipRolesButDefinitionRole_SurfacesDefinitionRole()
+    {
+        // Membership roles are empty; the role is only on the agent
+        // definition (role=staff-writer). list_members must still surface
+        // staff-writer in the entry's roles array.
+        var fixture = new Fixture()
+            .WithAgentMember(ParentUnitId, SiblingAgentA, agentRole: "staff-writer")
+            .Build();
+
+        var json = await fixture.InvokeAsync(
+            SvDirectorySkillRegistry.ListMembersTool,
+            JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(ParentUnitId)}}" }""").RootElement,
+            callerId: ParentUnitId,
+            callerKind: Address.UnitScheme);
+
+        var entry = json.GetProperty("members").EnumerateArray()
+            .Single(e => e.GetProperty("uuid").GetString() == GuidFormatter.Format(SiblingAgentA));
+        var roles = entry.GetProperty("roles").EnumerateArray()
+            .Select(r => r.GetString()!)
+            .ToList();
+        roles.ShouldBe(new[] { "staff-writer" });
+    }
+
+    [Fact]
+    public async Task List_RoleFilter_MatchesAgentDefinitionRole()
+    {
+        // The role substring filter must match an agent whose role lives
+        // only on its definition (empty membership roles) — this is the
+        // exact resolve path the orchestrator's _role_address uses.
+        var fixture = new Fixture()
+            .WithParentMembership(CallerAgentId, ParentUnitId)
+            .WithAgentMember(ParentUnitId, SiblingAgentA, agentRole: "fact-checker")
+            .WithAgentMember(ParentUnitId, SiblingAgentB, agentRole: "copy-editor")
+            .Build();
+
+        var json = await fixture.InvokeAsync(
+            SvDirectorySkillRegistry.ListTool,
+            JsonDocument.Parse("""{ "role": "fact-checker" }""").RootElement);
+
+        var uuids = json.GetProperty("members").EnumerateArray()
+            .Select(e => e.GetProperty("uuid").GetString()!)
+            .ToList();
+        uuids.ShouldBe(new[] { GuidFormatter.Format(SiblingAgentA) });
+    }
+
+    [Fact]
+    public async Task ListMembers_AgentWithMembershipRolesAndDefinitionRole_MergesBothDeduped()
+    {
+        // When membership roles ARE set, the existing roles are preserved in
+        // order and the agent's definition role is appended (deduped
+        // case-insensitively). Here "staff-writer" is also the definition
+        // role, so it must not double up.
+        var fixture = new Fixture()
+            .WithAgentMember(
+                ParentUnitId, SiblingAgentA,
+                roles: new[] { "owner", "Staff-Writer" },
+                agentRole: "managing-editor")
+            .WithAgentMember(
+                ParentUnitId, SiblingAgentB,
+                roles: new[] { "reviewer" },
+                agentRole: "reviewer")
+            .Build();
+
+        var json = await fixture.InvokeAsync(
+            SvDirectorySkillRegistry.ListMembersTool,
+            JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(ParentUnitId)}}" }""").RootElement,
+            callerId: ParentUnitId,
+            callerKind: Address.UnitScheme);
+
+        var entryA = json.GetProperty("members").EnumerateArray()
+            .Single(e => e.GetProperty("uuid").GetString() == GuidFormatter.Format(SiblingAgentA));
+        entryA.GetProperty("roles").EnumerateArray().Select(r => r.GetString()!)
+            .ShouldBe(new[] { "owner", "Staff-Writer", "managing-editor" });
+
+        // SiblingAgentB's definition role equals its single membership role
+        // (case-insensitive) — the append must dedupe it away.
+        var entryB = json.GetProperty("members").EnumerateArray()
+            .Single(e => e.GetProperty("uuid").GetString() == GuidFormatter.Format(SiblingAgentB));
+        entryB.GetProperty("roles").EnumerateArray().Select(r => r.GetString()!)
+            .ShouldBe(new[] { "reviewer" });
+    }
+
+    [Fact]
+    public async Task Lookup_AgentWithDefinitionRole_SurfacesRoleInEntry()
+    {
+        // The address-keyed lookup must fold the definition role in too, so
+        // a runtime resolving an inbound sender sees its role.
+        var fixture = new Fixture()
+            .WithParentMembership(CallerAgentId, ParentUnitId)
+            .WithAgentMember(ParentUnitId, SiblingAgentA, agentRole: "audience-editor")
+            .Build();
+
+        var addr = new Address(Address.AgentScheme, SiblingAgentA);
+        var args = JsonDocument
+            .Parse(JsonSerializer.Serialize(new { address = addr.ToString() }))
+            .RootElement;
+
+        var json = await fixture.InvokeAsync(SvDirectorySkillRegistry.LookupTool, args);
+
+        json.GetProperty("roles").EnumerateArray().Select(r => r.GetString()!)
+            .ShouldBe(new[] { "audience-editor" });
+    }
+
+    [Fact]
+    public async Task GetMember_AgentWithDefinitionRole_SurfacesRoleInEntry()
+    {
+        // get_member shares BuildEntryAsync with list_members, so the role
+        // fold must apply uniformly here too.
+        var fixture = new Fixture()
+            .WithParentMembership(CallerAgentId, ParentUnitId)
+            .WithAgentMember(ParentUnitId, SiblingAgentA, agentRole: "production-editor")
+            .Build();
+
+        var json = await fixture.InvokeAsync(
+            SvDirectorySkillRegistry.GetMemberTool,
+            JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(SiblingAgentA)}}" }""").RootElement);
+
+        json.GetProperty("roles").EnumerateArray().Select(r => r.GetString()!)
+            .ShouldBe(new[] { "production-editor" });
+    }
+
     [Fact]
     public async Task List_UnknownScope_Throws()
     {
@@ -410,11 +539,12 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
             Guid unitId, Guid agentId,
             string? displayName = null,
             IReadOnlyList<string>? roles = null,
-            IReadOnlyList<string>? expertise = null)
+            IReadOnlyList<string>? expertise = null,
+            string? agentRole = null)
         {
             _memberGraph.SeedAgentMembers(unitId, agentId);
             EnsureUnit(unitId, $"unit-{unitId:N}");
-            EnsureAgent(agentId, displayName ?? $"agent-{agentId:N}");
+            EnsureAgent(agentId, displayName ?? $"agent-{agentId:N}", agentRole);
             _agentMemberships[(unitId, agentId)] = new UnitMembership(
                 UnitId: unitId,
                 AgentId: agentId,
@@ -429,10 +559,17 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
             return this;
         }
 
-        private void EnsureAgent(Guid agentId, string displayName)
+        private void EnsureAgent(Guid agentId, string displayName, string? role = null)
         {
-            if (_agents.ContainsKey(agentId))
+            if (_agents.TryGetValue(agentId, out var existing))
             {
+                // Allow a later WithAgentMember call to stamp the agent's
+                // definition-level role even if an earlier WithParentMembership
+                // seeded the bare agent first.
+                if (!string.IsNullOrWhiteSpace(role))
+                {
+                    existing.Role = role;
+                }
                 return;
             }
             _agents[agentId] = new AgentDefinitionEntity
@@ -441,6 +578,7 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
                 TenantId = TenantId,
                 DisplayName = displayName,
                 Description = "test agent",
+                Role = role,
             };
         }
 

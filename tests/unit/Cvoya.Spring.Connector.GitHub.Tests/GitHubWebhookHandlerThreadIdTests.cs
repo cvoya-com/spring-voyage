@@ -212,5 +212,21 @@ public class GitHubWebhookHandlerThreadIdTests
         public Task<ThreadRegistryEntry?> ResolveAsync(
             string threadId, CancellationToken cancellationToken = default)
             => Task.FromResult<ThreadRegistryEntry?>(null);
+
+        public Task<string> EnsureThreadAsync(
+            string threadId, IEnumerable<Address> participants, CancellationToken cancellationToken = default)
+        {
+            var snapshot = participants.ToList();
+            var key = string.Join("|", snapshot
+                .Select(a => $"{a.Scheme}://{a.Path}")
+                .OrderBy(s => s, StringComparer.Ordinal));
+            if (!_byKey.TryGetValue(key, out var id))
+            {
+                id = string.IsNullOrWhiteSpace(threadId) ? GuidFormatter.Format(Guid.NewGuid()) : threadId;
+                _byKey[key] = id;
+            }
+            Calls.Add((snapshot, id));
+            return Task.FromResult(id);
+        }
     }
 }

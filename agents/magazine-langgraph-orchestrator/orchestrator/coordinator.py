@@ -55,6 +55,22 @@ MAX_SLOTS = 6
 EDITION_MARKER = "__edition__"
 
 
+class DeliveryError(Exception):
+    """A workflow delivery step could not complete — a role resolved to no
+    directory member, or a ``send`` was not acknowledged.
+
+    Raised by the data plane (#3086) so the failure **stops the flow** instead
+    of being logged and swallowed. The control plane (``start_edition``) lets it
+    surface to Claude as a tool error; the autonomous plane catches it and
+    funnels it to the control-plane LLM via :meth:`Coordinator._funnel_error`.
+    """
+
+    def __init__(self, detail: str, *, role: str | None = None) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.role = role
+
+
 # --- brief copy (pure helpers, unit-tested directly) ----------------------
 
 
@@ -191,12 +207,29 @@ class Coordinator:
             report_to=report_to,
             first_stage=pipeline.SLOT_STAGES[0],
         )
-        for slot_id in edition.slots:
-            cfg = self._slot_cfg(edition_id, slot_id)
-            result = self._graph.invoke(self._initial_state(edition, slot_id), cfg)
-            delegation = pending_interrupt(result)
-            if delegation is not None:
-                await self._deliver(delegation, edition_id=edition_id, slot_id=slot_id)
+        try:
+            for slot_id in edition.slots:
+                cfg = self._slot_cfg(edition_id, slot_id)
+                result = self._graph.invoke(self._initial_state(edition, slot_id), cfg)
+                delegation = pending_interrupt(result)
+                if delegation is not None:
+                    await self._deliver(
+                        delegation, edition_id=edition_id, slot_id=slot_id
+                    )
+        except DeliveryError as exc:
+            # The flow stops (#3086): cancel the half-started edition and surface
+            # the failure to the caller — Claude — as a tool error, so it tells
+            # the director the edition cannot run rather than reporting a live
+            # pipeline.
+            edition.phase = PHASE_CANCELLED
+            self._store.save_edition(edition)
+            logger.error("Edition %s could not start: %s", edition_id, exc.detail)
+            raise DeliveryError(
+                f"The edition could not be started: {exc.detail} "
+                "It has been cancelled; tell the director it cannot run until a "
+                "team member fills that role.",
+                role=exc.role,
+            ) from exc
         logger.info(
             "Edition %s started with %d slot(s)", edition_id, len(edition.slots)
         )
@@ -328,7 +361,12 @@ class Coordinator:
         if delegation is not None:
             slot.stage = delegation["stage"]
             self._store.save_edition(edition)
-            await self._deliver(delegation, edition_id=edition_id, slot_id=slot_id)
+            try:
+                await self._deliver(delegation, edition_id=edition_id, slot_id=slot_id)
+            except DeliveryError as exc:
+                # Autonomous plane, no Claude in the loop: stop and funnel the
+                # error to the control-plane LLM (#3086).
+                return await self._funnel_error(edition, exc.detail)
             return f"slot {slot_id} advanced to {delegation['stage']}"
 
         slot.artifact = result.get("artifact", artifact)
@@ -336,7 +374,10 @@ class Coordinator:
         slot.done = True
         self._store.save_edition(edition)
         if edition.all_slots_done() and edition.phase == PHASE_DRAFTING:
-            await self._start_assembly(edition)
+            try:
+                await self._start_assembly(edition)
+            except DeliveryError as exc:
+                return await self._funnel_error(edition, exc.detail)
             return f"slot {slot_id} packaged; edition assembling"
         return f"slot {slot_id} packaged"
 
@@ -364,10 +405,11 @@ class Coordinator:
         self._store.save_edition(edition)
         production = await self._role_address("production-editor")
         if production is None:
-            logger.error(
-                "Cannot assemble edition %s: no production-editor", edition.edition_id
+            raise DeliveryError(
+                "No team member holds the role 'production-editor', so the "
+                "edition could not be sent for assembly.",
+                role="production-editor",
             )
-            return
         message_id = await mcp_tools.send_message(
             self._mcp,
             self._token,
@@ -375,25 +417,67 @@ class Coordinator:
             assemble_brief(edition),
             reason="all slots packaged — assemble",
         )
-        if message_id:
-            self._store.put_correlation(
-                message_id,
-                edition_id=edition.edition_id,
-                slot_id=EDITION_MARKER,
-                stage="assemble",
+        if not message_id:
+            raise DeliveryError(
+                "The assembly brief to 'production-editor' was not acknowledged "
+                "(no message id returned).",
+                role="production-editor",
             )
+        self._store.put_correlation(
+            message_id,
+            edition_id=edition.edition_id,
+            slot_id=EDITION_MARKER,
+            stage="assemble",
+        )
+
+    async def _funnel_error(self, edition: Edition, detail: str) -> str:
+        """A data-plane step failed with no Claude in the loop (#3086).
+
+        Stop the flow and funnel the error to the control-plane LLM — the
+        Managing Editor — exactly like an unmatched inbound message, so it
+        decides how to respond. Its reply is carried to the director
+        (``report_to``) by the engine, because the inbound that triggered this
+        was a specialist's reply, not a director message.
+        """
+        logger.error("Pipeline error on edition %s: %s", edition.edition_id, detail)
+        if self._invoke is None:
+            # Head-less data-plane tests: no control plane to funnel to.
+            return f"pipeline error: {detail}"
+        brief = (
+            f'A pipeline error stopped the edition "{edition.theme}" '
+            f"(edition_id {edition.edition_id}): {detail}\n\n"
+            "The autonomous pipeline has halted — do not treat the edition as "
+            "still running. Decide how to handle this and reply with what the "
+            "director should be told; your reply is delivered to them. You may "
+            "also cancel the edition with your tools."
+        )
+        reply = (
+            await self._invoke(brief, sender_address="system://pipeline-error") or ""
+        ).strip()
+        if edition.report_to and reply:
+            await mcp_tools.send_message(
+                self._mcp,
+                self._token,
+                [edition.report_to],
+                reply,
+                reason="pipeline error — managing editor notifying director",
+            )
+        return reply or f"pipeline error: {detail}"
 
     # ----- delivery + directory -----
 
     async def _deliver(
         self, delegation: dict, *, edition_id: str, slot_id: str
     ) -> None:
-        address = await self._role_address(delegation["role"])
+        role = delegation["role"]
+        stage = delegation["stage"]
+        address = await self._role_address(role)
         if address is None:
-            logger.error(
-                "No directory member holds role %s; cannot deliver", delegation["role"]
+            raise DeliveryError(
+                f"No team member holds the role '{role}', so the {stage} brief "
+                f"could not be delivered.",
+                role=role,
             )
-            return
         # ADR-0066 §5: record the id `send` returns; the specialist's reply names
         # it as `in_reply_to`, which routes the reply back to this slot+stage.
         message_id = await mcp_tools.send_message(
@@ -401,21 +485,20 @@ class Coordinator:
             self._token,
             [address],
             delegation["body"],
-            reason=f"{delegation['stage']} brief for {slot_id}",
+            reason=f"{stage} brief for {slot_id}",
         )
-        if message_id:
-            self._store.put_correlation(
-                message_id,
-                edition_id=edition_id,
-                slot_id=slot_id,
-                stage=delegation["stage"],
+        if not message_id:
+            raise DeliveryError(
+                f"The {stage} brief to '{role}' was not acknowledged (no message "
+                f"id returned), so the reply could not be correlated.",
+                role=role,
             )
-        else:
-            logger.error(
-                "send returned no message id for %s %s; reply cannot be correlated",
-                slot_id,
-                delegation["stage"],
-            )
+        self._store.put_correlation(
+            message_id,
+            edition_id=edition_id,
+            slot_id=slot_id,
+            stage=stage,
+        )
 
     async def _role_address(self, role: str) -> str | None:
         if role in self._role_addr:

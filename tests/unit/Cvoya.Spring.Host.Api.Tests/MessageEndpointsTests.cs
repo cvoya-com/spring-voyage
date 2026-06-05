@@ -602,16 +602,19 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task SendMessage_DomainWithGuidShapedButUnknownThreadId_Succeeds()
+    public async Task SendMessage_DomainWithGuidShapedButUnknownThreadId_AutoCreatesThreadRowAndHonoursId()
     {
-        // #2112: Guid-shaped thread ids that the registry has not seen
-        // before are accepted as caller-supplied stable correlation ids —
-        // the registry is a participant-set lookup, not a thread-id
-        // existence gate. Rejecting unknown Guids here would block legit
-        // clients that thread under their own stable id (and would force
-        // every send to begin with a registry round-trip). The non-Guid
-        // case stays as a 400 (covered above); only well-formed Guids
-        // pass through.
+        // #3086 (refines #2112): a Guid-shaped thread id the registry has
+        // never seen is still honoured as a caller-supplied stable id, but the
+        // endpoint must now MATERIALISE the parent threads row before routing.
+        // Pre-fix the message went straight to PersistMessageAsync, where the
+        // messages.thread_id foreign key insert failed with a raw 500 ("no
+        // error factory is registered for this code: 500") on Postgres and
+        // crashed the CLI. The in-memory test DB enforces no FK, so this test
+        // pins the observable contract instead: the send succeeds, echoes the
+        // supplied id, delivers to the actor, AND a threads row now exists for
+        // the {sender} ∪ recipient participant set keyed on that id — which is
+        // exactly what satisfies the FK on Postgres.
         var ct = TestContext.Current.CancellationToken;
 
         var entry = new DirectoryEntry(
@@ -647,9 +650,23 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
         body.ShouldNotBeNull();
+        // The supplied id is honoured end-to-end.
         body!.ThreadId.ShouldBe(freshGuid);
         observed.ShouldNotBeNull();
         observed!.ThreadId.ShouldBe(freshGuid);
+
+        // The fix: a threads row now backs the supplied id, keyed on the
+        // {operator Hat, agent} participant set — the FK parent that the
+        // Postgres message insert requires.
+        using var scope = _factory.Services.CreateScope();
+        var registry = scope.ServiceProvider.GetRequiredService<IThreadRegistry>();
+        var threadEntry = await registry.ResolveAsync(freshGuid, ct);
+        threadEntry.ShouldNotBeNull();
+        var participantKeys = threadEntry!.Participants
+            .Select(p => $"{p.Scheme}:{p.Id:N}")
+            .ToList();
+        participantKeys.ShouldContain($"agent:{UnknownThreadAgentId:N}");
+        participantKeys.ShouldContain($"{observed.From.Scheme}:{observed.From.Id:N}");
     }
 
     [Fact]
