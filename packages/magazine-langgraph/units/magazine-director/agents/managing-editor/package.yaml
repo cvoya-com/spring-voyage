@@ -11,10 +11,17 @@ description: >-
 role: managing-editor
 capabilities: ["editorial-coordination", "workflow-orchestration", "scheduling"]
 ai:
-  # The generic always-on engine runtime (ADR-0066). No model: the orchestrator
-  # is a deterministic workflow engine and makes no LLM calls of its own — the
-  # specialist agents it delegates to use their own models.
+  # The generic always-on engine runtime (ADR-0066). The orchestrator is a
+  # deterministic workflow engine and makes no LLM calls of its own. It declares
+  # the team's model only to satisfy the platform's structured-model contract
+  # (ADR-0038, enforced by `spring package validate --strict`); the a2a-process
+  # launcher resolves the shared anthropic credential the specialists already
+  # require and injects it, and the engine simply ignores it. A future
+  # refinement could let engine runtimes omit the model (ADR-0066 §5).
   runtime: a2a-process
+  model:
+    provider: anthropic
+    id: claude-opus-4-8
 instructions: |
   You are the managing editor — the orchestration engine for a daily online
   magazine. You are a deterministic workflow, not a conversational assistant:

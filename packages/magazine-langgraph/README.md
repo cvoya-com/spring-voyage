@@ -62,6 +62,7 @@ spring package install magazine-langgraph
 ```
 
 The team uses the **web-search** connector to source stories (bind it on the
-unit, same as `magazine`). The managing editor (the engine) needs no LLM
-credential — it is deterministic; the specialist agents use the model you
-configure for them.
+unit, same as `magazine`). The managing editor is a deterministic engine and
+makes no LLM calls of its own; it declares the team's anthropic model only to
+satisfy the platform's structured-model contract (ADR-0038), and the credential
+it resolves is the same one the specialist agents already require.
