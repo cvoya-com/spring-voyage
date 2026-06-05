@@ -139,6 +139,13 @@ public class AgentDispatchCoordinator(
                     CancellationToken.None);
             }
 
+            // #3073: emit the turn's cost (when the runtime reported one) BEFORE
+            // the terminal, regardless of exit code — a failed turn still bills.
+            // The CostIncurred activity is what the cost ledger (CostRecord) and
+            // the BudgetEnforcer consume; without it both sit idle and spend
+            // always reads $0.
+            await EmitCostIncurredAsync(agentId, message, outcome, emitActivity);
+
             var toolCallCount = TryReadToolCallCount(outcome);
 
             if (outcome.ExitCode != 0)
@@ -269,6 +276,129 @@ public class AgentDispatchCoordinator(
             long l => (int)l,
             JsonElement el when el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var n) => n,
             _ => int.TryParse(raw.ToString(), out var parsed) ? parsed : 0,
+        };
+    }
+
+    /// <summary>
+    /// Emits a <see cref="ActivityEventType.CostIncurred"/> activity for the
+    /// turn when the dispatcher reported a cost on the outcome's diagnostics
+    /// (<see cref="RuntimeOutcome.CostUsdKey"/>, populated from the Claude Code
+    /// CLI's <c>total_cost_usd</c> via the sidecar — #3073). This is the live
+    /// producer the cost ledger (<c>CostTracker</c> → <c>CostRecord</c>) and the
+    /// <c>BudgetEnforcer</c> consume; the event's <see cref="ActivityEvent.Cost"/>
+    /// and <c>details</c> (model / tokens / tenant / unit / costSource) match the
+    /// shape <c>CostTracker.MapToRecord</c> reads. No-op when no cost was
+    /// reported (a text-mode runtime or a zero-cost turn).
+    /// </summary>
+    private static async Task EmitCostIncurredAsync(
+        string agentId,
+        Message message,
+        RuntimeOutcome outcome,
+        Func<ActivityEvent, CancellationToken, Task> emitActivity)
+    {
+        if (outcome.Diagnostics is null)
+        {
+            return;
+        }
+
+        var cost = ReadDiagnosticDecimal(outcome.Diagnostics, RuntimeOutcome.CostUsdKey);
+        if (cost is not > 0m)
+        {
+            return;
+        }
+
+        var model = ReadDiagnosticString(outcome.Diagnostics, RuntimeOutcome.ModelKey) ?? "unknown";
+        var inputTokens = ReadDiagnosticInt(outcome.Diagnostics, RuntimeOutcome.InputTokensKey);
+        var outputTokens = ReadDiagnosticInt(outcome.Diagnostics, RuntimeOutcome.OutputTokensKey);
+        var tenantId = ReadDiagnosticString(outcome.Diagnostics, "tenantId");
+        var unitId = ReadDiagnosticString(outcome.Diagnostics, "unitId");
+
+        var details = JsonSerializer.SerializeToElement(new
+        {
+            model,
+            inputTokens,
+            outputTokens,
+            // v0.1: every turn's cost is attributed to Work. Classifying a turn
+            // as Initiative (proactive, self-driven) vs Work (responding) needs
+            // the turn's trigger, which the coordinator does not see today —
+            // tracked as a follow-up. Work matches CostTracker's fallback.
+            costSource = nameof(Cvoya.Spring.Core.Costs.CostSource.Work),
+            tenantId,
+            unitId,
+            durationMs = (long)outcome.Duration.TotalMilliseconds,
+        });
+
+        var summary =
+            $"Cost incurred: {cost.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} USD "
+            + $"({model}, {inputTokens} in / {outputTokens} out)";
+
+        var costEvent = new ActivityEvent(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            Address.For("agent", agentId),
+            ActivityEventType.CostIncurred,
+            ActivitySeverity.Info,
+            summary,
+            details,
+            message.ThreadId,
+            cost.Value);
+
+        await emitActivity(costEvent, CancellationToken.None);
+    }
+
+    private static decimal? ReadDiagnosticDecimal(IReadOnlyDictionary<string, object?> diagnostics, string key)
+    {
+        if (!diagnostics.TryGetValue(key, out var raw) || raw is null)
+        {
+            return null;
+        }
+
+        return raw switch
+        {
+            decimal d => d,
+            double db => (decimal)db,
+            float f => (decimal)f,
+            long l => l,
+            int i => i,
+            JsonElement el when el.ValueKind == JsonValueKind.Number && el.TryGetDecimal(out var n) => n,
+            _ => decimal.TryParse(
+                raw.ToString(),
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var parsed)
+                    ? parsed
+                    : null,
+        };
+    }
+
+    private static int ReadDiagnosticInt(IReadOnlyDictionary<string, object?> diagnostics, string key)
+    {
+        if (!diagnostics.TryGetValue(key, out var raw) || raw is null)
+        {
+            return 0;
+        }
+
+        return raw switch
+        {
+            int i => i,
+            long l => (int)l,
+            JsonElement el when el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var n) => n,
+            _ => int.TryParse(raw.ToString(), out var parsed) ? parsed : 0,
+        };
+    }
+
+    private static string? ReadDiagnosticString(IReadOnlyDictionary<string, object?> diagnostics, string key)
+    {
+        if (!diagnostics.TryGetValue(key, out var raw) || raw is null)
+        {
+            return null;
+        }
+
+        return raw switch
+        {
+            string s => s,
+            JsonElement el when el.ValueKind == JsonValueKind.String => el.GetString(),
+            _ => raw.ToString(),
         };
     }
 

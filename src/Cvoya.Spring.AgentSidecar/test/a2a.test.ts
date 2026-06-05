@@ -120,6 +120,51 @@ describe("A2AHandler.handle", () => {
     assert.equal(task["x-spring-voyage-bridge-version"], BRIDGE_VERSION);
   });
 
+  it("parses a json-format CLI result: reply is .result, cost rides on task metadata (#3073)", async () => {
+    // With outputFormat "json" the bridge parses the Claude Code result object:
+    // the assistant prose (`.result`) becomes the reply artifact, and the
+    // turn's cost/usage is attached to the A2A task `metadata` for the host.
+    const resultObject = {
+      type: "result",
+      subtype: "success",
+      result: "the parsed answer",
+      total_cost_usd: 0.05,
+      usage: { input_tokens: 1000, output_tokens: 500 },
+      modelUsage: { "claude-opus-4-8": {} },
+    };
+    const handler = new A2AHandler({
+      agentName: "test-agent",
+      agentArgv: [
+        PROCESS_NODE,
+        "-e",
+        `process.stdout.write(${JSON.stringify(JSON.stringify(resultObject))})`,
+      ],
+      port: 8999,
+      cancelGraceMs: 200,
+      spawnEnv: process.env,
+      outputFormat: "json",
+    });
+
+    const res = await handler.handle({
+      jsonrpc: "2.0",
+      method: "message/send",
+      params: { message: { parts: [{ text: "ping" }] } },
+      id: "json-1",
+    });
+
+    const task = res.result as Record<string, unknown>;
+    assert.equal(task["kind"], "task");
+    const artifacts = task["artifacts"] as Array<{ parts: Array<{ text: string }> }>;
+    // The reply is the parsed prose, NOT the raw JSON wall.
+    assert.equal(artifacts[0]?.parts[0]?.text, "the parsed answer");
+    const metadata = task["metadata"] as Record<string, unknown>;
+    assert.ok(metadata, "expected cost metadata on the task");
+    assert.equal(metadata["sv.cost.usd"], 0.05);
+    assert.equal(metadata["sv.usage.input_tokens"], 1000);
+    assert.equal(metadata["sv.usage.output_tokens"], 500);
+    assert.equal(metadata["sv.model"], "claude-opus-4-8");
+  });
+
   // Bug regression: the dispatcher sets the container's working directory to
   // the per-member workspace mount (AgentWorkspaceContract); the bridge
   // honours the same path on every CLI spawn so CWD-relative config

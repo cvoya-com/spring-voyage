@@ -227,11 +227,34 @@ public class ClaudeCodeLauncherTests
             "claude",
             "--print",
             "--dangerously-skip-permissions",
+            // #3073: JSON result so the sidecar can surface the reply prose and
+            // capture the turn's cost/usage for the host cost ledger.
+            "--output-format",
+            "json",
             "--mcp-config",
             expectedMcpConfigPath,
             "--append-system-prompt-file",
             expectedSystemPromptPath,
         });
+    }
+
+    [Fact]
+    public async Task PrepareAsync_SetsOutputFormatJsonEnvHint_PairedWithArgv()
+    {
+        // #3073: the launcher tells the sidecar to parse JSON output (so it can
+        // extract cost/usage) via SPRING_AGENT_OUTPUT_FORMAT, paired with the
+        // `--output-format json` argv tokens. The bridge stays agent-agnostic.
+        var context = CreateContext();
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldContainKeyAndValue("SPRING_AGENT_OUTPUT_FORMAT", "json");
+
+        var argv = JsonSerializer.Deserialize<string[]>(
+            prep.EnvironmentVariables["SPRING_AGENT_ARGV"]);
+        argv.ShouldNotBeNull();
+        var formatIndex = Array.IndexOf(argv, "--output-format");
+        formatIndex.ShouldBeGreaterThanOrEqualTo(0, "argv must request a JSON result");
+        argv[formatIndex + 1].ShouldBe("json");
     }
 
     [Fact]

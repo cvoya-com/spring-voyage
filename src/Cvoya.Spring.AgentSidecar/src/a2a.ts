@@ -34,7 +34,8 @@ import { randomUUID } from "node:crypto";
 
 import type { BootstrapFetcher } from "./bootstrap.js";
 import { runAgentBridge } from "./bridge.js";
-import type { ThreadBindingConfig } from "./config.js";
+import type { AgentOutputFormat, ThreadBindingConfig } from "./config.js";
+import { parseCliJsonResult, type TurnCost } from "./cost.js";
 import {
   MCP_TOKEN_PATH_ENV_VAR,
   resolveMcpTokenPath,
@@ -132,6 +133,11 @@ export interface A2AHandlerDeps {
   port: number;
   cancelGraceMs: number;
   spawnEnv: NodeJS.ProcessEnv;
+  // How to interpret the CLI's stdout on a successful turn (#3073). "text"
+  // (the default) forwards stdout verbatim as the reply; "json" parses the
+  // Claude Code `--output-format json` result, surfaces `.result` as the
+  // reply, and attaches the turn's cost + usage as A2A task metadata.
+  outputFormat?: AgentOutputFormat;
   // ADR-0041: how to deliver `thread.id` to the spawned CLI as its
   // session identifier. Absent when the wrapped runtime has no session
   // concept (or carries the id via env var rather than argv). When set,
@@ -161,6 +167,10 @@ interface ActiveTask {
   state: TaskState;
   outputArtifact: string | null;
   errorMessage: string | null;
+  // Per-turn cost + usage parsed from a JSON-format CLI result (#3073).
+  // Null for text-format runtimes or when the result carried no cost; when
+  // set, surfaced to the host via the A2A task `metadata` block.
+  cost: TurnCost | null;
 }
 
 export class A2AHandler {
@@ -508,6 +518,7 @@ export class A2AHandler {
       state: "working",
       outputArtifact: null,
       errorMessage: null,
+      cost: null,
     };
     this.tasks.set(taskId, task);
 
@@ -636,7 +647,16 @@ export class A2AHandler {
       task.state = "canceled";
     } else if (result.exitCode === 0) {
       task.state = "completed";
-      task.outputArtifact = result.stdout;
+      if (this.deps.outputFormat === "json") {
+        // #3073: the CLI emitted a single JSON result object. Surface its
+        // `.result` prose as the reply (a parse miss falls back to raw
+        // stdout) and capture the turn's cost/usage for the host.
+        const parsed = parseCliJsonResult(result.stdout);
+        task.outputArtifact = parsed.reply;
+        task.cost = parsed.cost;
+      } else {
+        task.outputArtifact = result.stdout;
+      }
     } else {
       task.state = "failed";
       task.errorMessage =
@@ -764,6 +784,22 @@ export class A2AHandler {
       // wire are ignored by the .NET SDK's deserializer.)
       "x-spring-voyage-bridge-version": BRIDGE_VERSION,
     };
+    // #3073: carry the turn's cost + usage back to the host on the A2A task
+    // `metadata` block (a `Dictionary<string, JsonElement>` on the .NET
+    // `AgentTask`). The dispatcher reads these into the RuntimeOutcome
+    // diagnostics so the cost ledger / budget enforcer get real numbers.
+    // Metadata is not a text part, so it never leaks into the reasoning trace.
+    if (task.cost !== null) {
+      const metadata: Record<string, unknown> = {
+        "sv.cost.usd": task.cost.costUsd,
+        "sv.usage.input_tokens": task.cost.inputTokens,
+        "sv.usage.output_tokens": task.cost.outputTokens,
+      };
+      if (task.cost.model !== null) {
+        metadata["sv.model"] = task.cost.model;
+      }
+      response.metadata = metadata;
+    }
     const artifacts: Array<Record<string, unknown>> = [];
     if (task.outputArtifact !== null && task.outputArtifact.length > 0) {
       artifacts.push({

@@ -33,6 +33,20 @@ export interface ThreadBindingConfig {
   resumeArg: string;
 }
 
+// How the bridge interprets the wrapped CLI's stdout on a successful turn.
+//
+//   * `text` — stdout IS the assistant's reply; forward it verbatim (the
+//     historical default for every runtime).
+//   * `json` — stdout is the Claude Code `--output-format json` single result
+//     object. The bridge parses it, surfaces `.result` as the reply, and hands
+//     `total_cost_usd` + `usage` back to the host as A2A task metadata so the
+//     platform cost ledger / budget enforcer receive real numbers (#3073). See
+//     cost.ts for the shape and the #2226 note on the richer stream-json form.
+//
+// The launcher selects the mode via `SPRING_AGENT_OUTPUT_FORMAT`; the bridge
+// stays agent-agnostic and never inspects the CLI flags itself.
+export type AgentOutputFormat = "text" | "json";
+
 export interface BridgeConfig {
   // TCP port the bridge listens on. The dispatcher dials this port; the
   // default matches AgentLaunchSpec.A2APort (8999).
@@ -43,6 +57,11 @@ export interface BridgeConfig {
   // intentionally do *not* shell-split a SPRING_AGENT_CMD string; #1063
   // showed how that bites.
   agentArgv: string[];
+
+  // How to interpret the CLI's stdout on success — see AgentOutputFormat.
+  // Defaults to "text"; set to "json" only when the launcher asked the CLI
+  // for a JSON result (Claude Code today).
+  outputFormat: AgentOutputFormat;
 
   // Display name that surfaces on the Agent Card.
   agentName: string;
@@ -78,6 +97,22 @@ function parseArgv(raw: string | undefined): string[] {
     );
   }
   return parsed as string[];
+}
+
+function parseOutputFormat(raw: string | undefined): AgentOutputFormat {
+  if (!raw || raw.length === 0) {
+    return "text";
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "json") {
+    return "json";
+  }
+  if (normalized === "text") {
+    return "text";
+  }
+  throw new Error(
+    `SPRING_AGENT_OUTPUT_FORMAT must be "text" or "json"; got: ${raw}`,
+  );
 }
 
 function parsePort(raw: string | undefined, fallback: number): number {
@@ -131,6 +166,7 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): BridgeC
   return {
     port: parsePort(env.AGENT_PORT, 8999),
     agentArgv: parseArgv(env.SPRING_AGENT_ARGV),
+    outputFormat: parseOutputFormat(env.SPRING_AGENT_OUTPUT_FORMAT),
     agentName: env.AGENT_NAME ?? "Spring Voyage CLI Agent",
     cancelGraceMs: parsePositiveInt(env.AGENT_CANCEL_GRACE_MS, 5000, "AGENT_CANCEL_GRACE_MS"),
     threadBinding: parseThreadBinding(env),
