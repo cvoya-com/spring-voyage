@@ -101,6 +101,8 @@ public class EfMessageWriter(
             Payload = SerialisePayload(message.Payload),
             SentAt = message.Timestamp,
             RetractedAt = null,
+            // ADR-0066 §5: persist the reply reference for the timeline read model.
+            InReplyTo = message.InReplyTo,
         };
 
         if (db.Database.IsNpgsql())
@@ -179,11 +181,11 @@ public class EfMessageWriter(
             INSERT INTO spring.messages
                 (id, tenant_id, thread_id, sender_scheme, sender_id,
                  recipient_scheme, recipient_id, message_type, body, payload,
-                 sent_at, retracted_at)
+                 sent_at, retracted_at, in_reply_to)
             VALUES
                 ({entity.Id}, {entity.TenantId}, {entity.ThreadId}, {entity.SenderScheme}, {entity.SenderId},
                  {entity.RecipientScheme}, {entity.RecipientId}, {entity.MessageType}, {entity.Body}, {entity.Payload}::jsonb,
-                 {entity.SentAt}, {entity.RetractedAt})
+                 {entity.SentAt}, {entity.RetractedAt}, {entity.InReplyTo})
             ON CONFLICT (id) DO NOTHING
             """,
             cancellationToken);

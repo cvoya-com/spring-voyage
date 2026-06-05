@@ -69,6 +69,29 @@ public class EfMessageWriterTests : IDisposable
         row.SentAt.ShouldBe(message.Timestamp);
         row.RetractedAt.ShouldBeNull();
         row.Payload.ShouldContain("hello world");
+        row.InReplyTo.ShouldBeNull();  // an original message answers nothing
+    }
+
+    [Fact]
+    public async Task WriteAsync_InReplyTo_PersistsColumn()
+    {
+        // ADR-0066 §5: a reply's InReplyTo is persisted to the messages table so
+        // the read model / Thread Timeline can render reply chains.
+        var ct = TestContext.Current.CancellationToken;
+        var (writer, db, threadId, _) = await SetupAsync(Tenant1, Human1, Agent1, ct);
+        var answered = Guid.NewGuid();
+
+        var message = NewDomainMessage(
+            Human1, Agent1, threadId, JsonSerializer.SerializeToElement("a reply"))
+            with
+        { InReplyTo = answered };
+
+        await writer.WriteAsync(message, ct);
+
+        var row = await db.Messages.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == message.Id, ct);
+        row.ShouldNotBeNull();
+        row!.InReplyTo.ShouldBe(answered);
     }
 
     [Fact]

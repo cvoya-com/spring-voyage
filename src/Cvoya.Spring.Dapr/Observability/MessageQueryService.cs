@@ -52,7 +52,8 @@ public class MessageQueryService(SpringDbContext dbContext) : IMessageQueryServi
             MessageType: row.MessageType,
             Body: row.Body,
             Payload: payload,
-            Timestamp: row.SentAt);
+            Timestamp: row.SentAt,
+            InReplyTo: row.InReplyTo);
     }
 
     /// <summary>

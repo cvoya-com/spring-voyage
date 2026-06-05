@@ -4077,6 +4077,8 @@ export interface components {
             payload: components["schemas"]["JsonElement"];
             /** Format: date-time */
             timestamp: string;
+            /** Format: uuid */
+            inReplyTo?: null | string;
         };
         MessageResponse: {
             /** Format: uuid */
