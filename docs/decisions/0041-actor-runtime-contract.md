@@ -29,6 +29,40 @@ The runtime's session identifier is `thread.id` verbatim. No hashing, no derivat
 - For CLI runtimes the bridge invokes the runtime with `--resume <thread.id>` (Claude Code) or its equivalent (Codex `--continue` with id, Gemini equivalent).
 - For the Python SDK the agent author receives `thread.id` on each `on_message` call; thread-local state lives under `$SPRING_WORKSPACE_PATH/threads/<thread.id>/`.
 
+#### `thread_id` is developer/plumbing-only — never model-visible (#3079)
+
+`thread.id` is the **participant-set identity** (ADR-0030): it is stable for a
+given set of participants and does **not** vary per message exchange. That makes
+it correct as a session-resume / workspace-scoping key (above), but a trap as a
+"this run / this exchange" key — the magazine `a2a-process` orchestrator keyed a
+per-edition concept off it and got one edition for the agent's entire life
+(#3072 → worked around in #3077 with an engine-minted `edition_id`). The root
+cause is that an agent runtime / LLM reads the word "thread" and assumes it is
+the lifetime identifier of an interaction. So the boundary is:
+
+- **Permitted (developer + plumbing surface):** the typed SDK fields
+  (`Message.thread_id`, `IAgentContext.thread_id`, `thread_workspace(...)`), the
+  `SPRING_THREAD_ID` container env var, `ThreadIdRegistry`, and the internal
+  `thread.id` routing/session key. A developer (or orchestrator *code*) holding
+  the concept is fine.
+- **Forbidden (model-visible surface):** the system prompt, tool
+  descriptions / input schemas, tool-call results, and the rendered inbound
+  envelope MUST NOT contain "thread" / `thread_id`. The model keys "this
+  exchange" on `message_id` and "who" on the participant set; the inbound
+  envelope already omits `thread_id` (#2747), and the platform-tool catalog and
+  tool descriptions are scrubbed to match (#3079). A negative-pin test
+  (`ModelVisibleThreadJargonTests`) fails the build if "thread" re-enters the
+  tool surface; `PlatformPromptProvider` tests pin the prompt.
+- **Runtime correlation id, when one is needed, is the A2A `context_id`** — the
+  runtime's own vocabulary — not `thread_id`. SV sets `contextId == thread.id`
+  (above), which the A2A spec permits: `contextId` is *"the contextual
+  collection of interactions"* with only MAY/SHOULD guidance — granularity and
+  lifetime are implementation-defined. SV's mapping is at the **coarse extreme**
+  of that latitude (one `context_id` for the participant set's whole life, never
+  reset), so `context_id` is documented to runtimes/LLMs as a **lifetime-stable
+  grouping key, not A2A's restartable-session default** — preventing the same
+  per-run mis-key off `context_id` that #3072 hit off `thread_id`.
+
 ### Two modes, bound to `concurrent_threads`
 
 | `concurrent_threads` | Mailbox behaviour | In-container concurrency | Head-of-line (HoL) blocking | In-process conflict surface |

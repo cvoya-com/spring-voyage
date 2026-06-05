@@ -75,12 +75,12 @@ public static class PlatformToolCatalog
             "Send a one-way message to humans, agents, or units.",
             "Use sv.messaging.send to deliver a message to one or more " +
             "humans, agents, or units; every recipient lands on a single " +
-            "shared thread with the caller. Use sv.messaging.multicast to " +
+            "shared conversation with the caller. Use sv.messaging.multicast to " +
             "deliver the same message to several recipients, each on its " +
-            "own independent 1-1 thread with the caller (or to a resolved " +
+            "own independent 1-1 conversation with the caller (or to a resolved " +
             "scope: unit-members, siblings). Use sv.messaging.respond_to to " +
             "continue an existing conversation — the platform delivers to " +
-            "everyone already on the thread a message_id belongs to (minus " +
+            "everyone already on the conversation a message_id belongs to (minus " +
             "the caller). Valid recipient kinds are human, agent, and unit; " +
             "connector addresses appear on inbound messages as a sender but " +
             "are non-routable and are rejected synchronously with an " +

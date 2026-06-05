@@ -67,9 +67,9 @@ Owning registry: [`SvMessagingSkillRegistry`](../../src/Cvoya.Spring.Dapr/Skills
 
 | Tool | Description |
 | --- | --- |
-| `sv.messaging.send` | Send a one-way message to one or more recipients on a single shared thread. |
-| `sv.messaging.multicast` | Send the same message to several recipients, each on its own independent 1-1 thread. |
-| `sv.messaging.respond_to` | Continue the conversation a message belongs to — deliver to its current routable participants (minus the caller) on the same thread, addressed by `message_id` (ADR-0064). |
+| `sv.messaging.send` | Send a one-way message to one or more recipients on a single shared conversation. |
+| `sv.messaging.multicast` | Send the same message to several recipients, each on its own independent 1-1 conversation. |
+| `sv.messaging.respond_to` | Continue the conversation a message belongs to — deliver to its current routable participants (minus the caller) on the same conversation, addressed by `message_id` (ADR-0064). |
 
 ### `sv.progress.*` — turn-progress instrumentation
 
@@ -109,7 +109,7 @@ The blocks below are delimited by `platform-tool-catalog:<token>` HTML comments 
 <!-- platform-tool-catalog:messaging -->
 **`messaging`** — Send a one-way message to humans, agents, or units.
 
-> Use sv.messaging.send to deliver a message to one or more humans, agents, or units; every recipient lands on a single shared thread with the caller. Use sv.messaging.multicast to deliver the same message to several recipients, each on its own independent 1-1 thread with the caller (or to a resolved scope: unit-members, siblings). Use sv.messaging.respond_to to continue an existing conversation — the platform delivers to everyone already on the thread a message_id belongs to (minus the caller). Valid recipient kinds are human, agent, and unit; connector addresses appear on inbound messages as a sender but are non-routable and are rejected synchronously with an UnroutableTarget error. Delivery is one-way (ADR-0049): each call returns a delivery acknowledgement; any response from a recipient arrives later as a separate inbound message.
+> Use sv.messaging.send to deliver a message to one or more humans, agents, or units; every recipient lands on a single shared conversation with the caller. Use sv.messaging.multicast to deliver the same message to several recipients, each on its own independent 1-1 conversation with the caller (or to a resolved scope: unit-members, siblings). Use sv.messaging.respond_to to continue an existing conversation — the platform delivers to everyone already on the conversation a message_id belongs to (minus the caller). Valid recipient kinds are human, agent, and unit; connector addresses appear on inbound messages as a sender but are non-routable and are rejected synchronously with an UnroutableTarget error. Delivery is one-way (ADR-0049): each call returns a delivery acknowledgement; any response from a recipient arrives later as a separate inbound message.
 <!-- /platform-tool-catalog:messaging -->
 
 <!-- platform-tool-catalog:directory -->

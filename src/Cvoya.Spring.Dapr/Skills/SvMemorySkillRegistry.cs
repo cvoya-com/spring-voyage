@@ -407,7 +407,7 @@ public sealed class SvMemorySkillRegistry : ISkillRegistry
         if (!GuidFormatter.TryParse(threadId, out var guid))
         {
             throw new SpringException(
-                $"Thread registry returned an unparseable conversation id '{threadId}'.");
+                $"The conversation registry returned an unparseable conversation id '{threadId}'.");
         }
         return guid;
     }
