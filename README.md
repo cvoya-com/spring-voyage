@@ -114,7 +114,7 @@ git clone https://github.com/cvoya-com/spring-voyage
 cd spring-voyage
 ```
 
-Prerequisites (.NET 10 SDK, Dapr CLI, Podman, PostgreSQL, Redis; optional Node.js / Python) and the local-dev loop are in [docs/developer/setup.md](docs/developer/setup.md). Architecture, project layout, and where to put new code are in [docs/developer/overview.md](docs/developer/overview.md). Operators do not need to clone the repository; the installer is the supported install path.
+Host prerequisites (.NET 10 SDK, Podman, Dapr CLI; optional Node.js / Python — everything else runs in containers) and the local-dev loop are in [docs/developer/setup.md](docs/developer/setup.md). Architecture, project layout, and where to put new code are in [docs/developer/overview.md](docs/developer/overview.md). Operators do not need to clone the repository; the installer is the supported install path.
 
 ## License
 
