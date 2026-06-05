@@ -2,17 +2,22 @@
 
 This guide covers setting up a local development environment for contributing to Spring Voyage.
 
-## Prerequisites
+## Prerequisites for building/running from source
 
-- **.NET SDK** (latest LTS) -- for building the platform
-- **Dapr CLI** -- for running the Dapr sidecar locally
-- **Podman** (or Docker) -- for execution environments and workflow containers
-- **PostgreSQL** -- for the primary data store (can run in a container)
-- **Redis** -- for local pub/sub (can run in a container)
+Only a few tools need to be installed on your host. Everything else — PostgreSQL, Redis, the Dapr runtime, and the agent-runtime images — runs in containers that are pulled automatically, so you never install them on your machine.
 
-Optional:
-- **Python 3.11+** -- if working on Python-based agents
-- **Node.js** -- if working on the web portal
+**Install on your host:**
+
+- **.NET 10 SDK** — builds and runs the platform hosts, the tests, and EF Core migrations.
+- **Podman** (or Docker) — the container engine that runs every other dependency, including the execution-environment and agent-runtime images.
+- **Dapr CLI** — runs the sidecars locally (`dapr run`); `dapr init` pulls the Dapr runtime and its services as containers.
+
+**Optional**, only if you work on those surfaces:
+
+- **Node.js** — for the web portal.
+- **Python 3.11+** — for the Python-based agents.
+
+**Pulled as containers — no host install:** PostgreSQL (primary data store), Redis (pub/sub), the Dapr runtime, and the agent-runtime and platform images. The [Running Locally](#running-locally) steps below start Postgres and Redis with `podman run`.
 
 ## Building
 
