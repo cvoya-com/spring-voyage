@@ -17,6 +17,7 @@ pytest.importorskip("langgraph")
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 
 from orchestrator import mcp as mcp_tools  # noqa: E402
+from orchestrator import pipeline  # noqa: E402
 from orchestrator.coordinator import Coordinator  # noqa: E402
 from orchestrator.graph import build_slot_graph  # noqa: E402
 from orchestrator.state import PHASE_PUBLISHED, OrchestratorStore  # noqa: E402
@@ -343,3 +344,119 @@ def test_extract_json_object_variants():
     assert coord_mod._extract_json_object('prefix {"a": 1} suffix') == '{"a": 1}'
     assert coord_mod._extract_json_object('```json\n{"a": 1}\n```') == '{"a": 1}'
     assert coord_mod._extract_json_object("no json here") == "no json here"
+
+
+# --- ADR-0066 §6 Option A: Claude-routed commands on an in-progress edition ---
+
+
+def _seed_edition(coord, thread_id, *, phase, origin="kickoff-msg"):
+    edition = coord._store.create_edition(
+        edition_id=thread_id,
+        theme="Local news",
+        slot_titles=["Budget", "Schools"],
+        report_to="unit:director",
+        origin_message_id=origin,
+        first_stage=pipeline.SLOT_STAGES[0],
+    )
+    edition.phase = phase
+    coord._store.save_edition(edition)
+    return edition
+
+
+@pytest.mark.asyncio
+async def test_status_query_routes_to_claude_reply(tmp_path):
+    async def fake_complete(prompt, *, system_prompt=None):
+        # The edition already exists → the command path (not intake) is hit, and
+        # the engine handed Claude the edition state to answer from.
+        assert system_prompt == coord_mod.COMMAND_SYSTEM_PROMPT
+        assert "phase: drafting" in prompt
+        return '{"action": "reply", "text": "2 slots, both drafting."}'
+
+    coord = _coord_with_complete(tmp_path, fake_complete)
+    _seed_edition(coord, "ed-status", phase=coord_mod.PHASE_DRAFTING)
+
+    out = await coord.handle(
+        thread_id="ed-status",
+        message_id="q1",
+        sender_address="unit:director",
+        text="How's the edition coming along?",
+    )
+    assert out == "replied to director"
+    # The engine answered by responding to the director's query message itself.
+    assert coord._mcp.responds == [("q1", "2 slots, both drafting.")]
+
+
+@pytest.mark.asyncio
+async def test_claude_approve_in_signoff_publishes(tmp_path):
+    async def fake_complete(prompt, *, system_prompt=None):
+        return '{"action": "approve"}'
+
+    coord = _coord_with_complete(tmp_path, fake_complete)
+    ed = _seed_edition(coord, "ed-approve", phase=coord_mod.PHASE_SIGNOFF)
+    ed.assembled = "THE EDITION"
+    coord._store.save_edition(ed)
+
+    out = await coord.handle(
+        thread_id="ed-approve",
+        message_id="a1",
+        sender_address="unit:director",
+        text="Yes, this reads great — let's go.",
+    )
+    assert "approved" in out
+    assert _addr(coord._mcp.last_send()) == "agent:productioneditor"
+    assert "Publish" in coord._mcp.last_send()[1]
+    assert coord._store.get_edition("ed-approve").phase == PHASE_PUBLISHED
+
+
+@pytest.mark.asyncio
+async def test_claude_revise_in_signoff_sends_notes(tmp_path):
+    async def fake_complete(prompt, *, system_prompt=None):
+        return '{"action": "revise", "notes": "Tighten the budget lede."}'
+
+    coord = _coord_with_complete(tmp_path, fake_complete)
+    ed = _seed_edition(coord, "ed-revise", phase=coord_mod.PHASE_SIGNOFF)
+    ed.assembled = "THE EDITION"
+    coord._store.save_edition(ed)
+
+    out = await coord.handle(
+        thread_id="ed-revise",
+        message_id="r1",
+        sender_address="unit:director",
+        text="Almost — a couple of fixes first.",
+    )
+    assert "revision requested" in out
+    assert _addr(coord._mcp.last_send()) == "agent:productioneditor"
+    assert "Tighten the budget lede." in coord._mcp.last_send()[1]
+
+
+@pytest.mark.asyncio
+async def test_command_falls_back_to_heuristic_when_claude_fails(tmp_path):
+    async def boom(prompt, *, system_prompt=None):
+        raise RuntimeError("claude down")
+
+    coord = _coord_with_complete(tmp_path, boom)
+    ed = _seed_edition(coord, "ed-fb", phase=coord_mod.PHASE_SIGNOFF)
+    ed.assembled = "X"
+    coord._store.save_edition(ed)
+
+    # Claude failed → deterministic sign-off routing (is_approval) takes over.
+    out = await coord.handle(
+        thread_id="ed-fb",
+        message_id="a",
+        sender_address="unit:director",
+        text="approved — ship it",
+    )
+    assert "approved" in out
+
+
+@pytest.mark.asyncio
+async def test_command_no_complete_in_progress_acknowledges(tmp_path):
+    coord = _coord(tmp_path)  # no complete wired
+    _seed_edition(coord, "ed-ack", phase=coord_mod.PHASE_DRAFTING)
+    out = await coord.handle(
+        thread_id="ed-ack",
+        message_id="m",
+        sender_address="unit:director",
+        text="just checking in",
+    )
+    assert out == "note acknowledged (edition in progress)"

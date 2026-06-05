@@ -19,9 +19,12 @@ Run loop, per inbound message:
   finishes — mark it done and, once every slot is packaged, delegate assembly.
 * **assemble reply** — the production editor's assembled edition. Bring it to
   the director for sign-off on the edition thread.
-* **sign-off** — the director's approve/changes on the edition thread. On
-  approval, release to production to publish; otherwise send the notes back for
-  a revise pass.
+* **director command** — a director message on an in-progress edition that
+  matched no pending response (a status question, or an approve/revise on the
+  assembled edition). Routed through Claude with the edition state when a
+  completion is wired (ADR-0066 §6, Option A): it answers status from that
+  state, or approves/revises a sign-off; deterministic keyword routing is the
+  headless fallback.
 """
 
 from __future__ import annotations
@@ -68,6 +71,29 @@ INTAKE_SYSTEM_PROMPT = (
     "- If the brief names specific stories, use them as the slots.\n"
     "- If it gives only a theme with no explicit stories, propose 2-4 concrete "
     "story slots that fit it."
+)
+
+# ADR-0066 §6 (Option A — engine-mediated): handed to Claude when a director
+# message lands on an edition already in progress (it matched no pending
+# response). Claude is GIVEN the edition state and returns the action the engine
+# should take; it does not run the pipeline or reach into the orchestrator. The
+# richer bidirectional surface — Claude calling orchestrator tools for live
+# status/cancel/modify — is the Option-B follow-up.
+COMMAND_SYSTEM_PROMPT = (
+    "You are the natural-language interface for a magazine managing editor whose "
+    "production pipeline is run by a deterministic engine. You are GIVEN the "
+    "current edition state and the director's message; you do NOT run the "
+    "pipeline yourself. Return ONLY a JSON object naming the action the engine "
+    "should take:\n"
+    '- {"action": "reply", "text": "<a direct answer to the director>"} — for a '
+    "question or status request; compose the answer from the state you were "
+    "given.\n"
+    '- {"action": "approve"} — the director is approving the assembled edition '
+    "for publication.\n"
+    '- {"action": "revise", "notes": "<the director\'s revision notes>"} — the '
+    "director wants changes to the assembled edition.\n"
+    'Use "approve"/"revise" only when the state\'s phase is "signoff"; otherwise '
+    'use "reply".'
 )
 
 
@@ -231,9 +257,10 @@ class Coordinator:
             return await self._handle_kickoff(
                 thread_id, message_id, sender_address, text
             )
-        if edition.phase == PHASE_SIGNOFF:
-            return await self._handle_signoff(edition, text)
-        return "note acknowledged (edition in progress)"
+        # A director message on an edition already in progress matched no
+        # pending response — route it through Claude (ADR-0066 §6, Option A),
+        # which reads the engine-provided edition state and returns the action.
+        return await self._route_command(edition, message_id, text)
 
     # ----- kickoff -----
 
@@ -344,30 +371,108 @@ class Coordinator:
         )
         return "edition assembled; sent to director for sign-off"
 
-    # ----- director sign-off -----
+    # ----- director commands on an in-progress edition (Claude-routed) -----
+
+    async def _route_command(self, edition: Edition, message_id: str, text: str) -> str:
+        """Route a director message on an in-progress edition (ADR-0066 §6).
+
+        Option A — engine-mediated: when a completion capability is wired, Claude
+        is GIVEN the edition state and returns a structured action the engine
+        executes (reply / approve / revise) — Claude never reaches into the
+        orchestrator. Without Claude, fall back to deterministic sign-off routing
+        so the flow still works headless. (Live status/cancel/modify via
+        orchestrator-hosted tools is the Option-B follow-up.)
+        """
+        if self._complete is None:
+            return await self._fallback_command(edition, text)
+        try:
+            action = await self._interpret_command(edition, text)
+        except Exception:  # noqa: BLE001 — never fail the turn on the LLM path.
+            logger.warning("Claude command routing failed; falling back", exc_info=True)
+            return await self._fallback_command(edition, text)
+
+        kind = str(action.get("action", "")).strip().lower()
+        if kind == "approve" and edition.phase == PHASE_SIGNOFF:
+            return await self._apply_approval(edition)
+        if kind == "revise" and edition.phase == PHASE_SIGNOFF:
+            return await self._apply_revision(
+                edition, str(action.get("notes") or text).strip()
+            )
+        if kind == "reply":
+            answer = str(action.get("text") or "").strip()
+            if answer:
+                await mcp_tools.respond_to(
+                    self._mcp,
+                    self._token,
+                    message_id,
+                    answer,
+                    reason="answering the director",
+                )
+                return "replied to director"
+        return "note acknowledged (edition in progress)"
+
+    async def _interpret_command(self, edition: Edition, text: str) -> dict:
+        prompt = (
+            f"Current edition state:\n{self._summarize_edition_state(edition)}\n\n"
+            f"The director said:\n{text}"
+        )
+        raw = await self._complete(prompt, system_prompt=COMMAND_SYSTEM_PROMPT)
+        parsed = json.loads(_extract_json_object(raw))
+        if not isinstance(parsed, dict):
+            raise ValueError("Claude command response was not a JSON object")
+        return parsed
+
+    @staticmethod
+    def _summarize_edition_state(edition: Edition) -> str:
+        slots = "; ".join(
+            f"{slot.title} [{'done' if slot.done else slot.stage}]"
+            for slot in edition.slots.values()
+        )
+        return (
+            f'theme: "{edition.theme}"\n'
+            f"phase: {edition.phase}\n"
+            f"slots ({len(edition.slots)}): {slots or '(none)'}"
+        )
+
+    async def _fallback_command(self, edition: Edition, text: str) -> str:
+        """Deterministic routing when no Claude completion is wired."""
+        if edition.phase == PHASE_SIGNOFF:
+            return await self._handle_signoff(edition, text)
+        return "note acknowledged (edition in progress)"
+
+    # ----- director sign-off (deterministic; fallback + Claude both reuse) -----
 
     async def _handle_signoff(self, edition: Edition, text: str) -> str:
+        """Deterministic sign-off routing — the fallback when no Claude
+        completion is wired. Approve/revise by keyword (``is_approval``)."""
+        if is_approval(text):
+            return await self._apply_approval(edition)
+        return await self._apply_revision(edition, (text or "").strip())
+
+    async def _apply_approval(self, edition: Edition) -> str:
         production = await self._role_address("production-editor")
         if production is None:
             return "error: no production-editor in directory"
+        edition.phase = PHASE_PUBLISHED
+        self._store.save_edition(edition)
+        await mcp_tools.send_message(
+            self._mcp,
+            self._token,
+            [production],
+            publish_brief(edition.assembled or ""),
+            reason="director approved — publish",
+        )
+        return "approved; released to production to publish"
 
-        if is_approval(text):
-            edition.phase = PHASE_PUBLISHED
-            self._store.save_edition(edition)
-            await mcp_tools.send_message(
-                self._mcp,
-                self._token,
-                [production],
-                publish_brief(edition.assembled or ""),
-                reason="director approved — publish",
-            )
-            return "approved; released to production to publish"
-
+    async def _apply_revision(self, edition: Edition, notes: str) -> str:
+        production = await self._role_address("production-editor")
+        if production is None:
+            return "error: no production-editor in directory"
         message_id = await mcp_tools.send_message(
             self._mcp,
             self._token,
             [production],
-            revise_brief(edition.assembled or "", (text or "").strip()),
+            revise_brief(edition.assembled or "", notes),
             reason="director requested revisions",
         )
         if message_id:
