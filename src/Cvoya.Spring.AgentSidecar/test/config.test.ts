@@ -46,6 +46,23 @@ describe("loadConfigFromEnv", () => {
     assert.equal(cfg.agentName, "my-agent");
   });
 
+  it("defaults outputFormat to text", () => {
+    assert.equal(loadConfigFromEnv({}).outputFormat, "text");
+  });
+
+  it("parses SPRING_AGENT_OUTPUT_FORMAT (case-insensitive)", () => {
+    assert.equal(loadConfigFromEnv({ SPRING_AGENT_OUTPUT_FORMAT: "json" }).outputFormat, "json");
+    assert.equal(loadConfigFromEnv({ SPRING_AGENT_OUTPUT_FORMAT: "JSON" }).outputFormat, "json");
+    assert.equal(loadConfigFromEnv({ SPRING_AGENT_OUTPUT_FORMAT: "text" }).outputFormat, "text");
+  });
+
+  it("rejects an unknown SPRING_AGENT_OUTPUT_FORMAT", () => {
+    assert.throws(
+      () => loadConfigFromEnv({ SPRING_AGENT_OUTPUT_FORMAT: "ndjson" }),
+      /SPRING_AGENT_OUTPUT_FORMAT/,
+    );
+  });
+
   it("returns undefined threadBinding when neither env var is set", () => {
     const cfg = loadConfigFromEnv({});
     assert.equal(cfg.threadBinding, undefined);
