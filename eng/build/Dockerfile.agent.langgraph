@@ -26,10 +26,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # tini for clean SIGTERM forwarding (uniform with the other agent images);
 # ca-certificates so httpx can verify TLS endpoints (the platform MCP) and so
-# the co-hosted Claude CLI can reach Anthropic.
+# the co-hosted Claude CLI can reach Anthropic; curl because the platform's
+# container readiness probe execs `curl .../.well-known/agent.json` *inside*
+# this container (IContainerRuntime.ProbeContainerHttpAsync) — so every
+# platform-built agent image MUST carry curl on PATH, matching
+# Dockerfile.agent-base. Without it the probe fails for the full readiness
+# window and the dispatcher tears the (otherwise healthy) container down.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates \
+        curl \
         tini \
  && rm -rf /var/lib/apt/lists/*
 
@@ -43,8 +49,11 @@ RUN apt-get update \
 # simply leaves the CLI unused.
 ARG NODE_VERSION=22
 ARG CLAUDE_CODE_VERSION=2.1.98
+# curl is already installed (permanent, above). gnupg is only needed to verify
+# the NodeSource apt repo key, so it stays transient — installed here and purged
+# at the end of the layer.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl gnupg \
+ && apt-get install -y --no-install-recommends gnupg \
  && curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION}.x" | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
@@ -52,7 +61,7 @@ RUN apt-get update \
  && command -v claude >/dev/null \
  && claude --version \
  && npm cache clean --force \
- && apt-get purge -y curl gnupg \
+ && apt-get purge -y gnupg \
  && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 
@@ -86,6 +95,17 @@ RUN chown -R agent:agent /app
 USER agent
 
 EXPOSE 8999
+
+# The a2a-process launcher (A2AProcessLauncher.PrepareAsync) leaves
+# AgentLaunchSpec.WorkingDirectory unset, so the dispatcher defaults the
+# container's working directory to the per-agent workspace mount
+# (/spring/members/<agentId>) — NOT /app. `python -m orchestrator` resolves the
+# package from sys.path, and the orchestrator package lives at /app (it is run
+# from source, not pip-installed), so pin /app on PYTHONPATH. Without this the
+# module is import-invisible from the workspace CWD: the container exits
+# immediately with "No module named orchestrator" (exit 1) and the readiness
+# probe times out, so the dispatcher reports "did not become ready".
+ENV PYTHONPATH=/app
 
 # tini as PID 1 so SIGTERM from the dispatcher reaches the uvicorn server.
 ENTRYPOINT ["/usr/bin/tini", "--"]
