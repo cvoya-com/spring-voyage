@@ -73,6 +73,7 @@ jobs:
             python_agents:
               - 'agents/spring-voyage-agent/**'
               - 'agents/spring-voyage-agent-sdk/**'
+              - 'agents/magazine-langgraph-orchestrator/**'
             connectors_web:
               - 'src/Cvoya.Spring.Connector.*/web/**'
               - 'src/Cvoya.Spring.Web/src/connectors/**'
@@ -117,6 +118,7 @@ jobs:
               - 'eng/build/build-agent-images.sh'
               - 'src/Cvoya.Spring.AgentSidecar/**'
               - 'agents/spring-voyage-agent/**'
+              - 'agents/magazine-langgraph-orchestrator/**'
               - 'tests/smoke/smoke-agent-images.sh'
               - 'tests/smoke/smoke-1087.sh'
               # #1120: BYOI conformance path 2 fixture (npm-installed
@@ -1041,11 +1043,13 @@ jobs:
         run: |
           ruff check agents/spring-voyage-agent/
           ruff check agents/spring-voyage-agent-sdk/
+          ruff check agents/magazine-langgraph-orchestrator/
 
       - name: Check formatting
         run: |
           ruff format --check agents/spring-voyage-agent/
           ruff format --check agents/spring-voyage-agent-sdk/
+          ruff format --check agents/magazine-langgraph-orchestrator/
 
   python-test:
     name: Test Python agents
@@ -1075,6 +1079,12 @@ jobs:
 
       - name: Run spring-voyage-agent tests
         run: pytest agents/spring-voyage-agent/tests/ -v
+
+      - name: Install magazine-langgraph-orchestrator (ADR-0066)
+        run: pip install -e agents/magazine-langgraph-orchestrator pytest-asyncio
+
+      - name: Run magazine-langgraph-orchestrator tests
+        run: pytest agents/magazine-langgraph-orchestrator/tests/ -v
 
   openapi-drift:
     name: OpenAPI contract drift

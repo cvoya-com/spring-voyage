@@ -1,0 +1,14 @@
+# Runtime dependencies for the magazine LangGraph orchestrator (ADR-0066).
+# The Spring Voyage Agent SDK is installed separately from source in the
+# Dockerfile (it provides the A2A server + lifecycle hooks); these are the
+# orchestrator's own dependencies plus the SDK's transitive runtime needs that
+# are pinned here for reproducibility (mirroring agents/spring-voyage-agent).
+
+# The orchestration engine + its durable checkpointer (on the workspace volume).
+langgraph>=0.6,<0.7
+langgraph-checkpoint-sqlite>=2,<3
+
+# A2A server runtime (consumed via the SDK) + the MCP HTTP client.
+a2a-sdk[http-server]>=1.0,<2
+uvicorn>=0.30,<1
+httpx>=0.27,<1

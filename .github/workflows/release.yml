@@ -396,6 +396,7 @@ jobs:
             echo "| \`ghcr.io/cvoya-com/spring-voyage-gemini-base\` | ${tagcol} |"
             echo "| \`ghcr.io/cvoya-com/spring-voyage-codex-base\` | ${tagcol} |"
             echo "| \`ghcr.io/cvoya-com/spring-voyage-agent\` | ${tagcol} |"
+            echo "| \`ghcr.io/cvoya-com/spring-voyage-langgraph-orchestrator\` | ${tagcol} |"
             echo
             echo "### Release-attached files"
             echo
@@ -792,6 +793,10 @@ jobs:
             dockerfile: eng/build/Dockerfile.agent.dapr
             from_agent_base: false
             description: Spring Voyage native A2A agent runtime image.
+          - name: spring-voyage-langgraph-orchestrator
+            dockerfile: eng/build/Dockerfile.agent.langgraph
+            from_agent_base: false
+            description: Magazine LangGraph orchestrator — always-on a2a-process engine (ADR-0066).
     env:
       IMAGE_NAME: cvoya-com/${{ matrix.name }}
       RELEASE_VERSION: ${{ needs.resolve.outputs.version }}

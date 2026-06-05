@@ -34,6 +34,12 @@ _ENV_CONCURRENT_THREADS = "SPRING_CONCURRENT_THREADS"
 # Workspace-relative path of the platform-assembled system prompt (spec §2.2.2).
 _SYSTEM_PROMPT_REL_PATH = Path(".spring") / "system-prompt.md"
 
+# SPRING_MCP_TOKEN is intentionally NOT required (ADR-0066 §2). For a
+# persistent/always-on runtime the dispatcher stamps it empty at cold-start and
+# delivers the real per-turn token in each inbound message's A2A metadata
+# (surfaced as `Message.mcp_token`); requiring it non-empty here would make an
+# always-on a2a-process fail to initialise. Per-turn CLI runtimes still receive
+# a non-empty value, so this is a strict relaxation.
 _REQUIRED_ENV_VARS = (
     _ENV_TENANT_ID,
     _ENV_AGENT_ID,
@@ -42,7 +48,6 @@ _REQUIRED_ENV_VARS = (
     _ENV_LLM_PROVIDER_URL,
     _ENV_LLM_PROVIDER_TOKEN,
     _ENV_MCP_URL,
-    _ENV_MCP_TOKEN,
     _ENV_TELEMETRY_URL,
     _ENV_WORKSPACE_PATH,
     _ENV_CONCURRENT_THREADS,
@@ -206,7 +211,9 @@ class IAgentContext:
             llm_provider_url=os.environ[_ENV_LLM_PROVIDER_URL],
             llm_provider_token=os.environ[_ENV_LLM_PROVIDER_TOKEN],
             mcp_url=os.environ[_ENV_MCP_URL],
-            mcp_token=os.environ[_ENV_MCP_TOKEN],
+            # Optional (ADR-0066 §2): per-turn token arrives on each message for
+            # always-on runtimes. Empty string when the platform deferred it.
+            mcp_token=os.environ.get(_ENV_MCP_TOKEN, ""),
             telemetry_url=os.environ[_ENV_TELEMETRY_URL],
             telemetry_token=os.environ.get(_ENV_TELEMETRY_TOKEN) or None,
             workspace_path=os.environ[_ENV_WORKSPACE_PATH],

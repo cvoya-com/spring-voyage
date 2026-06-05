@@ -1,0 +1,34 @@
+apiVersion: spring.voyage/v1
+kind: Agent
+name: managing-editor
+displayName: Managing Editor (LangGraph engine)
+description: >-
+  The pipeline orchestrator — a LangGraph workflow engine, not an LLM. Runs as
+  an always-on a2a-process: receives the director's brief, drives each story
+  slot through the writer → fact-checker → copy-editor → audience-editor stages
+  by delegating over messaging, assembles the edition through the production
+  editor, and carries it to the director for sign-off (ADR-0066).
+role: managing-editor
+capabilities: ["editorial-coordination", "workflow-orchestration", "scheduling"]
+ai:
+  # The generic always-on engine runtime (ADR-0066). No model: the orchestrator
+  # is a deterministic workflow engine and makes no LLM calls of its own — the
+  # specialist agents it delegates to use their own models.
+  runtime: a2a-process
+instructions: |
+  You are the managing editor — the orchestration engine for a daily online
+  magazine. You are a deterministic workflow, not a conversational assistant:
+  you receive the director's edition brief, run each story slot through the
+  editorial pipeline by delegating to the specialist agents, assemble the
+  edition, and bring it to the director for sign-off. Your pipeline state,
+  routing, and stage-tracking are held in the engine's own durable state, not
+  in this prompt.
+expertise:
+  - domain: editorial-coordination
+    level: expert
+  - domain: workflow-orchestration
+    level: expert
+execution:
+  # The platform-built LangGraph orchestrator image (release artifact). The
+  # a2a-process runtime launches it as a persistent, always-on A2A service.
+  image: ghcr.io/cvoya-com/spring-voyage-langgraph-orchestrator:latest

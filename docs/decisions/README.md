@@ -73,6 +73,7 @@ For open design questions not yet decided, see
 | [0063](0063-message-payload-renderer-registry.md) | Message-payload renderer registry — canonical text extraction across consumers | Accepted |
 | [0064](0064-conversation-participants-and-continuation.md) | Conversation participants and platform-addressed continuation | Accepted — extends [0060](0060-participant-set-agent-api-and-structured-envelope.md) |
 | [0065](0065-agent-memory-architecture.md) | Agent memory architecture: typed memory, durable store canonical, coordination via threads + instruction-level authority | Accepted — builds on [0030](0030-thread-model.md); push-vs-pull ([#1301](https://github.com/cvoya-com/spring-voyage/issues/1301)) left open |
+| [0066](0066-a2a-process-runtime-engine-orchestration.md) | The `a2a-process` runtime: hosting an external orchestration engine (LangGraph) | Accepted — builds on [0021](0021-spring-voyage-is-not-an-agent-runtime.md), [0038](0038-agent-runtime-and-model-provider-split.md), [0053](0053-units-are-agents-and-one-way-delivery.md) ([#2591](https://github.com/cvoya-com/spring-voyage/issues/2591)) |
 
 Archived records are listed in [`archive/README.md`](archive/README.md).
 

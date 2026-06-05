@@ -123,3 +123,24 @@ agentRuntimes:
         authMethod: api-key
         credentialEnvVar: GOOGLE_API_KEY
       - id: ollama
+
+  # Generic always-on engine runtime (ADR-0066). An image-agnostic,
+  # persistent A2A-process host for an external orchestration engine
+  # (LangGraph, and any other engine that ships a conforming A2A image).
+  # The launcher is image-agnostic; the defaultImage below is the
+  # platform-built LangGraph orchestrator used by the magazine-langgraph
+  # package. Other engines ship their own image and reuse this runtime.
+  - id: a2a-process
+    displayName: A2A Process (orchestration engine)
+    defaultImage: ghcr.io/cvoya-com/spring-voyage-langgraph-orchestrator:latest
+    launcher: a2a-process
+    threadBinding:
+      kind: env-var
+      envVarName: SPRING_THREAD_ID
+    modelProviders:
+      - id: anthropic
+        authMethod: api-key
+        credentialEnvVar: ANTHROPIC_API_KEY
+      - id: openai
+        authMethod: api-key
+        credentialEnvVar: OPENAI_API_KEY

@@ -1,0 +1,15 @@
+apiVersion: spring.voyage/v1
+kind: Package
+name: magazine-langgraph
+displayName: Magazine (LangGraph)
+description: >-
+  Magazine (LangGraph) — the same daily-edition editorial team as the
+  `magazine` package, but the managing editor that coordinates the assembly
+  line is a real workflow engine (LangGraph) running as an always-on
+  a2a-process orchestrator, instead of an LLM following prose routing
+  instructions. The director plans the edition; the engine delegates each
+  stage to the specialist agents over messaging and resumes on their replies,
+  driving the pipeline to a human approver's sign-off. Demonstrates ADR-0066 —
+  hosting an external orchestration framework on the platform.
+version: 0.1.0
+readme: README.md

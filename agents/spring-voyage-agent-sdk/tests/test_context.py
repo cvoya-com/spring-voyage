@@ -101,6 +101,20 @@ class TestIAgentContextLoad:
             with pytest.raises(ContextLoadError, match="SPRING_CONCURRENT_THREADS"):
                 IAgentContext.load()
 
+    def test_mcp_token_optional_when_absent(self, monkeypatch):
+        """SPRING_MCP_TOKEN absence must NOT raise (ADR-0066 §2).
+
+        An always-on a2a-process gets its MCP token per-message via the inbound
+        A2A metadata; the dispatcher stamps SPRING_MCP_TOKEN empty at persistent
+        cold-start, so requiring it here would block initialise(). It loads as
+        an empty string.
+        """
+        for k, v in _REQUIRED_ENV.items():
+            monkeypatch.setenv(k, v)
+        monkeypatch.delenv("SPRING_MCP_TOKEN", raising=False)
+        ctx = IAgentContext.load()
+        assert ctx.mcp_token == ""
+
     @pytest.mark.parametrize(
         "missing_var",
         [
@@ -111,7 +125,6 @@ class TestIAgentContextLoad:
             "SPRING_LLM_PROVIDER_URL",
             "SPRING_LLM_PROVIDER_TOKEN",
             "SPRING_MCP_URL",
-            "SPRING_MCP_TOKEN",
             "SPRING_TELEMETRY_URL",
             "SPRING_WORKSPACE_PATH",
             "SPRING_CONCURRENT_THREADS",

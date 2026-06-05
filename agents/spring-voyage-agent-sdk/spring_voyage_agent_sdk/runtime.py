@@ -80,7 +80,13 @@ from spring_voyage_agent_sdk.context import IAgentContext
 from spring_voyage_agent_sdk.hooks import AgentHooks
 from spring_voyage_agent_sdk.runtime_context import RuntimeContext
 from spring_voyage_agent_sdk.telemetry import TelemetryEmitter
-from spring_voyage_agent_sdk.types import Message, Response, Sender, ShutdownReason
+from spring_voyage_agent_sdk.types import (
+    Envelope,
+    Message,
+    Response,
+    Sender,
+    ShutdownReason,
+)
 
 logger = logging.getLogger("spring-voyage-agent-sdk.runtime")
 
@@ -117,6 +123,47 @@ def _extract_text_from_parts(parts: Any) -> str:
     return "\n".join(fragments)
 
 
+def _extract_metadata(message: Any) -> dict[str, Any]:
+    """Best-effort conversion of an A2A message's metadata to a plain dict.
+
+    In a2a-sdk 1.x ``message.metadata`` is a ``google.protobuf.Struct`` (a
+    ``MutableMapping`` whose ``__getitem__`` unwraps the protobuf ``Value``).
+    The dispatcher stamps the per-turn MCP token under ``mcpToken`` here
+    (ADR-0052 §4 / ADR-0066 §2). We read it defensively across the shapes the
+    field can take so a metadata-less inbound (a local harness) degrades to an
+    empty dict rather than raising.
+    """
+    meta = getattr(message, "metadata", None)
+    if meta is None:
+        return {}
+    if isinstance(meta, dict):
+        return meta
+    try:
+        # Struct implements MutableMapping → dict() unwraps the Values.
+        return dict(meta)
+    except Exception:  # noqa: BLE001 — never let metadata shape break a turn.
+        pass
+    fields = getattr(meta, "fields", None)
+    if fields is None:
+        return {}
+    out: dict[str, Any] = {}
+    try:
+        for key in fields:
+            value = fields[key]
+            kind = value.WhichOneof("kind")
+            if kind == "string_value":
+                out[key] = value.string_value
+            elif kind == "number_value":
+                out[key] = value.number_value
+            elif kind == "bool_value":
+                out[key] = value.bool_value
+            else:
+                out[key] = None
+    except Exception:  # noqa: BLE001
+        return {}
+    return out
+
+
 def _build_message_from_a2a(ctx: RequestContext) -> Message:
     """Convert an a2a-sdk 1.x RequestContext into a SDK Message.
 
@@ -139,13 +186,21 @@ def _build_message_from_a2a(ctx: RequestContext) -> Message:
             "parts": raw_parts,
         }
 
+    # ADR-0066 §2: the per-turn MCP token rides the inbound message metadata
+    # under `mcpToken`. An always-on a2a-process runtime must call sv.* tools
+    # with this per-message token, not the (empty-at-cold-start, revoked-after-
+    # first-turn) token from initialize().
+    metadata = _extract_metadata(ctx.message) if ctx.message else {}
+    mcp_token = metadata.get("mcpToken")
+    mcp_token = str(mcp_token) if mcp_token else None
+
     sender = Sender(
         kind="human",
         id=context_id or "unknown",
         display_name=None,
     )
 
-    return Message(
+    message = Message(
         thread_id=context_id,
         message_id=task_id,
         sender=sender,
@@ -153,7 +208,14 @@ def _build_message_from_a2a(ctx: RequestContext) -> Message:
         timestamp="",
         pending_count=0,
         context=None,
+        mcp_token=mcp_token,
     )
+
+    # ADR-0066 §3: parse the platform's structured envelope out of the rendered
+    # message text so a deterministic engine reads the sender / participants /
+    # message_id as data. Best-effort: absent or malformed → envelope stays None.
+    message.envelope = Envelope.parse_latest(message.text)
+    return message
 
 
 class _SdkAgentExecutor(AgentExecutor):

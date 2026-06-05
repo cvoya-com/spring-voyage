@@ -182,6 +182,8 @@ CODEX_IMAGE="ghcr.io/cvoya-com/spring-voyage-codex-base"
 CODEX_LOCAL_ALIAS="localhost/spring-voyage-agent-codex"
 SV_AGENT_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent"
 SV_AGENT_LOCAL_ALIAS="localhost/spring-voyage-agent"
+LANGGRAPH_IMAGE="ghcr.io/cvoya-com/spring-voyage-langgraph-orchestrator"
+LANGGRAPH_LOCAL_ALIAS="localhost/spring-voyage-langgraph-orchestrator"
 OSS_SE_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering"
 OSS_PGMGMT_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management"
 
@@ -276,6 +278,22 @@ log "building ${SV_AGENT_IMAGE}:${TAG}"
     "${REPO_ROOT}"
 maybe_push "${SV_AGENT_IMAGE}:${TAG}"
 
+# ---- 5b. langgraph-orchestrator (path 3 — native A2A, ADR-0066) ----------
+# The magazine LangGraph orchestrator: an always-on a2a-process engine. Native
+# A2A like spring-voyage-agent (no agent-base FROM). Default image for the
+# `a2a-process` runtime (eng/runtime-catalog/runtime-catalog.yaml).
+langgraph_tags=(--tag "${LANGGRAPH_IMAGE}:${TAG}")
+if [[ "${TAG_LOCAL_ALIASES}" -eq 1 ]]; then
+    langgraph_tags+=(--tag "${LANGGRAPH_LOCAL_ALIAS}:${TAG}")
+fi
+
+log "building ${LANGGRAPH_IMAGE}:${TAG}"
+"${DOCKER}" build \
+    --file "${SCRIPT_DIR}/Dockerfile.agent.langgraph" \
+    "${langgraph_tags[@]}" \
+    "${REPO_ROOT}"
+maybe_push "${LANGGRAPH_IMAGE}:${TAG}"
+
 if [[ "${SKIP_OSS}" -eq 1 ]]; then
     log "skipping OSS role image builds (--skip-oss)"
 else
@@ -304,11 +322,13 @@ log "  ${CLAUDE_IMAGE}:${TAG}"
 log "  ${GEMINI_IMAGE}:${TAG}"
 log "  ${CODEX_IMAGE}:${TAG}"
 log "  ${SV_AGENT_IMAGE}:${TAG}"
+log "  ${LANGGRAPH_IMAGE}:${TAG}"
 if [[ "${TAG_LOCAL_ALIASES}" -eq 1 ]]; then
     log "  ${CLAUDE_LOCAL_ALIAS}:${TAG} (local alias)"
     log "  ${GEMINI_LOCAL_ALIAS}:${TAG} (local alias)"
     log "  ${CODEX_LOCAL_ALIAS}:${TAG} (local alias)"
     log "  ${SV_AGENT_LOCAL_ALIAS}:${TAG} (local alias)"
+    log "  ${LANGGRAPH_LOCAL_ALIAS}:${TAG} (local alias)"
 fi
 if [[ "${SKIP_OSS}" -eq 0 ]]; then
     log "  ${OSS_SE_IMAGE}:${TAG}"
