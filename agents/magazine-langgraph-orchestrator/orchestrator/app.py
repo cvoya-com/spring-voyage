@@ -81,6 +81,9 @@ async def on_message(message: Message):
     message_id = (
         envelope.message_id if envelope and envelope.message_id else message.message_id
     )
+    # ADR-0066 §5: in_reply_to is the platform-native correlation — the brief
+    # this reply answers, which routes it to the right slot+stage.
+    in_reply_to = envelope.in_reply_to if envelope else None
 
     try:
         summary = await _coordinator.handle(
@@ -88,6 +91,7 @@ async def on_message(message: Message):
             message_id=message_id,
             sender_address=sender_address,
             text=message.text,
+            in_reply_to=in_reply_to,
             token=token,
         )
         yield Response(text=summary, final=True)

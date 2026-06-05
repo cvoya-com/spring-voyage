@@ -41,16 +41,18 @@ def test_slot_pipeline_interrupt_resume_sequence():
 
     seen_stages = []
     seen_roles = []
-    last_artifact_in_brief = []
+    carries_prior_artifact = []
     # Walk every stage by feeding a synthetic artifact back on each resume.
     for i in range(len(pipeline.SLOT_STAGES)):
         delegation = pending_interrupt(result)
         assert delegation is not None, f"expected interrupt at stage index {i}"
         seen_stages.append(delegation["stage"])
         seen_roles.append(delegation["role"])
-        # The brief for a non-first stage must carry the prior artifact inline
+        # The brief carries no correlation token (platform-native correlation).
+        assert "sv-ref" not in delegation["body"]
+        # The brief for a non-first stage carries the prior artifact inline
         # (the full piece, never a pointer — ADR-0030).
-        last_artifact_in_brief.append("Current piece:" in delegation["body"])
+        carries_prior_artifact.append("Current piece:" in delegation["body"])
         result = graph.invoke(
             Command(resume=f"artifact-after-{delegation['stage']}"), cfg
         )
@@ -63,34 +65,9 @@ def test_slot_pipeline_interrupt_resume_sequence():
         "audience-editor",
     ]
     # draft has no prior artifact; every later stage carries one.
-    assert last_artifact_in_brief == [False, True, True, True]
+    assert carries_prior_artifact == [False, True, True, True]
 
     # Graph reached END — no further interrupt, final artifact is the last reply.
     assert pending_interrupt(result) is None
     assert result["artifact"] == "artifact-after-package"
     assert result["stages_done"] == list(pipeline.SLOT_STAGES)
-
-
-def test_correlation_id_in_delegation_round_trips():
-    graph = build_slot_graph(MemorySaver())
-    cfg = _config("ed9", "slot-3")
-    result = graph.invoke(
-        {
-            "edition_id": "ed9",
-            "slot_id": "slot-3",
-            "slot_title": "T",
-            "theme": "Th",
-            "artifact": None,
-            "stages_done": [],
-        },
-        cfg,
-    )
-    delegation = pending_interrupt(result)
-    assert delegation["correlation_id"] == pipeline.correlation_id(
-        "ed9", "slot-3", "draft"
-    )
-    assert pipeline.parse_correlation_id(delegation["correlation_id"]) == (
-        "ed9",
-        "slot-3",
-        "draft",
-    )

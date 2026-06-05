@@ -53,8 +53,6 @@ def _stage_node(stage: str):
     def node(state: SlotState) -> dict[str, Any]:
         delegation = pipeline.build_brief(
             stage=stage,
-            edition_id=state["edition_id"],
-            slot_id=state["slot_id"],
             slot_title=state["slot_title"],
             theme=state["theme"],
             artifact=state.get("artifact"),
@@ -63,7 +61,6 @@ def _stage_node(stage: str):
             {
                 "role": delegation.role,
                 "body": delegation.body,
-                "correlation_id": delegation.correlation_id,
                 "stage": delegation.stage,
             }
         )

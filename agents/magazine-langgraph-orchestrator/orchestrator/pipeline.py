@@ -15,7 +15,6 @@ a per-slot state machine.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 # --- Per-slot pipeline stages --------------------------------------------
@@ -57,48 +56,12 @@ def next_stage(stage: str) -> str | None:
     return SLOT_STAGES[idx + 1] if idx + 1 < len(SLOT_STAGES) else None
 
 
-# --- Correlation tokens ---------------------------------------------------
-#
-# Spring Voyage delivery is one-way and a participant-set IS a thread
-# (ADR-0030/0053), so every brief the orchestrator sends to the same writer
-# shares one thread — the reply's thread_id cannot say which delegation it
-# answers. v1 correlates with an explicit token the orchestrator embeds in each
-# brief and the package's peer agents are instructed to echo verbatim. ADR-0066
-# §5 records the principled platform fix (an in_reply_to correlation id) as the
-# next increment.
-
-_REF_RE = re.compile(r"\[\[sv-ref:(?P<ref>[^\]\s]+)\]\]")
-
-
-def correlation_id(edition_id: str, slot_id: str, stage: str) -> str:
-    """Build the opaque correlation id for one delegation."""
-    return f"{edition_id}::{slot_id}::{stage}"
-
-
-def parse_correlation_id(ref: str) -> tuple[str, str, str] | None:
-    """Inverse of :func:`correlation_id`. ``None`` when *ref* is not ours."""
-    parts = ref.split("::")
-    if len(parts) != 3 or not all(parts):
-        return None
-    return parts[0], parts[1], parts[2]
-
-
-def embed_ref(ref: str, body: str) -> str:
-    """Append the correlation token to a brief so the reply can carry it back."""
-    return (
-        f"{body}\n\n"
-        f"When you reply, include this reference token verbatim so the desk can "
-        f"route your work to the right slot: [[sv-ref:{ref}]]"
-    )
-
-
-def extract_ref(text: str) -> str | None:
-    """Extract the correlation token a peer echoed in its reply, if present."""
-    match = _REF_RE.search(text or "")
-    return match.group("ref") if match else None
-
-
 # --- Briefs ---------------------------------------------------------------
+#
+# Correlation is platform-native (ADR-0066 §5): the orchestrator records the id
+# `sv.messaging.send` returns for each brief, and matches a reply to the right
+# slot+stage via the reply's `in_reply_to` (the message it answered). No token
+# is embedded in the brief and the specialists echo nothing — they just reply.
 
 
 @dataclass(frozen=True)
@@ -106,19 +69,16 @@ class Delegation:
     """A unit of work the engine hands to the runtime to deliver.
 
     The graph never performs I/O; it ``interrupt()``s with a Delegation and the
-    runtime (``app.py``) resolves the role to an address, embeds the
-    correlation token, sends via ``sv.messaging.send``, and resumes the graph
-    when the reply lands.
+    runtime (``app.py``) resolves the role to an address, sends the body via
+    ``sv.messaging.send``, records the returned message id, and resumes the
+    graph when the correlated reply lands.
     """
 
     role: str
     """Directory role the work goes to (e.g. ``staff-writer``)."""
 
     body: str
-    """The brief text (without the correlation token — the runtime adds it)."""
-
-    correlation_id: str
-    """Opaque id the runtime maps back to this slot+stage on reply."""
+    """The brief text — delivered verbatim; correlation is platform-native."""
 
     stage: str
     """The pipeline stage this delegation represents."""
@@ -127,8 +87,6 @@ class Delegation:
 def build_brief(
     *,
     stage: str,
-    edition_id: str,
-    slot_id: str,
     slot_title: str,
     theme: str,
     artifact: str | None,
@@ -146,9 +104,4 @@ def build_brief(
         body = f"{header}\n\n{ask}\n\nCurrent piece:\n\n{artifact}"
     else:
         body = f"{header}\n\n{ask}"
-    return Delegation(
-        role=role,
-        body=body,
-        correlation_id=correlation_id(edition_id, slot_id, stage),
-        stage=stage,
-    )
+    return Delegation(role=role, body=body, stage=stage)

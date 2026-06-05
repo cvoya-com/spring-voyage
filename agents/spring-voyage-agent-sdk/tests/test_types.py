@@ -146,6 +146,21 @@ class TestEnvelopeParsing:
             "agent:00000000000000000000000000000aaa",
             "agent:writer",
         ]
+        # An original (non-reply) message carries no in_reply_to.
+        assert env.in_reply_to is None
+
+    def test_parse_extracts_in_reply_to_when_present(self):
+        # ADR-0066 §5: a reply names the message it answers; the sender uses it
+        # to correlate fan-out replies without an echoed token.
+        block = (
+            "```json\n"
+            '{"from": "agent:writer", "message_id": "reply-1", '
+            '"in_reply_to": "brief-9", "to": [], "participants": []}\n'
+            "```"
+        )
+        env = Envelope.parse_latest(block)
+        assert env is not None
+        assert env.in_reply_to == "brief-9"
 
     def test_parse_latest_returns_most_recent_in_batch(self):
         batch = self._rendered("msg-1", "agent:writer") + "\n" + self._rendered("msg-2", "agent:factchecker")

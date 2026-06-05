@@ -37,19 +37,22 @@ async def test_send_message_builds_jsonrpc_with_per_call_token():
     def handler(request: httpx.Request) -> httpx.Response:
         captured["auth"] = request.headers.get("authorization")
         captured["body"] = json.loads(request.content)
+        # The ack is {messageId, deliveries} (ADR-0049) serialized as text.
+        ack = json.dumps({"messageId": "msg-abc", "deliveries": []})
         return httpx.Response(
             200,
             json={
                 "jsonrpc": "2.0",
                 "id": 1,
-                "result": {"content": [{"type": "text", "text": "delivered"}]},
+                "result": {"content": [{"type": "text", "text": ack}]},
             },
         )
 
     mcp = McpClient("http://mcp/", transport=httpx.MockTransport(handler))
     out = await send_message(mcp, "tok-turn-42", ["agent:abc"], "hello", reason="r")
 
-    assert out == "delivered"
+    # send_message returns the created message id (for in_reply_to correlation).
+    assert out == "msg-abc"
     assert captured["auth"] == "Bearer tok-turn-42"
     body = captured["body"]
     assert body["method"] == "tools/call"

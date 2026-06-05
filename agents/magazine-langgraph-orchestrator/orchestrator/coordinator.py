@@ -11,10 +11,10 @@ Run loop, per inbound message:
 * **kickoff** — a director message on a fresh conversation. Parse the theme and
   story slots, create the durable edition, start one LangGraph slot pipeline
   per slot, and deliver each first delegation (the draft brief).
-* **peer reply** — a specialist's reply, identified by the correlation token it
-  echoed. Resume that slot's graph with the returned artifact; deliver the next
-  stage's delegation, or — when the slot finishes — mark it done and, once every
-  slot is packaged, delegate assembly to the production editor.
+* **peer reply** — a specialist's reply, matched to its brief by the reply's
+  ``in_reply_to`` (ADR-0066 §5 — no echoed token). Resume that slot's graph with
+  the returned artifact; deliver the next stage's delegation, or — when the slot
+  finishes — mark it done and, once every slot is packaged, delegate assembly.
 * **assemble reply** — the production editor's assembled edition. Bring it to
   the director for sign-off on the edition thread.
 * **sign-off** — the director's approve/changes on the edition thread. On
@@ -70,12 +70,6 @@ def parse_slots(text: str) -> tuple[str, list[str]]:
     if not slots:
         slots = [theme]
     return theme, slots[:MAX_SLOTS]
-
-
-def strip_ref(text: str) -> str:
-    """Drop the correlation-token line(s) from a reply, leaving the artifact."""
-    lines = [ln for ln in (text or "").splitlines() if "[[sv-ref:" not in ln]
-    return "\n".join(lines).strip()
 
 
 def is_approval(text: str) -> bool:
@@ -161,41 +155,42 @@ class Coordinator:
         message_id: str,
         sender_address: str,
         text: str,
+        in_reply_to: str | None = None,
         token: str = "",
     ) -> str:
         """Route one inbound message. Returns a short diagnostic summary.
 
-        ``token`` refreshes the durable token if the platform rotated it; an
-        empty value keeps the one from init. All downstream calls — and any
-        out-of-turn action — authenticate with ``self._token``.
+        ``in_reply_to`` is the platform-native correlation (ADR-0066 §5): when a
+        specialist's reply names the brief it answers, it routes that reply to
+        the right slot+stage — no echoed token. ``token`` refreshes the durable
+        token if the platform rotated it; all downstream calls authenticate with
+        ``self._token``.
         """
         self._token = token or self._token
-        ref = pipeline.extract_ref(text)
-        if ref:
-            entry = self._store.pop_correlation(ref)
+
+        if in_reply_to:
+            entry = self._store.pop_correlation(in_reply_to)
             if entry is not None:
-                return await self._handle_correlated_reply(entry, text, self._token)
-            logger.warning("Reply carried unknown correlation ref %s; ignoring", ref)
-            return "ignored: unknown correlation ref"
+                return await self._handle_correlated_reply(entry, text)
+            # Not a tracked delegation. It may still be the director's sign-off
+            # reply on the edition thread (routed by phase below), but a reply on
+            # a thread with no edition is a stray — never a new edition.
 
         edition = self._store.get_edition(thread_id)
         if edition is None:
+            if in_reply_to:
+                return "ignored: reply to an untracked message"
             return await self._handle_kickoff(
-                thread_id, message_id, sender_address, text, self._token
+                thread_id, message_id, sender_address, text
             )
         if edition.phase == PHASE_SIGNOFF:
-            return await self._handle_signoff(edition, text, self._token)
+            return await self._handle_signoff(edition, text)
         return "note acknowledged (edition in progress)"
 
     # ----- kickoff -----
 
     async def _handle_kickoff(
-        self,
-        thread_id: str,
-        message_id: str,
-        sender_address: str,
-        text: str,
-        token: str,
+        self, thread_id: str, message_id: str, sender_address: str, text: str
     ) -> str:
         theme, slot_titles = parse_slots(text)
         edition = self._store.create_edition(
@@ -211,22 +206,20 @@ class Coordinator:
             result = self._graph.invoke(self._initial_state(edition, slot_id), cfg)
             delegation = pending_interrupt(result)
             if delegation is not None:
-                await self._deliver(
-                    delegation, token, edition_id=thread_id, slot_id=slot_id
-                )
+                await self._deliver(delegation, edition_id=thread_id, slot_id=slot_id)
         logger.info("Edition %s started with %d slots", thread_id, len(edition.slots))
         return f"edition started: {len(edition.slots)} slot(s) assigned"
 
     # ----- correlated replies (specialist stages + assemble/revise) -----
 
-    async def _handle_correlated_reply(self, entry: dict, text: str, token: str) -> str:
+    async def _handle_correlated_reply(self, entry: dict, text: str) -> str:
         edition_id = entry["edition_id"]
         slot_id = entry["slot_id"]
-        artifact = strip_ref(text)
+        artifact = (text or "").strip()
 
         if slot_id == EDITION_MARKER:
             return await self._handle_edition_reply(
-                edition_id, entry["stage"], artifact, token
+                edition_id, entry["stage"], artifact
             )
 
         edition = self._store.get_edition(edition_id)
@@ -242,9 +235,7 @@ class Coordinator:
         if delegation is not None:
             slot.stage = delegation["stage"]
             self._store.save_edition(edition)
-            await self._deliver(
-                delegation, token, edition_id=edition_id, slot_id=slot_id
-            )
+            await self._deliver(delegation, edition_id=edition_id, slot_id=slot_id)
             return f"slot {slot_id} advanced to {delegation['stage']}"
 
         slot.artifact = result.get("artifact", artifact)
@@ -252,12 +243,12 @@ class Coordinator:
         slot.done = True
         self._store.save_edition(edition)
         if edition.all_slots_done() and edition.phase == PHASE_DRAFTING:
-            await self._start_assembly(edition, token)
+            await self._start_assembly(edition)
             return f"slot {slot_id} packaged; edition assembling"
         return f"slot {slot_id} packaged"
 
     async def _handle_edition_reply(
-        self, edition_id: str, stage: str, artifact: str, token: str
+        self, edition_id: str, stage: str, artifact: str
     ) -> str:
         edition = self._store.get_edition(edition_id)
         if edition is None:
@@ -267,7 +258,7 @@ class Coordinator:
         self._store.save_edition(edition)
         await mcp_tools.respond_to(
             self._mcp,
-            token,
+            self._token,
             edition.origin_message_id,
             signoff_request(artifact),
             reason="edition assembled — requesting sign-off",
@@ -276,8 +267,8 @@ class Coordinator:
 
     # ----- director sign-off -----
 
-    async def _handle_signoff(self, edition: Edition, text: str, token: str) -> str:
-        production = await self._role_address("production-editor", token)
+    async def _handle_signoff(self, edition: Edition, text: str) -> str:
+        production = await self._role_address("production-editor")
         if production is None:
             return "error: no production-editor in directory"
 
@@ -286,81 +277,103 @@ class Coordinator:
             self._store.save_edition(edition)
             await mcp_tools.send_message(
                 self._mcp,
-                token,
+                self._token,
                 [production],
                 publish_brief(edition.assembled or ""),
                 reason="director approved — publish",
             )
             return "approved; released to production to publish"
 
-        ref = pipeline.correlation_id(edition.edition_id, EDITION_MARKER, "revise")
-        body = pipeline.embed_ref(
-            ref, revise_brief(edition.assembled or "", strip_ref(text))
+        message_id = await mcp_tools.send_message(
+            self._mcp,
+            self._token,
+            [production],
+            revise_brief(edition.assembled or "", (text or "").strip()),
+            reason="director requested revisions",
         )
-        await mcp_tools.send_message(
-            self._mcp, token, [production], body, reason="director requested revisions"
-        )
-        self._store.put_correlation(
-            ref, edition_id=edition.edition_id, slot_id=EDITION_MARKER, stage="revise"
-        )
+        if message_id:
+            self._store.put_correlation(
+                message_id,
+                edition_id=edition.edition_id,
+                slot_id=EDITION_MARKER,
+                stage="revise",
+            )
         edition.phase = PHASE_ASSEMBLING
         self._store.save_edition(edition)
         return "revision requested; sent to production"
 
     # ----- assembly -----
 
-    async def _start_assembly(self, edition: Edition, token: str) -> None:
+    async def _start_assembly(self, edition: Edition) -> None:
         edition.phase = PHASE_ASSEMBLING
         self._store.save_edition(edition)
-        production = await self._role_address("production-editor", token)
+        production = await self._role_address("production-editor")
         if production is None:
             logger.error(
                 "Cannot assemble edition %s: no production-editor", edition.edition_id
             )
             return
-        ref = pipeline.correlation_id(edition.edition_id, EDITION_MARKER, "assemble")
-        body = pipeline.embed_ref(ref, assemble_brief(edition))
-        await mcp_tools.send_message(
-            self._mcp, token, [production], body, reason="all slots packaged — assemble"
+        message_id = await mcp_tools.send_message(
+            self._mcp,
+            self._token,
+            [production],
+            assemble_brief(edition),
+            reason="all slots packaged — assemble",
         )
-        self._store.put_correlation(
-            ref, edition_id=edition.edition_id, slot_id=EDITION_MARKER, stage="assemble"
-        )
+        if message_id:
+            self._store.put_correlation(
+                message_id,
+                edition_id=edition.edition_id,
+                slot_id=EDITION_MARKER,
+                stage="assemble",
+            )
 
     # ----- delivery + directory -----
 
     async def _deliver(
-        self, delegation: dict, token: str, *, edition_id: str, slot_id: str
+        self, delegation: dict, *, edition_id: str, slot_id: str
     ) -> None:
-        address = await self._role_address(delegation["role"], token)
+        address = await self._role_address(delegation["role"])
         if address is None:
             logger.error(
                 "No directory member holds role %s; cannot deliver", delegation["role"]
             )
             return
-        ref = delegation["correlation_id"]
-        body = pipeline.embed_ref(ref, delegation["body"])
-        await mcp_tools.send_message(
+        # ADR-0066 §5: record the id `send` returns; the specialist's reply names
+        # it as `in_reply_to`, which routes the reply back to this slot+stage.
+        message_id = await mcp_tools.send_message(
             self._mcp,
-            token,
+            self._token,
             [address],
-            body,
+            delegation["body"],
             reason=f"{delegation['stage']} brief for {slot_id}",
         )
-        self._store.put_correlation(
-            ref, edition_id=edition_id, slot_id=slot_id, stage=delegation["stage"]
-        )
+        if message_id:
+            self._store.put_correlation(
+                message_id,
+                edition_id=edition_id,
+                slot_id=slot_id,
+                stage=delegation["stage"],
+            )
+        else:
+            logger.error(
+                "send returned no message id for %s %s; reply cannot be correlated",
+                slot_id,
+                delegation["stage"],
+            )
 
-    async def _role_address(self, role: str, token: str) -> str | None:
+    async def _role_address(self, role: str) -> str | None:
         if role in self._role_addr:
             return self._role_addr[role]
         if self._parent_unit_uuid is None:
-            me = await mcp_tools.get_self(self._mcp, token)
+            me = await mcp_tools.get_self(self._mcp, self._token)
             parents = me.get("parent_uuids") or []
             self._parent_unit_uuid = parents[0] if parents else None
         if not self._parent_unit_uuid:
             return None
-        members = await mcp_tools.list_members(self._mcp, token, self._parent_unit_uuid)
+        members = await mcp_tools.list_members(
+            self._mcp, self._token, self._parent_unit_uuid
+        )
         for member in members:
             address = member.get("address")
             if not isinstance(address, str) or not address:

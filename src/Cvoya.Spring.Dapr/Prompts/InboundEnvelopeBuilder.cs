@@ -175,6 +175,10 @@ internal static class InboundEnvelopeBuilder
             .Append(string.Join(", ", participants.Select(a => a.ToString())))
             .AppendLine("]");
         sb.Append("- message_id: ").AppendLine(GuidFormatter.Format(inbound.Id));
+        if (inbound.InReplyTo is { } headerInReplyTo)
+        {
+            sb.Append("- in_reply_to: ").AppendLine(GuidFormatter.Format(headerInReplyTo));
+        }
         sb.Append("- timestamp: ").AppendLine(
             inbound.Timestamp.ToString("O", CultureInfo.InvariantCulture));
         sb.AppendLine("- payload:");
@@ -257,6 +261,13 @@ internal static class InboundEnvelopeBuilder
             }
             writer.WriteEndArray();
             writer.WriteString("message_id", GuidFormatter.Format(inbound.Id));
+            // ADR-0066 §5: when this message is a reply, name the message it
+            // answers so a sender can correlate fan-out replies without an
+            // echoed token.
+            if (inbound.InReplyTo is { } inReplyTo)
+            {
+                writer.WriteString("in_reply_to", GuidFormatter.Format(inReplyTo));
+            }
             writer.WriteString("timestamp", inbound.Timestamp.ToString("O", CultureInfo.InvariantCulture));
             writer.WritePropertyName("payload");
             inbound.Payload.WriteTo(writer);

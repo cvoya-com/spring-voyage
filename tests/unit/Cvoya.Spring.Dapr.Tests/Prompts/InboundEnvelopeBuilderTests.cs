@@ -42,7 +42,8 @@ public class InboundEnvelopeBuilderTests
         JsonElement payload,
         string? senderDisplayName = "Alice",
         IReadOnlyList<Address>? recipients = null,
-        IReadOnlyList<Address>? participants = null)
+        IReadOnlyList<Address>? participants = null,
+        Guid? inReplyTo = null)
     {
         var inbound = new Message(
             Guid.NewGuid(),
@@ -51,7 +52,8 @@ public class InboundEnvelopeBuilderTests
             MessageType.Domain,
             ThreadId: null,
             payload,
-            KnownTimestamp);
+            KnownTimestamp,
+            InReplyTo: inReplyTo);
 
         var to = recipients ?? new[] { Self };
         // Default roster: the recipients plus the routable sender (ADR-0064).
@@ -174,6 +176,20 @@ public class InboundEnvelopeBuilderTests
         rendered.ShouldContain("\"participants\":");
         rendered.ShouldContain(KnownTimestamp.ToString("O", CultureInfo.InvariantCulture));
         rendered.ShouldContain("\"payload\": \"hi\"");
+    }
+
+    [Fact]
+    public void Render_CarriesInReplyTo_WhenSet_OmitsWhenNull()
+    {
+        // ADR-0066 §5: a reply names the message it answers (in_reply_to) so a
+        // sender can correlate fan-out replies; an original message omits it.
+        var answered = Guid.NewGuid();
+        var reply = Render(JsonSerializer.SerializeToElement("hi"), inReplyTo: answered);
+        reply.ShouldContain($"\"in_reply_to\": \"{GuidFormatter.Format(answered)}\"");
+        reply.ShouldContain("- in_reply_to: ");
+
+        var original = Render(JsonSerializer.SerializeToElement("hi"));
+        original.ShouldNotContain("in_reply_to");
     }
 
     [Fact]

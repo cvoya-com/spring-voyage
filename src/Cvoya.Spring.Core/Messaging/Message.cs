@@ -23,6 +23,14 @@ using System.Text.Json;
 /// <param name="ThreadId">An optional thread identifier for correlating related messages.</param>
 /// <param name="Payload">The message payload as a JSON element.</param>
 /// <param name="Timestamp">The timestamp when the message was created.</param>
+/// <param name="InReplyTo">
+/// Optional id of the message this one replies to (ADR-0066 §5). Stamped by
+/// <c>sv.messaging.respond_to</c> with its <c>message_id</c> argument and
+/// surfaced on the recipient's inbound envelope as <c>in_reply_to</c>, so a
+/// sender can match a reply to the specific message it answers — the
+/// platform-native correlation a deterministic runtime needs without the
+/// recipient echoing a token. <c>null</c> for an original (non-reply) message.
+/// </param>
 [DataContract]
 public record Message(
     [property: DataMember(Order = 0)] Guid Id,
@@ -31,4 +39,5 @@ public record Message(
     [property: DataMember(Order = 3)] MessageType Type,
     [property: DataMember(Order = 4)] string? ThreadId,
     [property: DataMember(Order = 5)] JsonElement Payload,
-    [property: DataMember(Order = 6)] DateTimeOffset Timestamp);
+    [property: DataMember(Order = 6)] DateTimeOffset Timestamp,
+    [property: DataMember(Order = 7)] Guid? InReplyTo = null);

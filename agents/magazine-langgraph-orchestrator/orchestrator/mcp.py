@@ -1,17 +1,19 @@
 """
-Per-call MCP client for the orchestrator (ADR-0066 §2).
+Per-call MCP client for the orchestrator (ADR-0066).
 
 The orchestrator reaches the platform's `sv.*` tools through the single MCP
-server (`$SPRING_MCP_URL`). Crucially it authenticates each call with the
-**per-turn** token delivered on the inbound message (`Message.mcp_token`), not
-a token cached at initialize() — for an always-on process that token is empty
-at cold-start and revoked after the first turn.
+server (`$SPRING_MCP_URL`). It authenticates each call with the engine's
+**durable, agent-scoped** token (ADR-0066 §2) — a service identity valid for
+the container's lifetime, so calls work whether or not the engine is processing
+an inbound message. The caller supplies the token per call.
 
-Only the handful of tools the orchestrator actually drives are wrapped here:
+Only the handful of tools the orchestrator drives are wrapped here:
 `sv.directory.get_self` / `sv.directory.list_members` to resolve a peer role to
 an address, and `sv.messaging.send` / `sv.messaging.respond_to` to deliver
-briefs and finished work. Tool names and argument shapes match
-`SvMessagingSkillRegistry` / `SvDirectorySkillRegistry`.
+briefs and finished work. `send` / `respond_to` return the created message's id
+so the orchestrator can correlate a later reply by its `in_reply_to`
+(ADR-0066 §5). Tool names and argument shapes match `SvMessagingSkillRegistry` /
+`SvDirectorySkillRegistry`.
 
 `httpx` is the only third-party import; an injectable transport keeps the
 client unit-testable without a live MCP server.
@@ -109,18 +111,31 @@ async def list_members(
     return []
 
 
+def _created_message_id(ack: Any) -> str | None:
+    """Pull the created message's id out of a send/respond_to ack.
+
+    The ack is ``{"messageId": "...", "deliveries": [...]}`` (ADR-0049). The id
+    lets the orchestrator correlate a later reply by its ``in_reply_to``."""
+    if isinstance(ack, dict):
+        mid = ack.get("messageId") or ack.get("message_id")
+        return str(mid) if mid else None
+    return None
+
+
 async def send_message(
     mcp: McpClient,
     token: str,
     recipients: list[str],
     message: str,
     reason: str | None = None,
-) -> str:
-    """`sv.messaging.send` — one-way delivery to one shared conversation."""
+) -> str | None:
+    """`sv.messaging.send` — one-way delivery to one shared conversation.
+
+    Returns the created message's id (for correlation), or ``None``."""
     args: dict[str, Any] = {"recipients": recipients, "message": message}
     if reason:
         args["reason"] = reason
-    return await mcp.call_tool(token, SEND_TOOL, args)
+    return _created_message_id(await mcp.call_tool_json(token, SEND_TOOL, args))
 
 
 async def respond_to(
@@ -129,12 +144,14 @@ async def respond_to(
     message_id: str,
     message: str,
     reason: str | None = None,
-) -> str:
-    """`sv.messaging.respond_to` — continue the conversation a message belongs to."""
+) -> str | None:
+    """`sv.messaging.respond_to` — continue the conversation a message belongs to.
+
+    Returns the created reply's id, or ``None``."""
     args: dict[str, Any] = {"message_id": message_id, "message": message}
     if reason:
         args["reason"] = reason
-    return await mcp.call_tool(token, RESPOND_TO_TOOL, args)
+    return _created_message_id(await mcp.call_tool_json(token, RESPOND_TO_TOOL, args))
 
 
 def resolve_role_address(members: list[dict[str, Any]], role: str) -> str | None:

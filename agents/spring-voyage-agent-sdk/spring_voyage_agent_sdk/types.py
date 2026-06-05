@@ -109,6 +109,15 @@ class Envelope:
     message_id: str = ""
     """The inbound message's id — the value to pass to ``sv.messaging.respond_to``."""
 
+    in_reply_to: str | None = None
+    """The id of the message this one answers (ADR-0066 §5), when it is a reply.
+
+    The platform stamps it from ``sv.messaging.respond_to``'s ``message_id``
+    argument. A sender that recorded the id ``sv.messaging.send`` returned can
+    match a reply to the specific message it answers — the platform-native
+    correlation a deterministic runtime uses instead of an echoed token.
+    ``None`` for an original (non-reply) message."""
+
     timestamp: str | None = None
     """RFC 3339 timestamp the platform stamped on the message."""
 
@@ -122,11 +131,13 @@ class Envelope:
     def _from_dict(cls, data: dict[str, Any]) -> "Envelope | None":
         if "from" not in data:
             return None
+        in_reply_to = data.get("in_reply_to")
         return cls(
             from_address=str(data.get("from", "")),
             to=[str(x) for x in data.get("to", []) or []],
             participants=[str(x) for x in data.get("participants", []) or []],
             message_id=str(data.get("message_id", "")),
+            in_reply_to=str(in_reply_to) if in_reply_to else None,
             timestamp=data.get("timestamp"),
             from_display_name=data.get("from_display_name"),
             payload=data.get("payload"),

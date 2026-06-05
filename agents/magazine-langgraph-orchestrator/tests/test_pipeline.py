@@ -17,32 +17,9 @@ def test_next_stage():
     assert pipeline.next_stage("package") is None
 
 
-def test_correlation_id_round_trip():
-    ref = pipeline.correlation_id("ed-1", "slot-2", "fact_check")
-    assert pipeline.parse_correlation_id(ref) == ("ed-1", "slot-2", "fact_check")
-
-
-def test_parse_correlation_id_rejects_foreign_tokens():
-    assert pipeline.parse_correlation_id("not-ours") is None
-    assert pipeline.parse_correlation_id("a::b") is None
-
-
-def test_embed_and_extract_ref():
-    ref = "ed-1::slot-1::draft"
-    body = pipeline.embed_ref(ref, "Write the story.")
-    assert "Write the story." in body
-    assert pipeline.extract_ref(body) == ref
-
-
-def test_extract_ref_absent():
-    assert pipeline.extract_ref("just a normal reply") is None
-
-
 def test_build_brief_first_stage_has_no_prior_artifact():
     d = pipeline.build_brief(
         stage="draft",
-        edition_id="ed-1",
-        slot_id="slot-1",
         slot_title="City budget",
         theme="Local",
         artifact=None,
@@ -51,13 +28,13 @@ def test_build_brief_first_stage_has_no_prior_artifact():
     assert d.stage == "draft"
     assert "Current piece:" not in d.body
     assert "City budget" in d.body
+    # Correlation is platform-native — no token is embedded in the brief.
+    assert "sv-ref" not in d.body
 
 
 def test_build_brief_later_stage_carries_artifact_inline():
     d = pipeline.build_brief(
         stage="fact_check",
-        edition_id="ed-1",
-        slot_id="slot-1",
         slot_title="City budget",
         theme="Local",
         artifact="THE DRAFT TEXT",
