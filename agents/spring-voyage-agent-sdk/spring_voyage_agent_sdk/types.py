@@ -186,16 +186,18 @@ class Message:
     """Optional UX-hint metadata; present verbatim when the sender supplied it."""
 
     mcp_token: str | None = None
-    """Per-turn MCP session token for *this* message (ADR-0066 §2).
+    """The MCP token delivered with *this* message in the A2A ``message/send``
+    metadata under ``mcpToken`` (ADR-0066 §2).
 
-    The platform issues a fresh MCP token every turn and delivers it in the
-    inbound A2A ``message/send`` metadata under ``mcpToken``; it is revoked at
-    turn end. An always-on runtime (the ``a2a-process`` host) MUST call
-    ``sv.*`` tools with this per-message token, not a token cached at
-    ``initialize()`` — that one is empty at persistent cold-start and revoked
-    after the first turn. ``None`` when the inbound carried no token metadata
-    (e.g. a local harness); callers may then fall back to
-    ``IAgentContext.mcp_token``.
+    For per-turn CLI runtimes this is a fresh per-turn token, revoked at turn
+    end. For an always-on ``a2a-process`` engine it is the **durable,
+    agent-scoped** token — a service identity valid for the container's
+    lifetime, the same value delivered via ``$SPRING_MCP_TOKEN`` /
+    ``IAgentContext.mcp_token`` at start and echoed here each turn so the engine
+    can refresh it if it rotates. An engine should authenticate every ``sv.*``
+    call with its durable token — including timer- or background-triggered calls
+    between messages, which a per-turn token could not cover. ``None`` when the
+    inbound carried no token metadata (e.g. a local harness).
     """
 
     envelope: Envelope | None = None

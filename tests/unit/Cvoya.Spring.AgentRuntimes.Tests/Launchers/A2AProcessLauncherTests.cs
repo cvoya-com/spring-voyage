@@ -171,16 +171,17 @@ public class A2AProcessLauncherTests
     }
 
     [Fact]
-    public void GetWorkspacePromptFragment_NamesWorkspaceAndPerMessageToken()
+    public void GetWorkspacePromptFragment_NamesWorkspaceAndDurableToken()
     {
         var prose = _launcher.GetWorkspacePromptFragment();
 
         prose.ShouldNotBeNullOrWhiteSpace();
         prose!.ShouldContain("$SPRING_WORKSPACE_PATH");
         prose.ShouldContain("$SPRING_MCP_URL");
-        // The per-message token contract is load-bearing for an always-on
-        // process — the prose must steer the engine to the message's token.
-        prose.ShouldContain("mcpToken");
+        // ADR-0066 §2: an always-on engine uses a durable, agent-scoped token
+        // for calls at any time (incl. timer-triggered), not a per-turn token.
+        prose.ShouldContain("$SPRING_MCP_TOKEN");
+        prose.ShouldContain("timer");
     }
 
     private static AgentLaunchContext MakeContext(string provider, string model) =>

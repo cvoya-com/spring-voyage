@@ -135,11 +135,22 @@ class Coordinator:
     and compiled graph; safe to rebuild from durable state at any time."""
 
     def __init__(
-        self, *, store: OrchestratorStore, mcp: mcp_tools.McpClient, graph
+        self,
+        *,
+        store: OrchestratorStore,
+        mcp: mcp_tools.McpClient,
+        graph,
+        token: str = "",
     ) -> None:
         self._store = store
         self._mcp = mcp
         self._graph = graph
+        # ADR-0066 §2: the durable, agent-scoped MCP token — a service identity
+        # for the always-on container. Seeded from IAgentContext.mcp_token at
+        # init and refreshed from each message's metadata; used for every sv.*
+        # call, including any NOT triggered by an inbound message (a timer or
+        # background step), which a per-turn token could not authenticate.
+        self._token = token
         self._role_addr: dict[str, str] = {}
         self._parent_unit_uuid: str | None = None
 
@@ -150,24 +161,30 @@ class Coordinator:
         message_id: str,
         sender_address: str,
         text: str,
-        token: str,
+        token: str = "",
     ) -> str:
-        """Route one inbound message. Returns a short diagnostic summary."""
+        """Route one inbound message. Returns a short diagnostic summary.
+
+        ``token`` refreshes the durable token if the platform rotated it; an
+        empty value keeps the one from init. All downstream calls — and any
+        out-of-turn action — authenticate with ``self._token``.
+        """
+        self._token = token or self._token
         ref = pipeline.extract_ref(text)
         if ref:
             entry = self._store.pop_correlation(ref)
             if entry is not None:
-                return await self._handle_correlated_reply(entry, text, token)
+                return await self._handle_correlated_reply(entry, text, self._token)
             logger.warning("Reply carried unknown correlation ref %s; ignoring", ref)
             return "ignored: unknown correlation ref"
 
         edition = self._store.get_edition(thread_id)
         if edition is None:
             return await self._handle_kickoff(
-                thread_id, message_id, sender_address, text, token
+                thread_id, message_id, sender_address, text, self._token
             )
         if edition.phase == PHASE_SIGNOFF:
-            return await self._handle_signoff(edition, text, token)
+            return await self._handle_signoff(edition, text, self._token)
         return "note acknowledged (edition in progress)"
 
     # ----- kickoff -----

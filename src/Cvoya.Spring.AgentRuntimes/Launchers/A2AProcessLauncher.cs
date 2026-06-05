@@ -140,7 +140,7 @@ public class A2AProcessLauncher(
     /// <inheritdoc />
     public string? GetWorkspacePromptFragment() =>
         """
-        Your runtime is an A2A-process orchestration engine — a long-running, always-on service that receives every inbound message as an event for as long as the unit lives. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns and restarts; keep your durable workflow state there. The platform's system prompt, when you want it, is at `$SPRING_WORKSPACE_PATH/.spring/system-prompt.md`. The platform MCP server is reached at `$SPRING_MCP_URL`; the bearer token for the current turn arrives in each inbound message's metadata (`mcpToken`), not in a fixed env var — use the message's token, not a cached one.
+        Your runtime is an A2A-process orchestration engine — a long-running, always-on service that receives every inbound message as an event for as long as the unit lives. Your per-agent workspace is mounted at `$SPRING_WORKSPACE_PATH` and persists across turns and restarts; keep your durable workflow state there. The platform's system prompt, when you want it, is at `$SPRING_WORKSPACE_PATH/.spring/system-prompt.md`. The platform MCP server is reached at `$SPRING_MCP_URL` with a durable, agent-scoped bearer token in `$SPRING_MCP_TOKEN` — a service identity valid for as long as your container runs, so you can call platform tools at any time, including timer- or background-triggered actions between messages, not only while handling a message. The same token is echoed in each inbound message's metadata (`mcpToken`) so you can refresh it if it rotates.
         """;
 
     /// <inheritdoc />

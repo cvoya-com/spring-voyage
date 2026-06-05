@@ -25,16 +25,19 @@ Add one runtime catalogue entry, `a2a-process` ([ADR-0038](0038-agent-runtime-an
 
 `a2a-process` agents are **persistent** ([hosting: Persistent]): the engine process is the run loop, so it must outlive any single turn. The existing persistent dispatch path ([A2AExecutionDispatcher.DispatchPersistentAsync]) already keeps the container warm and routes each subsequent message to the live endpoint — no dispatcher change is needed for "messages as events."
 
-### 2. Per-message MCP token for always-on processes (SDK)
+### 2. A durable, agent-scoped MCP token for always-on engines
 
-The dispatcher issues a fresh MCP session token **per turn**, delivers it in the A2A `message/send` metadata under `mcpToken`, and revokes it at turn end. For the CLI bridge this already works (the sidecar rewrites `.mcp.json` each spawn). The native-A2A SDK, however, read `SPRING_MCP_TOKEN` once at `initialize()` and cached it — so on a persistent process every turn after the first calls MCP with a revoked token (401). Worse, at persistent cold-start the dispatcher stamps `SPRING_MCP_TOKEN=""`, and `IAgentContext.load()` *required* it non-empty, so the process could fail to initialise at all.
+The dispatcher's default MCP token model is **per-turn**: a session is issued for a dispatched message, delivered in the `message/send` metadata under `mcpToken`, and revoked at turn end. That is correct for the CLI runtimes, which only ever run *while processing a message*. An always-on engine is different: it acts on its **own** schedule too — a timer fires, a background task wakes, a workflow step continues after the triggering turn already completed. Those actions have **no inbound message and therefore no per-turn token**, so a per-turn-only model would 401 every `sv.*` call made between messages. (A per-turn token also adds no real security for an always-on container, which persists and can cache anything — the container *is* the trust boundary.)
 
-The fix is in the SDK, not the dispatcher (which already delivers the token correctly):
+So the `a2a-process` runtime gets a different token class — a **durable, agent-scoped MCP session**, a *service identity* for the container:
 
-- `SPRING_MCP_TOKEN` becomes **optional** at `initialize()` — an always-on process gets its token per message, not at boot.
-- `Message` carries the **per-message `mcp_token`** (extracted from the inbound A2A metadata). Engine code calls `sv.*` tools with the *current turn's* token.
+- The dispatcher issues it once at **cold-start** (keyed by `agentId`, no per-turn message binding), delivers it via `SPRING_MCP_TOKEN`, and **does not revoke it per-turn**. It is revoked + re-issued when a fresh container is started for the agent. CLI runtimes keep the per-turn model unchanged — the dispatch path branches on the launcher kind.
+- The engine authenticates **every** `sv.*` call with this token — message-, timer-, or background-triggered.
+- The same token is echoed in each turn's `mcpToken` metadata so the engine can **refresh** it if a worker restart rotated it; `Message.mcp_token` carries it. `SPRING_MCP_TOKEN` is also made **optional** at `initialize()` so the SDK's required-env check never blocks an engine whose token the platform deferred.
 
-This is the token model the user anticipated for a long-lived runtime, delivered as a contained SDK change with no new platform token type.
+Per-turn delivery authority (`respond_to(message_id)`) still works: the engine passes the `message_id` as a tool argument (from the inbound envelope), it is not derived from the token.
+
+*Known v0.1 limitation:* MCP sessions are in-memory and process-local (the same locality as the per-turn sessions today), so a worker restart invalidates a running engine's durable token until the next cold-start re-issues it. A terminal stop leaves the in-memory session until worker restart — harmless, since the container is gone. A cross-host durable session store is a v0.2 concern.
 
 ### 3. Structured envelope on the inbound event (SDK)
 

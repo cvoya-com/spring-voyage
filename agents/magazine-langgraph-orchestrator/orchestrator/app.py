@@ -53,6 +53,10 @@ async def initialize(context: IAgentContext) -> None:
         store=OrchestratorStore(context.workspace_path),
         mcp=mcp_tools.McpClient(context.mcp_url),
         graph=build_slot_graph(checkpointer),
+        # ADR-0066 §2: seed the engine with its durable, agent-scoped MCP token
+        # (SPRING_MCP_TOKEN) so it can call sv.* tools at any time — including
+        # any action not driven by an inbound message.
+        token=context.mcp_token or "",
     )
     logger.info(
         "Magazine orchestrator initialized (workspace=%s)", context.workspace_path
@@ -64,10 +68,12 @@ async def on_message(message: Message):
     is a diagnostic trace only — all real output goes via sv.messaging."""
     assert _coordinator is not None, "initialize() must run before on_message"
 
-    # ADR-0066 §2: authenticate with THIS turn's MCP token, not a cached one.
+    # ADR-0066 §2: the engine authenticates with its durable, agent-scoped token
+    # (seeded at init); refresh it from this message's metadata if the platform
+    # rotated it. The coordinator keeps the token for out-of-turn calls too.
     token = message.mcp_token or (_context.mcp_token if _context else "")
     if not token:
-        yield Response(error="No MCP token on this turn; cannot reach platform tools.")
+        yield Response(error="No MCP token available; cannot reach platform tools.")
         return
 
     envelope = message.envelope
