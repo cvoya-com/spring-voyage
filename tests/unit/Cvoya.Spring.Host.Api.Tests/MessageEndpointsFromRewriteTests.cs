@@ -62,7 +62,7 @@ public class MessageEndpointsFromRewriteTests : IClassFixture<CustomWebApplicati
         var request = new SendMessageRequest(
             new AddressDto("agent", AgentImplicitFromId.ToString("N")),
             "Domain",
-            Guid.NewGuid().ToString(),
+            null,
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
@@ -87,7 +87,7 @@ public class MessageEndpointsFromRewriteTests : IClassFixture<CustomWebApplicati
         var request = new SendMessageRequest(
             new AddressDto("agent", AgentExplicitFromId.ToString("N")),
             "Domain",
-            Guid.NewGuid().ToString(),
+            null,
             JsonSerializer.SerializeToElement(new { Text = "hi" }),
             From: explicitHumanId);
 
@@ -151,7 +151,7 @@ public class MessageEndpointsFromRewriteTests : IClassFixture<CustomWebApplicati
         var request = new SendMessageRequest(
             new AddressDto("agent", AgentAuditFromId.ToString("N")),
             "Domain",
-            Guid.NewGuid().ToString(),
+            null,
             JsonSerializer.SerializeToElement(new { Text = "audit-me" }));
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);

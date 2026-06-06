@@ -412,20 +412,6 @@ public class SlackOutboundDeliveryWireUpIntegrationTests
 
         public Task<ThreadRegistryEntry?> ResolveAsync(string threadId, CancellationToken cancellationToken = default)
             => Task.FromResult<ThreadRegistryEntry?>(null);
-
-        public Task<string> EnsureThreadAsync(
-            string threadId, IEnumerable<Address> participants, CancellationToken cancellationToken = default)
-        {
-            var key = string.Join('|', participants
-                .Select(a => $"{a.Scheme}:{a.Id:N}")
-                .OrderBy(s => s, StringComparer.Ordinal));
-            if (!_byKey.TryGetValue(key, out var id))
-            {
-                id = string.IsNullOrWhiteSpace(threadId) ? Guid.NewGuid().ToString("N") : threadId;
-                _byKey[key] = id;
-            }
-            return Task.FromResult(id);
-        }
     }
 
     /// <summary>
