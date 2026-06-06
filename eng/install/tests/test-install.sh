@@ -367,7 +367,9 @@ assert_file_mode  "${ENV_FILE_1}" "600" "spring.env mode is 0600"
 assert_contains   "${ENV_FILE_1}" "^SPRING_PLATFORM_IMAGE=${PLATFORM_IMAGE//\//\\/}$" "spring.env pins SPRING_PLATFORM_IMAGE"
 assert_contains   "${ENV_FILE_1}" "^SPRING_IMAGE_TAG=${FIXTURE_VERSION}$" "spring.env pins SPRING_IMAGE_TAG"
 assert_contains   "${ENV_FILE_1}" "^DEPLOY_HOSTNAME=localhost$" "DEPLOY_HOSTNAME=localhost (default)"
-assert_contains   "${ENV_FILE_1}" "^GitHub__OAuth__RedirectUri=https://localhost/" "OAuth redirect URI derived"
+# localhost installs are http (DEPLOY_SCHEME=http; no TLS on loopback) — the
+# https expectation was stale since #2951 made the scheme hostname-derived.
+assert_contains   "${ENV_FILE_1}" "^GitHub__OAuth__RedirectUri=http://localhost/" "OAuth redirect URI derived"
 assert_contains   "${ENV_FILE_1}" "^Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath=${INSTALL_ROOT_1//\//\\/}/current/dapr/components/delegated-spring-voyage-agent$" "Dapr components path absolute"
 assert_contains   "${ENV_FILE_1}" "^SPRING_DISPATCHER_BIN=${INSTALL_ROOT_1//\//\\/}/releases/${FIXTURE_VERSION}/dispatcher/" "SPRING_DISPATCHER_BIN points at release dir"
 
@@ -638,6 +640,14 @@ fi
 WRAPPER_W="${HOME_DIR_W}/.local/bin/voyage"
 assert_path_exists "${WRAPPER_W}" "wrapper installed at ~/.local/bin/voyage"
 
+# The installer points the bundled `spring` CLI at this deployment's API by
+# writing ~/.spring/config.json — otherwise the CLI falls back to a dead
+# localhost:5000 default (the first real-user "connection refused"). Default
+# ports → no port suffix in the endpoint.
+CLI_CONFIG_W="${HOME_DIR_W}/.spring/config.json"
+assert_path_exists "${CLI_CONFIG_W}" "installer wrote ~/.spring/config.json for the CLI"
+assert_contains "${CLI_CONFIG_W}" '"Endpoint": "http://localhost"' "CLI config endpoint points at the deployment (default ports)"
+
 # version: prints the fixture version + platform image. Run with
 # SPRING_VOYAGE_HOME pointing at the test install so the wrapper finds
 # the right manifest.json without depending on the real $HOME.
@@ -707,6 +717,9 @@ else
   bad "status missing 'running (PID $$)' line"
   cat "${TMP_BASE}/wrapper-status-up.out" >&2
 fi
+# status surfaces the API endpoint the CLI talks to, with the override hint.
+assert_contains "${TMP_BASE}/wrapper-status-up.out" "API endpoint" "status shows the API endpoint section"
+assert_contains "${TMP_BASE}/wrapper-status-up.out" "SPRING_API_URL" "status shows the SPRING_API_URL override hint"
 rm -f "${HOME_DIR_W}/.spring-voyage/host/spring-dispatcher.pid"
 
 # logs dispatcher → tails the dispatcher log file. Stub `tail` via a
@@ -852,6 +865,21 @@ fi
 ENV_FILE_14="${HOME_DIR_14}/.spring-voyage/spring.env"
 assert_contains "${ENV_FILE_14}" "^CADDY_HTTP_PORT=18080$"  "spring.env pins preset CADDY_HTTP_PORT"
 assert_contains "${ENV_FILE_14}" "^CADDY_HTTPS_PORT=18443$" "spring.env pins preset CADDY_HTTPS_PORT"
+
+# The CLI endpoint must carry the remapped port, not a bare http://localhost —
+# this is exactly the first real-user failure (Caddy on :8081, CLI on :5000).
+CLI_CONFIG_14="${HOME_DIR_14}/.spring/config.json"
+assert_contains "${CLI_CONFIG_14}" '"Endpoint": "http://localhost:18080"' "CLI config endpoint carries the remapped Caddy port"
+
+# And `voyage status` must print the same ported URL, not "http://localhost".
+if SPRING_VOYAGE_HOME="${HOME_DIR_14}/.spring-voyage" \
+   bash "${HOME_DIR_14}/.local/bin/voyage" status >"${TMP_BASE}/run14-status.out" 2>&1; then
+  ok "voyage status (remapped ports) exit 0"
+else
+  bad "voyage status (remapped ports) exited non-zero"
+  cat "${TMP_BASE}/run14-status.out" >&2
+fi
+assert_contains "${TMP_BASE}/run14-status.out" "http://localhost:18080" "status prints the remapped Caddy port in the URL"
 
 # ===========================================================================
 # Case 15: already-lowered floor leaves default 80/443 untouched

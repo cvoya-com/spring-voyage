@@ -149,7 +149,7 @@ cmd_version() {
 cmd_status() {
   require_bundle
 
-  local v image deploy_hostname web_url
+  local v image deploy_scheme deploy_hostname caddy_http_port caddy_https_port authority web_url
   v="$(manifest_field version)"
   image="$(manifest_field platform_image)"
 
@@ -192,16 +192,42 @@ cmd_status() {
   info "log: ${DISPATCHER_LOG_FILE}"
 
   header "Web URL"
+  deploy_scheme="$(spring_env_field DEPLOY_SCHEME)"
   deploy_hostname="$(spring_env_field DEPLOY_HOSTNAME)"
-  if [[ -z "${deploy_hostname}" ]]; then
-    deploy_hostname="localhost"
+  [[ -z "${deploy_hostname}" ]] && deploy_hostname="localhost"
+  if [[ -z "${deploy_scheme}" ]]; then
+    # Mirror install.sh: loopback hosts serve http, everything else https.
+    case "${deploy_hostname}" in
+      localhost | *.localhost | 127.0.0.1 | ::1) deploy_scheme="http" ;;
+      *) deploy_scheme="https" ;;
+    esac
   fi
-  if [[ "${deploy_hostname}" == "localhost" ]]; then
-    web_url="http://localhost"
+  # Caddy publishes the API/portal on a host port the installer may have remapped
+  # off 80/443 (rootless Podman can't bind privileged ports). Include it in the
+  # URL so the printed address actually resolves — a bare "http://localhost"
+  # silently means port 80, which a remapped install doesn't serve.
+  if [[ "${deploy_scheme}" == "https" ]]; then
+    caddy_https_port="$(spring_env_field CADDY_HTTPS_PORT)"
+    [[ -z "${caddy_https_port}" ]] && caddy_https_port="443"
+    if [[ "${caddy_https_port}" == "443" ]]; then
+      authority="${deploy_hostname}"
+    else
+      authority="${deploy_hostname}:${caddy_https_port}"
+    fi
   else
-    web_url="https://${deploy_hostname}"
+    caddy_http_port="$(spring_env_field CADDY_HTTP_PORT)"
+    [[ -z "${caddy_http_port}" ]] && caddy_http_port="80"
+    if [[ "${caddy_http_port}" == "80" ]]; then
+      authority="${deploy_hostname}"
+    else
+      authority="${deploy_hostname}:${caddy_http_port}"
+    fi
   fi
+  web_url="${deploy_scheme}://${authority}"
   info "${web_url}"
+
+  header "API endpoint"
+  info "${web_url}   (spring CLI; override with SPRING_API_URL)"
 
   header "Logs"
   info "containers:  podman logs spring-api  (also: spring-web, spring-worker, …)"

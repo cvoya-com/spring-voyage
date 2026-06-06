@@ -1009,6 +1009,27 @@ fi
 # the scheme Caddy serves and the OAuth callback registered on the GitHub App.
 WEB_URL="${DEPLOY_SCHEME}://${REDIRECT_AUTHORITY}"
 
+# Point the bundled `spring` CLI at this deployment's API. Without this the CLI
+# resolves its endpoint to a built-in http://localhost:5000 dev default that no
+# container install exposes: Caddy fronts the API on the resolved host port
+# (e.g. http://localhost:8081 after a privileged-port remap), so the operator's
+# very first `spring …` command would fail with "Connection refused" — the first
+# real-user report. The CLI reads ~/.spring/config.json (CliConfig.Endpoint); we
+# write it only when absent so a re-install never clobbers an existing auth token
+# or a hand-set endpoint. Reconciling a *changed* host port on re-install: #3091.
+SPRING_CLI_CONFIG_DIR="${HOME}/.spring"
+SPRING_CLI_CONFIG_FILE="${SPRING_CLI_CONFIG_DIR}/config.json"
+CLI_ENDPOINT_CONFIGURED=0
+CLI_CONFIG_PREEXISTING=0
+if [[ -e "${SPRING_CLI_CONFIG_FILE}" ]]; then
+  CLI_CONFIG_PREEXISTING=1
+elif mkdir -p "${SPRING_CLI_CONFIG_DIR}" 2>/dev/null \
+  && printf '{\n  "Endpoint": "%s"\n}\n' "${WEB_URL}" > "${SPRING_CLI_CONFIG_FILE}" 2>/dev/null; then
+  # May hold a bearer token after `spring auth token create`; lock it down now.
+  chmod 600 "${SPRING_CLI_CONFIG_FILE}" 2>/dev/null || true
+  CLI_ENDPOINT_CONFIGURED=1
+fi
+
 cat <<EOF
 
   Install root:        ${INSTALL_ROOT}
@@ -1019,6 +1040,7 @@ cat <<EOF
   Logs (containers):   podman logs spring-api (and friends)
   Logs (dispatcher):   ${INSTALL_ROOT}/host/spring-dispatcher.log
   Web URL:             ${WEB_URL}
+  API endpoint:        ${WEB_URL}   (spring CLI; override with SPRING_API_URL)
 
   Day-2 commands:
     voyage status               # install version, container/dispatcher health, web URL
@@ -1031,6 +1053,14 @@ cat <<EOF
     voyage uninstall --purge    # factory reset
 
 EOF
+
+if [[ "$CLI_ENDPOINT_CONFIGURED" -eq 1 ]]; then
+  info "Pointed the spring CLI at ${WEB_URL} (wrote ${SPRING_CLI_CONFIG_FILE})."
+elif [[ "$CLI_CONFIG_PREEXISTING" -eq 1 ]]; then
+  warn "Left existing ${SPRING_CLI_CONFIG_FILE} untouched. If \`spring\` can't reach the API: export SPRING_API_URL=${WEB_URL}"
+else
+  warn "Could not write ${SPRING_CLI_CONFIG_FILE}. Point the CLI at the API manually: export SPRING_API_URL=${WEB_URL}"
+fi
 
 if [[ "$PATH_WARNING_NEEDED" -eq 1 ]]; then
   warn "Don't forget to add ${BIN_DIR} to your PATH (see the export line above)."
