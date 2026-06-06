@@ -92,9 +92,32 @@ def test_correlation_put_pop_is_one_shot(tmp_path):
         "ed::slot-1::draft", edition_id="ed", slot_id="slot-1", stage="draft"
     )
     entry = store.pop_correlation("ed::slot-1::draft")
-    assert entry == {"edition_id": "ed", "slot_id": "slot-1", "stage": "draft"}
+    assert entry == {
+        "edition_id": "ed",
+        "slot_id": "slot-1",
+        "stage": "draft",
+        "role": "",
+        "attempt": 1,
+    }
     # Second pop returns None — refs are consumed once.
     assert store.pop_correlation("ed::slot-1::draft") is None
+
+
+def test_correlation_carries_role_and_attempt(tmp_path):
+    # #3088: role + attempt let the engine re-delegate the same step on an
+    # unparseable reply, bounded by a retry cutoff.
+    store = _store(tmp_path)
+    store.put_correlation(
+        "r",
+        edition_id="ed",
+        slot_id="slot-1",
+        stage="draft",
+        role="staff-writer",
+        attempt=2,
+    )
+    entry = store.pop_correlation("r")
+    assert entry["role"] == "staff-writer"
+    assert entry["attempt"] == 2
 
 
 def test_correlation_survives_reload(tmp_path):
@@ -111,15 +134,17 @@ def test_correlation_matches_across_guid_format(tmp_path):
     dashed = "685661b4-04f8-4cdc-b986-3c7a36e689b9"
     no_dash = "685661b404f84cdcb9863c7a36e689b9"
     store.put_correlation(dashed, edition_id="ed", slot_id="slot-1", stage="draft")
-    # Reply arrives with the no-dash form — must still resolve.
+    # Reply arrives with the no-dash form — must still resolve (key matches on the
+    # id's identity, not its textual form).
     entry = store.pop_correlation(no_dash)
-    assert entry == {"edition_id": "ed", "slot_id": "slot-1", "stage": "draft"}
-    # And the reverse direction (stored no-dash, popped dashed).
+    assert (
+        entry is not None
+        and entry["edition_id"] == "ed"
+        and entry["slot_id"] == "slot-1"
+    )
+    # And the reverse direction (stored no-dash, popped dashed/upper).
     store.put_correlation(
         no_dash, edition_id="ed2", slot_id="slot-2", stage="fact-check"
     )
-    assert store.pop_correlation(dashed.upper()) == {
-        "edition_id": "ed2",
-        "slot_id": "slot-2",
-        "stage": "fact-check",
-    }
+    popped = store.pop_correlation(dashed.upper())
+    assert popped is not None and popped["edition_id"] == "ed2"

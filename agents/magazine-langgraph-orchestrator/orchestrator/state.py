@@ -43,10 +43,12 @@ def _canonical_ref(ref: str) -> str:
 PHASE_DRAFTING = "drafting"  # one or more slots still moving through the pipeline
 PHASE_ASSEMBLING = "assembling"  # all slots packaged; production is assembling
 PHASE_SIGNOFF = "signoff"  # assembled edition is with the director for sign-off
-PHASE_PUBLISHED = "published"  # released to production to deliver/publish
+PHASE_PUBLISHING = "publishing"  # approved; production is producing the final cut
+PHASE_PUBLISHED = "published"  # final edition delivered to the reader (#3088)
 PHASE_CANCELLED = "cancelled"  # cancelled by the director (ADR-0066 §6 Option B)
 
-# Phases in which an edition is finished and no longer running.
+# Phases in which an edition is finished and no longer running. ``publishing`` is
+# NOT terminal — the engine is still awaiting the production editor's final cut.
 TERMINAL_PHASES = frozenset({PHASE_PUBLISHED, PHASE_CANCELLED})
 
 
@@ -161,13 +163,25 @@ class OrchestratorStore:
         return json.loads(self._correlations_path.read_text(encoding="utf-8"))
 
     def put_correlation(
-        self, ref: str, *, edition_id: str, slot_id: str, stage: str
+        self,
+        ref: str,
+        *,
+        edition_id: str,
+        slot_id: str,
+        stage: str,
+        role: str = "",
+        attempt: int = 1,
     ) -> None:
+        # ``role`` + ``attempt`` let the engine re-delegate the same step to the
+        # same specialist when a reply can't be parsed, bounded by a retry cutoff
+        # (#3088). Older entries without them read back via dict.get defaults.
         correlations = self._load_correlations()
         correlations[_canonical_ref(ref)] = {
             "edition_id": edition_id,
             "slot_id": slot_id,
             "stage": stage,
+            "role": role,
+            "attempt": attempt,
         }
         _atomic_write_json(self._correlations_path, correlations)
 

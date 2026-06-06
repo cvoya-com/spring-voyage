@@ -34,6 +34,7 @@ from spring_voyage_agent_sdk import (
 from orchestrator import mcp as mcp_tools
 from orchestrator.coordinator import Coordinator
 from orchestrator.graph import build_slot_graph, make_sqlite_checkpointer
+from orchestrator.reply import body_from_payload
 from orchestrator.state import OrchestratorStore
 from orchestrator.tools import DEFAULT_TOOLS_PORT, TOOLS_MCP_PATH, build_tool_server
 
@@ -52,23 +53,16 @@ def _inbound_body(message: Message) -> str:
     """The sender's actual message body — the structured envelope payload
     (ADR-0066 §3), not the full rendered envelope prose ``message.text``.
 
-    The engine forwards a specialist's reply as the next stage's "current
-    piece"; it must carry **clean copy**, not the ``You received a message…``
-    envelope boilerplate that ``message.text`` wraps around the payload. Threading
-    the prose made every hop accrete a layer of envelope text and buried the
-    article until specialists could no longer find it (#3088). Falls back to the
-    concatenated text parts for a text-only inbound (a local harness) that has no
-    structured payload."""
+    The engine forwards a specialist's reply as the next stage's "current piece"
+    and parses it as the structured reply, so it must carry the real body — clean
+    copy or the ``{"status","artifact"}`` envelope — not the ``You received a
+    message…`` boilerplate that ``message.text`` wraps around the payload (#3088).
+    The extraction (content/text wrapper vs. a parsed structured object vs. the
+    rendered-prose fallback) lives in :func:`orchestrator.reply.body_from_payload`
+    so it is unit-testable without the SDK."""
     envelope = message.envelope
     payload = envelope.payload if envelope else None
-    if isinstance(payload, str) and payload.strip():
-        return payload
-    if isinstance(payload, dict):
-        for key in ("content", "text"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value
-    return message.text
+    return body_from_payload(payload, message.text)
 
 
 def _tools_port() -> int:
@@ -144,12 +138,24 @@ async def initialize(context: IAgentContext) -> None:
         # pipeline is running (#3086 finding 2).
         prompt = (
             f"Message from {sender_address}:\n\n{text}\n\n"
-            "Manage the edition with your orchestration tools as needed, then "
-            "ALWAYS end with a short natural-language reply for the sender — "
-            "that reply text is delivered to them automatically, so never reply "
-            "with empty text and do not call any messaging tool to reply. If a "
-            "tool reports an error, do not claim the pipeline is running; tell "
-            "the sender plainly what failed and what would unblock it."
+            "You manage the magazine's editions through your orchestration tools. "
+            "Work out what this message means and act on it — it will not always "
+            "be a clean approval:\n"
+            "- The director approving an edition at sign-off → approve_edition.\n"
+            "- The director, OR a reader after publication, asking for changes or "
+            "withholding approval → revise_edition with their notes, so the "
+            "edition is re-opened and reworked; do not treat a non-approval as an "
+            "approval.\n"
+            "- A reader accepting the published edition → thank them; no tool call.\n"
+            "- The engine reporting that the pipeline stopped or a specialist "
+            "could not finish → do not pretend it is running; decide whether to "
+            "revise, cancel, or escalate, and say plainly what failed and what "
+            "would unblock it.\n"
+            "- Anything else (a status question, a new commission) → use "
+            "get_status / active_editions / start_edition as fits.\n"
+            "ALWAYS end with a short natural-language reply for the sender — that "
+            "reply is delivered to them automatically, so never reply with empty "
+            "text and do not call any messaging tool to reply."
         )
         return await llm.complete(
             prompt,

@@ -8,6 +8,8 @@ without Claude), and the control-plane routing (unmatched → the injected Claud
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 pytest.importorskip("langgraph")
@@ -15,22 +17,40 @@ pytest.importorskip("langgraph")
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 
 from orchestrator import mcp as mcp_tools  # noqa: E402
-from orchestrator.coordinator import Coordinator, DeliveryError  # noqa: E402
+from orchestrator.coordinator import (  # noqa: E402
+    MAX_REPLY_ATTEMPTS,
+    Coordinator,
+    DeliveryError,
+)
 from orchestrator.graph import build_slot_graph  # noqa: E402
 from orchestrator.state import (  # noqa: E402
     PHASE_CANCELLED,
-    PHASE_PUBLISHED,
+    PHASE_PUBLISHING,
     PHASE_SIGNOFF,
     OrchestratorStore,
 )
 
 _MEMBERS = [
-    {"address": "agent:staffwriter", "roles": ["staff-writer"]},
-    {"address": "agent:factchecker", "roles": ["fact-checker"]},
-    {"address": "agent:copyeditor", "roles": ["copy-editor"]},
-    {"address": "agent:audienceeditor", "roles": ["audience-editor"]},
-    {"address": "agent:productioneditor", "roles": ["production-editor"]},
+    {"address": "agent:staffwriter", "kind": "agent", "roles": ["staff-writer"]},
+    {"address": "agent:factchecker", "kind": "agent", "roles": ["fact-checker"]},
+    {"address": "agent:copyeditor", "kind": "agent", "roles": ["copy-editor"]},
+    {"address": "agent:audienceeditor", "kind": "agent", "roles": ["audience-editor"]},
+    {
+        "address": "agent:productioneditor",
+        "kind": "agent",
+        "roles": ["production-editor"],
+    },
+    {"address": "human:reader", "kind": "human", "roles": ["approver"]},
 ]
+
+
+def _ok(artifact: str = "artifact") -> str:
+    """The structured 'ok' envelope a specialist must return (#3088)."""
+    return json.dumps({"status": "ok", "artifact": artifact})
+
+
+def _blocked(reason: str) -> str:
+    return json.dumps({"status": "blocked", "reason": reason})
 
 
 class FakeMcp:
@@ -72,10 +92,12 @@ def _addr(send):
     return send[0][0]
 
 
-async def _reply(coord, in_reply_to, *, text="artifact"):
-    """A specialist reply naming the brief id it answers."""
+async def _reply(coord, in_reply_to, *, text=None, artifact="artifact"):
+    """A specialist reply naming the brief id it answers. Wraps `artifact` in the
+    required structured 'ok' envelope (#3088) unless raw `text` is supplied."""
+    body = text if text is not None else _ok(artifact)
     return await coord.handle(
-        message_id="m", sender_address="agent:peer", text=text, in_reply_to=in_reply_to
+        message_id="m", sender_address="agent:peer", text=body, in_reply_to=in_reply_to
     )
 
 
@@ -174,7 +196,7 @@ async def test_data_plane_drives_to_signoff_autonomously(tmp_path):
     # Production returns the assembled edition → sign-off goes to the DIRECTOR
     # via a NEW message to report_to (Option B: the engine has no director
     # message to respond_to).
-    await _reply(coord, assemble_id, text="THE ASSEMBLED EDITION")
+    await _reply(coord, assemble_id, artifact="THE ASSEMBLED EDITION")
     assert _addr(mcp.last_send()) == "unit:director"
     assert "sign-off" in mcp.last_send()[1].lower()
     assert coord.get_status(eid)["phase"] == PHASE_SIGNOFF
@@ -206,7 +228,9 @@ async def _drive_to_signoff(coord):
         nxt = f"msg-{len(coord._mcp.sends)}"
     await _reply(coord, nxt)  # package reply → assemble to production
     assemble_id = f"msg-{len(coord._mcp.sends)}"
-    await _reply(coord, assemble_id, text="ASSEMBLED")  # production's assembled edition
+    await _reply(
+        coord, assemble_id, artifact="ASSEMBLED"
+    )  # production's assembled edition
     return eid
 
 
@@ -216,10 +240,20 @@ async def test_approve_publishes(tmp_path):
     eid = await _drive_to_signoff(coord)
     before = len(coord._mcp.sends)
     out = await coord.approve_edition(eid)
-    assert out["ok"] and out["phase"] == PHASE_PUBLISHED
+    # Publish is now a correlated step: the producer returns the final cut, then
+    # the engine delivers it to the reader (#3088).
+    assert out["ok"] and out["phase"] == PHASE_PUBLISHING
     assert len(coord._mcp.sends) == before + 1
     assert _addr(coord._mcp.last_send()) == "agent:productioneditor"
     assert "Publish" in coord._mcp.last_send()[1]
+
+    # The producer returns the final edition → the engine delivers it to the
+    # human reader (so the reader's response re-enters the control plane).
+    publish_id = f"msg-{len(coord._mcp.sends)}"
+    await _reply(coord, publish_id, artifact="THE FINAL EDITION")
+    assert _addr(coord._mcp.last_send()) == "human:reader"
+    assert "THE FINAL EDITION" in coord._mcp.last_send()[1]
+    assert coord.get_status(eid)["phase"] == "published"
 
 
 @pytest.mark.asyncio
@@ -272,7 +306,10 @@ async def test_matched_reply_bypasses_invoke(tmp_path):
     coord = _coord(tmp_path, invoke=fake_invoke)
     await coord.start_edition(theme="T", slots=["x"], report_to="unit:director")
     await coord.handle(
-        message_id="m", sender_address="agent:peer", text="draft", in_reply_to="msg-1"
+        message_id="m",
+        sender_address="agent:peer",
+        text=_ok("draft"),
+        in_reply_to="msg-1",
     )
     assert called is False  # the data plane never touches Claude
 
@@ -324,7 +361,7 @@ async def test_autonomous_delivery_failure_funnels_to_control_plane(tmp_path):
     assert _addr(coord._mcp.last_send()) == "agent:staffwriter"  # draft delivered
 
     # The writer replies → engine advances to fact-check, which cannot deliver.
-    out = await _reply(coord, "msg-1", text="draft")
+    out = await _reply(coord, "msg-1", artifact="draft")
 
     # The error was funnelled to the control-plane LLM, naming the unfilled role,
     assert invoked, "control plane was not invoked on a data-plane failure"
@@ -332,6 +369,59 @@ async def test_autonomous_delivery_failure_funnels_to_control_plane(tmp_path):
     # ...and the Managing Editor's reply was carried to the director.
     assert coord._mcp.last_send()[0] == ["unit:director"]
     assert "director" in (coord._mcp.last_send()[2] or "").lower()
+
+
+# ----- off-golden-path replies (the structured-reply gate, #3088) ---------
+
+
+@pytest.mark.asyncio
+async def test_blocked_reply_funnels_to_control_plane(tmp_path):
+    invoked: list[str] = []
+
+    async def fake_invoke(text, *, sender_address):
+        invoked.append(text)
+        return "I told the director the writer is blocked."
+
+    coord = _coord(tmp_path, invoke=fake_invoke)
+    await coord.start_edition(theme="T", slots=["x"], report_to="unit:director")
+    before = len(coord._mcp.sends)
+
+    # The writer cannot proceed and says so in the structured form — the engine
+    # must NOT fold it as the artifact and advance; it funnels to the LLM.
+    out = await _reply(coord, "msg-1", text=_blocked("the source pack never arrived"))
+    assert invoked, "a blocked reply must reach the control plane"
+    assert "the source pack never arrived" in invoked[0]
+    assert coord._mcp.last_send()[0] == ["unit:director"]  # ME's reply to director
+    # The graph did not advance to fact-check (only the funnel send happened).
+    assert _addr(coord._mcp.sends[before]) == "unit:director"
+    assert out
+
+
+@pytest.mark.asyncio
+async def test_unparseable_reply_retries_then_escalates(tmp_path):
+    invoked: list[str] = []
+
+    async def fake_invoke(text, *, sender_address):
+        invoked.append(text)
+        return "escalated to the director"
+
+    coord = _coord(tmp_path, invoke=fake_invoke)
+    await coord.start_edition(theme="T", slots=["x"], report_to="unit:director")
+    assert _addr(coord._mcp.last_send()) == "agent:staffwriter"  # msg-1 draft brief
+
+    # Each unparseable reply re-delegates to the SAME writer (attempts 1..N-1),
+    # without escalating — up to the cutoff.
+    for attempt in range(1, MAX_REPLY_ATTEMPTS):
+        await _reply(coord, f"msg-{attempt}", text="sorry, I can't do JSON")
+        assert not invoked, f"escalated too early at attempt {attempt}"
+        assert _addr(coord._mcp.last_send()) == "agent:staffwriter"
+        assert "retry" in (coord._mcp.last_send()[2] or "")
+
+    # The final unparseable reply hits the cutoff → funnel to the control plane.
+    out = await _reply(coord, f"msg-{MAX_REPLY_ATTEMPTS}", text="still not JSON")
+    assert invoked, "after the retry cutoff the failure must reach the control plane"
+    assert "draft" in invoked[0].lower()
+    assert coord._mcp.last_send()[0] == ["unit:director"]
     assert out  # a non-empty summary is returned for the specialist's turn
 
 

@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from orchestrator.reply import STRUCTURED_REPLY_CONTRACT
+
 # --- Per-slot pipeline stages --------------------------------------------
 
 DRAFT = "draft"
@@ -127,4 +129,4 @@ def build_brief(
         )
     else:
         body = f"{header}\n\n{ask}"
-    return Delegation(role=role, body=body, stage=stage)
+    return Delegation(role=role, body=body + STRUCTURED_REPLY_CONTRACT, stage=stage)
