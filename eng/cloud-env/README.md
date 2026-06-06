@@ -14,13 +14,15 @@ so the commands behave identically to a local checkout and to CI.
 | .NET SDK | 10.x (`global.json` pins `10.0.100`) | build + test the solution |
 | Node.js | 20 | portal + connector web workspaces (`package.json` requires `node>=20`) |
 | npm | 10+ | workspace install (`npm ci`) |
-| Dapr CLI | 1.14.1 + `dapr init --slim` | actor tests (CI installs it before `dotnet test`) |
+| Dapr CLI _(opt-in)_ | 1.14.1 + `dapr init --slim` | .NET actor tests only; off by default (binaries are GitHub release assets the Trusted network blocks) |
 | dotnet tools | Kiota `1.32.2`, `dotnet-ef` `10.0.8` | restored via `dotnet tool restore` |
 | ruff | latest | Python lint for `agents/` |
 
 **No Docker/Podman is required for build/test/lint.** The integration tests use
-in-memory EF (not Testcontainers), and the CI Test job runs no Postgres service —
-the only runtime dependency is Dapr, installed in slim (containerless) mode.
+in-memory EF (not Testcontainers), and the CI Test job runs no Postgres service.
+Dapr (the only runtime dependency, for the .NET actor tests) is **opt-in** — see
+[Options](#options) — because its binaries are GitHub release assets the Trusted
+network blocks; the default setup provisions build + lint + restores only.
 Running the full agent stack (host dispatcher + Podman + Postgres) is a different,
 much heavier setup and is intentionally **out of scope** for this environment.
 
@@ -29,7 +31,7 @@ much heavier setup and is intentionally **out of scope** for this environment.
 ### Name
 
 ```
-Spring Voyage (.NET 10 · Node 20 · Dapr)
+Spring Voyage (.NET 10 · Node 20)
 ```
 
 ### Network access
@@ -40,13 +42,16 @@ infrastructure that the Trusted allowlist is built for:
 - `api.nuget.org` — NuGet restore
 - `registry.npmjs.org` — `npm ci`
 - `pypi.org` — ruff
-- `github.com`, `raw.githubusercontent.com`, GitHub release CDN — nvm & Dapr
-  install scripts + Dapr binaries
+- `raw.githubusercontent.com` — the nvm install script (only if Node < 20)
 - `dot.net`, `builds.dotnet.microsoft.com` — .NET SDK install
 - `nodejs.org` — only if Node 20 is not already preinstalled
 
-If a download in the setup script is blocked, raise the level to **Full** —
-that is the only reason this environment would need it.
+**GitHub release assets are not reachable under Trusted.** A `curl` of
+`github.com/<org>/<repo>/releases/download/...` returns HTTP 403 (git operations
+use a separate proxy; arbitrary release-asset downloads do not). That is why Dapr
+— whose CLI/runtime binaries live there — is opt-in and needs **Full** (or
+**Custom** incl. the release-asset host) network. The default setup touches no
+release assets, so Trusted is sufficient for it.
 
 Git operations (clone, fetch, push) go through Anthropic's GitHub proxy and work
 **independently of this network level**.
@@ -76,15 +81,21 @@ one-liner above means edits to the script ship through normal PRs.)
   sessions (the script is skipped). It re-runs only when you change the setup
   script or network hosts, or after the cache's ~7-day expiry.
 - **Keep setup under ~5 minutes** or the snapshot won't build and setup re-runs
-  every session. `setup.sh` installs the four toolchains in parallel and skips the
+  every session. `setup.sh` installs the toolchains in parallel and skips the
   warm build for this reason.
 - **Files persist via the snapshot; processes do not.** Anything `setup.sh` writes
-  to disk (`~/.dotnet`, `~/.dapr`, restored packages) is captured. The home
+  to disk (`~/.dotnet`, restored packages) is captured. The home
   directory and other changes made *after* Claude Code launches are discarded at
   session end.
 
 ## Options
 
+- **`CLOUD_ENV_WITH_DAPR`** — off by default. Set it to also install Dapr 1.14.1
+  and run `dapr init --slim`, required only for the .NET **actor tests** in
+  `/test`. Dapr's binaries are GitHub release assets the Trusted network blocks
+  (403), so this also needs **Full** (or **Custom** incl. the release-asset host)
+  network access. Without it, `/build` and `/lint` work and `/test` runs every
+  non-actor test; the actor tests fail fast on the missing runtime.
 - **`CLOUD_ENV_WARM_BUILD`** — off by default. Set it (e.g. `CLOUD_ENV_WARM_BUILD=1`
   in the **Environment variables** field) to also run `dotnet build` (Release) in
   setup, so the first `/test` (`--no-build`) runs immediately. Expect this to push
