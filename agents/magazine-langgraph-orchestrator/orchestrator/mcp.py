@@ -99,16 +99,36 @@ async def get_self(mcp: McpClient, token: str) -> dict[str, Any]:
 async def list_members(
     mcp: McpClient, token: str, unit_uuid: str
 ) -> list[dict[str, Any]]:
-    """List a unit's members. Returns directory entries (each with `address`
-    and `roles`). The result shape may be a bare array or wrapped in a
-    `members` key — both are handled."""
+    """List a unit's members. Returns directory entries, each carrying `roles`
+    (a list) and a sendable `address`. The directory wire shape exposes the
+    address as separate `kind` + `uuid` fields rather than a pre-built string,
+    so we materialise the canonical `kind:uuid` address on each entry — role and
+    address resolution (and `resolve_role_address`) thread by it. The result
+    shape may be a bare array or wrapped in a `members` key — both are handled."""
     result = await mcp.call_tool_json(token, LIST_MEMBERS_TOOL, {"uuid": unit_uuid})
     if isinstance(result, list):
-        return [m for m in result if isinstance(m, dict)]
-    if isinstance(result, dict):
-        members = result.get("members") or result.get("entries") or []
-        return [m for m in members if isinstance(m, dict)]
-    return []
+        raw = result
+    elif isinstance(result, dict):
+        raw = result.get("members") or result.get("entries") or []
+    else:
+        raw = []
+    members = [m for m in raw if isinstance(m, dict)]
+    for member in members:
+        _ensure_member_address(member)
+    return members
+
+
+def _ensure_member_address(member: dict[str, Any]) -> None:
+    """Materialise a member's sendable `address` from the directory's `kind` +
+    `uuid` fields when the entry has no pre-built `address`. The canonical Spring
+    Voyage address is `kind:uuid` (no-dash 32-char hex), e.g.
+    `agent:e194bc95b7c748c3a3fc797dba6b598d`."""
+    if member.get("address"):
+        return
+    kind = member.get("kind")
+    uuid = member.get("uuid")
+    if isinstance(kind, str) and kind and isinstance(uuid, str) and uuid:
+        member["address"] = f"{kind}:{uuid}"
 
 
 def _created_message_id(ack: Any) -> str | None:
