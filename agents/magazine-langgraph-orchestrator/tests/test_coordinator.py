@@ -361,7 +361,7 @@ async def test_autonomous_delivery_failure_funnels_to_control_plane(tmp_path):
     assert _addr(coord._mcp.last_send()) == "agent:staffwriter"  # draft delivered
 
     # The writer replies → engine advances to fact-check, which cannot deliver.
-    out = await _reply(coord, "msg-1", artifact="draft")
+    await _reply(coord, "msg-1", artifact="draft")
 
     # The error was funnelled to the control-plane LLM, naming the unfilled role,
     assert invoked, "control plane was not invoked on a data-plane failure"
