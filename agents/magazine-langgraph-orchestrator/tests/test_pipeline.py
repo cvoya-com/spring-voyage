@@ -42,3 +42,18 @@ def test_build_brief_later_stage_carries_artifact_inline():
     assert d.role == "fact-checker"
     assert "Current piece:" in d.body
     assert "THE DRAFT TEXT" in d.body
+
+
+def test_build_brief_later_stage_demands_the_complete_piece_back():
+    # #3088: a stage receives only what the previous one returns, so every stage
+    # must hand back the whole evolving piece. A fact-checker that replied with
+    # findings alone once dropped the article and the rest of the line had
+    # nothing to work on; the brief now states the contract explicitly.
+    d = pipeline.build_brief(
+        stage="fact_check",
+        slot_title="City budget",
+        theme="Local",
+        artifact="THE DRAFT TEXT",
+    )
+    assert "complete updated piece" in d.body
+    assert "next stage" in d.body

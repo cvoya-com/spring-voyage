@@ -48,6 +48,29 @@ _context: IAgentContext | None = None
 _tool_server_task: asyncio.Task | None = None
 
 
+def _inbound_body(message: Message) -> str:
+    """The sender's actual message body — the structured envelope payload
+    (ADR-0066 §3), not the full rendered envelope prose ``message.text``.
+
+    The engine forwards a specialist's reply as the next stage's "current
+    piece"; it must carry **clean copy**, not the ``You received a message…``
+    envelope boilerplate that ``message.text`` wraps around the payload. Threading
+    the prose made every hop accrete a layer of envelope text and buried the
+    article until specialists could no longer find it (#3088). Falls back to the
+    concatenated text parts for a text-only inbound (a local harness) that has no
+    structured payload."""
+    envelope = message.envelope
+    payload = envelope.payload if envelope else None
+    if isinstance(payload, str) and payload.strip():
+        return payload
+    if isinstance(payload, dict):
+        for key in ("content", "text"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    return message.text
+
+
 def _tools_port() -> int:
     raw = os.environ.get("ORCHESTRATION_TOOLS_PORT")
     return int(raw) if raw and raw.isdigit() else DEFAULT_TOOLS_PORT
@@ -174,7 +197,7 @@ async def on_message(message: Message):
         summary = await _coordinator.handle(
             message_id=message_id,
             sender_address=sender_address,
-            text=message.text,
+            text=_inbound_body(message),
             in_reply_to=in_reply_to,
             token=token,
         )
