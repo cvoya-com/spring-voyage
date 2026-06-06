@@ -1009,24 +1009,19 @@ fi
 # the scheme Caddy serves and the OAuth callback registered on the GitHub App.
 WEB_URL="${DEPLOY_SCHEME}://${REDIRECT_AUTHORITY}"
 
-# Point the bundled `spring` CLI at this deployment's API. Without this the CLI
-# resolves its endpoint to a built-in http://localhost:5000 dev default that no
-# container install exposes: Caddy fronts the API on the resolved host port
-# (e.g. http://localhost:8081 after a privileged-port remap), so the operator's
-# very first `spring …` command would fail with "Connection refused" — the first
-# real-user report. The CLI reads ~/.spring/config.json (CliConfig.Endpoint); we
-# write it only when absent so a re-install never clobbers an existing auth token
-# or a hand-set endpoint. Reconciling a *changed* host port on re-install: #3091.
-SPRING_CLI_CONFIG_DIR="${HOME}/.spring"
-SPRING_CLI_CONFIG_FILE="${SPRING_CLI_CONFIG_DIR}/config.json"
+# Point the bundled `spring` CLI at this deployment's API. Otherwise the CLI
+# falls back to a built-in http://localhost:5000 dev default no container install
+# exposes — Caddy fronts the API on the resolved host port (e.g.
+# http://localhost:8081 after a privileged-port remap), so the operator's very
+# first `spring …` command fails with "Connection refused" (#3092). We delegate
+# the write to the freshly-installed CLI: `config set endpoint` merges into
+# ~/.spring/config.json, refreshing a changed host port on re-install (#3091)
+# while preserving any stored auth token — no fragile bash JSON surgery, and the
+# CLI locks the file down to 0600. Run-time resolution stays SPRING_API_URL >
+# config.json, so an operator override via the env var always wins.
+SPRING_CLI_CONFIG_FILE="${HOME}/.spring/config.json"
 CLI_ENDPOINT_CONFIGURED=0
-CLI_CONFIG_PREEXISTING=0
-if [[ -e "${SPRING_CLI_CONFIG_FILE}" ]]; then
-  CLI_CONFIG_PREEXISTING=1
-elif mkdir -p "${SPRING_CLI_CONFIG_DIR}" 2>/dev/null \
-  && printf '{\n  "Endpoint": "%s"\n}\n' "${WEB_URL}" > "${SPRING_CLI_CONFIG_FILE}" 2>/dev/null; then
-  # May hold a bearer token after `spring auth token create`; lock it down now.
-  chmod 600 "${SPRING_CLI_CONFIG_FILE}" 2>/dev/null || true
+if "${CLI_BIN}" config set endpoint "${WEB_URL}" >/dev/null 2>&1; then
   CLI_ENDPOINT_CONFIGURED=1
 fi
 
@@ -1055,11 +1050,9 @@ cat <<EOF
 EOF
 
 if [[ "$CLI_ENDPOINT_CONFIGURED" -eq 1 ]]; then
-  info "Pointed the spring CLI at ${WEB_URL} (wrote ${SPRING_CLI_CONFIG_FILE})."
-elif [[ "$CLI_CONFIG_PREEXISTING" -eq 1 ]]; then
-  warn "Left existing ${SPRING_CLI_CONFIG_FILE} untouched. If \`spring\` can't reach the API: export SPRING_API_URL=${WEB_URL}"
+  info "Pointed the spring CLI at ${WEB_URL} (${SPRING_CLI_CONFIG_FILE})."
 else
-  warn "Could not write ${SPRING_CLI_CONFIG_FILE}. Point the CLI at the API manually: export SPRING_API_URL=${WEB_URL}"
+  warn "Could not set the spring CLI endpoint automatically. Point it at the API by hand: spring config set endpoint ${WEB_URL}  (or export SPRING_API_URL=${WEB_URL})"
 fi
 
 if [[ "$PATH_WARNING_NEEDED" -eq 1 ]]; then

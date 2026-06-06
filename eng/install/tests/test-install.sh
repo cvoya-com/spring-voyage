@@ -641,12 +641,13 @@ WRAPPER_W="${HOME_DIR_W}/.local/bin/voyage"
 assert_path_exists "${WRAPPER_W}" "wrapper installed at ~/.local/bin/voyage"
 
 # The installer points the bundled `spring` CLI at this deployment's API by
-# writing ~/.spring/config.json — otherwise the CLI falls back to a dead
-# localhost:5000 default (the first real-user "connection refused"). Default
-# ports → no port suffix in the endpoint.
-CLI_CONFIG_W="${HOME_DIR_W}/.spring/config.json"
-assert_path_exists "${CLI_CONFIG_W}" "installer wrote ~/.spring/config.json for the CLI"
-assert_contains "${CLI_CONFIG_W}" '"Endpoint": "http://localhost"' "CLI config endpoint points at the deployment (default ports)"
+# delegating to `spring config set endpoint <web-url>` — the real CLI merges it
+# into ~/.spring/config.json (preserving any stored token). The fixture CLI is a
+# no-op stub that only records its invocation, so we assert the delegation here
+# and unit-test the merge itself in CliConfigTests. Default ports → no port
+# suffix in the endpoint.
+CLI_LOG_W="${HOME_DIR_W}/.spring-voyage/cli.log"
+assert_contains "${CLI_LOG_W}" "config set endpoint http://localhost$" "installer points the CLI at the deployment (default ports)"
 
 # version: prints the fixture version + platform image. Run with
 # SPRING_VOYAGE_HOME pointing at the test install so the wrapper finds
@@ -866,10 +867,10 @@ ENV_FILE_14="${HOME_DIR_14}/.spring-voyage/spring.env"
 assert_contains "${ENV_FILE_14}" "^CADDY_HTTP_PORT=18080$"  "spring.env pins preset CADDY_HTTP_PORT"
 assert_contains "${ENV_FILE_14}" "^CADDY_HTTPS_PORT=18443$" "spring.env pins preset CADDY_HTTPS_PORT"
 
-# The CLI endpoint must carry the remapped port, not a bare http://localhost —
+# The CLI must be pointed at the remapped port, not a bare http://localhost —
 # this is exactly the first real-user failure (Caddy on :8081, CLI on :5000).
-CLI_CONFIG_14="${HOME_DIR_14}/.spring/config.json"
-assert_contains "${CLI_CONFIG_14}" '"Endpoint": "http://localhost:18080"' "CLI config endpoint carries the remapped Caddy port"
+CLI_LOG_14="${HOME_DIR_14}/.spring-voyage/cli.log"
+assert_contains "${CLI_LOG_14}" "config set endpoint http://localhost:18080" "installer points the CLI at the remapped Caddy port"
 
 # And `voyage status` must print the same ported URL, not "http://localhost".
 if SPRING_VOYAGE_HOME="${HOME_DIR_14}/.spring-voyage" \
@@ -943,6 +944,58 @@ if [[ -n "$sug16" ]] && (( sug16 >= 1024 )); then
 else
   bad "suggested port not bindable (got '${sug16:-none}', want >= 1024)"
   cat "${TMP_BASE}/run16.out" >&2
+fi
+
+# ===========================================================================
+# Case 17: re-install with a changed Caddy port re-points the CLI (#3091)
+# ===========================================================================
+# The endpoint write is delegated to `spring config set endpoint`, which merges
+# (refresh endpoint, preserve token) rather than the old absent-only write — so a
+# re-install whose resolved Caddy host port changed must re-point the CLI at the
+# NEW port. Token preservation across that merge is unit-tested in CliConfigTests;
+# the fixture CLI here is a no-op stub that only records its invocation, so this
+# case asserts the installer-observable half: delegation with the updated URL on
+# re-install.
+hdr "Case 17 — re-install with a changed Caddy port re-points the CLI (#3091)"
+HOME_DIR_17="${TMP_BASE}/home-17"
+STUB_DIR_17="${TMP_BASE}/stub-17"
+mkdir -p "${HOME_DIR_17}"
+make_stub_path "${STUB_DIR_17}" "Linux" "x86_64"
+stub_ports "${STUB_DIR_17}"
+CLI_LOG_17="${HOME_DIR_17}/.spring-voyage/cli.log"
+
+# First install lands on CADDY_HTTP_PORT=18080.
+if SPRING_INSTALL_UNPRIV_PORT_START=1024 \
+   CADDY_HTTP_PORT=18080 CADDY_HTTPS_PORT=18443 \
+   SPRING_DISPATCHER_PORT=18190 Mcp__Port=18191 \
+   run_install_with_port_check "${HOME_DIR_17}" "${STUB_DIR_17}" --no-start \
+   >"${TMP_BASE}/run17a.out" 2>&1; then
+  ok "first install (CADDY_HTTP_PORT=18080) exit 0"
+else
+  bad "first install for re-point test failed"
+  cat "${TMP_BASE}/run17a.out" >&2
+fi
+assert_contains "${CLI_LOG_17}" "config set endpoint http://localhost:18080" "first install points the CLI at :18080"
+
+# Re-install (--force) where the resolved port moved to 18082. Clear the CLI log
+# first so the assertion can't pass on the first install's stale entry.
+: > "${CLI_LOG_17}"
+if SPRING_INSTALL_UNPRIV_PORT_START=1024 \
+   CADDY_HTTP_PORT=18082 CADDY_HTTPS_PORT=18443 \
+   SPRING_DISPATCHER_PORT=18190 Mcp__Port=18191 \
+   run_install_with_port_check "${HOME_DIR_17}" "${STUB_DIR_17}" --no-start --force \
+   >"${TMP_BASE}/run17b.out" 2>&1; then
+  ok "re-install (CADDY_HTTP_PORT=18082, --force) exit 0"
+else
+  bad "re-install for re-point test failed"
+  cat "${TMP_BASE}/run17b.out" >&2
+fi
+assert_contains "${CLI_LOG_17}" "config set endpoint http://localhost:18082" "re-install re-points the CLI at the changed port :18082"
+if grep -q "config set endpoint http://localhost:18080" "${CLI_LOG_17}" 2>/dev/null; then
+  bad "re-install CLI log still shows the stale :18080 endpoint"
+  cat "${CLI_LOG_17}" >&2
+else
+  ok "re-install does not re-point at the stale :18080 endpoint"
 fi
 
 # ===========================================================================
