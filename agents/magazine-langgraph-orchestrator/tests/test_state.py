@@ -71,3 +71,25 @@ def test_correlation_survives_reload(tmp_path):
     store = _store(tmp_path)
     store.put_correlation("r1", edition_id="ed", slot_id="slot-1", stage="draft")
     assert OrchestratorStore(str(tmp_path)).pop_correlation("r1") is not None
+
+
+def test_correlation_matches_across_guid_format(tmp_path):
+    # #3088: a `send` ack and an inbound reply's `in_reply_to` may format the
+    # same message-id Guid differently (dashed vs no-dash). Correlation keys on
+    # the id's identity, not its textual form, so the pipeline still advances.
+    store = _store(tmp_path)
+    dashed = "685661b4-04f8-4cdc-b986-3c7a36e689b9"
+    no_dash = "685661b404f84cdcb9863c7a36e689b9"
+    store.put_correlation(dashed, edition_id="ed", slot_id="slot-1", stage="draft")
+    # Reply arrives with the no-dash form — must still resolve.
+    entry = store.pop_correlation(no_dash)
+    assert entry == {"edition_id": "ed", "slot_id": "slot-1", "stage": "draft"}
+    # And the reverse direction (stored no-dash, popped dashed).
+    store.put_correlation(
+        no_dash, edition_id="ed2", slot_id="slot-2", stage="fact-check"
+    )
+    assert store.pop_correlation(dashed.upper()) == {
+        "edition_id": "ed2",
+        "slot_id": "slot-2",
+        "stage": "fact-check",
+    }

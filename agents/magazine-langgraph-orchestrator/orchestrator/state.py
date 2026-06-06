@@ -20,8 +20,24 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+
+def _canonical_ref(ref: str) -> str:
+    """Canonicalize a correlation ref (a message-id GUID) to dashless lowercase
+    hex, so correlation keys on the message's *identity* rather than its textual
+    format. ``put_correlation`` keys by the id a ``send`` ack returns; later
+    ``pop_correlation`` keys by an inbound reply's ``in_reply_to``. Those two
+    surfaces may format the same Guid differently (dashed vs no-dash) — keying on
+    the raw string then silently never matches and the pipeline stalls (#3088).
+    Non-Guid refs (never expected) fall through unchanged but lowercased."""
+    try:
+        return uuid.UUID(str(ref)).hex
+    except (ValueError, AttributeError, TypeError):
+        return str(ref).strip().lower()
+
 
 # Edition lifecycle phases.
 PHASE_DRAFTING = "drafting"  # one or more slots still moving through the pipeline
@@ -139,7 +155,7 @@ class OrchestratorStore:
         self, ref: str, *, edition_id: str, slot_id: str, stage: str
     ) -> None:
         correlations = self._load_correlations()
-        correlations[ref] = {
+        correlations[_canonical_ref(ref)] = {
             "edition_id": edition_id,
             "slot_id": slot_id,
             "stage": stage,
@@ -147,9 +163,11 @@ class OrchestratorStore:
         _atomic_write_json(self._correlations_path, correlations)
 
     def pop_correlation(self, ref: str) -> dict[str, str] | None:
-        """Resolve and remove a correlation ref. ``None`` when unknown."""
+        """Resolve and remove a correlation ref. ``None`` when unknown. Keys are
+        canonicalized (#3088) so a dashed/no-dash Guid-format difference between
+        the stored send-ack id and the inbound ``in_reply_to`` still matches."""
         correlations = self._load_correlations()
-        entry = correlations.pop(ref, None)
+        entry = correlations.pop(_canonical_ref(ref), None)
         if entry is not None:
             _atomic_write_json(self._correlations_path, correlations)
         return entry

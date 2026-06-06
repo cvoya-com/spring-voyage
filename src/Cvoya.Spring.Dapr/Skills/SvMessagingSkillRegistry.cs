@@ -279,13 +279,20 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
             "sender of inbound messages but cannot receive — pick a human, agent, or unit recipient instead.");
     }
 
-    private static JsonElement SerializeSendResult(SendResult result)
+    // internal (not private) so a unit test can pin the canonical no-dash
+    // messageId wire form the orchestrator correlates against (#3088).
+    internal static JsonElement SerializeSendResult(SendResult result)
     {
         using var stream = new System.IO.MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
         {
             writer.WriteStartObject();
-            writer.WriteString("messageId", result.MessageId.ToString("D"));
+            // Canonical no-dash wire form (GuidFormatter), matching the inbound
+            // envelope's `message_id` / `in_reply_to`. A consumer correlates the
+            // id this ack returns against a later reply's `in_reply_to`; if the
+            // two surfaces format the same Guid differently (dashed here vs
+            // no-dash there) the match silently fails. (#3088)
+            writer.WriteString("messageId", GuidFormatter.Format(result.MessageId));
             writer.WritePropertyName("deliveries");
             writer.WriteStartArray();
             foreach (var delivery in result.Deliveries)
@@ -298,13 +305,14 @@ public sealed class SvMessagingSkillRegistry : ISkillRegistry
         return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
     }
 
-    private static JsonElement SerializeMulticastResult(MulticastResult result)
+    internal static JsonElement SerializeMulticastResult(MulticastResult result)
     {
         using var stream = new System.IO.MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
         {
             writer.WriteStartObject();
-            writer.WriteString("messageId", result.MessageId.ToString("D"));
+            // Canonical no-dash wire form — see SerializeSendResult (#3088).
+            writer.WriteString("messageId", GuidFormatter.Format(result.MessageId));
             writer.WritePropertyName("deliveries");
             writer.WriteStartArray();
             foreach (var delivery in result.Deliveries)
