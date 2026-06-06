@@ -50,6 +50,10 @@ public class Program
             Subcommands =
             {
                 AuthCommand.Create(outputOption),
+                // Local CLI connection settings (~/.spring/config.json): endpoint
+                // + stored token. Sits next to `auth` as the other local-only,
+                // no-API-call command group.
+                ConfigCommand.Create(outputOption),
                 AgentCommand.Create(outputOption),
                 HumanCommand.Create(outputOption),
                 // ADR-0047 §§ 1–2, 12: TenantUser is a new actor kind and

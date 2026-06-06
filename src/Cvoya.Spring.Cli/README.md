@@ -24,10 +24,16 @@ typically does this for you).
 
 ## Use
 
-Point the CLI at your deployment, then explore from `--help`:
+Point the CLI at your deployment, then explore from `--help`. The platform
+installer does this for you; these are how to (re)point the CLI by hand:
 
 ```bash
+# Persist the endpoint to ~/.spring/config.json (preserves a stored token) …
+spring config set endpoint https://your-spring-voyage-host
+# … or override per-shell (takes precedence over the stored endpoint):
 export SPRING_API_URL=https://your-spring-voyage-host
+
+spring config show   # which endpoint will the CLI actually use?
 spring --help
 ```
 
