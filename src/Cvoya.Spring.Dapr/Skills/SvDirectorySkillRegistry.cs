@@ -678,11 +678,15 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         {
             return true;
         }
-        if (entry.Roles is null || entry.Roles.Count == 0)
+        // #3086: filter against the effective roles (membership roles ∪ the
+        // agent's definition-level role) so `sv.directory.list role=<x>`
+        // matches an agent whose role lives only on its definition.
+        var roles = EffectiveRoles(entry);
+        if (roles.Count == 0)
         {
             return false;
         }
-        foreach (var role in entry.Roles)
+        foreach (var role in roles)
         {
             if (!string.IsNullOrEmpty(role)
                 && role.Contains(roleFilter, StringComparison.OrdinalIgnoreCase))
@@ -791,14 +795,14 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 writer.WritePropertyName("live_status");
                 WriteLiveStatus(writer, report);
             }
+            // #3086: same effective-roles fold as WriteEntry so the
+            // address-keyed lookup surfaces the agent's definition-level
+            // role alongside the per-membership roles.
             writer.WritePropertyName("roles");
             writer.WriteStartArray();
-            if (entry.Roles is { } roles)
+            foreach (var role in EffectiveRoles(entry))
             {
-                foreach (var role in roles)
-                {
-                    writer.WriteStringValue(role);
-                }
+                writer.WriteStringValue(role);
             }
             writer.WriteEndArray();
             writer.WriteEndObject();
@@ -872,7 +876,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         }
         else
         {
-            var (_, dbDisplayName) = await ReadDefinitionAsync(targetUuid, kind, ct);
+            var (_, dbDisplayName, _) = await ReadDefinitionAsync(targetUuid, kind, ct);
             displayName = !string.IsNullOrWhiteSpace(dbDisplayName)
                 ? dbDisplayName!
                 : await ResolveDisplayNameAsync(Address.For(kind, targetUuid), ct);
@@ -1171,7 +1175,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         }
 
         var address = Address.For(kind, uuid);
-        var (description, displayNameFromDb) = await ReadDefinitionAsync(uuid, kind, ct);
+        var (description, displayNameFromDb, agentRole) = await ReadDefinitionAsync(uuid, kind, ct);
 
         string displayName;
         if (!string.IsNullOrWhiteSpace(displayNameOverride))
@@ -1213,6 +1217,11 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         // from "runtime reported zero".
         var liveStatus = await ResolveLiveStatusAsync(uuid, kind, ct);
 
+        // #3086: surface the agent's own definition-level role
+        // (agent_definitions.role) on the entry so the effective-roles
+        // projection can union it with the per-membership roles. Only
+        // agent-kind members carry an agent-definition role; unit / human
+        // members keep their existing roles behaviour.
         return new DirectoryEntry(
             Uuid: uuid,
             Kind: kind,
@@ -1221,7 +1230,8 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             Description: description,
             Expertise: expertise,
             MemberCount: memberCount,
-            LiveStatus: liveStatus);
+            LiveStatus: liveStatus,
+            AgentRole: string.Equals(kind, KindAgent, StringComparison.Ordinal) ? agentRole : null);
     }
 
     private async Task<DirectoryEntry> BuildTenantSentinelAsync(CancellationToken ct)
@@ -1244,11 +1254,11 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             LiveStatus: null);
     }
 
-    private async Task<(string Description, string? DisplayName)> ReadDefinitionAsync(string uuid, string kind, CancellationToken ct)
+    private async Task<(string Description, string? DisplayName, string? AgentRole)> ReadDefinitionAsync(string uuid, string kind, CancellationToken ct)
     {
         if (!GuidFormatter.TryParse(uuid, out var guid))
         {
-            return (string.Empty, null);
+            return (string.Empty, null, null);
         }
 
         using var scope = _scopeFactory.CreateScope();
@@ -1256,11 +1266,16 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
         if (string.Equals(kind, KindAgent, StringComparison.Ordinal))
         {
+            // #3086: read the agent's definition-level role alongside its
+            // description / display name in the same round-trip so the
+            // effective-roles projection can fold it into the entry's roles
+            // list. The display_name already comes from this lookup, so the
+            // role read is free.
             var row = await db.AgentDefinitions
                 .Where(a => a.Id == guid)
-                .Select(a => new { a.Description, a.DisplayName })
+                .Select(a => new { a.Description, a.DisplayName, a.Role })
                 .FirstOrDefaultAsync(ct);
-            return (row?.Description ?? string.Empty, row?.DisplayName);
+            return (row?.Description ?? string.Empty, row?.DisplayName, row?.Role);
         }
 
         if (string.Equals(kind, KindUnit, StringComparison.Ordinal))
@@ -1269,10 +1284,10 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 .Where(u => u.Id == guid)
                 .Select(u => new { u.Description, u.DisplayName })
                 .FirstOrDefaultAsync(ct);
-            return (row?.Description ?? string.Empty, row?.DisplayName);
+            return (row?.Description ?? string.Empty, row?.DisplayName, null);
         }
 
-        return (string.Empty, null);
+        return (string.Empty, null, null);
     }
 
     private async Task<string> ResolveDisplayNameAsync(Address address, CancellationToken ct)
@@ -1662,14 +1677,14 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         // human entries; additive on agent / unit entries (the field was
         // absent before). Uniform shape lets clients treat `roles` as a
         // stable `string[]` without distinguishing missing from empty.
+        // #3086: the effective roles fold the agent's definition-level role
+        // into the per-membership roles so role-based delegation resolves
+        // even when the membership row carries no roles.
         writer.WritePropertyName("roles");
         writer.WriteStartArray();
-        if (entry.Roles is { } roles)
+        foreach (var role in EffectiveRoles(entry))
         {
-            foreach (var role in roles)
-            {
-                writer.WriteStringValue(role);
-            }
+            writer.WriteStringValue(role);
         }
         writer.WriteEndArray();
         writer.WriteEndObject();
@@ -1700,5 +1715,47 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         IReadOnlyList<ExpertiseDomain> Expertise,
         int? MemberCount,
         AgentRuntimeStatusReport? LiveStatus,
-        IReadOnlyList<string>? Roles = null);
+        IReadOnlyList<string>? Roles = null,
+        string? AgentRole = null);
+
+    /// <summary>
+    /// Computes the effective roles surfaced on an entry's wire <c>roles</c>
+    /// array (#3086). Unions the entry's per-membership <see cref="DirectoryEntry.Roles"/>
+    /// with the agent's own definition-level <see cref="DirectoryEntry.AgentRole"/>:
+    /// the membership roles come first in their existing order, then the
+    /// agent role is appended iff it is not already present (case-insensitive
+    /// dedupe). For unit / human entries (no <see cref="DirectoryEntry.AgentRole"/>)
+    /// this returns the membership roles unchanged, so their behaviour is
+    /// untouched.
+    /// </summary>
+    private static IReadOnlyList<string> EffectiveRoles(DirectoryEntry entry)
+    {
+        var membershipRoles = entry.Roles ?? Array.Empty<string>();
+        if (string.IsNullOrWhiteSpace(entry.AgentRole))
+        {
+            return membershipRoles;
+        }
+
+        var agentRole = entry.AgentRole!.Trim();
+        if (string.IsNullOrEmpty(agentRole))
+        {
+            return membershipRoles;
+        }
+
+        var result = new List<string>(membershipRoles.Count + 1);
+        var alreadyPresent = false;
+        foreach (var role in membershipRoles)
+        {
+            result.Add(role);
+            if (string.Equals(role, agentRole, StringComparison.OrdinalIgnoreCase))
+            {
+                alreadyPresent = true;
+            }
+        }
+        if (!alreadyPresent)
+        {
+            result.Add(agentRole);
+        }
+        return result;
+    }
 }

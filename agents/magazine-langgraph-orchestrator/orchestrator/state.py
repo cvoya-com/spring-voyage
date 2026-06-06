@@ -20,17 +20,35 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+
+def _canonical_ref(ref: str) -> str:
+    """Canonicalize a correlation ref (a message-id GUID) to dashless lowercase
+    hex, so correlation keys on the message's *identity* rather than its textual
+    format. ``put_correlation`` keys by the id a ``send`` ack returns; later
+    ``pop_correlation`` keys by an inbound reply's ``in_reply_to``. Those two
+    surfaces may format the same Guid differently (dashed vs no-dash) — keying on
+    the raw string then silently never matches and the pipeline stalls (#3088).
+    Non-Guid refs (never expected) fall through unchanged but lowercased."""
+    try:
+        return uuid.UUID(str(ref)).hex
+    except (ValueError, AttributeError, TypeError):
+        return str(ref).strip().lower()
+
 
 # Edition lifecycle phases.
 PHASE_DRAFTING = "drafting"  # one or more slots still moving through the pipeline
 PHASE_ASSEMBLING = "assembling"  # all slots packaged; production is assembling
 PHASE_SIGNOFF = "signoff"  # assembled edition is with the director for sign-off
-PHASE_PUBLISHED = "published"  # released to production to deliver/publish
+PHASE_PUBLISHING = "publishing"  # approved; production is producing the final cut
+PHASE_PUBLISHED = "published"  # final edition delivered to the reader (#3088)
 PHASE_CANCELLED = "cancelled"  # cancelled by the director (ADR-0066 §6 Option B)
 
-# Phases in which an edition is finished and no longer running.
+# Phases in which an edition is finished and no longer running. ``publishing`` is
+# NOT terminal — the engine is still awaiting the production editor's final cut.
 TERMINAL_PHASES = frozenset({PHASE_PUBLISHED, PHASE_CANCELLED})
 
 
@@ -43,6 +61,10 @@ class Slot:
     stage: str  # current pipeline stage (pipeline.SLOT_STAGES) or "done"
     artifact: str | None = None
     done: bool = False
+    # The director's per-story brief (angle, length, tone, sourcing,
+    # non-negotiables). Carried into every stage's delegation so the editor's
+    # commission reaches the writers (#3088). Empty when only a title was given.
+    brief: str = ""
 
 
 @dataclass
@@ -87,11 +109,16 @@ class OrchestratorStore:
         slot_titles: list[str],
         report_to: str,
         first_stage: str,
+        slot_briefs: list[str] | None = None,
         origin_message_id: str = "",
     ) -> Edition:
+        briefs = slot_briefs or []
         slots = {
             f"slot-{i + 1}": Slot(
-                slot_id=f"slot-{i + 1}", title=title, stage=first_stage
+                slot_id=f"slot-{i + 1}",
+                title=title,
+                stage=first_stage,
+                brief=briefs[i] if i < len(briefs) else "",
             )
             for i, title in enumerate(slot_titles)
         }
@@ -136,20 +163,34 @@ class OrchestratorStore:
         return json.loads(self._correlations_path.read_text(encoding="utf-8"))
 
     def put_correlation(
-        self, ref: str, *, edition_id: str, slot_id: str, stage: str
+        self,
+        ref: str,
+        *,
+        edition_id: str,
+        slot_id: str,
+        stage: str,
+        role: str = "",
+        attempt: int = 1,
     ) -> None:
+        # ``role`` + ``attempt`` let the engine re-delegate the same step to the
+        # same specialist when a reply can't be parsed, bounded by a retry cutoff
+        # (#3088). Older entries without them read back via dict.get defaults.
         correlations = self._load_correlations()
-        correlations[ref] = {
+        correlations[_canonical_ref(ref)] = {
             "edition_id": edition_id,
             "slot_id": slot_id,
             "stage": stage,
+            "role": role,
+            "attempt": attempt,
         }
         _atomic_write_json(self._correlations_path, correlations)
 
     def pop_correlation(self, ref: str) -> dict[str, str] | None:
-        """Resolve and remove a correlation ref. ``None`` when unknown."""
+        """Resolve and remove a correlation ref. ``None`` when unknown. Keys are
+        canonicalized (#3088) so a dashed/no-dash Guid-format difference between
+        the stored send-ack id and the inbound ``in_reply_to`` still matches."""
         correlations = self._load_correlations()
-        entry = correlations.pop(ref, None)
+        entry = correlations.pop(_canonical_ref(ref), None)
         if entry is not None:
             _atomic_write_json(self._correlations_path, correlations)
         return entry

@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Cli.Commands;
 
 using System.CommandLine;
 
+using Cvoya.Spring.Cli.ErrorHandling;
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
 using Cvoya.Spring.Cli.Utilities;
@@ -147,6 +148,25 @@ public static class MessageCommand
                       "reachable only through a human member of the unit it belongs to."
                     : detail);
                 Environment.Exit(1);
+                return;
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                // #3086: catch-all so a server-side rejection never escapes as
+                // an unhandled Kiota stack trace. The original repro (`spring
+                // message send <addr> <text> --thread <nonexistent>`) crashed
+                // here: the server FK-insert 500'd, Kiota had no error factory
+                // for 500 and threw, and `send` — unlike `agent`/`unit` purge —
+                // had no catch-all, so the .NET stack trace escaped. Route
+                // through the central ApiExceptionRenderer (the #1071 "no raw
+                // stack traces on non-2xx" surface every other command uses):
+                // it emits a status-aware one-liner for any status (including
+                // unmapped ones), honours --output json / --verbose, and
+                // returns the catalogued exit code.
+                var renderContext = RenderContextFactory.For(
+                    parseResult, $"Failed to send message to {address}");
+                var exitCode = ApiExceptionRenderer.Instance.Render(ex, renderContext);
+                Environment.Exit(exitCode);
                 return;
             }
 

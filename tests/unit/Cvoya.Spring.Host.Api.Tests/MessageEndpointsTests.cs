@@ -62,7 +62,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var request = new SendMessageRequest(
             new AddressDto("agent", UnknownAgentId.ToString("N")),
             "Domain",
-            Guid.NewGuid().ToString(),
+            null,
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
@@ -121,7 +121,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var request = new SendMessageRequest(
             new AddressDto("agent", TestAgentId.ToString("N")),
             "Domain",
-            Guid.NewGuid().ToString(),
+            null,
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
@@ -214,14 +214,26 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 PassthroughAgentId.ToString("N"))
             .Returns(agent);
 
-        // #2047 / ADR-0030: thread ids are stable Guids. Lenient parsing
-        // accepts both dashed and no-dash forms — using the dashed form
-        // here exercises the canonical-Guid passthrough path.
-        var suppliedId = Guid.NewGuid().ToString();
+        // #3086 / ADR-0030: a supplied thread id is a REFERENCE to an existing
+        // thread (SV mints ids from the participant set), so pinning one is
+        // honoured only when it already names the sender's thread. Resolve the
+        // {sender, agent} thread first (an omitted-id send stamps it), then a
+        // follow-up send that pins that SAME id is carried through verbatim.
+        var resolveRequest = new SendMessageRequest(
+            new AddressDto("agent", PassthroughAgentId.ToString("N")),
+            "Domain",
+            null,
+            JsonSerializer.SerializeToElement(new { Text = "first" }));
+        var resolveResponse = await _client.PostAsJsonAsync("/api/v1/tenant/messages", resolveRequest, ct);
+        resolveResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var resolvedThreadId =
+            (await resolveResponse.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct))!.ThreadId;
+        resolvedThreadId.ShouldNotBeNullOrWhiteSpace();
+
         var request = new SendMessageRequest(
             new AddressDto("agent", PassthroughAgentId.ToString("N")),
             "Domain",
-            suppliedId,
+            resolvedThreadId,
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
@@ -229,9 +241,9 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
         body.ShouldNotBeNull();
-        body!.ThreadId.ShouldBe(suppliedId);
+        body!.ThreadId.ShouldBe(resolvedThreadId);
         observed.ShouldNotBeNull();
-        observed!.ThreadId.ShouldBe(suppliedId);
+        observed!.ThreadId.ShouldBe(resolvedThreadId);
     }
 
     [Fact]
@@ -602,16 +614,16 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task SendMessage_DomainWithGuidShapedButUnknownThreadId_Succeeds()
+    public async Task SendMessage_DomainWithGuidShapedButUnknownThreadId_ReturnsBadRequest()
     {
-        // #2112: Guid-shaped thread ids that the registry has not seen
-        // before are accepted as caller-supplied stable correlation ids —
-        // the registry is a participant-set lookup, not a thread-id
-        // existence gate. Rejecting unknown Guids here would block legit
-        // clients that thread under their own stable id (and would force
-        // every send to begin with a registry round-trip). The non-Guid
-        // case stays as a 400 (covered above); only well-formed Guids
-        // pass through.
+        // #3086: a Guid-shaped thread id is only ever a REFERENCE to an existing
+        // thread. SV mints thread ids from the participant set (ADR-0030), so a
+        // caller cannot bring a thread into being by naming one. An id the
+        // registry has never seen names no thread and is rejected with a clean
+        // 400 — the old "pass it straight to the router" path hit the
+        // messages.thread_id foreign key, 500'd on Postgres, and crashed the
+        // CLI. To send, the caller omits threadId and lets the platform resolve
+        // {sender} ∪ recipients.
         var ct = TestContext.Current.CancellationToken;
 
         var entry = new DirectoryEntry(
@@ -626,15 +638,6 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
-        var agent = Substitute.For<IAgent>();
-        Message? observed = null;
-        agent.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
-            .Returns((Message?)null);
-        _factory.AgentProxyResolver
-            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
-                UnknownThreadAgentId.ToString("N"))
-            .Returns(agent);
-
         var freshGuid = Guid.NewGuid().ToString();
         var request = new SendMessageRequest(
             new AddressDto("agent", UnknownThreadAgentId.ToString("N")),
@@ -644,12 +647,14 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
-        body.ShouldNotBeNull();
-        body!.ThreadId.ShouldBe(freshGuid);
-        observed.ShouldNotBeNull();
-        observed!.ThreadId.ShouldBe(freshGuid);
+        // Rejected before the router, so no message is persisted / delivered.
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+        problem.GetProperty("status").GetInt32().ShouldBe(400);
+        problem.GetProperty("code").GetString().ShouldBe("UnknownThread");
+        var detail = problem.GetProperty("detail").GetString();
+        detail.ShouldNotBeNull();
+        detail.ShouldContain(freshGuid);
     }
 
     [Fact]

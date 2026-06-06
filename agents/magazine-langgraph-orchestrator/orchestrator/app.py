@@ -34,6 +34,7 @@ from spring_voyage_agent_sdk import (
 from orchestrator import mcp as mcp_tools
 from orchestrator.coordinator import Coordinator
 from orchestrator.graph import build_slot_graph, make_sqlite_checkpointer
+from orchestrator.reply import body_from_payload
 from orchestrator.state import OrchestratorStore
 from orchestrator.tools import DEFAULT_TOOLS_PORT, TOOLS_MCP_PATH, build_tool_server
 
@@ -46,6 +47,22 @@ logger = logging.getLogger("magazine-orchestrator")
 _coordinator: Coordinator | None = None
 _context: IAgentContext | None = None
 _tool_server_task: asyncio.Task | None = None
+
+
+def _inbound_body(message: Message) -> str:
+    """The sender's actual message body — the structured envelope payload
+    (ADR-0066 §3), not the full rendered envelope prose ``message.text``.
+
+    The engine forwards a specialist's reply as the next stage's "current piece"
+    and parses it as the structured reply, so it must carry the real body — clean
+    copy or the ``{"status","artifact"}`` envelope — not the ``You received a
+    message…`` boilerplate that ``message.text`` wraps around the payload (#3088).
+    The extraction (content/text wrapper vs. a parsed structured object vs. the
+    rendered-prose fallback) lives in :func:`orchestrator.reply.body_from_payload`
+    so it is unit-testable without the SDK."""
+    envelope = message.envelope
+    payload = envelope.payload if envelope else None
+    return body_from_payload(payload, message.text)
 
 
 def _tools_port() -> int:
@@ -113,9 +130,33 @@ async def initialize(context: IAgentContext) -> None:
 
     async def invoke(text: str, *, sender_address: str) -> str:
         # The control plane: hand the director's message to Claude with the
-        # orchestration tools (ADR-0066 §6 Option B). Claude's reply is the
-        # agent's response to the director; the engine ships it.
-        prompt = f"Message from {sender_address}:\n\n{text}"
+        # orchestration tools (ADR-0066 §6 Option B). Claude's reply IS the
+        # agent's response to the sender; the engine ships it. So Claude must
+        # always end with a short natural-language reply and must not call a
+        # messaging tool to reply nor send an empty message (#3086 finding 3),
+        # and on a tool error it must say what failed rather than claim the
+        # pipeline is running (#3086 finding 2).
+        prompt = (
+            f"Message from {sender_address}:\n\n{text}\n\n"
+            "You manage the magazine's editions through your orchestration tools. "
+            "Work out what this message means and act on it — it will not always "
+            "be a clean approval:\n"
+            "- The director approving an edition at sign-off → approve_edition.\n"
+            "- The director, OR a reader after publication, asking for changes or "
+            "withholding approval → revise_edition with their notes, so the "
+            "edition is re-opened and reworked; do not treat a non-approval as an "
+            "approval.\n"
+            "- A reader accepting the published edition → thank them; no tool call.\n"
+            "- The engine reporting that the pipeline stopped or a specialist "
+            "could not finish → do not pretend it is running; decide whether to "
+            "revise, cancel, or escalate, and say plainly what failed and what "
+            "would unblock it.\n"
+            "- Anything else (a status question, a new commission) → use "
+            "get_status / active_editions / start_edition as fits.\n"
+            "ALWAYS end with a short natural-language reply for the sender — that "
+            "reply is delivered to them automatically, so never reply with empty "
+            "text and do not call any messaging tool to reply."
+        )
         return await llm.complete(
             prompt,
             system_prompt_file=system_prompt_file,
@@ -162,10 +203,15 @@ async def on_message(message: Message):
         summary = await _coordinator.handle(
             message_id=message_id,
             sender_address=sender_address,
-            text=message.text,
+            text=_inbound_body(message),
             in_reply_to=in_reply_to,
             token=token,
         )
+        # Never ship an empty response: the platform delivers it via
+        # sv.messaging.respond_to, which rejects an empty message (#3086
+        # finding 3). Fall back to a terse ack when the handler yields nothing.
+        if not (summary or "").strip():
+            summary = "Acknowledged."
         yield Response(text=summary, final=True)
     except Exception as exc:  # noqa: BLE001 — surface as a turn error, don't crash.
         logger.exception("Orchestration failed for message %s", message.message_id)

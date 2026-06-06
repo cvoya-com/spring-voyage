@@ -35,6 +35,7 @@ class SlotState(TypedDict, total=False):
     edition_id: str
     slot_id: str
     slot_title: str
+    slot_brief: str  # the director's per-story direction, carried to every stage
     theme: str
     artifact: str | None  # the current piece; updated after each stage
     stages_done: list[str]
@@ -56,6 +57,7 @@ def _stage_node(stage: str):
             slot_title=state["slot_title"],
             theme=state["theme"],
             artifact=state.get("artifact"),
+            slot_brief=state.get("slot_brief", ""),
         )
         reply = interrupt(
             {

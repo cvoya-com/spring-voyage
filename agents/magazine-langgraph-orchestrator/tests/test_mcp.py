@@ -89,5 +89,29 @@ async def test_list_members_parses_and_resolves_role():
     assert resolve_role_address(members, "staff-writer") == "agent:w"
 
 
+@pytest.mark.asyncio
+async def test_list_members_materialises_address_from_kind_and_uuid():
+    # The real directory wire shape carries `kind` + `uuid`, NOT a pre-built
+    # `address`. list_members must materialise the canonical `kind:uuid` form so
+    # role/address resolution can thread by it — without this every delegation
+    # is unaddressable and the pipeline never moves.
+    members_json = json.dumps(
+        [
+            {
+                "uuid": "e194bc95b7c748c3a3fc797dba6b598d",
+                "kind": "agent",
+                "roles": ["staff-writer"],
+            }
+        ]
+    )
+    mcp = McpClient("http://mcp/", transport=_ok(members_json))
+    members = await list_members(mcp, "t", "unit-1")
+    assert members[0]["address"] == "agent:e194bc95b7c748c3a3fc797dba6b598d"
+    assert (
+        resolve_role_address(members, "staff-writer")
+        == "agent:e194bc95b7c748c3a3fc797dba6b598d"
+    )
+
+
 def test_resolve_role_address_none_when_absent():
     assert resolve_role_address([{"address": "a", "roles": ["x"]}], "y") is None

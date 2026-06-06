@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from orchestrator.reply import STRUCTURED_REPLY_CONTRACT
+
 # --- Per-slot pipeline stages --------------------------------------------
 
 DRAFT = "draft"
@@ -90,18 +92,41 @@ def build_brief(
     slot_title: str,
     theme: str,
     artifact: str | None,
+    slot_brief: str = "",
 ) -> Delegation:
     """Compose the delegation for one stage of one slot.
 
     The full current artifact is carried in the body (never a pointer): every
     stage is memory-isolated and cannot see an earlier thread's draft
     (ADR-0030). ``artifact`` is ``None`` for the first stage (DRAFT).
+
+    ``slot_brief`` is the director's per-story direction (angle, target length,
+    tone, sourcing rules, non-negotiables). It is carried into *every* stage so
+    the editor's commission reaches the writer and survives down the line — its
+    absence is why a "150-word, no-research vignette" once came back as a long
+    researched feature (#3088).
     """
     role = STAGE_ROLE[stage]
     ask = STAGE_ASK[stage]
     header = f'Edition theme: "{theme}". Story slot: "{slot_title}".'
+    brief = (slot_brief or "").strip()
+    if brief:
+        header += (
+            "\n\nEditor's brief for this story — honour it exactly "
+            f"(length, tone, sourcing, and any non-negotiables):\n{brief}"
+        )
     if artifact:
-        body = f"{header}\n\n{ask}\n\nCurrent piece:\n\n{artifact}"
+        # The next stage receives ONLY what this specialist returns (each stage
+        # is memory-isolated, ADR-0030), so every stage must hand back the whole
+        # evolving piece — not just notes or a critique. A fact-checker that
+        # replied with findings alone once dropped the article entirely and the
+        # rest of the line had nothing to work on (#3088).
+        body = (
+            f"{header}\n\n{ask}\n\nCurrent piece:\n\n{artifact}\n\n"
+            "Return the complete updated piece — the full article text with your "
+            "stage's work applied — not just notes or a description of changes. "
+            "Whatever you return is the entire input the next stage receives."
+        )
     else:
         body = f"{header}\n\n{ask}"
-    return Delegation(role=role, body=body, stage=stage)
+    return Delegation(role=role, body=body + STRUCTURED_REPLY_CONTRACT, stage=stage)

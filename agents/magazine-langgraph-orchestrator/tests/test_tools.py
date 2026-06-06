@@ -29,8 +29,10 @@ class _StubCoordinator:
     def __init__(self):
         self.calls: list[tuple] = []
 
-    async def start_edition(self, *, theme, slots, report_to):
-        self.calls.append(("start_edition", theme, tuple(slots), report_to))
+    async def start_edition(self, *, theme, slots, report_to, briefs=None):
+        self.calls.append(
+            ("start_edition", theme, tuple(slots), report_to, tuple(briefs or ()))
+        )
         return "edition-xyz"
 
     def get_status(self, edition_id):
@@ -78,6 +80,31 @@ async def test_start_edition_dispatches_to_coordinator():
         "City hall",
         ("Budget", "Zoning"),
         "unit:director",
+        (),
+    ) in stub.calls
+
+
+@pytest.mark.asyncio
+async def test_start_edition_forwards_per_story_briefs():
+    # #3088: the director's per-story direction must reach the coordinator (and
+    # thence the writers), not be dropped at the tool boundary.
+    stub = _StubCoordinator()
+    server = build_tool_server(stub, port=12399)
+    await server.call_tool(
+        "start_edition",
+        {
+            "theme": "Tiny Joys",
+            "slots": ["Coffee"],
+            "briefs": ["~150 words, no research, warm vignette"],
+            "report_to": "unit:director",
+        },
+    )
+    assert (
+        "start_edition",
+        "Tiny Joys",
+        ("Coffee",),
+        "unit:director",
+        ("~150 words, no research, warm vignette",),
     ) in stub.calls
 
 

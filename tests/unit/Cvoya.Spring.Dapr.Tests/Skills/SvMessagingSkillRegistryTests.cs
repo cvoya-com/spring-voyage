@@ -352,4 +352,32 @@ public class SvMessagingSkillRegistryTests
 
         ex.Message.ShouldContain("EXACTLY ONE");
     }
+
+    // #3088: a consumer (e.g. the magazine-langgraph orchestrator) stores the
+    // id this ack returns and later correlates a reply's `in_reply_to` against
+    // it. The inbound envelope renders `message_id` / `in_reply_to` in the
+    // canonical no-dash GuidFormatter form, so the ack MUST use the same form —
+    // a dashed `Guid.ToString("D")` here made every correlation silently miss.
+    [Fact]
+    public void SerializeSendResult_EmitsCanonicalNoDashMessageId()
+    {
+        var id = new Guid("685661b4-04f8-4cdc-b986-3c7a36e689b9");
+        var json = SvMessagingSkillRegistry.SerializeSendResult(new SendResult(id, ThreadId, []));
+
+        var messageId = json.GetProperty("messageId").GetString();
+        messageId.ShouldBe(GuidFormatter.Format(id));
+        messageId.ShouldBe("685661b404f84cdcb9863c7a36e689b9");
+        messageId!.ShouldNotContain("-");
+    }
+
+    [Fact]
+    public void SerializeMulticastResult_EmitsCanonicalNoDashMessageId()
+    {
+        var id = new Guid("685661b4-04f8-4cdc-b986-3c7a36e689b9");
+        var json = SvMessagingSkillRegistry.SerializeMulticastResult(new MulticastResult(id, []));
+
+        var messageId = json.GetProperty("messageId").GetString();
+        messageId.ShouldBe(GuidFormatter.Format(id));
+        messageId!.ShouldNotContain("-");
+    }
 }

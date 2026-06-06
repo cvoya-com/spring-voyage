@@ -26,6 +26,7 @@ public static class MessageEndpoints
     /// ADR-0030). Shared with <see cref="ThreadEndpoints"/>.
     /// </summary>
     public const string SenderNotInThreadCode = "SenderNotInThread";
+    public const string UnknownThreadCode = "UnknownThread";
 
     /// <summary>
     /// Registers message endpoints on the specified endpoint route builder.
@@ -342,18 +343,34 @@ public static class MessageEndpoints
             }
             else
             {
-                // #2865 / ADR-0030: when the caller pins a Guid-shaped
-                // thread id, the resolved sender MUST be a canonical
-                // participant of that thread. Without this gate, the
-                // endpoint silently accepts the send, then the reply re-
-                // routes through `sv.messaging.send` onto the canonical
-                // {sender, recipient} thread and the conversation splits
-                // across two `spring.threads` rows. Unknown ids continue
-                // to pass through as caller-supplied stable correlation
-                // ids (#2112). The gate fires before audit emit + router
-                // so a 400 leaves the DB clean — same rule as #2859.
+                // #2865 / #3086 / ADR-0030: a Guid-shaped thread id is only
+                // ever a REFERENCE to an existing thread. SV mints thread ids
+                // from the participant set (the registry is keyed on
+                // participants, never on an id the caller chooses), so a caller
+                // cannot bring a thread into being by naming one. Resolve the
+                // reference and gate it; both gates fire before audit emit +
+                // router so a 400 leaves the DB clean (same rule as #2859):
+                //   * unknown id — names no thread, so reject. (The old "pass it
+                //     straight to the router" path hit the messages.thread_id
+                //     foreign key and 500'd / crashed the CLI.) Omit threadId to
+                //     address the {sender} ∪ recipients conversation; the
+                //     platform allocates and reuses its id.
+                //   * known id, sender not a participant — reject (#2865), else
+                //     the reply re-routes onto the canonical {sender, recipient}
+                //     thread and the conversation splits across two rows.
                 var existing = await threadRegistry.ResolveAsync(threadId, cancellationToken);
-                if (existing is not null && !ParticipantsContain(existing.Participants, from))
+                if (existing is null)
+                {
+                    return Results.Problem(
+                        title: "Bad Request",
+                        detail: $"ThreadId '{threadId}' does not name an existing thread. Omit it to start or continue the conversation with these participants.",
+                        statusCode: StatusCodes.Status400BadRequest,
+                        extensions: new Dictionary<string, object?>
+                        {
+                            ["code"] = UnknownThreadCode,
+                        });
+                }
+                if (!ParticipantsContain(existing.Participants, from))
                 {
                     return Results.Problem(
                         title: "Bad Request",
