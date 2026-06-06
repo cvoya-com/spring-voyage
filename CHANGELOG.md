@@ -1,12 +1,77 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project are documented here.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Versioning, release cadence, and breaking-change policy are documented in [`docs/developer/releases.md`](docs/developer/releases.md).
-
-No versions have been tagged yet. The entries below capture the repository's history to date and will be finalised under the first tagged version when it is cut (see [#403](https://github.com/cvoya-com/spring-voyage/issues/403)). Entries reference GitHub pull requests and issues as the authoritative record.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The **[Unreleased]** section is generated from Conventional Commits by [git-cliff](https://git-cliff.org) — run `eng/release/update-changelog.sh`; do not hand-edit it. Earlier history below the marker is hand-curated and frozen.
 
 ## [Unreleased]
+
+### Features
+
+- **deploy:** Add spring-debug-dump.sh diagnostic collector
+- **docs:** Add incident report for Magazine Team Edition 1
+- **deploy:** Decode actor inboxes in spring-debug-dump.sh ([#2983](https://github.com/cvoya-com/spring-voyage/pull/2983))
+- **magazine:** Explicit decision-authority chain + team decision-advertising ([#3007](https://github.com/cvoya-com/spring-voyage/pull/3007))
+- **tools:** Single source of truth for the sv.* category catalog ([#3011](https://github.com/cvoya-com/spring-voyage/pull/3011))
+- **memory:** Structured JSON content in sv.memory.* (jsonb) ([#3019](https://github.com/cvoya-com/spring-voyage/pull/3019))
+- **memory:** Add sv.memory.get_messages + durable-memory & identity contract clauses ([#3022](https://github.com/cvoya-com/spring-voyage/pull/3022))
+- **memory:** Typed object/text variants + participant-set scope for sv.memory.* (#3038, #3037) ([#3043](https://github.com/cvoya-com/spring-voyage/pull/3043))
+- **messaging:** Gate tenant-user→unit/agent sends on Hat reachability + GC orphaned Hats ([#2972](https://github.com/cvoya-com/spring-voyage/pull/2972)) ([#3046](https://github.com/cvoya-com/spring-voyage/pull/3046))
+- **messaging:** Deliver a thread's pending inbox as one batched runtime turn ([#3056](https://github.com/cvoya-com/spring-voyage/pull/3056)) ([#3058](https://github.com/cvoya-com/spring-voyage/pull/3058))
+- **costs,runtime:** Capture Claude CLI cost end-to-end; daily + unit budget enforcement ([#3074](https://github.com/cvoya-com/spring-voyage/pull/3074))
+- **runtime,magazine:** A2a-process runtime + LangGraph magazine orchestrator ([#3072](https://github.com/cvoya-com/spring-voyage/pull/3072))
+- **runtime,magazine:** Claude manages the LangGraph engine via tools; a2a-process OAuth ([#3077](https://github.com/cvoya-com/spring-voyage/pull/3077))
+
+### Bug fixes
+
+- **release:** Let a pre-release opt into :latest (images + GitHub badge) ([#2971](https://github.com/cvoya-com/spring-voyage/pull/2971))
+- **packages,web:** Allow binding a connector a package doesn't declare ([#2973](https://github.com/cvoya-com/spring-voyage/pull/2973))
+- **web:** Expand/collapse branch nodes when clicking their label in the explorer ([#2974](https://github.com/cvoya-com/spring-voyage/pull/2974))
+- **messaging:** Remove the per-thread hop counter that killed long conversations ([#2976](https://github.com/cvoya-com/spring-voyage/pull/2976))
+- **cli:** Single-quote env-file values so `source spring.env` doesn't run "RSA" ([#3010](https://github.com/cvoya-com/spring-voyage/pull/3010))
+- **execution:** Preserve persistent-agent workspace volume across restarts & resumable stops ([#2999](https://github.com/cvoya-com/spring-voyage/pull/2999)) ([#3012](https://github.com/cvoya-com/spring-voyage/pull/3012))
+- **sidecar:** Isolate per-turn MCP token per thread to stop concurrent-thread 401s ([#3000](https://github.com/cvoya-com/spring-voyage/pull/3000)) ([#3017](https://github.com/cvoya-com/spring-voyage/pull/3017))
+- **messaging:** Bound sv.messaging delivery with a per-attempt timeout ([#3004](https://github.com/cvoya-com/spring-voyage/pull/3004)) ([#3014](https://github.com/cvoya-com/spring-voyage/pull/3014))
+- **web:** Unblock web-typecheck on main and refresh tools-panel fixture ([#3021](https://github.com/cvoya-com/spring-voyage/pull/3021))
+- **execution:** Disable Claude Code native auto-memory ([#2985](https://github.com/cvoya-com/spring-voyage/pull/2985)) ([#3023](https://github.com/cvoya-com/spring-voyage/pull/3023))
+- **hosting:** Runtime polish — unit-issues 400, PK_messages flood, SSE cutoff, Draft-on-cancel ([#3025](https://github.com/cvoya-com/spring-voyage/pull/3025))
+- **execution:** Lifecycle machinery hardening — introspection retry, volume GC, restart semantics (#3002, #3003, #3005) ([#3026](https://github.com/cvoya-com/spring-voyage/pull/3026))
+- **web:** Patch 3 Dependabot npm advisories (postcss, vitest, brace-expansion) ([#3027](https://github.com/cvoya-com/spring-voyage/pull/3027))
+- **execution:** Make unit/agent stop authoritative — lifecycle mirror + message-path gates ([#2981](https://github.com/cvoya-com/spring-voyage/pull/2981)) ([#3028](https://github.com/cvoya-com/spring-voyage/pull/3028))
+- **prompt:** Enumerate + promote the full sv.memory.* surface in the platform prompt ([#3030](https://github.com/cvoya-com/spring-voyage/pull/3030))
+- **execution:** Give UnitActor AgentActor's per-thread mailbox + drain (busy unit no longer fails inbound delivery) ([#3033](https://github.com/cvoya-com/spring-voyage/pull/3033))
+- **skills:** Sv.* tool-contract hardening — reject empty messages, retry-guiding required-arg errors (#3035, #3036) ([#3040](https://github.com/cvoya-com/spring-voyage/pull/3040))
+- **deploy:** Reset.sh platform level now removes agent workspace volumes (spring-ws-*) ([#3049](https://github.com/cvoya-com/spring-voyage/pull/3049))
+- **release:** Fix --latest not marking pre-release as latest ([#3051](https://github.com/cvoya-com/spring-voyage/pull/3051))
+- **release:** Build agent runtime images multi-arch (arm64) ([#3054](https://github.com/cvoya-com/spring-voyage/pull/3054))
+- **magazine:** Make the Managing Editor the pipeline routing authority ([#3057](https://github.com/cvoya-com/spring-voyage/pull/3057))
+- **magazine,runtime:** Coordination prompt + memory/thread/directory fixes (A+B+C) ([#3068](https://github.com/cvoya-com/spring-voyage/pull/3068))
+- **runtime,docs:** Keep internal thread_id off the model-visible surface ([#3079](https://github.com/cvoya-com/spring-voyage/pull/3079)) ([#3082](https://github.com/cvoya-com/spring-voyage/pull/3082))
+- **magazine-langgraph:** Make orchestrator image dispatch-ready ([#3084](https://github.com/cvoya-com/spring-voyage/pull/3084))
+- **install:** Point the spring CLI at the deployed API endpoint ([#3093](https://github.com/cvoya-com/spring-voyage/pull/3093))
+- **cli,install:** Reconcile the spring CLI endpoint on re-install ([#3094](https://github.com/cvoya-com/spring-voyage/pull/3094))
+
+### Refactor
+
+- **skills:** Unify tool execution-context on the caller-aware path; remove sv.expertise.* ([#2989](https://github.com/cvoya-com/spring-voyage/pull/2989)) ([#3009](https://github.com/cvoya-com/spring-voyage/pull/3009))
+- **memory:** Rename kind→scope axis; derive from thread_id ([#2997](https://github.com/cvoya-com/spring-voyage/pull/2997)) ([#3015](https://github.com/cvoya-com/spring-voyage/pull/3015))
+- **runtime:** Remove agent-facing "thread" semantics (#3041 Parts B & C + config rename) ([#3044](https://github.com/cvoya-com/spring-voyage/pull/3044))
+
+### Documentation
+
+- **adr:** ADR-0065 — agent memory architecture ([#2995](https://github.com/cvoya-com/spring-voyage/pull/2995))
+- **adr-0065:** Amend — typed memory tool variants (object-primary) + thread-scope-unused note ([#3039](https://github.com/cvoya-com/spring-voyage/pull/3039))
+- Simplify root README and sync the canonical container-image list ([#3070](https://github.com/cvoya-com/spring-voyage/pull/3070))
+- Update development setup prerequisites for clarity and specificity
+- Align README host prerequisites with setup.md
+
+<!-- BEGIN FROZEN HISTORY -->
+
+## Earlier history (hand-curated)
+
+> These entries predate the switch to a generated changelog. The **[Unreleased]**
+> section above is generated from Conventional Commits by git-cliff
+> (`eng/release/update-changelog.sh`); everything below this point is frozen.
 
 ### Added
 

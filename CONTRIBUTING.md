@@ -23,19 +23,17 @@ See [docs/developer/setup.md](docs/developer/setup.md) for prerequisites and bui
 5. Run `dotnet format --verify-no-changes` to check formatting.
 6. Open a PR against `main` with a clear description.
 7. Reference the issue in your commit message: `Closes #N`.
-8. Add a one-line entry to `CHANGELOG.md` under the `## [Unreleased]` section (see [Changelog Expectations](#changelog-expectations)).
+8. Use a [Conventional Commits](https://www.conventionalcommits.org) message — `CHANGELOG.md` is generated from these (see [Commit messages and the changelog](#commit-messages-and-the-changelog)).
 
-### Changelog Expectations
+### Commit messages and the changelog
 
-Every user-visible PR adds one line to [`CHANGELOG.md`](CHANGELOG.md) under the `## [Unreleased]` section, in the appropriate subsection (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security` — see [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)).
+`CHANGELOG.md` is **generated** from Conventional Commit subjects by [git-cliff](https://git-cliff.org) — do **not** hand-edit it. The `[Unreleased]` section is regenerated from the commits on `main` (`eng/release/update-changelog.sh`, enforced by `release.sh` at each release), so what you write in the commit subject is what appears in the changelog:
 
-- **One line per PR**, not per commit. Summarise the feature or fix in a single sentence and link the PR number: `- Brief description ([#NNN](https://github.com/cvoya-com/spring-voyage/pull/NNN)).`
-- **Skip internal-only changes** that users and extenders would never notice (refactors with no behavioural effect, test-only changes, CI plumbing, typo fixes in internal docs).
-- **Skip doc-only PRs** unless they document a new public concept or surface. The docs themselves are the record.
-- **Breaking changes go under `Changed` or `Removed`** and must be prefixed with `**BREAKING:**`. Also apply the `breaking-change` label to the PR. See [`docs/developer/releases.md`](docs/developer/releases.md) for the full breaking-change policy.
-- **Reference GitHub numbers.** Link the PR; cross-reference the issue if it adds context.
-
-Don't create a new release section in the changelog. Maintainers move entries from `[Unreleased]` into a tagged section when a release is cut — see [`docs/developer/releases.md`](docs/developer/releases.md).
+- **Use Conventional Commits:** `type(scope): summary`. The type picks the changelog group — `feat` → Features, `fix` → Bug fixes, `perf` → Performance, `refactor` → Refactor, `docs` → Documentation. `chore`, `ci`, `test`, `build`, and `style` are omitted.
+- **Write the summary for a reader** — it is the user-facing line — and put the area in the `scope` (e.g. `fix(messaging): …`).
+- **Breaking changes:** add `!` after the type/scope (`feat(api)!: …`) or a `BREAKING CHANGE:` footer; they surface under **Breaking changes**. Also apply the `breaking-change` label. See [`docs/developer/releases.md`](docs/developer/releases.md) for the full policy.
+- **The PR number** GitHub appends on squash-merge (`(#NNN)`) is auto-linked — no manual reference needed.
+- **Earlier history** below the marker in `CHANGELOG.md` is hand-curated and frozen; leave it untouched.
 
 ### Code Review
 

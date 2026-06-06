@@ -1,0 +1,72 @@
+# cliff.toml — git-cliff configuration for the per-release changelog delta.
+#
+# This drives the auto-generated "What changed in this release" section that
+# release.yml appends to each GitHub Release body, between the curated
+# docs/releases/<line>.md narrative and the asset reference table. It groups
+# the Conventional Commits between the previous spring-voyage-v* tag and the
+# one being cut.
+#
+# It deliberately does NOT touch CHANGELOG.md — that stays hand-curated under
+# the per-PR convention in CONTRIBUTING.md. git-cliff reads git history, not
+# the changelog file, so the two coexist.
+#
+# Preview locally (from a clean checkout):
+#   git cliff --current                 # delta for the tag HEAD is on
+#   git cliff <prev-tag>..<this-tag>    # delta for an explicit range
+#   git cliff --unreleased              # what would ship in the next cut
+#
+# Reference: https://git-cliff.org/docs/configuration
+
+[changelog]
+# No header: this output is a fragment embedded in a larger release body.
+header = ""
+
+# One "### Group" heading per commit type, then one bullet per commit. The
+# `<!-- N -->` prefixes on group names only exist to force a stable ordering
+# (group_by sorts lexicographically); `split(pat="-->")` strips them so the
+# rendered heading is clean.
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | split(pat="-->") | last | trim }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}\
+{% endfor %}
+{% endfor %}
+"""
+
+trim = true
+footer = ""
+
+[git]
+# Parse messages as Conventional Commits (<type>[(scope)]: <description>).
+conventional_commits = true
+# Drop commits with no conventional type — this is what filters out the
+# Dependabot "Bump X from a to b (#N)" commits (no `type:` prefix) so they
+# don't clutter the user-facing delta.
+filter_unconventional = true
+# Never let a commit-parser skip a breaking change.
+protect_breaking_commits = true
+
+# Turn the trailing "(#1234)" PR reference into a markdown link. Runs before
+# parsing, so it must not disturb the leading conventional type.
+commit_preprocessors = [
+  { pattern = '\(#(\d+)\)', replace = "([#${1}](https://github.com/cvoya-com/spring-voyage/pull/${1}))" },
+]
+
+# First match wins. Breaking changes are surfaced first regardless of type;
+# chore/ci/test/build/style are dropped from the user-facing delta.
+commit_parsers = [
+  { message = "^[a-zA-Z]+(\\([^)]*\\))?!:", group = "<!-- 0 -->Breaking changes" },
+  { body = "^BREAKING[ -]CHANGE", group = "<!-- 0 -->Breaking changes" },
+  { message = "^feat", group = "<!-- 1 -->Features" },
+  { message = "^fix", group = "<!-- 2 -->Bug fixes" },
+  { message = "^perf", group = "<!-- 3 -->Performance" },
+  { message = "^refactor", group = "<!-- 4 -->Refactor" },
+  { message = "^docs", group = "<!-- 5 -->Documentation" },
+  { message = "^(chore|ci|test|build|style)", skip = true },
+  { message = ".*", group = "<!-- 6 -->Other" },
+]
+
+# Only the unified release tags delimit releases; historical v* / dispatcher-v*
+# tags are ignored.
+tag_pattern = "spring-voyage-v.*"

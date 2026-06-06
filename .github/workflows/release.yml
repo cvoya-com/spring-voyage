@@ -346,6 +346,9 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve.outputs.tag }}
+          # Full history + tags so git-cliff can compute the per-release
+          # changelog delta (a shallow checkout yields an empty delta).
+          fetch-depth: 0
 
       - name: Resolve release notes
         shell: bash
@@ -361,6 +364,51 @@ jobs:
           # Write to a temp file so multiline content survives shell quoting
           # and the GITHUB_OUTPUT 256 KB limit.
           echo "$notes" > /tmp/release-notes.md
+
+      # ── Per-release changelog delta (git-cliff) ──────────────────────────
+      #
+      # Auto-generate a grouped "What changed in this release" section from the
+      # Conventional Commits since the previous spring-voyage-v* tag, slotted
+      # between the curated narrative and the asset table. This is what gives
+      # each daily alpha a per-release "what's new": the curated
+      # docs/releases/<line>.md is reused across a whole release line, so on its
+      # own every alpha of a line would show an identical body. git-cliff reads
+      # git history (cliff.toml), never CHANGELOG.md, so the hand-curated
+      # changelog and its per-PR convention are untouched. See cliff.toml.
+      - name: Generate per-release changelog delta
+        id: changelog-delta
+        # Non-fatal: the delta only enriches the body. If git-cliff fails (e.g.
+        # re-releasing a tag cut before cliff.toml existed) the release still
+        # publishes with the curated notes + asset table.
+        continue-on-error: true
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          # --current = commits belonging to the tag HEAD is checked out at,
+          # i.e. the delta since the previous spring-voyage-v* tag. Adjacent
+          # tags → a single grouped section.
+          args: --current
+
+      - name: Append changelog delta to release notes
+        shell: bash
+        env:
+          DELTA: ${{ steps.changelog-delta.outputs.content }}
+        run: |
+          set -euo pipefail
+          # Append only when git-cliff produced non-whitespace content (empty
+          # when every commit in the range is a skipped type, or the step above
+          # soft-failed).
+          if [[ -n "${DELTA//[$' \t\n']/}" ]]; then
+            {
+              echo
+              echo "## What changed in this release"
+              echo
+              echo "$DELTA"
+            } >> /tmp/release-notes.md
+            echo "Appended per-release changelog delta."
+          else
+            echo "No changelog delta to append (empty git-cliff output)."
+          fi
 
       - name: Append release-asset reference table
         shell: bash
