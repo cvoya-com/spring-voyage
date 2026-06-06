@@ -1,0 +1,57 @@
+# cliff.changelog.toml — git-cliff config for the in-repo CHANGELOG.md.
+#
+# Distinct from cliff.toml (which renders the per-release delta in the GitHub
+# Release body, grouped, header-less). This one renders the full Keep-a-Changelog
+# file: a "# Changelog" header + a single rolled-up "## [Unreleased]" section
+# (pre-release alpha/beta/rc tags are ignored as version boundaries, matching the
+# project's "accumulate until a stable cut" model). The parsers/preprocessors are
+# intentionally identical to cliff.toml.
+#
+# Driven by eng/release/update-changelog.sh, which regenerates the section above
+# the frozen-history marker and leaves the hand-curated earlier history untouched.
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project are documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The **[Unreleased]** section is generated from Conventional Commits by [git-cliff](https://git-cliff.org) — run `eng/release/update-changelog.sh`; do not hand-edit it. Earlier history below the marker is hand-curated and frozen.
+
+"""
+
+body = """
+{% if version %}## [{{ version | trim_start_matches(pat="spring-voyage-v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}{% else %}## [Unreleased]{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | split(pat="-->") | last | trim }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}
+{%- endfor %}
+{% endfor %}
+"""
+
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+protect_breaking_commits = true
+
+commit_preprocessors = [
+  { pattern = '\(#(\d+)\)', replace = "([#${1}](https://github.com/cvoya-com/spring-voyage/pull/${1}))" },
+]
+
+commit_parsers = [
+  { message = "^[a-zA-Z]+(\\([^)]*\\))?!:", group = "<!-- 0 -->Breaking changes" },
+  { body = "^BREAKING[ -]CHANGE", group = "<!-- 0 -->Breaking changes" },
+  { message = "^feat", group = "<!-- 1 -->Features" },
+  { message = "^fix", group = "<!-- 2 -->Bug fixes" },
+  { message = "^perf", group = "<!-- 3 -->Performance" },
+  { message = "^refactor", group = "<!-- 4 -->Refactor" },
+  { message = "^docs", group = "<!-- 5 -->Documentation" },
+  { message = "^(chore|ci|test|build|style)", skip = true },
+  { message = ".*", group = "<!-- 6 -->Other" },
+]
+
+tag_pattern = "spring-voyage-v.*"

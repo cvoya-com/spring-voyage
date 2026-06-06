@@ -87,10 +87,7 @@ Use `eng/release/release.sh` to cut a release. The script pushes the tag, watche
 | `--plan` | Print the computed tag and exit 0; no tag pushed. |
 | `--force-retag` | Skip the idempotency guard (allows re-tagging an existing version). |
 
-**Changelog finalisation** (stable releases only):
-
-1. Before tagging, move the `## [Unreleased]` section in `CHANGELOG.md` to `## [X.Y.Z] - YYYY-MM-DD`, create a fresh empty `[Unreleased]` section, and merge a PR titled `Release vX.Y.Z`.
-2. Run `./eng/release/release.sh vX.Y.Z` from clean `main`.
+**Changelog** (every release): `CHANGELOG.md`'s `[Unreleased]` section is generated from Conventional Commits by [`eng/release/update-changelog.sh`](../../eng/release/update-changelog.sh). `release.sh` runs it and refuses to tag while it is stale, so commit the refreshed file (via a PR) before cutting. Pre-release (`-alpha`/`-beta`/`-rc`) tags accumulate under `[Unreleased]`; a stable cut finalises that line into a `## [X.Y.Z]` section. Earlier history below the marker is hand-curated and frozen. See [Changelog](#changelog).
 
 ### Marking a pre-release as latest
 
@@ -116,7 +113,7 @@ To promote an **already-published** pre-release without cutting a new one, re-ru
 
 `release.yml` creates the GitHub Release as a **draft** immediately after the CI gate succeeds (job: `create-draft-release`). Every publish job — agent images, platform image, sidecar SEA binaries, per-RID host archives, `Cvoya.Spring.Cli` NuGet tool, top-level `install.sh` and `install-<v>.sh` — attaches its assets to that draft. A final `finalize-release` job promotes the draft to a published release only after every publish job has succeeded.
 
-The consequence for operators watching the Releases page during a release: the entry shows up as a draft within a minute or two of the tag push and stays drafted for roughly 10–20 minutes (the long pole is the multi-arch image builds). If any publish job fails, the draft sits there until the workflow is re-run successfully; consumers never see a partially-published release. The GitHub Release title is `Spring Voyage v<version>` and the body is resolved at the tagged commit by [`eng/release/resolve-release-notes.sh`](../../eng/release/resolve-release-notes.sh) — the curated `docs/releases/<version>.md` notes if present, otherwise the `[Unreleased]` section of `CHANGELOG.md` — followed by an auto-generated asset reference table. See [Release notes](#release-notes).
+The consequence for operators watching the Releases page during a release: the entry shows up as a draft within a minute or two of the tag push and stays drafted for roughly 10–20 minutes (the long pole is the multi-arch image builds). If any publish job fails, the draft sits there until the workflow is re-run successfully; consumers never see a partially-published release. The GitHub Release title is `Spring Voyage v<version>` and the body is resolved at the tagged commit by [`eng/release/resolve-release-notes.sh`](../../eng/release/resolve-release-notes.sh) — the curated `docs/releases/<version>.md` notes if present, otherwise the `[Unreleased]` section of `CHANGELOG.md` — followed by an auto-generated per-release changelog delta (git-cliff) and an asset reference table. See [Release notes](#release-notes).
 
 ### Patch releases on prior versions
 
@@ -217,17 +214,19 @@ The container-registry tag is the prefix-stripped SemVer string (e.g., git tag `
 
 ## Changelog
 
-The canonical changelog is [`CHANGELOG.md`](../../CHANGELOG.md) at the repository root. It follows the [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) format. See [`CONTRIBUTING.md` § Changelog Expectations](../../CONTRIBUTING.md#changelog-expectations) for the per-PR convention.
+The canonical changelog is [`CHANGELOG.md`](../../CHANGELOG.md) at the repository root, in [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) format. Its `[Unreleased]` section is **generated** from Conventional Commit subjects by [git-cliff](https://git-cliff.org) (config [`cliff.changelog.toml`](../../cliff.changelog.toml)) via [`eng/release/update-changelog.sh`](../../eng/release/update-changelog.sh); the hand-curated history below the marker is frozen. There is no per-PR changelog step — contributors write good Conventional Commits ([`CONTRIBUTING.md` § Commit messages and the changelog](../../CONTRIBUTING.md#commit-messages-and-the-changelog)), and `release.sh` regenerates and gates on the changelog at each release.
 
 ## Release notes
 
 The `CHANGELOG.md` is the exhaustive, per-PR technical record. The **release notes** are the human narrative that becomes the GitHub Release body — "what's in this release and why you'd care" for someone landing on the Releases page. They live under [`docs/releases/`](../../docs/releases/), one file per release line, checked in **before** the tag is cut.
 
-**How the body is resolved.** At tag time, `create-draft-release` runs [`eng/release/resolve-release-notes.sh <version>`](../../eng/release/resolve-release-notes.sh), which picks the body in this order, then the workflow appends the auto-generated asset/image tables:
+**How the body is resolved.** At tag time, `create-draft-release` runs [`eng/release/resolve-release-notes.sh <version>`](../../eng/release/resolve-release-notes.sh), which picks the curated narrative in this order; the workflow then appends the per-release changelog delta and the auto-generated asset/image tables:
 
 1. `docs/releases/<full-version>.md` — exact, e.g. `1.0.0-rc.1.md` (rarely needed).
 2. `docs/releases/<major.minor.patch>.md` — the release line, e.g. `1.0.0.md`. **The common case** — reused by every `-alpha`/`-beta`/`-rc` and the final stable cut of that version.
 3. `CHANGELOG.md` `[Unreleased]` — fallback when no curated file exists (preserves the prior behaviour; nothing breaks if you skip the notes file).
+
+**Per-release delta.** Below the curated narrative, the workflow appends a grouped *What changed in this release* section generated by [git-cliff](https://git-cliff.org) from the Conventional Commits since the previous `spring-voyage-v*` tag (config: [`cliff.toml`](../../cliff.toml)). This is what differentiates the daily alphas: the curated `docs/releases/<line>.md` is reused across a whole release line, so without the delta every alpha of a line would show an identical body. git-cliff reads git history, **not** `CHANGELOG.md` — the hand-curated changelog and its per-PR convention are untouched. The step is non-fatal: if git-cliff fails, the release still publishes with the narrative + asset table. Preview locally with `git cliff --current` (at a tag), `git cliff <prev>..<this>` (explicit range), or `git cliff --unreleased` (the next, not-yet-tagged cut).
 
 **Authoring.** Run the `/release-notes` Claude Code command (defined in [`.claude/commands/release-notes.md`](../../.claude/commands/release-notes.md)) to draft or refresh `docs/releases/<line>.md` from the changelog, the README, and the previous notes; review it, then include it in the release-prep PR. Because the file is read from the **tagged commit**, it must be merged to `main` before `release.sh` is run. Conventions and the "no asset/image tables" rule are in [`docs/releases/README.md`](../../docs/releases/README.md).
 
@@ -238,6 +237,7 @@ The `CHANGELOG.md` is the exhaustive, per-PR technical record. The **release not
 | [`eng/release/release.sh`](../../eng/release/release.sh) | Orchestrates the full release: computes tags, pushes them in dependency order, waits on each workflow, verifies anonymous pull. Flags: `--pre alpha\|beta\|rc`, `--plan` (dry-run), `--force-retag`. |
 | [`eng/release/resolve-release-notes.sh`](../../eng/release/resolve-release-notes.sh) | Resolves the GitHub Release body for a version: curated `docs/releases/<version>.md` → release-line `docs/releases/<x.y.z>.md` → `CHANGELOG.md` `[Unreleased]` fallback. Used by `release.yml`. |
 | [`eng/release/extract-changelog-section.sh`](../../eng/release/extract-changelog-section.sh) | Extracts a named section (default: `Unreleased`) from `CHANGELOG.md` and prints it to stdout. The fallback used by `resolve-release-notes.sh`. |
+| [`eng/release/update-changelog.sh`](../../eng/release/update-changelog.sh) | Regenerates the generated `[Unreleased]` section of `CHANGELOG.md` from Conventional Commits (git-cliff + [`cliff.changelog.toml`](../../cliff.changelog.toml)), preserving the frozen curated history below the marker. `--check` verifies freshness without writing. Run by `release.sh` before tagging. |
 
 ## Summary Table
 

@@ -17,9 +17,12 @@ to choose the release body, in this order:
 2. `docs/releases/<major.minor.patch>.md` — the **release line**, e.g. `1.0.0.md`.
 3. `CHANGELOG.md` `[Unreleased]` — fallback when no curated file exists.
 
-The workflow then appends the canonical **Release assets** tables (container
-images + attached files) automatically — so **do not** put image or asset tables
-in these files; they'd be duplicated.
+The workflow then appends, in order, a git-cliff-generated **What changed in
+this release** delta (the grouped Conventional-Commit changes since the previous
+tag) and the canonical **Release assets** tables (container images + attached
+files) — both automatically. So keep these files to the high-level narrative:
+**do not** put image/asset tables here, and **do not** hand-maintain a per-PR
+change list either; the delta covers it and you'd duplicate it.
 
 The common case is **(2)**: keep one file per release line (`1.0.0.md`) and let
 every pre-release (`-alpha`/`-beta`/`-rc`) and the final stable cut of that
@@ -45,6 +48,8 @@ post) — pass the path as an argument.
 - **Keep claims accurate.** Verify against the code/README before stating a
   feature ships; the changelog and the shipped packages are the source of truth.
 - **No asset/image tables** (the workflow appends them).
+- **No per-PR change list** — the auto-generated *What changed in this release*
+  delta covers it; keep these notes to the narrative.
 - **Link to canonical pages:** [spring.voyage](https://spring.voyage) and
   [CVOYA](https://cvoya.com), plus docs/issues/discussions.
 - Keep it scannable: short sections, bullets over paragraphs.

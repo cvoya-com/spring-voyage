@@ -21,6 +21,7 @@ These become the GitHub Release body (see [`docs/releases/README.md`](../../docs
    - Capability-oriented highlights (not internal phase numbers).
    - Install one-liner, getting-started links, ready-made packages, open-core + BSL license, feedback channels (issues, discussions), links.
    - **No container-image or release-asset tables** — `release.yml` appends those automatically.
+   - **No exhaustive per-PR change list** — `release.yml` appends a git-cliff *What changed in this release* delta automatically. Keep highlights capability-oriented; don't restate every PR.
 4. **Keep it scannable** — short sections, bullets over paragraphs. Match the conventions in [`docs/releases/README.md`](../../docs/releases/README.md).
 5. Stage the file for the release-prep PR. It must be merged to `main` **before** the release tag is cut (the workflow reads it from the tagged commit).
 

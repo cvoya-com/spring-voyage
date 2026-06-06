@@ -277,6 +277,34 @@ if [[ "${BEHIND_COUNT}" -gt 0 ]]; then
   fi
 fi
 
+# ── Changelog must be current ────────────────────────────────────────────────
+#
+# CHANGELOG.md's [Unreleased] section is generated from Conventional Commits by
+# eng/release/update-changelog.sh (see docs/developer/releases.md). There is no
+# per-PR changelog convention — this is the single enforcement point. Regenerate
+# against the commit being released and refuse to tag if it changed, so a release
+# can never ship a stale changelog. The operator commits the refreshed file to
+# main (via PR) and reruns. Skipped with --force-retag (e.g. re-tagging an
+# existing version), and skipped with a warning when git-cliff is not installed.
+if [[ "$FORCE_RETAG" != "true" ]]; then
+  if command -v git-cliff >/dev/null 2>&1; then
+    bash "$(dirname "$0")/update-changelog.sh"
+    if ! git diff --quiet -- CHANGELOG.md; then
+      echo ""
+      echo "::error::CHANGELOG.md was stale; it has just been regenerated in your working tree."
+      echo "         Commit it to main (via a PR), then rerun this script:"
+      echo ""
+      git --no-pager diff --stat -- CHANGELOG.md | sed 's/^/           /'
+      echo ""
+      exit 1
+    fi
+    echo "✓  CHANGELOG.md is current."
+  else
+    echo "⚠  git-cliff not installed — skipping the CHANGELOG.md freshness check."
+    echo "   Install it (brew install git-cliff) so releases verify the changelog. See https://git-cliff.org."
+  fi
+fi
+
 # ── Local/remote tag divergence check ────────────────────────────────────────
 #
 # A local tag with no matching remote tag is unexpected state — it means a

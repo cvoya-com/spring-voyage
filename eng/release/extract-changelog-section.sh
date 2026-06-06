@@ -52,9 +52,12 @@ if [[ -z "$target_line" ]]; then
     exit 1
 fi
 
-# Step 2: find next ## [ header after the target.
+# Step 2: find the next section header after the target — either a `## [` heading
+# or the frozen-history marker that separates the generated [Unreleased] section
+# from the hand-curated history below it (so an [Unreleased] extraction stops at
+# the marker rather than swallowing the frozen tail).
 total_lines=$(wc -l < "$CHANGELOG")
-next_line=$(awk -v start="$target_line" 'NR > start && /^## \[/ { print NR; exit }' "$CHANGELOG")
+next_line=$(awk -v start="$target_line" 'NR > start && (/^## \[/ || /<!-- BEGIN FROZEN HISTORY -->/) { print NR; exit }' "$CHANGELOG")
 if [[ -z "$next_line" ]]; then
     next_line=$((total_lines + 1))
 fi
