@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Spring Voyage — Claude Code cloud-environment provisioner.
 #
-# Replicates the CI toolchain (.NET 10 + Node 20 + Dapr 1.14.1 + ruff) on a
-# fresh Claude Code cloud environment so the /build, /test, and /lint commands
+# Replicates the CI toolchain (.NET 10 + Node 20 + ruff; Dapr 1.14.1 opt-in) on
+# a fresh Claude Code cloud environment so the /build, /test, and /lint commands
 # work exactly as they do locally and in .github/workflows/ci.yml.
 #
 # No Docker/Podman: the .NET test suite uses in-memory EF (not Testcontainers)
 # and `dapr init --slim`, so containers are never required for build/test/lint.
-# Running the full agent stack (dispatcher + Podman + Postgres) is out of scope.
+# Dapr is OPT-IN (CLOUD_ENV_WITH_DAPR): its binaries are GitHub release assets,
+# which the Trusted network blocks (HTTP 403), and it's only needed for the .NET
+# actor tests — not for build, lint, or the default flow. Running the full agent
+# stack (dispatcher + Podman + Postgres) is out of scope.
 #
 # Cloud-env caching: the setup script runs ONCE, then Anthropic snapshots the
 # filesystem and reuses it for later sessions. Keep total runtime under ~5 min
@@ -21,6 +24,12 @@
 #   bash eng/cloud-env/setup.sh
 #
 # Environment overrides:
+#   CLOUD_ENV_WITH_DAPR  - set to any value to also install Dapr 1.14.1 + run
+#                          `dapr init --slim` (needed only for the .NET actor
+#                          tests). Off by default because Dapr's binaries are
+#                          GitHub release assets the Trusted network blocks (403).
+#                          To use it, set the environment's Network access to Full
+#                          (or Custom incl. the release-asset host) AND set this.
 #   CLOUD_ENV_WARM_BUILD - set to any value to also run `dotnet build` (Release)
 #                          in setup. Off by default: a full build usually pushes
 #                          setup past the ~5-min cache window. The first /build
@@ -87,6 +96,16 @@ install_dapr() {
     mkdir -p "${DAPR_DIR}"
     wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash -s 1.14.1
   fi
+  # install.sh prints "installed successfully" even when the release-asset
+  # download 403s, so verify the binary actually landed.
+  if ! command -v dapr >/dev/null 2>&1 && [ ! -x "${DAPR_DIR}/dapr" ]; then
+    echo "[dapr] ERROR: CLI binary missing after install — the GitHub release-asset" >&2
+    echo "[dapr] download was almost certainly blocked (HTTP 403). Dapr binaries come" >&2
+    echo "[dapr] from github.com/dapr/cli/releases, which the Trusted network cannot" >&2
+    echo "[dapr] reach. Set Network access to Full (or Custom incl. the release-asset" >&2
+    echo "[dapr] host) and retry, or leave CLOUD_ENV_WITH_DAPR unset." >&2
+    return 1
+  fi
   export PATH="${DAPR_DIR}:${PATH}"
   echo "[dapr] init --slim (no Docker; matches CI)..."
   dapr uninstall --all >/dev/null 2>&1 || true
@@ -105,21 +124,28 @@ install_ruff() {
   echo "[ruff] done"
 }
 
-echo "==> [1/3] Installing toolchains in parallel (.NET 10, Node 20, Dapr, ruff)"
+echo "==> [1/3] Installing toolchains in parallel (.NET 10, Node 20, ruff)"
 pids=()
 install_dotnet & pids+=($!)
 install_node & pids+=($!)
-install_dapr & pids+=($!)
 install_ruff & pids+=($!)
+if [ -n "${CLOUD_ENV_WITH_DAPR:-}" ]; then
+  echo "==> Dapr opt-in (CLOUD_ENV_WITH_DAPR) — requires Full/Custom network for GitHub release assets"
+  install_dapr & pids+=($!)
+fi
 fail=0
 for pid in "${pids[@]}"; do wait "${pid}" || fail=1; done
 [ "${fail}" -eq 0 ] || { echo "==> a toolchain install failed (see logs above)"; exit 1; }
 
 echo "==> [2/3] Wiring PATH (profile, single-writer) + sourcing toolchains"
 export DOTNET_ROOT="${DOTNET_DIR}"
-export PATH="${DOTNET_ROOT}:${DOTNET_ROOT}/tools:${DAPR_DIR}:${PATH}"
+export PATH="${DOTNET_ROOT}:${DOTNET_ROOT}/tools:${PATH}"
 add_to_profile 'export DOTNET_ROOT="$HOME/.dotnet"'
-add_to_profile 'export PATH="$DOTNET_ROOT:$DOTNET_ROOT/tools:$HOME/.dapr/bin:$PATH"'
+add_to_profile 'export PATH="$DOTNET_ROOT:$DOTNET_ROOT/tools:$PATH"'
+if [ -x "${DAPR_DIR}/dapr" ]; then
+  add_to_profile 'export PATH="$HOME/.dapr/bin:$PATH"'
+  export PATH="${DAPR_DIR}:${PATH}"
+fi
 if [ -s "${NVM_DIR}/nvm.sh" ]; then
   add_to_profile 'export NVM_DIR="$HOME/.nvm"'
   add_to_profile '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"'
@@ -133,8 +159,8 @@ if [ -d "${VENV_DIR}" ]; then
 fi
 dotnet --version
 node --version
-dapr --version
 ruff --version
+[ -x "${DAPR_DIR}/dapr" ] && dapr --version || true
 
 echo "==> [3/3] Restoring in parallel (.NET + local tools | npm workspace)"
 fail=0
@@ -151,4 +177,9 @@ else
   echo "==> Skipping warm build (default). First /build compiles; keeps setup under the ~5-min cache window."
 fi
 
-echo "==> Ready. /build, /test, and /lint now mirror CI."
+if [ -x "${DAPR_DIR}/dapr" ]; then
+  echo "==> Ready. /build, /test, and /lint now mirror CI."
+else
+  echo "==> Ready. /build and /lint mirror CI. (Dapr not installed: the .NET actor"
+  echo "    tests in /test need CLOUD_ENV_WITH_DAPR=1 + Full/Custom network access.)"
+fi
