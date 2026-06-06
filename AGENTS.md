@@ -26,11 +26,11 @@ Use the `/build`, `/test`, and `/lint` skills. Each points at the canonical CI i
 
 Pitfall: bare `dotnet test SpringVoyage.slnx` exits 0 without running tests. Always go through `/test`.
 
-### Before pushing any code-change PR (mandatory)
+### Pre-push checks
 
-Run **all three** skills — `/build`, `/lint`, `/test` — at the **solution root**, and fix every failure before pushing. CI runs the same commands on the full solution. A scoped `dotnet test path/to/single.csproj` is **not** a substitute: integration tests live in their own project (`tests/integration/Cvoya.Spring.Integration.Tests`) and routinely break first when API contracts change. Skipping `/lint` because "the change is small" is also not allowed — `dotnet format --verify-no-changes` catches trailing-newline and whitespace errors that block merge.
+Install the git hook once per clone with `eng/install-hooks.sh`; its pre-push gate runs the fast static checks (`eng/ci/ci-local.sh` — build, format, lint, typecheck for the areas you touched) automatically before every push. CI runs the full `/build`, `/lint`, `/test` on the PR and again in the merge queue, so a regression is caught regardless.
 
-This applies to dispatched sub-agents the same way: a PR claim of "tests pass" means the full solution-wide `/test`, not a project-scoped subset.
+Two things the fast hook does **not** run, so keep them in mind: `/test` is solution-wide for a reason — integration tests (`tests/integration/Cvoya.Spring.Integration.Tests`) routinely break first when API contracts change, and a scoped `dotnet test path/to/single.csproj` is no substitute. A dispatched sub-agent's claim of "tests pass" means the full solution-wide `/test` (e.g. `eng/ci/ci-local.sh --full`), not a project-scoped subset.
 
 ## Documentation updates
 

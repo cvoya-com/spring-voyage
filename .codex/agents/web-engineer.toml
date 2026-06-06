@@ -26,9 +26,9 @@ The Next.js portal at `src/Cvoya.Spring.Web/`, including the new unit/agent-inte
 - Use `/web` to start the dev server.
 - When a refactor removes or renames a form field, label, route, or `data-testid`, grep `src/Cvoya.Spring.Web/e2e/` for the old identifier and update the Playwright specs in the same PR — vitest will not catch a stale e2e selector.
 
-## Pre-push gates
+## Web CI gates
 
-A web-touching PR triggers every gate below in CI. Run all of them locally before pushing — all must pass. Skipping any risks a blocked PR.
+A web-touching PR triggers every gate below — on the PR, and (for the build/test-class jobs) again in the merge queue. The pre-push hook (`eng/ci/ci-local.sh`, installed via `eng/install-hooks.sh`) runs the fast subset — lint + typecheck — before each push; `--full` runs the rest locally too. For reference, the full set:
 
 ```bash
 # from src/Cvoya.Spring.Web

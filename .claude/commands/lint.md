@@ -6,8 +6,9 @@ reasons. CI failures on these gates are common because the .NET formatter
 "my change is small" doesn't excuse skipping any of them — `dotnet format`
 catches trailing-newline / whitespace errors that no .NET unit test will surface.
 
-Run all of these from the repository root before pushing. Each command must
-exit 0; fix and re-run any that don't.
+The pre-push hook (`eng/ci/ci-local.sh`) runs these for you; you can also run
+them by hand from the repository root. Each command must exit 0; fix and re-run
+any that don't.
 
 ```bash
 # .NET — formatting + whitespace + final-newline (CI: "Format check")
@@ -58,4 +59,4 @@ explicitly when touching the relevant area:
 - `EF Core model drift` — see `/ef-drift` if it exists, or rebuild the
   solution and check `git status` on `Migrations/` (when editing entities)
 
-The `/build` and `/test` skills are separate and remain mandatory pre-push.
+The `/build` and `/test` skills are separate; CI and the merge queue enforce them.

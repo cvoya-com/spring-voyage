@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# pre-push gate: run the fast local CI checks (eng/ci/ci-local.sh) before a push.
+#
+# Catches the obvious failures (build, format, lint, typecheck for the areas you
+# touched) before they reach the PR / merge queue. A non-zero result aborts the
+# push. The full build/test suite is enforced by CI on the PR and in the merge
+# queue regardless.
+#
+# Enable once per clone with: eng/install-hooks.sh
+# Bypass in an emergency with:  git push --no-verify
+
+set -uo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+gate="$repo_root/eng/ci/ci-local.sh"
+
+if [ ! -x "$gate" ]; then
+  echo "pre-push: $gate missing or not executable; skipping gate." >&2
+  exit 0
+fi
+
+echo "pre-push: running fast local CI gate (bypass with --no-verify)…"
+exec "$gate"
