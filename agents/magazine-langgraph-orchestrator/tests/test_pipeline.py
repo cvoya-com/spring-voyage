@@ -44,6 +44,38 @@ def test_build_brief_later_stage_carries_artifact_inline():
     assert "THE DRAFT TEXT" in d.body
 
 
+def test_build_brief_carries_the_per_story_brief_into_every_stage():
+    # #3088: the director's per-story direction (length, sourcing, tone) must
+    # reach the writers. Without it a "150-word, no-research vignette" came back
+    # as a long researched feature. The brief rides every stage, draft included.
+    draft = pipeline.build_brief(
+        stage="draft",
+        slot_title="The perfect cup of morning coffee",
+        theme="Tiny Joys",
+        artifact=None,
+        slot_brief="~150 words. Warm, sensory vignette. No research or citations.",
+    )
+    assert "Editor's brief" in draft.body
+    assert "No research or citations" in draft.body
+    # And it persists into a later stage too.
+    fact = pipeline.build_brief(
+        stage="fact_check",
+        slot_title="The perfect cup of morning coffee",
+        theme="Tiny Joys",
+        artifact="DRAFT",
+        slot_brief="~150 words. No research.",
+    )
+    assert "Editor's brief" in fact.body
+    assert "No research" in fact.body
+
+
+def test_build_brief_omits_brief_section_when_absent():
+    d = pipeline.build_brief(
+        stage="draft", slot_title="X", theme="Y", artifact=None, slot_brief=""
+    )
+    assert "Editor's brief" not in d.body
+
+
 def test_build_brief_later_stage_demands_the_complete_piece_back():
     # #3088: a stage receives only what the previous one returns, so every stage
     # must hand back the whole evolving piece. A fact-checker that replied with

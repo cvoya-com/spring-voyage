@@ -40,11 +40,23 @@ def build_tool_server(
     server = FastMCP("orchestration", host=host, port=port)
 
     @server.tool()
-    async def start_edition(theme: str, slots: list[str], report_to: str) -> str:
+    async def start_edition(
+        theme: str,
+        slots: list[str],
+        report_to: str,
+        briefs: list[str] | None = None,
+    ) -> str:
         """Start a new magazine edition and return its edition_id.
 
         theme: the edition's overarching subject.
         slots: the ordered list of story-slot titles to commission (1-6).
+        briefs: the director's COMPLETE direction for each story, aligned 1:1
+            with slots — angle, target length, tone, sourcing rules, and any
+            non-negotiables, verbatim from the director's brief. ALWAYS pass this
+            whenever the director specified anything beyond a bare title: the
+            writers see ONLY what you put here, so a "150-word, no-research
+            vignette" left out of briefs comes back as a long researched piece.
+            Use "" for a slot the director left open.
         report_to: the director's address from the inbound message — where the
             assembled edition is brought for sign-off.
 
@@ -52,7 +64,7 @@ def build_tool_server(
         approve_edition / revise_edition calls (active_editions also lists it).
         """
         return await coordinator.start_edition(
-            theme=theme, slots=slots, report_to=report_to
+            theme=theme, slots=slots, report_to=report_to, briefs=briefs
         )
 
     @server.tool()

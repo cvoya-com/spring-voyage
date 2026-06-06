@@ -59,6 +59,10 @@ class Slot:
     stage: str  # current pipeline stage (pipeline.SLOT_STAGES) or "done"
     artifact: str | None = None
     done: bool = False
+    # The director's per-story brief (angle, length, tone, sourcing,
+    # non-negotiables). Carried into every stage's delegation so the editor's
+    # commission reaches the writers (#3088). Empty when only a title was given.
+    brief: str = ""
 
 
 @dataclass
@@ -103,11 +107,16 @@ class OrchestratorStore:
         slot_titles: list[str],
         report_to: str,
         first_stage: str,
+        slot_briefs: list[str] | None = None,
         origin_message_id: str = "",
     ) -> Edition:
+        briefs = slot_briefs or []
         slots = {
             f"slot-{i + 1}": Slot(
-                slot_id=f"slot-{i + 1}", title=title, stage=first_stage
+                slot_id=f"slot-{i + 1}",
+                title=title,
+                stage=first_stage,
+                brief=briefs[i] if i < len(briefs) else "",
             )
             for i, title in enumerate(slot_titles)
         }

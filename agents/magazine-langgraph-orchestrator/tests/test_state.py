@@ -33,6 +33,36 @@ def test_create_and_reload_edition(tmp_path):
     assert reloaded.origin_message_id == "m0"
 
 
+def test_create_edition_stores_per_slot_brief_and_reloads(tmp_path):
+    # #3088: the director's per-story brief must be retained on the slot (and
+    # survive reload) so every stage can carry it to the writers.
+    store = _store(tmp_path)
+    store.create_edition(
+        edition_id="ed-b",
+        theme="Tiny Joys",
+        slot_titles=["Coffee", "Walk"],
+        slot_briefs=["~150 words, no research", "warm, 200 words"],
+        report_to="unit:director",
+        first_stage="draft",
+    )
+    reloaded = OrchestratorStore(str(tmp_path)).get_edition("ed-b")
+    assert reloaded is not None
+    assert reloaded.slots["slot-1"].brief == "~150 words, no research"
+    assert reloaded.slots["slot-2"].brief == "warm, 200 words"
+
+
+def test_create_edition_defaults_brief_to_empty_when_absent(tmp_path):
+    store = _store(tmp_path)
+    edition = store.create_edition(
+        edition_id="ed-nb",
+        theme="t",
+        slot_titles=["only"],
+        report_to="x",
+        first_stage="draft",
+    )
+    assert edition.slots["slot-1"].brief == ""
+
+
 def test_get_missing_edition_returns_none(tmp_path):
     assert _store(tmp_path).get_edition("nope") is None
 

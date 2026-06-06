@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from itertools import zip_longest
 from typing import Awaitable, Callable
 
 from orchestrator import mcp as mcp_tools
@@ -185,7 +186,12 @@ class Coordinator:
     # ----- orchestration tools (Claude calls these over the local MCP) -----
 
     async def start_edition(
-        self, *, theme: str, slots: list[str], report_to: str
+        self,
+        *,
+        theme: str,
+        slots: list[str],
+        report_to: str,
+        briefs: list[str] | None = None,
     ) -> str:
         """Tool: start a new edition and return its engine-minted ``edition_id``.
 
@@ -193,17 +199,30 @@ class Coordinator:
         durable edition, kicks off one LangGraph pipeline per slot, delivers
         each first delegation, and returns the id for Claude to store and use in
         later ``get_status`` / ``cancel`` calls.
+
+        ``briefs`` carries the director's complete per-story direction (angle,
+        length, tone, sourcing, non-negotiables), aligned 1:1 with ``slots``.
+        It is threaded into every stage so the writers honour the commission;
+        without it a slot reaches the pipeline as a bare title (#3088).
         """
         edition_id = uuid.uuid4().hex
-        slot_titles = [str(s).strip() for s in (slots or []) if str(s).strip()][
-            :MAX_SLOTS
+        # Pair each title with its brief BEFORE dropping blank titles, so a
+        # filtered-out slot cannot misalign the remaining briefs.
+        paired = [
+            (str(s).strip(), str(b).strip())
+            for s, b in zip_longest(slots or [], briefs or [], fillvalue="")
         ]
+        paired = [(t, br) for t, br in paired if t][:MAX_SLOTS]
+        slot_titles = [t for t, _ in paired]
+        slot_briefs = [br for _, br in paired]
         if not slot_titles:
             slot_titles = [str(theme).strip() or "Untitled"]
+            slot_briefs = [""]
         edition = self._store.create_edition(
             edition_id=edition_id,
             theme=str(theme).strip() or "Untitled edition",
             slot_titles=slot_titles,
+            slot_briefs=slot_briefs,
             report_to=report_to,
             first_stage=pipeline.SLOT_STAGES[0],
         )
@@ -533,6 +552,7 @@ class Coordinator:
             "edition_id": edition.edition_id,
             "slot_id": slot_id,
             "slot_title": slot.title,
+            "slot_brief": slot.brief,
             "theme": edition.theme,
             "artifact": None,
             "stages_done": [],
