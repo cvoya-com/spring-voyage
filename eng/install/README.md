@@ -57,6 +57,12 @@ any other version.
 9. Runs `SPRING_ENV_FILE=... bundle/deploy.sh up`.
 10. Optionally invokes `spring github-app register --env-path …
     --write-env` if the operator opts in.
+11. Points the `spring` CLI at this deployment by writing
+    `~/.spring/config.json` with the resolved API endpoint (the
+    Caddy-fronted `DEPLOY_SCHEME://host:port`), so the CLI doesn't fall
+    back to its `http://localhost:5000` dev default. Written only when
+    absent, so a re-install never clobbers an existing token or a
+    hand-set endpoint; override anytime with `SPRING_API_URL`.
 
 ## Operator wrapper (`voyage`)
 
