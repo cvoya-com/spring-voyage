@@ -115,17 +115,6 @@ public class ApiTokenAuthHandlerTests : IDisposable
                     // background gRPC stream is dead weight.
                     services.RemoveDaprWorkflowWorker();
 
-                    // Remove and re-register ICostTracker.
-                    var costDescriptors = services
-                        .Where(d => d.ServiceType == typeof(Cvoya.Spring.Core.Costs.ICostTracker))
-                        .ToList();
-                    foreach (var d in costDescriptors)
-                    {
-                        services.Remove(d);
-                    }
-
-                    services.AddSingleton(Substitute.For<Cvoya.Spring.Core.Costs.ICostTracker>());
-
                     services.AddSingleton(sp =>
                     {
                         var loggerFactory = sp.GetRequiredService<ILoggerFactory>();

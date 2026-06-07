@@ -143,7 +143,8 @@ public static class OtlpEventMapper
             Timestamp: ParseUnixNanos(record.TimeUnixNano),
             Summary: summary,
             Severity: severity,
-            Details: JsonSerializer.SerializeToElement(attributes));
+            Details: JsonSerializer.SerializeToElement(attributes),
+            UnitId: ExtractStringAttribute(resource, OtelResourceKeys.UnitId));
     }
 
     private static OtlpEventIngest MapSpan(
@@ -186,7 +187,8 @@ public static class OtlpEventMapper
             Timestamp: ParseUnixNanos(span.StartTimeUnixNano),
             Summary: span.Name ?? "(unnamed span)",
             Severity: severity,
-            Details: JsonSerializer.SerializeToElement(attributes));
+            Details: JsonSerializer.SerializeToElement(attributes),
+            UnitId: ExtractStringAttribute(resource, OtelResourceKeys.UnitId));
     }
 
     private static OtlpEventIngest MapProgressEvent(
@@ -211,7 +213,8 @@ public static class OtlpEventMapper
             Timestamp: ParseUnixNanos(ev.TimeUnixNano),
             Summary: message,
             Severity: ActivitySeverity.Info,
-            Details: JsonSerializer.SerializeToElement(attributes));
+            Details: JsonSerializer.SerializeToElement(attributes),
+            UnitId: ExtractStringAttribute(resource, OtelResourceKeys.UnitId));
     }
 
     private static Dictionary<string, object?> AttributesToDictionary(List<OtlpKeyValue> attributes)

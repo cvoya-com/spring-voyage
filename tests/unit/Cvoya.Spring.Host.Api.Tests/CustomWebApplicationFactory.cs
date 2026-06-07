@@ -8,7 +8,6 @@ using System.Reactive.Linq;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
-using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
@@ -560,7 +559,6 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(IActorProxyFactory),
                 typeof(IAgentProxyResolver),
                 typeof(IStateStore),
-                typeof(ICostTracker),
                 typeof(IActivityQueryService),
                 typeof(IAnalyticsQueryService),
                 typeof(IActivityEventBus),
@@ -612,7 +610,6 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(ActorProxyFactory);
             services.AddSingleton(AgentProxyResolver);
             services.AddSingleton(StateStore);
-            services.AddSingleton(Substitute.For<ICostTracker>());
             services.AddSingleton(ActivityQueryService);
             services.AddSingleton(AnalyticsQueryService);
             services.AddSingleton(ActivityEventBus);

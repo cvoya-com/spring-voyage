@@ -293,4 +293,13 @@ internal static class OtelResourceKeys
     public const string SubjectKind = "sv.subject.kind";
     public const string ThreadId = "sv.thread.id";
     public const string MessageId = "sv.message.id";
+
+    /// <summary>
+    /// Owning-unit id of the subject agent (#3108). Stamped by the launcher
+    /// alongside the subject identity so native / SV Agent SDK turn cost
+    /// records inherit the same unit attribution as the Claude Code path —
+    /// otherwise <c>CostRecord.UnitId</c> is null for SDK turns and unit-scope
+    /// cost rollups / budget enforcement miss SDK-runtime spend.
+    /// </summary>
+    public const string UnitId = "sv.unit.id";
 }

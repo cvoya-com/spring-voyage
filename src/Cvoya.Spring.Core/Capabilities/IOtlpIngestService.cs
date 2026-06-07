@@ -70,6 +70,12 @@ public interface IOtlpIngestService
 /// <see cref="ActivityEvent.CorrelationId"/>.
 /// </param>
 /// <param name="MessageId">Optional message id from <c>sv.message.id</c>.</param>
+/// <param name="UnitId">
+/// Optional owning-unit id of the subject agent, resolved from the
+/// <c>sv.unit.id</c> resource attribute the launcher stamps (#3108). Carried
+/// onto the derived <c>CostIncurred</c> activity so native / SV Agent SDK
+/// turn cost records inherit unit attribution, matching the Claude Code path.
+/// </param>
 /// <param name="Timestamp">When the underlying span / log was observed.</param>
 /// <param name="Summary">
 /// A short human-readable summary. Truncation rules are applied to the
@@ -93,7 +99,8 @@ public sealed record OtlpEventIngest(
     DateTimeOffset Timestamp,
     string Summary,
     ActivitySeverity Severity,
-    JsonElement Details);
+    JsonElement Details,
+    string? UnitId = null);
 
 /// <summary>
 /// Result of a single ingest batch. Counts are diagnostic — callers

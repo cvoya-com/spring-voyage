@@ -59,6 +59,58 @@ public class OtlpEventMapperTests
     }
 
     [Fact]
+    public void MapTraces_UnitResourceAttribute_FlowsToEventUnitId()
+    {
+        // #3108: sv.unit.id stamped by the launcher rides through the mapper
+        // onto OtlpEventIngest.UnitId so the cost path can attribute the unit.
+        var unitId = new Guid("44444444-0000-0000-0000-000000000001");
+        var request = new OtlpTracesRequest
+        {
+            ResourceSpans =
+            {
+                new OtlpResourceSpans
+                {
+                    Resource = ResourceFor(TenantA, SubjectA, "agent", unitId),
+                    ScopeSpans =
+                    {
+                        new OtlpScopeSpans { Spans = { Span("sv.llm.turn") } },
+                    },
+                },
+            },
+        };
+
+        var events = OtlpEventMapper.MapTraces(request, TenantA,
+            new Address(Address.AgentScheme, SubjectA), NullLogger.Instance);
+
+        var turn = events.ShouldHaveSingleItem();
+        turn.UnitId.ShouldBe(GuidFormatter.Format(unitId));
+    }
+
+    [Fact]
+    public void MapTraces_NoUnitResourceAttribute_LeavesUnitIdNull()
+    {
+        var request = new OtlpTracesRequest
+        {
+            ResourceSpans =
+            {
+                new OtlpResourceSpans
+                {
+                    Resource = ResourceFor(TenantA, SubjectA, "agent"),
+                    ScopeSpans =
+                    {
+                        new OtlpScopeSpans { Spans = { Span("sv.llm.turn") } },
+                    },
+                },
+            },
+        };
+
+        var events = OtlpEventMapper.MapTraces(request, TenantA,
+            new Address(Address.AgentScheme, SubjectA), NullLogger.Instance);
+
+        events.ShouldHaveSingleItem().UnitId.ShouldBeNull();
+    }
+
+    [Fact]
     public void MapTraces_MismatchedTenant_DropsBatch()
     {
         var request = new OtlpTracesRequest
@@ -186,8 +238,9 @@ public class OtlpEventMapperTests
             },
         };
 
-    private static OtlpResource ResourceFor(Guid tenantId, Guid subjectId, string subjectKind)
-        => new()
+    private static OtlpResource ResourceFor(Guid tenantId, Guid subjectId, string subjectKind, Guid? unitId = null)
+    {
+        var resource = new OtlpResource
         {
             Attributes =
             {
@@ -196,6 +249,16 @@ public class OtlpEventMapperTests
                 new OtlpKeyValue { Key = "sv.subject.kind", Value = new OtlpAnyValue { StringValue = subjectKind } },
             },
         };
+        if (unitId is { } u)
+        {
+            resource.Attributes.Add(new OtlpKeyValue
+            {
+                Key = "sv.unit.id",
+                Value = new OtlpAnyValue { StringValue = GuidFormatter.Format(u) },
+            });
+        }
+        return resource;
+    }
 
     private static OtlpSpan Span(string name, string? startUnixNanos = null)
         => new()

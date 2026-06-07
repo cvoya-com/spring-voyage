@@ -3,7 +3,6 @@
 
 namespace Cvoya.Spring.Host.Api.Tests.UnitEndpoints;
 
-using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Auth;
@@ -79,15 +78,6 @@ internal static class UnauthenticatedTestHostHelpers
         // No sidecar in these tests; strip the Dapr workflow worker the
         // same way CustomWebApplicationFactory does (see #568).
         services.RemoveDaprWorkflowWorker();
-
-        var costDescriptors = services
-            .Where(d => d.ServiceType == typeof(ICostTracker))
-            .ToList();
-        foreach (var d in costDescriptors)
-        {
-            services.Remove(d);
-        }
-        services.AddSingleton(Substitute.For<ICostTracker>());
 
         services.AddSingleton(sp =>
         {
