@@ -334,6 +334,17 @@ public class SvDirectorySkillRegistry_HumanMembersTests
             {
                 memberGraph.SeedAgentMembers(UnitId, agentId);
             }
+
+            // #3089: the single member-role seam, seeded from the same
+            // agent-membership rows the fixture wires for the directory's
+            // role supplement. These tests seed no agent-definition role,
+            // so the seam surfaces the membership roles verbatim.
+            var memberRoleDirectory = new InMemoryUnitMemberRoleDirectory();
+            foreach (var membership in _agentMemberships)
+            {
+                memberRoleDirectory.Seed(membership.UnitId, membership.AgentId, membership.Roles);
+            }
+
             var expertiseStore = Substitute.For<IExpertiseStore>();
             expertiseStore
                 .GetDomainsAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
@@ -357,6 +368,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
                 scopeFactory,
                 memberGraph,
                 _membershipStore,
+                memberRoleDirectory,
                 expertiseStore,
                 actorProxyFactory,
                 tenantContext,

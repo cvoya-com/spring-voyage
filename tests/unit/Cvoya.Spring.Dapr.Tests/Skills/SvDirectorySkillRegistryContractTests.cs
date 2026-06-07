@@ -39,6 +39,8 @@ public class SvDirectorySkillRegistryContractTests
     private readonly IUnitMemberGraphStore _memberGraphStore = new InMemoryUnitMemberGraphStore();
     private readonly IUnitHumanMembershipStore _humanMembershipStore =
         new InMemoryUnitHumanMembershipStore();
+    private readonly IUnitMemberRoleDirectory _memberRoleDirectory =
+        new InMemoryUnitMemberRoleDirectory();
     private readonly IExpertiseStore _expertiseStore = Substitute.For<IExpertiseStore>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
@@ -54,6 +56,7 @@ public class SvDirectorySkillRegistryContractTests
         _scopeFactory,
         _memberGraphStore,
         _humanMembershipStore,
+        _memberRoleDirectory,
         _expertiseStore,
         _actorProxyFactory,
         _tenantContext,

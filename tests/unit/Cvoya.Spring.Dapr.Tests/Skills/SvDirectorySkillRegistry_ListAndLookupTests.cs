@@ -716,10 +716,22 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
             // null proxies (calls throw, the registry tolerates and omits).
             var actorProxyFactory = Substitute.For<IActorProxyFactory>();
 
+            // #3089: the single member-role seam, driven by the same
+            // membership-role + agent-definition-role seeds the fixture
+            // already builds so the seam-backed list paths resolve
+            // identically to the EF join in production.
+            var memberRoleDirectory = new InMemoryUnitMemberRoleDirectory();
+            foreach (var ((unitId, agentId), membership) in _agentMemberships)
+            {
+                _agents.TryGetValue(agentId, out var agentDef);
+                memberRoleDirectory.Seed(unitId, agentId, membership.Roles, agentDef?.Role);
+            }
+
             var registry = new SvDirectorySkillRegistry(
                 scopeFactory,
                 _memberGraph,
                 _humanStore,
+                memberRoleDirectory,
                 expertiseStore,
                 actorProxyFactory,
                 tenantContext,

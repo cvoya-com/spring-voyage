@@ -237,6 +237,15 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // ahead of the OSS default.
         services.TryAddSingleton<IUnitMemberGraphStore, UnitMemberGraphStore>();
 
+        // #3089: single DB-backed seam that resolves a unit's agent members
+        // and their effective roles (membership roles ∪ agent_definitions.role,
+        // deduped) from one join. Replaces the divergent per-membership role
+        // passes the directory tools used to run independently. Same scope-
+        // per-call shape as IUnitMemberGraphStore above; TryAddSingleton so
+        // the cloud overlay can layer a tenant-aware / cached decorator ahead
+        // of the OSS default.
+        services.TryAddSingleton<IUnitMemberRoleDirectory, UnitMemberRoleDirectory>();
+
         // #2981: queryable mirror of artefact lifecycle status on the
         // agent_live_config / unit_live_config rows. Singleton store that
         // creates a scope per call (same shape as IUnitMemberGraphStore
