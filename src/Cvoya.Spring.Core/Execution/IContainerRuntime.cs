@@ -24,6 +24,31 @@ using Cvoya.Spring.Core.Lifecycle;
 public record ContainerHealth(bool Healthy, string? Detail);
 
 /// <summary>
+/// Runtime liveness snapshot returned by
+/// <see cref="IContainerRuntime.GetContainerStateAsync"/>. Distinguishes a
+/// container that is still running from one that has already exited (and with
+/// what code), without requiring any in-container binary — it is read from the
+/// runtime's own <c>inspect</c> metadata.
+/// </summary>
+/// <param name="IsRunning">
+/// <c>true</c> when the runtime reports the container's
+/// <c>State.Status == "running"</c>. <c>false</c> for any terminal or
+/// pre-run state (<c>exited</c>, <c>created</c>, <c>dead</c>, …) and for a
+/// container the runtime no longer knows about (already reclaimed by
+/// <c>--rm</c>).
+/// </param>
+/// <param name="ExitCode">
+/// The container's process exit code when it has terminated; <c>null</c> while
+/// the container is still running or when the runtime cannot report a code.
+/// </param>
+/// <param name="Status">
+/// The raw runtime status string (<c>running</c>, <c>exited</c>, …), or
+/// <c>"unknown"</c> when the container is not known to the runtime. Surfaced
+/// verbatim for diagnostics.
+/// </param>
+public record ContainerRunState(bool IsRunning, int? ExitCode, string Status);
+
+/// <summary>
 /// Abstraction for running agent workloads in containers.
 /// </summary>
 public interface IContainerRuntime
@@ -156,10 +181,19 @@ public interface IContainerRuntime
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>
     /// <c>true</c> when the endpoint answered 2xx; <c>false</c> on any
-    /// non-2xx, network error, missing <c>curl</c>, or unknown container.
-    /// Callers that need to distinguish those cases should fall back to
-    /// inspect / logs.
+    /// transient or terminal-but-recoverable failure (non-2xx, DNS / connection
+    /// failure, unknown container). Callers that need to distinguish those
+    /// cases should fall back to <see cref="GetContainerStateAsync"/> / logs.
     /// </returns>
+    /// <exception cref="ContainerProbeToolMissingException">
+    /// Thrown when the probe binary (<c>curl</c>) is absent from the workload
+    /// image's <c>PATH</c> (#3085). This is a <b>permanent</b> condition — every
+    /// subsequent probe would fail identically — so it surfaces as an exception
+    /// the readiness wait fast-fails on, rather than collapsing to <c>false</c>
+    /// and burning the readiness window. Callers that poll this method in a
+    /// best-effort liveness sweep MAY catch it and treat the container as
+    /// not-healthy.
+    /// </exception>
     Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default);
 
     /// <summary>
@@ -304,6 +338,38 @@ public interface IContainerRuntime
     /// to the runtime, so the API layer can surface an HTTP 404.
     /// </exception>
     Task<ContainerHealth> GetHealthAsync(string containerId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Reads the named container's liveness (running vs. exited, plus exit
+    /// code) from the runtime's <c>inspect</c> metadata. Requires no
+    /// in-container binary — unlike <see cref="ProbeContainerHttpAsync"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Added for #3085 so a readiness wait can fast-fail the moment the
+    /// workload container exits — rather than polling
+    /// <see cref="ProbeContainerHttpAsync"/> against a corpse for the whole
+    /// readiness window and reporting a generic timeout. The caller pairs a
+    /// <c>false</c> <see cref="ContainerRunState.IsRunning"/> result with
+    /// <see cref="GetLogsAsync"/> to surface the crash output (e.g.
+    /// <c>No module named orchestrator</c>) in the failure message.
+    /// </para>
+    /// <para>
+    /// This method does <b>not</b> throw when the container is unknown to the
+    /// runtime — a vanished container (auto-reclaimed by <c>--rm</c> on exit)
+    /// is reported as <see cref="ContainerRunState.IsRunning"/> = <c>false</c>
+    /// with <see cref="ContainerRunState.Status"/> = <c>"unknown"</c>, because
+    /// "gone" and "exited" are the same signal to a readiness wait. It differs
+    /// from <see cref="GetHealthAsync"/> in this respect deliberately.
+    /// </para>
+    /// </remarks>
+    /// <param name="containerId">Identifier of the container to inspect.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>
+    /// The container's liveness snapshot. Never <c>null</c>; an unknown
+    /// container yields <c>(IsRunning: false, ExitCode: null, Status: "unknown")</c>.
+    /// </returns>
+    Task<ContainerRunState> GetContainerStateAsync(string containerId, CancellationToken ct = default);
 
     /// <summary>
     /// Forwards a JSON HTTP <c>POST</c> into the named container's network

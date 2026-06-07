@@ -404,16 +404,15 @@ public class A2AExecutionDispatcher(
             // different bridge networks without breaking dispatch.
             var endpoint = new Uri($"http://localhost:{spec.A2APort}/");
 
-            var ready = await WaitForA2AReadyAsync(
+            var readiness = await WaitForA2AReadyAsync(
                 containerId, endpoint, EffectiveReadinessTimeout, cancellationToken);
 
-            if (!ready)
+            if (!readiness.Ready)
             {
                 _logger.LogWarning(
-                    "Ephemeral agent {AgentId} (container {ContainerId}) did not become ready within {Timeout}",
-                    agentId, containerId, EffectiveReadinessTimeout);
-                throw new SpringException(
-                    $"Ephemeral agent '{agentId}' did not become A2A-ready within {EffectiveReadinessTimeout}.");
+                    "Ephemeral agent {AgentId} (container {ContainerId}) did not become ready: {Detail}",
+                    agentId, containerId, readiness.Detail);
+                throw A2AReadinessFailureFactory.Build($"Ephemeral agent '{agentId}'", readiness);
             }
 
             // ADR-0052 §4: deliver the per-turn session token in the A2A
@@ -1192,13 +1191,13 @@ public class A2AExecutionDispatcher(
 
         var endpoint = new Uri($"http://localhost:{spec.A2APort}/");
 
-        var ready = await WaitForA2AReadyAsync(containerId, endpoint, EffectiveReadinessTimeout, cancellationToken);
+        var readiness = await WaitForA2AReadyAsync(containerId, endpoint, EffectiveReadinessTimeout, cancellationToken);
 
-        if (!ready)
+        if (!readiness.Ready)
         {
             _logger.LogError(
-                "Persistent agent {AgentId} did not become ready within {Timeout}. Stopping container.",
-                agentId, EffectiveReadinessTimeout);
+                "Persistent agent {AgentId} did not become ready: {Detail}. Stopping container.",
+                agentId, readiness.Detail);
             if (useDaprSidecar && sidecarId is not null && lifecycleNetworkName is not null)
             {
                 await containerLifecycleManager.TeardownAsync(
@@ -1209,8 +1208,7 @@ public class A2AExecutionDispatcher(
                 await containerRuntime.StopAsync(containerId, CancellationToken.None);
             }
 
-            throw new SpringException(
-                $"Persistent agent '{agentId}' did not become ready within {EffectiveReadinessTimeout}.");
+            throw A2AReadinessFailureFactory.Build($"Persistent agent '{agentId}'", readiness);
         }
 
         // Register in the persistent registry. The row is the cross-process
@@ -1556,81 +1554,34 @@ public class A2AExecutionDispatcher(
 
     /// <summary>
     /// Polls the agent container's A2A Agent Card endpoint from the host
-    /// until it answers 200 or the timeout expires. Used by both dispatch
-    /// paths so they cannot drift on what "ready" means.
+    /// until it answers 200, the container exits, or the timeout expires.
+    /// Used by both dispatch paths so they cannot drift on what "ready" means
+    /// or on how a failing launch is diagnosed.
     /// </summary>
     /// <remarks>
-    /// The probe goes through
-    /// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>, which the
-    /// dispatcher implements as <c>podman exec &lt;containerId&gt; curl …</c>
-    /// inside the agent container's own network namespace. Per ADR 0028
-    /// Decision A and #2198, exec is the only mechanism the dispatcher uses
-    /// to reach into a tenant container — joining the tenant network from
-    /// the dispatcher process would collapse the isolation guarantee. The
-    /// agent base image installs <c>curl</c> explicitly so this primitive
-    /// works on every platform-built image.
+    /// Delegates to <see cref="A2AReadinessProbe.WaitAsync"/>, which probes via
+    /// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>
+    /// (<c>podman exec &lt;containerId&gt; curl …</c> inside the agent's own
+    /// network namespace — the ADR 0028 Decision A mechanism for reaching into
+    /// a tenant container without joining its network) and fast-fails on
+    /// container-exit or a missing probe binary (#3085) instead of waiting out
+    /// the full window on a generic timeout.
     /// </remarks>
-    internal async Task<bool> WaitForA2AReadyAsync(
+    internal Task<A2AReadinessResult> WaitForA2AReadyAsync(
         string containerId,
         Uri endpoint,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(timeout);
-
         var agentCardUri = new Uri(endpoint, ".well-known/agent.json").ToString();
-        var attempts = 0;
-        Exception? lastException = null;
-
-        while (!cts.Token.IsCancellationRequested)
-        {
-            attempts++;
-            try
-            {
-                var healthy = await containerRuntime.ProbeContainerHttpAsync(
-                    containerId, agentCardUri, cts.Token);
-                if (healthy)
-                {
-                    _logger.LogDebug(
-                        "A2A endpoint {Endpoint} ready after {Attempts} attempt(s) (container {ContainerId})",
-                        endpoint, attempts, containerId);
-                    return true;
-                }
-                _logger.LogDebug(
-                    "A2A readiness probe attempt {Attempt} for {Endpoint} returned not-ready (container {ContainerId})",
-                    attempts, endpoint, containerId);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                // Internal CancelAfter fired mid-probe: fall through to the
-                // "did not become ready" warning + return false so the
-                // timeout stays visible in logs. Outer cancellation still
-                // propagates because the when-filter doesn't match.
-                break;
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                lastException = ex;
-                _logger.LogDebug(
-                    "A2A readiness probe attempt {Attempt} for {Endpoint} failed: {Reason}",
-                    attempts, endpoint, ex.Message);
-            }
-
-            try
-            {
-                await Task.Delay(ReadinessProbeInterval, cts.Token);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-        }
-
-        _logger.LogWarning(
-            "A2A endpoint {Endpoint} did not become ready after {Attempts} attempt(s) within {Timeout} (container {ContainerId}). Last error: {LastError}",
-            endpoint, attempts, timeout, containerId, lastException?.Message ?? "(none)");
-        return false;
+        return A2AReadinessProbe.WaitAsync(
+            containerRuntime,
+            containerId,
+            agentCardUri,
+            timeout,
+            ReadinessProbeInterval,
+            _logger,
+            cancellationToken);
     }
 
     /// <summary>

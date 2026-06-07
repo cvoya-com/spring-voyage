@@ -975,53 +975,28 @@ public class PersistentAgentRegistry(
     }
 
     /// <summary>
-    /// Waits until the A2A Agent Card endpoint returns 200 or the timeout expires.
+    /// Waits until the A2A Agent Card endpoint returns 200, the container
+    /// exits, or the timeout expires. Shares the readiness loop with the
+    /// dispatcher (<see cref="A2AReadinessProbe.WaitAsync"/>) so the deploy
+    /// path and the auto-start path diagnose a failing launch identically —
+    /// fast-failing on container-exit or a missing probe binary (#3085) rather
+    /// than waiting out the full window on a generic timeout.
     /// </summary>
-    /// <remarks>
-    /// The probe is dispatched via
-    /// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>, which the
-    /// dispatcher implements as <c>podman exec &lt;id&gt; curl …</c> inside
-    /// the agent container's own network namespace (ADR 0028 Decision A,
-    /// #2198). Agent images install <c>curl</c> explicitly.
-    /// </remarks>
-    internal async Task<bool> WaitForA2AReadyAsync(
+    internal Task<A2AReadinessResult> WaitForA2AReadyAsync(
         string containerId,
         Uri endpoint,
         TimeSpan timeout,
         CancellationToken ct)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-
         var agentCardUri = new Uri(endpoint, ".well-known/agent.json").ToString();
-
-        while (!cts.Token.IsCancellationRequested)
-        {
-            try
-            {
-                if (await containerRuntime.ProbeContainerHttpAsync(containerId, agentCardUri, cts.Token))
-                {
-                    return true;
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogDebug(
-                    "Readiness probe attempt failed for {Endpoint} (container {ContainerId}): {Reason}",
-                    endpoint, containerId, ex.Message);
-            }
-
-            try
-            {
-                await Task.Delay(A2AExecutionDispatcher.ReadinessProbeInterval, cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-        }
-
-        return false;
+        return A2AReadinessProbe.WaitAsync(
+            containerRuntime,
+            containerId,
+            agentCardUri,
+            timeout,
+            A2AExecutionDispatcher.ReadinessProbeInterval,
+            _logger,
+            ct);
     }
 
     private async Task TeardownOrStopEntryAsync(

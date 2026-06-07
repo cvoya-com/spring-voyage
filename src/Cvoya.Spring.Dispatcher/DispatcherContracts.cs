@@ -399,6 +399,34 @@ public record ContainerHealthResponse
 }
 
 /// <summary>
+/// Response body for <c>GET /v1/containers/{id}/state</c> (#3085). Reports
+/// the container's liveness from the runtime's <c>inspect</c> metadata so the
+/// worker-side readiness wait can fast-fail when a workload container exits,
+/// without requiring any in-container tooling. Mirrors
+/// <see cref="Cvoya.Spring.Core.Execution.ContainerRunState"/>.
+/// </summary>
+public record ContainerStateResponse
+{
+    /// <summary>Whether the container's runtime status is <c>running</c>.</summary>
+    [JsonPropertyName("running")]
+    public required bool Running { get; init; }
+
+    /// <summary>
+    /// The container's process exit code once it has terminated; <c>null</c>
+    /// while it is still running or when the runtime cannot report a code.
+    /// </summary>
+    [JsonPropertyName("exitCode")]
+    public int? ExitCode { get; init; }
+
+    /// <summary>
+    /// The raw runtime status string (<c>running</c>, <c>exited</c>, …), or
+    /// <c>"unknown"</c> when the container is not known to the runtime.
+    /// </summary>
+    [JsonPropertyName("status")]
+    public required string Status { get; init; }
+}
+
+/// <summary>
 /// Problem shape emitted by the dispatcher for error responses.
 /// </summary>
 public record DispatcherErrorResponse

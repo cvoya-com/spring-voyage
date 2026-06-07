@@ -314,6 +314,54 @@ public class ProcessContainerRuntime(
     }
 
     /// <inheritdoc />
+    public async Task<ContainerRunState> GetContainerStateAsync(string containerId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
+
+        // Read both the lifecycle status and the exit code in one inspect.
+        // `{{.State.Status}}` is "running" / "exited" / "created" / "dead";
+        // `{{.State.ExitCode}}` is the process exit code (0 while running on
+        // both podman and docker — only meaningful once Status != "running").
+        // A pipe joins them so a single trimmed line parses unambiguously.
+        var (exitCode, stdout, _) = await RunProcessAsync(
+            binaryName,
+            [
+                "inspect",
+                "--format",
+                "{{.State.Status}}|{{.State.ExitCode}}",
+                containerId,
+            ],
+            ct);
+
+        if (exitCode != 0)
+        {
+            // Unknown container — typically auto-reclaimed by `--rm` the
+            // instant it exited. "Gone" and "exited" are the same signal to a
+            // readiness wait, so report not-running rather than throwing (the
+            // contract on IContainerRuntime.GetContainerStateAsync).
+            return new ContainerRunState(IsRunning: false, ExitCode: null, Status: "unknown");
+        }
+
+        var line = stdout.Trim();
+        var separatorIndex = line.IndexOf('|');
+        var statusToken = separatorIndex >= 0 ? line[..separatorIndex] : line;
+        var exitToken = separatorIndex >= 0 ? line[(separatorIndex + 1)..] : string.Empty;
+
+        var isRunning = string.Equals(statusToken, "running", StringComparison.OrdinalIgnoreCase);
+        int? parsedExit = null;
+        if (!isRunning
+            && int.TryParse(exitToken, NumberStyles.Integer, CultureInfo.InvariantCulture, out var code))
+        {
+            parsedExit = code;
+        }
+
+        return new ContainerRunState(
+            IsRunning: isRunning,
+            ExitCode: parsedExit,
+            Status: string.IsNullOrEmpty(statusToken) ? "unknown" : statusToken);
+    }
+
+    /// <inheritdoc />
     public async Task CreateNetworkAsync(string name, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -356,10 +404,14 @@ public class ProcessContainerRuntime(
 
         // curl exit codes worth knowing:
         //   0 — request succeeded (2xx, with --fail)
-        //   non-zero — DNS failure, connection refused, 4xx/5xx, missing
-        //   binary, container gone. Every non-zero collapses to "false"
-        //   because callers (sidecar / agent health polling) treat the
-        //   result as a single bit. The shell-out is intentionally small —
+        //   non-zero — DNS failure, connection refused, 4xx/5xx, container
+        //   gone. These collapse to "false" because callers (sidecar / agent
+        //   health polling) treat the result as a single bit and own the
+        //   retry loop. The one exception is a missing `curl` binary: that is
+        //   a permanent image defect (#3085), not a "not ready yet" — it is
+        //   surfaced as ContainerProbeToolMissingException so the readiness
+        //   wait fast-fails with an actionable message instead of polling a
+        //   corpse for the full window. The shell-out is intentionally small —
         //   --silent + --output /dev/null + --max-time bounds the per-call
         //   cost without widening the dispatcher's RCE surface area.
         string[] args =
@@ -377,8 +429,20 @@ public class ProcessContainerRuntime(
 
         try
         {
-            var (exitCode, _, _) = await RunProcessAsync(binaryName, args, ct);
-            return exitCode == 0;
+            var (exitCode, _, stderr) = await RunProcessAsync(binaryName, args, ct);
+            if (exitCode == 0)
+            {
+                return true;
+            }
+
+            // Distinguish "curl is not installed in the image" (permanent)
+            // from "the endpoint is not ready / unreachable" (transient).
+            if (IsProbeToolMissing(exitCode, stderr))
+            {
+                throw ContainerProbeToolMissingException.ForCurl(image: null, stderr: stderr);
+            }
+
+            return false;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -386,17 +450,53 @@ public class ProcessContainerRuntime(
             // false so the polling loop just waits and tries again.
             return false;
         }
+        catch (ContainerProbeToolMissingException)
+        {
+            // Permanent image defect — propagate so the readiness wait can
+            // fast-fail with a specific, actionable message.
+            throw;
+        }
         catch (Exception ex)
         {
-            // curl missing / container exited / runtime crashed — collapse
-            // to false so the caller's polling loop is the only place that
-            // owns timeout + retry semantics.
+            // container exited / runtime crashed — collapse to false so the
+            // caller's polling loop is the only place that owns timeout +
+            // retry semantics. (A missing curl binary is handled above and
+            // does not reach here.)
             _logger.LogDebug(
                 ex,
                 "Probe of {Url} inside container {ContainerId} failed: {Message}",
                 url, containerId, ex.Message);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Recognises the container-runtime <c>exec</c> failure shape that means
+    /// the requested binary is not on the container's <c>PATH</c> (#3085).
+    /// Both podman and docker surface this as exit 126/127 and an
+    /// <c>OCI runtime exec failed: … executable file not found</c> /
+    /// <c>no such file or directory</c> stderr; the matcher is permissive
+    /// across both because it gates a fail-fast, not a security decision.
+    /// </summary>
+    internal static bool IsProbeToolMissing(int exitCode, string? stderr)
+    {
+        // 127 = command not found, 126 = found-but-not-executable. The shell
+        // a runtime spawns for exec uses these conventionally; podman's OCI
+        // path also reports 127 for a missing exec target.
+        var exitSignals = exitCode is 126 or 127;
+
+        var text = stderr ?? string.Empty;
+        var stderrSignals =
+            text.Contains("executable file not found", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("no such file or directory", StringComparison.OrdinalIgnoreCase)
+            || (text.Contains("exec", StringComparison.OrdinalIgnoreCase)
+                && text.Contains("not found", StringComparison.OrdinalIgnoreCase));
+
+        // Require the stderr to actually name the missing-binary condition.
+        // A bare 126/127 with unrelated stderr (e.g. curl's own
+        // "(6) Could not resolve host") must stay a transient false, or a
+        // DNS hiccup would be mis-reported as a missing tool.
+        return stderrSignals && (exitSignals || text.Contains("OCI runtime exec failed", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <inheritdoc />

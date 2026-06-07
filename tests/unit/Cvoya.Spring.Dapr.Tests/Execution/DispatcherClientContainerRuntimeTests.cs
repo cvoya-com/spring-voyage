@@ -330,6 +330,115 @@ public class DispatcherClientContainerRuntimeTests
     }
 
     [Fact]
+    public async Task ProbeContainerHttpAsync_422ProbeToolMissing_ThrowsTypedException()
+    {
+        // #3085: the dispatcher answers 422 + code "probe_tool_missing" when
+        // the workload image ships no curl. The worker must reconstruct the
+        // typed exception so the readiness wait fast-fails with the actionable
+        // message rather than treating it as a transient not-ready.
+        var handler = new FakeHandler(async (_, _) =>
+            new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
+            {
+                Content = JsonContent.Create(new
+                {
+                    code = "probe_tool_missing",
+                    message = "Image 'byoi:1' is missing `curl`, which the platform readiness probe requires.",
+                }),
+            });
+
+        var runtime = CreateRuntime(handler);
+
+        var ex = await Should.ThrowAsync<ContainerProbeToolMissingException>(async () =>
+            await runtime.ProbeContainerHttpAsync(
+                "byoi-container",
+                "http://localhost:8999/.well-known/agent.json",
+                TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("curl");
+        ex.Data[Cvoya.Spring.Core.SpringException.IssueCodeDataKey].ShouldBe(
+            ContainerProbeToolMissingException.Code);
+    }
+
+    [Fact]
+    public async Task ProbeContainerHttpAsync_422UnknownCode_ThrowsInvalidOperation()
+    {
+        // A 422 with some other code must not be misread as the probe-tool
+        // signal — it surfaces as a generic InvalidOperationException.
+        var handler = new FakeHandler(async (_, _) =>
+            new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
+            {
+                Content = JsonContent.Create(new { code = "something_else", message = "nope" }),
+            });
+
+        var runtime = CreateRuntime(handler);
+
+        await Should.ThrowAsync<InvalidOperationException>(async () =>
+            await runtime.ProbeContainerHttpAsync(
+                "c1", "http://localhost:8999/", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GetContainerStateAsync_ParsesRunningState()
+    {
+        HttpRequestMessage? captured = null;
+        var handler = new FakeHandler(async (req, _) =>
+        {
+            captured = req;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { running = true, exitCode = (int?)null, status = "running" }),
+            };
+        });
+
+        var runtime = CreateRuntime(handler);
+        var state = await runtime.GetContainerStateAsync(
+            "agent-1", TestContext.Current.CancellationToken);
+
+        state.IsRunning.ShouldBeTrue();
+        state.ExitCode.ShouldBeNull();
+        state.Status.ShouldBe("running");
+
+        captured.ShouldNotBeNull();
+        captured!.Method.ShouldBe(HttpMethod.Get);
+        captured.RequestUri!.AbsolutePath.ShouldBe("/v1/containers/agent-1/state");
+    }
+
+    [Fact]
+    public async Task GetContainerStateAsync_ParsesExitedStateWithCode()
+    {
+        var handler = new FakeHandler(async (_, _) =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { running = false, exitCode = 1, status = "exited" }),
+            });
+
+        var runtime = CreateRuntime(handler);
+        var state = await runtime.GetContainerStateAsync(
+            "agent-2", TestContext.Current.CancellationToken);
+
+        state.IsRunning.ShouldBeFalse();
+        state.ExitCode.ShouldBe(1);
+        state.Status.ShouldBe("exited");
+    }
+
+    [Fact]
+    public async Task GetContainerStateAsync_404IsTreatedAsUnknownNotRunning()
+    {
+        // Forward-compat: the dispatcher never 404s on /state today, but a
+        // client must treat a vanished container as not-running rather than
+        // throwing — "gone" and "exited" are the same signal to a readiness wait.
+        var handler = new FakeHandler(async (_, _) =>
+            new HttpResponseMessage(HttpStatusCode.NotFound));
+
+        var runtime = CreateRuntime(handler);
+        var state = await runtime.GetContainerStateAsync(
+            "gone", TestContext.Current.CancellationToken);
+
+        state.IsRunning.ShouldBeFalse();
+        state.Status.ShouldBe("unknown");
+    }
+
+    [Fact]
     public async Task ProbeContainerHttpAsync_404IsTreatedAsUnhealthy()
     {
         var handler = new FakeHandler(async (_, _) =>

@@ -38,6 +38,10 @@ public static class ContainersEndpoints
             new(6009, nameof(ContainerHealthRequested));
         public static readonly Microsoft.Extensions.Logging.EventId ContainerWaitForExitRequested =
             new(6010, nameof(ContainerWaitForExitRequested));
+        public static readonly Microsoft.Extensions.Logging.EventId ContainerStateRequested =
+            new(6011, nameof(ContainerStateRequested));
+        public static readonly Microsoft.Extensions.Logging.EventId ContainerProbeToolMissing =
+            new(6012, nameof(ContainerProbeToolMissing));
     }
 
     /// <summary>
@@ -50,6 +54,7 @@ public static class ContainersEndpoints
         group.MapPost("/", RunOrStartAsync);
         group.MapGet("/{id}/logs", GetLogsAsync);
         group.MapGet("/{id}/health", GetHealthAsync);
+        group.MapGet("/{id}/state", GetStateAsync);
         group.MapPost("/{id}/probe", ProbeAsync);
         group.MapPost("/{id}/wait-for-exit", WaitForExitAsync);
         group.MapPost("/{id}/a2a", SendA2AAsync);
@@ -302,8 +307,75 @@ public static class ContainersEndpoints
             EventIds.ContainerProbeRequested,
             "Probing container id={ContainerId} url={Url}", id, request.Url);
 
-        var healthy = await runtime.ProbeContainerHttpAsync(id, request.Url, cancellationToken);
-        return Results.Ok(new ProbeContainerHttpResponse { Healthy = healthy });
+        try
+        {
+            var healthy = await runtime.ProbeContainerHttpAsync(id, request.Url, cancellationToken);
+            return Results.Ok(new ProbeContainerHttpResponse { Healthy = healthy });
+        }
+        catch (Cvoya.Spring.Core.Execution.ContainerProbeToolMissingException ex)
+        {
+            // #3085: the workload image ships no `curl`, so the in-container
+            // probe can never run. This is a permanent image defect, not a
+            // transient not-ready — surface it as a distinct 422 so the worker
+            // re-throws the typed exception and the readiness wait fast-fails
+            // with the actionable message instead of timing out.
+            logger.LogWarning(
+                EventIds.ContainerProbeToolMissing,
+                "Probe of container id={ContainerId} cannot run: {Message}", id, ex.Message);
+            return Results.Json(
+                new DispatcherErrorResponse
+                {
+                    Code = ProbeToolMissingCode,
+                    Message = ex.Message,
+                },
+                statusCode: StatusCodes.Status422UnprocessableEntity);
+        }
+    }
+
+    /// <summary>
+    /// Machine-readable error code carried on the <c>422</c> probe response
+    /// when the in-container probe binary (<c>curl</c>) is missing (#3085).
+    /// The worker-side <c>DispatcherClientContainerRuntime</c> matches on this
+    /// constant to reconstruct
+    /// <see cref="Cvoya.Spring.Core.Execution.ContainerProbeToolMissingException"/>.
+    /// </summary>
+    public const string ProbeToolMissingCode = "probe_tool_missing";
+
+    /// <summary>
+    /// <c>GET /v1/containers/{id}/state</c> — read the container's liveness
+    /// (running vs. exited, plus exit code) from the runtime's <c>inspect</c>
+    /// metadata. Requires no in-container tooling. Used by the readiness wait
+    /// to fast-fail the moment a workload container exits (#3085) rather than
+    /// polling a corpse for the full readiness window.
+    /// </summary>
+    internal static async Task<IResult> GetStateAsync(
+        string id,
+        IContainerRuntime runtime,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Dispatcher.Containers");
+
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return Results.BadRequest(new DispatcherErrorResponse
+            {
+                Code = "id_required",
+                Message = "Container id is required.",
+            });
+        }
+
+        logger.LogInformation(
+            EventIds.ContainerStateRequested,
+            "Fetching state for container id={ContainerId}", id);
+
+        var state = await runtime.GetContainerStateAsync(id, cancellationToken);
+        return Results.Ok(new ContainerStateResponse
+        {
+            Running = state.IsRunning,
+            ExitCode = state.ExitCode,
+            Status = state.Status,
+        });
     }
 
     /// <summary>
