@@ -175,7 +175,7 @@ podman exec spring-ollama ollama pull llama3.2:3b
 
 ### macOS host-install, platform can't reach host
 
-`host.containers.internal` resolves on Podman 4.4+. Verify:
+`host.containers.internal` resolves on Podman 5.4+ (the project-wide floor). Verify:
 
 ```bash
 podman run --rm docker.io/alpine sh -c 'getent hosts host.containers.internal'

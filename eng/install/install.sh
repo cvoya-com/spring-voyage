@@ -182,17 +182,24 @@ ok "bash $BASH_VERSION"
 require_tool curl    "Install curl via your system package manager and rerun."
 require_tool tar     "Install tar via your system package manager and rerun."
 require_tool openssl "Install openssl via your system package manager and rerun."
-require_tool podman  "Install Podman 4+ (https://podman.io/) and rerun."
+require_tool podman  "Install Podman 5.4+ (https://podman.io/) and rerun."
 # envsubst (gettext) is required by the bundle's deploy.sh (it expands ${VAR}
 # references in spring.env before passing it to podman). Checking it here avoids
 # a late failure at `deploy.sh up`, after the archive download and image pull.
 require_tool envsubst "Install gettext (Debian/Ubuntu: apt-get install gettext-base; macOS: brew install gettext) and rerun."
 
-# Podman 4+ required (rootless networking, host.containers.internal).
+# Podman 5.4+ required — the project-wide floor (see ADR-0069). On the rootless
+# `spring-net` bridge, host.containers.internal resolves to the host natively at
+# Podman 5.3+ (pasta became the rootless default at 5.0; the bridge-mode
+# /etc/hosts bug was fixed at 5.3.0). 5.4 is the clean floor that still admits
+# every supported distro (Debian 13.5 ships 5.4.2). Compare major.minor — a
+# string/major-only compare would wrongly accept 5.0–5.3.
 podman_version="$(podman version --format '{{.Client.Version}}' 2>/dev/null || podman version | awk '/^Version:/{print $2; exit}')"
 podman_major="${podman_version%%.*}"
-if [[ -z "$podman_major" || "$podman_major" -lt 4 ]]; then
-  fail "Podman >= 4.0 required (found ${podman_version:-unknown}). Upgrade Podman and rerun."
+podman_minor="$(printf '%s' "${podman_version}" | cut -d. -f2)"
+if ! [[ "$podman_major" =~ ^[0-9]+$ && "$podman_minor" =~ ^[0-9]+$ ]] \
+   || (( podman_major < 5 )) || { (( podman_major == 5 )) && (( podman_minor < 4 )); }; then
+  fail "Podman >= 5.4 required (found ${podman_version:-unknown}). Upgrade Podman and rerun."
 fi
 ok "podman ${podman_version}"
 

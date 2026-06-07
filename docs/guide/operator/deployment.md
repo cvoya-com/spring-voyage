@@ -12,7 +12,7 @@ Two paths are supported:
 ## Prerequisites
 
 - **Host:** Linux (any distro with kernel 5.10+) or macOS. Windows operators follow the manual install docs in v0.1.
-- **Container runtime:** Podman 4.4+ (rootless-capable). Docker Engine 24+ is a manual secondary path; the installer is Podman-only.
+- **Container runtime:** Podman 5.4+ (rootless-capable; the project-wide floor — see [ADR-0069](../../decisions/0069-podman-version-floor.md)). Docker Engine 24+ is a manual secondary path; the installer is Podman-only.
 - **Ports:** 80 and 443 free on the host (Caddy binds them for TLS), plus 8090 (dispatcher) and 5050 (worker MCP). If any are taken, the installer offers to remap them — or set `CADDY_HTTP_PORT` / `CADDY_HTTPS_PORT` / `SPRING_DISPATCHER_PORT` / `Mcp__Port` in `spring.env`. Moving Caddy off 80/443 disables automatic Let's Encrypt (ACME validates against the public host's 80/443).
 - **A DNS name** pointing at the host — required only if you want Let's Encrypt TLS. Internal / `*.localhost` use is fine without DNS.
 
@@ -116,7 +116,7 @@ The archive expands into `bundle/`, `cli/`, and `dispatcher/` under `~/.spring-v
 
 ### What the installer does (detail)
 
-1. Validates pre-flight: not root, `bash >= 4`, `curl`, `tar`, `openssl`, `podman >= 4`, the four host-published ports (80, 443, 8090, 5050) free — offering to remap any in use — `~/.local/bin` on PATH, `podman machine` running on macOS.
+1. Validates pre-flight: not root, `bash >= 4`, `curl`, `tar`, `openssl`, `podman >= 5.4`, the four host-published ports (80, 443, 8090, 5050) free — offering to remap any in use — `~/.local/bin` on PATH, `podman machine` running on macOS.
 2. Resolves the release tag (`--version`, `$SPRING_VOYAGE_VERSION`, or latest stable from the GitHub API).
 3. Downloads the per-RID host archive and `SHA256SUMS`; verifies the checksum.
 4. Pulls the platform image (`ghcr.io/cvoya-com/spring-voyage:<v>`).
@@ -236,14 +236,14 @@ endpoint as the platform containers. Missing Ollama models are pulled by the
 is set for the agent.
 
 Rootless notes:
-- Podman 4.4+ required.
+- Podman 5.4+ required (the project-wide floor — see [ADR-0069](../../decisions/0069-podman-version-floor.md)).
 - Publishing ports 80/443 rootless requires the kernel's unprivileged-port floor lowered to cover them — a *free* port is not the same as a *bindable* one. `install.sh` detects this in its pre-flight and offers to fix it; for a standalone `deploy.sh up` / `setup.sh` run, lower it yourself once (persists across reboots):
   ```
   echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-spring-voyage.conf
   sudo sysctl --system
   ```
   This keeps 80/443 and automatic Let's Encrypt. The no-sudo alternative is to publish on high ports (`CADDY_HTTP_PORT`/`CADDY_HTTPS_PORT` ≥ 1024 in `spring.env`), which disables automatic ACME — terminate TLS upstream in that case. (`setcap cap_net_bind_service` on the `rootlessport`/`pasta` helper also works but is wiped on Podman upgrade.)
-- `host.containers.internal` requires Podman 4.1+ on Linux; older versions get `--add-host` added automatically.
+- `host.containers.internal` resolves to the host natively at the Podman 5.4+ floor: pasta is the rootless default from 5.0, and the rootless-bridge entry bug (the platform runs every container on the user-defined `spring-net` bridge) was fixed at 5.3.0. No `--add-host` workaround is involved.
 
 See `eng/deploy/README.md` for per-user agent networks and webhook relay.
 
@@ -522,7 +522,7 @@ The Postgres health check polls `pg_isready` — a fresh database takes 10–30 
 
 Delegated agents run inside containers and need to reach the platform's MCP server on the host. This requires:
 
-- Linux: Podman 4.1+ (or Docker 20.10+) with automatic `host.docker.internal` → host-gateway mapping. Older versions need an explicit `--add-host=host.docker.internal:host-gateway` which the platform adds automatically.
+- Linux: the Podman 5.4+ floor (or Docker 20.10+) resolves `host.docker.internal` / `host.containers.internal` → host-gateway natively, including on the rootless `spring-net` bridge (pasta default from 5.0; bridge-mode fix at 5.3.0). No explicit `--add-host` is needed.
 - macOS and Windows: `host.docker.internal` is built in — no action required.
 
 If agents still cannot reach the host, confirm the per-user bridge network exists (`./deploy.sh ensure-user-net $(id -u)` for Podman deployments).

@@ -31,7 +31,7 @@ any other version.
 ## What the installer does
 
 1. Validates pre-flight: not root, `bash >= 4`, `curl`, `tar`,
-   `openssl`, `podman >= 4`, ports 80/443 free, `~/.local/bin` on
+   `openssl`, `podman >= 5.4`, ports 80/443 free, `~/.local/bin` on
    PATH, `podman machine` running on macOS.
 2. Resolves the release tag (`--version`, `$SPRING_VOYAGE_VERSION`,
    else latest stable from the GitHub API). Accepted version inputs:

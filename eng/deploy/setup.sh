@@ -50,7 +50,7 @@ fail()    { printf "  ${RED}✗${NC}  %s\n" "$*"; }
 #
 # Tool                  Why needed
 # ─────────────────     ──────────────────────────────────────────────────────
-# docker/podman 4.4+    image builds (platform Dockerfile uses COPY --parents)
+# docker 23.0+ / podman 5.4+   image builds (platform Dockerfile uses COPY --parents)
 # openssl               AES key generation; deploy.sh init key rotation
 # envsubst              deploy.sh expands variables in the resolved spring.env
 # dotnet 10 SDK         spring-voyage-host.sh builds and runs the dispatcher
@@ -73,8 +73,11 @@ preflight() {
 
   # ---- container runtime ---------------------------------------------------
   # The platform image (eng/build/Dockerfile) uses COPY --parents, which
-  # requires BuildKit. Docker 23.0+ enables BuildKit by default; Podman needs
-  # buildah 1.28+ (shipped with Podman 4.4).
+  # requires BuildKit. Docker 23.0+ enables BuildKit by default. Podman is held
+  # to the project-wide 5.4 floor (see ADR-0069) — that number subsumes the
+  # buildah 1.28 / COPY --parents minimum, so one Podman version applies across
+  # build and deploy. The Docker floor stays at its independent BuildKit
+  # minimum (23.0+); the requirement reads "docker 23.0+ or podman 5.4+".
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     local _dv
     _dv=$(docker version --format '{{.Client.Version}}' 2>/dev/null || true)
@@ -93,9 +96,9 @@ preflight() {
     _pmaj=$(printf '%s' "$_pv" | cut -d. -f1)
     _pmin=$(printf '%s' "$_pv" | cut -d. -f2)
     if [[ "$_pmaj" =~ ^[0-9]+$ ]] && [[ "$_pmin" =~ ^[0-9]+$ ]] \
-    && { (( _pmaj < 4 )) || { (( _pmaj == 4 )) && (( _pmin < 4 )); }; }; then
-      _err "podman ${_pv} — 4.4+ required" \
-           "The platform Dockerfile uses COPY --parents, which requires buildah 1.28+ (Podman 4.4+)."
+    && { (( _pmaj < 5 )) || { (( _pmaj == 5 )) && (( _pmin < 4 )); }; }; then
+      _err "podman ${_pv} — 5.4+ required" \
+           "Project-wide Podman floor (see ADR-0069); also satisfies COPY --parents / buildah 1.28+."
       if [[ $_wsl2 -eq 1 ]]; then
         info "On WSL2, install from the official Podman repository (Ubuntu's default is too old):"
         info "  https://podman.io/docs/installation#ubuntu"
@@ -106,7 +109,7 @@ preflight() {
       ok "podman ${_pv:-[version unknown]}"
     fi
   else
-    _err "no container runtime found — install docker (23.0+) or podman (4.4+)" \
+    _err "no container runtime found — install docker (23.0+) or podman (5.4+)" \
          "Docker:  https://docs.docker.com/engine/install/" \
          "Podman:  https://podman.io/docs/installation"
     if [[ $_wsl2 -eq 1 ]]; then

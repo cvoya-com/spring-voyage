@@ -76,6 +76,7 @@ For open design questions not yet decided, see
 | [0066](0066-a2a-process-runtime-engine-orchestration.md) | The `a2a-process` runtime: hosting an external orchestration engine (LangGraph) | Accepted — builds on [0021](0021-spring-voyage-is-not-an-agent-runtime.md), [0038](0038-agent-runtime-and-model-provider-split.md), [0053](0053-units-are-agents-and-one-way-delivery.md) ([#2591](https://github.com/cvoya-com/spring-voyage/issues/2591)) |
 | [0067](0067-runtime-config-single-source-of-truth.md) | Runtime/DB config is the single source of truth; package retention is install provenance only; export reconstructs | Accepted — supersedes [0035](0035-package-as-bundling-unit.md) dec 12, amends [0040](0040-actor-state-ownership-matrix.md) ([#3090](https://github.com/cvoya-com/spring-voyage/issues/3090)) |
 | [0068](0068-mechanism-agnostic-tls-mode.md) | Mechanism-agnostic TLS: `TLS_MODE` decouples HTTPS from internet-facing (internal CA / custom cert / ACME) | Accepted — `TLS_MODE` on both Caddyfiles + installer probe ([#2928](https://github.com/cvoya-com/spring-voyage/issues/2928)) + multi-host nested-default fix |
+| [0069](0069-podman-version-floor.md) | Podman version floor is 5.4 (project-wide); rootless-bridge `host.containers.internal` fixed by-floor | Accepted — supersedes [0042](0042-local-operator-installer.md)'s "Podman 4+" stance; resolves [#2927](https://github.com/cvoya-com/spring-voyage/issues/2927) by-floor (drops the deferred `--add-host` workaround) |
 
 Archived records are listed in [`archive/README.md`](archive/README.md).
 

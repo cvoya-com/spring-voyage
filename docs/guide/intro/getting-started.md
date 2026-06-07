@@ -8,7 +8,7 @@ If you'd rather start with the built-in dev-team that picks up GitHub issues, se
 
 ## 1. Install
 
-If you haven't already, run the one-command installer (Linux or macOS, Podman 4+):
+If you haven't already, run the one-command installer (Linux or macOS, Podman 5.4+):
 
 ```bash
 curl -fSL https://github.com/cvoya-com/spring-voyage/releases/latest/download/install.sh | bash
