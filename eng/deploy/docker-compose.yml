@@ -373,6 +373,11 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - spring-caddy-data:/data
       - spring-caddy-config:/config
+      # TLS_MODE=custom (ADR-0068): mount your certificate + key so Caddy can
+      # serve them. Paths default to TLS_CERT_FILE / TLS_KEY_FILE
+      # (/etc/caddy/tls/tls.crt and /etc/caddy/tls/tls.key). Not needed for
+      # TLS_MODE=auto (Let's Encrypt) or TLS_MODE=internal (Caddy local CA).
+      # - ./tls:/etc/caddy/tls:ro
     networks: [spring-net, spring-tenant-default]
     depends_on:
       - spring-api

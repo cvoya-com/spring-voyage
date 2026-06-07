@@ -19,20 +19,47 @@
 #                     Default: ${DEPLOY_HOSTNAME} or "localhost".
 #   WEBHOOK_HOSTNAME  FQDN for inbound third-party webhooks.
 #                     Default: ${DEPLOY_HOSTNAME} or "localhost".
-#   ACME_EMAIL        Contact email for Let's Encrypt expiry notices.
+#   ACME_EMAIL        Contact email for Let's Encrypt expiry notices. Optional;
+#                     to use it, add a global options block as the FIRST block in
+#                     this file (above the snippets):  { email {$ACME_EMAIL} }
+#                     Omitted by default so the file parses when ACME_EMAIL is
+#                     unset (e.g. TLS_MODE=internal / custom never use ACME).
+#   TLS_MODE          Certificate issuance when serving https (ADR-0068):
+#                       auto (default) — Let's Encrypt for a public FQDN, Caddy's
+#                         internal CA for localhost;
+#                       internal — Caddy's local CA for any hostname, no public
+#                         DNS or open ports (distribute Caddy's root CA);
+#                       custom — operator cert from TLS_CERT_FILE / TLS_KEY_FILE.
+#                     Applies to all three FQDNs below; for `custom`, one cert
+#                     must cover all three names (SAN / wildcard).
+#   TLS_CERT_FILE     In-container cert path (TLS_MODE=custom). Default
+#                     /etc/caddy/tls/tls.crt.
+#   TLS_KEY_FILE      In-container key path (TLS_MODE=custom). Default
+#                     /etc/caddy/tls/tls.key.
 #
-# Automatic TLS: Caddy obtains Let's Encrypt certificates for every FQDN
-# above that is a public-DNS name with ports 80/443 reachable. Hostnames
-# ending in ".localhost" or set to "localhost" fall back to HTTP only.
+# Automatic TLS: with TLS_MODE=auto, Caddy obtains Let's Encrypt certificates for
+# every FQDN above that is a public-DNS name with ports 80/443 reachable.
+# Hostnames ending in ".localhost" or set to "localhost" fall back to HTTP only.
+# deploy.sh resolves each unset WEB/API/WEBHOOK_HOSTNAME to DEPLOY_HOSTNAME (then
+# localhost) before Caddy starts, so the site addresses below use a single-level
+# default — Caddy's env substitution cannot express a nested default.
 
-{
-    email {$ACME_EMAIL}
+# TLS issuance snippets — imported per site as `import spring-tls-{$TLS_MODE:auto}`
+# (see the single-host Caddyfile and ADR-0068).
+(spring-tls-auto) {
+}
+(spring-tls-internal) {
+    tls internal
+}
+(spring-tls-custom) {
+    tls {$TLS_CERT_FILE:/etc/caddy/tls/tls.crt} {$TLS_KEY_FILE:/etc/caddy/tls/tls.key}
 }
 
 # --------------------------------------------------------------------------
 # Web portal (Next.js)
 # --------------------------------------------------------------------------
-{$WEB_HOSTNAME:{$DEPLOY_HOSTNAME:localhost}} {
+{$WEB_HOSTNAME:localhost} {
+    import spring-tls-{$TLS_MODE:auto}
     encode zstd gzip
 
     # Next.js SSE route handlers (src/Cvoya.Spring.Web/src/app/api/stream/**).
@@ -54,7 +81,8 @@
 # --------------------------------------------------------------------------
 # REST API + OpenAPI + health
 # --------------------------------------------------------------------------
-{$API_HOSTNAME:{$DEPLOY_HOSTNAME:localhost}} {
+{$API_HOSTNAME:localhost} {
+    import spring-tls-{$TLS_MODE:auto}
     encode zstd gzip
 
     handle /api/* {
@@ -78,7 +106,8 @@
 # Webhook endpoint — inbound events from third-party providers.
 # Signature validation happens inside the API; Caddy only proxies.
 # --------------------------------------------------------------------------
-{$WEBHOOK_HOSTNAME:{$DEPLOY_HOSTNAME:localhost}} {
+{$WEBHOOK_HOSTNAME:localhost} {
+    import spring-tls-{$TLS_MODE:auto}
     encode zstd gzip
 
     handle /api/v1/webhooks/* {

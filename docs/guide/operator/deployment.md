@@ -307,9 +307,26 @@ Two Caddyfile variants ship in `eng/deploy/`:
 - **`Caddyfile`** — single hostname, path-routed (default).
 - **`Caddyfile.multi-host`** — one FQDN per service. Select with `SPRING_CADDYFILE=Caddyfile.multi-host`.
 
-**Let's Encrypt (automatic):** set `DEPLOY_HOSTNAME=app.example.com`, `DEPLOY_SCHEME=https`, and `ACME_EMAIL` in `spring.env`. Point DNS `A`/`AAAA` at the host and ensure ports 80 and 443 are open. Caddy issues a certificate on the first request.
+`DEPLOY_SCHEME` (`http` / `https`) chooses whether Caddy serves TLS; `TLS_MODE` chooses **how the certificate is obtained** when `DEPLOY_SCHEME=https` (see [ADR-0068](../../decisions/0068-mechanism-agnostic-tls-mode.md)). HTTPS does **not** require an internet-facing deployment. `TLS_MODE` applies to both the single-host and multi-host Caddyfiles, and `install.sh` sets it for you (it auto-enables Let's Encrypt only when your hostname's DNS verifiably resolves to this host on 80/443, and otherwise offers private HTTPS via `internal`).
 
-**Local / private:** hostnames ending in `.localhost` or `localhost` fall back to plain HTTP. Set `DEPLOY_SCHEME=http` explicitly.
+| `TLS_MODE` | Certificate | Needs public DNS + open 80/443 | Use when |
+|---|---|---|---|
+| `auto` (default) | Let's Encrypt for a public FQDN; Caddy's internal CA for `https://localhost` | Yes, for a real cert | The host is reachable on the public internet |
+| `internal` | Caddy's built-in local CA (self-signed) | No | Private / LAN / homelab HTTPS without exposing the host |
+| `custom` | Your own cert + key | No | You already have a certificate (corporate CA, wildcard) |
+
+**Let's Encrypt — `TLS_MODE=auto` (default):** set `DEPLOY_HOSTNAME=app.example.com`, `DEPLOY_SCHEME=https`, and `ACME_EMAIL` in `spring.env`. Point DNS `A`/`AAAA` at the host and ensure ports 80 and 443 are open. Caddy issues a certificate on the first request. (If the host isn't publicly reachable but you control the domain, switch Caddy to the DNS-01 challenge — see [Let's Encrypt issuance fails](#lets-encrypt-issuance-fails).)
+
+**Private HTTPS — `TLS_MODE=internal`:** set `DEPLOY_SCHEME=https` and `TLS_MODE=internal`. Caddy's local CA mints a certificate for any hostname — no public DNS, no open 80/443, and it works on high ports. Distribute Caddy's root CA to clients once so browsers trust it; it lives in the `spring-caddy-data` volume:
+
+```bash
+podman cp spring-caddy:/data/caddy/pki/authorities/local/root.crt ./spring-root.crt
+# then add spring-root.crt to each client's system / browser trust store
+```
+
+**Bring your own cert — `TLS_MODE=custom`:** set `DEPLOY_SCHEME=https`, `TLS_MODE=custom`, and mount your certificate into the `spring-caddy` container. Caddy reads `/etc/caddy/tls/tls.crt` and `/etc/caddy/tls/tls.key` by default (override with `TLS_CERT_FILE` / `TLS_KEY_FILE`); an optional, commented volume for this ships in `docker-compose.yml`.
+
+**Local / plain HTTP:** hostnames ending in `.localhost` or `localhost` fall back to plain HTTP. Set `DEPLOY_SCHEME=http` explicitly.
 
 **nginx instead:** remove `spring-caddy` and proxy directly to `spring-api:8080` and `spring-web:3000`. You are responsible for TLS (certbot / cert-manager).
 

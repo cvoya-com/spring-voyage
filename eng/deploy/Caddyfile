@@ -21,8 +21,39 @@
 #                    notices. Optional. If set for a real FQDN deployment,
 #                    add a global block at the top of this file:
 #                      { email {$ACME_EMAIL} }
+#   TLS_MODE         Certificate issuance when DEPLOY_SCHEME=https (ADR-0068):
+#                      auto      (default) Caddy automatic HTTPS — Let's Encrypt
+#                                for a public FQDN, internal CA for
+#                                https://localhost. Needs public DNS + open
+#                                80/443 for a real cert.
+#                      internal  Caddy's built-in local CA issues a cert for ANY
+#                                hostname — no public DNS, no open ports, works
+#                                on high ports. Distribute Caddy's root CA (under
+#                                the spring-caddy-data volume) to clients. The
+#                                "HTTPS without internet-facing" option.
+#                      custom    Serve an operator-supplied certificate from
+#                                TLS_CERT_FILE + TLS_KEY_FILE.
+#                    internal / custom require DEPLOY_SCHEME=https.
+#   TLS_CERT_FILE    In-container path to the cert chain (TLS_MODE=custom).
+#                    Default /etc/caddy/tls/tls.crt — mount it into spring-caddy.
+#   TLS_KEY_FILE     In-container path to the private key (TLS_MODE=custom).
+#                    Default /etc/caddy/tls/tls.key — mount it into spring-caddy.
+
+# TLS issuance snippets, selected per site by `import spring-tls-{$TLS_MODE:auto}`.
+# The import name is resolved by env substitution before Caddy parses, so
+# TLS_MODE=internal imports `spring-tls-internal`. `auto` is an intentional
+# no-op: Caddy's automatic HTTPS then decides issuance from the site scheme.
+(spring-tls-auto) {
+}
+(spring-tls-internal) {
+    tls internal
+}
+(spring-tls-custom) {
+    tls {$TLS_CERT_FILE:/etc/caddy/tls/tls.crt} {$TLS_KEY_FILE:/etc/caddy/tls/tls.key}
+}
 
 {$DEPLOY_SCHEME:http}://{$DEPLOY_HOSTNAME:localhost} {
+    import spring-tls-{$TLS_MODE:auto}
     encode zstd gzip
 
     # Webhook endpoint — inbound events from third-party providers

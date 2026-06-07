@@ -241,6 +241,18 @@ load_env() {
     chmod 600 "${RESOLVED_ENV_FILE}"
     envsubst < "${ENV_FILE}" > "${RESOLVED_ENV_FILE}"
     trap 'rm -f "${RESOLVED_ENV_FILE}"' EXIT
+
+    # Multi-host Caddy hostname cascade. Caddyfile.multi-host serves three
+    # per-service vhosts that each fall back WEB/API/WEBHOOK_HOSTNAME →
+    # DEPLOY_HOSTNAME → localhost. Caddy's env substitution cannot express a
+    # nested default ("{$WEB_HOSTNAME:{$DEPLOY_HOSTNAME:localhost}}" corrupts the
+    # address — Caddy does not brace-count and stops at the first "}"), so resolve
+    # the cascade here in bash and hand Caddy already-resolved single values. The
+    # single-host Caddyfile reads DEPLOY_HOSTNAME directly and is unaffected.
+    local _dh="${DEPLOY_HOSTNAME:-localhost}"
+    set_resolved_env_var WEB_HOSTNAME     "${WEB_HOSTNAME:-${_dh}}"
+    set_resolved_env_var API_HOSTNAME     "${API_HOSTNAME:-${_dh}}"
+    set_resolved_env_var WEBHOOK_HOSTNAME "${WEBHOOK_HOSTNAME:-${_dh}}"
 }
 
 set_resolved_env_var() {
@@ -1395,7 +1407,7 @@ cmd_up() {
     start_web
     start_caddy
 
-    log "stack is up. API: http://${DEPLOY_HOSTNAME:-localhost}  Web: http://${DEPLOY_HOSTNAME:-localhost}/"
+    log "stack is up. API: ${DEPLOY_SCHEME:-http}://${DEPLOY_HOSTNAME:-localhost}  Web: ${DEPLOY_SCHEME:-http}://${DEPLOY_HOSTNAME:-localhost}/"
 }
 
 cmd_down() {
