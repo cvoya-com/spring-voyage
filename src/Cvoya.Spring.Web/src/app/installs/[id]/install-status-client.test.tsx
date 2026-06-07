@@ -15,13 +15,11 @@ import type { InstallStatusResponse } from "@/lib/api/types";
 const getInstallStatus = vi.fn<
   (id: string) => Promise<InstallStatusResponse | null>
 >();
-const retryInstall = vi.fn<(id: string) => Promise<InstallStatusResponse>>();
 const abortInstall = vi.fn<(id: string) => Promise<void>>();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
     getInstallStatus: (id: string) => getInstallStatus(id),
-    retryInstall: (id: string) => retryInstall(id),
     abortInstall: (id: string) => abortInstall(id),
   },
 }));
@@ -135,11 +133,10 @@ describe("InstallStatusClient", () => {
     expect(screen.getByTestId("package-state-my-pkg")).toHaveTextContent("staging");
   });
 
-  it("does not show Retry or Abort buttons in staging state", async () => {
+  it("does not show the Abort button in staging state", async () => {
     getInstallStatus.mockResolvedValue(makeStagingStatus());
     renderPage();
     await waitFor(() => screen.getByTestId("install-status-staging"));
-    expect(screen.queryByTestId("retry-button")).not.toBeInTheDocument();
     expect(screen.queryByTestId("abort-button")).not.toBeInTheDocument();
   });
 
@@ -225,11 +222,11 @@ describe("InstallStatusClient", () => {
     expect(screen.queryByTestId("install-error-details")).not.toBeInTheDocument();
   });
 
-  it("shows Retry and Abort buttons in failed state", async () => {
+  it("shows the Abort button in failed state", async () => {
     getInstallStatus.mockResolvedValue(makeFailedStatus());
     renderPage();
     await waitFor(() => screen.getByTestId("install-status-failed"));
-    expect(screen.getByTestId("retry-button")).toBeInTheDocument();
+    expect(screen.queryByTestId("retry-button")).not.toBeInTheDocument();
     expect(screen.getByTestId("abort-button")).toBeInTheDocument();
   });
 
@@ -243,21 +240,6 @@ describe("InstallStatusClient", () => {
     // pre-#2312 contract intact.
     const row = screen.getByTestId("package-detail-row-my-pkg");
     expect(row).toHaveTextContent(/dapr placement timeout/i);
-  });
-
-  // ---- retry action ----
-
-  it("Retry button calls retryInstall API", async () => {
-    getInstallStatus.mockResolvedValue(makeFailedStatus());
-    retryInstall.mockResolvedValue(makeActiveStatus());
-    renderPage();
-    await waitFor(() => screen.getByTestId("retry-button"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("retry-button"));
-    });
-    await waitFor(() => {
-      expect(retryInstall).toHaveBeenCalledWith(INSTALL_ID);
-    });
   });
 
   // ---- abort action ----

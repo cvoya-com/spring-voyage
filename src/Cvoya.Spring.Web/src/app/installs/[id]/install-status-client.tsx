@@ -8,10 +8,12 @@
  *   loading    → skeleton
  *   staging    → spinner + per-package staging detail; polls every 2 s
  *   active     → success card + per-package summary; stops polling
- *   failed     → error card + per-package error detail + Retry + Abort
+ *   failed     → error card + per-package error detail + Abort
  *
  * ADR-0035 decision 11: Phase-2 failures leave staging rows visible.
- * This view is the operator's recovery surface.
+ * This view is the operator's recovery surface. A failed install is
+ * cleaned up with Abort and re-installed fresh (ADR-0067 decision 3 —
+ * there is no in-place resume).
  */
 
 import Link from "next/link";
@@ -20,7 +22,6 @@ import {
   CheckCircle,
   Loader2,
   XCircle,
-  RefreshCw,
   Ban,
   Package as PackageIcon,
 } from "lucide-react";
@@ -32,11 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
-import {
-  useInstallStatus,
-  useRetryInstall,
-  useAbortInstall,
-} from "@/lib/api/queries";
+import { useInstallStatus, useAbortInstall } from "@/lib/api/queries";
 import { formatTranslatedError } from "@/lib/api/translate-error";
 import type { InstallPackageDetail } from "@/lib/api/types";
 
@@ -63,20 +60,7 @@ export default function InstallStatusClient({ id }: Props) {
     },
   });
 
-  const retryMutation = useRetryInstall(id);
   const abortMutation = useAbortInstall(id);
-
-  async function handleRetry() {
-    try {
-      await retryMutation.mutateAsync();
-    } catch (err) {
-      toast({
-        title: "Retry failed",
-        description: formatTranslatedError(err),
-        variant: "destructive",
-      });
-    }
-  }
 
   async function handleAbort() {
     const pkg = statusQuery.data?.packages?.[0];
@@ -177,22 +161,14 @@ export default function InstallStatusClient({ id }: Props) {
           )}
         </div>
 
-        {/* Recovery actions — shown only in the failed state */}
+        {/* Recovery action — shown only in the failed state. A failed
+            install is discarded and re-installed fresh (ADR-0067 dec 3). */}
         {aggregateStatus === "failed" && (
           <div className="flex shrink-0 gap-2">
             <Button
-              variant="outline"
-              onClick={handleRetry}
-              disabled={retryMutation.isPending || abortMutation.isPending}
-              data-testid="retry-button"
-            >
-              <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-              {retryMutation.isPending ? "Retrying…" : "Retry"}
-            </Button>
-            <Button
               variant="destructive"
               onClick={handleAbort}
-              disabled={retryMutation.isPending || abortMutation.isPending}
+              disabled={abortMutation.isPending}
               data-testid="abort-button"
             >
               <Ban className="mr-2 h-4 w-4" aria-hidden="true" />

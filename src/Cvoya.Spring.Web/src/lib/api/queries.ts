@@ -1352,22 +1352,6 @@ export function useInstallPackages(): UseMutationResult<
 }
 
 /**
- * Retry Phase 2 for a failed install (POST /api/v1/installs/{id}/retry).
- * Invalidates the install-status slice on success to trigger a fresh fetch.
- */
-export function useRetryInstall(
-  id: string,
-): UseMutationResult<InstallStatusResponse, Error, void> {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => api.retryInstall(id),
-    onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.installs.detail(id), data);
-    },
-  });
-}
-
-/**
  * Abort a failed install (POST /api/v1/installs/{id}/abort).
  * Removes the install-status cache slice on success.
  */

@@ -779,7 +779,7 @@ export type PackageInstallTarget = Schemas["PackageInstallTarget"];
  */
 export type CredentialBindingPayload = Schemas["CredentialBindingPayload"];
 
-/** Response body shared by POST /api/v1/packages/install, GET /api/v1/installs/{id}, and POST /api/v1/installs/{id}/retry. */
+/** Response body shared by POST /api/v1/packages/install and GET /api/v1/installs/{id}. */
 export type InstallStatusResponse = Schemas["InstallStatusResponse"];
 
 /** Per-package detail row within an InstallStatusResponse. */

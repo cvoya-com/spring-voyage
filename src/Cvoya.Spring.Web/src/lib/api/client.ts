@@ -2351,14 +2351,6 @@ export const api = {
     return unwrap(result) as InstallStatusResponse;
   },
 
-  // POST /api/v1/installs/{id}/retry — re-run Phase 2 for a failed install.
-  retryInstall: async (id: string): Promise<InstallStatusResponse> =>
-    unwrap(
-      await fetchClient.POST("/api/v1/installs/{id}/retry", {
-        params: { path: { id } },
-      }),
-    ) as InstallStatusResponse,
-
   // POST /api/v1/installs/{id}/abort — discard all staging rows.
   // Returns 204 NoContent; use assertOk pattern (throws ApiError on non-2xx).
   abortInstall: async (id: string): Promise<void> => {
