@@ -10,6 +10,12 @@
 #   verify_postgres_password():
 #     - a stale spring-postgres-data volume whose password no longer matches
 #       spring.env (network scram 28P01 → worker crash-loop)
+#   resolve_delegated_components_path():
+#     - the spring.env.example placeholder / a non-existent / an unset
+#       Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath resolves to the
+#       repo (or bundle) delegated-components tree so the worker hands Podman a
+#       bind-mount source that exists (#3101); an operator-set valid path and a
+#       repo with no components tree at all are both handled.
 #
 # Strategy mirrors test-deploy-dispatcher-rebuild.sh: source deploy.sh's
 # function definitions (minus its main dispatch), then stub `uname` / `podman`
@@ -357,6 +363,106 @@ else
     { grep -q "already in use" "${TMP_DIR}/out" && grep -q "5050" "${TMP_DIR}/out"; } \
         && ok "Case 14: a non-spring container on the port still fails (guard preserved)" \
         || { bad "Case 14: wrong failure message"; cat "${TMP_DIR}/out"; }
+fi
+
+# ---------------------------------------------------------------------------
+# resolve_delegated_components_path(): fixtures for the next cases.
+#   FIX_REPO    — source-checkout layout (eng/dapr/components/...)
+#   FIX_BUNDLE  — installed-bundle layout (dapr/components/...)
+#   FIX_EMPTY   — neither layout present
+# ---------------------------------------------------------------------------
+FIX_REPO="${TMP_DIR}/fixrepo"
+FIX_BUNDLE="${TMP_DIR}/fixbundle"
+FIX_EMPTY="${TMP_DIR}/fixempty"
+mkdir -p "${FIX_REPO}/eng/dapr/components/delegated-spring-voyage-agent/profiles/ollama"
+mkdir -p "${FIX_BUNDLE}/dapr/components/delegated-spring-voyage-agent/profiles/ollama"
+mkdir -p "${FIX_EMPTY}"
+
+# REPO_ROOT / the components-path var are read only by the dynamically-sourced
+# resolve_delegated_components_path() in the subshells below; export them to
+# avoid SC2034 (appears-unused), matching the up-top handling for the
+# preflight_up globals.
+export REPO_ROOT Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath
+
+# Read back the winning (last) value of a key in a resolved env file.
+resolved_value() { awk -F= -v k="$1" '$1==k { v=substr($0, length(k)+2) } END { print v }' "$2"; }
+
+# ---------------------------------------------------------------------------
+# Case 15: an operator-set path that exists is left untouched (no env write).
+# ---------------------------------------------------------------------------
+REPO_ROOT="${FIX_BUNDLE}"   # would resolve elsewhere if the guard fired
+RESOLVED_ENV_FILE="${TMP_DIR}/resolved.15"; : >"${RESOLVED_ENV_FILE}"
+Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath="${FIX_REPO}/eng/dapr/components/delegated-spring-voyage-agent"
+if ( resolve_delegated_components_path ) >"${TMP_DIR}/out" 2>&1; then
+    if grep -q '^Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath=' "${RESOLVED_ENV_FILE}"; then
+        bad "Case 15: a valid configured path should not be rewritten"; cat "${RESOLVED_ENV_FILE}"
+    else
+        ok "Case 15: a valid operator-set components path is left untouched"
+    fi
+else
+    bad "Case 15: resolve should succeed for a valid configured path"; cat "${TMP_DIR}/out"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 16: the spring.env.example placeholder (non-existent) resolves to the
+# source-checkout eng/dapr/components tree.
+# ---------------------------------------------------------------------------
+REPO_ROOT="${FIX_REPO}"
+RESOLVED_ENV_FILE="${TMP_DIR}/resolved.16"; : >"${RESOLVED_ENV_FILE}"
+Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath="/absolute/path/to/spring-voyage/eng/dapr/components/delegated-spring-voyage-agent"
+if ( resolve_delegated_components_path ) >"${TMP_DIR}/out" 2>&1; then
+    got="$(resolved_value Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath "${RESOLVED_ENV_FILE}")"
+    [[ "${got}" == "${FIX_REPO}/eng/dapr/components/delegated-spring-voyage-agent" ]] \
+        && ok "Case 16: placeholder path resolves to the repo eng/dapr tree" \
+        || { bad "Case 16: resolved to '${got}'"; cat "${TMP_DIR}/out"; }
+else
+    bad "Case 16: resolve should succeed when the repo tree exists"; cat "${TMP_DIR}/out"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 17: an unset path resolves to the repo eng/dapr tree.
+# ---------------------------------------------------------------------------
+REPO_ROOT="${FIX_REPO}"
+RESOLVED_ENV_FILE="${TMP_DIR}/resolved.17"; : >"${RESOLVED_ENV_FILE}"
+unset Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath
+if ( resolve_delegated_components_path ) >"${TMP_DIR}/out" 2>&1; then
+    got="$(resolved_value Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath "${RESOLVED_ENV_FILE}")"
+    { [[ "${got}" == "${FIX_REPO}/eng/dapr/components/delegated-spring-voyage-agent" ]] \
+        && grep -q "unset" "${TMP_DIR}/out"; } \
+        && ok "Case 17: an unset path resolves to the repo eng/dapr tree" \
+        || { bad "Case 17: resolved to '${got}'"; cat "${TMP_DIR}/out"; }
+else
+    bad "Case 17: resolve should succeed when the repo tree exists"; cat "${TMP_DIR}/out"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 18: bundle layout — no eng/dapr/, only dapr/ — resolves to dapr/components.
+# ---------------------------------------------------------------------------
+REPO_ROOT="${FIX_BUNDLE}"
+RESOLVED_ENV_FILE="${TMP_DIR}/resolved.18"; : >"${RESOLVED_ENV_FILE}"
+Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath="/does/not/exist"
+if ( resolve_delegated_components_path ) >"${TMP_DIR}/out" 2>&1; then
+    got="$(resolved_value Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath "${RESOLVED_ENV_FILE}")"
+    [[ "${got}" == "${FIX_BUNDLE}/dapr/components/delegated-spring-voyage-agent" ]] \
+        && ok "Case 18: bundle layout resolves to the dapr/components tree" \
+        || { bad "Case 18: resolved to '${got}'"; cat "${TMP_DIR}/out"; }
+else
+    bad "Case 18: resolve should succeed when only the bundle tree exists"; cat "${TMP_DIR}/out"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 19: neither layout present → die with actionable guidance.
+# ---------------------------------------------------------------------------
+REPO_ROOT="${FIX_EMPTY}"
+RESOLVED_ENV_FILE="${TMP_DIR}/resolved.19"; : >"${RESOLVED_ENV_FILE}"
+Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath="/does/not/exist"
+if ( resolve_delegated_components_path ) >"${TMP_DIR}/out" 2>&1; then
+    bad "Case 19: expected a die when no components tree exists"; cat "${TMP_DIR}/out"
+else
+    { grep -q "delegated Dapr components directory not found" "${TMP_DIR}/out" \
+        && grep -q "Dapr__Sidecar__DelegatedSpringVoyageAgentComponentsPath" "${TMP_DIR}/out"; } \
+        && ok "Case 19: a missing components tree dies with set-the-path guidance" \
+        || { bad "Case 19: wrong failure message"; cat "${TMP_DIR}/out"; }
 fi
 
 printf '\n  passed: %d\n  failed: %d\n' "${PASS}" "${FAIL}"
