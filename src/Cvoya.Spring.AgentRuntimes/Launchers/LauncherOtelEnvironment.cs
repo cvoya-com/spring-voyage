@@ -26,9 +26,11 @@ using Cvoya.Spring.Core.Messaging;
 /// </para>
 /// <para>
 /// Resource attributes follow the issue body: <c>sv.subject.uuid</c>,
-/// <c>sv.subject.kind</c>, <c>sv.tenant.id</c>. The ingest controller
-/// cross-checks these against the bearer token's claims so a runtime
-/// that mis-stamps attributes can't replay against another subject.
+/// <c>sv.subject.kind</c>, <c>sv.tenant.id</c>, plus <c>sv.unit.id</c>
+/// for unit-owned agents (#3108, so SDK-runtime cost records carry unit
+/// attribution). The ingest controller cross-checks tenant + subject
+/// against the bearer token's claims so a runtime that mis-stamps
+/// attributes can't replay against another subject.
 /// </para>
 /// </remarks>
 public static class LauncherOtelEnvironment
@@ -117,6 +119,22 @@ public static class LauncherOtelEnvironment
             GuidFormatter.Format(context.TenantId),
             GuidFormatter.Format(subjectAddress.Id),
             subjectKind);
+
+        // #3108: stamp the owning unit so native / SV Agent SDK turn cost
+        // records inherit the same unit attribution as the Claude Code path.
+        // The ingest mapper reads sv.unit.id off the resource into the cost
+        // details; without it CostRecord.UnitId is null for SDK turns and
+        // unit-scope cost rollups / budget enforcement miss SDK-runtime spend.
+        // Omitted (not stamped empty) when the agent has no owning unit.
+        if (GuidFormatter.TryParse(context.UnitId, out var unitGuid))
+        {
+            resourceAttributes = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0},sv.unit.id={1}",
+                resourceAttributes,
+                GuidFormatter.Format(unitGuid));
+        }
+
         envVars[OtlpResourceAttributesEnvVar] = resourceAttributes;
     }
 

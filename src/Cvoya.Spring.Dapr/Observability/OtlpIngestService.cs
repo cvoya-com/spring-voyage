@@ -174,9 +174,10 @@ public class OtlpIngestService(
     /// Best-effort, like the rest of ingest: a throw here is caught by the
     /// caller's per-event handler and counted as a dropped event without
     /// affecting the already-published <c>LlmTurn</c> activity. Unit
-    /// attribution is absent — OTLP resource attributes carry tenant + subject
-    /// + thread but not the agent's owning unit — so <c>unitId</c> is omitted
-    /// and the resulting record's <c>UnitId</c> stays null.
+    /// attribution rides on <see cref="OtlpEventIngest.UnitId"/> (resolved from
+    /// the <c>sv.unit.id</c> resource attribute the launcher stamps, #3108), so
+    /// a unit-owned SDK turn populates <c>CostRecord.UnitId</c> the same as the
+    /// Claude Code path; an agent with no owning unit leaves it null.
     /// </remarks>
     private async Task TryEmitLlmTurnCostAsync(
         OtlpEventIngest evt,
@@ -202,6 +203,11 @@ public class OtlpIngestService(
             // (Tier-2 reflection) loop does not flow through the OTLP span path.
             costSource = nameof(CostSource.Work),
             tenantId = GuidFormatter.Format(evt.TenantId),
+            // #3108: the owning unit, resolved from the sv.unit.id resource
+            // attribute the launcher stamps. CostTracker.MapToRecord parses this
+            // into CostRecord.UnitId, so SDK turns get the same unit attribution
+            // as the Claude Code path; null/absent when the agent has no unit.
+            unitId = evt.UnitId,
             estimated = true,
         });
 

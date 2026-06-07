@@ -6,7 +6,6 @@ namespace Cvoya.Spring.Host.Api.Tests.Endpoints;
 using System.Net;
 using System.Net.Http.Json;
 
-using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
@@ -322,15 +321,6 @@ public class UnitPolicyEndpointsUnauthenticatedTests : IDisposable
                     // tests; the worker would surface ObjectDisposedException on
                     // factory disposal.
                     services.RemoveDaprWorkflowWorker();
-
-                    var costDescriptors = services
-                        .Where(d => d.ServiceType == typeof(ICostTracker))
-                        .ToList();
-                    foreach (var d in costDescriptors)
-                    {
-                        services.Remove(d);
-                    }
-                    services.AddSingleton(Substitute.For<ICostTracker>());
 
                     services.AddSingleton(sp =>
                     {

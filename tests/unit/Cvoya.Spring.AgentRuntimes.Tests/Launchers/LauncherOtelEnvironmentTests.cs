@@ -45,6 +45,42 @@ public class LauncherOtelEnvironmentTests
     }
 
     [Fact]
+    public void Add_UnitOwnedAgent_StampsUnitResourceAttribute()
+    {
+        // #3108: the owning unit must ride on the OTLP resource attributes so
+        // native / SV Agent SDK turn cost records inherit unit attribution.
+        var envVars = new Dictionary<string, string>
+        {
+            [AgentCallbackEnvironmentContract.CallbackUrlEnvVar] = "https://platform.example.com/v1/runtime/callback",
+            [AgentCallbackEnvironmentContract.CallbackTokenEnvVar] = "tok",
+        };
+        var unitId = new Guid("33333333-0000-0000-0000-000000000001");
+        var context = NewContext() with { UnitId = unitId.ToString() };
+
+        LauncherOtelEnvironment.Add(context, envVars);
+
+        envVars[LauncherOtelEnvironment.OtlpResourceAttributesEnvVar]
+            .ShouldContain($"sv.unit.id={Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitId)}");
+    }
+
+    [Fact]
+    public void Add_NoOwningUnit_OmitsUnitResourceAttribute()
+    {
+        // An agent with no owning unit (NewContext sets UnitId: null) must not
+        // stamp an empty sv.unit.id — CostRecord.UnitId stays null for it.
+        var envVars = new Dictionary<string, string>
+        {
+            [AgentCallbackEnvironmentContract.CallbackUrlEnvVar] = "https://platform.example.com/v1/runtime/callback",
+            [AgentCallbackEnvironmentContract.CallbackTokenEnvVar] = "tok",
+        };
+        var context = NewContext();
+
+        LauncherOtelEnvironment.Add(context, envVars);
+
+        envVars[LauncherOtelEnvironment.OtlpResourceAttributesEnvVar].ShouldNotContain("sv.unit.id");
+    }
+
+    [Fact]
     public void Add_HumanSubject_StampsSubjectKindHuman()
     {
         var envVars = new Dictionary<string, string>

@@ -256,15 +256,6 @@ public class AuthHandlerRoleClaimsTests : IDisposable
                     // race (Dapr.Workflow 1.17.8 — see DaprWorkflowWorkerWorkaround).
                     services.RemoveDaprWorkflowWorker();
 
-                    var costDescriptors = services
-                        .Where(d => d.ServiceType == typeof(Cvoya.Spring.Core.Costs.ICostTracker))
-                        .ToList();
-                    foreach (var d in costDescriptors)
-                    {
-                        services.Remove(d);
-                    }
-                    services.AddSingleton(Substitute.For<Cvoya.Spring.Core.Costs.ICostTracker>());
-
                     services.AddSingleton(sp =>
                     {
                         var permSvc = Substitute.For<IPermissionService>();

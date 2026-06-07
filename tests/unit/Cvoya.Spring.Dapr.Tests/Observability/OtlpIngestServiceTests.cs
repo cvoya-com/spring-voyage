@@ -250,7 +250,8 @@ public class OtlpIngestServiceTests : IDisposable
         string? model = "claude-opus-4-8",
         long inputTokens = 1_000_000,
         long outputTokens = 1_000_000,
-        Address? subject = null)
+        Address? subject = null,
+        string? unitId = null)
     {
         var attrs = new Dictionary<string, object?>
         {
@@ -272,7 +273,8 @@ public class OtlpIngestServiceTests : IDisposable
             Timestamp: DateTimeOffset.UtcNow,
             Summary: "sv.llm.turn",
             Severity: ActivitySeverity.Info,
-            Details: JsonSerializer.SerializeToElement(attrs));
+            Details: JsonSerializer.SerializeToElement(attrs),
+            UnitId: unitId);
     }
 
     [Fact]
@@ -304,6 +306,51 @@ public class OtlpIngestServiceTests : IDisposable
         cost.Details!.Value.GetProperty("outputTokens").GetInt32().ShouldBe(1_000_000);
         cost.Details!.Value.GetProperty("costSource").GetString().ShouldBe("Work");
         cost.Details!.Value.GetProperty("estimated").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IngestAsync_UnitOwnedLlmTurn_ProducesNonNullCostRecordUnitId()
+    {
+        // #3108: a unit-owned SDK turn must populate CostRecord.UnitId so unit
+        // cost rollups / budget enforcement see SDK-runtime spend. Exercise the
+        // full chain: ingest emits CostIncurred with unitId in details, and
+        // CostTracker.MapToRecord lifts it onto the persisted record.
+        await SetCaptureLevelAsync(ActivityCaptureLevel.Full);
+        var service = CreateService();
+
+        var observed = new List<ActivityEvent>();
+        using var sub = _bus.ActivityStream.Subscribe(observed.Add);
+
+        var unitId = new Guid("cccccccc-0000-0000-0000-000000000099");
+        await service.IngestAsync(
+            new[] { BuildLlmTurnEvent(unitId: unitId.ToString()) }, TestContext.Current.CancellationToken);
+
+        var cost = observed.Where(e => e.EventType == ActivityEventType.CostIncurred).ShouldHaveSingleItem();
+        cost.Details!.Value.GetProperty("unitId").GetString().ShouldBe(unitId.ToString());
+
+        var record = CostTracker.MapToRecord(cost);
+        record.ShouldNotBeNull();
+        record!.UnitId.ShouldBe(unitId);
+    }
+
+    [Fact]
+    public async Task IngestAsync_NoUnitLlmTurn_ProducesNullCostRecordUnitId()
+    {
+        // An agent with no owning unit leaves CostRecord.UnitId null — no unit
+        // attribution is fabricated when sv.unit.id was never stamped.
+        await SetCaptureLevelAsync(ActivityCaptureLevel.Full);
+        var service = CreateService();
+
+        var observed = new List<ActivityEvent>();
+        using var sub = _bus.ActivityStream.Subscribe(observed.Add);
+
+        await service.IngestAsync(
+            new[] { BuildLlmTurnEvent(unitId: null) }, TestContext.Current.CancellationToken);
+
+        var cost = observed.Where(e => e.EventType == ActivityEventType.CostIncurred).ShouldHaveSingleItem();
+        var record = CostTracker.MapToRecord(cost);
+        record.ShouldNotBeNull();
+        record!.UnitId.ShouldBeNull();
     }
 
     [Fact]
