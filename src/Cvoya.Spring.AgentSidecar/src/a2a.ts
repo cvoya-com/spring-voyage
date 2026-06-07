@@ -36,6 +36,7 @@ import type { BootstrapFetcher } from "./bootstrap.js";
 import { runAgentBridge } from "./bridge.js";
 import type { AgentOutputFormat, ThreadBindingConfig } from "./config.js";
 import { parseCliJsonResult, type TurnCost } from "./cost.js";
+import { parseStreamJson, type StreamToolCall } from "./stream-json.js";
 import {
   MCP_TOKEN_PATH_ENV_VAR,
   resolveMcpTokenPath,
@@ -171,6 +172,10 @@ interface ActiveTask {
   // Null for text-format runtimes or when the result carried no cost; when
   // set, surfaced to the host via the A2A task `metadata` block.
   cost: TurnCost | null;
+  // Tool calls surfaced from a stream-json turn (#2226). Empty for the text /
+  // single-object-json paths; when present, emitted as a dedicated status
+  // artifact so a consumer can see what the model invoked.
+  toolCalls: StreamToolCall[];
 }
 
 export class A2AHandler {
@@ -519,6 +524,7 @@ export class A2AHandler {
       outputArtifact: null,
       errorMessage: null,
       cost: null,
+      toolCalls: [],
     };
     this.tasks.set(taskId, task);
 
@@ -654,6 +660,25 @@ export class A2AHandler {
         const parsed = parseCliJsonResult(result.stdout);
         task.outputArtifact = parsed.reply;
         task.cost = parsed.cost;
+      } else if (this.deps.outputFormat === "stream-json") {
+        // #2226: the CLI emitted a Claude/Gemini NDJSON event stream. Parse it
+        // into the assistant reply (not the raw JSON wall), the turn's
+        // cost/usage, and the tool calls observed. A terminal `result` event
+        // flagged as an error flips the task to failed even though the process
+        // exited 0 (a CLI can report an in-band error on a clean exit).
+        const parsed = parseStreamJson(result.stdout);
+        if (parsed.isError) {
+          task.state = "failed";
+          task.errorMessage =
+            parsed.errorMessage ??
+            (result.stderr.length > 0
+              ? result.stderr
+              : "Agent CLI reported an error in its stream-json result.");
+        } else {
+          task.outputArtifact = parsed.reply;
+        }
+        task.cost = parsed.cost;
+        task.toolCalls = parsed.toolCalls;
       } else {
         task.outputArtifact = result.stdout;
       }
@@ -828,6 +853,20 @@ export class A2AHandler {
       artifacts.push({
         artifactId: "stderr",
         parts: [{ kind: "text", text: stderrLines.join("\n") }],
+      });
+    }
+    if (task.toolCalls.length > 0) {
+      // #2226: tool calls observed in a stream-json turn, surfaced under a
+      // known artifactId so a consumer can render what the model invoked.
+      // Informational (like stderr) — distinct from the reply artifact.
+      artifacts.push({
+        artifactId: "tool-calls",
+        parts: [
+          {
+            kind: "text",
+            text: task.toolCalls.map((c) => c.name).join("\n"),
+          },
+        ],
       });
     }
     if (artifacts.length > 0) {

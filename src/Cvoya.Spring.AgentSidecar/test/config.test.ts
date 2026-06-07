@@ -54,6 +54,15 @@ describe("loadConfigFromEnv", () => {
     assert.equal(loadConfigFromEnv({ SPRING_AGENT_OUTPUT_FORMAT: "json" }).outputFormat, "json");
     assert.equal(loadConfigFromEnv({ SPRING_AGENT_OUTPUT_FORMAT: "JSON" }).outputFormat, "json");
     assert.equal(loadConfigFromEnv({ SPRING_AGENT_OUTPUT_FORMAT: "text" }).outputFormat, "text");
+    // #2226: stream-json is the Claude/Gemini NDJSON event-stream mode.
+    assert.equal(
+      loadConfigFromEnv({ SPRING_AGENT_OUTPUT_FORMAT: "stream-json" }).outputFormat,
+      "stream-json",
+    );
+    assert.equal(
+      loadConfigFromEnv({ SPRING_AGENT_OUTPUT_FORMAT: "STREAM-JSON" }).outputFormat,
+      "stream-json",
+    );
   });
 
   it("rejects an unknown SPRING_AGENT_OUTPUT_FORMAT", () => {

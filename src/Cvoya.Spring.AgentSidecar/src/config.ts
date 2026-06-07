@@ -41,11 +41,16 @@ export interface ThreadBindingConfig {
 //     object. The bridge parses it, surfaces `.result` as the reply, and hands
 //     `total_cost_usd` + `usage` back to the host as A2A task metadata so the
 //     platform cost ledger / budget enforcer receive real numbers (#3073). See
-//     cost.ts for the shape and the #2226 note on the richer stream-json form.
+//     cost.ts for the shape.
+//   * `stream-json` — stdout is the newline-delimited JSON event stream the
+//     Claude Code (`--output-format stream-json --verbose`) and Gemini
+//     (`--output-format stream-json`) CLIs emit. The bridge parses each event,
+//     reconstructs the assistant reply, surfaces tool calls as status, and
+//     hands the turn's cost/usage to the host (#2226). See stream-json.ts.
 //
 // The launcher selects the mode via `SPRING_AGENT_OUTPUT_FORMAT`; the bridge
 // stays agent-agnostic and never inspects the CLI flags itself.
-export type AgentOutputFormat = "text" | "json";
+export type AgentOutputFormat = "text" | "json" | "stream-json";
 
 export interface BridgeConfig {
   // TCP port the bridge listens on. The dispatcher dials this port; the
@@ -107,11 +112,14 @@ function parseOutputFormat(raw: string | undefined): AgentOutputFormat {
   if (normalized === "json") {
     return "json";
   }
+  if (normalized === "stream-json") {
+    return "stream-json";
+  }
   if (normalized === "text") {
     return "text";
   }
   throw new Error(
-    `SPRING_AGENT_OUTPUT_FORMAT must be "text" or "json"; got: ${raw}`,
+    `SPRING_AGENT_OUTPUT_FORMAT must be "text", "json", or "stream-json"; got: ${raw}`,
   );
 }
 

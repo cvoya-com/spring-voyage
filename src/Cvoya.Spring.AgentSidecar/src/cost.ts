@@ -25,11 +25,13 @@
 //     "modelUsage": { "claude-...": { ... } }
 //   }
 //
-// This is intentionally scoped to the Claude Code single-object JSON shape —
-// the only runtime the launcher sets `SPRING_AGENT_OUTPUT_FORMAT=json` for
-// today. The NDJSON stream-json shape (Gemini, and Claude's `--output-format
-// stream-json --verbose`) is a separate, richer parser tracked in #2226; when
-// it lands it can reuse `TurnCost` and the same A2A-metadata contract.
+// This is scoped to the single-object JSON shape — i.e. a turn the launcher
+// runs with `--output-format json`. The NDJSON stream-json shape (Gemini, and
+// Claude's `--output-format stream-json --verbose`) is parsed by the richer
+// `stream-json.ts` parser (#2226), which reuses this module's `TurnCost` and
+// delegates the Claude terminal `result` event's cost extraction back to
+// `parseCliJsonResult` (that event has the same fields as the single-object
+// result), so there is exactly one Claude cost code-path.
 
 /** Per-turn cost + usage the bridge surfaces to the host via A2A task metadata. */
 export interface TurnCost {

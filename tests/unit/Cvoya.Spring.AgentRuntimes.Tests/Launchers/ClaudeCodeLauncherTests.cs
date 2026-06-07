@@ -233,10 +233,13 @@ public class ClaudeCodeLauncherTests
             "claude",
             "--print",
             "--dangerously-skip-permissions",
-            // #3073: JSON result so the sidecar can surface the reply prose and
-            // capture the turn's cost/usage for the host cost ledger.
+            // #2226: NDJSON stream-json so the sidecar surfaces the reply
+            // prose, surfaces tool calls as status, and captures the turn's
+            // cost/usage for the host cost ledger. `--verbose` is mandatory
+            // with `--print --output-format stream-json`.
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
             "--mcp-config",
             expectedMcpConfigPath,
             "--append-system-prompt-file",
@@ -245,22 +248,27 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_SetsOutputFormatJsonEnvHint_PairedWithArgv()
+    public async Task PrepareAsync_SetsOutputFormatStreamJsonEnvHint_PairedWithArgv()
     {
-        // #3073: the launcher tells the sidecar to parse JSON output (so it can
-        // extract cost/usage) via SPRING_AGENT_OUTPUT_FORMAT, paired with the
-        // `--output-format json` argv tokens. The bridge stays agent-agnostic.
+        // #2226: the launcher tells the sidecar to parse the NDJSON
+        // stream-json event stream (so it can surface the reply, tool calls,
+        // and cost/usage) via SPRING_AGENT_OUTPUT_FORMAT, paired with the
+        // `--output-format stream-json --verbose` argv tokens. The bridge
+        // stays agent-agnostic.
         var context = CreateContext();
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables.ShouldContainKeyAndValue("SPRING_AGENT_OUTPUT_FORMAT", "json");
+        prep.EnvironmentVariables.ShouldContainKeyAndValue("SPRING_AGENT_OUTPUT_FORMAT", "stream-json");
 
         var argv = JsonSerializer.Deserialize<string[]>(
             prep.EnvironmentVariables["SPRING_AGENT_ARGV"]);
         argv.ShouldNotBeNull();
         var formatIndex = Array.IndexOf(argv, "--output-format");
-        formatIndex.ShouldBeGreaterThanOrEqualTo(0, "argv must request a JSON result");
-        argv[formatIndex + 1].ShouldBe("json");
+        formatIndex.ShouldBeGreaterThanOrEqualTo(0, "argv must request a stream-json result");
+        argv[formatIndex + 1].ShouldBe("stream-json");
+        // The Claude CLI rejects `--print --output-format stream-json` without
+        // `--verbose`, so the flag must be present.
+        argv.ShouldContain("--verbose");
     }
 
     [Fact]
