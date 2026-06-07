@@ -196,7 +196,7 @@ internal static class ServiceCollectionExtensionsExecution
         // the worker's container-lifecycle / unit-teardown surface consumes
         // it; registered in the role-gated block below.
         services.AddDispatcherHttpClient();
-        // ADR-0051: the per-turn callback JWT is no longer the messaging
+        // ADR-0054: the per-turn callback JWT is no longer the messaging
         // credential — sv.messaging.* is served by the platform MCP server
         // under the MCP session token, gated like every other sv.* tool. The
         // issuer and the per-tenant signing key are retained because the

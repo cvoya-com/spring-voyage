@@ -208,7 +208,7 @@ public class GeminiLauncherTests
     [Fact]
     public async Task ContributeBundleAsync_WritesOnlyTheSinglePlatformMcpServer()
     {
-        // ADR-0051: one MCP server serves every sv.* tool — sv.messaging.*
+        // ADR-0054: one MCP server serves every sv.* tool — sv.messaging.*
         // included. The bundle no longer writes a second messaging server.
         var contribution = await _launcher.ContributeBundleAsync(
             CreateBundleContext(),

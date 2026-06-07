@@ -21,7 +21,7 @@ using Microsoft.Extensions.Options;
 /// </summary>
 /// <remarks>
 /// <para>
-/// ADR-0051 retired the messaging callback surface; the value now backs the
+/// ADR-0054 retired the messaging callback surface; the value now backs the
 /// OTLP-ingest plane — <c>LauncherOtelEnvironment</c> derives the
 /// <c>/otlp</c> ingest endpoint from <c>SPRING_CALLBACK_URL</c>.
 /// Without this requirement the value is validated lazily —

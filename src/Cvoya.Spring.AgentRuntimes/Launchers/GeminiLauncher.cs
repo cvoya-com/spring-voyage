@@ -204,7 +204,7 @@ public class GeminiLauncher(
         "--skip-trust",
     ];
 
-    // ADR-0051: a single platform MCP server serves every sv.* tool —
+    // ADR-0054: a single platform MCP server serves every sv.* tool —
     // sv.directory.*, sv.memory.*, sv.runtime.*, and sv.messaging.* — under
     // the MCP session token. There is no separate messaging MCP server.
     private const string SpringVoyageMcpServerName = "spring-voyage";

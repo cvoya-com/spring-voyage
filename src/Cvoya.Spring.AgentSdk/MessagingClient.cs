@@ -10,7 +10,7 @@ using System.Text.Json;
 
 /// <summary>
 /// <see cref="IMessagingClient"/> implementation that delivers messages
-/// through the single platform MCP server (ADR-0051). It calls
+/// through the single platform MCP server (ADR-0054). It calls
 /// <c>sv.messaging.send</c> / <c>sv.messaging.multicast</c> over JSON-RPC 2.0
 /// <c>tools/call</c>, authenticated by the MCP session bearer token — the
 /// same server and credential the runtime already uses for every other
@@ -18,7 +18,7 @@ using System.Text.Json;
 /// </summary>
 /// <remarks>
 /// The per-turn callback JWT and the standalone messaging REST surface are
-/// retired (ADR-0051). The public <see cref="SendAsync"/> /
+/// retired (ADR-0054). The public <see cref="SendAsync"/> /
 /// <see cref="MulticastAsync"/> contract is unchanged — only the transport
 /// and the credential moved. The MCP session token carries the caller's
 /// identity, thread, and inbound message id, so the SDK no longer threads a
@@ -71,7 +71,7 @@ public sealed class MessagingClient : IMessagingClient
 
     /// <inheritdoc />
     /// <remarks>
-    /// ADR-0051 retired the messaging REST surface that backed the result
+    /// ADR-0054 retired the messaging REST surface that backed the result
     /// post; the runtime's final reply now flows through its A2A response.
     /// This method is retained on the contract for source compatibility.
     /// </remarks>
@@ -84,7 +84,7 @@ public sealed class MessagingClient : IMessagingClient
         ArgumentNullException.ThrowIfNull(result);
 
         throw new NotSupportedException(
-            "PostResultAsync is not available over the MCP messaging transport (ADR-0051). " +
+            "PostResultAsync is not available over the MCP messaging transport (ADR-0054). " +
             "A runtime's final reply is carried by its A2A response; use sv.messaging.send " +
             "to deliver an explicit message to another participant.");
     }
@@ -351,7 +351,7 @@ public sealed class MessagingClient : IMessagingClient
 
     // ADR-0049 — the platform returns a delivery acknowledgement, not the
     // recipient's response. The wire shape mirrors SvMessagingSkillRegistry's
-    // tool output (string ids, ADR-0051).
+    // tool output (string ids, ADR-0054).
     private sealed record MessagingSendResponseDto(
         bool Delivered,
         string? MessageId,

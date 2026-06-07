@@ -17,7 +17,7 @@ using Shouldly;
 
 /// <summary>
 /// Shared launcher-test support for the OTLP-ingest callback environment.
-/// ADR-0051 retired the messaging callback JWT and its validator; the
+/// ADR-0054 retired the messaging callback JWT and its validator; the
 /// <c>SPRING_CALLBACK_*</c> env contract survives only as the OTLP-ingest
 /// credential, so these assertions check the env vars are stamped without
 /// re-validating the JWT claim shape.
@@ -108,7 +108,7 @@ internal sealed class LauncherCallbackTestSupport
         spec.EnvironmentVariables[AgentCallbackEnvironmentContract.CallbackUrlEnvVar]
             .ShouldBe(CallbackUrl);
 
-        // ADR-0051: the SPRING_CALLBACK_TOKEN is the OTLP-ingest credential.
+        // ADR-0054: the SPRING_CALLBACK_TOKEN is the OTLP-ingest credential.
         // It is still a launcher-minted compact JWT (header.payload.signature);
         // its claim shape is exercised by the OTLP auth-handler tests, so here
         // we only assert the env var is stamped with a JWT-shaped value.

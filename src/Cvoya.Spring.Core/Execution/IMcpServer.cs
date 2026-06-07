@@ -37,7 +37,7 @@ public interface IMcpServer
     /// </summary>
     /// <paramref name="messageId"/> is the inbound message the turn responds
     /// to; it carries the per-turn delivery authority the retired callback
-    /// JWT used to provide (ADR-0051), reaching messaging tools through
+    /// JWT used to provide (ADR-0054), reaching messaging tools through
     /// <see cref="McpSession.MessageId"/> / <c>ToolCallContext.MessageId</c>.
     /// Every dispatch call site already has the message in hand; synthetic
     /// launch paths that are not serving an inbound message pass
@@ -103,10 +103,10 @@ public interface IMcpServer
 /// The inbound message the turn is responding to. The MCP session is minted
 /// per turn and revoked on turn-end, so it carries the full
 /// <c>(tenant, agentAddress, threadId, messageId)</c> per-turn delivery
-/// authority the retired callback JWT used to carry (ADR-0051). Messaging
+/// authority the retired callback JWT used to carry (ADR-0054). Messaging
 /// tools read it through <c>ToolCallContext.MessageId</c> to stamp the
 /// outgoing message. Defaults to <see cref="System.Guid.Empty"/> so
-/// positional construction in tests written before ADR-0051 keeps compiling.
+/// positional construction in tests written before ADR-0054 keeps compiling.
 /// </param>
 public record McpSession(
     string Token,

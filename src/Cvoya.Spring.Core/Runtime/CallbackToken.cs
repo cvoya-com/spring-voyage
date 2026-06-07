@@ -12,7 +12,7 @@ using Cvoya.Spring.Core.Messaging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// ADR-0051 retired the messaging callback surface and folded its per-turn
+/// ADR-0054 retired the messaging callback surface and folded its per-turn
 /// delivery authority into the MCP session token. This record survives as
 /// the OTLP-ingest credential (issue #2492): the runtime-launcher pipeline
 /// mints it via <c>ICallbackTokenIssuer</c> and stamps it as

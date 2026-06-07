@@ -164,7 +164,7 @@ public class A2AExecutionDispatcherTests
         // The dispatcher calls IssueSession(agentId, threadId, scheme,
         // messageId); the production server materialises a Subject Address
         // from those args (#2379) and carries the inbound message id
-        // (ADR-0051). Mirror that here so the returned McpSession satisfies
+        // (ADR-0054). Mirror that here so the returned McpSession satisfies
         // the non-nullable Subject contract.
         _mcpServer.IssueSession(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>())
@@ -493,7 +493,7 @@ public class A2AExecutionDispatcherTests
 
         // The dispatcher threads message.To.Scheme into IssueSession so the
         // server can materialise the session subject (#2379) and the inbound
-        // message id so messaging tools carry per-turn authority (ADR-0051).
+        // message id so messaging tools carry per-turn authority (ADR-0054).
         _mcpServer.Received(1).IssueSession(
             AgentId, message.ThreadId!, message.To.Scheme, message.Id);
         await _launcher.Received(1).PrepareAsync(

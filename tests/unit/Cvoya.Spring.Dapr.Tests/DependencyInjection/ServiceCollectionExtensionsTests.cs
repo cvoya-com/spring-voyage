@@ -279,7 +279,7 @@ public class ServiceCollectionExtensionsTests
     }
 
     /// <summary>
-    /// ADR-0051: <c>AddCvoyaSpringDapr</c> registers
+    /// ADR-0054: <c>AddCvoyaSpringDapr</c> registers
     /// <see cref="Cvoya.Spring.Dapr.Skills.SvMessagingSkillRegistry"/> into the
     /// <see cref="ISkillRegistry"/> set so the single platform MCP server
     /// serves <c>sv.messaging.send</c> / <c>sv.messaging.multicast</c>

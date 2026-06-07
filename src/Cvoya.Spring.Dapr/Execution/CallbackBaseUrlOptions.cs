@@ -8,7 +8,7 @@ namespace Cvoya.Spring.Dapr.Execution;
 /// </summary>
 /// <remarks>
 /// <para>
-/// ADR-0051 retired the messaging callback surface and its per-turn JWT —
+/// ADR-0054 retired the messaging callback surface and its per-turn JWT —
 /// <c>sv.messaging.*</c> is served by the single platform MCP server under
 /// the MCP session token. <see cref="BaseUrl"/> survives because the
 /// OTLP-ingest plane still needs it: <c>DispatcherCallbackEnvironmentBuilder</c>

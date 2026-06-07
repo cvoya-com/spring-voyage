@@ -116,7 +116,7 @@ public class SpringVoyageAgentLauncherTests
     [Fact]
     public async Task PrepareAsync_DoesNotEmitAStandaloneMessagingToolsEnvironmentVariable()
     {
-        // ADR-0051: sv.messaging.* tools are served by the single platform
+        // ADR-0054: sv.messaging.* tools are served by the single platform
         // MCP server (SPRING_MCP_URL / SPRING_MCP_TOKEN) and discovered via
         // tools/list — there is no separate SPRING_MESSAGING_TOOLS env var.
         var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
