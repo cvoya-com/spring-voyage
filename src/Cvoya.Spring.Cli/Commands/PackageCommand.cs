@@ -22,8 +22,7 @@ using Microsoft.Kiota.Abstractions;
 ///   <item><description><c>spring package install &lt;name&gt;...</c> — install one or more catalog packages as a batch.</description></item>
 ///   <item><description><c>spring package install --file &lt;path&gt;</c> — install from a local package YAML.</description></item>
 ///   <item><description><c>spring package status &lt;install-id&gt;</c> — inspect install phase and per-package state.</description></item>
-///   <item><description><c>spring package retry &lt;install-id&gt;</c> — re-run Phase 2 after a transient failure.</description></item>
-///   <item><description><c>spring package abort &lt;install-id&gt;</c> — discard staging rows for a failed install.</description></item>
+///   <item><description><c>spring package abort &lt;install-id&gt;</c> — discard staging rows for a failed install, then re-install fresh.</description></item>
 ///   <item><description><c>spring package export &lt;unit-name&gt;</c> — write the package.yaml back from an installed unit.</description></item>
 ///   <item><description><c>spring package list</c> — browse the catalog.</description></item>
 ///   <item><description><c>spring package show &lt;name&gt;</c> — package detail.</description></item>
@@ -118,7 +117,6 @@ public static class PackageCommand
 
         packageCommand.Subcommands.Add(CreateInstallCommand(outputOption));
         packageCommand.Subcommands.Add(CreateStatusCommand(outputOption));
-        packageCommand.Subcommands.Add(CreateRetryCommand());
         packageCommand.Subcommands.Add(CreateAbortCommand());
         packageCommand.Subcommands.Add(CreateExportCommand(outputOption));
         packageCommand.Subcommands.Add(CreateListCommand(outputOption));
@@ -573,46 +571,6 @@ public static class PackageCommand
             }
 
             PrintInstallResult(result, output);
-        });
-
-        return command;
-    }
-
-    // ── retry ────────────────────────────────────────────────────────────────
-
-    private static Command CreateRetryCommand()
-    {
-        var installIdArg = new Argument<string>("install-id")
-        {
-            Description = "The install id to retry Phase 2 for.",
-        };
-
-        var command = new Command(
-            "retry",
-            "Re-run Phase 2 activation for a failed install. " +
-            "Fix the underlying issue (Dapr placement, image pull, model probe) " +
-            "before retrying.");
-        command.Arguments.Add(installIdArg);
-
-        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
-        {
-            var installId = parseResult.GetValue(installIdArg)!;
-            var client = ClientFactory.Create();
-
-            var result = await client.RetryInstallAsync(installId, ct);
-            if (result is null)
-            {
-                await Console.Error.WriteLineAsync(
-                    $"Install '{installId}' not found.");
-                Environment.Exit(3);
-                return;
-            }
-
-            PrintInstallResult(result, "table");
-            if (result.Status == "failed")
-            {
-                Environment.Exit(1);
-            }
         });
 
         return command;

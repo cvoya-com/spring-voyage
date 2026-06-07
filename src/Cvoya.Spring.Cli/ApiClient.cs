@@ -3735,8 +3735,8 @@ public class SpringApiClient
         }
     }
 
-    // Package install / status / retry / abort / export (ADR-0035 decision 4).
-    // These back the `spring package install|status|retry|abort|export` verb cluster.
+    // Package install / status / abort / export (ADR-0035 decision 4).
+    // These back the `spring package install|status|abort|export` verb cluster.
     // We use _httpClient directly rather than Kiota-generated paths because the
     // install endpoints sit outside the /api/v1/tenant/ prefix and the file-upload
     // endpoint uses multipart/form-data which Kiota's generated adapters do not
@@ -3829,36 +3829,6 @@ public class SpringApiClient
         return System.Text.Json.JsonSerializer.Deserialize<PackageInstallResponse>(
             responseJson, PackageJsonOptions)
             ?? throw new InvalidOperationException("Server returned an empty install-status response.");
-    }
-
-    /// <summary>
-    /// Re-runs Phase 2 for a failed install.
-    /// POST /api/v1/installs/{id}/retry.
-    /// Returns null when the install id is not found (404).
-    /// </summary>
-    public async Task<PackageInstallResponse?> RetryInstallAsync(
-        string installId,
-        CancellationToken ct = default)
-    {
-        var response = await _httpClient.PostAsync(
-            $"{_baseUrl}/api/v1/installs/{installId}/retry",
-            new System.Net.Http.StringContent(string.Empty, System.Text.Encoding.UTF8, "application/json"),
-            ct);
-
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return null;
-        }
-
-        var responseJson = await response.Content.ReadAsStringAsync(ct);
-        if (!response.IsSuccessStatusCode)
-        {
-            ThrowForStatus(response, responseJson);
-        }
-
-        return System.Text.Json.JsonSerializer.Deserialize<PackageInstallResponse>(
-            responseJson, PackageJsonOptions)
-            ?? throw new InvalidOperationException("Server returned an empty retry response.");
     }
 
     /// <summary>
@@ -3987,7 +3957,7 @@ public class SpringApiClient
         IReadOnlyDictionary<string, object> Config);
 
     /// <summary>
-    /// Response from the install/status/retry endpoints — maps the server's
+    /// Response from the install/status endpoints — maps the server's
     /// <c>InstallStatusResponse</c> shape.
     /// </summary>
     public sealed record PackageInstallResponse(
