@@ -184,8 +184,8 @@ public sealed class SvRuntimeSkillRegistry : ISkillRegistry
 
         // A decision the runtime could not execute may name its target by
         // canonical address or by a human-facing name (the runtime knows
-        // members by name via sv.directory.get_member). . Parse what is a canonical
-        // address into RoutingDecision.Targets; the verbatim
+        // members by name via sv.directory.lookup / sv.directory.list). Parse
+        // what is a canonical address into RoutingDecision.Targets; the verbatim
         // strings always go onto the metadata so the intended target is
         // never lost even when it was a name.
         var parsedTargets = targetStrings

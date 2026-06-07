@@ -19,8 +19,8 @@ using Cvoya.Spring.Dapr.Auth;
 /// <c>sv.messaging.multicast</c>) so the runtime can deliver messages; the
 /// platform delivers messages, it does not orchestrate (ADR-0048 / ADR-0049).
 /// Discovery, inspection, and status queries live on the
-/// <c>sv.directory.*</c> tool surface (<c>sv.directory.list_members</c>,
-/// <c>sv.directory.get_member</c>, <c>sv.directory.get_status</c>), not on the
+/// <c>sv.directory.*</c> tool surface (<c>sv.directory.list</c>,
+/// <c>sv.directory.lookup</c>, <c>sv.directory.get_status</c>), not on the
 /// messaging surface. Control messages (cancel, status, health,
 /// policy) are handled directly and follow the same shape as on
 /// <see cref="IAgentActor"/>.

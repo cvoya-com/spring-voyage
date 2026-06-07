@@ -110,7 +110,7 @@ Both discriminators accept two shapes:
 
 Authoring rule of thumb: **if the agent owns children (its own skills or sub-agents), give it a folder; otherwise, inline it.** Folder agents are the right shape for `agents/data-analyst/skills/literature-review/`; inline bodies are the right shape for "fan three engineers out of one template".
 
-Both shapes carry the multi-valued `roles` and `expertise` — runtime metadata on the membership edge, surfaced through `sv.directory.list_members` so peers can ask "who are the owners on my team?".
+Both shapes carry the multi-valued `roles` and `expertise` — runtime metadata on the membership edge, surfaced through `sv.directory.list` so peers can ask "who are the owners on my team?".
 
 ### `- human:`
 

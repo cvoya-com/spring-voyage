@@ -33,7 +33,7 @@ sequenceDiagram
     DISP->>MCP: IssueSession → per-turn MCP token
     DISP->>DX: launch container + A2A message/send (token in metadata)
     DX->>UC: start container, deliver the turn
-    UC->>MCP: tools/call sv.directory.list_members (Bearer token)
+    UC->>MCP: tools/call sv.directory.list (Bearer token)
     MCP->>MCP: effective-grant gate + unit-policy gate
     MCP-->>UC: members
     UC->>MCP: tools/call sv.messaging.send(member, work)

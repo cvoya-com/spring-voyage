@@ -8,7 +8,7 @@ the container's lifetime, so calls work whether or not the engine is processing
 an inbound message. The caller supplies the token per call.
 
 Only the handful of tools the orchestrator drives are wrapped here:
-`sv.directory.get_self` / `sv.directory.list_members` to resolve a peer role to
+`sv.directory.get_self` / `sv.directory.list` to resolve a peer role to
 an address, and `sv.messaging.send` / `sv.messaging.respond_to` to deliver
 briefs and finished work. `send` / `respond_to` return the created message's id
 so the orchestrator can correlate a later reply by its `in_reply_to`
@@ -29,7 +29,9 @@ import httpx
 SEND_TOOL = "sv.messaging.send"
 RESPOND_TO_TOOL = "sv.messaging.respond_to"
 GET_SELF_TOOL = "sv.directory.get_self"
-LIST_MEMBERS_TOOL = "sv.directory.list_members"
+# #3069 consolidated the directory surface: the former sv.directory.list_members
+# is now sv.directory.list with the unit's uuid passed explicitly.
+LIST_TOOL = "sv.directory.list"
 
 
 class McpError(RuntimeError):
@@ -99,13 +101,14 @@ async def get_self(mcp: McpClient, token: str) -> dict[str, Any]:
 async def list_members(
     mcp: McpClient, token: str, unit_uuid: str
 ) -> list[dict[str, Any]]:
-    """List a unit's members. Returns directory entries, each carrying `roles`
-    (a list) and a sendable `address`. The directory wire shape exposes the
-    address as separate `kind` + `uuid` fields rather than a pre-built string,
-    so we materialise the canonical `kind:uuid` address on each entry — role and
-    address resolution (and `resolve_role_address`) thread by it. The result
-    shape may be a bare array or wrapped in a `members` key — both are handled."""
-    result = await mcp.call_tool_json(token, LIST_MEMBERS_TOOL, {"uuid": unit_uuid})
+    """List a unit's members via `sv.directory.list` with the unit's `uuid`
+    (#3069). Returns directory entries, each carrying `roles` (a list) and a
+    sendable `address`. The directory wire shape exposes the address as separate
+    `kind` + `uuid` fields rather than a pre-built string, so we materialise the
+    canonical `kind:uuid` address on each entry — role and address resolution
+    (and `resolve_role_address`) thread by it. The result shape may be a bare
+    array or wrapped in a `members` key — both are handled."""
+    result = await mcp.call_tool_json(token, LIST_TOOL, {"uuid": unit_uuid})
     if isinstance(result, list):
         raw = result
     elif isinstance(result, dict):

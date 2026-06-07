@@ -70,7 +70,7 @@ class FakeMcp:
             return {"messageId": f"msg-{len(self.sends)}", "deliveries": []}
         if name == mcp_tools.GET_SELF_TOOL:
             return {"parent_uuids": ["unit-1"]}
-        if name == mcp_tools.LIST_MEMBERS_TOOL:
+        if name == mcp_tools.LIST_TOOL:
             return self._members
         return {}
 

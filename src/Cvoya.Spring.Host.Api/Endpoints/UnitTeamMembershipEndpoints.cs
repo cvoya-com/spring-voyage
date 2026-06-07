@@ -65,7 +65,7 @@ public static class UnitTeamMembershipEndpoints
         group.MapGet("/{id}/members/humans", ListAsync)
             .WithName("ListUnitHumanMembers")
             .WithSummary("List every team-role membership row attached to this unit.")
-            .WithDescription("Returns the rows from `unit_memberships_humans` for the unit in stable (created_at, id) order. Mirror of `sv.directory.list_members`'s human entries. Viewer-gated.")
+            .WithDescription("Returns the rows from `unit_memberships_humans` for the unit in stable (created_at, id) order. Mirror of `sv.directory.list`'s human entries. Viewer-gated.")
             .Produces<IReadOnlyList<UnitHumanMemberResponse>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);

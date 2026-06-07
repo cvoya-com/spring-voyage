@@ -37,7 +37,7 @@ public class UnitSubunitMembershipEntity : ITenantScopedEntity
     /// #2463 (ADR-0046 §8 extended to sub-units): free-form team-role
     /// strings the sub-unit advertises on the parent unit. Persisted as
     /// a jsonb array column. Empty list when absent. Runtime metadata
-    /// only — surfaced on <c>sv.directory.list_members</c> so peers can ask
+    /// only — surfaced on <c>sv.directory.list</c> so peers can ask
     /// "which sub-units are owners?".
     /// </summary>
     public List<string> Roles { get; set; } = new();

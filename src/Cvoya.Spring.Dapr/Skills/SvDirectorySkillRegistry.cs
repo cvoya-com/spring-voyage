@@ -34,6 +34,15 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <para>
+/// <b>Surface (#3069).</b> A minimal, non-overlapping set of five tools:
+/// <c>get_self</c> (the calling entity), <c>lookup</c> (resolve one entry by
+/// address OR uuid — supersedes the former <c>get_member</c>), <c>list</c>
+/// (the single member-listing surface — supersedes the former
+/// <c>list_members</c> / <c>get_siblings</c> via a <c>scope</c> argument and
+/// an optional unit <c>uuid</c>, and folds human members into every result),
+/// <c>get_parents</c>, and <c>get_status</c>.
+/// </para>
+/// <para>
 /// <b>Universal entry shape.</b> Every tool returns or includes one or more
 /// entries with the same fields:
 /// <c>{ uuid, kind, display_name, parent_uuids, description, expertise,
@@ -80,9 +89,9 @@ using Microsoft.Extensions.Logging;
 /// </para>
 /// <para>
 /// <b>Per-call cost.</b> Single-target tools (<c>get_self</c>,
-/// <c>get_member</c>) issue O(1) reads per dependency. List tools
-/// (<c>list_members</c>, <c>get_siblings</c>, <c>get_parents</c>) populate
-/// the rich entry fields per element, which means N reads against
+/// <c>lookup</c>) issue O(1) reads per dependency. List tools
+/// (<c>list</c>, <c>get_parents</c>) populate the rich entry fields per
+/// element, which means N reads against
 /// <see cref="IExpertiseStore"/> (which round-trips to the actor today) and
 /// <see cref="IParticipantDisplayNameResolver"/>. For v0.1 unit sizes this
 /// is acceptable; if list latency becomes a hotspot, batch-read methods on
@@ -95,15 +104,6 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     /// <summary>Tool name for <c>sv.directory.get_self</c>.</summary>
     public const string GetSelfTool = "sv.directory.get_self";
 
-    /// <summary>Tool name for <c>sv.directory.get_member</c>.</summary>
-    public const string GetMemberTool = "sv.directory.get_member";
-
-    /// <summary>Tool name for <c>sv.directory.list_members</c>.</summary>
-    public const string ListMembersTool = "sv.directory.list_members";
-
-    /// <summary>Tool name for <c>sv.directory.get_siblings</c>.</summary>
-    public const string GetSiblingsTool = "sv.directory.get_siblings";
-
     /// <summary>Tool name for <c>sv.directory.get_parents</c>.</summary>
     public const string GetParentsTool = "sv.directory.get_parents";
 
@@ -112,22 +112,26 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
     /// <summary>
     /// Tool name for <c>sv.directory.list</c> — ADR-0056 §8 fundamental-core
-    /// directory tool. Convenience over <see cref="ListMembersTool"/> /
-    /// <see cref="GetSiblingsTool"/>: accepts a <c>scope</c> argument that
-    /// resolves against the calling agent / unit's position in the unit
-    /// graph (members of the caller's parent unit, siblings, or the
-    /// caller's own members), plus optional <c>role</c> / <c>expertise</c>
-    /// filters that narrow the result.
+    /// directory tool and the single member-listing surface (#3069). A
+    /// <c>scope</c> argument resolves against the calling agent / unit's
+    /// position in the unit graph (members of the caller's parent unit,
+    /// siblings, or the caller's own members); an optional <c>uuid</c>
+    /// lists the direct members of a specific unit instead (superseding the
+    /// former <c>sv.directory.list_members</c>); optional <c>role</c> /
+    /// <c>expertise</c> filters narrow the result. Every result set folds in
+    /// human members (#3069 — the un-merged inconsistency where the scope
+    /// path excluded humans is resolved here), subject to the directory-read
+    /// visibility policy.
     /// </summary>
     public const string ListTool = "sv.directory.list";
 
     /// <summary>
     /// Tool name for <c>sv.directory.lookup</c> — ADR-0056 §8 fundamental-core
-    /// directory tool. Address-keyed single-entry lookup. Mirrors
-    /// <see cref="GetMemberTool"/> but accepts a canonical address string
-    /// (<c>scheme:&lt;hex&gt;</c>) rather than a bare uuid so a runtime can
-    /// feed back the sender of an inbound message without re-parsing it
-    /// out of its address.
+    /// directory tool and the single resolve-one-entry surface (#3069).
+    /// Resolves one directory entry from EITHER a canonical address string
+    /// (<c>scheme:&lt;hex&gt;</c> — so a runtime can feed back the sender of
+    /// an inbound message without re-parsing it) OR a bare <c>uuid</c>
+    /// (superseding the former <c>sv.directory.get_member</c>).
     /// </summary>
     public const string LookupTool = "sv.directory.lookup";
 
@@ -143,7 +147,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
     /// <summary>
     /// Wire-format <c>kind</c> value for human team members surfaced via
-    /// <c>sv.directory.list_members</c> (ADR-0044 § 5, reshaped by ADR-0046 §9). One
+    /// <c>sv.directory.list</c> (ADR-0044 § 5, reshaped by ADR-0046 §9). One
     /// entry per <c>unit_memberships_humans</c> row; entries carry a
     /// multi-valued <c>roles</c> array (replaces the per-row
     /// <c>team_role: string</c> field from ADR-0044).
@@ -166,24 +170,16 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
           }
         }
         """);
-    private static readonly JsonElement UuidPagedArgSchema = ParseSchema("""
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "uuid": { "type": "string", "description": "Stable Guid identifier (no-dash 32-char hex, also accepts dashed UUID). Optional — when omitted, defaults to you, the calling agent or unit: sv.directory.get_siblings returns your own siblings; sv.directory.list_members returns your own members (valid only when you are a unit, since agents have no members)." },
-            "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
-            "offset": { "type": "integer", "minimum": 0, "default": 0 }
-          }
-        }
-        """);
 
     /// <summary>
     /// Input schema for <c>sv.directory.list</c> — ADR-0056 §8 fundamental
-    /// core. All arguments are optional. <c>scope</c> defaults to
-    /// <c>unit_members</c>; <c>role</c> / <c>expertise</c> narrow the
-    /// resulting set by case-insensitive substring match against the
-    /// per-entry roles list and expertise-domain names; <c>limit</c> /
+    /// core, the single member-listing surface (#3069). All arguments are
+    /// optional. <c>uuid</c>, when present, lists that specific unit's
+    /// direct members and overrides <c>scope</c>; otherwise <c>scope</c>
+    /// (default <c>unit_members</c>) resolves the member set against the
+    /// caller's position in the graph. <c>role</c> / <c>expertise</c>
+    /// narrow the resulting set by case-insensitive substring match against
+    /// the per-entry roles list and expertise-domain names; <c>limit</c> /
     /// <c>offset</c> mirror the existing list-tool pagination contract.
     /// </summary>
     private static readonly JsonElement ListArgSchema = ParseSchema("""
@@ -194,8 +190,12 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             "scope": {
               "type": "string",
               "enum": ["unit_members", "siblings", "self_members"],
-              "description": "Which member set to resolve. 'unit_members' (default) returns the members of the caller's parent unit(s) when the caller is an agent, or the caller's own members when the caller is a unit. 'siblings' returns peers — entries sharing a parent with the caller, excluding the caller itself. 'self_members' is the unit-only equivalent of 'unit_members' that always returns the caller's own members (errors for agent callers).",
+              "description": "Which member set to resolve when 'uuid' is omitted. 'unit_members' (default) returns the members of the caller's parent unit(s) when the caller is an agent, or the caller's own members when the caller is a unit. 'siblings' returns peers — entries sharing a parent with the caller, excluding the caller itself. 'self_members' is the unit-only equivalent of 'unit_members' that always returns the caller's own members (errors for agent callers). Ignored when 'uuid' is given.",
               "default": "unit_members"
+            },
+            "uuid": {
+              "type": "string",
+              "description": "Optional. The no-dash 32-char hex (or dashed) UUID of a specific unit whose direct members you want — agents, sub-units, AND human members. Use a uuid from sv.directory.get_self's parent_uuids, sv.directory.get_parents, or another list entry to walk into a specific unit. When omitted, 'scope' resolves the member set against your own position in the graph."
             },
             "role": {
               "type": "string",
@@ -212,21 +212,27 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         """);
 
     /// <summary>
-    /// Input schema for <c>sv.directory.lookup</c>. The required
-    /// <c>address</c> string is the canonical Spring Voyage address form
-    /// (<c>scheme:&lt;32-hex&gt;</c>) — for example the
-    /// <c>From</c> field of the inbound message the runtime is
-    /// responding to.
+    /// Input schema for <c>sv.directory.lookup</c> (#3069) — resolve one
+    /// entry from EITHER an <c>address</c> or a <c>uuid</c>. At least one
+    /// must be supplied; if both are present <c>address</c> wins. The
+    /// <c>address</c> is the canonical Spring Voyage address form
+    /// (<c>scheme:&lt;32-hex&gt;</c>) — for example the <c>from</c> field of
+    /// the inbound message the runtime is responding to; the <c>uuid</c>
+    /// is a bare agent / unit identifier (the former
+    /// <c>sv.directory.get_member</c> input).
     /// </summary>
     private static readonly JsonElement LookupArgSchema = ParseSchema("""
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["address"],
           "properties": {
             "address": {
               "type": "string",
-              "description": "Canonical Spring Voyage address (scheme:32-hex-no-dash) — agent:..., unit:..., or human:... — to resolve."
+              "description": "Canonical Spring Voyage address (scheme:32-hex-no-dash) — agent:..., unit:..., or human:... — to resolve. Supply this OR 'uuid'; if both are given 'address' wins."
+            },
+            "uuid": {
+              "type": "string",
+              "description": "Bare stable Guid identifier (no-dash 32-char hex, also accepts dashed UUID) of an agent or unit to resolve. Supply this OR 'address'."
             }
           }
         }
@@ -296,47 +302,44 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "executing this tool call). Output is a single entry: " +
                 "{ uuid, kind, display_name, parent_uuids, description, expertise, member_count, live_status? }. " +
                 "Use this as the bootstrap when navigating the unit hierarchy — the entry's " +
-                "parent_uuids are the starting point for sv.directory.get_parents / sv.directory.list_members. " +
+                "parent_uuids are the starting point for sv.directory.get_parents / sv.directory.list. " +
                 "live_status is an advisory snapshot of in-flight work — see sv.directory.get_status for " +
                 "details; the field is omitted on entries whose kind doesn't carry runtime state.",
                 EmptyObjectSchema,
                 ToolCategories.Directory),
             new ToolDefinition(
-                GetMemberTool,
-                "Returns metadata for a single agent or unit identified by uuid. Output shape " +
-                "matches sv.directory.get_self. " + TenantSentinelWarning,
-                UuidArgSchema,
+                LookupTool,
+                "Resolve a single directory entry from EITHER a canonical address (scheme:32-hex — " +
+                "typically the sender of the inbound message) OR a bare agent / unit uuid. Supply " +
+                "one; if both are given the address wins. Output shape matches one sv.directory.list " +
+                "entry: { address, uuid, kind, display_name, parent_uuids, description, expertise, " +
+                "roles, member_count?, live_status? }. Use this when you already hold an address or " +
+                "uuid and need the entry's role / expertise / status before deciding how to respond. " +
+                TenantSentinelWarning,
+                LookupArgSchema,
                 ToolCategories.Directory),
             new ToolDefinition(
-                ListMembersTool,
-                "Returns the direct members of the unit identified by uuid — agents, sub-units, " +
-                "AND human members — as a flat list mixing agent-kind, unit-kind, and human-kind " +
-                "entries (filter by entry.kind on the client side if you only want one). Every " +
-                "entry carries a SENDABLE address, so this is the tool to use to look up a " +
-                "teammate's address — including a human member — and feed it straight into " +
-                "sv.messaging.send, without asking the hub. " +
-                "Every entry also carries an optional multi-valued roles array (free-form labels " +
-                "like owner, reviewer, security_lead) and an expertise list. Human entries also " +
-                "surface their notifications subscription list when present. One row per (unit, " +
-                "human) pair — a human filling multiple team roles surfaces as a single entry " +
-                "whose roles array carries every role. Sub-unit members are NOT recursively " +
-                "expanded — call sv.directory.list_members again on a sub-unit's uuid to walk " +
-                "further. Omit uuid to list your own members — valid only when you are a unit " +
-                "(agents have no members and get a retry-guiding error). Pagination via limit " +
-                "(default 50, max 200) and offset; total_count carries the unfiltered total. " +
-                "Agent and unit entries additionally carry an advisory live_status object — see " +
-                "sv.directory.get_status; the field is omitted entirely on human entries.",
-                UuidPagedArgSchema,
-                ToolCategories.Directory),
-            new ToolDefinition(
-                GetSiblingsTool,
-                "Returns entities that share at least one parent with the entity identified by " +
-                "uuid. Self is excluded. Omit uuid to default to yourself — your own siblings. " +
-                "Each returned entry carries its own parent_uuids so the caller can filter by " +
-                "overlap with the target's parents to scope to a specific context (e.g. 'siblings " +
-                "under the unit that just messaged me'). Pagination via limit (default 50, max 200) " +
-                "and offset.",
-                UuidPagedArgSchema,
+                ListTool,
+                "List members and resolve who you can reach — the single member-listing surface. " +
+                "By default (scope='unit_members') returns the members of the caller's parent unit " +
+                "when the caller is an agent, or the caller's own members when the caller is a unit. " +
+                "Pass scope='siblings' for peers sharing a parent with you (you are excluded), or " +
+                "scope='self_members' to always list your own members (unit callers only). Pass a " +
+                "specific unit's uuid to list THAT unit's direct members instead (overrides scope) — " +
+                "use a uuid from sv.directory.get_self's parent_uuids or sv.directory.get_parents to " +
+                "walk into a sub-unit; sub-units are not expanded recursively, so call again on a " +
+                "sub-unit's uuid to go deeper. Every result mixes agent-kind, unit-kind, AND " +
+                "human-kind entries (filter by entry.kind client-side if you only want one) — humans " +
+                "are always included, subject to the directory-read visibility policy. Every entry " +
+                "carries a SENDABLE address, so this is the tool to look up a teammate's address — " +
+                "including a human member — and feed it straight into sv.messaging.send without " +
+                "asking the hub, plus a multi-valued roles array (free-form labels like owner, " +
+                "reviewer, security_lead), an expertise list, parent_uuids, member_count (unit " +
+                "entries), and an advisory live_status (agent / unit entries only; omitted on human " +
+                "entries). Optional role / expertise arguments narrow the set by case-insensitive " +
+                "substring match. Pagination via limit (default 50, max 200) and offset; total_count " +
+                "carries the unfiltered total.",
+                ListArgSchema,
                 ToolCategories.Directory),
             new ToolDefinition(
                 GetParentsTool,
@@ -356,30 +359,6 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
                 "the state at the moment of the call and may be stale by the time you act on " +
                 "them; the actor mailbox is the ordering authority. " + TenantSentinelWarning,
                 UuidArgSchema,
-                ToolCategories.Directory),
-            new ToolDefinition(
-                ListTool,
-                "Resolve members of the caller's unit, the caller's siblings, or peers " +
-                "matching a role / expertise filter — ADR-0056 §8 fundamental-core surface. " +
-                "Defaults to scope='unit_members' (the members of the caller's parent unit " +
-                "when the caller is an agent; the caller's own members when the caller is a " +
-                "unit). Each entry carries enough to act on: address, kind, display_name, " +
-                "roles, expertise, parent_uuids, member_count (for unit entries), and an " +
-                "advisory live_status (agent / unit entries only). Use the returned address " +
-                "with sv.messaging.send to reach the entry. Pagination via limit (default 50, " +
-                "max 200) and offset; total_count carries the unfiltered total.",
-                ListArgSchema,
-                ToolCategories.Directory),
-            new ToolDefinition(
-                LookupTool,
-                "Resolve a known canonical address (scheme:32-hex) to a single directory " +
-                "entry — ADR-0056 §8 fundamental-core surface. Output shape matches one " +
-                "sv.directory.list entry: { address, uuid, kind, display_name, parent_uuids, " +
-                "description, expertise, roles, member_count?, live_status? }. Use this when " +
-                "you have an address (typically the sender of the inbound message) and need " +
-                "the entry's role / expertise / status before deciding how to respond. " +
-                TenantSentinelWarning,
-                LookupArgSchema,
                 ToolCategories.Directory),
         };
     }
@@ -409,12 +388,6 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         {
             case GetSelfTool:
                 return await GetSelfAsync(context, cancellationToken);
-            case GetMemberTool:
-                return await GetMemberAsync(arguments, context, cancellationToken);
-            case ListMembersTool:
-                return await ListMembersAsync(arguments, context, cancellationToken);
-            case GetSiblingsTool:
-                return await GetSiblingsAsync(arguments, context, cancellationToken);
             case GetParentsTool:
                 return await GetParentsAsync(arguments, context, cancellationToken);
             case GetStatusTool:
@@ -429,25 +402,48 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     }
 
     /// <summary>
-    /// Implements <c>sv.directory.list</c> (ADR-0056 §8). Resolves the
-    /// active scope against the caller's position in the unit graph,
-    /// builds <see cref="DirectoryEntry"/> projections for each member,
-    /// and applies optional <c>role</c> / <c>expertise</c> substring
-    /// filters before paginating. Authz is delegated to the same
-    /// per-target-unit enforcer the other list tools use — the caller
-    /// only sees members of units they may read.
+    /// Implements <c>sv.directory.list</c> (ADR-0056 §8, consolidated #3069 —
+    /// the single member-listing surface). Resolves the source units either
+    /// from an explicit unit <c>uuid</c> (overrides scope) or by resolving
+    /// the <c>scope</c> against the caller's position in the unit graph,
+    /// builds <see cref="DirectoryEntry"/> projections for every member —
+    /// agents, sub-units, AND humans (the former scope-path human exclusion
+    /// is fixed here) — deduped by uuid, then applies optional <c>role</c> /
+    /// <c>expertise</c> substring filters before paginating. Authz is
+    /// delegated to the per-target-unit enforcer — the caller only sees
+    /// members of units they may read.
     /// </summary>
     private async Task<JsonElement> ListAsync(
         JsonElement args, ToolCallContext context, CancellationToken ct)
     {
-        var scope = ParseListScope(args);
         var roleFilter = TryGetStringArgument(args, "role");
         var expertiseFilter = TryGetStringArgument(args, "expertise");
         var (limit, offset) = ParsePaging(args);
 
+        // #3069: an explicit uuid lists that specific unit's direct members
+        // (the former sv.directory.list_members) and overrides scope; the
+        // scope path stays for the no-uuid "resolve against my own position"
+        // ergonomics. The caller is only ever excluded for the siblings
+        // scope, never for an explicit-uuid listing.
+        var explicitUnitUuid = TryReadUuidArg(args, "uuid");
         var (callerUuid, callerKind) = ParseCaller(context);
-        var sourceUnitIds = await ResolveScopeUnitIdsAsync(callerUuid, callerKind, scope, context, ct);
-        var addresses = await CollectMembersAsync(sourceUnitIds, scope, callerUuid, ct);
+
+        IReadOnlyList<Guid> sourceUnitIds;
+        bool excludeCaller;
+        if (explicitUnitUuid is not null)
+        {
+            await EnsureDirectoryReadAllowedAsync(context, explicitUnitUuid, ct);
+            sourceUnitIds = GuidFormatter.TryParse(explicitUnitUuid, out var unitGuid)
+                ? new[] { unitGuid }
+                : Array.Empty<Guid>();
+            excludeCaller = false;
+        }
+        else
+        {
+            var scope = ParseListScope(args);
+            sourceUnitIds = await ResolveScopeUnitIdsAsync(callerUuid, callerKind, scope, context, ct);
+            excludeCaller = scope == ListScope.Siblings;
+        }
 
         // #3089: the per-member effective roles — which is what the role
         // filter is meant to match against — come from the single member-
@@ -457,21 +453,51 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         var rolesByAgentId = await ResolveAgentRolesAcrossUnitsAsync(sourceUnitIds, ct);
 
         // Materialise every entry first so the filters can match on the
-        // rich shape (roles, expertise). Unit sizes in v0.1 keep this
-        // cheap; the same per-entry build cost as the existing
-        // sv.directory.list_members tool.
-        var built = new List<DirectoryEntry>(addresses.Count);
-        foreach (var address in addresses)
+        // rich shape (roles, expertise). #3069: the result folds in human
+        // members alongside agents / sub-units for EVERY path (scope or
+        // explicit uuid) — the earlier inconsistency where the scope path
+        // excluded humans is resolved here. Per-uuid dedupe collapses an
+        // entry that appears under more than one source unit (e.g. a
+        // sibling shared across two of the caller's parents).
+        var built = new List<DirectoryEntry>();
+        var seenUuids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var unitId in sourceUnitIds)
         {
-            var entry = await BuildEntryAsync(address.Path, address.Scheme, ct);
-            if (string.Equals(address.Scheme, KindAgent, StringComparison.Ordinal)
-                && GuidFormatter.TryParse(address.Path, out var agentGuid)
-                && rolesByAgentId.TryGetValue(agentGuid, out var roles)
-                && roles.Count > 0)
+            var members = await _memberGraphStore.GetMembersAsync(unitId, ct);
+            foreach (var address in members)
             {
-                entry = entry with { Roles = roles };
+                if (excludeCaller
+                    && string.Equals(address.Path, callerUuid, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (!seenUuids.Add(address.Path))
+                {
+                    continue;
+                }
+                var entry = await BuildEntryAsync(address.Path, address.Scheme, ct);
+                if (string.Equals(address.Scheme, KindAgent, StringComparison.Ordinal)
+                    && GuidFormatter.TryParse(address.Path, out var agentGuid)
+                    && rolesByAgentId.TryGetValue(agentGuid, out var roles)
+                    && roles.Count > 0)
+                {
+                    entry = entry with { Roles = roles };
+                }
+                built.Add(entry);
             }
-            built.Add(entry);
+
+            // ADR-0044 § 5 / ADR-0046 §7: fold in package-declared human team
+            // members for the same unit, one entry per (unit, human) row.
+            var humanRows = await _humanMembershipStore.ListByUnitAsync(unitId, ct);
+            foreach (var row in humanRows)
+            {
+                var humanUuid = GuidFormatter.Format(row.HumanId);
+                if (!seenUuids.Add(humanUuid))
+                {
+                    continue;
+                }
+                built.Add(await BuildHumanEntryAsync(unitId, row, ct));
+            }
         }
 
         var filtered = built
@@ -545,31 +571,6 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     }
 
     /// <summary>
-    /// Collects the member address set from every source unit, deduping
-    /// across overlapping parents and excluding the caller for
-    /// <see cref="ListScope.Siblings"/>.
-    /// </summary>
-    private async Task<IReadOnlyList<Address>> CollectMembersAsync(
-        IReadOnlyList<Guid> sourceUnitIds, ListScope scope, string callerUuid, CancellationToken ct)
-    {
-        var resultByPath = new Dictionary<string, Address>(StringComparer.Ordinal);
-        foreach (var unitId in sourceUnitIds)
-        {
-            var members = await _memberGraphStore.GetMembersAsync(unitId, ct);
-            foreach (var member in members)
-            {
-                if (scope == ListScope.Siblings
-                    && string.Equals(member.Path, callerUuid, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                resultByPath[member.Path] = member;
-            }
-        }
-        return resultByPath.Values.ToList();
-    }
-
-    /// <summary>
     /// Resolves the effective roles for every agent member across the
     /// supplied source units via the single <see cref="IUnitMemberRoleDirectory"/>
     /// seam (#3089). When a single agent appears in more than one source
@@ -615,25 +616,55 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     }
 
     /// <summary>
-    /// Implements <c>sv.directory.lookup</c> (ADR-0056 §8). Accepts a
-    /// canonical address string, parses out the scheme + uuid, and
-    /// delegates to the same per-kind build path
-    /// <see cref="GetMemberAsync"/> uses — the wire shape on success is
-    /// one <see cref="DirectoryEntry"/> with the inbound address stamped
-    /// alongside the existing uuid field for caller convenience.
+    /// Implements <c>sv.directory.lookup</c> (ADR-0056 §8, #3069). Resolves
+    /// one entry from EITHER a canonical address string (scheme + uuid) OR a
+    /// bare agent / unit uuid (the former <c>sv.directory.get_member</c>
+    /// input). The wire shape on success is one <see cref="DirectoryEntry"/>
+    /// with a top-level <c>address</c> stamped alongside the uuid field for
+    /// caller convenience — materialised from the entry's kind + uuid when
+    /// the caller supplied a bare uuid.
     /// </summary>
     private async Task<JsonElement> LookupAsync(
         JsonElement args, ToolCallContext context, CancellationToken ct)
     {
-        var addressValue = RequireStringArgument(args, "address");
-        if (!Address.TryParse(addressValue, out var target) || target is null)
-        {
-            throw new ArgumentException(
-                $"Argument 'address' value '{addressValue}' is not a valid Spring Voyage address.");
-        }
+        var addressValue = TryGetStringArgument(args, "address");
 
-        var uuid = target.Path;
-        var (resolvedKind, displayNameOverride) = await ResolveLookupKindAsync(uuid, target.Scheme, ct);
+        string uuid;
+        string resolvedKind;
+        string? displayNameOverride;
+        Address marker;
+
+        if (addressValue is not null)
+        {
+            if (!Address.TryParse(addressValue, out var target) || target is null)
+            {
+                throw new ArgumentException(
+                    $"Argument 'address' value '{addressValue}' is not a valid Spring Voyage address.");
+            }
+            uuid = target.Path;
+            (resolvedKind, displayNameOverride) = await ResolveLookupKindAsync(uuid, target.Scheme, ct);
+            marker = target;
+        }
+        else
+        {
+            // No address — fall back to the bare-uuid path (former
+            // sv.directory.get_member). ResolveKindAsync resolves the
+            // tenant sentinel and the agent / unit kinds and throws a
+            // typed error for an unknown uuid; humans are not resolvable
+            // by bare uuid (they never carry an agent / unit definition),
+            // so callers resolve a human via its human:<uuid> address.
+            var explicitUuid = TryReadUuidArg(args, "uuid");
+            if (explicitUuid is null)
+            {
+                throw new ArgumentException(
+                    "sv.directory.lookup requires either 'address' (a canonical " +
+                    "scheme:32-hex Spring Voyage address — e.g. the sender of the inbound " +
+                    "message) or 'uuid' (a bare agent / unit identifier). Supply one.");
+            }
+            uuid = explicitUuid;
+            (resolvedKind, displayNameOverride) = await ResolveKindAsync(uuid, ct);
+            marker = Address.For(resolvedKind, uuid);
+        }
 
         if (string.Equals(resolvedKind, KindUnit, StringComparison.Ordinal))
         {
@@ -641,7 +672,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         }
 
         var entry = await BuildEntryAsync(uuid, resolvedKind, ct, displayNameOverride);
-        return SerializeLookupEntry(target, entry);
+        return SerializeLookupEntry(marker, entry);
     }
 
     private async Task<(string Kind, string? DisplayName)> ResolveLookupKindAsync(
@@ -718,22 +749,6 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             }
         }
         return false;
-    }
-
-    private static string RequireStringArgument(JsonElement args, string name)
-    {
-        if (args.ValueKind != JsonValueKind.Object ||
-            !args.TryGetProperty(name, out var prop) ||
-            prop.ValueKind != JsonValueKind.String)
-        {
-            throw new ArgumentException($"Missing required argument '{name}'.");
-        }
-        var raw = prop.GetString();
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            throw new ArgumentException($"Argument '{name}' must be a non-empty string.");
-        }
-        return raw;
     }
 
     private static string? TryGetStringArgument(JsonElement args, string name)
@@ -838,23 +853,10 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         return SerializeEntry(entry);
     }
 
-    private async Task<JsonElement> GetMemberAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
-    {
-        var targetUuid = RequireUuidArg(args, "uuid");
-        var (kind, displayNameOverride) = await ResolveKindAsync(targetUuid, ct);
-        if (kind == KindUnit)
-        {
-            await EnsureDirectoryReadAllowedAsync(context, targetUuid, ct);
-        }
-
-        var entry = await BuildEntryAsync(targetUuid, kind, ct, displayNameOverride);
-        return SerializeEntry(entry);
-    }
-
     /// <summary>
     /// Implements <c>sv.directory.get_status</c> (#2491). Returns a slim projection
     /// — <c>{ uuid, kind, display_name, live_status? }</c> — for one
-    /// subject identified by uuid. Same error shape as <c>sv.directory.get_member</c>:
+    /// subject identified by uuid. Same error shape as <c>sv.directory.lookup</c>:
     /// an unknown / unparseable uuid throws <see cref="ArgumentException"/>,
     /// which the MCP server surfaces as a typed tool error.
     /// </summary>
@@ -869,7 +871,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
         // Resolve the display name through the same path BuildEntryAsync
         // uses so the slim projection's display_name field matches what a
-        // sibling sv.directory.get_member call would have returned. The tenant
+        // sibling sv.directory.lookup call would have returned. The tenant
         // sentinel and human kinds skip the live-status probe entirely.
         string displayName;
         if (string.Equals(kind, KindTenant, StringComparison.Ordinal))
@@ -891,116 +893,6 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         var liveStatus = await ResolveLiveStatusAsync(targetUuid, kind, ct);
 
         return SerializeStatusEntry(targetUuid, kind, displayName, liveStatus);
-    }
-
-    /// <summary>
-    /// Resolves the unit whose members <c>sv.directory.list_members</c>
-    /// lists. The uuid defaults to the caller only when the caller is a unit
-    /// ("my members"); an agent has no members, so an agent omitting the uuid
-    /// gets a retry-guiding error pointing at the right tool instead of a
-    /// silently empty list (#3036).
-    /// </summary>
-    private static string ResolveListMembersUnitUuid(JsonElement args, ToolCallContext context)
-    {
-        var explicitUuid = TryReadUuidArg(args, "uuid");
-        if (explicitUuid is not null)
-        {
-            return explicitUuid;
-        }
-        var (callerUuid, callerKind) = ParseCaller(context);
-        if (!string.Equals(callerKind, KindUnit, StringComparison.Ordinal))
-        {
-            throw new ArgumentException(
-                "sv.directory.list_members lists the members of a UNIT, but you are an agent and agents have no " +
-                "members. Pass the unit's `uuid` — e.g. one of your parent_uuids from sv.directory.get_self — or " +
-                "call sv.directory.list with scope='unit_members' to list your unit's members directly.");
-        }
-        return callerUuid;
-    }
-
-    private async Task<JsonElement> ListMembersAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
-    {
-        var unitUuid = ResolveListMembersUnitUuid(args, context);
-        var (limit, offset) = ParsePaging(args);
-        await EnsureDirectoryReadAllowedAsync(context, unitUuid, ct);
-
-        if (!GuidFormatter.TryParse(unitUuid, out var unitGuid))
-        {
-            throw new ArgumentException($"uuid '{unitUuid}' is not a parseable Guid.");
-        }
-
-        // Agent + sub-unit members from the existing member graph.
-        var addresses = await _memberGraphStore.GetMembersAsync(unitGuid, ct);
-
-        // ADR-0044 § 5: fold in package-declared human team members. One
-        // entry per (unit, human) row per ADR-0046 §7 — a human filling
-        // multiple team roles surfaces as a single entry with a
-        // multi-valued roles array.
-        var humanRows = await _humanMembershipStore.ListByUnitAsync(unitGuid, ct);
-
-        // #3089 / ADR-0046 §8: agent entries surface their effective roles
-        // — membership roles ∪ agent_definitions.role, deduped — resolved
-        // once for the whole unit through the single member-role seam
-        // instead of a per-entry definition read plus a parallel membership
-        // pass. The seam's one join folds both role sources, so the
-        // per-agent supplement below is a hash lookup. Sub-unit members
-        // carry no member-level role metadata (the unit_subunit_memberships
-        // table has no roles column), so sub-unit entries are unaffected.
-        var effectiveRolesByAgentId = await _memberRoleDirectory.GetAgentMemberRolesAsync(unitGuid, ct);
-
-        var totalCount = addresses.Count + humanRows.Count;
-
-        // Paginate over the homogeneous concatenated list. Order is stable:
-        // agents and sub-units first (their CreatedAt-ordered emit from
-        // the member graph), then humans (CreatedAt-ordered from the
-        // membership store). This keeps existing list-tool consumers
-        // byte-for-byte stable when the unit has no human members and
-        // surfaces the new entries deterministically when it does.
-        var entries = new List<DirectoryEntry>();
-        var skipped = 0;
-        var taken = 0;
-
-        foreach (var address in addresses)
-        {
-            if (taken >= limit) break;
-            if (skipped < offset)
-            {
-                skipped++;
-                continue;
-            }
-            var entry = await BuildEntryAsync(address.Path, address.Scheme, ct);
-
-            // #3089: stamp the agent entry's effective roles from the
-            // member-role seam. The seam already folds the agent's
-            // definition-level role into the per-membership roles, so the
-            // entry carries the final role set with no further fold needed
-            // downstream. The agent's own seed-expertise list already
-            // surfaces on entry.Expertise from BuildEntryAsync.
-            if (string.Equals(address.Scheme, KindAgent, StringComparison.Ordinal)
-                && GuidFormatter.TryParse(address.Path, out var agentGuid)
-                && effectiveRolesByAgentId.TryGetValue(agentGuid, out var roles)
-                && roles.Count > 0)
-            {
-                entry = entry with { Roles = roles };
-            }
-
-            entries.Add(entry);
-            taken++;
-        }
-
-        foreach (var row in humanRows)
-        {
-            if (taken >= limit) break;
-            if (skipped < offset)
-            {
-                skipped++;
-                continue;
-            }
-            entries.Add(await BuildHumanEntryAsync(unitGuid, row, ct));
-            taken++;
-        }
-
-        return SerializePagedList("members", entries, totalCount, limit, offset);
     }
 
     /// <summary>
@@ -1053,63 +945,6 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             .GetRequiredService<Cvoya.Spring.Core.Security.IHumanIdentityResolver>();
         var display = await resolver.GetDisplayNameAsync(humanId, ct);
         return string.IsNullOrWhiteSpace(display) ? GuidFormatter.Format(humanId) : display!;
-    }
-
-    private async Task<JsonElement> GetSiblingsAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
-    {
-        // uuid defaults to the caller (#3036): "my siblings" is the obvious
-        // intent of a no-arg call, and a caller — agent or unit — always has
-        // a position in the unit graph to resolve siblings from.
-        var targetUuid = TryReadUuidArg(args, "uuid") ?? ParseCaller(context).Uuid;
-        var (limit, offset) = ParsePaging(args);
-        var (targetKind, _) = await ResolveKindAsync(targetUuid, ct);
-
-        // Resolve parents first so we can authz against each parent unit and
-        // walk to its members.
-        var parentUuids = await ResolveParentUuidsAsync(targetUuid, targetKind, ct);
-        var siblingsByUuid = new Dictionary<string, DirectoryEntry>(StringComparer.Ordinal);
-
-        foreach (var parentUuid in parentUuids)
-        {
-            // The tenant sentinel never carries a member list — it isn't a
-            // unit and IUnitMemberGraphStore would return empty for the
-            // tenant id. Skip authz + read entirely.
-            if (string.Equals(parentUuid, GuidFormatter.Format(_tenantContext.CurrentTenantId), StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (!GuidFormatter.TryParse(parentUuid, out var parentGuid))
-            {
-                continue;
-            }
-
-            var allowed = await IsDirectoryReadAllowedAsync(context, parentGuid, ct);
-            if (!allowed)
-            {
-                // Skip parents the caller can't read. Still emit the others.
-                continue;
-            }
-
-            var siblings = await _memberGraphStore.GetMembersAsync(parentGuid, ct);
-            foreach (var siblingAddress in siblings)
-            {
-                if (string.Equals(siblingAddress.Path, targetUuid, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                if (siblingsByUuid.ContainsKey(siblingAddress.Path))
-                {
-                    continue;
-                }
-                siblingsByUuid[siblingAddress.Path] = await BuildEntryAsync(
-                    siblingAddress.Path, siblingAddress.Scheme, ct);
-            }
-        }
-
-        var ordered = siblingsByUuid.Values.ToList();
-        var page = ordered.Skip(offset).Take(limit).ToList();
-        return SerializePagedList("siblings", page, ordered.Count, limit, offset);
     }
 
     private async Task<JsonElement> GetParentsAsync(JsonElement args, ToolCallContext context, CancellationToken ct)
@@ -1211,11 +1046,11 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         // build there is no containing-unit context, so the effective set
         // is just the agent's own definition-level role
         // (agent_definitions.role) run through the shared
-        // EffectiveRolePolicy rule. The per-unit list surfaces
-        // (list_members / list) overwrite Roles afterward with the unit's
-        // membership-roles ∪ definition-role union from the member-role
-        // seam. Unit / human members carry no agent-definition role, so
-        // their Roles stay null here (humans set theirs in BuildHumanEntryAsync).
+        // EffectiveRolePolicy rule. The per-unit list surface (sv.directory.list)
+        // overwrites Roles afterward with the unit's membership-roles ∪
+        // definition-role union from the member-role seam. Unit / human
+        // members carry no agent-definition role, so their Roles stay null
+        // here (humans set theirs in BuildHumanEntryAsync).
         var roles = string.Equals(kind, KindAgent, StringComparison.Ordinal)
             ? EffectiveRolePolicy.Combine(null, agentRole)
             : null;
@@ -1499,12 +1334,13 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     }
 
     /// <summary>
-    /// Reads an optional <c>uuid</c> argument for the list_members /
-    /// get_siblings default-to-caller path (#3036). Returns <c>null</c> when
-    /// the argument is absent (the caller substitutes a default), but a
+    /// Reads an optional <c>uuid</c> argument for the tools that treat it as
+    /// optional — <c>sv.directory.list</c> (omit → resolve via <c>scope</c>)
+    /// and <c>sv.directory.lookup</c> (omit → resolve via <c>address</c>).
+    /// Returns <c>null</c> when the argument is absent, but a
     /// present-but-malformed value still throws a retry-guiding error rather
-    /// than silently falling back to the caller — a botched id is a mistake
-    /// to surface, not to paper over.
+    /// than silently falling back — a botched id is a mistake to surface,
+    /// not to paper over.
     /// </summary>
     private static string? TryReadUuidArg(JsonElement args, string name)
     {
@@ -1517,7 +1353,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         {
             throw new ArgumentException(
                 $"Argument '{name}' = '{raw}' is not a valid UUID. Pass the no-dash 32-char hex (or dashed) UUID " +
-                "of an agent or unit, or omit it to default to yourself.");
+                "of an agent or unit, or omit it.");
         }
         return GuidFormatter.Format(guid);
     }

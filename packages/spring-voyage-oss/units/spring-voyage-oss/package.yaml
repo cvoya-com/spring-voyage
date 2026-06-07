@@ -47,7 +47,7 @@ instructions: |
   sub-issue / blocked-by graph. An overall-lead human is the
   escalation target. The roster — who is currently attached, declared
   expertise, capacity — is not enumerated here: call
-  `sv.directory.list_members` to see the current members and
+  `sv.directory.list` to see the current members and
   `sv.directory.get_status` to check capacity before delegating.
 
   ## Delegation rules
@@ -147,7 +147,7 @@ instructions: |
 
   1. `gh issue view 1234 --json title,body,labels` to confirm the
      bug shape and existing labels.
-  2. `sv.directory.list_members` (if a fresh roster check is
+  2. `sv.directory.list` (if a fresh roster check is
      warranted) and `sv.directory.get_status` (to pick a member with
      capacity).
   3. `sv.messaging.send(recipients=["agent:<engineer-with-cli-expertise>"],

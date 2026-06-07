@@ -66,7 +66,7 @@ It reaches no further: not `U`'s parent, and not *inside* a sibling sub-unit. So
 | Have an outbound connector binding (translate external events into messages) | No — that's a unit/connector concern |
 | Be cloned, deployed, scaled | No |
 | Have memory, skills, traces, expertise, budget, policy, runtime | No |
-| Be discoverable via the expertise directory | No — humans have no expertise profile; they surface in `sv.directory.list_members` as members, not as routable expertise |
+| Be discoverable via the expertise directory | No — humans have no expertise profile; they surface in `sv.directory.list` as members, not as routable expertise |
 
 ## Team role vs. platform role
 
@@ -177,9 +177,9 @@ Display name and description are editable after install through two parallel sur
 
 These are operator-facing affordances; the package author's declared values land at install time and are then editable independently of the package YAML. Reinstalling the package against a refined YAML does not retroactively overwrite operator edits — same deferral as the wider "no install-time upsert" rule.
 
-## Discovery via `sv.directory.list_members`
+## Discovery via `sv.directory.list`
 
-The platform-internal directory tool `sv.directory.list_members(unit_id)` surfaces humans alongside agents and sub-units. The wire shape on a human entry:
+The platform-internal directory tool `sv.directory.list` surfaces humans alongside agents and sub-units — for the caller's own unit, the caller's siblings, or a specific unit passed by `uuid`. The wire shape on a human entry:
 
 ```json
 {

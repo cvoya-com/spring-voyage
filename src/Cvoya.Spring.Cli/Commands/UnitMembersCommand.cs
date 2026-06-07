@@ -342,7 +342,7 @@ public static class UnitMembersCommand
 
         var command = new Command(
             "list",
-            "List every team-role membership row on this unit. Mirrors `sv.directory.list_members`'s human entries.");
+            "List every team-role membership row on this unit. Mirrors `sv.directory.list`'s human entries.");
         command.Arguments.Add(unitArg);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>

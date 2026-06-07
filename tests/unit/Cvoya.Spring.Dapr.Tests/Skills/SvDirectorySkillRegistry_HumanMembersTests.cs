@@ -37,11 +37,13 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for the ADR-0044 § 5 / ADR-0046 §9 extension:
-/// <c>sv.directory.list_members</c> folds package-declared human team members into
-/// the homogeneous response, gated by <c>kind == "human"</c>. ADR-0046 §9
-/// replaces the per-row <c>team_role: string</c> field with a multi-valued
-/// <c>roles: string[]</c> array.
+/// Tests for the ADR-0044 § 5 / ADR-0046 §9 extension, exercised through the
+/// consolidated <c>sv.directory.list</c> surface (#3069 — formerly
+/// <c>sv.directory.list_members</c>): the member list folds package-declared
+/// human team members into the homogeneous response, gated by
+/// <c>kind == "human"</c>. ADR-0046 §9 replaces the per-row
+/// <c>team_role: string</c> field with a multi-valued <c>roles: string[]</c>
+/// array.
 /// </summary>
 public class SvDirectorySkillRegistry_HumanMembersTests
 {
@@ -50,7 +52,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
     private static readonly Guid CallerId = Guid.Parse("cccccccc-3333-3333-3333-000000000001");
 
     [Fact]
-    public async Task ListMembers_UnitWithHumans_IncludesHumanEntries()
+    public async Task List_UnitWithHumans_IncludesHumanEntries()
     {
         var aliceId = Guid.Parse("00000000-aaaa-aaaa-aaaa-000000000001");
         var sut = new Fixture()
@@ -76,7 +78,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
     }
 
     [Fact]
-    public async Task ListMembers_HumanWithMultipleRoles_EmitsOneEntryWithRolesArray()
+    public async Task List_HumanWithMultipleRoles_EmitsOneEntryWithRolesArray()
     {
         // ADR-0046 §7 + §9: a single human filling multiple team roles
         // surfaces as ONE entry whose roles array carries every role —
@@ -97,7 +99,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
     }
 
     [Fact]
-    public async Task ListMembers_HumanWithoutRoles_EmitsEmptyRolesArray()
+    public async Task List_HumanWithoutRoles_EmitsEmptyRolesArray()
     {
         // ADR-0046 §9: the `roles` field is emitted uniformly on every
         // entry kind — a human with no roles still carries `"roles": []`
@@ -127,7 +129,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
     // ── ADR-0046 §8: agent entries surface per-membership roles ──────────
 
     [Fact]
-    public async Task ListMembers_AgentWithMembershipRoles_EmitsRolesArray()
+    public async Task List_AgentWithMembershipRoles_EmitsRolesArray()
     {
         // ADR-0046 §8: agent entries surface the per-membership roles list
         // (the same multi-valued shape the human entries carry, additive on
@@ -165,9 +167,9 @@ public class SvDirectorySkillRegistry_HumanMembersTests
     }
 
     [Fact]
-    public async Task ListMembers_AgentWithEmptyMembershipRoles_EmitsEmptyRolesArray()
+    public async Task List_AgentWithEmptyMembershipRoles_EmitsEmptyRolesArray()
     {
-        // Mirrors ListMembers_HumanWithoutRoles_EmitsEmptyRolesArray for
+        // Mirrors List_HumanWithoutRoles_EmitsEmptyRolesArray for
         // agent entries — when the per-membership roles list is empty,
         // the agent entry still carries `"roles": []` so the wire shape
         // stays uniform across entry kinds per ADR-0046 §9.
@@ -224,7 +226,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
         /// <summary>
         /// Seeds an agent member of <see cref="UnitId"/> with a per-membership
         /// roles + expertise list. Adds the agent to the member graph (so it
-        /// surfaces under sv.directory.list_members) plus a UnitMembership row that the
+        /// surfaces under sv.directory.list) plus a UnitMembership row that the
         /// SvDirectorySkillRegistry reads via IUnitMembershipRepository to
         /// supplement the entry.
         /// </summary>
@@ -401,6 +403,8 @@ public class SvDirectorySkillRegistry_HumanMembersTests
 
         public async Task<JsonElement> ListMembersAsJsonAsync()
         {
+            // #3069: sv.directory.list with an explicit unit uuid is the
+            // single member-listing surface (former sv.directory.list_members).
             var args = JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(UnitId)}}" }""").RootElement;
             var ctx = new ToolCallContext(
                 CallerId: GuidFormatter.Format(CallerId),
@@ -408,7 +412,7 @@ public class SvDirectorySkillRegistry_HumanMembersTests
                 ThreadId: Guid.NewGuid().ToString("N"));
 
             return await _registry.InvokeAsync(
-                SvDirectorySkillRegistry.ListMembersTool,
+                SvDirectorySkillRegistry.ListTool,
                 args,
                 ctx,
                 TestContext.Current.CancellationToken);

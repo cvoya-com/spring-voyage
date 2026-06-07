@@ -68,20 +68,18 @@ public class SvDirectorySkillRegistryContractTests
         var registry = CreateRegistry();
         var tools = registry.GetToolDefinitions();
 
-        // ADR-0056 §8: sv.directory.list / sv.directory.lookup join the
-        // surface alongside the existing navigation + status tools. Order is
-        // stable so callers caching tool slots see new tools appended after
-        // the navigation set.
+        // #3069: the surface is the consolidated minimal set — get_self,
+        // lookup (resolve by address OR uuid; supersedes get_member), list
+        // (the single member-listing surface; supersedes list_members /
+        // get_siblings), get_parents, get_status. Order is stable so callers
+        // caching tool slots get a deterministic enumeration.
         tools.Select(t => t.Name).ShouldBe(new[]
         {
             SvDirectorySkillRegistry.GetSelfTool,
-            SvDirectorySkillRegistry.GetMemberTool,
-            SvDirectorySkillRegistry.ListMembersTool,
-            SvDirectorySkillRegistry.GetSiblingsTool,
+            SvDirectorySkillRegistry.LookupTool,
+            SvDirectorySkillRegistry.ListTool,
             SvDirectorySkillRegistry.GetParentsTool,
             SvDirectorySkillRegistry.GetStatusTool,
-            SvDirectorySkillRegistry.ListTool,
-            SvDirectorySkillRegistry.LookupTool,
         });
     }
 
@@ -103,32 +101,32 @@ public class SvDirectorySkillRegistryContractTests
     }
 
     [Fact]
-    public void GetToolDefinitions_TenantSentinelWarningPresentOnGetParentsAndGetMember()
+    public void GetToolDefinitions_TenantSentinelWarningPresentOnGetParentsAndLookup()
     {
         var registry = CreateRegistry();
         var byName = registry.GetToolDefinitions().ToDictionary(t => t.Name, t => t.Description);
 
         // The tenant entry can surface from get_parents (top-level walk)
-        // and get_member (caller passes the tenant uuid). Both descriptions
-        // MUST tell the LLM the sentinel is non-addressable so the model
-        // doesn't try to message or delegate to it. Pin the load-bearing
-        // phrasing so a future doc edit can't silently drop the warning.
+        // and lookup (caller passes the tenant uuid; #3069 merged the former
+        // get_member into lookup). Both descriptions MUST tell the LLM the
+        // sentinel is non-addressable so the model doesn't try to message or
+        // delegate to it. Pin the load-bearing phrasing so a future doc edit
+        // can't silently drop the warning.
         byName[SvDirectorySkillRegistry.GetParentsTool].ShouldContain("kind='tenant'");
         byName[SvDirectorySkillRegistry.GetParentsTool].ShouldContain("NOT addressable");
-        byName[SvDirectorySkillRegistry.GetMemberTool].ShouldContain("kind='tenant'");
-        byName[SvDirectorySkillRegistry.GetMemberTool].ShouldContain("NOT addressable");
+        byName[SvDirectorySkillRegistry.LookupTool].ShouldContain("kind='tenant'");
+        byName[SvDirectorySkillRegistry.LookupTool].ShouldContain("NOT addressable");
     }
 
     [Fact]
-    public void GetToolDefinitions_PaginationDocumentedOnListAndSiblings()
+    public void GetToolDefinitions_PaginationDocumentedOnList()
     {
         var registry = CreateRegistry();
         var byName = registry.GetToolDefinitions().ToDictionary(t => t.Name, t => t);
 
-        byName[SvDirectorySkillRegistry.ListMembersTool].Description.ShouldContain("limit");
-        byName[SvDirectorySkillRegistry.ListMembersTool].Description.ShouldContain("offset");
-        byName[SvDirectorySkillRegistry.GetSiblingsTool].Description.ShouldContain("limit");
-        byName[SvDirectorySkillRegistry.GetSiblingsTool].Description.ShouldContain("offset");
+        // #3069: list is the single paginated member-listing surface.
+        byName[SvDirectorySkillRegistry.ListTool].Description.ShouldContain("limit");
+        byName[SvDirectorySkillRegistry.ListTool].Description.ShouldContain("offset");
     }
 
     [Fact]

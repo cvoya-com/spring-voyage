@@ -33,7 +33,7 @@ using Cvoya.Spring.Core.Agents;
 /// <param name="Roles">
 /// ADR-0046 §8: free-form team-role strings the agent advertises on this
 /// unit. Multi-valued; empty list when the manifest omitted the field.
-/// Runtime metadata only — surfaced on <c>sv.directory.list_members</c>.
+/// Runtime metadata only — surfaced on <c>sv.directory.list</c>.
 /// </param>
 /// <param name="Expertise">
 /// ADR-0046 §8: free-form expertise tags the agent advertises on this

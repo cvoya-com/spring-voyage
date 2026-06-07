@@ -41,11 +41,12 @@ internal static class ServiceCollectionExtensionsRouting
         // ToolCallContext path. The HTTP expertise-search surface
         // (POST /api/v1/directory/search → IExpertiseSearch) is unchanged.
 
-        // Spring Voyage directory tools (#2231, extended in #2491).
-        // Exposes sv.directory.get_self, sv.directory.get_member, sv.directory.list_members,
-        // sv.directory.get_siblings, sv.directory.get_parents, sv.directory.get_status so the agent
-        // runtime can navigate the unit / agent composition graph at
-        // runtime without baking the directory into the system prompt.
+        // Spring Voyage directory tools (#2231, extended in #2491,
+        // consolidated in #3069). Exposes sv.directory.get_self,
+        // sv.directory.lookup, sv.directory.list, sv.directory.get_parents,
+        // sv.directory.get_status so the agent runtime can navigate the
+        // unit / agent composition graph at runtime without baking the
+        // directory into the system prompt.
         // Registered via TryAddEnumerable so cloud hosts can add a
         // tenant-aware decorator without displacing the OSS default.
         services.TryAddSingleton<SvDirectorySkillRegistry>();

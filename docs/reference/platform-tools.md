@@ -25,13 +25,10 @@ Owning registry: [`SvDirectorySkillRegistry`](../../src/Cvoya.Spring.Dapr/Skills
 | Tool | Description |
 | --- | --- |
 | `sv.directory.get_self` | Returns metadata for the calling agent or unit. |
-| `sv.directory.get_member` | Returns metadata for a single agent or unit identified by uuid. |
-| `sv.directory.list_members` | Returns the direct members of a unit by uuid — agents, sub-units, and human members — each with a sendable address; the tool to look up a teammate's (or human's) address. |
-| `sv.directory.get_siblings` | Returns entities that share at least one parent with the entity identified by uuid. |
+| `sv.directory.lookup` | Resolve a single directory entry from either a canonical address (scheme:32-hex) or a bare agent / unit uuid. |
+| `sv.directory.list` | The single member-listing surface: members of the caller's unit, the caller's siblings, or a specific unit by uuid — agents, sub-units, AND human members, each with a sendable address; optional role / expertise filter (fundamental-core). |
 | `sv.directory.get_parents` | Returns the parents of the entity identified by uuid. |
 | `sv.directory.get_status` | Returns the advisory runtime-status snapshot for a single agent or unit. |
-| `sv.directory.list` | Resolve members / siblings / peers matching a role / expertise filter (fundamental-core). |
-| `sv.directory.lookup` | Resolve a known canonical address (scheme:32-hex) to a single directory entry. |
 
 > Expertise discovery is part of the directory surface above. `sv.directory.list` resolves peers matching an `expertise` filter and every entry carries its `expertise` list, so an agent finds "who has expertise X" through the caller-aware directory tools (#2989). The dynamic `sv.expertise.*` capability tools and the `sv.expertise.*` search meta-skill were removed in #2989. The HTTP expertise-search surface (`POST /api/v1/directory/search`) is unchanged and is not an MCP tool.
 
@@ -115,7 +112,7 @@ The blocks below are delimited by `platform-tool-catalog:<token>` HTML comments 
 <!-- platform-tool-catalog:directory -->
 **`directory`** — Look up agents, units, and humans by address, role, or expertise.
 
-> Use sv.directory.lookup when you already know an address (for example the sender of the inbound message) and need the entry's role / expertise / status. Use sv.directory.list to enumerate members of a unit, the caller's siblings, or peers matching a role or expertise filter. To walk the unit hierarchy explicitly, use sv.directory.get_self for the calling entity, sv.directory.get_member for a single entity by uuid, sv.directory.list_members for a unit's direct members — agents, sub-units, AND human members, each with a sendable address, so this is the tool to look up a teammate's address (including a human member) without asking the hub. Use sv.directory.get_siblings for entities sharing a parent, sv.directory.get_parents for an entity's parents, and sv.directory.get_status for an entity's advisory runtime-status snapshot. Every entry carries enough to act on (address, display name, role, expertise, advisory live status) — feed an address back into sv.messaging.send to reach the entry.
+> Use sv.directory.lookup when you already know an address (for example the sender of the inbound message) or a bare uuid and need the entry's role / expertise / status. Use sv.directory.list to enumerate members — of the caller's unit (default), the caller's siblings, or a specific unit by uuid — including human members, each with a sendable address, so this is the tool to look up a teammate's address (including a human member) without asking the hub; an optional role or expertise filter narrows the set. To walk the unit hierarchy, use sv.directory.get_self for the calling entity and sv.directory.get_parents for an entity's parents. Use sv.directory.get_status for an entity's advisory runtime-status snapshot. Every entry carries enough to act on (address, display name, role, expertise, advisory live status) — feed an address back into sv.messaging.send to reach the entry.
 <!-- /platform-tool-catalog:directory -->
 
 <!-- platform-tool-catalog:observability -->
