@@ -294,6 +294,92 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
     }
 
     [Fact]
+    public async Task PostContainerProbe_ProbeToolMissing_Returns422WithCode()
+    {
+        // #3085: when the workload image ships no `curl`, the runtime probe
+        // raises ContainerProbeToolMissingException. The endpoint must surface
+        // it as a distinct 422 + machine-readable code so the worker can
+        // reconstruct the typed exception and fast-fail the readiness wait
+        // rather than mis-reading it as a transient not-ready boolean.
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .ProbeContainerHttpAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<bool>(_ => throw ContainerProbeToolMissingException.ForCurl(
+                image: "byoi:1", stderr: "exec: \"curl\": executable file not found"));
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/containers/byoi-1/probe",
+            new { url = "http://localhost:8999/.well-known/agent.json" },
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("code").GetString().ShouldBe(ContainersEndpoints.ProbeToolMissingCode);
+        body.GetProperty("message").GetString()!.ShouldContain("curl");
+    }
+
+    [Fact]
+    public async Task GetContainerState_WithoutToken_Returns401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync(
+            "/v1/containers/agent-1/state",
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetContainerState_RunningContainer_Returns200()
+    {
+        // #3085: the readiness wait reads liveness from the runtime's inspect
+        // metadata (no in-container tooling). A running container reports
+        // running=true, exitCode null.
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .GetContainerStateAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ContainerRunState(IsRunning: true, ExitCode: null, Status: "running"));
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.GetAsync(
+            "/v1/containers/agent-1/state",
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("running").GetBoolean().ShouldBeTrue();
+        body.GetProperty("status").GetString().ShouldBe("running");
+
+        await _factory.ContainerRuntime.Received(1).GetContainerStateAsync(
+            "agent-1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetContainerState_ExitedContainer_Returns200WithExitCode()
+    {
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .GetContainerStateAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ContainerRunState(IsRunning: false, ExitCode: 1, Status: "exited"));
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.GetAsync(
+            "/v1/containers/agent-1/state",
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("running").GetBoolean().ShouldBeFalse();
+        body.GetProperty("exitCode").GetInt32().ShouldBe(1);
+        body.GetProperty("status").GetString().ShouldBe("exited");
+    }
+
+    [Fact]
     public async Task PostContainerA2A_WithoutToken_Returns401()
     {
         var client = _factory.CreateClient();

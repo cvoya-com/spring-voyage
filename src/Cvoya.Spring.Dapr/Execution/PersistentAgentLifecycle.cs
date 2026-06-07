@@ -266,14 +266,14 @@ public class PersistentAgentLifecycle(
 
         var endpoint = new Uri($"http://localhost:{prep.A2APort}/");
 
-        var ready = await persistentAgentRegistry.WaitForA2AReadyAsync(
+        var readiness = await persistentAgentRegistry.WaitForA2AReadyAsync(
             containerId, endpoint, A2AExecutionDispatcher.ReadinessTimeout, cancellationToken);
 
-        if (!ready)
+        if (!readiness.Ready)
         {
             _logger.LogError(
-                "Persistent agent {AgentId} did not become ready within {Timeout}. Stopping container.",
-                agentId, A2AExecutionDispatcher.ReadinessTimeout);
+                "Persistent agent {AgentId} did not become ready: {Detail}. Stopping container.",
+                agentId, readiness.Detail);
             if (useDaprSidecar && sidecarId is not null && lifecycleNetworkName is not null)
             {
                 await containerLifecycleManager.TeardownAsync(
@@ -284,8 +284,7 @@ public class PersistentAgentLifecycle(
                 await containerRuntime.StopAsync(containerId, CancellationToken.None);
             }
 
-            throw new SpringException(
-                $"Persistent agent '{agentId}' did not become ready within {A2AExecutionDispatcher.ReadinessTimeout}.");
+            throw A2AReadinessFailureFactory.Build($"Persistent agent '{agentId}'", readiness);
         }
 
         // Clone the definition so the stored image override doesn't leak back

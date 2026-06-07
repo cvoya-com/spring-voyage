@@ -431,6 +431,48 @@ public class ProcessContainerRuntimeTests
         translated.Message.ShouldContain("/tmp/gone");
     }
 
+    // ── IsProbeToolMissing tests (#3085) ─────────────────────────────────────
+    //
+    // A missing `curl` binary is a permanent image defect that must fast-fail
+    // the readiness wait with an actionable message; a transient probe error
+    // (DNS, connection refused) must stay a recoverable "not ready yet". The
+    // matcher gates that decision off the container-runtime `exec` exit code +
+    // stderr. Pure function — no process spawn — so it's unit-testable here.
+
+    [Theory]
+    // podman's OCI exec path: missing target binary.
+    [InlineData(127, "OCI runtime exec failed: exec failed: unable to start container process: exec: \"curl\": executable file not found in $PATH")]
+    // docker's shape.
+    [InlineData(126, "exec: \"curl\": executable file not found in $PATH: unknown")]
+    // "no such file or directory" wording some runtimes emit.
+    [InlineData(127, "exec: \"curl\": no such file or directory")]
+    // OCI-prefixed even when the exit code is the generic 125 podman uses for exec failures.
+    [InlineData(125, "Error: OCI runtime exec failed: exec failed: executable file not found")]
+    public void IsProbeToolMissing_RecognisesMissingBinaryShapes_ReturnsTrue(int exitCode, string stderr)
+    {
+        ProcessContainerRuntime.IsProbeToolMissing(exitCode, stderr).ShouldBeTrue();
+    }
+
+    [Theory]
+    // curl ran but couldn't resolve the host — transient, NOT a missing tool.
+    [InlineData(6, "curl: (6) Could not resolve host: localhost")]
+    // curl ran but the connection was refused (endpoint not up yet) — transient.
+    [InlineData(7, "curl: (7) Failed to connect to localhost port 8999: Connection refused")]
+    // HTTP error from --fail (endpoint up but returned 503) — transient.
+    [InlineData(22, "curl: (22) The requested URL returned error: 503")]
+    // A bare 127 with no diagnostic stderr must not be assumed to be a missing tool.
+    [InlineData(127, "")]
+    public void IsProbeToolMissing_TransientProbeFailures_ReturnsFalse(int exitCode, string stderr)
+    {
+        ProcessContainerRuntime.IsProbeToolMissing(exitCode, stderr).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsProbeToolMissing_NullStderr_ReturnsFalse()
+    {
+        ProcessContainerRuntime.IsProbeToolMissing(127, null).ShouldBeFalse();
+    }
+
     [Fact]
     public void DefaultCwdProbe_RealCwd_ReturnsNoError()
     {

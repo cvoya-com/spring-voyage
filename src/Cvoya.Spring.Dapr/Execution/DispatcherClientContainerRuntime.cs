@@ -42,6 +42,15 @@ public class DispatcherClientContainerRuntime(
     /// <summary>Name of the HTTP client registered for the dispatcher.</summary>
     public const string HttpClientName = "spring-dispatcher";
 
+    /// <summary>
+    /// Error code the dispatcher returns on a <c>422</c> probe response when
+    /// the workload image ships no <c>curl</c> (#3085). Mirrors the literal on
+    /// <c>Cvoya.Spring.Dispatcher.ContainersEndpoints.ProbeToolMissingCode</c>;
+    /// duplicated here so the worker package keeps no build dependency on the
+    /// dispatcher package (same convention as the wire-DTO duplicates below).
+    /// </summary>
+    private const string ProbeToolMissingCode = "probe_tool_missing";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -242,6 +251,44 @@ public class DispatcherClientContainerRuntime(
     }
 
     /// <inheritdoc />
+    public async Task<ContainerRunState> GetContainerStateAsync(string containerId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
+
+        var httpClient = CreateClient();
+        var uri = $"v1/containers/{Uri.EscapeDataString(containerId)}/state";
+
+        using var response = await httpClient.GetAsync(uri, ct);
+
+        // The dispatcher's GetContainerStateAsync never 404s — an unknown
+        // container is reported as not-running with status "unknown" — but a
+        // forward-compatible client treats any 404 the same way.
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new ContainerRunState(IsRunning: false, ExitCode: null, Status: "unknown");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await SafeReadBodyAsync(response, ct);
+            throw new InvalidOperationException(
+                $"Dispatcher returned {(int)response.StatusCode} reading state for {containerId}: {body}");
+        }
+
+        var parsed = await response.Content.ReadFromJsonAsync<DispatcherContainerStateResponse>(JsonOptions, ct);
+        if (parsed is null)
+        {
+            throw new InvalidOperationException(
+                "Dispatcher returned an empty response body for the container state call.");
+        }
+
+        return new ContainerRunState(
+            IsRunning: parsed.Running,
+            ExitCode: parsed.ExitCode,
+            Status: string.IsNullOrEmpty(parsed.Status) ? "unknown" : parsed.Status);
+    }
+
+    /// <inheritdoc />
     public async Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
@@ -262,6 +309,24 @@ public class DispatcherClientContainerRuntime(
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return false;
+        }
+
+        // #3085: the dispatcher returns 422 + code "probe_tool_missing" when
+        // the workload image ships no `curl`, so the in-container probe can
+        // never run. Reconstruct the typed exception so the readiness wait
+        // fast-fails with the actionable message rather than treating it as a
+        // transient not-ready and burning the whole readiness window.
+        if (response.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity)
+        {
+            var problem = await SafeReadErrorAsync(response, ct);
+            if (string.Equals(problem?.Code, ProbeToolMissingCode, StringComparison.Ordinal))
+            {
+                throw new ContainerProbeToolMissingException(
+                    problem!.Message ?? "The workload image is missing `curl`, required by the readiness probe.");
+            }
+
+            throw new InvalidOperationException(
+                $"Dispatcher returned 422 probing {containerId} at {url}: {problem?.Message ?? "(no body)"}");
         }
 
         if (!response.IsSuccessStatusCode)
@@ -595,6 +660,18 @@ public class DispatcherClientContainerRuntime(
         }
     }
 
+    private static async Task<DispatcherErrorBody?> SafeReadErrorAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<DispatcherErrorBody>(JsonOptions, ct);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static DispatcherRunRequest BuildRunRequest(ContainerConfig config, bool detached)
     {
         return new DispatcherRunRequest
@@ -723,6 +800,32 @@ public class DispatcherClientContainerRuntime(
     internal record DispatcherProbeResponse
     {
         public required bool Healthy { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape returned by <c>GET /v1/containers/{id}/state</c> (#3085).
+    /// Maps to <see cref="ContainerRunState"/> after deserialization. Mirrors
+    /// <c>ContainerStateResponse</c> on the dispatcher side; duplicated here so
+    /// the worker package keeps no build dependency on the dispatcher package.
+    /// </summary>
+    internal record DispatcherContainerStateResponse
+    {
+        public required bool Running { get; init; }
+        public int? ExitCode { get; init; }
+        public string? Status { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape of the dispatcher's <c>DispatcherErrorResponse</c> problem
+    /// body. Duplicated here (rather than referenced) so the worker package
+    /// keeps no build dependency on the dispatcher package; used to recover the
+    /// machine-readable <c>code</c> on a non-2xx (e.g. the #3085 422
+    /// <c>probe_tool_missing</c>).
+    /// </summary>
+    internal record DispatcherErrorBody
+    {
+        public string? Code { get; init; }
+        public string? Message { get; init; }
     }
 
     /// <summary>

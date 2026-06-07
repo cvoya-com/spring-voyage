@@ -1434,13 +1434,85 @@ public class A2AExecutionDispatcherTests
         var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
         var ex = await Should.ThrowAsync<SpringException>(act);
 
-        // Assert: correct exception text from the timeout branch
-        ex.Message.ShouldContain("did not become A2A-ready");
+        // Assert: correct exception text from the timeout branch. The wording
+        // is now unified across dispatch paths (#3085) — "did not become
+        // ready within <timeout>" — and the message names the ephemeral agent.
+        ex.Message.ShouldContain("did not become ready");
+        ex.Message.ShouldContain("Ephemeral agent");
 
         // Assert: container teardown fires exactly once via the registry's
         // release path (StopAsync), even though no outer token was cancelled.
         await _containerRuntime.Received(1).StopAsync(ContainerId, Arg.Any<CancellationToken>());
         _ephemeralRegistry.GetAllEntries().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task DispatchAsync_ContainerExitsBeforeReady_FastFailsWithCrashLogsAndTearsDown()
+    {
+        // #3085 gap 3: a container that crashes on boot (exit 1) must fast-fail
+        // with the crash output surfaced — NOT burn the full readiness window
+        // on a generic timeout. Note the readiness timeout stays at its 60 s
+        // default: the test would hang for a minute if the fast-fail regressed.
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(ContainerId);
+
+        // The probe never succeeds, and the container has already exited.
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(false));
+        _containerRuntime.GetContainerStateAsync(ContainerId, Arg.Any<CancellationToken>())
+            .Returns(new ContainerRunState(IsRunning: false, ExitCode: 1, Status: "exited"));
+        _containerRuntime.GetLogsAsync(ContainerId, Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns("ModuleNotFoundError: No module named orchestrator");
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var ex = await Should.ThrowAsync<SpringException>(() =>
+            _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken));
+        sw.Stop();
+
+        // The diagnosis names the crash, not a generic timeout.
+        ex.Message.ShouldContain("exited with code 1");
+        ex.Message.ShouldContain("No module named orchestrator");
+        ex.Message.ShouldNotContain("did not become ready within");
+        ex.Data[SpringException.IssueCodeDataKey].ShouldBe(
+            A2AReadinessFailureFactory.ContainerExitedCode);
+
+        // Fast-fail — orders of magnitude under the 60 s readiness window.
+        sw.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(5));
+
+        // Container is still torn down on the failure path.
+        await _containerRuntime.Received(1).StopAsync(ContainerId, Arg.Any<CancellationToken>());
+        _ephemeralRegistry.GetAllEntries().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task DispatchAsync_ProbeToolMissing_FastFailsWithActionableMessage()
+    {
+        // #3085 gap 1: an image without curl makes the in-container probe
+        // unrunnable. The dispatcher must fast-fail naming the missing
+        // dependency rather than timing out.
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(ContainerId);
+
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<bool>(_ => throw ContainerProbeToolMissingException.ForCurl(
+                image: "byoi:1", stderr: "exec: \"curl\": executable file not found"));
+
+        var ex = await Should.ThrowAsync<SpringException>(() =>
+            _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken));
+
+        ex.Message.ShouldContain("curl");
+        ex.Data[SpringException.IssueCodeDataKey].ShouldBe(ContainerProbeToolMissingException.Code);
+        await _containerRuntime.Received(1).StopAsync(ContainerId, Arg.Any<CancellationToken>());
     }
 
     [Fact]

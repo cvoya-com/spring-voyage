@@ -179,6 +179,18 @@ public class DaprSidecarManager(
                 // Local timeout — fall through to the warning below.
                 break;
             }
+            catch (ContainerProbeToolMissingException ex)
+            {
+                // #3085: the paired app container that fronts daprd ships no
+                // `curl`. The platform-built spring-voyage-agent image (the
+                // only one this path probes) always installs it, so this is a
+                // defensive guard — treat the sidecar as not-healthy rather
+                // than letting the permanent-failure exception escape the loop.
+                _logger.LogWarning(
+                    EventIds.SidecarUnhealthy,
+                    "Dapr sidecar {SidecarId} cannot be probed: {Message}", sidecar.SidecarId, ex.Message);
+                break;
+            }
 
             try
             {
