@@ -82,6 +82,111 @@ public class DirectoryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolveKindAsync_returns_agent_entry_for_agent_id_without_scheme_hint()
+    {
+        // #2084: the kind is determined by the id against the DB/cache, not
+        // by a supplied scheme. A bare agent id resolves to the agent entry
+        // with the agent-scheme address.
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        await _service.RegisterAsync(
+            new DirectoryEntry(new Address("agent", agentId), agentId, "Ada", "Backend", "engineer", DateTimeOffset.UtcNow),
+            ct);
+
+        var resolved = await _service.ResolveKindAsync(agentId, ct);
+
+        resolved.ShouldNotBeNull();
+        resolved!.ActorId.ShouldBe(agentId);
+        resolved.Address.Scheme.ShouldBe(Address.AgentScheme);
+        resolved.DisplayName.ShouldBe("Ada");
+    }
+
+    [Fact]
+    public async Task ResolveKindAsync_returns_unit_entry_for_unit_id_without_scheme_hint()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var unitId = Guid.NewGuid();
+        await _service.RegisterAsync(
+            new DirectoryEntry(new Address("unit", unitId), unitId, "Engineering", "Eng unit", null, DateTimeOffset.UtcNow),
+            ct);
+
+        var resolved = await _service.ResolveKindAsync(unitId, ct);
+
+        resolved.ShouldNotBeNull();
+        resolved!.ActorId.ShouldBe(unitId);
+        resolved.Address.Scheme.ShouldBe(Address.UnitScheme);
+        resolved.DisplayName.ShouldBe("Engineering");
+    }
+
+    [Fact]
+    public async Task ResolveKindAsync_resolves_from_database_on_cold_cache()
+    {
+        // The id-keyed resolution must fall through to the DB exactly like
+        // ResolveAsync does — a fresh service with an empty cache still finds
+        // the seeded agent by id alone.
+        var ct = TestContext.Current.CancellationToken;
+        var seededId = Guid.NewGuid();
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.UnitDefinitions.Add(new UnitDefinitionEntity
+            {
+                Id = seededId,
+                DisplayName = "Seeded Unit",
+                Description = "From DB",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var freshService = new DirectoryService(
+            new DirectoryCache(),
+            _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+            _loggerFactory);
+
+        var resolved = await freshService.ResolveKindAsync(seededId, ct);
+
+        resolved.ShouldNotBeNull();
+        resolved!.Address.Scheme.ShouldBe(Address.UnitScheme);
+        resolved.DisplayName.ShouldBe("Seeded Unit");
+    }
+
+    [Fact]
+    public async Task ResolveKindAsync_returns_null_for_unknown_id()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var resolved = await _service.ResolveKindAsync(Guid.NewGuid(), ct);
+        resolved.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ResolveKindAsync_returns_null_for_empty_id()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var resolved = await _service.ResolveKindAsync(Guid.Empty, ct);
+        resolved.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ResolveKindAsync_returns_null_after_agent_soft_deleted()
+    {
+        // A soft-deleted agent must not resolve — the seam honours the same
+        // tenant + soft-delete query filters as ResolveAsync, so a deleted
+        // id reads as "no such artefact".
+        var ct = TestContext.Current.CancellationToken;
+        var agentId = Guid.NewGuid();
+        var address = new Address("agent", agentId);
+        await _service.RegisterAsync(
+            new DirectoryEntry(address, agentId, "Ada", "Backend", null, DateTimeOffset.UtcNow), ct);
+
+        await _service.UnregisterAsync(address, ct);
+
+        var resolved = await _service.ResolveKindAsync(agentId, ct);
+        resolved.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task UnregisterAsync_and_ResolveAsync_returns_null()
     {
         var ct = TestContext.Current.CancellationToken;
