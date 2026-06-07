@@ -14,9 +14,12 @@
 #   * The base image's ENTRYPOINT runs the TypeScript A2A bridge on
 #     `${AGENT_PORT:-8999}`. We do NOT override it.
 #   * The dispatcher (CodexLauncher.PrepareAsync) stamps SPRING_AGENT_ARGV
-#     into the container env at launch time as a JSON array. The bridge
-#     appends [--conversation-id, <thread.id>] per the runtime catalogue's
-#     `threadBinding.argName` entry.
+#     into the container env at launch time as a JSON array — `codex exec`
+#     plus the non-interactive flags (#2119). The bridge appends NO
+#     session-id flag: the runtime catalogue binds Codex as
+#     `threadBinding: { kind: none }` (#2118) because the Codex CLI has no
+#     caller-supplied-session-id surface at create time (`--conversation-id`
+#     never existed). Codex cold-starts a fresh session per turn.
 #   * OpenAI Platform credentials are NOT baked into this image. The
 #     launcher injects them as `OPENAI_API_KEY` at dispatch time and the
 #     bridge forwards them unchanged.

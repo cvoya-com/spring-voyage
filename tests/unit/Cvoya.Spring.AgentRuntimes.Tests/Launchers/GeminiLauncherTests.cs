@@ -361,6 +361,29 @@ public class GeminiLauncherTests
     }
 
     [Fact]
+    public async Task PrepareAsync_SetsOutputFormatStreamJsonEnvHint_PairedWithArgv()
+    {
+        // #2226 / #2227: DefaultGeminiArgv runs `gemini --output-format
+        // stream-json`, so the launcher must tell the sidecar to parse the
+        // NDJSON event stream via SPRING_AGENT_OUTPUT_FORMAT. Before this the
+        // launcher set no hint, so the sidecar defaulted to `text` and the
+        // user saw a wall of JSON — the live bug #2226 / #2227 describe.
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "Be helpful.",
+            mcpToken: "gemini-secret-token");
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldContainKeyAndValue("SPRING_AGENT_OUTPUT_FORMAT", "stream-json");
+
+        var argv = JsonSerializer.Deserialize<string[]>(
+            prep.EnvironmentVariables["SPRING_AGENT_ARGV"]);
+        argv.ShouldNotBeNull();
+        var formatIndex = Array.IndexOf(argv, "--output-format");
+        formatIndex.ShouldBeGreaterThanOrEqualTo(0, "argv must request a stream-json result");
+        argv[formatIndex + 1].ShouldBe("stream-json");
+    }
+
+    [Fact]
     public async Task PrepareAsync_PointsGeminiCliHome_AtPerMemberWorkspaceMount()
     {
         // ADR-0041 / #2103: GEMINI_CLI_HOME relocates Gemini's config and

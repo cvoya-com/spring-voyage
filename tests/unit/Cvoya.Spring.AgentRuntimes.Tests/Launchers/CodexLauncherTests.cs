@@ -134,6 +134,77 @@ public class CodexLauncherTests
     }
 
     [Fact]
+    public async Task PrepareAsync_SetsSpringAgentArgv_AsJsonEncodedArrayOfStrings()
+    {
+        // #2119: until this issue the launcher left SPRING_AGENT_ARGV unset
+        // and the agent-base bridge had nothing to spawn — Codex agent
+        // containers literally could not execute end-to-end (the same defect
+        // #2108 fixed for Gemini). The default argv must be JSON-encoded (the
+        // bridge does JSON.parse, see
+        // `src/Cvoya.Spring.AgentSidecar/src/config.ts:parseArgv`).
+        //
+        // Each flag is pinned here so accidental drift from the upstream
+        // `codex exec --help` surface (codex-cli 0.136.x) surfaces in
+        // unit-test failure rather than at integration time. See the
+        // doc-comment on `CodexLauncher.BaseCodexArgv` for the per-flag
+        // rationale. No PROMPT token: `codex exec` reads the user prompt from
+        // stdin, which the bridge pipes in.
+        var context = LauncherCallbackTestSupport.CreateContext(
+            prompt: "Be helpful.",
+            mcpToken: "codex-secret-token");
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldContainKey("SPRING_AGENT_ARGV");
+        var raw = prep.EnvironmentVariables["SPRING_AGENT_ARGV"];
+
+        var argv = JsonSerializer.Deserialize<string[]>(raw);
+        argv.ShouldNotBeNull();
+        argv.ShouldBe(new[]
+        {
+            "codex",
+            "exec",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--skip-git-repo-check",
+        });
+    }
+
+    [Fact]
+    public async Task PrepareAsync_DoesNotSetThreadBindingArgEnvVars()
+    {
+        // #2118: the catalogue binds Codex as `threadBinding: { kind: none }`
+        // because the Codex CLI exposes no caller-supplied-session-id surface
+        // at create time (`--conversation-id` never existed; `codex exec
+        // resume <UUID>` only resumes an already-existing id). The launcher
+        // must NOT emit SPRING_THREAD_ID_ARG_CREATE / _RESUME — those tell the
+        // bridge to append a session-id flag, which Codex cannot accept. Their
+        // presence would make the bridge build an argv Codex rejects.
+        var context = LauncherCallbackTestSupport.CreateContext();
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldNotContainKey("SPRING_THREAD_ID_ARG_CREATE");
+        prep.EnvironmentVariables.ShouldNotContainKey("SPRING_THREAD_ID_ARG_RESUME");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_DoesNotSetOutputFormatJsonHint()
+    {
+        // #2119 / #2226: Codex stays on the sidecar's default `text` output
+        // mode — `codex exec` writes the assistant reply to stdout as clean
+        // prose. The launcher must NOT set SPRING_AGENT_OUTPUT_FORMAT=json,
+        // which would route Codex's stdout through `parseCliJsonResult`
+        // (built for Claude's single-object `--output-format json` shape) and
+        // surface a parse miss / wall of JSON. Codex's own `--json` JSONL
+        // event parsing is tracked in #3123.
+        var context = LauncherCallbackTestSupport.CreateContext();
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables.ShouldNotContainKey("SPRING_AGENT_OUTPUT_FORMAT");
+    }
+
+    [Fact]
     public async Task PrepareAsync_SetsSpringWorkspacePath_ToPerMemberMountPath()
     {
         var context = LauncherCallbackTestSupport.CreateContext(

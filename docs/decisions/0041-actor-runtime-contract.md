@@ -26,7 +26,7 @@ The runtime's session identifier is `thread.id` verbatim. No hashing, no derivat
 
 - Spring Voyage `thread.id` is a `Guid` (ADR-0036) — globally unique by construction.
 - The agent identity is implicit in the container's filesystem (per-agent workspace volume — ADR-0026); session files for two different agents never share a directory.
-- For CLI runtimes the bridge invokes the runtime with `--resume <thread.id>` (Claude Code) or its equivalent (Codex `--continue` with id, Gemini equivalent).
+- For CLI runtimes the bridge invokes the runtime with `--resume <thread.id>` (Claude Code, Gemini). **Codex is the exception:** its CLI exposes no caller-supplied-session-id surface at create time (`--conversation-id` never existed; `codex exec resume <UUID>` only resumes an *already-existing* id — verified against codex-cli 0.136.x). So the catalogue binds Codex as `threadBinding: { kind: none }` (#2118) and Codex cold-starts a fresh session per turn until the Codex session-resume design call (#2122) lands.
 - For the Python SDK the agent author receives `thread.id` on each `on_message` call; thread-local state lives under `$SPRING_WORKSPACE_PATH/threads/<thread.id>/`.
 
 #### `thread_id` is developer/plumbing-only — never model-visible (#3079)

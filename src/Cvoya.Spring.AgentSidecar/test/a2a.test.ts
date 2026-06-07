@@ -165,6 +165,105 @@ describe("A2AHandler.handle", () => {
     assert.equal(metadata["sv.model"], "claude-opus-4-8");
   });
 
+  it("parses a stream-json CLI result: reply from the result event, cost on metadata, tool calls surfaced (#2226)", async () => {
+    // With outputFormat "stream-json" the bridge parses the Claude/Gemini
+    // NDJSON event stream: the terminal result's `.result` becomes the reply
+    // artifact, tool_use blocks become a `tool-calls` artifact, and the turn's
+    // cost/usage rides on the A2A task `metadata`. The stub emits a reduced
+    // Claude stream-json transcript.
+    const events = [
+      { type: "system", subtype: "init", session_id: "s1" },
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "checking" },
+            { type: "tool_use", name: "Bash", input: { command: "ls" } },
+          ],
+        },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "the parsed answer",
+        total_cost_usd: 0.05,
+        usage: { input_tokens: 1000, output_tokens: 500 },
+        modelUsage: { "claude-opus-4-8": {} },
+      },
+    ];
+    const ndjson = events.map((e) => JSON.stringify(e)).join("\n") + "\n";
+    const handler = new A2AHandler({
+      agentName: "test-agent",
+      agentArgv: [
+        PROCESS_NODE,
+        "-e",
+        `process.stdout.write(${JSON.stringify(ndjson)})`,
+      ],
+      port: 8999,
+      cancelGraceMs: 200,
+      spawnEnv: process.env,
+      outputFormat: "stream-json",
+    });
+
+    const res = await handler.handle({
+      jsonrpc: "2.0",
+      method: "message/send",
+      params: { message: { parts: [{ text: "ping" }] } },
+      id: "stream-1",
+    });
+
+    const task = res.result as Record<string, unknown>;
+    assert.equal((task["status"] as Record<string, unknown>)["state"], "completed");
+    const artifacts = task["artifacts"] as Array<{ artifactId: string; parts: Array<{ text: string }> }>;
+    // First artifact is the reply (the parsed prose, not the JSON wall).
+    assert.equal(artifacts[0]?.parts[0]?.text, "the parsed answer");
+    // Tool calls surface under a known artifactId.
+    const toolArtifact = artifacts.find((a) => a.artifactId === "tool-calls");
+    assert.ok(toolArtifact, "expected a tool-calls artifact");
+    assert.equal(toolArtifact!.parts[0]?.text, "Bash");
+    // Cost rides on metadata.
+    const metadata = task["metadata"] as Record<string, unknown>;
+    assert.ok(metadata, "expected cost metadata on the task");
+    assert.equal(metadata["sv.cost.usd"], 0.05);
+    assert.equal(metadata["sv.usage.input_tokens"], 1000);
+    assert.equal(metadata["sv.usage.output_tokens"], 500);
+  });
+
+  it("stream-json: an errored terminal result fails the task even on a clean exit (#2226)", async () => {
+    // A CLI can exit 0 while reporting an in-band error in its terminal
+    // result event. The bridge must surface that as task failure, not a
+    // successful empty reply.
+    const events = [
+      { type: "system", subtype: "init", session_id: "s1" },
+      { type: "result", subtype: "error", is_error: true, error: "model fatal error" },
+    ];
+    const ndjson = events.map((e) => JSON.stringify(e)).join("\n") + "\n";
+    const handler = new A2AHandler({
+      agentName: "test-agent",
+      agentArgv: [PROCESS_NODE, "-e", `process.stdout.write(${JSON.stringify(ndjson)})`],
+      port: 8999,
+      cancelGraceMs: 200,
+      spawnEnv: process.env,
+      outputFormat: "stream-json",
+    });
+
+    const res = await handler.handle({
+      jsonrpc: "2.0",
+      method: "message/send",
+      params: { message: { parts: [{ text: "ping" }] } },
+      id: "stream-err-1",
+    });
+
+    const task = res.result as Record<string, unknown>;
+    const status = task["status"] as Record<string, unknown>;
+    assert.equal(status["state"], "failed");
+    const message = status["message"] as Record<string, unknown>;
+    const parts = message["parts"] as Array<{ text: string }>;
+    assert.equal(parts[0]?.text, "model fatal error");
+  });
+
   // Bug regression: the dispatcher sets the container's working directory to
   // the per-member workspace mount (AgentWorkspaceContract); the bridge
   // honours the same path on every CLI spawn so CWD-relative config

@@ -85,9 +85,18 @@ agentRuntimes:
     displayName: Codex
     defaultImage: ghcr.io/cvoya-com/spring-voyage-codex-base:latest
     launcher: codex-cli
+    # #2118: Codex exposes NO caller-supplied-session-id surface at create
+    # time. The earlier `cli-arg --conversation-id` claim was aspirational —
+    # `--conversation-id` does not exist in the upstream Codex CLI (verified
+    # against `codex exec --help`, codex-cli 0.136.x). Codex's only
+    # cross-turn continuity surface is `codex exec resume <UUID>`, a
+    # positional subcommand that requires the UUID to already exist. Since the
+    # platform cannot hand Codex `thread.id` as the session id on the first
+    # turn, the binding is `none`: the bridge appends no session flag and
+    # Codex cold-starts a fresh session per turn (the correct no-resume path
+    # until the Codex session-resume design call, #2122, lands).
     threadBinding:
-      kind: cli-arg
-      argName: --conversation-id
+      kind: none
     modelProviders:
       - id: openai
         authMethod: api-key

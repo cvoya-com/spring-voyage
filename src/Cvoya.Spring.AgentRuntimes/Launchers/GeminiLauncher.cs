@@ -290,6 +290,17 @@ public class GeminiLauncher(
             // ADR-0041 / #2103: anchor Gemini CLI's config / session storage
             // on the per-member workspace volume.
             [GeminiCliHomeEnvVar] = workspaceMount,
+            // #2226: DefaultGeminiArgv runs `gemini --output-format
+            // stream-json`, so tell the sidecar to parse the NDJSON event
+            // stream (init / message / result events) rather than forward the
+            // raw NDJSON wall as the reply. Before this the launcher set no
+            // output-format hint, so the sidecar defaulted to `text` and the
+            // user saw a wall of JSON — the live bug #2226 / #2227 describe.
+            // The env var name + value are the shared sidecar contract; reuse
+            // the ClaudeCodeLauncher constants so the two launchers can't drift
+            // on the wire token (the sidecar reads one
+            // SPRING_AGENT_OUTPUT_FORMAT regardless of runtime).
+            [ClaudeCodeLauncher.OutputFormatEnvVar] = ClaudeCodeLauncher.OutputFormatStreamJson,
         };
 
         // #2695: Replace mode points GEMINI_SYSTEM_MD at the platform
