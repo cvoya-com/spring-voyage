@@ -91,6 +91,26 @@ class TestIAgentContextLoad:
             ctx = IAgentContext.load()
         assert ctx.telemetry_token == "tok123"
 
+    def test_telemetry_url_absent_does_not_raise(self, monkeypatch):
+        """#2916: telemetry is opt-in — an agent bootstraps with no telemetry
+        configured.
+
+        AgentContextBuilder omits SPRING_TELEMETRY_URL when no collector is
+        configured (spec §2.2.1, telemetry is conditional). The SDK MUST NOT
+        treat the URL as a required field; ``load()`` must succeed and surface
+        ``telemetry_url`` as ``None`` so the agent simply runs without telemetry
+        export.
+        """
+        for k, v in _REQUIRED_ENV.items():
+            monkeypatch.setenv(k, v)
+        monkeypatch.delenv("SPRING_TELEMETRY_URL", raising=False)
+        monkeypatch.delenv("SPRING_TELEMETRY_TOKEN", raising=False)
+
+        ctx = IAgentContext.load()  # must not raise
+
+        assert ctx.telemetry_url is None
+        assert ctx.telemetry_token is None
+
     def test_concurrent_threads_false(self):
         with _patch_env(SPRING_CONCURRENT_THREADS="false"):
             ctx = IAgentContext.load()
@@ -125,7 +145,6 @@ class TestIAgentContextLoad:
             "SPRING_LLM_PROVIDER_URL",
             "SPRING_LLM_PROVIDER_TOKEN",
             "SPRING_MCP_URL",
-            "SPRING_TELEMETRY_URL",
             "SPRING_WORKSPACE_PATH",
             "SPRING_CONCURRENT_THREADS",
         ],
