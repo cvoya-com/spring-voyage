@@ -307,16 +307,35 @@ public static class ThreadEndpoints
             from = callerAddress;
         }
 
-        // #2865 / ADR-0030: existing-thread participant invariant. When
-        // the path-supplied thread id resolves to a thread row, the
-        // resolved sender MUST be a canonical participant — otherwise
-        // the reply re-routes onto the canonical {sender, recipient}
-        // thread and the conversation splits across two rows. Non-Guid
-        // and Guid-shaped-but-unknown ids pass through unchanged so
-        // historical opaque correlation ids (#2112) keep working. The
-        // gate fires before audit emit + router so a 400 leaves the DB
-        // clean (mirrors #2859).
+        // #2865 / #3087 / ADR-0030: the path's {id} is a REFERENCE to a
+        // thread, resolved through the registry before audit emit + router
+        // so any rejection leaves the DB clean (mirrors #2859):
+        //   * Guid-shaped but unknown — names no thread. Reject with 404
+        //     (the resource the path addresses does not exist), mirroring
+        //     GetThread above. The old "pass it straight to the router"
+        //     path stamped the id onto messages.thread_id, violated
+        //     fk_messages_thread_id, and 500'd (#3087 — the sibling FK-500
+        //     #3088 fixed for the /messages endpoint). SV mints thread ids
+        //     from the participant set, so a caller cannot bring a thread
+        //     into being by naming one.
+        //   * known id, sender not a participant — reject with 400 (#2865),
+        //     else the reply re-routes onto the canonical {sender, recipient}
+        //     thread and the conversation splits across two rows.
+        // Non-Guid ids pass through unchanged so historical opaque
+        // correlation ids (#2112) keep working.
         var existingThread = await threadRegistry.ResolveAsync(id, cancellationToken);
+        if (existingThread is null && GuidFormatter.TryParse(id, out _))
+        {
+            return Results.Problem(
+                title: "Not Found",
+                detail: $"Thread '{id}' not found.",
+                statusCode: StatusCodes.Status404NotFound,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = MessageEndpoints.UnknownThreadCode,
+                });
+        }
+
         if (existingThread is not null
             && !MessageEndpoints.ParticipantsContain(existingThread.Participants, from))
         {

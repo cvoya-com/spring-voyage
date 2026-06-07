@@ -315,6 +315,46 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
     }
 
     [Fact]
+    public async Task PostThreadMessage_GuidShapedUnknownThreadId_Returns404NotFound()
+    {
+        // #3087: a Guid-shaped {id} in the path is only ever a REFERENCE to
+        // an existing thread (ADR-0030 — SV mints thread ids from the
+        // participant set). An id the registry has never seen names no
+        // thread, so the endpoint must 404 (mirroring GetThread). The old
+        // pass-through stamped the unknown id onto messages.thread_id,
+        // violated fk_messages_thread_id, and surfaced a raw HTTP 500 — the
+        // sibling FK-500 #3088 already fixed for /messages. The rejection
+        // fires before the router, so nothing is persisted or delivered.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.MessageRouter.ClearSubstitute();
+        _factory.MessageRouter
+            .RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Message?, RoutingError>.Success(null));
+
+        // A well-formed Guid that names no seeded thread row.
+        var unknownThreadId = Guid.NewGuid();
+        var body = new ThreadMessageRequest(
+            new AddressDto("agent", Agent_Ada_Id.ToString("N")),
+            "into the void");
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/v1/tenant/threads/{unknownThreadId:D}/messages", body, ct);
+
+        // 404, not 500 (the FK-500) and not the 502 the router-error
+        // fall-through would produce.
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var problem = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct);
+        problem.GetProperty("status").GetInt32().ShouldBe(404);
+        problem.GetProperty("code").GetString().ShouldBe("UnknownThread");
+        problem.GetProperty("detail").GetString().ShouldNotBeNull()
+            .ShouldContain(unknownThreadId.ToString("D"));
+
+        // Rejected before the router — no send is dispatched.
+        await _factory.MessageRouter.DidNotReceive().RouteAsync(
+            Arg.Any<Message>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task PostThreadMessage_SenderNotInThreadParticipants_Returns400AndLeavesDbClean()
     {
         // #2865 / ADR-0030: the path-supplied thread id must include the
