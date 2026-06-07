@@ -61,6 +61,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+*.egg-info/
 
 ## npm workspace hoisted dependencies — the root package.json is a
 ## workspaces-only manifest (see #198) and `npm install` at the repo
