@@ -135,6 +135,8 @@ public class CodexLauncher(
                 context.AgentId);
         }
 
+        var workspaceMountNoSlash = AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId);
+
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_THREAD_ID"] = context.ThreadId,
@@ -156,7 +158,15 @@ public class CodexLauncher(
             "Prepared Codex launch spec for agent {AgentId} thread {ThreadId}",
             context.AgentId, context.ThreadId);
 
-        return new AgentLaunchSpec(EnvironmentVariables: envVars);
+        return new AgentLaunchSpec(
+            EnvironmentVariables: envVars,
+            // #3106: pin CWD to the per-member workspace mount. The dispatcher
+            // is CWD-independent (a null WorkingDirectory lets the image's
+            // WORKDIR win), so a CLI launcher that discovers config relative to
+            // CWD must opt in explicitly. The Codex CLI auto-discovers
+            // `AGENTS.md` and `.mcp.json`, and the per-turn mcp-token, from the
+            // workspace root — CWD must be that mount.
+            WorkingDirectory: workspaceMountNoSlash);
     }
 
     /// <inheritdoc />

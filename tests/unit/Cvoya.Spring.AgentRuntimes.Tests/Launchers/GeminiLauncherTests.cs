@@ -86,7 +86,14 @@ public class GeminiLauncherTests
         _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
-        prep.WorkingDirectory.ShouldBeNull();
+        // #3106: the dispatcher is CWD-independent (null WorkingDirectory ⇒
+        // image WORKDIR wins), so the Gemini launcher pins CWD to the
+        // per-member workspace mount itself — `GEMINI.md`,
+        // `.gemini/settings.json`, and the per-turn mcp-token are discovered
+        // relative to CWD.
+        prep.WorkingDirectory.ShouldBe(
+            AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId),
+            "the Gemini CLI discovers GEMINI.md / .gemini/settings.json relative to CWD, so the launcher pins CWD to the workspace mount");
     }
 
     [Fact]

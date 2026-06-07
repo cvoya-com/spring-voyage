@@ -86,7 +86,13 @@ public class CodexLauncherTests
         _callbackSupport.AssertCallbackEnvironment(prep, context);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
-        prep.WorkingDirectory.ShouldBeNull();
+        // #3106: the dispatcher is CWD-independent (null WorkingDirectory ⇒
+        // image WORKDIR wins), so the Codex launcher pins CWD to the
+        // per-member workspace mount itself — `AGENTS.md`, `.mcp.json`, and the
+        // per-turn mcp-token are discovered relative to CWD.
+        prep.WorkingDirectory.ShouldBe(
+            AgentWorkspaceContract.BuildMountPathNoSlash(context.AgentId),
+            "the Codex CLI discovers AGENTS.md / .mcp.json relative to CWD, so the launcher pins CWD to the workspace mount");
     }
 
     [Fact]

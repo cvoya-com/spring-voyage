@@ -206,6 +206,21 @@ public class ProcessContainerRuntimeTests
     }
 
     [Fact]
+    public void BuildRunArguments_WithoutWorkingDirectory_OmitsWorkingDirFlag()
+    {
+        // #3106: a null WorkingDirectory means "no platform-forced --workdir" —
+        // the image's own WORKDIR wins (CWD-independence for BYOI / native-A2A
+        // images such as a `WORKDIR /app` engine). No `-w` token is emitted.
+        var config = new ContainerConfig(
+            Image: "byoi-engine:latest",
+            WorkingDirectory: null);
+
+        var args = ProcessContainerRuntime.BuildRunArguments(config, "spring-exec-no-wd");
+
+        args.ShouldNotContain("-w");
+    }
+
+    [Fact]
     public void BuildRunArguments_WithCommand_AppendsCommandTokensAfterImage()
     {
         // Command is now a list — each entry becomes one argv token verbatim,

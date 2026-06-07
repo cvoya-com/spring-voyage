@@ -198,6 +198,44 @@ public class A2AProcessLauncherTests
     }
 
     [Fact]
+    public async Task PrepareAsync_ByoiWorkdirImage_IsCwdIndependentYetResolvesWorkspaceByPath()
+    {
+        // #3106 conformance (unit-level): a BYOI / native-A2A image that
+        // declares its own WORKDIR (e.g. `WORKDIR /app` running
+        // `python -m orchestrator`) must launch CWD-independently — the
+        // a2a-process launcher leaves WorkingDirectory null so
+        // ContainerConfigBuilder emits no `--workdir` and the image's WORKDIR
+        // wins (proven downstream by
+        // ContainerConfigBuilderTests.Build_NullWorkingDirectory_LeavesWorkdirNull
+        // and ProcessContainerRuntimeTests.BuildRunArguments_WithoutWorkingDirectory_OmitsWorkingDirFlag).
+        // CWD-independence must coexist with per-thread / per-member work dirs:
+        // those are addressed by *path* under $SPRING_WORKSPACE_PATH
+        // (env-delivered, /spring/members/<id>/), never by the whole-container
+        // CWD. The full Docker/Testcontainers launch-and-ready test is noted
+        // for CI (it contends with parallel agents on the Docker daemon).
+        var context = CreateContext();
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        // (a) No platform-forced CWD — the image's WORKDIR is honoured.
+        prep.WorkingDirectory.ShouldBeNull(
+            "a WORKDIR /app native-A2A image must keep its own WORKDIR — the launcher must not force CWD to the workspace mount");
+
+        // (b) The per-member workspace is still delivered by path via the env
+        // var, so the engine derives a per-thread work dir as
+        // $SPRING_WORKSPACE_PATH/<thread-id> regardless of process CWD.
+        var workspacePath = AgentWorkspaceContract.BuildMountPath(context.AgentId);
+        prep.EnvironmentVariables[AgentWorkspaceContract.WorkspacePathEnvVar]
+            .ShouldBe(workspacePath);
+        workspacePath.ShouldBe($"/spring/members/{context.AgentId}/");
+
+        // The per-turn / per-thread scratch the engine writes lives by path
+        // under that mount — unaffected by the (image-default) CWD.
+        var perThreadWorkDir = $"{workspacePath}{context.ThreadId}";
+        perThreadWorkDir.ShouldStartWith(workspacePath);
+    }
+
+    [Fact]
     public void GetWorkspacePromptFragment_NamesWorkspaceAndDurableToken()
     {
         var prose = _launcher.GetWorkspacePromptFragment();
