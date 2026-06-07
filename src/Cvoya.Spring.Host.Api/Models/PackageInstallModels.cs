@@ -203,14 +203,13 @@ public sealed record ExecutionConfigurationMissingDetail(
     string Field);
 
 /// <summary>
-/// Response body for <c>POST /api/v1/packages/install</c>,
-/// <c>POST /api/v1/installs/{id}/retry</c>, and
+/// Response body for <c>POST /api/v1/packages/install</c> and
 /// <c>GET /api/v1/installs/{id}</c>.
 /// Carries the shared batch identifier and per-package outcome.
 /// </summary>
 /// <param name="InstallId">
 /// The batch identifier. Use this value as <c>{id}</c> in
-/// <c>GET /api/v1/installs/{id}</c>, <c>/retry</c>, and <c>/abort</c>.
+/// <c>GET /api/v1/installs/{id}</c> and <c>/abort</c>.
 /// </param>
 /// <param name="Status">
 /// Aggregate status: <c>active</c> when all packages succeeded,

@@ -31,9 +31,6 @@ internal class PackageInstallEntityConfiguration : IEntityTypeConfiguration<Pack
             .IsRequired()
             .HasConversion<string>()
             .HasMaxLength(32);
-        builder.Property(e => e.OriginalManifestYaml).HasColumnName("original_manifest_yaml").IsRequired();
-        builder.Property(e => e.InputsJson).HasColumnName("inputs_json").IsRequired();
-        builder.Property(e => e.PackageRoot).HasColumnName("package_root");
         builder.Property(e => e.StartedAt).HasColumnName("started_at").IsRequired();
         builder.Property(e => e.CompletedAt).HasColumnName("completed_at");
         builder.Property(e => e.ErrorMessage).HasColumnName("error_message");

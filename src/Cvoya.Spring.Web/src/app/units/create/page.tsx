@@ -20,7 +20,6 @@ import {
   KeyRound,
   Package,
   Plug,
-  RefreshCw,
   Rocket,
   Search,
   Sparkles,
@@ -1543,11 +1542,17 @@ export default function CreateUnitPage() {
     // (`queryKeysAffectedBySource` for `unit://…`) — no manual call needed.
 
     const finishCatalogInstall = async () => {
-      if (autoStart && latestInstallStatus) {
-        const unitNames = latestInstallStatus.packages.flatMap(
+      // #3112 / ADR-0067 dec 3: the created unit names + agent ids come from
+      // the install *response* (`installStatus`), which carries them from the
+      // in-memory symbol map. The status poll (`latestInstallStatus`) no
+      // longer re-derives agent ids — it would require the retired manifest
+      // blob — so it is not the source for auto-start/auto-deploy here.
+      const created = installStatus ?? latestInstallStatus;
+      if (autoStart && created) {
+        const unitNames = created.packages.flatMap(
           (p) => p.createdUnitNames ?? [],
         );
-        const agentIds = latestInstallStatus.packages.flatMap(
+        const agentIds = created.packages.flatMap(
           (p) => p.createdAgentIds ?? [],
         );
         const tasks: Promise<unknown>[] = [
@@ -1568,23 +1573,6 @@ export default function CreateUnitPage() {
     void finishCatalogInstall();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [installActive, isSyntheticInstallId]);
-
-  // Retry install: POST /api/v1/installs/{id}/retry.
-  const retryInstallMutation = useMutation({
-    mutationFn: () => api.retryInstall(installId!),
-    onSuccess: (resp) => {
-      setInstallId(resp.installId);
-      setInstallStatus(resp);
-    },
-    onError: (err) => {
-      const message = formatTranslatedError(err);
-      toast({
-        title: "Retry failed",
-        description: message,
-        variant: "destructive",
-      });
-    },
-  });
 
   // Abort install: POST /api/v1/installs/{id}/abort.
   const abortInstallMutation = useMutation({
@@ -2912,16 +2900,6 @@ export default function CreateUnitPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    data-testid="install-retry-button"
-                    onClick={() => retryInstallMutation.mutate()}
-                    disabled={retryInstallMutation.isPending}
-                  >
-                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                    {retryInstallMutation.isPending ? "Retrying…" : "Retry"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
                     data-testid="install-abort-button"
                     onClick={() => abortInstallMutation.mutate()}
                     disabled={abortInstallMutation.isPending}
@@ -3147,16 +3125,6 @@ export default function CreateUnitPage() {
                   )}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    data-testid="install-retry-button"
-                    onClick={() => retryInstallMutation.mutate()}
-                    disabled={retryInstallMutation.isPending}
-                  >
-                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                    {retryInstallMutation.isPending ? "Retrying…" : "Retry"}
-                  </Button>
                   <Button
                     variant="outline"
                     size="sm"

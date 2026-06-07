@@ -415,14 +415,14 @@ spring package show templated-team           # one package's manifest summary
 spring package status <install-id>           # phase + per-artefact state
 ```
 
-If Phase 2 fails (a Dapr placement timeout, a container image pull error, a model probe failure), staging rows stay visible:
+If Phase 2 fails (a Dapr placement timeout, a container image pull error, a model probe failure), staging rows stay visible. Fix the underlying issue, discard the partial install, and install fresh — each install is a new instance with a fresh identity, so there is no in-place resume:
 
 ```bash
-spring package retry <install-id>            # re-run Phase 2 after fixing the underlying issue
 spring package abort <install-id>            # discard the staging rows; uninstall partial work
+spring package install <name>                # re-install once the issue is fixed
 ```
 
-`spring package export <unit-name>` writes the originally-supplied package YAML back from an installed unit, using the verbatim `OriginalManifestYaml` blob persisted at install time. See [`spring package`](../../cli-reference.md) in the CLI reference.
+`spring package export <unit-name>` reconstructs a re-installable package from the unit's **live** configuration — the running config, re-rendered, not a stored snapshot. See [`spring package`](../../cli-reference.md) in the CLI reference.
 
 ## Common pitfalls
 

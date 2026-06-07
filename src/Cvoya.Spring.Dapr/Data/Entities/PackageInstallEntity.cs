@@ -18,7 +18,7 @@ public class PackageInstallEntity : ITenantScopedEntity
     /// <summary>
     /// The shared install batch identifier. All rows in the same
     /// <c>spring package install</c> invocation share this id. Callers
-    /// use it for <c>status</c>, <c>retry</c>, and <c>abort</c> operations.
+    /// use it for <c>status</c> and <c>abort</c> operations.
     /// </summary>
     public Guid InstallId { get; set; }
 
@@ -30,27 +30,6 @@ public class PackageInstallEntity : ITenantScopedEntity
 
     /// <summary>Current install status for this package.</summary>
     public PackageInstallStatus Status { get; set; }
-
-    /// <summary>
-    /// The original package YAML supplied by the operator, preserved verbatim
-    /// (comments, ordering, formatting) so <c>spring package export</c> can
-    /// round-trip it exactly (ADR-0035 decision 12).
-    /// </summary>
-    public string OriginalManifestYaml { get; set; } = string.Empty;
-
-    /// <summary>
-    /// JSON-serialised resolved input values for this package. Secret inputs
-    /// are stored as secret references (e.g. <c>secret://tenant/key</c>),
-    /// never as cleartext values.
-    /// </summary>
-    public string InputsJson { get; set; } = string.Empty;
-
-    /// <summary>
-    /// The local filesystem root from which the package was installed. Stored
-    /// so <c>retry</c> can re-resolve artefact files from the same location.
-    /// May be null for packages installed from a catalog without a local root.
-    /// </summary>
-    public string? PackageRoot { get; set; }
 
     /// <summary>When Phase 1 committed the staging rows.</summary>
     public DateTimeOffset StartedAt { get; set; }
@@ -100,7 +79,7 @@ public enum PackageInstallStatus
 
     /// <summary>
     /// At least one actor activation in Phase 2 failed. Staging rows remain
-    /// visible; the operator can <c>retry</c> or <c>abort</c>.
+    /// visible; the operator <c>abort</c>s and re-installs fresh.
     /// </summary>
     Failed = 2,
 }

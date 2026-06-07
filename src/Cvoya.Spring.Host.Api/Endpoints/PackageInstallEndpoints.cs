@@ -20,17 +20,16 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
-/// Maps package install/status/retry/abort endpoints (ADR-0035 decision 11).
+/// Maps package install/status/abort endpoints (ADR-0035 decision 11).
 ///
 /// <list type="bullet">
 ///   <item><description><c>POST /api/v1/packages/install</c> — install one or more packages as a batch.</description></item>
 ///   <item><description><c>POST /api/v1/packages/install/file</c> — install from uploaded YAML (browse path, ADR-0035 decision 13).</description></item>
 ///   <item><description><c>GET /api/v1/installs/{id}</c> — inspect install status including per-package detail.</description></item>
-///   <item><description><c>POST /api/v1/installs/{id}/retry</c> — re-run Phase 2 for a failed install.</description></item>
 ///   <item><description><c>POST /api/v1/installs/{id}/abort</c> — discard staging rows for a failed install.</description></item>
 /// </list>
 ///
-/// All five endpoints are thin adapters over <see cref="IPackageInstallService"/>.
+/// All four endpoints are thin adapters over <see cref="IPackageInstallService"/>.
 /// Error mapping follows ADR-0035 decision 11 and the issue acceptance criteria:
 /// <list type="bullet">
 ///   <item><description>Phase-1 dep-graph closure violation (<see cref="PackageDepGraphException"/>) → 400.</description></item>
@@ -48,7 +47,9 @@ using Microsoft.EntityFrameworkCore;
 /// after Phase-1 commit). The endpoint always returns 201 Created because
 /// Phase 1 committed; the body's <c>status</c> field carries <c>failed</c>
 /// when any activation failed, giving operators the install-id they need to
-/// call <c>GET /installs/{id}</c>, <c>/retry</c>, or <c>/abort</c>.
+/// call <c>GET /installs/{id}</c> or <c>/abort</c>. A failed install is
+/// cleaned up with <c>/abort</c> and re-installed fresh — there is no
+/// in-place resume (ADR-0067 decision 3).
 /// </para>
 /// </summary>
 public static class PackageInstallEndpoints
@@ -62,7 +63,7 @@ public static class PackageInstallEndpoints
     {
         // Use an empty prefix — the individual routes declare their full paths.
         // Grouping lets Program.cs apply a single .RequireAuthorization() call
-        // that covers all five endpoints, consistent with how MapPackageEndpoints
+        // that covers all four endpoints, consistent with how MapPackageEndpoints
         // and MapUnitEndpoints are wired.
         var group = app.MapGroup(string.Empty)
             .WithTags("PackageInstall");
@@ -98,17 +99,6 @@ public static class PackageInstallEndpoints
             .WithSummary("Get install status, including per-package detail")
             .Produces<InstallStatusResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
-
-        // ── POST /api/v1/installs/{id}/retry ──────────────────────────────
-        group.MapPost("/api/v1/installs/{id:guid}/retry", RetryInstallAsync)
-            .WithName("RetryInstall")
-            .WithSummary("Re-run Phase 2 for a failed install")
-            .WithDescription(
-                "Re-activates every package whose state is not yet active. " +
-                "Phase 1 rows stay intact. Returns 200 with the updated status.")
-            .Produces<InstallStatusResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
 
         // ── POST /api/v1/installs/{id}/abort ──────────────────────────────
         group.MapPost("/api/v1/installs/{id:guid}/abort", AbortInstallAsync)
@@ -346,52 +336,6 @@ public static class PackageInstallEndpoints
             : null;
 
         return Results.Ok(BuildStatusResponse(id, status.Packages, startedAt, completedAt, error: null));
-    }
-
-    private static async Task<IResult> RetryInstallAsync(
-        Guid id,
-        [FromServices] IPackageInstallService installService,
-        [FromServices] SpringDbContext db,
-        CancellationToken cancellationToken)
-    {
-        // Check the install exists first so we can return 404 vs 409.
-        var existing = await installService.GetStatusAsync(id, cancellationToken);
-        if (existing is null)
-        {
-            return Results.Problem(
-                detail: $"Install '{id}' not found.",
-                statusCode: StatusCodes.Status404NotFound);
-        }
-
-        // 409 if already fully active — nothing to retry.
-        if (existing.Packages.All(p => p.Status == PackageInstallOutcome.Active))
-        {
-            return Results.Problem(
-                detail: $"Install '{id}' is already fully active.",
-                statusCode: StatusCodes.Status409Conflict);
-        }
-
-        InstallResult result;
-        try
-        {
-            result = await installService.RetryAsync(id, cancellationToken);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Results.Problem(
-                detail: ex.Message,
-                statusCode: StatusCodes.Status404NotFound);
-        }
-
-        var rows = await db.PackageInstalls
-            .Where(r => r.InstallId == id)
-            .ToListAsync(cancellationToken);
-        var startedAt = rows.Count > 0 ? rows.Min(r => r.StartedAt) : (DateTimeOffset?)null;
-        var completedAt = rows.All(r => r.CompletedAt.HasValue)
-            ? rows.Max(r => r.CompletedAt)
-            : null;
-
-        return Results.Ok(BuildStatusResponse(id, result.PackageResults, startedAt, completedAt, error: null));
     }
 
     private static async Task<IResult> AbortInstallAsync(
@@ -649,7 +593,7 @@ public static class PackageInstallEndpoints
         // implementation). The endpoint always returns 201 Created because
         // Phase 1 committed successfully; the body's status field carries
         // "failed" when any activation failed, giving operators the install-id
-        // they need to call GET /installs/{id}, /retry, or /abort.
+        // they need to call GET /installs/{id} or /abort.
         var response = BuildStatusResponse(
             result.InstallId,
             result.PackageResults,

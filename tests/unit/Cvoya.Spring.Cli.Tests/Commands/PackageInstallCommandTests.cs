@@ -177,20 +177,6 @@ public class PackageInstallCommandTests
     }
 
     [Fact]
-    public void PackageRetry_ParsesInstallId()
-    {
-        var outputOption = CreateOutputOption();
-        var packageCommand = PackageCommand.Create(outputOption);
-        var rootCommand = new RootCommand { Options = { outputOption } };
-        rootCommand.Subcommands.Add(packageCommand);
-
-        var parseResult = rootCommand.Parse(
-            "package retry 11111111-2222-3333-4444-555555555555");
-
-        parseResult.Errors.ShouldBeEmpty();
-    }
-
-    [Fact]
     public void PackageAbort_ParsesInstallId()
     {
         var outputOption = CreateOutputOption();
@@ -527,51 +513,6 @@ public class PackageInstallCommandTests
         var client = new SpringApiClient(http, BaseUrl);
 
         var result = await client.GetInstallStatusAsync(
-            installId.ToString(), TestContext.Current.CancellationToken);
-
-        result.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task RetryInstallAsync_PostsToRetryEndpoint()
-    {
-        var installId = Guid.NewGuid();
-        var handler = new RecordingHandler((req, _) =>
-        {
-            req.Method.ShouldBe(HttpMethod.Post);
-            req.RequestUri!.AbsolutePath.ShouldBe($"/api/v1/installs/{installId}/retry");
-
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(
-                    $$"""{"installId":"{{installId}}","status":"active","packages":[{"packageName":"my-pkg","state":"active","errorMessage":null}],"startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:02:00Z","error":null}""",
-                    System.Text.Encoding.UTF8,
-                    "application/json"),
-            };
-        });
-
-        var http = new HttpClient(handler) { BaseAddress = new Uri(BaseUrl) };
-        var client = new SpringApiClient(http, BaseUrl);
-
-        var result = await client.RetryInstallAsync(
-            installId.ToString(), TestContext.Current.CancellationToken);
-
-        result.ShouldNotBeNull();
-        result!.Status.ShouldBe("active");
-        handler.WasCalled.ShouldBeTrue();
-    }
-
-    [Fact]
-    public async Task RetryInstallAsync_ReturnsNullOn404()
-    {
-        var installId = Guid.NewGuid();
-        var handler = new RecordingHandler((req, _) =>
-            new HttpResponseMessage(HttpStatusCode.NotFound));
-
-        var http = new HttpClient(handler) { BaseAddress = new Uri(BaseUrl) };
-        var client = new SpringApiClient(http, BaseUrl);
-
-        var result = await client.RetryInstallAsync(
             installId.ToString(), TestContext.Current.CancellationToken);
 
         result.ShouldBeNull();

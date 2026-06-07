@@ -61,7 +61,7 @@ Install is a **two-phase atomic flow** with a persisted install record:
 | Start install (from catalogue) | `POST /api/v1/packages/install` | `spring package install <name>` |
 | Start install (from upload) | `POST /api/v1/packages/install/file` | — |
 | Poll status | `GET /api/v1/installs/{id}` | `spring package status <id>` |
-| Retry / abort a failed install | `POST /api/v1/installs/{id}/{retry\|abort}` | `spring package retry\|abort <id>` |
+| Abort a failed install | `POST /api/v1/installs/{id}/abort` | `spring package abort <id>` |
 | Export | `POST /api/v1/tenant/packages/export` | `spring package export <name>` |
 
 Install **scope** is operator-controlled: top-level artefacts bind to the tenant

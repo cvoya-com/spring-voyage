@@ -4582,59 +4582,6 @@
         }
       }
     },
-    "/api/v1/installs/{id}/retry": {
-      "post": {
-        "tags": [
-          "PackageInstall"
-        ],
-        "summary": "Re-run Phase 2 for a failed install",
-        "description": "Re-activates every package whose state is not yet active. Phase 1 rows stay intact. Returns 200 with the updated status.",
-        "operationId": "RetryInstall",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InstallStatusResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/installs/{id}/abort": {
       "post": {
         "tags": [
