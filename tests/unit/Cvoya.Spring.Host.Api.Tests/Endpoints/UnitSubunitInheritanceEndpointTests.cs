@@ -141,6 +141,68 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
     }
 
     [Fact]
+    public async Task AddMember_MemberClaimsUnitButIdIsNotAUnit_Returns404()
+    {
+        // #3132 / #2084 (option (a)): `unit:<id>` is resolved against the unit
+        // table. When no unit with that id exists — whether the id is absent
+        // or is actually a live agent stamped with the wrong scheme — the
+        // address is "not found", a uniform 404, not a coercion to the id's
+        // real kind. No actor state is written.
+        var ct = TestContext.Current.CancellationToken;
+        ResetState();
+
+        // ChildUuid is a live agent (so this is a genuine scheme/kind
+        // mismatch, not merely a missing id), but the request claims "unit".
+        var parentBProxy = ArrangeUnit(ParentBUuid, "parent-b");
+        ArrangeAgentMember(ChildUuid, "ada");
+
+        var body = new AddMemberRequest(new AddressDto("unit", ChildUuid.ToString("N")));
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post, $"/api/v1/tenant/units/{ParentBUuid:N}/members")
+        {
+            Content = JsonContent.Create(body, options: JsonOptions),
+        };
+        var response = await _client.SendAsync(request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
+        var detail = problem.GetProperty("detail").GetString();
+        detail.ShouldNotBeNull();
+        detail.ShouldContain("No unit");
+
+        await parentBProxy.DidNotReceive().AddMemberAsync(
+            Arg.Any<Address>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddMember_AgentMember_ResolvesAgentAndSkipsInheritance_Returns204()
+    {
+        // #2084: an agent member stamped with the correct scheme resolves to
+        // an agent, so the sub-unit inheritance branch is skipped and the
+        // agent-typed add is issued.
+        var ct = TestContext.Current.CancellationToken;
+        ResetState();
+
+        var parentBProxy = ArrangeUnit(ParentBUuid, "parent-b");
+        ArrangeAgentMember(ChildUuid, "ada");
+
+        var body = new AddMemberRequest(new AddressDto("agent", ChildUuid.ToString("N")));
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post, $"/api/v1/tenant/units/{ParentBUuid:N}/members")
+        {
+            Content = JsonContent.Create(body, options: JsonOptions),
+        };
+        var response = await _client.SendAsync(request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        await parentBProxy.Received(1).AddMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == ChildUuid),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task RemoveMember_SubunitNoRemainingParents_Returns204()
     {
         // ADR-0039 §6 / B6: removing the child's only parent leaves it
@@ -331,7 +393,9 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
     /// <summary>
     /// #2084: stub an agent member so RemoveMember resolves its kind by id
     /// (ResolveKindAsync → agent entry) and issues the single agent-typed
-    /// removal — without trial-spelling the unit scheme.
+    /// removal — without trial-spelling the unit scheme. Also stubs the
+    /// scheme-keyed ResolveAsync(agent://uuid) the AddMember path uses for its
+    /// existence-and-kind check (#3132).
     /// </summary>
     private void ArrangeAgentMember(Guid uuid, string displayName)
     {
@@ -345,6 +409,12 @@ public class UnitSubunitInheritanceEndpointTests : IClassFixture<CustomWebApplic
 
         _factory.DirectoryService
             .ResolveKindAsync(uuid, Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        _factory.DirectoryService
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == Address.AgentScheme && a.Id == uuid),
+                Arg.Any<CancellationToken>())
             .Returns(entry);
     }
 

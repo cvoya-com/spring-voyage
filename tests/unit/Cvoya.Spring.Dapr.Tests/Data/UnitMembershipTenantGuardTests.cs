@@ -136,6 +136,57 @@ public class UnitMembershipTenantGuardTests : IDisposable
     }
 
     [Fact]
+    public async Task ShareTenantAsync_MemberClaimsUnitButIsLiveAgent_ReturnsTrue()
+    {
+        // #3132 / #2084: the guard determines the member's kind from the DB,
+        // not the claimed scheme. A mis-scheme'd body ({scheme:"unit",
+        // path:<agent-id>}) must NOT be rejected here as "not in tenant" just
+        // because the id is absent from UnitDefinitions — it is a live agent
+        // in this tenant, so it is visible. (Whether the id matches the
+        // claimed scheme is the endpoint's concern, surfaced as a 404.)
+        var guard = CreateGuard(TenantA);
+
+        var result = await guard.ShareTenantAsync(
+            new Address("unit", EngineeringId),
+            new Address("unit", AdaId),
+            TestContext.Current.CancellationToken);
+
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ShareTenantAsync_MemberClaimsAgentButIsLiveUnit_ReturnsTrue()
+    {
+        // Symmetric to the above: an id stamped "agent" that is actually a
+        // live sub-unit in this tenant is still visible.
+        var guard = CreateGuard(TenantA);
+
+        var result = await guard.ShareTenantAsync(
+            new Address("unit", EngineeringId),
+            new Address("agent", EngineeringId),
+            TestContext.Current.CancellationToken);
+
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ShareTenantAsync_MemberKindMismatchAndCrossTenant_ReturnsFalse()
+    {
+        // Kind-agnostic does not weaken tenant isolation: a mis-scheme'd id
+        // that resolves to neither a tenant-visible agent nor unit is still
+        // rejected. Hopper is an agent in tenant B; from tenant A it is
+        // invisible regardless of the claimed scheme.
+        var guard = CreateGuard(TenantA);
+
+        var result = await guard.ShareTenantAsync(
+            new Address("unit", EngineeringId),
+            new Address("unit", HopperId),
+            TestContext.Current.CancellationToken);
+
+        result.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task ShareTenantAsync_AgentParent_ReturnsFalse()
     {
         // Composition edges only attach to units — guard rejects agent-

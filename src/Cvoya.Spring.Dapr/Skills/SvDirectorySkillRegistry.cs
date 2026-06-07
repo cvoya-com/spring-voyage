@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
@@ -246,6 +247,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         "the top level'.";
 
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IDirectoryService _directoryService;
     private readonly IUnitMemberGraphStore _memberGraphStore;
     private readonly IUnitHumanMembershipStore _humanMembershipStore;
     private readonly IUnitMemberRoleDirectory _memberRoleDirectory;
@@ -258,6 +260,13 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
 
     /// <summary>Builds the registry with its singleton dependencies.</summary>
     /// <param name="scopeFactory">Scope factory for the per-call scoped reads (definitions, repositories).</param>
+    /// <param name="directoryService">
+    /// Directory seam (#2084). The registry's kind resolution delegates to
+    /// <see cref="IDirectoryService.ResolveKindAsync"/> for the agent / unit
+    /// determination (#3131) so the scheme-by-id lookup lives in exactly one
+    /// place; the registry keeps only its tool-surface wrapper (the tenant
+    /// sentinel special case and the typed unknown-uuid throw).
+    /// </param>
     /// <param name="memberGraphStore">Read seam over <c>unit_memberships</c> / <c>unit_subunit_memberships</c>.</param>
     /// <param name="humanMembershipStore">Read seam over <c>unit_memberships_humans</c>.</param>
     /// <param name="memberRoleDirectory">
@@ -277,6 +286,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
     /// <param name="loggerFactory">Logger factory for diagnostic logging.</param>
     public SvDirectorySkillRegistry(
         IServiceScopeFactory scopeFactory,
+        IDirectoryService directoryService,
         IUnitMemberGraphStore memberGraphStore,
         IUnitHumanMembershipStore humanMembershipStore,
         IUnitMemberRoleDirectory memberRoleDirectory,
@@ -286,6 +296,7 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         ILoggerFactory loggerFactory)
     {
         _scopeFactory = scopeFactory;
+        _directoryService = directoryService;
         _memberGraphStore = memberGraphStore;
         _humanMembershipStore = humanMembershipStore;
         _memberRoleDirectory = memberRoleDirectory;
@@ -1171,6 +1182,30 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
         return Array.Empty<string>();
     }
 
+    /// <summary>
+    /// Resolves the <c>(kind, display_name)</c> the directory tools surface
+    /// for a bare uuid. #3131: the agent / unit determination delegates to
+    /// the shared <see cref="IDirectoryService.ResolveKindAsync"/> seam
+    /// (#2084) — the canonical, directory-owned, cache-backed "what kind is
+    /// this id, per DB/cache" lookup — so kind resolution lives in exactly
+    /// one place. The registry keeps only its tool-surface-specific wrapper:
+    /// the tenant-sentinel special case (the sentinel is not a directory
+    /// entry) and the typed throw on an unknown uuid (the directory seam
+    /// returns <c>null</c>; the <c>sv.directory.*</c> contract is a
+    /// retry-guiding <see cref="ArgumentException"/>).
+    /// </summary>
+    /// <remarks>
+    /// Behaviour-preserving consolidation. The seam reuses the same tenant +
+    /// soft-delete query filters the registry's former direct DB read used
+    /// (no <c>IgnoreQueryFilters</c>), so a soft-deleted / cross-tenant /
+    /// unknown id resolves to the unknown-uuid throw exactly as before. The
+    /// display name comes from the same definition column
+    /// (<c>agent_definitions.display_name</c> / <c>unit_definitions.display_name</c>),
+    /// now read through the directory cache's write-through fast-path. The
+    /// seam probes unit-then-agent versus the former agent-then-unit; ids are
+    /// globally unique per artefact, so at most one kind matches and the
+    /// resolved kind is identical for every real id.
+    /// </remarks>
     private async Task<(string Kind, string? DisplayName)> ResolveKindAsync(string uuid, CancellationToken ct)
     {
         if (!GuidFormatter.TryParse(uuid, out var guid))
@@ -1184,25 +1219,13 @@ public sealed class SvDirectorySkillRegistry : ISkillRegistry
             return (KindTenant, null);
         }
 
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-
-        var agent = await db.AgentDefinitions
-            .Where(a => a.Id == guid)
-            .Select(a => new { a.DisplayName })
-            .FirstOrDefaultAsync(ct);
-        if (agent is not null)
+        var entry = await _directoryService.ResolveKindAsync(guid, ct);
+        if (entry is not null)
         {
-            return (KindAgent, agent.DisplayName);
-        }
-
-        var unit = await db.UnitDefinitions
-            .Where(u => u.Id == guid)
-            .Select(u => new { u.DisplayName })
-            .FirstOrDefaultAsync(ct);
-        if (unit is not null)
-        {
-            return (KindUnit, unit.DisplayName);
+            // entry.Address.Scheme is the authoritative kind (agent / unit),
+            // and DisplayName is the same definition column the registry used
+            // to read directly.
+            return (entry.Address.Scheme, entry.DisplayName);
         }
 
         throw new ArgumentException(

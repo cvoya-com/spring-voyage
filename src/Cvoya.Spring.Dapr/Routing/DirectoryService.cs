@@ -598,6 +598,13 @@ public class DirectoryService(
         }
     }
 
+    // #3134 (audit item 3): this scheme→table switch is the canonical
+    // address-keyed kind→table resolver and the *foundation* of the
+    // ResolveKindAsync seam — ResolveKindAsync → ResolveAsync →
+    // LoadFromDatabaseAsync. Re-routing it through the seam would be a direct
+    // cycle, and the scheme here is authoritative-by-construction (the caller
+    // is resolving a specific scheme:id address, not inferring a type from an
+    // untrusted scheme). It is therefore deliberately NOT migrated to the seam.
     private async Task<DirectoryEntry?> LoadFromDatabaseAsync(Address address, CancellationToken cancellationToken)
     {
         var scheme = address.Scheme;

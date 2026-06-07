@@ -36,6 +36,8 @@ using Xunit;
 public class SvDirectorySkillRegistryContractTests
 {
     private readonly IServiceScopeFactory _scopeFactory = Substitute.For<IServiceScopeFactory>();
+    private readonly Cvoya.Spring.Core.Directory.IDirectoryService _directoryService =
+        Substitute.For<Cvoya.Spring.Core.Directory.IDirectoryService>();
     private readonly IUnitMemberGraphStore _memberGraphStore = new InMemoryUnitMemberGraphStore();
     private readonly IUnitHumanMembershipStore _humanMembershipStore =
         new InMemoryUnitHumanMembershipStore();
@@ -54,6 +56,7 @@ public class SvDirectorySkillRegistryContractTests
 
     private SvDirectorySkillRegistry CreateRegistry() => new(
         _scopeFactory,
+        _directoryService,
         _memberGraphStore,
         _humanMembershipStore,
         _memberRoleDirectory,

@@ -615,6 +615,77 @@ public class MessageRouterTests
         (await verifyDb.Messages.AsNoTracking().AnyAsync(ct)).ShouldBeFalse();
     }
 
+    // --- #3133 / #2084: type-dependent gates key off the resolved entity
+    // kind (DB/cache), not the claimed recipient scheme. The directory
+    // resolve is scheme-keyed in production so the two always agree for a
+    // path address; these tests drive the directory substitute to return an
+    // entry whose kind DIFFERS from the claimed scheme to prove the gates
+    // now follow the resolved entity, independent of the inbound scheme.
+
+    [Fact]
+    public async Task RouteAsync_PermissionGate_KeysOffResolvedEntityKind_NotClaimedScheme()
+    {
+        // Claimed scheme is `agent` (which would skip the unit-permission
+        // gate), but the directory resolves the recipient as a `unit`. The
+        // gate MUST fire on the resolved unit kind — a human sender without
+        // permission is denied.
+        var ct = TestContext.Current.CancellationToken;
+        var destination = new Address("agent", UnitOneId);
+        var resolvedAsUnit = new DirectoryEntry(
+            new Address("unit", UnitOneId), UnitOneId, "Engineering", "Team", null, DateTimeOffset.UtcNow);
+        var message = CreateMessageFromHuman(destination, HumanUnauthorisedId);
+
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(resolvedAsUnit);
+        _permissionService.ResolveEffectivePermissionAsync(
+                Arg.Is<Address>(a => a.Scheme == Address.HumanScheme && a.Id == HumanUnauthorisedId),
+                UnitOneId,
+                Arg.Any<CancellationToken>())
+            .Returns((PermissionLevel?)null);
+
+        var result = await _router.RouteAsync(message, ct);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error!.Code.ShouldBe("PERMISSION_DENIED");
+        // The gate consulted the permission service for the resolved unit —
+        // proof it ran despite the claimed `agent` scheme.
+        await _permissionService.Received().ResolveEffectivePermissionAsync(
+            Arg.Any<Address>(), UnitOneId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RouteAsync_HaltedCheck_KeysOffResolvedEntityKind_NotClaimedScheme()
+    {
+        // Claimed scheme is `agent`, but the directory resolves the recipient
+        // as a `unit`. The stopped-recipient probe MUST query the lifecycle
+        // mirror with ArtefactKind.Unit (the resolved kind), so a stopped
+        // unit is refused — not silently allowed because the claimed scheme
+        // said `agent`.
+        var ct = TestContext.Current.CancellationToken;
+        var destination = new Address("agent", UnitOneId);
+        var resolvedAsUnit = new DirectoryEntry(
+            new Address("unit", UnitOneId), UnitOneId, "Engineering", "Team", null, DateTimeOffset.UtcNow);
+        var message = CreateMessage(destination);
+
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(resolvedAsUnit);
+        var unitProxy = Substitute.For<IAgent>();
+        _agentProxyResolver.Resolve(Arg.Any<string>(), Hex(UnitOneId)).Returns(unitProxy);
+
+        var store = Substitute.For<ILifecycleStatusStore>();
+        store.TryGetStatusAsync(ArtefactKind.Unit, UnitOneId, Arg.Any<CancellationToken>())
+            .Returns(LifecycleStatus.Stopped);
+        var router = new MessageRouter(
+            _directoryService, _agentProxyResolver, _permissionService,
+            _loggerFactory, NullMessageWriterScopeFactory.Create(), store);
+
+        var result = await router.RouteAsync(message, ct);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error!.Code.ShouldBe("RECIPIENT_STOPPED");
+        // The probe used the resolved Unit kind.
+        await store.Received().TryGetStatusAsync(ArtefactKind.Unit, UnitOneId, Arg.Any<CancellationToken>());
+        await unitProxy.DidNotReceive().ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
+    }
+
     private static Message CreateMessageFromHuman(Address to, Guid humanId) =>
         new(
             Guid.NewGuid(),

@@ -851,8 +851,19 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
                 memberRoleDirectory.Seed(unitId, agentId, membership.Roles, agentDef?.Role);
             }
 
+            // #3131: the registry resolves agent/unit kind through the shared
+            // IDirectoryService.ResolveKindAsync seam. Wire a real
+            // DirectoryService over the same scope factory so it reads the
+            // identical in-memory SpringDbContext the fixture seeded — kind
+            // resolution stays end-to-end correct after consolidation.
+            var directoryService = new Cvoya.Spring.Dapr.Routing.DirectoryService(
+                new Cvoya.Spring.Dapr.Routing.DirectoryCache(),
+                scopeFactory,
+                NullLoggerFactory.Instance);
+
             var registry = new SvDirectorySkillRegistry(
                 scopeFactory,
+                directoryService,
                 _memberGraph,
                 _humanStore,
                 memberRoleDirectory,
