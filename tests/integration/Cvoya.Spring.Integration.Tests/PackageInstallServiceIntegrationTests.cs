@@ -571,6 +571,127 @@ public class PackageInstallServiceIntegrationTests : IDisposable
         await bindingService.BindAsync(packageName, enabled: true, TestContext.Current.CancellationToken);
     }
 
+    // ── (11) #3090 R1: export reconstructs from runtime/DB config ─────────
+
+    /// <summary>
+    /// #3090 R1: <see cref="Cvoya.Spring.Host.Api.Services.IPackageExportService"/>
+    /// reconstructs a re-installable package from the runtime/DB stores rather
+    /// than replaying the captured install blob. The reconstructed root
+    /// <c>package.yaml</c> re-parses and resolves through the production parser
+    /// (i.e. it is re-installable) and carries the unit + member agent.
+    /// </summary>
+    [Fact]
+    public async Task Export_AfterInstall_ReconstructsReinstallablePackage()
+    {
+        using var fx = BuildFixture();
+        var ct = TestContext.Current.CancellationToken;
+
+        var install = await fx.Service.InstallAsync(new[] { LoadTarget("hello-world") }, ct);
+        install.PackageResults.Single().Status.ShouldBe(PackageInstallOutcome.Active);
+
+        var export = fx.Provider
+            .GetRequiredService<Cvoya.Spring.Host.Api.Services.IPackageExportService>();
+        var result = await export.ExportByUnitNameAsync("hello-world", withValues: false, ct);
+        result.ShouldNotBeNull("export must reconstruct a package for the installed unit");
+        result!.ContentType.ShouldBe("application/zip");
+
+        var root = UnzipExport(result);
+        try
+        {
+            var rootYaml = await File.ReadAllTextAsync(
+                Path.Combine(root, "hello-world", "package.yaml"), ct);
+            var resolved = await PackageManifestParser.ParseAndResolveAsync(
+                rootYaml,
+                packageRoot: Path.Combine(root, "hello-world"),
+                inputValues: new Dictionary<string, string>(),
+                catalogProvider: null,
+                cancellationToken: ct);
+
+            resolved.Units.Any(u => !u.IsCrossPackage).ShouldBeTrue(
+                "reconstructed package must carry the hello-world unit");
+            resolved.Agents.Any(a => !a.IsCrossPackage).ShouldBeTrue(
+                "reconstructed package must carry the greeter member agent");
+        }
+        finally
+        {
+            TryDeleteDir(root);
+        }
+    }
+
+    /// <summary>
+    /// #3090 R1 (the load-bearing assertion): a <b>post-deploy edit</b> made
+    /// through the runtime/DB source of truth surfaces in the reconstructed
+    /// export. Verbatim replay of the captured install blob could not reflect
+    /// the edit — this is the export-drift bug the reconstruction fixes.
+    /// </summary>
+    [Fact]
+    public async Task Export_ReflectsPostDeployModelEdit()
+    {
+        using var fx = BuildFixture();
+        var ct = TestContext.Current.CancellationToken;
+
+        var install = await fx.Service.InstallAsync(new[] { LoadTarget("hello-world") }, ct);
+        install.PackageResults.Single().Status.ShouldBe(PackageInstallOutcome.Active);
+
+        await using (var scope = fx.ScopeFactory.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            var agent = await db.AgentDefinitions
+                .IgnoreQueryFilters()
+                .FirstAsync(a => a.DisplayName == "greeter", ct);
+
+            var execStore = scope.ServiceProvider
+                .GetRequiredService<Cvoya.Spring.Core.Execution.IAgentExecutionStore>();
+            await execStore.SetAsync(
+                GuidFormatter.Format(agent.Id),
+                new Cvoya.Spring.Core.Execution.AgentExecutionShape(
+                    Model: new Cvoya.Spring.Core.Catalog.Model("anthropic", "claude-opus-4-8")),
+                ct);
+        }
+
+        var export = fx.Provider
+            .GetRequiredService<Cvoya.Spring.Host.Api.Services.IPackageExportService>();
+        var result = await export.ExportByUnitNameAsync("hello-world", withValues: false, ct);
+        result.ShouldNotBeNull();
+
+        var root = UnzipExport(result!);
+        try
+        {
+            var agentDoc = Directory
+                .EnumerateFiles(root, "package.yaml", SearchOption.AllDirectories)
+                .Select(File.ReadAllText)
+                .FirstOrDefault(text => text.Contains("kind: Agent"));
+            agentDoc.ShouldNotBeNull("reconstructed package must contain an Agent document");
+            agentDoc!.Contains("claude-opus-4-8").ShouldBeTrue(
+                "the post-deploy model edit must surface in the reconstructed export");
+            agentDoc.Contains("claude-sonnet-4-6").ShouldBeFalse(
+                "the stale install-time model must NOT appear after the edit");
+        }
+        finally
+        {
+            TryDeleteDir(root);
+        }
+    }
+
+    private static string UnzipExport(Cvoya.Spring.Host.Api.Services.PackageExportResult export)
+    {
+        var dest = Path.Combine(Path.GetTempPath(), "sv-reconstruct-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(dest);
+        using var memory = new MemoryStream(export.Content);
+        using var zip = new System.IO.Compression.ZipArchive(
+            memory, System.IO.Compression.ZipArchiveMode.Read);
+        // Use the framework's path-validating extractor instead of a manual
+        // entry loop: ExtractToDirectory canonicalises each entry path and
+        // rejects "../" escape, guarding against Zip Slip (CodeQL cs/zipslip).
+        System.IO.Compression.ZipFileExtensions.ExtractToDirectory(zip, dest);
+        return dest;
+    }
+
+    private static void TryDeleteDir(string dir)
+    {
+        try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+    }
+
     // ── Fixture helpers ──────────────────────────────────────────────────
 
     private sealed class Fixture : IDisposable

@@ -50,11 +50,11 @@ For open design questions not yet decided, see
 | [0032](0032-drawer-panel-extension-slot.md) | Drawer-panel extension slot pattern | Accepted |
 | [0033](0033-two-portal-architecture.md) | Two-portal architecture (Management + Engagement) | Accepted |
 | [0034](0034-oss-dogfooding-unit.md) | Spring Voyage OSS dogfooding unit | Accepted |
-| [0035](0035-package-as-bundling-unit.md) | Package as the unit of bundling, install, export | Accepted |
+| [0035](0035-package-as-bundling-unit.md) | Package as the unit of bundling, install, export | Accepted — decision 12 (export-verbatim) superseded by [0067](0067-runtime-config-single-source-of-truth.md) |
 | [0036](0036-single-identity-model.md) | Single-identity model: Guid identity, `display_name` presentation-only | Accepted |
 | [0037](0037-package-schema-decomposition.md) | Package schema decomposition (kind-discriminated YAMLs) | Accepted |
 | [0038](0038-agent-runtime-and-model-provider-split.md) | AgentRuntime and ModelProvider as separate identities | Accepted — amended by [0059](0059-prompt-assembly-pipeline.md) (§`systemPromptInjection` removed) |
-| [0040](0040-actor-state-ownership-matrix.md) | Actor state ownership matrix | Accepted — skill-grant tables reshaped by the Tools wave |
+| [0040](0040-actor-state-ownership-matrix.md) | Actor state ownership matrix | Accepted — skill-grant tables reshaped by the Tools wave; amended by [0067](0067-runtime-config-single-source-of-truth.md) (single home for `model`/`hosting`) |
 | [0041](0041-actor-runtime-contract.md) | Actor-runtime contract (per-thread resume + concurrent threads) | Accepted |
 | [0042](0042-local-operator-installer.md) | Local-host operator installer (`install.sh`) | Accepted |
 | [0043](0043-recursive-package-format.md) | Recursive package format: every artefact is a folder | Accepted — amended by [0046](0046-unified-members-grammar.md) |
@@ -74,6 +74,7 @@ For open design questions not yet decided, see
 | [0064](0064-conversation-participants-and-continuation.md) | Conversation participants and platform-addressed continuation | Accepted — extends [0060](0060-participant-set-agent-api-and-structured-envelope.md) |
 | [0065](0065-agent-memory-architecture.md) | Agent memory architecture: typed memory, durable store canonical, coordination via threads + instruction-level authority | Accepted — builds on [0030](0030-thread-model.md); push-vs-pull ([#1301](https://github.com/cvoya-com/spring-voyage/issues/1301)) left open |
 | [0066](0066-a2a-process-runtime-engine-orchestration.md) | The `a2a-process` runtime: hosting an external orchestration engine (LangGraph) | Accepted — builds on [0021](0021-spring-voyage-is-not-an-agent-runtime.md), [0038](0038-agent-runtime-and-model-provider-split.md), [0053](0053-units-are-agents-and-one-way-delivery.md) ([#2591](https://github.com/cvoya-com/spring-voyage/issues/2591)) |
+| [0067](0067-runtime-config-single-source-of-truth.md) | Runtime/DB config is the single source of truth; package retention is install provenance only; export reconstructs | Accepted — supersedes [0035](0035-package-as-bundling-unit.md) dec 12, amends [0040](0040-actor-state-ownership-matrix.md) ([#3090](https://github.com/cvoya-com/spring-voyage/issues/3090)) |
 
 Archived records are listed in [`archive/README.md`](archive/README.md).
 

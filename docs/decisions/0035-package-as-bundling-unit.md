@@ -134,6 +134,16 @@ Rejected: a Saga / compensating-transaction Dapr workflow spanning the whole ins
 
 ### 12. Round-trip fidelity via `OriginalManifestYaml` + `InputBindings`
 
+> **Superseded by [ADR-0067](0067-runtime-config-single-source-of-truth.md).**
+> Verbatim export was correct only while an install was frozen. Now that every
+> unit/agent config option is editable post-deploy, replaying the captured blob
+> made `spring package export` a drift bug — every edit (rename, instructions,
+> model/hosting, membership/role, expertise, policy, connector reconfig) was
+> invisible to the export. Export now **reconstructs** the package from the
+> runtime/DB stores; the comment / key-order fidelity this decision protected is
+> the accepted price. `original_manifest_yaml` survives only as install-replay
+> provenance for the retry/abort path.
+
 The `installs` table persists per install:
 
 - `OriginalManifestYaml` — the operator-supplied YAML as a **string blob**. Preserves comments, ordering, formatting, and anything else the parser would lose.
