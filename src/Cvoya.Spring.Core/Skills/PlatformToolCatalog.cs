@@ -92,20 +92,17 @@ public static class PlatformToolCatalog
             ToolCategories.Directory,
             "Look up agents, units, and humans by address, role, or expertise.",
             "Use sv.directory.lookup when you already know an address (for " +
-            "example the sender of the inbound message) and need the entry's " +
-            "role / expertise / status. Use sv.directory.list to enumerate " +
-            "members of a unit, the caller's siblings, or peers matching a " +
-            "role or expertise filter. To walk the unit hierarchy " +
-            "explicitly, use sv.directory.get_self for the calling entity, " +
-            "sv.directory.get_member for a single entity by uuid, " +
-            "sv.directory.list_members for a unit's direct members — agents, " +
-            "sub-units, AND human members, each with a sendable address, so " +
-            "this is the tool to look up a teammate's address (including a " +
-            "human member) without asking the hub. " +
-            "Use sv.directory.get_siblings for entities sharing a parent, " +
-            "sv.directory.get_parents for an entity's parents, and " +
-            "sv.directory.get_status for an entity's advisory runtime-status " +
-            "snapshot. Every entry carries " +
+            "example the sender of the inbound message) or a bare uuid and " +
+            "need the entry's role / expertise / status. Use sv.directory.list " +
+            "to enumerate members — of the caller's unit (default), the " +
+            "caller's siblings, or a specific unit by uuid — including human " +
+            "members, each with a sendable address, so this is the tool to " +
+            "look up a teammate's address (including a human member) without " +
+            "asking the hub; an optional role or expertise filter narrows the " +
+            "set. To walk the unit hierarchy, use sv.directory.get_self for " +
+            "the calling entity and sv.directory.get_parents for an entity's " +
+            "parents. Use sv.directory.get_status for an entity's advisory " +
+            "runtime-status snapshot. Every entry carries " +
             "enough to act on (address, display name, role, expertise, " +
             "advisory live status) — feed an address back into " +
             "sv.messaging.send to reach the entry.",

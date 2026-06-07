@@ -43,10 +43,12 @@ using Xunit;
 /// <summary>
 /// Tests for the #2491 extensions to <see cref="SvDirectorySkillRegistry"/>:
 /// <c>live_status</c> on directory entries (rich object replacing the prior
-/// string) and the new <c>sv.directory.get_status</c> tool. Pin the four acceptance
+/// string) and the <c>sv.directory.get_status</c> tool. Pin the four acceptance
 /// scenarios from the issue: busy agent visible via MCP, busy unit visible
 /// via MCP, human entries lack <c>live_status</c>, unknown uuid on
-/// <c>sv.directory.get_status</c> returns the expected typed error.
+/// <c>sv.directory.get_status</c> returns the expected typed error. The list
+/// assertions run through the consolidated <c>sv.directory.list</c> surface
+/// (#3069 — formerly <c>sv.directory.list_members</c>).
 /// </summary>
 public class SvDirectorySkillRegistry_LiveStatusTests
 {
@@ -59,9 +61,9 @@ public class SvDirectorySkillRegistry_LiveStatusTests
     private static readonly Guid HumanId = Guid.Parse("00000000-cccc-cccc-cccc-000000000003");
 
     [Fact]
-    public async Task ListMembers_BusyAgent_ExposesLiveStatusReport()
+    public async Task List_BusyAgent_ExposesLiveStatusReport()
     {
-        // Acceptance (a): a busy agent surfaced via sv.directory.list_members carries
+        // Acceptance (a): a busy agent surfaced via sv.directory.list carries
         // the rich live_status object — in_flight / queued / channels /
         // observed_at — populated from the actor's GetRuntimeStatusAsync.
         var agentReport = new AgentRuntimeStatusReport(
@@ -99,7 +101,7 @@ public class SvDirectorySkillRegistry_LiveStatusTests
     }
 
     [Fact]
-    public async Task ListMembers_BusyUnit_ExposesLiveStatusReport()
+    public async Task List_BusyUnit_ExposesLiveStatusReport()
     {
         // Acceptance (b): a busy unit member surfaces non-zero in-flight
         // via the same live_status object shape as agents. The unit's
@@ -141,7 +143,7 @@ public class SvDirectorySkillRegistry_LiveStatusTests
     }
 
     [Fact]
-    public async Task ListMembers_HumanEntry_OmitsLiveStatusKeyEntirely()
+    public async Task List_HumanEntry_OmitsLiveStatusKeyEntirely()
     {
         // Acceptance (c): humans have NO live_status in v0.1. The
         // serializer must omit the field — the field's absence is the
@@ -169,7 +171,7 @@ public class SvDirectorySkillRegistry_LiveStatusTests
     }
 
     [Fact]
-    public async Task ListMembers_PerSubjectFailure_OmitsLiveStatusButKeepsOtherEntries()
+    public async Task List_PerSubjectFailure_OmitsLiveStatusButKeepsOtherEntries()
     {
         // The issue requires: "a broken single-subject status query does
         // not break the whole list response". Wire one agent to throw on
@@ -227,7 +229,7 @@ public class SvDirectorySkillRegistry_LiveStatusTests
     public async Task GetStatus_UnknownUuid_ThrowsArgumentException()
     {
         // Acceptance (d): align the error shape on sv.directory.get_status with what
-        // sv.directory.get_member already does for unknown UUIDs. sv.directory.get_member's
+        // sv.directory.lookup already does for unknown UUIDs. lookup's
         // ResolveKindAsync throws ArgumentException when no agent / unit /
         // tenant matches; sv.directory.get_status must throw the same way so MCP
         // surfaces a single typed error contract for both tools.
@@ -505,6 +507,8 @@ public class SvDirectorySkillRegistry_LiveStatusTests
 
         public async Task<JsonElement> ListMembersAsJsonAsync()
         {
+            // #3069: sv.directory.list with an explicit unit uuid is the
+            // single member-listing surface (former sv.directory.list_members).
             var args = JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(UnitId)}}" }""").RootElement;
             var ctx = new ToolCallContext(
                 CallerId: GuidFormatter.Format(CallerId),
@@ -512,7 +516,7 @@ public class SvDirectorySkillRegistry_LiveStatusTests
                 ThreadId: Guid.NewGuid().ToString("N"));
 
             return await _registry.InvokeAsync(
-                SvDirectorySkillRegistry.ListMembersTool,
+                SvDirectorySkillRegistry.ListTool,
                 args,
                 ctx,
                 TestContext.Current.CancellationToken);

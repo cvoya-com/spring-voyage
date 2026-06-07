@@ -35,10 +35,10 @@ After install, the membership graph is editable through the API surface:
 - Human team members are added through the unit-membership endpoints.
 
 Agent and unit membership rows carry the same multi-valued `roles` /
-`expertise` fields; these are runtime metadata surfaced through the `sv.directory.list_members`
+`expertise` fields; these are runtime metadata surfaced through the `sv.directory.list`
 directory tool, not platform-decision inputs.
 
-The full member list is exposed to the runtime through `sv.directory.list_members`.
+The full member list is exposed to the runtime through `sv.directory.list`.
 
 ## Permissions
 

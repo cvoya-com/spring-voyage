@@ -31,12 +31,13 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Coverage for the ADR-0056 §8 fundamental-core directory tools added
-/// to <see cref="SvDirectorySkillRegistry"/> (#2656):
-/// <see cref="SvDirectorySkillRegistry.ListTool"/> and
-/// <see cref="SvDirectorySkillRegistry.LookupTool"/>. Pins the scope /
-/// filter behaviour, the unit-caller default, the address-keyed lookup,
-/// and the policy-gate denial path.
+/// Coverage for the ADR-0056 §8 fundamental-core directory tools on
+/// <see cref="SvDirectorySkillRegistry"/> (#2656), as consolidated by #3069:
+/// <see cref="SvDirectorySkillRegistry.ListTool"/> (the single member-listing
+/// surface — scope, explicit unit uuid, human folding, role / expertise
+/// filter, pagination, policy gate) and
+/// <see cref="SvDirectorySkillRegistry.LookupTool"/> (resolve one entry by
+/// address OR uuid).
 /// </summary>
 public class SvDirectorySkillRegistry_ListAndLookupTests
 {
@@ -63,8 +64,7 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
         var entries = json.GetProperty("members").EnumerateArray().ToList();
         var uuids = entries.Select(e => e.GetProperty("uuid").GetString()!).ToList();
         // The default scope returns members of the agent caller's parent
-        // unit — including the caller itself, mirroring the existing
-        // sv.directory.list_members tool's behaviour.
+        // unit — including the caller itself.
         uuids.ShouldContain(GuidFormatter.Format(CallerAgentId));
         uuids.ShouldContain(GuidFormatter.Format(SiblingAgentA));
         uuids.ShouldContain(GuidFormatter.Format(SiblingAgentB));
@@ -91,6 +91,60 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
             "scope='siblings' must always exclude the caller itself.");
         uuids.ShouldContain(GuidFormatter.Format(SiblingAgentA));
         uuids.ShouldContain(GuidFormatter.Format(SiblingAgentB));
+    }
+
+    // ── #3069: the consolidated list folds humans into EVERY scope ──────────
+    // The un-merged inconsistency the issue calls out: the scope path
+    // (list / get_siblings) read only the agent member graph and EXCLUDED
+    // humans, while list_members included them. After consolidation, list
+    // includes human members on the scope paths too, subject to visibility
+    // policy.
+
+    private static readonly Guid HumanMemberId =
+        Guid.Parse("00000000-aaaa-aaaa-aaaa-000000000abc");
+
+    [Fact]
+    public async Task List_UnitMembersScope_IncludesHumanMembers()
+    {
+        var fixture = new Fixture()
+            .WithParentMembership(CallerAgentId, ParentUnitId)
+            .WithAgentMember(ParentUnitId, SiblingAgentA)
+            .WithHumanMember(ParentUnitId, HumanMemberId, roles: new[] { "owner" })
+            .Build();
+
+        var json = await fixture.InvokeAsync(
+            SvDirectorySkillRegistry.ListTool,
+            JsonDocument.Parse("{}").RootElement);
+
+        var entries = json.GetProperty("members").EnumerateArray().ToList();
+        var human = entries.SingleOrDefault(e =>
+            e.GetProperty("kind").GetString() == SvDirectorySkillRegistry.KindHuman);
+        human.ValueKind.ShouldNotBe(JsonValueKind.Undefined,
+            "scope='unit_members' must fold in human members (the #3069 inconsistency fix).");
+        human.GetProperty("uuid").GetString().ShouldBe(GuidFormatter.Format(HumanMemberId));
+        human.GetProperty("roles").EnumerateArray().Select(r => r.GetString()!)
+            .ShouldBe(new[] { "owner" });
+    }
+
+    [Fact]
+    public async Task List_SiblingsScope_IncludesHumanSiblings()
+    {
+        // A human teammate sharing the caller's parent unit is a sibling and
+        // must surface on scope='siblings' — humans are never the caller, so
+        // they are never the excluded self.
+        var fixture = new Fixture()
+            .WithParentMembership(CallerAgentId, ParentUnitId)
+            .WithHumanMember(ParentUnitId, HumanMemberId)
+            .Build();
+
+        var json = await fixture.InvokeAsync(
+            SvDirectorySkillRegistry.ListTool,
+            JsonDocument.Parse("""{ "scope": "siblings" }""").RootElement);
+
+        var uuids = json.GetProperty("members").EnumerateArray()
+            .Select(e => e.GetProperty("uuid").GetString()!)
+            .ToList();
+        uuids.ShouldContain(GuidFormatter.Format(HumanMemberId));
     }
 
     [Fact]
@@ -139,17 +193,17 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
     // role into the entry's roles so role-based delegation resolves.
 
     [Fact]
-    public async Task ListMembers_AgentWithEmptyMembershipRolesButDefinitionRole_SurfacesDefinitionRole()
+    public async Task List_AgentWithEmptyMembershipRolesButDefinitionRole_SurfacesDefinitionRole()
     {
         // Membership roles are empty; the role is only on the agent
-        // definition (role=staff-writer). list_members must still surface
-        // staff-writer in the entry's roles array.
+        // definition (role=staff-writer). list (#3069, explicit unit uuid)
+        // must still surface staff-writer in the entry's roles array.
         var fixture = new Fixture()
             .WithAgentMember(ParentUnitId, SiblingAgentA, agentRole: "staff-writer")
             .Build();
 
         var json = await fixture.InvokeAsync(
-            SvDirectorySkillRegistry.ListMembersTool,
+            SvDirectorySkillRegistry.ListTool,
             JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(ParentUnitId)}}" }""").RootElement,
             callerId: ParentUnitId,
             callerKind: Address.UnitScheme);
@@ -185,7 +239,7 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
     }
 
     [Fact]
-    public async Task ListMembers_AgentWithMembershipRolesAndDefinitionRole_MergesBothDeduped()
+    public async Task List_AgentWithMembershipRolesAndDefinitionRole_MergesBothDeduped()
     {
         // When membership roles ARE set, the existing roles are preserved in
         // order and the agent's definition role is appended (deduped
@@ -203,7 +257,7 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
             .Build();
 
         var json = await fixture.InvokeAsync(
-            SvDirectorySkillRegistry.ListMembersTool,
+            SvDirectorySkillRegistry.ListTool,
             JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(ParentUnitId)}}" }""").RootElement,
             callerId: ParentUnitId,
             callerKind: Address.UnitScheme);
@@ -243,17 +297,17 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
     }
 
     [Fact]
-    public async Task GetMember_AgentWithDefinitionRole_SurfacesRoleInEntry()
+    public async Task Lookup_ByUuid_AgentWithDefinitionRole_SurfacesRoleInEntry()
     {
-        // get_member shares BuildEntryAsync with list_members, so the role
-        // fold must apply uniformly here too.
+        // #3069: lookup-by-uuid (former get_member) shares BuildEntryAsync
+        // with list, so the role fold must apply uniformly here too.
         var fixture = new Fixture()
             .WithParentMembership(CallerAgentId, ParentUnitId)
             .WithAgentMember(ParentUnitId, SiblingAgentA, agentRole: "production-editor")
             .Build();
 
         var json = await fixture.InvokeAsync(
-            SvDirectorySkillRegistry.GetMemberTool,
+            SvDirectorySkillRegistry.LookupTool,
             JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(SiblingAgentA)}}" }""").RootElement);
 
         json.GetProperty("roles").EnumerateArray().Select(r => r.GetString()!)
@@ -368,16 +422,59 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
     }
 
     [Fact]
-    public async Task Lookup_MissingAddress_Throws()
+    public async Task Lookup_NeitherAddressNorUuid_Throws()
     {
+        // #3069: lookup needs either an address or a uuid. With neither, it
+        // throws a retry-guiding ArgumentException naming both inputs.
         var fixture = new Fixture()
             .WithParentMembership(CallerAgentId, ParentUnitId)
             .Build();
 
-        await Should.ThrowAsync<ArgumentException>(async () =>
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
             await fixture.InvokeAsync(
                 SvDirectorySkillRegistry.LookupTool,
                 JsonDocument.Parse("{}").RootElement));
+        ex.Message.ShouldContain("address");
+        ex.Message.ShouldContain("uuid");
+    }
+
+    [Fact]
+    public async Task Lookup_ByUuid_AgentReturnsEntryWithMaterialisedAddress()
+    {
+        // #3069: lookup-by-uuid (former get_member) resolves an agent and
+        // stamps the canonical agent:<uuid> address on the entry, so the
+        // result is feed-into-send ready just like the address path.
+        var fixture = new Fixture()
+            .WithParentMembership(CallerAgentId, ParentUnitId)
+            .WithAgentMember(ParentUnitId, SiblingAgentA, displayName: "alpha")
+            .Build();
+
+        var json = await fixture.InvokeAsync(
+            SvDirectorySkillRegistry.LookupTool,
+            JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(SiblingAgentA)}}" }""").RootElement);
+
+        json.GetProperty("uuid").GetString().ShouldBe(GuidFormatter.Format(SiblingAgentA));
+        json.GetProperty("kind").GetString().ShouldBe(Address.AgentScheme);
+        json.GetProperty("address").GetString()
+            .ShouldBe(new Address(Address.AgentScheme, SiblingAgentA).ToString());
+        json.GetProperty("display_name").GetString().ShouldBe("alpha");
+    }
+
+    [Fact]
+    public async Task Lookup_ByUuid_UnknownUuid_Throws()
+    {
+        // Former get_member error contract: an unknown uuid throws
+        // ArgumentException (surfaced by MCP as a typed tool error).
+        var fixture = new Fixture()
+            .WithParentMembership(CallerAgentId, ParentUnitId)
+            .Build();
+
+        var unknown = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
+            await fixture.InvokeAsync(
+                SvDirectorySkillRegistry.LookupTool,
+                JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(unknown)}}" }""").RootElement));
+        ex.Message.ShouldContain(GuidFormatter.Format(unknown));
     }
 
     [Fact]
@@ -408,80 +505,88 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
 
     // ── fixture ──────────────────────────────────────────────────────────
 
-    // ---- #3036: uuid defaults to the caller on get_siblings / list_members --
+    // ---- #3069: consolidated sv.directory.list (scope / explicit uuid) ----
 
     [Fact]
-    public async Task GetSiblings_NoUuid_DefaultsToCaller()
+    public async Task List_SiblingsScope_NoUuid_DefaultsToCaller()
     {
-        // "my siblings" is the obvious intent of a no-arg call. With uuid
-        // omitted, the tool resolves siblings from the caller's own position
-        // in the unit graph — same as passing the caller's uuid explicitly.
+        // "my siblings" is the obvious intent of scope='siblings' with no
+        // uuid — the tool resolves peers from the caller's own position in
+        // the unit graph and excludes the caller itself. (#3069 folds the
+        // former sv.directory.get_siblings no-uuid default into list.)
         var fixture = new Fixture()
             .WithParentMembership(CallerAgentId, ParentUnitId)
             .WithAgentMember(ParentUnitId, SiblingAgentA)
             .Build();
 
         var json = await fixture.InvokeAsync(
-            SvDirectorySkillRegistry.GetSiblingsTool,
-            JsonDocument.Parse("{}").RootElement);
+            SvDirectorySkillRegistry.ListTool,
+            JsonDocument.Parse("""{ "scope": "siblings" }""").RootElement);
 
-        var uuids = json.GetProperty("siblings").EnumerateArray()
+        var uuids = json.GetProperty("members").EnumerateArray()
             .Select(e => e.GetProperty("uuid").GetString()!)
             .ToList();
         uuids.ShouldContain(GuidFormatter.Format(SiblingAgentA));
         uuids.ShouldNotContain(GuidFormatter.Format(CallerAgentId),
-            "get_siblings excludes self, and the default target is the caller.");
+            "scope='siblings' excludes self, and the default target is the caller.");
     }
 
     [Fact]
-    public async Task GetSiblings_ExplicitUuid_ResolvesThatEntitysSiblings()
+    public async Task List_ExplicitUuid_ListsThatUnitsMembers()
     {
-        // Regression guard: passing an explicit uuid still works unchanged.
+        // #3069: an explicit uuid lists THAT unit's direct members (the
+        // former sv.directory.list_members) and overrides scope — an agent
+        // caller can list any unit it may read by uuid, not only its own
+        // parent. The caller is NOT excluded on the explicit-uuid path.
         var fixture = new Fixture()
             .WithParentMembership(CallerAgentId, ParentUnitId)
             .WithAgentMember(ParentUnitId, SiblingAgentA)
+            .WithAgentMember(ParentUnitId, SiblingAgentB)
             .Build();
 
         var json = await fixture.InvokeAsync(
-            SvDirectorySkillRegistry.GetSiblingsTool,
-            JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(CallerAgentId)}}" }""").RootElement);
+            SvDirectorySkillRegistry.ListTool,
+            JsonDocument.Parse($$"""{ "uuid": "{{GuidFormatter.Format(ParentUnitId)}}" }""").RootElement);
 
-        var uuids = json.GetProperty("siblings").EnumerateArray()
+        var uuids = json.GetProperty("members").EnumerateArray()
             .Select(e => e.GetProperty("uuid").GetString()!)
             .ToList();
         uuids.ShouldContain(GuidFormatter.Format(SiblingAgentA));
-        uuids.ShouldNotContain(GuidFormatter.Format(CallerAgentId));
+        uuids.ShouldContain(GuidFormatter.Format(SiblingAgentB));
+        uuids.ShouldContain(GuidFormatter.Format(CallerAgentId),
+            "the explicit-uuid path lists the unit's full membership and does not exclude the caller.");
     }
 
     [Fact]
-    public async Task GetSiblings_MalformedUuid_ThrowsRetryGuidingError()
+    public async Task List_MalformedUuid_ThrowsRetryGuidingError()
     {
         // A present-but-malformed uuid is a mistake to surface, not to paper
-        // over by silently defaulting to the caller.
+        // over by silently falling back to the scope path.
         var fixture = new Fixture()
             .WithParentMembership(CallerAgentId, ParentUnitId)
             .Build();
 
         var ex = await Should.ThrowAsync<ArgumentException>(async () =>
             await fixture.InvokeAsync(
-                SvDirectorySkillRegistry.GetSiblingsTool,
+                SvDirectorySkillRegistry.ListTool,
                 JsonDocument.Parse("""{ "uuid": "not-a-guid" }""").RootElement));
 
         ex.Message.ShouldContain("uuid");
-        ex.Message.ShouldContain("omit it to default to yourself");
+        ex.Message.ShouldContain("omit it");
     }
 
     [Fact]
-    public async Task ListMembers_NoUuid_UnitCaller_DefaultsToOwnMembers()
+    public async Task List_NoUuid_UnitCaller_DefaultsToOwnMembers()
     {
-        // A unit calling list_members with no uuid means "my members".
+        // A unit calling list with no uuid (default scope='unit_members')
+        // means "my members".
         var fixture = new Fixture()
             .WithAgentMember(ParentUnitId, SiblingAgentA)
             .WithAgentMember(ParentUnitId, SiblingAgentB)
             .Build();
 
         var json = await fixture.InvokeAsync(
-            SvDirectorySkillRegistry.ListMembersTool,
+            SvDirectorySkillRegistry.ListTool,
             JsonDocument.Parse("{}").RootElement,
             callerId: ParentUnitId,
             callerKind: Address.UnitScheme);
@@ -494,22 +599,27 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
     }
 
     [Fact]
-    public async Task ListMembers_NoUuid_AgentCaller_ThrowsRetryGuidingError()
+    public async Task List_NoUuid_AgentCaller_ReturnsParentUnitMembers()
     {
-        // An agent has no members, so a no-uuid call from an agent is not the
-        // obvious intent — it gets a retry-guiding error pointing at the right
-        // tool rather than a silently empty list.
+        // #3069 discoverability win: an agent calling list with no uuid is no
+        // longer an error (the former sv.directory.list_members rejected it) —
+        // the default scope='unit_members' returns the agent's parent unit
+        // members directly, so the agent reaches its teammates in one call.
         var fixture = new Fixture()
             .WithParentMembership(CallerAgentId, ParentUnitId)
+            .WithAgentMember(ParentUnitId, SiblingAgentA)
             .Build();
 
-        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
-            await fixture.InvokeAsync(
-                SvDirectorySkillRegistry.ListMembersTool,
-                JsonDocument.Parse("{}").RootElement));
+        var json = await fixture.InvokeAsync(
+            SvDirectorySkillRegistry.ListTool,
+            JsonDocument.Parse("{}").RootElement);
 
-        ex.Message.ShouldContain("agents have no");
-        ex.Message.ShouldContain("uuid");
+        var uuids = json.GetProperty("members").EnumerateArray()
+            .Select(e => e.GetProperty("uuid").GetString()!)
+            .ToList();
+        uuids.ShouldContain(GuidFormatter.Format(SiblingAgentA));
+        uuids.ShouldContain(GuidFormatter.Format(CallerAgentId),
+            "scope='unit_members' returns the full parent-unit membership, including the caller.");
     }
 
     private sealed class Fixture
@@ -550,6 +660,20 @@ public class SvDirectorySkillRegistry_ListAndLookupTests
                 AgentId: agentId,
                 Roles: roles,
                 Expertise: expertise);
+            return this;
+        }
+
+        public Fixture WithHumanMember(
+            Guid unitId, Guid humanId,
+            IReadOnlyList<string>? roles = null,
+            IReadOnlyList<string>? expertise = null)
+        {
+            EnsureUnit(unitId, $"unit-{unitId:N}");
+            _humanStore.Seed(
+                unitId, humanId,
+                roles ?? Array.Empty<string>(),
+                expertise ?? Array.Empty<string>(),
+                Array.Empty<string>());
             return this;
         }
 
