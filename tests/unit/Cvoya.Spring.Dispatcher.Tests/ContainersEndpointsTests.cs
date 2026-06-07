@@ -170,6 +170,36 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
     }
 
     [Fact]
+    public async Task PostContainers_BindMountSourceMissing_Returns422WithActionableBody()
+    {
+        // #3101: a missing bind-mount source is a caller configuration error,
+        // not a transient runtime fault. The dispatcher surfaces it as 422 with
+        // the actionable message so the worker's SendRunAsync echoes the cause
+        // (and it reaches the turn) instead of an opaque bodyless 500.
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Throws(BindMountSourceMissingException.ForMount(
+                "/stale/base/profiles/ollama", "/stale/base/profiles/ollama:/components"));
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync("/v1/containers", new
+        {
+            image = "agent:latest",
+            mounts = new[] { "/stale/base/profiles/ollama:/components" },
+            detached = true,
+        }, TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("code").GetString().ShouldBe(BindMountSourceMissingException.Code);
+        var message = body.GetProperty("message").GetString().ShouldNotBeNull();
+        message.ShouldContain("/stale/base/profiles/ollama");
+        message.ShouldContain("3101");
+    }
+
+    [Fact]
     public async Task DeleteContainer_Authorized_CallsStopAsync()
     {
         _factory.ContainerRuntime.ClearSubstitute();

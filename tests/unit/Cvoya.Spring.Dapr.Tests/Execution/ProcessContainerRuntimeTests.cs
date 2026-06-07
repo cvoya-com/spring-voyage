@@ -486,6 +486,117 @@ public class ProcessContainerRuntimeTests
         Directory.Exists(result.Cwd).ShouldBeTrue();
     }
 
+    // ── Bind-mount source validation tests (#3101) ───────────────────────────
+    //
+    // A bind mount whose host SOURCE path is absent makes podman exit 125 with
+    // a cryptic `statfs … no such file or directory` and start no container.
+    // ProcessContainerRuntime pre-flights the sources and fast-fails with a
+    // path-naming BindMountSourceMissingException instead. The source parser and
+    // the validator are pure (injectable existence probe) so they're unit-tested
+    // here without spawning podman or touching the real filesystem.
+
+    [Theory]
+    [InlineData("/host/path:/container/path", "/host/path")]
+    [InlineData("/data:/data:ro", "/data")]
+    [InlineData("/x/profiles/ollama:/components", "/x/profiles/ollama")]
+    [InlineData("/cfg/config.yaml:/config/config.yaml:ro", "/cfg/config.yaml")]
+    [InlineData("/path with spaces/x:/dst", "/path with spaces/x")]
+    public void ExtractBindMountSource_AbsoluteSource_ReturnsSourceBeforeFirstColon(string mount, string expected)
+    {
+        ProcessContainerRuntime.ExtractBindMountSource(mount).ShouldBe(expected);
+    }
+
+    [Theory]
+    // Named volumes (the per-agent workspace, e.g. spring-ws-<id>) are not host
+    // paths — the runtime materialises them on demand, so they must be skipped.
+    [InlineData("spring-ws-abc123:/workspace/abc123")]
+    [InlineData("myvolume:/data")]
+    // No target separator (anonymous volume / malformed) — nothing to validate.
+    [InlineData("/just-a-path-no-colon")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ExtractBindMountSource_NamedVolumeOrUnparseable_ReturnsNull(string mount)
+    {
+        ProcessContainerRuntime.ExtractBindMountSource(mount).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ValidateBindMountSources_MissingAbsoluteSource_ThrowsNamingPathAndIssue()
+    {
+        // The realistic #3101 mount set: the per-agent workspace named volume
+        // plus the delegated-agent components profile bind mount whose source
+        // has gone missing (stale DelegatedSpringVoyageAgentComponentsPath).
+        var config = new ContainerConfig(
+            Image: "agent:v1",
+            VolumeMounts:
+            [
+                "spring-ws-abc123:/workspace/abc123",
+                "/stale/base/profiles/ollama:/components",
+            ]);
+
+        // Probe: the named volume is never asked about (skipped); the components
+        // source does not exist.
+        var ex = Should.Throw<BindMountSourceMissingException>(() =>
+            ProcessContainerRuntime.ValidateBindMountSources(
+                config, sourceExists: _ => false));
+
+        ex.Message.ShouldContain("/stale/base/profiles/ollama");
+        ex.Message.ShouldContain("/stale/base/profiles/ollama:/components");
+        ex.Message.ShouldContain("3101");
+        // The #2189 issue stamp rides on Exception.Data so ProblemDetails can
+        // surface a machine-readable code.
+        ex.Data[Cvoya.Spring.Core.SpringException.IssueCodeDataKey]
+            .ShouldBe(BindMountSourceMissingException.Code);
+    }
+
+    [Fact]
+    public void ValidateBindMountSources_NamedVolumeAbsent_DoesNotThrow()
+    {
+        // A named volume must never be probed as a filesystem path, even when
+        // the probe would report everything missing.
+        var config = new ContainerConfig(
+            Image: "agent:v1",
+            VolumeMounts: ["spring-ws-abc123:/workspace/abc123"]);
+
+        Should.NotThrow(() =>
+            ProcessContainerRuntime.ValidateBindMountSources(
+                config, sourceExists: _ => false));
+    }
+
+    [Fact]
+    public void ValidateBindMountSources_AllSourcesPresent_DoesNotThrow()
+    {
+        var config = new ContainerConfig(
+            Image: "agent:v1",
+            VolumeMounts: ["/base/profiles/ollama:/components", "/cfg/config.yaml:/config/config.yaml:ro"]);
+
+        Should.NotThrow(() =>
+            ProcessContainerRuntime.ValidateBindMountSources(
+                config, sourceExists: _ => true));
+    }
+
+    [Fact]
+    public void ValidateBindMountSources_NoMounts_DoesNotThrow()
+    {
+        var config = new ContainerConfig(Image: "agent:v1");
+
+        Should.NotThrow(() =>
+            ProcessContainerRuntime.ValidateBindMountSources(
+                config, sourceExists: _ => false));
+    }
+
+    [Theory]
+    // Podman statfs-fails a missing bind-mount source, so the pre-flight applies
+    // (including when the binary is an absolute path).
+    [InlineData("podman", true)]
+    [InlineData("/usr/local/bin/podman", true)]
+    // Docker auto-creates a missing directory source, so the check is skipped.
+    [InlineData("docker", false)]
+    public void IsBindMountValidationSupported_PodmanOnly(string binaryName, bool expected)
+    {
+        ProcessContainerRuntime.IsBindMountValidationSupported(binaryName).ShouldBe(expected);
+    }
+
     /// <summary>
     /// Asserts that <paramref name="value"/> immediately follows
     /// <paramref name="flag"/> in <paramref name="args"/>. Used to pin the

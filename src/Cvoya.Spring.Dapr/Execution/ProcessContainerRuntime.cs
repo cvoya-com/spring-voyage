@@ -94,6 +94,13 @@ public class ProcessContainerRuntime(
     /// <returns>The result of the container execution.</returns>
     public async Task<ContainerResult> RunAsync(ContainerConfig config, CancellationToken ct = default)
     {
+        // Fail fast on a missing bind-mount source rather than letting the CLI
+        // exit 125 with a cryptic `statfs … no such file or directory` (#3101).
+        if (IsBindMountValidationSupported(binaryName))
+        {
+            ValidateBindMountSources(config);
+        }
+
         var containerName = $"spring-exec-{Guid.NewGuid():N}";
         var arguments = BuildRunArguments(config, containerName);
 
@@ -141,6 +148,15 @@ public class ProcessContainerRuntime(
     /// <returns>The identifier of the started container.</returns>
     public async Task<string> StartAsync(ContainerConfig config, CancellationToken ct = default)
     {
+        // Fail fast on a missing bind-mount source rather than letting the CLI
+        // exit 125 with a cryptic `statfs … no such file or directory` (#3101).
+        // This is the path the delegated daprd sidecar launch takes — its
+        // `<base>/profiles/<provider>:/components` mount is the #3101 source.
+        if (IsBindMountValidationSupported(binaryName))
+        {
+            ValidateBindMountSources(config);
+        }
+
         // Caller-provided name wins (the lifecycle uses this so the daprd
         // sidecar can dial the agent container by DNS via
         // `--app-channel-address`; see DaprSidecarConfig.AppChannelAddress
@@ -1019,6 +1035,97 @@ public class ProcessContainerRuntime(
             args.AddRange(command);
         }
     }
+
+    /// <summary>
+    /// Whether the configured runtime binary requires a bind-mount source to
+    /// pre-exist on the host (so the pre-flight check in
+    /// <see cref="ValidateBindMountSources"/> applies). Podman <c>statfs</c>-fails
+    /// a <c>-v missing:/dst</c> launch with exit 125; Docker silently
+    /// <em>creates</em> a missing directory source, so the check would wrongly
+    /// reject a Docker launch that would otherwise succeed and is skipped there.
+    /// Matches on substring so a full path (<c>/usr/local/bin/podman</c>) still
+    /// resolves.
+    /// </summary>
+    internal static bool IsBindMountValidationSupported(string binaryName)
+        => binaryName.Contains("podman", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Verifies every host bind-mount <em>source</em> in
+    /// <paramref name="config"/> exists before the container CLI is invoked,
+    /// throwing <see cref="BindMountSourceMissingException"/> for the first one
+    /// that does not. A bind mount whose source is absent makes podman exit 125
+    /// with a cryptic <c>statfs … no such file or directory</c> and no
+    /// container (#3101); failing here turns that into an actionable,
+    /// path-naming error and avoids leaving a half-started sidecar behind.
+    /// </summary>
+    /// <param name="config">The container configuration whose mounts to check.</param>
+    /// <param name="sourceExists">
+    /// Existence probe for a host path; defaults to
+    /// <see cref="DefaultBindMountSourceExists"/>. Injectable so unit tests can
+    /// drive the decision without touching the real filesystem (mirrors
+    /// <see cref="DefaultCwdProbe"/>).
+    /// </param>
+    internal static void ValidateBindMountSources(
+        ContainerConfig config,
+        Func<string, bool>? sourceExists = null)
+    {
+        if (config.VolumeMounts is not { Count: > 0 } mounts)
+        {
+            return;
+        }
+
+        var exists = sourceExists ?? DefaultBindMountSourceExists;
+
+        foreach (var mount in mounts)
+        {
+            var source = ExtractBindMountSource(mount);
+            if (source is null)
+            {
+                // Named volume / unparseable spec — not a host bind mount.
+                continue;
+            }
+
+            if (!exists(source))
+            {
+                throw BindMountSourceMissingException.ForMount(source, mount);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Extracts the host <em>source</em> path from a
+    /// <c>source:target[:opts]</c> mount spec, or <c>null</c> when the spec is
+    /// a named volume (source has no leading <c>/</c>) or carries no target
+    /// separator. Only absolute-path sources are host bind mounts that must
+    /// pre-exist; a bare name is a named volume the runtime materialises on
+    /// demand and must not be probed as a filesystem path.
+    /// </summary>
+    internal static string? ExtractBindMountSource(string mount)
+    {
+        if (string.IsNullOrWhiteSpace(mount))
+        {
+            return null;
+        }
+
+        var separatorIndex = mount.IndexOf(':');
+        if (separatorIndex <= 0)
+        {
+            // No target separator (anonymous volume / malformed) — nothing to validate.
+            return null;
+        }
+
+        var source = mount[..separatorIndex];
+        return source.StartsWith('/') ? source : null;
+    }
+
+    /// <summary>
+    /// Default host-path existence probe used by
+    /// <see cref="ValidateBindMountSources"/>. A bind mount may target a
+    /// directory or a single file (e.g. the daprd config file), so both are
+    /// accepted.
+    /// </summary>
+    private static bool DefaultBindMountSourceExists(string source)
+        => Directory.Exists(source) || File.Exists(source);
 
     /// <summary>
     /// Like <see cref="RunProcessAsync"/> but pipes <paramref name="stdin"/>
