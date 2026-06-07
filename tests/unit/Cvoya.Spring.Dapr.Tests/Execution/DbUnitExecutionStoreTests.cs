@@ -7,9 +7,11 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Catalog;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.Dapr.Tenancy;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,51 +22,58 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for the static extraction helper on
-/// <see cref="DbUnitExecutionStore.Extract(JsonElement?)"/>. The DB
-/// integration path is exercised indirectly via the integration tests.
+/// Unit tests for <see cref="DbUnitExecutionStore"/>. The static
+/// <see cref="DbUnitExecutionStore.ExtractJsonbSlots(JsonElement?)"/> helper
+/// covers the jsonb-homed slots (image / runtime / system_prompt_mode); the
+/// <c>SetAsync</c> / <c>GetAsync</c> round-trips cover the
+/// ADR-0067 §2 (#3111) single home for <c>model</c> on
+/// <c>unit_live_config</c>. The full DB integration path is also exercised by
+/// the integration tests.
 /// </summary>
 public class DbUnitExecutionStoreTests
 {
     [Fact]
-    public void Extract_ReturnsNull_WhenDefinitionIsMissing()
+    public void ExtractJsonbSlots_ReturnsDefault_WhenDefinitionIsMissing()
     {
-        DbUnitExecutionStore.Extract(null).ShouldBeNull();
+        var slots = DbUnitExecutionStore.ExtractJsonbSlots(null);
+        slots.Image.ShouldBeNull();
+        slots.Runtime.ShouldBeNull();
+        slots.SystemPromptMode.ShouldBeNull();
     }
 
     [Fact]
-    public void Extract_ReturnsNull_WhenNoExecutionBlock()
+    public void ExtractJsonbSlots_ReturnsDefault_WhenNoExecutionBlock()
     {
         using var doc = JsonDocument.Parse("""{"instructions":"hi"}""");
-        DbUnitExecutionStore.Extract(doc.RootElement).ShouldBeNull();
+        var slots = DbUnitExecutionStore.ExtractJsonbSlots(doc.RootElement);
+        slots.Image.ShouldBeNull();
+        slots.Runtime.ShouldBeNull();
     }
 
     [Fact]
-    public void Extract_ReturnsAllFields()
+    public void ExtractJsonbSlots_ReturnsImageAndRuntime_IgnoresModel()
     {
-        // ADR-0038 amendment (#2634): the canonical persisted shape is
-        // {runtime, model{provider, id}, image}.
+        // ADR-0067 §2 (#3111): model and hosting are NOT read from the jsonb —
+        // the unit's model home is unit_live_config, hosting always lived
+        // there. The jsonb carries only image / runtime / system_prompt_mode.
         using var doc = JsonDocument.Parse("""
             {
               "execution": {
                 "image": "ghcr.io/foo:latest",
                 "model": { "provider": "ollama", "id": "llama3.2:3b" },
+                "hosting": "persistent",
                 "runtime": "claude-code"
               }
             }
             """);
-        var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
-        defaults.ShouldNotBeNull();
-        defaults!.Image.ShouldBe("ghcr.io/foo:latest");
-        defaults.Model.ShouldBe(new Model("ollama", "llama3.2:3b"));
-        defaults.Runtime.ShouldBe("claude-code");
+        var slots = DbUnitExecutionStore.ExtractJsonbSlots(doc.RootElement);
+        slots.Image.ShouldBe("ghcr.io/foo:latest");
+        slots.Runtime.ShouldBe("claude-code");
     }
 
     [Fact]
-    public void Extract_RuntimeSlot_OmittedWhenAbsent()
+    public void ExtractJsonbSlots_RuntimeSlot_OmittedWhenAbsent()
     {
-        // A unit that declares only an image must keep returning the other
-        // fields without tripping on the missing keys.
         using var doc = JsonDocument.Parse("""
             {
               "execution": {
@@ -72,27 +81,17 @@ public class DbUnitExecutionStoreTests
               }
             }
             """);
-        var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
-        defaults.ShouldNotBeNull();
-        defaults!.Image.ShouldBe("ghcr.io/foo:latest");
-        defaults.Runtime.ShouldBeNull();
-        defaults.Model.ShouldBeNull();
+        var slots = DbUnitExecutionStore.ExtractJsonbSlots(doc.RootElement);
+        slots.Image.ShouldBe("ghcr.io/foo:latest");
+        slots.Runtime.ShouldBeNull();
     }
 
     [Fact]
-    public void Extract_ReturnsNull_WhenBlockIsEmptyObject()
-    {
-        using var doc = JsonDocument.Parse("""{"execution":{}}""");
-        DbUnitExecutionStore.Extract(doc.RootElement).ShouldBeNull();
-    }
-
-    [Fact]
-    public void Extract_TrimsWhitespace()
+    public void ExtractJsonbSlots_TrimsWhitespace()
     {
         using var doc = JsonDocument.Parse("""{"execution":{"image":"  ghcr.io/x  "}}""");
-        var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
-        defaults.ShouldNotBeNull();
-        defaults!.Image.ShouldBe("ghcr.io/x");
+        var slots = DbUnitExecutionStore.ExtractJsonbSlots(doc.RootElement);
+        slots.Image.ShouldBe("ghcr.io/x");
     }
 
     [Fact]
@@ -112,28 +111,18 @@ public class DbUnitExecutionStoreTests
     [Fact]
     public void UnitExecutionDefaults_IsEmpty_FalseWhenOnlyRuntimeSet()
     {
-        // Runtime is a first-class slot in IsEmpty so a unit can declare
-        // just `ai.runtime` without the other fields and still get its
-        // execution block persisted.
         new UnitExecutionDefaults(Runtime: "claude-code").IsEmpty.ShouldBeFalse();
     }
 
     [Fact]
     public void UnitExecutionDefaults_IsEmpty_FalseWhenOnlySystemPromptModeSet()
     {
-        // #2691 / #2692: system_prompt_mode is a first-class slot in
-        // IsEmpty so the PUT /api/v1/units/{id}/execution path accepts a
-        // body that carries only `systemPromptMode` (the all-null-other-
-        // fields request must not be rejected with "must carry at least
-        // one non-empty field").
         new UnitExecutionDefaults(SystemPromptMode: SystemPromptMode.Replace).IsEmpty.ShouldBeFalse();
     }
 
     [Fact]
-    public void Extract_ReadsSystemPromptModeReplace()
+    public void ExtractJsonbSlots_ReadsSystemPromptModeReplace()
     {
-        // #2691: the lower-case wire literal round-trips through the JSON
-        // shape onto the typed enum slot.
         using var doc = JsonDocument.Parse("""
             {
               "execution": {
@@ -142,13 +131,12 @@ public class DbUnitExecutionStoreTests
               }
             }
             """);
-        var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
-        defaults.ShouldNotBeNull();
-        defaults!.SystemPromptMode.ShouldBe(SystemPromptMode.Replace);
+        var slots = DbUnitExecutionStore.ExtractJsonbSlots(doc.RootElement);
+        slots.SystemPromptMode.ShouldBe(SystemPromptMode.Replace);
     }
 
     [Fact]
-    public void Extract_ReadsSystemPromptModeAppend()
+    public void ExtractJsonbSlots_ReadsSystemPromptModeAppend()
     {
         using var doc = JsonDocument.Parse("""
             {
@@ -158,18 +146,13 @@ public class DbUnitExecutionStoreTests
               }
             }
             """);
-        var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
-        defaults.ShouldNotBeNull();
-        defaults!.SystemPromptMode.ShouldBe(SystemPromptMode.Append);
+        var slots = DbUnitExecutionStore.ExtractJsonbSlots(doc.RootElement);
+        slots.SystemPromptMode.ShouldBe(SystemPromptMode.Append);
     }
 
     [Fact]
-    public void Extract_UnknownSystemPromptModeLiteral_TreatsAsAbsent()
+    public void ExtractJsonbSlots_UnknownSystemPromptModeLiteral_TreatsAsAbsent()
     {
-        // The persisted JSON is supposed to have been validated at the API
-        // boundary; an out-of-band write that carries an unknown literal
-        // degrades to null rather than throwing — same tolerance as the
-        // other extraction fields.
         using var doc = JsonDocument.Parse("""
             {
               "execution": {
@@ -178,10 +161,9 @@ public class DbUnitExecutionStoreTests
               }
             }
             """);
-        var defaults = DbUnitExecutionStore.Extract(doc.RootElement);
-        defaults.ShouldNotBeNull();
-        defaults!.SystemPromptMode.ShouldBeNull();
-        defaults.Runtime.ShouldBe("claude-code");
+        var slots = DbUnitExecutionStore.ExtractJsonbSlots(doc.RootElement);
+        slots.SystemPromptMode.ShouldBeNull();
+        slots.Runtime.ShouldBe("claude-code");
     }
 
     [Fact]
@@ -209,8 +191,6 @@ public class DbUnitExecutionStoreTests
     [Fact]
     public async Task SetAsync_RoundTripsRuntimeSlot()
     {
-        // Write → read round-trip for the `runtime` slot. Uses an
-        // in-memory DB because DbUnitExecutionStore drives EF Core directly.
         var actorGuid = Guid.NewGuid();
         var (store, _) = BuildStore(actorGuid);
 
@@ -228,10 +208,52 @@ public class DbUnitExecutionStoreTests
     }
 
     [Fact]
-    public async Task SetAsync_PartialUpdate_PreservesRuntime()
+    public async Task SetAsync_RoundTripsModel_ToUnitLiveConfig()
     {
-        // Partial-update semantics: writing `Image` alone must not clobber
-        // a previously-stored runtime / model value.
+        // ADR-0067 §2 (#3111): the model's single home is unit_live_config.
+        // SetAsync persists the structured (provider, id) onto the live-config
+        // {provider, model} columns; GetAsync lifts the pair back onto the
+        // UnitExecutionDefaults.Model shape consumers (Merge / inheritance /
+        // dispatch) read.
+        var actorGuid = Guid.NewGuid();
+        var (store, scopeFactory) = BuildStore(actorGuid);
+
+        await store.SetAsync(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid),
+            new UnitExecutionDefaults(
+                Runtime: "claude-code",
+                Model: new Model("anthropic", "claude-opus-4-8")),
+            TestContext.Current.CancellationToken);
+
+        var read = await store.GetAsync(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid),
+            TestContext.Current.CancellationToken);
+
+        read.ShouldNotBeNull();
+        read!.Model.ShouldBe(new Model("anthropic", "claude-opus-4-8"));
+        read.Runtime.ShouldBe("claude-code");
+
+        // The model landed on unit_live_config, NOT the unit jsonb.
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var liveConfig = await db.UnitLiveConfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.UnitId == actorGuid, TestContext.Current.CancellationToken);
+        liveConfig.ShouldNotBeNull();
+        liveConfig!.Provider.ShouldBe("anthropic");
+        liveConfig.Model.ShouldBe("claude-opus-4-8");
+
+        var unitDef = await db.UnitDefinitions.AsNoTracking()
+            .FirstAsync(u => u.Id == actorGuid, TestContext.Current.CancellationToken);
+        DbUnitExecutionStore.ExtractJsonbSlots(unitDef.Definition).Runtime.ShouldBe("claude-code");
+        // The jsonb execution block carries no `model` key.
+        unitDef.Definition!.Value.GetProperty("execution").TryGetProperty("model", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task SetAsync_PartialUpdate_PreservesRuntimeAndModel()
+    {
+        // Partial-update semantics: writing `Image` alone must not clobber a
+        // previously-stored runtime (jsonb) or model (live-config) value.
         var actorGuid = Guid.NewGuid();
         var (store, _) = BuildStore(actorGuid);
 
@@ -257,10 +279,35 @@ public class DbUnitExecutionStoreTests
         read.Runtime.ShouldBe("claude-code");
     }
 
+    [Fact]
+    public async Task ClearAsync_ClearsModel_AndJsonbBlock()
+    {
+        var actorGuid = Guid.NewGuid();
+        var (store, _) = BuildStore(actorGuid);
+
+        await store.SetAsync(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid),
+            new UnitExecutionDefaults(
+                Runtime: "claude-code",
+                Model: new Model("anthropic", "claude-opus-4-8")),
+            TestContext.Current.CancellationToken);
+
+        await store.ClearAsync(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid),
+            TestContext.Current.CancellationToken);
+
+        var read = await store.GetAsync(
+            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid),
+            TestContext.Current.CancellationToken);
+
+        read.ShouldBeNull();
+    }
+
     private static (DbUnitExecutionStore Store, IServiceScopeFactory ScopeFactory) BuildStore(Guid unitActorId)
     {
         var dbName = $"unit-exec-{Guid.NewGuid():N}";
         var services = new ServiceCollection();
+        services.AddSingleton<ITenantContext>(new StaticTenantContext(OssTenantIds.Default));
         services.AddDbContext<SpringDbContext>(opt => opt.UseInMemoryDatabase(dbName));
         var sp = services.BuildServiceProvider();
         var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
@@ -274,6 +321,7 @@ public class DbUnitExecutionStoreTests
             db.UnitDefinitions.Add(new UnitDefinitionEntity
             {
                 Id = unitActorId,
+                TenantId = OssTenantIds.Default,
                 DisplayName = "test-unit",
                 Description = "test",
             });

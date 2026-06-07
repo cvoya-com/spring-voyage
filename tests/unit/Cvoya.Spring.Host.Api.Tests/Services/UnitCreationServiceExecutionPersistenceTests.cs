@@ -99,13 +99,17 @@ public class UnitCreationServiceExecutionPersistenceTests
         execution.ValueKind.ShouldBe(JsonValueKind.Object);
         execution.GetProperty("image").GetString()
             .ShouldBe("ghcr.io/cvoya/sv-oss-1666-exec:latest");
-        // ADR-0038 amendment (#2634): the persisted execution block is the
-        // one canonical shape — `runtime` (catalogue id) plus a structured
-        // `model: {provider, id}` object.
         execution.GetProperty("runtime").GetString().ShouldBe("claude-code");
-        var model = execution.GetProperty("model");
-        model.GetProperty("provider").GetString().ShouldBe("anthropic");
-        model.GetProperty("id").GetString().ShouldBe("claude-sonnet-4");
+
+        // ADR-0067 §2 (#3111): the unit's model single home is
+        // unit_live_config — the jsonb execution block no longer carries it.
+        execution.TryGetProperty("model", out _).ShouldBeFalse(
+            "model must not be persisted onto the unit jsonb (its home is unit_live_config)");
+        var liveConfig = await verifyDb.UnitLiveConfigs.FirstAsync(
+            c => c.UnitId == actorGuid,
+            TestContext.Current.CancellationToken);
+        liveConfig.Provider.ShouldBe("anthropic");
+        liveConfig.Model.ShouldBe("claude-sonnet-4");
     }
 
     [Fact]

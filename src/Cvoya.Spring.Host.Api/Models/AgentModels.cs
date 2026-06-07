@@ -198,12 +198,20 @@ public record AgentResponse(
 /// Accepted literals are <c>"append"</c> and <c>"replace"</c>
 /// (case-insensitive); other values are rejected with a 400.
 /// </para>
+/// <para>
+/// ADR-0067 §2 (#3111): there is no <c>Model</c> field. An agent's
+/// <c>model</c> has a single writable home — the agent's structured
+/// <c>execution.model{provider,id}</c> block, which the dispatcher reads —
+/// so the model is edited through <c>PUT /api/v1/tenant/agents/{id}/execution</c>,
+/// not this metadata PATCH. The pre-#3111 flat <c>Model</c> field wrote a
+/// competing <c>agent_live_config.model</c> column the dispatcher ignored
+/// (a silent no-op at dispatch); that column is dropped and the field with it.
+/// </para>
 /// </remarks>
 public record UpdateAgentMetadataRequest(
     string? DisplayName = null,
     string? Description = null,
     string? Role = null,
-    string? Model = null,
     string? Specialty = null,
     bool? Enabled = null,
     AgentExecutionMode? ExecutionMode = null,

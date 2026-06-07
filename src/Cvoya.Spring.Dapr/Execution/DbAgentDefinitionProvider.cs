@@ -221,13 +221,15 @@ public class DbAgentDefinitionProvider(
     /// unknown.
     /// </summary>
     /// <remarks>
-    /// Hosting is read from <c>unit_live_config</c> via the
-    /// <see cref="IUnitStateCoordinator"/> overlay block below (#2086 approach
-    /// b). The JSON snapshot does not carry hosting; the live store is
-    /// authoritative. The unit's <c>execution</c> JSON shape is identical to
-    /// the agent's, so <see cref="ExtractExecution"/> handles both — we just
-    /// reuse it. Instructions come from the unit's top-level
-    /// <c>instructions</c> field when present (mirrors agent definitions).
+    /// ADR-0067 §2 (#3111): the unit's <c>model</c> and <c>hosting</c> have a
+    /// single home — <c>unit_live_config</c> — and are no longer carried on the
+    /// unit jsonb. The block below is therefore a <b>direct read</b> of the
+    /// live store, not an overlay onto a competing jsonb value: the jsonb
+    /// supplies <c>runtime</c> / <c>image</c> / <c>system_prompt_mode</c> via
+    /// <see cref="ExtractExecution"/>, and <c>unit_live_config</c> supplies
+    /// <c>model</c> + <c>hosting</c>. Instructions come from the unit's
+    /// top-level <c>instructions</c> field when present (mirrors agent
+    /// definitions).
     /// </remarks>
     private async Task<AgentDefinition?> TryProjectUnitAsync(
         SpringDbContext db,
@@ -267,15 +269,14 @@ public class DbAgentDefinitionProvider(
             execution = ExtractExecution(definition);
         }
 
-        // Overlay live-config slots (unit_live_config) on top of the JSON-
-        // derived execution. The unit-create flow writes Hosting / Color /
-        // Model / Provider to unit_live_config via UnitActor.SetMetadataAsync
-        // — but does NOT round-trip them into unit_definitions.definition
-        // (the JSON is the at-create snapshot only). For dispatch we want
-        // the authoritative live values, which is what every other
-        // metadata reader returns. Most critically for #2081/#2082
-        // follow-up: a unit created with `hosting: persistent` was being
-        // dispatched as Ephemeral because the JSON didn't carry the flag.
+        // ADR-0067 §2 (#3111): unit model + hosting live only on
+        // unit_live_config — the unit jsonb no longer carries them. This is a
+        // direct read of the authoritative live store (not an overlay onto a
+        // competing jsonb value): unit_live_config supplies model + hosting,
+        // and the jsonb-derived `execution` above supplied runtime / image /
+        // system_prompt_mode. Most critically for #2081/#2082: a unit created
+        // with `hosting: persistent` must dispatch as Persistent — the flag's
+        // single home is unit_live_config and is read here every dispatch.
         if (execution is not null && unitStateCoordinator is not null)
         {
             try
@@ -283,7 +284,6 @@ public class DbAgentDefinitionProvider(
                 var unitIdString = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unit.Id);
                 var metadata = await unitStateCoordinator.GetMetadataAsync(unitIdString, cancellationToken);
 
-                var liveHosting = ParseHosting(metadata.Hosting);
                 // unit_live_config stores model selection as flat
                 // provider / model strings on UnitMetadata; lift the pair
                 // onto the structured Model only when both are present.
@@ -291,19 +291,21 @@ public class DbAgentDefinitionProvider(
                         && !string.IsNullOrWhiteSpace(metadata.Model)
                     ? new Cvoya.Spring.Core.Catalog.Model(
                         metadata.Provider!.Trim(), metadata.Model!.Trim())
-                    : execution.Model;
+                    : null;
                 execution = execution with
                 {
                     Runtime = execution.Runtime,
                     Image = execution.Image,
-                    Hosting = metadata.Hosting is null ? execution.Hosting : liveHosting,
+                    Hosting = metadata.Hosting is null
+                        ? AgentHostingMode.Persistent
+                        : ParseHosting(metadata.Hosting),
                     Model = liveModel,
                 };
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "Failed to overlay unit_live_config onto unit {UnitId}'s execution; falling back to JSON-only values.",
+                    "Failed to read unit_live_config model/hosting for unit {UnitId}; the unit's model/hosting single home is unavailable for this dispatch.",
                     unitId);
             }
         }
