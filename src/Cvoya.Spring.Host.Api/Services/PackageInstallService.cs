@@ -6,7 +6,6 @@ namespace Cvoya.Spring.Host.Api.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -308,15 +307,18 @@ public class PackageInstallService : IPackageInstallService
             var now = DateTimeOffset.UtcNow;
             foreach (var (target, pkg) in sorted)
             {
+                // ADR-0067 decision 3 (#3112): package_installs keeps slim
+                // provenance only — install id, package name, status,
+                // timestamps. The captured manifest blob (original YAML,
+                // resolved inputs, package root) is retired now that nothing
+                // replays it: export reconstructs from the live config (#3090)
+                // and the failed-install resume path is gone.
                 var installRow = new PackageInstallEntity
                 {
                     Id = Guid.NewGuid(),
                     InstallId = installId,
                     PackageName = pkg.Name,
                     Status = PackageInstallStatus.Staging,
-                    OriginalManifestYaml = target.OriginalYaml,
-                    InputsJson = JsonSerializer.Serialize(pkg.InputValues),
-                    PackageRoot = string.IsNullOrEmpty(target.PackageRoot) ? null : target.PackageRoot,
                     StartedAt = now,
                 };
                 db.PackageInstalls.Add(installRow);
@@ -495,12 +497,22 @@ public class PackageInstallService : IPackageInstallService
             return null;
         }
 
-        // #2246: include the names of every unit / agent the install
-        // created so clients polling status can still discover the
-        // artefact identities after a refresh (e.g. for auto-start).
-        // Re-parse each package's staged YAML to recover the declared
-        // names; cross-reference the directory tables for the agent ids
-        // minted at Phase 1.
+        // ADR-0067 decision 3 (#3112): install state is reported from the
+        // DB install row — the captured manifest blob is retired and is no
+        // longer re-parsed here. The created unit names are recovered from
+        // the staging rows the install wrote (`unit_definitions.install_id`).
+        //
+        // Agent ids are NOT recovered on this path: agent_definitions carries
+        // no install_id, and re-deriving them would require the retired
+        // blob. The InstallAsync response already returns the minted agent
+        // ids (from the in-memory symbol map), which is the source clients
+        // use for post-install actions; the status poll is advisory.
+        var unitNames = await db.UnitDefinitions
+            .IgnoreQueryFilters()
+            .Where(u => u.InstallId == installId && u.DeletedAt == null)
+            .Select(u => u.DisplayName)
+            .ToListAsync(cancellationToken);
+
         var packages = new List<PackageInstallResult>(rows.Count);
         foreach (var r in rows)
         {
@@ -511,202 +523,19 @@ public class PackageInstallService : IPackageInstallService
                 _ => PackageInstallOutcome.Staging,
             };
 
-            IReadOnlyList<string> unitNames = Array.Empty<string>();
-            IReadOnlyList<string> agentIds = Array.Empty<string>();
-            try
-            {
-                var inputs = JsonSerializer.Deserialize<Dictionary<string, string>>(r.InputsJson)
-                    ?? new Dictionary<string, string>();
-                var pkg = await PackageManifestParser.ParseAndResolveAsync(
-                    r.OriginalManifestYaml,
-                    packageRoot: r.PackageRoot,
-                    inputValues: inputs,
-                    catalogProvider: _catalogProvider,
-                    cancellationToken: cancellationToken);
-                unitNames = pkg.Units
-                    .Where(a => !a.IsCrossPackage)
-                    .Select(a => a.Name)
-                    .ToList();
-                var collected = new List<string>();
-                foreach (var agent in pkg.Agents.Where(a => !a.IsCrossPackage))
-                {
-                    var row = await db.AgentDefinitions
-                        .IgnoreQueryFilters()
-                        .FirstOrDefaultAsync(
-                            a => a.DisplayName == agent.Name && a.DeletedAt == null,
-                            cancellationToken);
-                    if (row is not null)
-                    {
-                        collected.Add(row.Id.ToString());
-                    }
-                }
-                agentIds = collected;
-            }
-            catch
-            {
-                // Re-parse failures during status read are non-fatal — the
-                // caller still gets an accurate state.
-            }
-
             packages.Add(new PackageInstallResult(
                 r.PackageName,
                 outcome,
                 r.ErrorMessage,
+                // Staging rows are not keyed by package name within a batch,
+                // so a multi-package install attributes every created unit to
+                // each package detail. Single-package installs (the
+                // overwhelming majority) are exact; status is advisory.
                 unitNames,
-                agentIds));
+                Array.Empty<string>()));
         }
 
         return new InstallStatus(installId, packages);
-    }
-
-    /// <inheritdoc />
-    public async Task<InstallResult> RetryAsync(
-        Guid installId,
-        CancellationToken cancellationToken = default)
-    {
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-
-        var rows = await db.PackageInstalls
-            .Where(r => r.InstallId == installId)
-            .ToListAsync(cancellationToken);
-
-        if (rows.Count == 0)
-        {
-            throw new InvalidOperationException($"Install '{installId}' not found in the current tenant.");
-        }
-
-        // Only retry packages that are not yet active.
-        var toRetry = rows.Where(r => r.Status != PackageInstallStatus.Active).ToList();
-        var packageResults = new List<PackageInstallResult>();
-
-        // Re-parse each package from its stored YAML + inputs to get the resolved artefacts.
-        foreach (var row in rows)
-        {
-            if (row.Status == PackageInstallStatus.Active)
-            {
-                // #2246: surface artefact identities even when the package
-                // was already active so the retry response shape stays
-                // uniform across packages in the batch.
-                IReadOnlyList<string> activeUnitNames = Array.Empty<string>();
-                IReadOnlyList<string> activeAgentIds = Array.Empty<string>();
-                try
-                {
-                    var alreadyActiveInputs = JsonSerializer.Deserialize<Dictionary<string, string>>(row.InputsJson)
-                        ?? new Dictionary<string, string>();
-                    var alreadyActivePkg = await PackageManifestParser.ParseAndResolveAsync(
-                        row.OriginalManifestYaml,
-                        packageRoot: row.PackageRoot,
-                        inputValues: alreadyActiveInputs,
-                        catalogProvider: _catalogProvider,
-                        cancellationToken: cancellationToken);
-                    activeUnitNames = alreadyActivePkg.Units
-                        .Where(a => !a.IsCrossPackage)
-                        .Select(a => a.Name)
-                        .ToList();
-                    var (activeMap, _) = await BuildSymbolMapFromStagingAsync(alreadyActivePkg, installId, cancellationToken);
-                    activeAgentIds = alreadyActivePkg.Agents
-                        .Where(a => !a.IsCrossPackage)
-                        .Select(a => activeMap.GetOrMint(ArtefactKind.Agent, a.Name).ToString())
-                        .ToList();
-                }
-                catch
-                {
-                    // Best-effort; the row's stored YAML may be malformed
-                    // on disk but the install row itself is still valid.
-                }
-                packageResults.Add(new PackageInstallResult(
-                    row.PackageName, PackageInstallOutcome.Active, null,
-                    activeUnitNames, activeAgentIds));
-                continue;
-            }
-
-            // Re-resolve from stored YAML.
-            var inputs = JsonSerializer.Deserialize<Dictionary<string, string>>(row.InputsJson)
-                ?? new Dictionary<string, string>();
-
-            ResolvedPackage pkg;
-            try
-            {
-                pkg = await PackageManifestParser.ParseAndResolveAsync(
-                    row.OriginalManifestYaml,
-                    packageRoot: row.PackageRoot,
-                    inputValues: inputs,
-                    catalogProvider: _catalogProvider,
-                    cancellationToken: cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "Retry: failed to re-parse package '{Package}' for install '{InstallId}'.",
-                    row.PackageName, installId);
-                packageResults.Add(new PackageInstallResult(
-                    row.PackageName, PackageInstallOutcome.Failed,
-                    $"Re-parse failed: {ex.Message}"));
-                continue;
-            }
-
-            // Rebuild the local-symbol map from the staging rows so the
-            // retry uses the same Guids that Phase 1 minted on the original
-            // install. Looking the rows up by display-name keeps the symbol
-            // map deterministic across retries — every artefact resolves to
-            // its previously-minted id rather than getting a fresh one.
-            // #2310: the helper also recovers the operator-supplied
-            // DisplayName override (when any) for the top-level unit so
-            // the retry re-applies the same label instead of reverting to
-            // the manifest's `name:` field.
-            var (retryMap, retryTopLevelDisplayName) = await BuildSymbolMapFromStagingAsync(
-                pkg, installId, cancellationToken);
-
-            // #1671: rehydrate the package-scope bindings from
-            // tenant_connector_installs so retry resolves the same per-unit
-            // bindings the original install computed. Unit-scope overrides
-            // (which land on the per-unit connector store via Phase 2) do
-            // not need rehydration here — they are already on the unit row.
-            var rehydratedPackageBindings = await LoadPackageScopeBindingsAsync(installId, cancellationToken);
-            var rehydratedResolution = ConnectorBindingResolver.Resolve(
-                pkg, rehydratedPackageBindings, unitBindings: null, GetKnownConnectorSlugs());
-
-            // #1679: re-run the execution resolver from the parsed YAML
-            // so retries apply the same merged defaults the original
-            // install computed. The merge is pure on top of the manifest
-            // — no DB round-trip needed; the package YAML stored on the
-            // install row carries every input the resolver requires.
-            var rehydratedExec = ExecutionDefaultsResolver.Resolve(pkg);
-
-            // ADR-0062 § 6 / #2822: retry does not rehydrate the original
-            // install's `--as-human` overrides — they live on the request
-            // and are not persisted to staging rows. Retry re-applies the
-            // deployment-default resolver for any still-unresolved Hat
-            // declarations. The original install's already-active Hats
-            // are untouched; only Phase-2-failed re-runs flow here and
-            // those rarely involve human declarations in OSS.
-            var (outcome, error) = await ActivatePackageAsync(
-                pkg, installId, retryMap, rehydratedResolution.Bindings, rehydratedExec.ByUnit,
-                retryTopLevelDisplayName, humanOverrides: null, cancellationToken);
-
-            // #2246: surface created artefact identities so clients can
-            // take post-retry actions (auto-start / auto-deploy).
-            var retryUnitNames = pkg.Units
-                .Where(a => !a.IsCrossPackage)
-                .Select(a => a.Name)
-                .ToList();
-            var retryAgentIds = pkg.Agents
-                .Where(a => !a.IsCrossPackage)
-                .Select(a => retryMap.GetOrMint(ArtefactKind.Agent, a.Name).ToString())
-                .ToList();
-
-            packageResults.Add(new PackageInstallResult(
-                row.PackageName, outcome, error, retryUnitNames, retryAgentIds));
-
-            await UpdatePackageInstallRowAsync(installId, row.PackageName,
-                outcome == PackageInstallOutcome.Active
-                    ? PackageInstallStatus.Active
-                    : PackageInstallStatus.Failed,
-                error, cancellationToken);
-        }
-
-        return new InstallResult(installId, packageResults);
     }
 
     /// <inheritdoc />
@@ -1040,133 +869,6 @@ public class PackageInstallService : IPackageInstallService
         }
 
         return sorted;
-    }
-
-    /// <summary>
-    /// Reconstructs a <see cref="LocalSymbolMap"/> for a retry by reading
-    /// the staging rows that the original install wrote. Each artefact is
-    /// re-bound to its existing Guid so re-running activation does not
-    /// create a duplicate entity with a different id. Also reports the
-    /// effective DisplayName the activator should re-apply for the
-    /// top-level unit (#2310) — the staging row preserves the operator-
-    /// supplied override so the retry doesn't accidentally revert it.
-    /// </summary>
-    private async Task<(LocalSymbolMap Map, string? TopLevelDisplayName)> BuildSymbolMapFromStagingAsync(
-        ResolvedPackage pkg,
-        Guid installId,
-        CancellationToken cancellationToken)
-    {
-        var map = new LocalSymbolMap();
-        string? topLevelDisplayName = null;
-
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-
-        // Top-level units: the staging row's DisplayName encodes any
-        // operator override, so look up by (installId, Id) once we know
-        // the Guid. Fall back to a (installId, name) probe for retries
-        // against rows minted before #2310 (no override pathway).
-        foreach (var unit in pkg.Units.Where(a => !a.IsCrossPackage))
-        {
-            // Probe by every candidate handle the row could carry:
-            //   • manifest's canonical name (pre-displayName behaviour),
-            //   • manifest's declarative `displayName:` slot,
-            //   • the lone top-level row when an operator override is in play.
-            var manifestDisplayName = ReadDisplayNameFromContent(unit.Content);
-            var byName = await db.UnitDefinitions
-                .IgnoreQueryFilters()
-                .Where(u => u.InstallId == installId && u.DisplayName == unit.Name)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            UnitDefinitionEntity? row = byName;
-            if (row is null && !string.IsNullOrWhiteSpace(manifestDisplayName))
-            {
-                row = await db.UnitDefinitions
-                    .IgnoreQueryFilters()
-                    .Where(u => u.InstallId == installId && u.DisplayName == manifestDisplayName)
-                    .FirstOrDefaultAsync(cancellationToken);
-            }
-            if (row is null && unit.IsTopLevel)
-            {
-                // No name match — the staging row's DisplayName must have
-                // been overridden. There is exactly one top-level row per
-                // install when an override was supplied (#2310 ambiguity
-                // check); fall back to the lone top-level row.
-                var topLevelRows = await db.UnitDefinitions
-                    .IgnoreQueryFilters()
-                    .Where(u => u.InstallId == installId)
-                    .ToListAsync(cancellationToken);
-                row = topLevelRows.Count == 1 ? topLevelRows[0] : null;
-            }
-
-            if (row is not null)
-            {
-                map.Bind(ArtefactKind.Unit, unit.Name, row.Id);
-                if (unit.IsTopLevel
-                    && !string.Equals(row.DisplayName, unit.Name, StringComparison.Ordinal)
-                    && !string.Equals(row.DisplayName, manifestDisplayName, StringComparison.Ordinal))
-                {
-                    // The row's DisplayName diverges from BOTH the manifest's
-                    // `name:` and `displayName:` — that means the operator's
-                    // per-install --display-name override produced it, so
-                    // surface it back to the activator to re-apply.
-                    topLevelDisplayName = row.DisplayName;
-                }
-            }
-            else
-            {
-                _ = map.GetOrMint(ArtefactKind.Unit, unit.Name);
-            }
-        }
-
-        foreach (var agent in pkg.Agents.Where(a => !a.IsCrossPackage))
-        {
-            // agent_definitions has no install_id column — best-effort
-            // lookup by display name. Multi-install retry collisions are
-            // a known follow-up; see #2311 for the regression test guard.
-            var row = await db.AgentDefinitions
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(
-                    a => a.DisplayName == agent.Name,
-                    cancellationToken);
-            if (row is not null)
-            {
-                map.Bind(ArtefactKind.Agent, agent.Name, row.Id);
-            }
-            else
-            {
-                _ = map.GetOrMint(ArtefactKind.Agent, agent.Name);
-            }
-        }
-
-        return (map, topLevelDisplayName);
-    }
-
-    /// <summary>
-    /// Reloads the package-scope connector bindings persisted by Phase 1
-    /// for the given install. Used by <see cref="RetryAsync"/> so a retry
-    /// recomputes per-unit inheritance against the same operator-supplied
-    /// bindings (the request body is not retained server-side).
-    /// </summary>
-    private async Task<IReadOnlyDictionary<string, ConnectorBinding>> LoadPackageScopeBindingsAsync(
-        Guid installId,
-        CancellationToken cancellationToken)
-    {
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-
-        var rows = await db.TenantConnectorInstalls
-            .IgnoreQueryFilters()
-            .Where(e => e.PackageInstallId == installId && e.UnitId == null)
-            .ToListAsync(cancellationToken);
-
-        var result = new Dictionary<string, ConnectorBinding>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in rows)
-        {
-            var config = row.ConfigJson ?? JsonDocument.Parse("{}").RootElement;
-            result[row.ConnectorId] = new ConnectorBinding(row.ConnectorId, config);
-        }
-        return result;
     }
 
     /// <summary>

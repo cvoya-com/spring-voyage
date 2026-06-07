@@ -23,8 +23,9 @@ using Cvoya.Spring.Manifest;
 ///
 /// Phase 2 (post-commit): activate actors in dependency order, flip
 /// <c>state = active</c> per row. Activation failures leave staging rows
-/// visible for operator-visible recovery via <see cref="RetryAsync"/> /
-/// <see cref="AbortAsync"/>.
+/// visible; the operator cleans them up with <see cref="AbortAsync"/> and
+/// re-installs fresh (each install is a new instance with a fresh identity
+/// per ADR-0036 / ADR-0067 — there is no in-place re-install or resume).
 /// </remarks>
 public interface IPackageInstallService
 {
@@ -42,15 +43,6 @@ public interface IPackageInstallService
     /// no rows exist for the given <paramref name="installId"/> in the current tenant.
     /// </summary>
     Task<InstallStatus?> GetStatusAsync(
-        Guid installId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Re-runs Phase 2 against any rows for <paramref name="installId"/>
-    /// whose state is not yet <c>active</c>. Phase 1 stays intact.
-    /// Returns the updated <see cref="InstallResult"/> reflecting the retry outcome.
-    /// </summary>
-    Task<InstallResult> RetryAsync(
         Guid installId,
         CancellationToken cancellationToken = default);
 
@@ -76,13 +68,15 @@ public interface IPackageInstallService
 /// inputs should already carry the <c>secret://</c> reference form.
 /// </param>
 /// <param name="OriginalYaml">
-/// The raw package YAML to persist verbatim in <c>package_installs</c>.
-/// Preserves comments, ordering, and formatting for round-trip fidelity.
+/// The raw package YAML, parsed once during this install to resolve the
+/// artefact graph. It is <b>not</b> persisted (ADR-0067 decision 3 retired
+/// the captured blob); export reconstructs from the live config instead.
 /// </param>
 /// <param name="PackageRoot">
-/// The directory root for resolving within-package artefact references.
-/// May be <c>null</c> when the package is catalog-sourced and the catalog
-/// provider resolves all references without a local root.
+/// The directory root for resolving within-package artefact references
+/// during this install. May be <c>null</c> when the package is
+/// catalog-sourced and the catalog provider resolves all references
+/// without a local root. Not persisted.
 /// </param>
 /// <param name="PackageBindings">
 /// Connector bindings supplied at install time, keyed by connector slug
