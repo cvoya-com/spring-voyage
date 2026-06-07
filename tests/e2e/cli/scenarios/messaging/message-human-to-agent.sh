@@ -35,6 +35,8 @@ response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
+# Canonical hex id of the unit — needed to grant the caller's Hat below.
+unit_id="$(printf '%s' "${body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
 # #744: agent create requires --unit; the membership is registered atomically.
 e2e::log "spring agent create --name ${agent} --unit ${unit}"
@@ -54,14 +56,18 @@ if [[ -z "${agent_id}" ]]; then
 fi
 agent_address="agent:${agent_id}"
 
+# #2972 (commit c3f92950): a tenant-user → agent send is gated on Hat
+# reachability — the caller must wear a Hat that is a team member of a unit
+# the agent sits in. Grant the caller's own Hat owner membership on the unit.
+e2e::add_caller_hat "${unit_id}"
+
 # --- Send a human message to the agent ---------------------------------------
-# `--conversation` was renamed to `--thread` when the conversation surface was
-# unified into the `thread` subcommand.
-thread_id="e2e-thread-$(date +%s)"
+# Omit --thread: the server now validates thread ids as Guids and allocates one
+# itself (the previous human-shaped id returned 400). The assertion is shallow
+# by design — we only require the send to be accepted and return a messageId.
 e2e::log "spring message send ${agent_address} '...'"
 response="$(e2e::cli --output json message send "${agent_address}" \
-    "Respond with exactly one word: hello" \
-    --thread "${thread_id}")"
+    "Respond with exactly one word: hello")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "message send succeeds"

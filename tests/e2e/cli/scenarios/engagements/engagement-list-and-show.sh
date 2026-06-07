@@ -24,7 +24,10 @@ trap cleanup EXIT
 e2e::log "spring unit create ${unit}"
 response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
+unit_body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
+# Canonical hex id of the unit — needed to grant the caller's Hat.
+unit_id="$(printf '%s' "${unit_body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
 e2e::log "spring agent create --name ${agent} --unit ${unit}"
 response="$(e2e::cli_agent_create --output json --name "${agent}" --unit "${unit}")"
@@ -42,6 +45,13 @@ if [[ -z "${agent_id_hex}" ]]; then
     exit 1
 fi
 agent_address="agent:${agent_id_hex}"
+
+# #2972 (commit c3f92950): `spring message send` to an agent is gated on Hat
+# reachability — the caller must wear a Hat that is a human member of a unit
+# the agent sits in. Grant the caller's own Hat owner membership on the unit
+# so the send below is routed (creating the engagement) instead of rejected
+# 403 NoReachableHat.
+e2e::add_caller_hat "${unit_id}"
 
 # --- Kick off an engagement by sending a Domain message ---------------------
 # Omit --thread; the server allocates a canonical thread id (hex Guid form)

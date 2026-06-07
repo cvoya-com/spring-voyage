@@ -10,9 +10,8 @@
 // Cleanup: each spec registers the unit and agent names with the shared
 // tracker. Only the successful resubmit creates an agent row.
 
-import { apiPost } from "../../fixtures/api.js";
+import { seedUnit } from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 import { openScratchAgentCreate } from "../../helpers/agent-create.js";
 
@@ -29,15 +28,8 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
     // one in the picker — the API response we fake names two
     // *different* parent unit ids, which is enough for the form to
     // render every diverging-value row.
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    await seedUnit(unit, {
       description: "Multi-parent conflict spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
 
     // Mock just the direct create endpoint. The body shape and
@@ -79,8 +71,8 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
 
     await openScratchAgentCreate(page);
 
-    await page.getByLabel("Agent id").fill(aId);
-    await page.getByLabel("Display name").fill("Multi Parent Conflict");
+    // Agents are identified by display name only (no "Agent id" field).
+    await page.getByLabel("Display name").fill(aId);
 
     await page
       .getByRole("checkbox", { name: new RegExp(`assign to ${unit}`, "i") })
@@ -114,15 +106,8 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
     const aId = tracker.agent(agentName("mp-resolve"));
 
     // Seed one unit (same setup as the first test).
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    await seedUnit(unit, {
       description: "Multi-parent resolve spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
 
     // First: wire the mock so the first direct-create submit returns
@@ -168,8 +153,7 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
     );
 
     await openScratchAgentCreate(page);
-    await page.getByLabel("Agent id").fill(aId);
-    await page.getByLabel("Display name").fill("MP Resolve Test");
+    await page.getByLabel("Display name").fill(aId);
 
     // Assign the unit to trigger the conflict path.
     await page
@@ -201,6 +185,6 @@ test.describe("agents — multi-parent inheritance conflict (ADR-0039 I6)", () =
     });
 
     await page.goto("/agents");
-    await expect(page.getByText("MP Resolve Test").first()).toBeVisible();
+    await expect(page.getByText(aId).first()).toBeVisible();
   });
 });

@@ -28,9 +28,10 @@ model="${SPRING_DAPR_AGENT_MODEL:-llama3.2:3b}"
 provider="${SPRING_DAPR_AGENT_PROVIDER:-ollama}"
 # Each agent is dispatched on its own thread so the actors don't share a
 # single per-thread queue. Two engagements end up observable via
-# `engagement list --unit ${unit}`.
-thread_a="e2e-multi-agent-a-$(date +%s)-$$"
-thread_b="e2e-multi-agent-b-$(date +%s)-$$"
+# `engagement list --unit ${unit}`. Thread ids are server-allocated Guids now
+# (#2047/ADR-0030) — omit --thread on each send and capture the minted id.
+thread_a=""
+thread_b=""
 turn_timeout="${SPRING_MULTI_AGENT_TURN_TIMEOUT:-300}"
 
 cleanup() {
@@ -44,17 +45,22 @@ trap cleanup EXIT
 e2e::log "spring unit create ${unit}"
 response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
+unit_body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
+unit_id="$(printf '%s' "${unit_body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
+# #1732: the persisted execution block uses `agent` (the runtime-registry id),
+# not the dropped `tool` field. `spring-voyage` is the platform-managed local
+# runtime (the only Ollama-capable one; the legacy `dapr-agent` id was retired).
 if command -v jq >/dev/null 2>&1; then
     definition="$(jq -cn \
-        --arg tool "dapr-agent" \
+        --arg agent "spring-voyage" \
         --arg image "${image}" \
         --arg provider "${provider}" \
         --arg model "${model}" \
-        '{execution: {tool: $tool, image: $image, provider: $provider, model: $model}}')"
+        '{execution: {agent: $agent, image: $image, provider: $provider, model: $model}}')"
 else
-    definition="{\"execution\":{\"tool\":\"dapr-agent\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
+    definition="{\"execution\":{\"agent\":\"spring-voyage\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
 fi
 
 # Track each agent's Guid so we can address them in canonical
@@ -82,6 +88,11 @@ for agent in "${agent_a}" "${agent_b}"; do
     agent_addresses["${agent}"]="agent:${agent_id}"
 done
 
+# #2972 (commit c3f92950): a tenant-user → agent send is gated on Hat
+# reachability — grant the caller's own Hat owner membership on the unit so
+# both agents (members of this unit) are addressable.
+e2e::add_caller_hat "${unit_id}"
+
 # Helper: poll thread show until at least 1 agent-from event lands.
 wait_for_agent_reply_on_thread() {
     local thread="$1"
@@ -102,12 +113,13 @@ wait_for_agent_reply_on_thread() {
 # Send to agent_a, wait for reply, then send to agent_b. Running them
 # sequentially keeps a single-Ollama-instance host from serialising both
 # turns into one timeout window.
-e2e::log "spring message send ${agent_addresses[${agent_a}]} (thread=${thread_a})"
+e2e::log "spring message send ${agent_addresses[${agent_a}]} (server-allocated thread)"
 response="$(e2e::cli --output json message send "${agent_addresses[${agent_a}]}" \
-    "Reply with just the single word 'a' and nothing else." \
-    --thread "${thread_a}")"
+    "Reply with just the single word 'a' and nothing else.")"
 code="${response##*$'\n'}"
+body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "send to agent_a succeeds"
+thread_a="$(printf '%s' "${body}" | grep -o '"threadId":[[:space:]]*"[^"]*"' | head -n 1 | sed -E 's/.*"threadId":[[:space:]]*"([^"]+)".*/\1/')"
 
 if wait_for_agent_reply_on_thread "${thread_a}"; then
     e2e::ok "agent_a thread surfaces a reply"
@@ -115,12 +127,13 @@ else
     e2e::fail "agent_a thread did not surface a reply within ${turn_timeout}s"
 fi
 
-e2e::log "spring message send ${agent_addresses[${agent_b}]} (thread=${thread_b})"
+e2e::log "spring message send ${agent_addresses[${agent_b}]} (server-allocated thread)"
 response="$(e2e::cli --output json message send "${agent_addresses[${agent_b}]}" \
-    "Reply with just the single word 'b' and nothing else." \
-    --thread "${thread_b}")"
+    "Reply with just the single word 'b' and nothing else.")"
 code="${response##*$'\n'}"
+body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "send to agent_b succeeds"
+thread_b="$(printf '%s' "${body}" | grep -o '"threadId":[[:space:]]*"[^"]*"' | head -n 1 | sed -E 's/.*"threadId":[[:space:]]*"([^"]+)".*/\1/')"
 
 if wait_for_agent_reply_on_thread "${thread_b}"; then
     e2e::ok "agent_b thread surfaces a reply"

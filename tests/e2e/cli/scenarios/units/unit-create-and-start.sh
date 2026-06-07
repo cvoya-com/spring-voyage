@@ -27,32 +27,40 @@ source "${HERE}/../../_lib.sh"
 
 unit="hello-world"
 
-# Pre-flight teardown of any leftover hello-world unit from a prior failed
-# run. `spring unit purge` 500s when the unit holds the agents' only
-# membership; force-delete the agents (cascading their memberships) then
-# the unit. Best-effort.
+# Pre-flight teardown of any leftover hello-world unit(s) from a prior run.
+# The package's unit name is fixed (`hello-world`), so a failed cleanup leaves
+# a unit behind; once TWO exist, `unit status hello-world` fails with
+# "Multiple units match". Force-delete EVERY unit whose displayName is the
+# slug, plus its agents. `spring unit purge` 500s when the unit holds an
+# agent's only membership, so force-delete the agents (cascading their
+# memberships) then the unit. Best-effort; a clean tenant yields no matches.
 _pre_cleanup() {
-    local show memberships agent_id unit_hex
-    show="$(e2e::cli unit show "${unit}" --output json 2>/dev/null)"
-    show="${show%$'\n'*}"
-    unit_hex="$(printf '%s' "${show}" | awk -F'"' '/"name":/ { print $4; exit }')"
-    if [[ -z "${unit_hex}" || "${unit_hex}" == "${unit}" ]]; then return 0; fi
-    memberships="$(e2e::http GET "/api/v1/tenant/units/${unit_hex}/memberships" 2>/dev/null || true)"
-    memberships="${memberships%$'\n'*}"
-    while IFS= read -r agent_id; do
-        [[ -z "${agent_id}" ]] && continue
-        e2e::http DELETE "/api/v1/tenant/agents/${agent_id}" >/dev/null 2>&1 || true
-    done < <(printf '%s' "${memberships}" | grep -oE '"member":"agent:[0-9a-f]{32}"' | awk -F'[:"]' '{print $5}')
-    e2e::http DELETE "/api/v1/tenant/units/${unit_hex}" >/dev/null 2>&1 || true
+    local units_body unit_hex memberships agent_id
+    units_body="$(e2e::http GET "/api/v1/tenant/units" 2>/dev/null || true)"
+    units_body="${units_body%$'\n'*}"
+    while IFS= read -r unit_hex; do
+        [[ -z "${unit_hex}" ]] && continue
+        memberships="$(e2e::http GET "/api/v1/tenant/units/${unit_hex}/memberships" 2>/dev/null || true)"
+        memberships="${memberships%$'\n'*}"
+        while IFS= read -r agent_id; do
+            [[ -z "${agent_id}" ]] && continue
+            e2e::http DELETE "/api/v1/tenant/agents/${agent_id}" >/dev/null 2>&1 || true
+        done < <(printf '%s' "${memberships}" | grep -oE '"member":"agent:[0-9a-f]{32}"' | awk -F'[:"]' '{print $5}')
+        e2e::http DELETE "/api/v1/tenant/units/${unit_hex}?force=true" >/dev/null 2>&1 || true
+    done < <(printf '%s' "${units_body}" | jq -r '.[] | select(.displayName=="hello-world") | .name' 2>/dev/null)
 }
 _pre_cleanup
 trap '_pre_cleanup' EXIT
 
 # Install hello-world with no --connector flag — the package declares no
 # `requires:` block on either side, so the install pipeline accepts it
-# without a binding.
-e2e::log "spring package install hello-world"
-response="$(e2e::cli --output json package install hello-world)"
+# without a binding. It does pin the claude-code runtime (provider:
+# anthropic), and install now fail-fasts when the required LLM credential is
+# absent; supply a dummy oauth token via --secret so the install completes.
+# Validity is only checked at agent turn time, which this status-shape
+# scenario never reaches.
+e2e::log "spring package install hello-world --secret anthropic:oauth=***"
+response="$(e2e::cli --output json package install hello-world --secret "anthropic:oauth=sk-ant-oat-e2e-dummy")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "package install succeeds"

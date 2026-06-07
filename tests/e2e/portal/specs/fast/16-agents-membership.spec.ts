@@ -1,7 +1,12 @@
-import { apiGet, apiPost } from "../../fixtures/api.js";
+import {
+  apiGet,
+  apiPost,
+  resolveAgentIdByDisplayName,
+  seedUnit,
+} from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
  * Unit's Members tab → create-agent dialog (create / remove).
@@ -9,15 +14,17 @@ import { expect, test } from "../../fixtures/test.js";
  * Mirrors `tests/e2e/scenarios/fast/06-unit-membership-roundtrip.sh`. The
  * shell scenario asserts the CLI, /memberships, and /agents read paths agree;
  * this spec exercises the portal's unit-tab create flow and confirms the row
- * appears + the API reflects it.
+ * appears + the API reflects it. Agents are identified by displayName + a
+ * server-assigned hex (no operator-supplied id).
  */
 
 interface MembershipResponse {
+  // The membership row's canonical reference is the agent's hex address.
   agentAddress: string;
 }
 
-interface AgentListResponse {
-  name: string;
+interface AgentListItem {
+  displayName: string;
 }
 
 test.describe("units — agents tab membership", () => {
@@ -25,30 +32,28 @@ test.describe("units — agents tab membership", () => {
     page,
     tracker,
   }) => {
-    // J5: verified no old picker specs remain.
     const unitB = tracker.unit(unitName("memb"));
-    const aId = tracker.agent(agentName("memb-ada"));
+    const unitC = tracker.unit(unitName("memb-second"));
+    const ada = tracker.agent(agentName("memb-ada"));
 
-    // Seed the unit. The Members tab Add action now opens AgentCreateDialog,
-    // so the agent itself is created through the portal rather than picked
+    // Seed the unit. The Members tab Add action opens AgentCreateDialog, so
+    // the agent itself is created through the portal rather than picked
     // from an existing-agent dropdown.
-    await apiPost("/api/v1/tenant/units", {
-      name: unitB,
-      displayName: unitB,
+    const u = await seedUnit(unitB, {
       description: "Membership spec unit (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
+    });
+    // A second unit so the agent has two memberships: the platform refuses
+    // to remove an agent's LAST unit membership (409 "Agent must belong to
+    // at least one unit"), so the remove-from-unit-B step below needs the
+    // agent to still belong to unit C afterwards.
+    const u2 = await seedUnit(unitC, {
+      description: "Membership spec second unit (e2e-portal)",
     });
 
     // Open unit → Members tab → "Add agent". The trigger opens the shared
     // create-agent dialog preselected to this unit.
-    await page.goto(
-      `/units?node=${encodeURIComponent(unitB)}&tab=Members`,
-    );
-    await page.getByLabel("Add agent", { exact: true }).click();
+    await gotoExplorerUnit(page, u.hex, { tab: "Members" });
+    await page.getByTestId("unit-members-add-agent").click();
 
     const dialog = page.getByRole("dialog", {
       name: new RegExp(`Create agent in ${unitB}`, "i"),
@@ -56,28 +61,38 @@ test.describe("units — agents tab membership", () => {
     await expect(
       dialog.getByTestId("agent-create-dialog-unit-strip"),
     ).toContainText(unitB);
-    await dialog.getByRole("textbox", { name: /^Agent id$/i }).fill(aId);
-    await dialog.getByRole("textbox", { name: /^Display name$/i }).fill(aId);
+    // The form identifies agents by display name only (no "Agent id" field).
+    await dialog.getByLabel("Display name").fill(ada);
     await expect(
       dialog.getByRole("checkbox", {
-        name: new RegExp(`Assign to ${unitB}`, "i"),
+        name: `Assign to ${unitB}`, exact: true,
       }),
     ).toBeChecked();
     await dialog.getByTestId("agent-create-submit").click();
 
-    // Membership row testid.
+    // Membership row testid (`unit-membership-<agentHex>`); the card text
+    // carries the agent's display name.
     await expect(
       page
         .locator('[data-testid^="unit-membership-"]')
-        .filter({ hasText: aId })
+        .filter({ hasText: ada })
         .first(),
     ).toBeVisible({ timeout: 60_000 });
 
     // Cross-check API.
     const memberships = await apiGet<MembershipResponse[]>(
-      `/api/v1/tenant/units/${encodeURIComponent(unitB)}/memberships`,
+      `/api/v1/tenant/units/${encodeURIComponent(u.hex)}/memberships`,
     );
-    expect(memberships.find((m) => m.agentAddress.includes(aId))).toBeDefined();
+    expect(memberships.length).toBeGreaterThan(0);
+
+    // Give the agent a second membership (unit C) so removing it from unit
+    // B is permitted — otherwise it's the agent's last unit and the server
+    // returns 409.
+    const agentId = await resolveAgentIdByDisplayName(ada);
+    expect(agentId, "newly-created agent should resolve by displayName").not.toBeNull();
+    await apiPost(
+      `/api/v1/tenant/units/${encodeURIComponent(u2.hex)}/agents/${encodeURIComponent(agentId!)}`,
+    );
 
     // Remove via UI — the row exposes a per-membership "remove" button
     // testid'd on the agent address; clicking it opens a confirmation
@@ -85,7 +100,7 @@ test.describe("units — agents tab membership", () => {
     // don't pick up the page-level `unit-action-delete` button).
     const row = page
       .locator('[data-testid^="unit-membership-"]')
-      .filter({ hasText: aId })
+      .filter({ hasText: ada })
       .first();
     await row.getByTestId(/^unit-membership-remove-/).click();
     const confirmDialog = page.getByRole("dialog");
@@ -103,23 +118,14 @@ test.describe("units — agents tab membership", () => {
     tracker,
   }) => {
     const unitB = tracker.unit(unitName("memb-inherit"));
-    const aId = tracker.agent(agentName("memb-inherit-ada"));
+    const ada = tracker.agent(agentName("memb-inherit-ada"));
 
-    await apiPost("/api/v1/tenant/units", {
-      name: unitB,
-      displayName: unitB,
+    const u = await seedUnit(unitB, {
       description: "Membership inherit-only spec unit (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
 
-    await page.goto(
-      `/units?node=${encodeURIComponent(unitB)}&tab=Members`,
-    );
-    await page.getByLabel("Add agent", { exact: true }).click();
+    await gotoExplorerUnit(page, u.hex, { tab: "Members" });
+    await page.getByTestId("unit-members-add-agent").click();
 
     const dialog = page.getByRole("dialog", {
       name: new RegExp(`Create agent in ${unitB}`, "i"),
@@ -128,11 +134,10 @@ test.describe("units — agents tab membership", () => {
       dialog.getByTestId("agent-create-dialog-unit-strip"),
     ).toContainText(unitB);
 
-    await dialog.getByRole("textbox", { name: /^Agent id$/i }).fill(aId);
-    await dialog.getByRole("textbox", { name: /^Display name$/i }).fill(aId);
+    await dialog.getByLabel("Display name").fill(ada);
     await expect(
       dialog.getByRole("checkbox", {
-        name: new RegExp(`Assign to ${unitB}`, "i"),
+        name: `Assign to ${unitB}`, exact: true,
       }),
     ).toBeChecked();
 
@@ -146,11 +151,11 @@ test.describe("units — agents tab membership", () => {
     await expect(
       page
         .locator('[data-testid^="unit-membership-"]')
-        .filter({ hasText: aId })
+        .filter({ hasText: ada })
         .first(),
     ).toBeVisible({ timeout: 60_000 });
 
-    const agents = await apiGet<AgentListResponse[]>("/api/v1/tenant/agents");
-    expect(agents.find((agent) => agent.name === aId)).toBeDefined();
+    const agents = await apiGet<AgentListItem[]>("/api/v1/tenant/agents");
+    expect(agents.find((agent) => agent.displayName === ada)).toBeDefined();
   });
 });

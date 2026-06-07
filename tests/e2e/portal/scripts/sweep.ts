@@ -47,16 +47,16 @@ async function main() {
       summary.agents++;
     } catch (e) {
       summary.errors++;
-      failures.push(`agent ${a.id}: ${String(e)}`);
+      failures.push(`agent ${a.displayName} (${a.id}): ${String(e)}`);
     }
   }
   for (const u of await listOwnedUnits(PREFIX)) {
     try {
-      await deleteUnit(u.name, true);
+      await deleteUnit(u.id, true);
       summary.units++;
     } catch (e) {
       summary.errors++;
-      failures.push(`unit ${u.name}: ${String(e)}`);
+      failures.push(`unit ${u.displayName} (${u.id}): ${String(e)}`);
     }
   }
   for (const s of await listOwnedTenantSecrets(PREFIX)) {

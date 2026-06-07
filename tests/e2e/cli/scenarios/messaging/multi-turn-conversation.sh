@@ -30,7 +30,10 @@ agent="$(e2e::agent_name multi-turn)"
 image="${SPRING_VOYAGE_AGENT_IMAGE:-ghcr.io/cvoya-com/spring-voyage-agent:latest}"
 model="${SPRING_DAPR_AGENT_MODEL:-llama3.2:3b}"
 provider="${SPRING_DAPR_AGENT_PROVIDER:-ollama}"
-thread_id="e2e-multi-turn-$(date +%s)-$$"
+# Thread ids are server-allocated Guids now (#2047/ADR-0030); a client-chosen
+# human-shaped id returns 400. Start empty and capture the id the server mints
+# on turn 1, then reuse it so turns 2-3 thread under the same conversation.
+thread_id=""
 turn_timeout="${SPRING_MULTI_TURN_TIMEOUT:-180}"
 
 cleanup() {
@@ -43,17 +46,22 @@ trap cleanup EXIT
 e2e::log "spring unit create ${unit}"
 response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
+unit_body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
+unit_id="$(printf '%s' "${unit_body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
+# #1732: the persisted execution block uses `agent` (the runtime-registry id),
+# not the dropped `tool` field. `spring-voyage` is the platform-managed local
+# runtime (the only Ollama-capable one; the legacy `dapr-agent` id was retired).
 if command -v jq >/dev/null 2>&1; then
     definition="$(jq -cn \
-        --arg tool "dapr-agent" \
+        --arg agent "spring-voyage" \
         --arg image "${image}" \
         --arg provider "${provider}" \
         --arg model "${model}" \
-        '{execution: {tool: $tool, image: $image, provider: $provider, model: $model}}')"
+        '{execution: {agent: $agent, image: $image, provider: $provider, model: $model}}')"
 else
-    definition="{\"execution\":{\"tool\":\"dapr-agent\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
+    definition="{\"execution\":{\"agent\":\"spring-voyage\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
 fi
 
 # ADR-0039 §8: agent identity is platform-allocated; --name is the only display surface.
@@ -76,6 +84,10 @@ if [[ -z "${agent_id}" ]]; then
     exit 1
 fi
 agent_address="agent:${agent_id}"
+
+# #2972 (commit c3f92950): a tenant-user → agent send is gated on Hat
+# reachability — grant the caller's own Hat owner membership on the unit.
+e2e::add_caller_hat "${unit_id}"
 
 # --- Helper: wait for the (turn_index)th agent reply -------------------------
 # Counts events whose summary contains "from agent:" — these are the
@@ -130,12 +142,26 @@ for prompt in \
     "Reply with just the single word 'one' and nothing else." \
     "Reply with just the single word 'two' and nothing else."
 do
+    # Turn 1 omits --thread so the server mints the canonical Guid thread id;
+    # later turns reuse the captured id so they thread under one conversation.
     e2e::log "turn ${turn}: spring message send ${agent_address} '${prompt}'"
-    response="$(e2e::cli --output json message send "${agent_address}" "${prompt}" --thread "${thread_id}")"
+    if [[ -z "${thread_id}" ]]; then
+        response="$(e2e::cli --output json message send "${agent_address}" "${prompt}")"
+    else
+        response="$(e2e::cli --output json message send "${agent_address}" "${prompt}" --thread "${thread_id}")"
+    fi
     code="${response##*$'\n'}"
     body="${response%$'\n'*}"
     e2e::expect_status "0" "${code}" "turn ${turn} message send succeeds"
     e2e::expect_contains "messageId" "${body}" "turn ${turn} send response carries a messageId"
+    # Capture the server-allocated thread id from the first turn's response.
+    if [[ -z "${thread_id}" ]]; then
+        thread_id="$(printf '%s' "${body}" | grep -o '"threadId":[[:space:]]*"[^"]*"' | head -n 1 | sed -E 's/.*"threadId":[[:space:]]*"([^"]+)".*/\1/')"
+        if [[ -z "${thread_id}" ]]; then
+            e2e::fail "could not capture server-allocated threadId from turn 1 response: ${body:0:200}"
+            break
+        fi
+    fi
 
     if reply="$(wait_for_agent_reply "${turn}")"; then
         if [[ -n "${reply}" ]]; then

@@ -2,7 +2,7 @@
 # pool: llm
 # LLM scenario: Dapr Agent turn via A2A protocol.
 #
-# Creates a unit + agent definition with execution.tool=spring-voyage-agent, dispatches a
+# Creates a unit + agent definition with execution.agent=spring-voyage, dispatches a
 # simple message, and verifies the round-trip produces a non-empty, non-error
 # LLM response. This is the real gate on the Ollama-driven agent runtime
 # (closes #480): the previous smoke test asserted only that the HTTP call did
@@ -13,7 +13,7 @@
 # Scope: gated on e2e::require_ollama so the base scenario set stays green on
 # hosts without a reachable Ollama.
 #
-# Seeding path: we persist `execution.tool=spring-voyage-agent` on the agent definition
+# Seeding path: we persist `execution.agent=spring-voyage` on the agent definition
 # via `spring agent create --definition`. That knob is what tells
 # A2AExecutionDispatcher to route through SpringVoyageAgentLauncher. Without it the
 # dispatcher throws "Agent has no execution configuration".
@@ -43,24 +43,27 @@ trap cleanup EXIT
 e2e::log "spring unit create ${unit}"
 response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
+unit_body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
+unit_id="$(printf '%s' "${unit_body}" | awk -F'"' '/"name":/ { print $4; exit }')"
 
 # Inline JSON body for `--definition`. Uses jq when available (clean escaping)
 # and falls back to a hand-written literal otherwise so the scenario runs on
 # hosts without jq.
 # #1732: 'tool' was dropped from the persisted execution block; the runtime
-# registry derives the tool kind from 'agent'. The scenario uses the
-# 'openai' runtime (which declares tool_kind=spring-voyage) so the
-# spring-voyage launcher is selected.
+# registry derives the tool kind from 'agent'. `spring-voyage` is the
+# platform-managed runtime backed by SpringVoyageAgentLauncher and the only
+# Ollama-capable one (the legacy `dapr-agent` id was retired). That knob is
+# what tells A2AExecutionDispatcher to route through SpringVoyageAgentLauncher.
 if command -v jq >/dev/null 2>&1; then
     definition="$(jq -cn \
-        --arg agent_runtime "openai" \
+        --arg agent_runtime "spring-voyage" \
         --arg image "${image}" \
         --arg provider "${provider}" \
         --arg model "${model}" \
         '{execution: {agent: $agent_runtime, image: $image, provider: $provider, model: $model}}')"
 else
-    definition="{\"execution\":{\"agent\":\"openai\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
+    definition="{\"execution\":{\"agent\":\"spring-voyage\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
 fi
 
 
@@ -86,22 +89,30 @@ if [[ -z "${agent_id}" ]]; then
 fi
 agent_address="agent:${agent_id}"
 
+# #2972 (commit c3f92950): a tenant-user → agent send is gated on Hat
+# reachability — grant the caller's own Hat owner membership on the unit.
+e2e::add_caller_hat "${unit_id}"
+
 # --- Dispatch a turn ----------------------------------------------------------
 # The send itself returns as soon as the message is accepted. The actual agent
 # turn runs async — we then tail the thread until an agent reply appears
 # (or we hit the timeout, which itself is a failure signal because the turn
 # should complete in under a minute for a trivial prompt on llama3.2:3b).
-# `--conversation` was renamed to `--thread` when the conversation surface was
-# unified into the `thread` subcommand.
-thread_id="e2e-thread-$(date +%s)-$$"
-e2e::log "spring message send ${agent_address} (thread=${thread_id})"
+# Omit --thread: thread ids are server-allocated Guids now (a human-shaped id
+# returns 400); capture the minted id from the response for the poll below.
+e2e::log "spring message send ${agent_address} (server-allocated thread)"
 response="$(e2e::cli --output json message send "${agent_address}" \
-    "Say the word 'hello' in a single sentence and nothing else." \
-    --thread "${thread_id}")"
+    "Say the word 'hello' in a single sentence and nothing else.")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "message send succeeds"
 e2e::expect_contains "messageId" "${body}" "send response carries a messageId"
+thread_id="$(printf '%s' "${body}" | grep -o '"threadId":[[:space:]]*"[^"]*"' | head -n 1 | sed -E 's/.*"threadId":[[:space:]]*"([^"]+)".*/\1/')"
+if [[ -z "${thread_id}" ]]; then
+    e2e::fail "could not capture server-allocated threadId from send response: ${body:0:200}"
+    e2e::summary
+    exit 1
+fi
 
 # --- Assert on the LLM's actual reply -----------------------------------------
 # Poll `thread show` (up to the timeout) for an event sourced from the agent.

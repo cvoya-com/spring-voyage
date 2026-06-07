@@ -34,9 +34,14 @@ test.describe("settings — sub-pages", () => {
   test("/settings/packages lists installed packages", async ({ page }) => {
     await page.goto("/settings/packages");
     await expect(page.getByRole("heading", { name: /packages?/i }).first()).toBeVisible();
-    // The two built-in packages from packages/ should both surface.
+    // Built-in packages from packages/ surface as cards keyed on the
+    // package name (`package-card-<name>`); the visible label is the
+    // friendly displayName ("Software Engineering" / "Spring Voyage OSS").
     await expect(
-      page.getByText(/software-engineering|product-management/i).first(),
+      page
+        .getByTestId("package-card-software-engineering")
+        .or(page.getByTestId("package-card-spring-voyage-oss"))
+        .first(),
     ).toBeVisible({ timeout: 10_000 });
   });
 

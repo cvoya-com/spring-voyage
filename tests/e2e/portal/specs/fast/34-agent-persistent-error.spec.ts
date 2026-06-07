@@ -1,7 +1,7 @@
-import { apiPost } from "../../fixtures/api.js";
+import { seedAgent, seedUnit } from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
  * Persistent-agent lifecycle error path.
@@ -23,27 +23,16 @@ test.describe("agents — persistent lifecycle error surfacing", () => {
     const unit = tracker.unit(unitName("perr-host"));
     const agent = tracker.agent(agentName("perr-ada"));
 
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "Persistent error spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
-    await apiPost("/api/v1/tenant/agents", {
-      name: agent,
-      displayName: agent,
+    // Default ephemeral hosting — deploy will be rejected with 400.
+    const a = await seedAgent(agent, {
       description: "Persistent error spec (e2e-portal)",
-      unitIds: [unit],
-      // Default ephemeral hosting — deploy will be rejected with 400.
+      unitHexIds: [u.hex],
     });
 
-    await page.goto(
-      `/units?node=${encodeURIComponent(agent)}&tab=Deployment`,
-    );
+    await gotoExplorerUnit(page, a.hex, { tab: "Deployment" });
     const panel = page.getByTestId("agent-lifecycle-panel");
     if (!(await panel.isVisible().catch(() => false))) {
       test.skip(true, "Lifecycle panel not rendered for ephemeral agent — UI hides it.");

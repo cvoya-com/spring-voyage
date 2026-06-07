@@ -1,7 +1,13 @@
-import { apiPost, apiPut } from "../../fixtures/api.js";
+import {
+  addCallerHat,
+  apiPut,
+  seedAgent,
+  seedUnit,
+} from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
+import { AGENT_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
  * Start the {human, unit} 1:1 engagement from the unit's Messages tab
@@ -21,32 +27,33 @@ test.describe("threads — start from unit detail (#1459 / #1460)", () => {
     const unit = tracker.unit(unitName("thr-new"));
     const agent = tracker.agent(agentName("thr-new-ada"));
 
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "1:1 thread spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
-    // Set image+runtime so the agent's dispatch path doesn't fail
-    // with "Ephemeral agent requires a container image" downstream.
+    // Set image+runtime so the agent's dispatch path doesn't fail with
+    // "Ephemeral agent requires a container image" downstream. The runtime
+    // is the agent runtime id (`spring-voyage`); execution keys on the hex.
     await apiPut(
-      `/api/v1/tenant/units/${encodeURIComponent(unit)}/execution`,
-      { image: "ghcr.io/cvoya-com/spring-voyage-agent:latest", runtime: "podman" },
+      `/api/v1/tenant/units/${encodeURIComponent(u.hex)}/execution`,
+      {
+        image: "ghcr.io/cvoya-com/spring-voyage-agent:latest",
+        runtime: AGENT_ID,
+        model: { provider: "ollama", id: process.env.E2E_PORTAL_OLLAMA_MODEL ?? "llama3.2:3b" },
+      },
     );
-    await apiPost("/api/v1/tenant/agents", {
-      name: agent,
-      displayName: agent,
+    await seedAgent(agent, {
       description: "1:1 thread spec (e2e-portal)",
-      unitIds: [unit],
+      unitHexIds: [u.hex],
     });
 
-    await page.goto(
-      `/units?node=${encodeURIComponent(unit)}&tab=Messages`,
-    );
+    // Hat-reachability (#2972): without a wearable Hat the inline composer
+    // is disabled and a send 403s. Add the caller's Hat as a unit member.
+    const hat = await addCallerHat(u.hex);
+    if (hat === null) {
+      test.skip(true, "No caller Hat available to grant unit reachability.");
+    }
+
+    await gotoExplorerUnit(page, u.hex, { tab: "Messages" });
 
     // Empty state confirms there's no thread yet.
     await expect(

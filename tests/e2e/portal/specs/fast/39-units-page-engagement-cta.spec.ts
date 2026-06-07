@@ -6,11 +6,13 @@
 // hosts "New unit". Clicking the per-node button navigates to
 // /engagement/mine with the unit/agent pre-selected via ?unit=<id> /
 // ?agent=<id> (#1463), and the label reads "Engagement" (#1464).
+//
+// The pre-selected id is the node's canonical hex id (#2473).
 
 import { unitName, agentName } from "../../fixtures/ids.js";
-import { apiPost, apiPut } from "../../fixtures/api.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
+import { seedAgent, seedUnit } from "../../fixtures/api.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 test.describe("units page — Engagement affordance (#1461–#1464)", () => {
   test("the explorer page header no longer carries a 'New engagement' CTA", async ({
@@ -30,25 +32,18 @@ test.describe("units page — Engagement affordance (#1461–#1464)", () => {
     tracker,
   }) => {
     const unit = tracker.unit(unitName("eng-cta-unit"));
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "Engagement CTA spec — unit (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
 
-    await page.goto(`/units?node=${encodeURIComponent(unit)}`);
+    await gotoExplorerUnit(page, u.hex);
     const button = page.getByTestId("unit-action-engagement");
     await expect(button).toBeVisible();
     await expect(button).toHaveText(/^\s*Engagement\s*$/);
     await button.click();
 
     await expect(page).toHaveURL(
-      new RegExp(`/engagement/mine\\?unit=${encodeURIComponent(unit)}`),
+      new RegExp(`/engagement/mine\\?unit=${u.hex}`),
     );
     await expect(page.getByTestId("my-engagements-page")).toBeVisible();
   });
@@ -59,36 +54,23 @@ test.describe("units page — Engagement affordance (#1461–#1464)", () => {
   }) => {
     const unit = tracker.unit(unitName("eng-cta-agent-host"));
     const agent = tracker.agent(agentName("eng-cta-ada"));
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "Engagement CTA spec — agent (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
-    await apiPut(
-      `/api/v1/tenant/units/${encodeURIComponent(unit)}/execution`,
-      { image: "ghcr.io/cvoya-com/spring-voyage-agent:latest", runtime: "podman" },
-    );
-    await apiPost("/api/v1/tenant/agents", {
-      name: agent,
-      displayName: agent,
+    const a = await seedAgent(agent, {
       description: "Engagement CTA spec — agent (e2e-portal)",
-      unitIds: [unit],
+      unitHexIds: [u.hex],
     });
 
     // Land directly on the agent's explorer node.
-    await page.goto(`/units?node=${encodeURIComponent(agent)}`);
+    await gotoExplorerUnit(page, a.hex);
     const button = page.getByTestId("agent-action-engagement");
     await expect(button).toBeVisible();
     await expect(button).toHaveText(/^\s*Engagement\s*$/);
     await button.click();
 
     await expect(page).toHaveURL(
-      new RegExp(`/engagement/mine\\?agent=${encodeURIComponent(agent)}`),
+      new RegExp(`/engagement/mine\\?agent=${a.hex}`),
     );
     await expect(page.getByTestId("my-engagements-page")).toBeVisible();
   });

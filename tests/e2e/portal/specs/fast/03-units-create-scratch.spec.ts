@@ -8,23 +8,25 @@ import { createScratchUnit } from "../../helpers/unit-wizard.js";
  */
 
 test.describe("units — create from scratch (wizard)", () => {
-  test("creates a top-level unit; lands on /units/<name> with the unit visible", async ({
+  test("creates a top-level unit; lands on the explorer detail with the unit visible", async ({
     page,
     tracker,
   }) => {
     const name = tracker.unit(unitName("wiz-scratch"));
     const displayName = "Wizard Scratch Unit";
-    const { unitUrl } = await createScratchUnit(page, {
+    const { unitUrl, hex } = await createScratchUnit(page, {
       name,
       displayName,
       description: "Created by 03-units-create-scratch.spec.ts",
     });
-    expect(unitUrl).toContain(`node=${name}`);
+    // Post-#2473 the wizard redirects to the canonical Explorer deep-link
+    // `/explorer/units/<hex>`.
+    expect(unitUrl).toContain(`/explorer/units/${hex}`);
 
     // The detail pane heading carries the unit's displayName via the
     // `detail-title` h1 (the explorer hydrates the TreeNode's `name`
-    // prop with displayName for unit nodes; the slug appears in
-    // address-copy controls instead).
+    // prop with displayName for unit nodes; the slug lives in the
+    // address-copy control instead).
     await expect(page.getByTestId("detail-title")).toContainText(displayName);
 
     // Cross-check via the units list — the displayName shows in the
@@ -42,8 +44,8 @@ test.describe("units — create from scratch (wizard)", () => {
     await page.getByTestId("source-card-scratch").click();
     await page.getByRole("button", { name: /^next$/i }).click();
     // Step 2 — Identity. Names must match /^[a-z0-9-]+$/. Try an invalid one.
-    await page.getByLabel("Name").or(page.getByRole("textbox", { name: /^name$/i })).first().fill("Has Spaces");
-    await page.getByLabel("Display name").or(page.getByRole("textbox", { name: /display name/i })).first().fill("oops");
+    await page.getByRole("textbox", { name: /^name/i }).first().fill("Has Spaces");
+    await page.getByRole("textbox", { name: /display name/i }).first().fill("oops");
     await page.getByTestId("parent-choice-top-level").click();
     // Post-#1563 the wizard surfaces the URL-safe rule as a static
     // helper text under the Name field and gates progress by disabling

@@ -1,7 +1,7 @@
-import { apiGet, apiPost } from "../../fixtures/api.js";
+import { apiGet, seedUnit } from "../../fixtures/api.js";
 import { unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
  * Execution tab — unit-level execution defaults that agents inherit.
@@ -20,21 +20,12 @@ interface UnitExecutionResponse {
 test.describe("units — execution defaults", () => {
   test("update model, save, reload, persist", async ({ page, tracker }) => {
     const name = tracker.unit(unitName("exec"));
-    await apiPost("/api/v1/tenant/units", {
-      name,
-      displayName: name,
+    const u = await seedUnit(name, {
       description: "Execution defaults spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
 
-    // Execution moved under Config (subtab) per QUALITY-unit-config-subtabs.
-    await page.goto(
-      `/units?node=${encodeURIComponent(name)}&tab=Config&subtab=Execution`,
-    );
+    // Execution moved under Config (subtab) per #2254.
+    await gotoExplorerUnit(page, u.hex, { tab: "Config", subtab: "Execution" });
     await expect(page.getByTestId("execution-tab")).toBeVisible();
     await expect(page.getByTestId("unit-execution-card")).toBeVisible();
 
@@ -51,7 +42,7 @@ test.describe("units — execution defaults", () => {
       .poll(
         async () => {
           const exec = await apiGet<UnitExecutionResponse>(
-            `/api/v1/tenant/units/${encodeURIComponent(name)}/execution`,
+            `/api/v1/tenant/units/${encodeURIComponent(u.hex)}/execution`,
           );
           return exec.image;
         },

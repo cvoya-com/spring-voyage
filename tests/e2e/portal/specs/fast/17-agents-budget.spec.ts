@@ -1,12 +1,13 @@
-import { apiGet, apiPost } from "../../fixtures/api.js";
+import { apiGet, seedAgent, seedUnit } from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
  * Per-agent budget set + roundtrip.
  *
- * The Budget panel is at /agents/<id> with testid `agent-budget-panel`.
+ * The Budget panel lives under the agent's Config tab
+ * (`?tab=Config&subtab=Budget`) with testid `agent-budget-panel`.
  */
 
 interface BudgetResponse {
@@ -21,29 +22,19 @@ test.describe("agents — budget panel", () => {
     tracker,
   }) => {
     const unit = tracker.unit(unitName("bud-host"));
-    const aId = tracker.agent(agentName("bud-ada"));
+    const ada = tracker.agent(agentName("bud-ada"));
 
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, { description: "Budget spec (e2e-portal)" });
+    const a = await seedAgent(ada, {
       description: "Budget spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
-    });
-    await apiPost("/api/v1/tenant/agents", {
-      name: aId,
-      displayName: aId,
-      description: "Budget spec (e2e-portal)",
-      unitIds: [unit],
+      unitHexIds: [u.hex],
     });
 
-    // Agent Config tab stacks Execution + Budget + Expertise panels.
-    await page.goto(
-      `/units?node=${encodeURIComponent(aId)}&tab=Config`,
-    );
+    // The agent node lives inside the explorer; deep-link to its Config →
+    // Budget sub-tab. The explorer routes agents under `/explorer/units/<id>`
+    // too (the `[id]` segment resolves the tenant-tree node regardless of
+    // kind).
+    await gotoExplorerUnit(page, a.hex, { tab: "Config", subtab: "Budget" });
     await expect(page.getByTestId("agent-budget-panel")).toBeVisible({ timeout: 10_000 });
 
     await page.getByTestId("agent-budget-input").fill("12.5");
@@ -53,7 +44,7 @@ test.describe("agents — budget panel", () => {
       .poll(
         async () => {
           const budget = await apiGet<BudgetResponse>(
-            `/api/v1/tenant/agents/${encodeURIComponent(aId)}/budget`,
+            `/api/v1/tenant/agents/${encodeURIComponent(a.hex)}/budget`,
             { expect: [200, 404] },
           );
           return budget?.dailyBudget ?? null;

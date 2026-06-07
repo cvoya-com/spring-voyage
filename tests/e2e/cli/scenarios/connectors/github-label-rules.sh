@@ -45,8 +45,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/v1/tenant/connectors/github/units/eng-team/config":
             self.write_json(200, {
                 "unitId": "eng-team",
-                "owner": "acme",
-                "repo": "platform",
+                "repo": "acme/platform",
                 "appInstallationId": 12345,
                 "events": ["issues", "pull_request"],
                 "reviewer": "alice",
@@ -128,8 +127,10 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 payload = json.loads(path.read_text(encoding="utf-8"))
-assert payload["owner"] == "acme"
-assert payload["repo"] == "platform"
+# `owner` was removed from UnitGitHubConfig (ConnectorCommand.cs Phase A) —
+# `repo` now carries the qualified `owner/repo` form, so the CLI drops any
+# stray top-level `owner` on the GET → merge → PUT round-trip.
+assert payload["repo"] == "acme/platform"
 assert payload["appInstallationId"] == 12345
 assert payload["events"] == ["issues", "pull_request"]
 assert payload["reviewer"] == "alice"

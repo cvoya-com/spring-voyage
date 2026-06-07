@@ -1,7 +1,7 @@
-import { apiPost } from "../../fixtures/api.js";
+import { seedAgent, seedUnit } from "../../fixtures/api.js";
 import { agentName, unitName } from "../../fixtures/ids.js";
-import { AGENT_ID, DEFAULT_MODEL, PROVIDER_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
+import { gotoExplorerUnit } from "../../helpers/nav.js";
 
 /**
  * Cloning policy — tenant + per-agent.
@@ -25,27 +25,16 @@ test.describe("cloning policy", () => {
     const unit = tracker.unit(unitName("clone-host"));
     const agent = tracker.agent(agentName("clone-ada"));
 
-    await apiPost("/api/v1/tenant/units", {
-      name: unit,
-      displayName: unit,
+    const u = await seedUnit(unit, {
       description: "Cloning policy spec (e2e-portal)",
-      agent: AGENT_ID,
-      provider: PROVIDER_ID,
-      model: DEFAULT_MODEL,
-      hosting: "ephemeral",
-      isTopLevel: true,
     });
-    await apiPost("/api/v1/tenant/agents", {
-      name: agent,
-      displayName: agent,
+    const a = await seedAgent(agent, {
       description: "Cloning policy spec (e2e-portal)",
-      unitIds: [unit],
+      unitHexIds: [u.hex],
     });
 
     // Agent cloning policy panel renders inside the Policies tab.
-    await page.goto(
-      `/units?node=${encodeURIComponent(agent)}&tab=Policies`,
-    );
+    await gotoExplorerUnit(page, a.hex, { tab: "Policies" });
     await expect(page.getByTestId("agent-cloning-policy-panel")).toBeVisible({
       timeout: 10_000,
     });

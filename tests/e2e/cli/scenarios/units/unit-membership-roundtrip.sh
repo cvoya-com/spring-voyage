@@ -54,12 +54,12 @@ response="$(e2e::cli --output json unit members add "${unit}" \
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit members add succeeds"
-# The API still echoes the agent's display name in `agentAddress` (the
-# AgentAddress wire field is the agent-scheme path, which keeps the human
-# label today). The canonical hex id round-trips through the unified `member`
-# field as `agent:<hex>` per #1060; assert both so we prove the same entity
-# round-tripped regardless of which field a caller reads.
-e2e::expect_contains "\"agentAddress\": \"${agent}\"" "${body}" "add response carries the agent display name in agentAddress"
+# Both the `agentAddress` wire field and the unified `member` field now carry
+# the canonical hex id (the agent-scheme path no longer echoes the human
+# display name — see ConnectorCommand/AgentResponse drift). `member` is the
+# scheme-prefixed `agent:<hex>` form per #1060; assert both so we prove the
+# same entity round-tripped regardless of which field a caller reads.
+e2e::expect_contains "\"agentAddress\": \"${agent_id}\"" "${body}" "add response carries the canonical hex id in agentAddress"
 e2e::expect_contains "\"member\": \"agent:${agent_id}\"" "${body}" "add response carries the canonical hex id in member"
 e2e::expect_contains "\"model\": \"gpt-4o\"" "${body}" "add response echoes --model override"
 
@@ -69,7 +69,7 @@ response="$(e2e::cli --output json unit members list "${unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit members list succeeds"
-e2e::expect_contains "\"member\": \"agent://${agent_id}\"" "${body}" "list contains the new membership (by canonical agent id in member field)"
+e2e::expect_contains "\"member\": \"agent:${agent_id}\"" "${body}" "list contains the new membership (by canonical agent id in member field)"
 
 # --- Cross-verify via HTTP read paths (#340) ----------------------------------
 # The CLI `members list` alone can pass while the DB/Agents-tab read paths
